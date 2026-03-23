@@ -102,7 +102,8 @@ const parseCSVRow = (str) => {
   return arr;
 };
 
-export default function App({ onBackToDashboard }) {
+export default function App({ onBackToDashboard, role = 'staff' }) {
+  const isStaff = role === 'staff';
   const [inventory, setInventory] = useState(initialInventory);
   const [drugDetails, setDrugDetails] = useState(initialDrugDetails);
   const [logFileName, setLogFileName] = useState('');
@@ -112,6 +113,8 @@ export default function App({ onBackToDashboard }) {
   const [isLoading, setIsLoading] = useState(true);
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [showSearchDd, setShowSearchDd] = useState(false);
+  const appSearchRef = useRef(null);
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [expandedDetailsId, setExpandedDetailsId] = useState(null);
   const [expiryViewFilter, setExpiryViewFilter] = useState(null); 
@@ -153,6 +156,14 @@ export default function App({ onBackToDashboard }) {
       }
     }
     loadFromSupabase();
+  }, []);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (appSearchRef.current && !appSearchRef.current.contains(e.target)) setShowSearchDd(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
   const { todayForDisplay, targetDateForDisplay } = useMemo(() => {
@@ -300,6 +311,16 @@ export default function App({ onBackToDashboard }) {
   }, [summary]);
   // -----------------------------
 
+  const drugNamesList = useMemo(() => {
+    const names = new Set();
+    Object.values(inventory).forEach(items => items.forEach(item => { if (item.name) names.add(item.name); }));
+    return [...names].sort();
+  }, [inventory]);
+
+  const filteredSearchSuggestions = searchTerm.trim()
+    ? drugNamesList.filter(n => n.toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 10)
+    : [];
+
   const searchResults = useMemo(() => {
     if (!searchTerm) return [];
     const term = searchTerm.toLowerCase();
@@ -374,7 +395,12 @@ export default function App({ onBackToDashboard }) {
         const codeIdx = headers.findIndex(h => h.includes('รหัสยา') || h.includes('รหัส') || h.toLowerCase().includes('code'));
         const nameIdx = headers.findIndex(h => h.includes('รายการยา') || h.includes('ชื่อยา') || h.toLowerCase().includes('drug'));
         const typeIdx = headers.findIndex(h => h.includes('ชนิด') || h.toLowerCase().includes('type'));
-        const unitIdx = headers.findIndex(h => h.includes('หน่วย') || h.toLowerCase().includes('unit'));
+        const unitIdx = headers.findIndex(h => {
+          const hl = h.toLowerCase().trim();
+          // ต้อง match "หน่วย" หรือ "หน่วยนับ" แต่ห้าม match "หน่วยงาน" (department)
+          if (hl.includes('หน่วยงาน')) return false;
+          return h.includes('หน่วย') || hl === 'unit' || hl.includes('unit_label') || hl.includes('หน่วยนับ');
+        });
         const lotIdx = headers.findIndex(h => h.toLowerCase().includes('lot') || h.includes('รุ่น'));
         const expIdx = headers.findIndex(h => h.toLowerCase().includes('exp') || h.includes('หมดอายุ'));
         const qtyIdx = headers.findIndex(h => h.includes('คงเหลือ') || h.toLowerCase() === 'qty');
@@ -832,32 +858,34 @@ export default function App({ onBackToDashboard }) {
                 <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
                   ระบบแผนผังและข้อมูลคลังยา
                 </h1>
-                <div className="text-sm text-slate-500 mt-2 flex flex-col sm:flex-row gap-2">
-                  <div className="flex items-center gap-2 flex-wrap bg-slate-50/50 px-3 py-1.5 rounded-lg border border-slate-100">
-                    <span>📦 Log คลัง: <span className="text-slate-700 font-medium">{logFileName || 'ข้อมูลตั้งต้น (Mockup)'}</span></span>
-                    {logUpdateDate ? (
-                      <span className="flex items-center gap-1 text-[11px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md font-medium shadow-sm">
-                        <Clock size={12} /> อัปโหลดเมื่อ: {formatDateTime(logUpdateDate)}
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 text-[11px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md font-medium shadow-sm">
-                        <Clock size={12} /> ข้อมูลระบบเริ่มต้น
-                      </span>
-                    )}
+                {isStaff && (
+                  <div className="text-sm text-slate-500 mt-2 flex flex-col sm:flex-row gap-2">
+                    <div className="flex items-center gap-2 flex-wrap bg-slate-50/50 px-3 py-1.5 rounded-lg border border-slate-100">
+                      <span>📦 Log คลัง: <span className="text-slate-700 font-medium">{logFileName || 'ข้อมูลตั้งต้น (Mockup)'}</span></span>
+                      {logUpdateDate ? (
+                        <span className="flex items-center gap-1 text-[11px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md font-medium shadow-sm">
+                          <Clock size={12} /> อัปโหลดเมื่อ: {formatDateTime(logUpdateDate)}
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-[11px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md font-medium shadow-sm">
+                          <Clock size={12} /> ข้อมูลระบบเริ่มต้น
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap bg-slate-50/50 px-3 py-1.5 rounded-lg border border-slate-100">
+                      <span>💊 ข้อมูลยา: <span className="text-slate-700 font-medium">{drugFileName || 'ข้อมูลตั้งต้น (Mockup)'}</span></span>
+                      {drugUpdateDate ? (
+                        <span className="flex items-center gap-1 text-[11px] bg-teal-100 text-teal-700 px-2 py-0.5 rounded-md font-medium shadow-sm">
+                          <Clock size={12} /> อัปโหลดเมื่อ: {formatDateTime(drugUpdateDate)}
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-[11px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md font-medium shadow-sm">
+                          <Clock size={12} /> ข้อมูลระบบเริ่มต้น
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap bg-slate-50/50 px-3 py-1.5 rounded-lg border border-slate-100">
-                    <span>💊 ข้อมูลยา: <span className="text-slate-700 font-medium">{drugFileName || 'ข้อมูลตั้งต้น (Mockup)'}</span></span>
-                    {drugUpdateDate ? (
-                      <span className="flex items-center gap-1 text-[11px] bg-teal-100 text-teal-700 px-2 py-0.5 rounded-md font-medium shadow-sm">
-                        <Clock size={12} /> อัปโหลดเมื่อ: {formatDateTime(drugUpdateDate)}
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 text-[11px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md font-medium shadow-sm">
-                        <Clock size={12} /> ข้อมูลระบบเริ่มต้น
-                      </span>
-                    )}
-                  </div>
-                </div>
+                )}
               </div>
             </div>
 
@@ -902,22 +930,36 @@ export default function App({ onBackToDashboard }) {
           </div>
 
           <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-4 border-t border-slate-100">
-            <div className="relative w-full sm:max-w-md">
+            <div className="relative w-full sm:max-w-md" ref={appSearchRef}>
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input 
-                type="text" 
-                placeholder="ค้นหาชื่อยา, รหัส, ตำแหน่ง, Lot, บิล..." 
+              <input
+                type="text"
+                placeholder="ค้นหาชื่อยา, รหัส, ตำแหน่ง, Lot, บิล..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => { setSearchTerm(e.target.value); setShowSearchDd(true); }}
+                onFocus={() => { if (searchTerm.trim()) setShowSearchDd(true); }}
                 className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm text-sm"
               />
               {searchTerm && (
-                <button 
-                  onClick={() => setSearchTerm('')}
+                <button
+                  onClick={() => { setSearchTerm(''); setShowSearchDd(false); }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none"
                 >
                   <X size={16} />
                 </button>
+              )}
+              {showSearchDd && filteredSearchSuggestions.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 overflow-hidden">
+                  {filteredSearchSuggestions.map(name => (
+                    <button
+                      key={name}
+                      onMouseDown={e => { e.preventDefault(); setSearchTerm(name); setShowSearchDd(false); }}
+                      className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors border-b border-slate-100 last:border-0"
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
             
@@ -927,21 +969,23 @@ export default function App({ onBackToDashboard }) {
                   <BarChart3 size={16} /> สรุปข้อมูล
                 </button>
 
-                <button onClick={() => setShowResetConfirm(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
-                  <RefreshCcw size={16} /> รีเซ็ตข้อมูล
-                </button>
+                {isStaff && <>
+                  <button onClick={() => setShowResetConfirm(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
+                    <RefreshCcw size={16} /> รีเซ็ตข้อมูล
+                  </button>
 
-                <button onClick={() => logInputRef.current?.click()} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
-                  <UploadCloud size={16} /> อัปโหลด Log
-                </button>
-                <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={logInputRef} onChange={handleLogFileUpload} className="hidden" />
+                  <button onClick={() => logInputRef.current?.click()} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
+                    <UploadCloud size={16} /> อัปโหลด Log
+                  </button>
+                  <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={logInputRef} onChange={handleLogFileUpload} className="hidden" />
 
-                <button onClick={() => drugInputRef.current?.click()} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
-                  <FileText size={16} /> อัปโหลดข้อมูลยา
-                </button>
-                <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={drugInputRef} onChange={handleDrugFileUpload} className="hidden" />
+                  <button onClick={() => drugInputRef.current?.click()} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
+                    <FileText size={16} /> อัปโหลดข้อมูลยา
+                  </button>
+                  <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={drugInputRef} onChange={handleDrugFileUpload} className="hidden" />
+                </>}
               </div>
-              <span className="text-[11px] text-slate-500 bg-white px-2 py-0.5 rounded shadow-sm border border-slate-100">*อัปโหลดได้เฉพาะไฟล์ .csv เท่านั้น (หากบันทึกจาก Excel ในมือถือ ให้บันทึกเป็น CSV ก่อน)</span>
+              {isStaff && <span className="text-[11px] text-slate-500 bg-white px-2 py-0.5 rounded shadow-sm border border-slate-100">*อัปโหลดได้เฉพาะไฟล์ .csv เท่านั้น (หากบันทึกจาก Excel ในมือถือ ให้บันทึกเป็น CSV ก่อน)</span>}
             </div>
           </div>
         </div>

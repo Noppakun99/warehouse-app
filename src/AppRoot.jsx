@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Pill, Package, TrendingUp, TrendingDown,
   User, Shield, LogOut,
-  ChevronRight, Activity, Database,
+  ChevronRight, Activity, Database, Clock,
 } from 'lucide-react';
 import App            from './App';
 import RequisitionApp from './RequisitionApp';
@@ -24,7 +24,7 @@ export default function AppRoot() {
 
   switch (page) {
     case 'inventory':
-      return <App onBackToDashboard={() => setPage('dashboard')} />;
+      return <App onBackToDashboard={() => setPage('dashboard')} role={auth.role} />;
     case 'requisition':
       return (
         <RequisitionApp
@@ -175,7 +175,7 @@ const SYSTEMS = [
     iconBg:      'bg-indigo-100 text-indigo-600',
     badge:       'bg-indigo-100 text-indigo-700',
     badgeText:   'แผนผัง',
-    roles:       ['staff'],
+    roles:       ['requester', 'staff'],
   },
   {
     key:         'requisition',
@@ -201,26 +201,52 @@ const SYSTEMS = [
     iconBg:      'bg-emerald-100 text-emerald-600',
     badge:       'bg-emerald-100 text-emerald-700',
     badgeText:   'คลังรับ',
-    roles:       ['requester', 'staff'],
+    roles:       ['staff'],
   },
   {
     key:         'dispense',
     icon:        TrendingDown,
     title:       'ประวัติการเบิกจ่ายยา',
     desc:        'ค้นหาและวิเคราะห์ประวัติการเบิกจ่ายตามหน่วยงาน',
-    color:       'rose',
-    bg:          'bg-rose-50',
-    border:      'border-rose-200 hover:border-rose-400',
-    iconBg:      'bg-rose-100 text-rose-600',
-    badge:       'bg-rose-100 text-rose-700',
+    color:       'slate',
+    bg:          'bg-slate-50',
+    border:      'border-slate-300 hover:border-slate-500',
+    iconBg:      'bg-slate-200 text-slate-600',
+    badge:       'bg-slate-200 text-slate-700',
     badgeText:   'คลังเบิก',
-    roles:       ['requester', 'staff'],
+    roles:       ['staff'],
   },
 ];
 
 function Dashboard({ auth, onNavigate, onLogout }) {
-  const isStaff    = auth.role === 'staff';
-  const visible    = SYSTEMS.filter(s => s.roles.includes(auth.role));
+  const isStaff = auth.role === 'staff';
+  const visible = SYSTEMS.filter(s => s.roles.includes(auth.role));
+  const [uploadMeta, setUploadMeta] = useState({ inventory: null, drug_details: null });
+  const [lastReceive, setLastReceive] = useState(null);
+  const [lastDispense, setLastDispense] = useState(null);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.from('upload_meta').select('*').then(({ data }) => {
+      if (data) {
+        const m = {};
+        data.forEach(r => { m[r.type] = r; });
+        setUploadMeta(m);
+      }
+    });
+    if (isStaff) {
+      supabase.from('receive_logs').select('created_at').order('created_at', { ascending: false }).limit(1)
+        .then(({ data }) => { if (data?.[0]) setLastReceive(data[0].created_at); });
+      supabase.from('dispense_logs').select('created_at').order('created_at', { ascending: false }).limit(1)
+        .then(({ data }) => { if (data?.[0]) setLastDispense(data[0].created_at); });
+    }
+  }, [isStaff]);
+
+  const fmtDate = (iso) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  };
 
   return (
     <div className="min-h-screen bg-slate-100 font-sans">
@@ -294,6 +320,21 @@ function Dashboard({ auth, onNavigate, onLogout }) {
                 <div className="mt-4">
                   <h3 className="font-bold text-slate-800 text-lg leading-tight">{sys.title}</h3>
                   <p className="text-slate-500 text-sm mt-1.5 leading-relaxed">{sys.desc}</p>
+                  {sys.key === 'inventory' && fmtDate(uploadMeta.inventory?.updated_at) && (
+                    <p className="flex items-center gap-1 text-xs text-indigo-600 mt-2 font-medium">
+                      <Clock size={11} /> อัพเดต: {fmtDate(uploadMeta.inventory?.updated_at)}
+                    </p>
+                  )}
+                  {sys.key === 'receive' && fmtDate(lastReceive) && (
+                    <p className="flex items-center gap-1 text-xs text-emerald-600 mt-2 font-medium">
+                      <Clock size={11} /> รายการล่าสุด: {fmtDate(lastReceive)}
+                    </p>
+                  )}
+                  {sys.key === 'dispense' && fmtDate(lastDispense) && (
+                    <p className="flex items-center gap-1 text-xs text-slate-500 mt-2 font-medium">
+                      <Clock size={11} /> รายการล่าสุด: {fmtDate(lastDispense)}
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-1 mt-5 text-sm font-semibold text-slate-400 group-hover:text-indigo-600 transition-colors">
