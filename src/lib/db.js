@@ -29,6 +29,7 @@ export async function fetchInventory() {
       qty: row.qty,
       invoice: row.invoice,
       receiveStatus: row.receive_status,
+      safetyStock: row.safety_stock != null ? parseFloat(row.safety_stock) : null,
     })
   })
   return result
@@ -52,6 +53,7 @@ export async function saveInventory(inventoryObj) {
         qty: item.qty || '0',
         invoice: item.invoice || '-',
         receive_status: item.receiveStatus || 'ไม่มีการดำเนินการ',
+        safety_stock: item.safetyStock != null ? item.safetyStock : null,
         updated_at: new Date().toISOString(),
       })
     })
@@ -103,13 +105,16 @@ export async function saveDrugDetails(drugDetailsObj) {
   if (!supabase) throw new Error('Supabase not configured')
 
   const rows = Object.entries(drugDetailsObj).map(([key, value]) => {
-    const { _code, _name, _lot, _invoice, ...rest } = value
+    const { _code, _name, _lot, _invoice, _company, _drug_swap_policy, _drug_type, ...rest } = value
     return {
       detail_key: key,
       code: _code,
       name: _name,
       lot: _lot,
       invoice: _invoice,
+      company: _company || null,
+      drug_swap_policy: _drug_swap_policy || null,
+      drug_type: _drug_type || null,
       data: rest,
       updated_at: new Date().toISOString(),
     }

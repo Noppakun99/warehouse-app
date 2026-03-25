@@ -13,21 +13,55 @@ const COL_MAP = {
   dispense_date: ['วันที่เบิก', 'วันที่', 'date', 'dispense_date'],
   main_log:      ['mainlog', 'main_log', 'main log', 'log หลัก'],
   detail_log:    ['detailedlog', 'detail_log', 'detailed log', 'detaillog', 'log ย่อย', 'กลุ่ม'],
-  department:    ['หน่วยงานที่เบิก', 'หน่วยงาน', 'department', 'แผนก', 'ward'],
+  department:    ['หน่วยงานที่เบิก', 'หน่วยงานที่', 'หน่วยงาน', 'department', 'แผนก', 'ward'],
   note:          ['หมายเหตุ', 'note', 'notes', 'remark'],
   drug_code:     ['รหัส', 'รหัสยา', 'code', 'drug_code', 'รหัส hosxp', 'รหัสhosxp'],
   drug_name:     ['รายการยา', 'ชื่อยา', 'drug_name', 'name', 'item'],
-  drug_type:     ['ชนิด', 'ประเภท', 'type', 'drug_type', 'รูปแบบ'],
-  drug_unit:     ['หน่วยนับ', 'unit_label', 'drug_unit', 'หน่วยยา'],
+  drug_type:     ['ชนิดยา', 'ชนิด', 'ประเภท', 'type', 'drug_type', 'รูปแบบ'],
+  item_type:     ['ชนิดรายการ', 'item_type', 'item type'],
+  drug_unit:     ['หน่วยนับ', 'unit_label', 'drug_unit', 'หน่วยยา', 'หน่วย'],
   price_per_unit:['ราคา/หน่วย', 'ราคาต่อหน่วย', 'price', 'price_per_unit', 'unit price'],
-  lot:           ['lot', 'lot.', 'เลขที่ lot', 'lot no'],
+  lot:           ['lot', 'lot.', 'lot number', 'lot no', 'เลขที่ lot'],
   exp:           ['exp', 'exp.', 'exp date', 'วันหมดอายุ'],
-  qty_before:    ['คงเหลือก่อนเบิก', 'ยอดก่อน', 'before', 'qty_before', 'stock before'],
+  near_exp_date: ['วันที่ใกล้exp', 'วันที่ใกล้ exp', 'near_exp_date', 'วันใกล้หมดอายุ', 'วันที่ใกล้หมดอายุ'],
+  qty_before:    ['คงเหลือก่อนเบิก', 'คงเหลือก่อน', 'ยอดก่อน', 'before', 'qty_before', 'stock before'],
   qty_out:       ['ปริมาณ (ออก)', 'ปริมาณออก', 'จำนวนเบิก', 'qty_out', 'out', 'จำนวน'],
-  qty_after:     ['คงเหลือหลังจ่าย', 'ยอดหลัง', 'after', 'qty_after', 'stock after'],
+  qty_after:     ['คงเหลือหลังจ่าย', 'คงเหลือหลัง', 'ยอดหลัง', 'after', 'qty_after', 'stock after'],
 };
 
 const CHUNK = 300;
+
+// ดึง unique departments ทั้งหมด (pagination รอบ 1000)
+async function fetchAllDepts(supabaseClient) {
+  const PAGE = 1000;
+  const found = new Set();
+  let from = 0;
+  while (true) {
+    const { data } = await supabaseClient
+      .from('dispense_logs')
+      .select('department')
+      .not('department', 'is', null)
+      .neq('department', '-')
+      .range(from, from + PAGE - 1);
+    if (!data || data.length === 0) break;
+    data.forEach(r => { if (r.department && r.department !== '-') found.add(r.department); });
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return [...found].sort();
+}
+
+function DrugTypeBadge({ type }) {
+  if (!type || type === '-') return null;
+  const t = type.trim().toLowerCase();
+  let cls = 'bg-slate-100 text-slate-600';
+  if (t.includes('เม็ด') || t.includes('tablet') || t.includes('cap')) cls = 'bg-blue-100 text-blue-700';
+  else if (t.includes('น้ำ') || t.includes('syrup') || t.includes('liquid') || t.includes('sol')) cls = 'bg-emerald-100 text-emerald-700';
+  else if (t.includes('ฉีด') || t.includes('inject') || t.includes('iv') || t.includes('im')) cls = 'bg-rose-100 text-rose-700';
+  else if (t.includes('apply') || t.includes('cream') || t.includes('oint') || t.includes('ทา')) cls = 'bg-amber-100 text-amber-700';
+  else if (t.includes('inhale') || t.includes('สูด') || t.includes('spray')) cls = 'bg-purple-100 text-purple-700';
+  return <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>{type}</span>;
+}
 
 const FIELD_LABELS = {
   dispense_date:  'วันที่เบิก',
@@ -38,10 +72,12 @@ const FIELD_LABELS = {
   drug_code:      'รหัสยา',
   drug_name:      'ชื่อรายการยา',
   drug_type:      'รูปแบบยา',
+  item_type:      'ชนิดรายการ',
   drug_unit:      'หน่วยยา',
   price_per_unit: 'ราคา/หน่วย',
   lot:            'Lot',
   exp:            'Exp',
+  near_exp_date:  'วันที่ใกล้ Exp',
   qty_before:     'คงเหลือก่อนเบิก',
   qty_out:        'ปริมาณออก',
   qty_after:      'คงเหลือหลังจ่าย',
@@ -49,8 +85,14 @@ const FIELD_LABELS = {
 
 function matchHeader(header) {
   const h = header.toLowerCase().trim().replace(/\s+/g, ' ');
+  // Pass 1: exact match (highest priority — prevents false partial matches)
   for (const [field, aliases] of Object.entries(COL_MAP)) {
-    if (aliases.some(a => h === a.toLowerCase() || h.includes(a.toLowerCase()))) return field;
+    if (aliases.some(a => h === a.toLowerCase().trim())) return field;
+  }
+  // Pass 2: partial includes — only for aliases >= 7 chars to avoid short-alias collisions
+  // e.g. "ชนิด" won't match "ชนิดรายการ", "วันที่" won't match "วันที่ใกล้exp"
+  for (const [field, aliases] of Object.entries(COL_MAP)) {
+    if (aliases.some(a => a.trim().length >= 7 && h.includes(a.toLowerCase().trim()))) return field;
   }
   return null;
 }
@@ -169,20 +211,20 @@ export default function DispenseLogApp({ onBack }) {
   const [showSummary, setShowSummary] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800 font-sans">
-      <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm px-4 py-3 flex items-center gap-2">
-        <button onClick={onBack} className="text-slate-500 hover:text-indigo-600 p-1 transition-colors shrink-0"><ArrowLeft size={20} /></button>
+    <div className="min-h-screen bg-slate-200 text-slate-800 font-sans">
+      <div className="sticky top-0 z-10 bg-rose-700 shadow-md px-4 py-3 flex items-center gap-2">
+        <button onClick={onBack} className="text-rose-100 hover:text-white p-1 transition-colors shrink-0"><ArrowLeft size={20} /></button>
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <TrendingDown size={20} className="text-rose-500 shrink-0" />
-          <span className="font-semibold text-slate-800 truncate">บันทึกการเบิกจ่าย (คลังเบิก)</span>
+          <TrendingDown size={20} className="text-white shrink-0" />
+          <span className="font-semibold text-white truncate">บันทึกการเบิกจ่าย (คลังเบิก)</span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <button onClick={() => setShowSummary(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 transition-all">
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white/20 text-white hover:bg-white/30 border border-white/30 transition-all">
             <BarChart3 size={15} /> สรุปผล
           </button>
           <button onClick={() => setTab('import')}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'import' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'import' ? 'bg-white text-rose-700 font-bold' : 'text-rose-100 hover:text-white hover:bg-white/20'}`}
           >Import CSV</button>
         </div>
       </div>
@@ -198,13 +240,14 @@ export default function DispenseLogApp({ onBack }) {
 // CSV Import
 // ============================================================
 function DispenseImport({ onDone }) {
-  const [status, setStatus]     = useState('');
-  const [error, setError]       = useState('');
-  const [preview, setPreview]   = useState(null);
-  const [mapping, setMapping]   = useState({});
+  const [status, setStatus]         = useState('');
+  const [error, setError]           = useState('');
+  const [preview, setPreview]       = useState(null);
+  const [mapping, setMapping]       = useState({});
   const [rawHeaders, setRawHeaders] = useState([]);
-  const [rawRows, setRawRows]   = useState([]);
-  const [loading, setLoading]   = useState(false);
+  const [rawRows, setRawRows]       = useState([]);
+  const [loading, setLoading]       = useState(false);
+  const [uploadWarnings, setUploadWarnings] = useState(null);
   const fileRef = useRef(null);
 
   const handleFile = (e) => {
@@ -239,11 +282,22 @@ function DispenseImport({ onDone }) {
     if (!rawRows.length || !supabase) return;
     setLoading(true); setError('');
     try {
-      const rows = rawRows
-        .filter(row => row.some(c => c.trim()))
-        .map(row => {
+      const warnRows = [];
+      const activeRaws = rawRows
+        .map((row, i) => ({ row, rowNum: i + 2 }))
+        .filter(({ row }) => row.some(c => c.trim()));
+
+      const rows = activeRaws.map(({ row, rowNum }) => {
           const drugName = getVal(row, 'drug_name');
-          if (!drugName) return null;
+          const drugCode = normalizeCode(getVal(row, 'drug_code'));
+          const lot      = getVal(row, 'lot') || '-';
+
+          const issues = [];
+          if (!drugName) issues.push('ไม่มีชื่อยา');
+          if (!drugCode || drugCode === '-') issues.push('ไม่มีรหัสยา');
+          if (!lot || lot === '-') issues.push('ไม่มี Lot');
+          if (issues.length > 0) warnRows.push({ row: rowNum, name: drugName || '-', code: drugCode || '-', issues });
+
           const qtyOut = parseFloat(String(getVal(row, 'qty_out') || '0').replace(/,/g, '')) || 0;
           return {
             dispense_date:  parseDate(getVal(row, 'dispense_date')) || new Date().toISOString().slice(0,10),
@@ -251,20 +305,34 @@ function DispenseImport({ onDone }) {
             detail_log:     getVal(row, 'detail_log') || '-',
             department:     getVal(row, 'department') || '-',
             note:           getVal(row, 'note'),
-            drug_code:      normalizeCode(getVal(row, 'drug_code')),
-            drug_name:      drugName,
+            drug_code:      drugCode,
+            drug_name:      drugName || '-',
             drug_type:      getVal(row, 'drug_type') || '-',
+            item_type:      getVal(row, 'item_type') || null,
             drug_unit:      getVal(row, 'drug_unit') || '-',
             price_per_unit: parseFloat(String(getVal(row, 'price_per_unit') || '0').replace(/,/g, '')) || null,
-            lot:            getVal(row, 'lot') || '-',
+            lot,
             exp:            getVal(row, 'exp') || '-',
+            near_exp_date:  parseDate(getVal(row, 'near_exp_date')) || null,
             qty_before:     parseFloat(String(getVal(row, 'qty_before') || '').replace(/,/g, '')) || null,
             qty_out:        qtyOut,
             qty_after:      parseFloat(String(getVal(row, 'qty_after') || '').replace(/,/g, '')) || null,
             source:         'csv',
           };
-        })
-        .filter(Boolean);
+        });
+
+      // Backfill drug_unit: ถ้าบางแถวไม่มีหน่วย ให้ดึงจากแถวอื่นที่มีรหัสยาเดียวกัน
+      const unitByCode = {};
+      rows.forEach(r => {
+        if (r.drug_unit && r.drug_unit !== '-' && r.drug_code && r.drug_code !== '-') {
+          unitByCode[r.drug_code] = r.drug_unit;
+        }
+      });
+      rows.forEach(r => {
+        if ((!r.drug_unit || r.drug_unit === '-') && r.drug_code && r.drug_code !== '-' && unitByCode[r.drug_code]) {
+          r.drug_unit = unitByCode[r.drug_code];
+        }
+      });
 
       for (let i = 0; i < rows.length; i += CHUNK) {
         const { error: e } = await supabase.from('dispense_logs').insert(rows.slice(i, i + CHUNK));
@@ -272,6 +340,7 @@ function DispenseImport({ onDone }) {
       }
       setStatus(`นำเข้าสำเร็จ ${rows.length.toLocaleString()} รายการ`);
       setPreview(null); setRawRows([]); setRawHeaders([]);
+      if (warnRows.length > 0) setUploadWarnings({ fileName: preview?.fileName || '', type: 'CSV คลังเบิก', rows: warnRows });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -281,6 +350,43 @@ function DispenseImport({ onDone }) {
 
   return (
     <div className="p-4 space-y-4 max-w-3xl mx-auto">
+      {/* Upload Warning Modal */}
+      {uploadWarnings && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div className="bg-amber-500 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
+              <div>
+                <p className="font-bold text-lg">⚠️ พบ Row ที่ไม่ผ่านเงื่อนไข</p>
+                <p className="text-amber-100 text-sm">{uploadWarnings.type}: {uploadWarnings.fileName} — {uploadWarnings.rows.length} row มีปัญหา</p>
+              </div>
+              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors">✕</button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-4 space-y-2">
+              {uploadWarnings.rows.map((r, i) => (
+                <div key={i} className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-sm">
+                  <div className="flex gap-3 items-start">
+                    <span className="font-mono bg-amber-200 text-amber-900 px-2 py-0.5 rounded text-xs font-bold shrink-0">Row {r.row}</span>
+                    <div className="flex-1">
+                      <span className="font-semibold text-slate-800">{r.name}</span>
+                      {r.code && r.code !== '-' && <span className="text-slate-400 ml-2 text-xs">[{r.code}]</span>}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {r.issues.map((issue, j) => (
+                          <span key={j} className="bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full text-xs">{issue}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex justify-between items-center">
+              <p className="text-sm text-slate-500">ข้อมูลที่ถูกต้องถูกบันทึกแล้ว — แก้ไข CSV แล้วอัปโหลดใหม่</p>
+              <button onClick={() => setUploadWarnings(null)} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm">รับทราบ</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div onClick={() => fileRef.current?.click()}
         className="border-2 border-dashed border-slate-300 hover:border-rose-400 bg-white rounded-2xl p-10 text-center cursor-pointer transition-colors">
         <FileSpreadsheet size={40} className="mx-auto mb-3 text-slate-400" />
@@ -303,12 +409,14 @@ function DispenseImport({ onDone }) {
               { label: 'ชื่อรายการยา',       req: true,  hints: ['รายการยา', 'ชื่อยา', 'drug_name'] },
               { label: 'รหัสยา',             req: false, hints: ['รหัสยา', 'รหัส', 'code'] },
               { label: 'รูปแบบยา',           req: false, hints: ['ชนิด', 'ประเภท', 'drug_type'] },
-              { label: 'หน่วยงาน',           req: false, hints: ['หน่วยงานที่เบิก', 'หน่วยงาน', 'department'] },
+              { label: 'ชนิดรายการ',         req: false, hints: ['ชนิดรายการ', 'item_type'] },
+              { label: 'หน่วยงาน',           req: false, hints: ['หน่วยงานที่เบิก', 'หน่วยงานที่', 'หน่วยงาน', 'department'] },
               { label: 'ปริมาณออก',          req: false, hints: ['ปริมาณ (ออก)', 'ปริมาณออก', 'qty_out'] },
               { label: 'คงเหลือก่อนเบิก',    req: false, hints: ['คงเหลือก่อนเบิก', 'qty_before'] },
               { label: 'คงเหลือหลังจ่าย',    req: false, hints: ['คงเหลือหลังจ่าย', 'qty_after'] },
               { label: 'Lot',                req: false, hints: ['lot', 'lot.', 'เลขที่ lot'] },
               { label: 'Exp',                req: false, hints: ['exp', 'exp.', 'วันหมดอายุ'] },
+              { label: 'วันที่ใกล้ Exp',     req: false, hints: ['วันที่ใกล้ exp', 'near_exp_date'] },
               { label: 'ราคา/หน่วย',         req: false, hints: ['ราคา/หน่วย', 'ราคาต่อหน่วย', 'price_per_unit'] },
               { label: 'หน่วยยา',            req: false, hints: ['หน่วยนับ', 'unit_label', 'drug_unit'] },
               { label: 'MainLog',            req: false, hints: ['mainlog', 'main_log', 'main log'] },
@@ -362,13 +470,13 @@ function DispenseImport({ onDone }) {
           {/* Editable mapping (collapsed) */}
           <details>
             <summary className="cursor-pointer text-xs text-indigo-600 hover:text-indigo-800 font-medium select-none">แก้ไขการจับคู่คอลัมน์ด้วยตัวเอง ▸</summary>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+            <div className="grid grid-cols-1 gap-1.5 max-h-72 overflow-y-auto mt-2 pr-1">
               {Object.keys(COL_MAP).map(field => (
-                <div key={field} className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500 w-32 shrink-0">{FIELD_LABELS[field] || field}</span>
+                <div key={field} className="grid gap-2 items-center" style={{gridTemplateColumns:'10rem 1fr'}}>
+                  <span className="text-xs text-slate-600 font-medium truncate">{FIELD_LABELS[field] || field}</span>
                   <select value={mapping[field] ?? ''}
                     onChange={e => setMapping(p => ({ ...p, [field]: e.target.value === '' ? undefined : Number(e.target.value) }))}
-                    className="flex-1 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-rose-400">
                     <option value="">-- ไม่ใช้ --</option>
                     {rawHeaders.map((h, i) => <option key={i} value={i}>{h}</option>)}
                   </select>
@@ -416,8 +524,8 @@ function DispenseImport({ onDone }) {
       )}
 
       {status && (
-        <button onClick={onDone} className="w-full bg-slate-800 hover:bg-slate-700 text-white rounded-xl py-3 font-semibold transition-all">
-          ไปดูข้อมูล →
+        <button onClick={onDone} className="w-full bg-rose-600 hover:bg-rose-700 text-white rounded-xl py-3 font-semibold transition-all flex items-center justify-center gap-2">
+          <ArrowLeft size={18}/> กลับไปหน้าประวัติเบิกยา
         </button>
       )}
     </div>
@@ -612,8 +720,11 @@ function DispenseView() {
       .order('dispense_date', { ascending: false })
       .order('id', { ascending: false });
     if (deptFilter)    q = q.eq('department', deptFilter);
-    if (dateFrom)      q = q.gte('dispense_date', thaiToIso(dateFrom) || dateFrom);
-    if (dateTo)        q = q.lte('dispense_date', thaiToIso(dateTo)   || dateTo);
+    const isoFrom = thaiToIso(dateFrom) || dateFrom;
+    const isoTo   = thaiToIso(dateTo)   || dateTo;
+    if (dateFrom && dateTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
+    else if (dateFrom)        { q = q.eq('dispense_date', isoFrom); }
+    else if (dateTo)          { q = q.lte('dispense_date', isoTo); }
     if (search.trim()) q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%`);
     q = q.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
     const { data } = await q;
@@ -625,15 +736,17 @@ function DispenseView() {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from('dispense_logs').select('department').then(({ data }) => {
-      if (data) setDepts([...new Set(data.map(d => d.department).filter(Boolean))].sort());
-    });
+    fetchAllDepts(supabase).then(setDepts);
   }, []);
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from('dispense_logs').select('drug_name').then(({ data }) => {
-      if (data) setDrugNames([...new Set(data.map(d => d.drug_name).filter(Boolean))].sort());
+    supabase.from('dispense_logs').select('drug_name, drug_type').then(({ data }) => {
+      if (!data) return;
+      const typeMap = {};
+      data.forEach(d => { if (d.drug_name && d.drug_type && d.drug_type !== '-') typeMap[d.drug_name] = d.drug_type; });
+      const names = [...new Set(data.map(d => d.drug_name).filter(Boolean))].sort();
+      setDrugNames(names.map(name => ({ name, type: typeMap[name] || '' })));
     });
   }, []);
 
@@ -686,7 +799,7 @@ function DispenseView() {
   const drugTotalVal  = filteredDrugRows.reduce((s, r) => s + ((r.qty_out || 0) * (getPrice(r) || 0)), 0);
 
   const filteredDrugs = search.trim()
-    ? drugNames.filter(n => n.toLowerCase().includes(search.toLowerCase())).slice(0, 10)
+    ? drugNames.filter(n => n.name.toLowerCase().includes(search.toLowerCase())).slice(0, 10)
     : [];
 
   const selectDrug = (name) => {
@@ -729,10 +842,13 @@ function DispenseView() {
             {search && <button onClick={clearSearchDrug} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X size={14}/></button>}
             {showDropdown && filteredDrugs.length > 0 && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 overflow-hidden">
-                {filteredDrugs.map(name => (
+                {filteredDrugs.map(({ name, type }) => (
                   <button key={name} onMouseDown={e => { e.preventDefault(); selectDrug(name); }}
                     className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-rose-50 hover:text-rose-700 transition-colors border-b border-slate-100 last:border-0">
-                    {name}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span>{name}</span>
+                      {type && <DrugTypeBadge type={type} />}
+                    </div>
                   </button>
                 ))}
               </div>
@@ -762,30 +878,30 @@ function DispenseView() {
 
       {/* ตารางประวัติเบิกยาที่เลือก */}
       {selectedDrug && (
-        <div className="bg-white border border-rose-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="bg-white border border-rose-300 rounded-xl shadow-md overflow-hidden">
           {/* Header */}
-          <div className="bg-rose-50 px-4 py-3 border-b border-rose-200">
+          <div className="bg-rose-700 px-4 py-3">
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
-                <p className="font-bold text-rose-800">{selectedDrug}</p>
-                <p className="text-xs text-rose-600 mt-0.5">รหัส: {drugCode} · หน่วย: {drugUnit}</p>
+                <p className="font-bold text-white text-base">{selectedDrug}</p>
+                <p className="text-xs text-rose-200 mt-0.5">รหัส: {drugCode} · หน่วย: {drugUnit}</p>
                 {drugRows.length > 0 && (() => {
                   const depts = [...new Set(drugRows.map(r => r.department).filter(d => d && d !== '-'))];
                   return depts.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5 mt-2 items-center">
-                      <span className="text-xs text-rose-700 font-semibold shrink-0">หน่วยงานที่เบิก:</span>
+                      <span className="text-xs text-rose-200 font-semibold shrink-0">หน่วยงานที่เบิก:</span>
                       {depts.map(d => (
-                        <span key={d} className="text-xs bg-white border border-rose-200 text-rose-700 px-2 py-0.5 rounded-full">{d}</span>
+                        <span key={d} className="text-xs bg-white/20 border border-white/30 text-white px-2 py-0.5 rounded-full">{d}</span>
                       ))}
                     </div>
                   ) : null;
                 })()}
               </div>
-              <button onClick={clearSearchDrug} className="text-rose-400 hover:text-rose-600 shrink-0 mt-0.5"><X size={16}/></button>
+              <button onClick={clearSearchDrug} className="text-rose-200 hover:text-white shrink-0 mt-0.5"><X size={16}/></button>
             </div>
           </div>
 
-          {/* Date filter + totals */}
+          {/* Date filter */}
           <div className="px-4 py-2.5 border-b border-slate-100 flex flex-wrap items-center gap-3">
             <span className="text-xs text-slate-500 font-medium">ช่วงวันที่:</span>
             <ThaiDateInput value={drugDateFrom} onChange={setDrugDateFrom} size="w-24" />
@@ -795,10 +911,21 @@ function DispenseView() {
               <button onClick={() => { setDrugDateFrom(''); setDrugDateTo(''); }}
                 className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-0.5"><X size={11}/>ล้าง</button>
             )}
-            <div className="ml-auto flex items-center gap-4 text-xs">
-              <span className="text-slate-500">{filteredDrugRows.length.toLocaleString()} รายการ</span>
-              <span className="font-semibold text-rose-700">เบิกรวม {drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})} {drugUnit}</span>
-              <span className="font-semibold text-amber-700">{drugTotalVal.toLocaleString(undefined,{maximumFractionDigits:0})} บาท</span>
+          </div>
+
+          {/* Summary cards */}
+          <div className="grid grid-cols-3 gap-3 px-4 py-3">
+            <div className="bg-slate-700 border border-slate-600 rounded-xl p-3 text-center shadow-sm">
+              <p className="text-2xl font-bold text-white">{filteredDrugRows.length.toLocaleString()}</p>
+              <p className="text-xs text-slate-300 mt-0.5">รายการ (กรอง)</p>
+            </div>
+            <div className="bg-rose-700 border border-rose-600 rounded-xl p-3 text-center shadow-sm">
+              <p className="text-2xl font-bold text-white">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+              <p className="text-xs text-rose-200 mt-0.5">ปริมาณรวม (ออก)</p>
+            </div>
+            <div className="bg-amber-600 border border-amber-500 rounded-xl p-3 text-center shadow-sm">
+              <p className="text-2xl font-bold text-white">{drugTotalVal.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+              <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวม (บาท)</p>
             </div>
           </div>
 
@@ -808,93 +935,82 @@ function DispenseView() {
           ) : filteredDrugRows.length === 0 ? (
             <p className="text-center text-slate-400 py-8 text-sm">ไม่พบข้อมูลในช่วงที่เลือก</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-auto max-h-[480px]">
               <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 font-semibold">
-                    <th className="px-4 py-2.5 text-left">วันที่เบิก</th>
-                    <th className="px-4 py-2.5 text-right">จำนวน</th>
-                    <th className="px-4 py-2.5 text-left">หน่วย</th>
-                    <th className="px-4 py-2.5 text-left">Lot</th>
-                    <th className="px-4 py-2.5 text-left">Exp</th>
-                    <th className="px-4 py-2.5 text-right">ราคา/หน่วย</th>
-                    <th className="px-4 py-2.5 text-right">มูลค่า (บาท)</th>
-                    <th className="px-4 py-2.5 text-left">หน่วยงาน</th>
+                <thead className="sticky top-0 z-[5]">
+                  <tr className="text-xs text-white font-bold border-b border-slate-600">
+                    <th className="px-4 py-2.5 text-left bg-slate-700">วันที่เบิก</th>
+                    <th className="px-4 py-2.5 text-right bg-slate-700">จำนวน</th>
+                    <th className="px-4 py-2.5 text-left bg-slate-700">หน่วย</th>
+                    <th className="px-4 py-2.5 text-left bg-slate-700">Lot</th>
+                    <th className="px-4 py-2.5 text-left bg-slate-700">Exp</th>
+                    <th className="px-4 py-2.5 text-right bg-slate-700">ราคา/หน่วย</th>
+                    <th className="px-4 py-2.5 text-right bg-slate-700">มูลค่า (บาท)</th>
+                    <th className="px-4 py-2.5 text-left bg-slate-700">หน่วยงาน</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredDrugRows.map((r, i) => (
-                    <tr key={r.id} className={`border-b border-slate-100 ${i % 2 === 0 ? '' : 'bg-slate-50/50'}`}>
-                      <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap">{fmtDate(r.dispense_date)}</td>
-                      <td className="px-4 py-2.5 text-rose-600 font-semibold text-right whitespace-nowrap">-{(r.qty_out || 0).toLocaleString()}</td>
-                      <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{getUnit(r)}</td>
-                      <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{r.lot || '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
-                      <td className="px-4 py-2.5 text-slate-600 text-right whitespace-nowrap">{getPrice(r) != null ? Number(getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-2.5 text-amber-700 text-right whitespace-nowrap">{getPrice(r) != null ? ((r.qty_out||0)*getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-600 max-w-[160px] truncate">{r.department || '-'}</td>
+                    <tr key={r.id} className={`border-b border-slate-200 transition-colors ${i % 2 === 0 ? 'hover:bg-rose-50' : 'bg-slate-50 hover:bg-rose-50'}`}>
+                      <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(r.dispense_date)}</td>
+                      <td className="px-4 py-2.5 text-rose-700 font-bold text-right whitespace-nowrap">-{(r.qty_out || 0).toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{getUnit(r) !== '-' ? getUnit(r) : drugUnit}</td>
+                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{r.lot || '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
+                      <td className="px-4 py-2.5 text-slate-800 font-medium text-right whitespace-nowrap">{getPrice(r) != null ? Number(getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                      <td className="px-4 py-2.5 text-amber-800 font-bold text-right whitespace-nowrap">{getPrice(r) != null ? ((r.qty_out||0)*getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-800 max-w-[160px] truncate font-medium">{r.department || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
-                <tfoot>
-                  <tr className="bg-rose-50 border-t-2 border-rose-200 font-semibold text-sm">
-                    <td className="px-4 py-2.5 text-slate-700">รวม {filteredDrugRows.length} รายการ</td>
-                    <td className="px-4 py-2.5 text-rose-700 text-right">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-                    <td className="px-4 py-2.5 text-slate-500 text-xs">{drugUnit}</td>
-                    <td colSpan={2}></td>
-                    <td className="px-4 py-2.5"></td>
-                    <td className="px-4 py-2.5 text-amber-700 text-right">{drugTotalVal.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-                    <td></td>
-                  </tr>
-                </tfoot>
               </table>
             </div>
           )}
         </div>
       )}
 
-      {/* Summary strip */}
-      {rows.length > 0 && (
+      {/* Summary strip + main table — ซ่อนเมื่อดู drug detail panel */}
+      {!selectedDrug && rows.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
-          <div className="bg-white border border-slate-200 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-slate-800">{rows.length.toLocaleString()}</p>
-            <p className="text-xs text-slate-500 mt-0.5">รายการ{hasFilter ? ' (กรอง)' : ' (หน้านี้)'}</p>
+          <div className="bg-slate-700 border border-slate-600 rounded-xl p-3 text-center shadow-sm">
+            <p className="text-2xl font-bold text-white">{rows.length.toLocaleString()}</p>
+            <p className="text-xs text-slate-300 mt-0.5">รายการ{hasFilter ? ' (กรอง)' : ' (หน้านี้)'}</p>
           </div>
-          <div className="bg-white border border-slate-200 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-rose-500">{totalOut.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-            <p className="text-xs text-slate-500 mt-0.5">ปริมาณรวม (ออก)</p>
+          <div className="bg-rose-700 border border-rose-600 rounded-xl p-3 text-center shadow-sm">
+            <p className="text-2xl font-bold text-white">{totalOut.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+            <p className="text-xs text-rose-200 mt-0.5">ปริมาณรวม (ออก)</p>
           </div>
-          <div className="bg-white border border-slate-200 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-amber-600">{totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-            <p className="text-xs text-slate-500 mt-0.5">มูลค่ารวม (บาท)</p>
+          <div className="bg-amber-600 border border-amber-500 rounded-xl p-3 text-center shadow-sm">
+            <p className="text-2xl font-bold text-white">{totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+            <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวม (บาท)</p>
           </div>
         </div>
       )}
 
-      {loading && <p className="text-center text-slate-400 py-10">กำลังโหลด...</p>}
-      {!loading && rows.length === 0 && (
+      {!selectedDrug && loading && <p className="text-center text-slate-400 py-10">กำลังโหลด...</p>}
+      {!selectedDrug && !loading && rows.length === 0 && (
         <div className="text-center text-slate-400 py-20">
           <TrendingDown size={48} className="mx-auto mb-3 opacity-30" />
           <p>ไม่พบข้อมูล{hasFilter ? ' — ลองเปลี่ยนตัวกรอง' : ' — กด Import CSV เพื่อนำเข้าข้อมูล'}</p>
         </div>
       )}
 
-      {rows.length > 0 && (
+      {!selectedDrug && rows.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-260px)]">
             <table className="w-full min-w-[800px] text-sm">
               <thead className="sticky top-0 z-[5]">
-                <tr className="text-xs text-slate-500 font-semibold border-b border-slate-200">
-                  <th className="px-4 py-2.5 text-left bg-slate-100">วันที่เบิก</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-100">ชื่อรายการยา</th>
-                  <th className="px-4 py-2.5 text-right bg-slate-100">จำนวน</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-100">หน่วย</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-100">Lot</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-100">Exp</th>
-                  <th className="px-4 py-2.5 text-right bg-slate-100">ราคา/หน่วย</th>
-                  <th className="px-4 py-2.5 text-right bg-slate-100">มูลค่า (บาท)</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-100">หน่วยงาน</th>
-                  <th className="px-4 py-2.5 w-8 bg-slate-100"></th>
+                <tr className="text-xs text-white font-bold border-b border-slate-600">
+                  <th className="px-4 py-2.5 text-left bg-slate-700">วันที่เบิก</th>
+                  <th className="px-4 py-2.5 text-left bg-slate-700">ชื่อรายการยา</th>
+                  <th className="px-4 py-2.5 text-right bg-slate-700">จำนวน</th>
+                  <th className="px-4 py-2.5 text-left bg-slate-700">หน่วย</th>
+                  <th className="px-4 py-2.5 text-left bg-slate-700">Lot</th>
+                  <th className="px-4 py-2.5 text-left bg-slate-700">Exp</th>
+                  <th className="px-4 py-2.5 text-right bg-slate-700">ราคา/หน่วย</th>
+                  <th className="px-4 py-2.5 text-right bg-slate-700">มูลค่า (บาท)</th>
+                  <th className="px-4 py-2.5 text-left bg-slate-700">หน่วยงาน</th>
+                  <th className="px-4 py-2.5 w-8 bg-slate-700"></th>
                 </tr>
               </thead>
               <tbody>
@@ -902,21 +1018,21 @@ function DispenseView() {
                   <React.Fragment key={row.id}>
                     <tr
                       onClick={() => setExpanded(expanded === row.id ? null : row.id)}
-                      className={`border-b border-slate-100 cursor-pointer transition-colors ${expanded === row.id ? 'bg-rose-50' : i % 2 === 0 ? 'hover:bg-slate-50' : 'bg-slate-50/40 hover:bg-slate-100'}`}
+                      className={`border-b border-slate-200 cursor-pointer transition-colors ${expanded === row.id ? 'bg-rose-100' : i % 2 === 0 ? 'hover:bg-rose-50' : 'bg-slate-50 hover:bg-rose-50'}`}
                     >
-                      <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{fmtDate(row.dispense_date)}</td>
-                      <td className="px-4 py-2.5 font-medium text-slate-800 max-w-[220px]">
+                      <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(row.dispense_date)}</td>
+                      <td className="px-4 py-2.5 font-semibold text-slate-900 max-w-[220px]">
                         <span className="block truncate">{row.drug_name}</span>
-                        <span className="text-xs text-slate-400 font-normal">{row.drug_code}</span>
+                        <span className="text-xs text-slate-600 font-normal">{row.drug_code}</span>
                       </td>
-                      <td className="px-4 py-2.5 text-rose-600 font-semibold text-right whitespace-nowrap">-{(row.qty_out || 0).toLocaleString()}</td>
-                      <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{getUnit(row)}</td>
-                      <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{row.lot || '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>
-                      <td className="px-4 py-2.5 text-slate-600 text-right whitespace-nowrap">{getPrice(row) != null ? Number(getPrice(row)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-2.5 text-amber-700 text-right whitespace-nowrap">{getPrice(row) != null ? ((row.qty_out||0)*getPrice(row)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-600 max-w-[140px] truncate">{row.department || '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-400">
+                      <td className="px-4 py-2.5 text-rose-700 font-bold text-right whitespace-nowrap">-{(row.qty_out || 0).toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{getUnit(row)}</td>
+                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{row.lot || '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>
+                      <td className="px-4 py-2.5 text-slate-800 font-medium text-right whitespace-nowrap">{getPrice(row) != null ? Number(getPrice(row)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                      <td className="px-4 py-2.5 text-amber-800 font-bold text-right whitespace-nowrap">{getPrice(row) != null ? ((row.qty_out||0)*getPrice(row)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-800 max-w-[140px] truncate font-medium">{row.department || '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-500">
                         {expanded === row.id ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                       </td>
                     </tr>
@@ -981,6 +1097,7 @@ function DispenseView() {
 // Summary Modal
 // ============================================================
 function DispenseSummaryModal({ onClose }) {
+  const [activeTab, setActiveTab]   = useState('overview'); // 'overview' | 'monthly'
   const [dateFrom, setDateFrom]     = useState('');
   const [dateTo, setDateTo]         = useState('');
   const [deptFilter, setDeptFilter] = useState('');
@@ -993,6 +1110,12 @@ function DispenseSummaryModal({ onClose }) {
   const drugRef = useRef(null);
   const [allTimeTotal, setAllTimeTotal] = useState(null);
   const [allTimeValue, setAllTimeValue] = useState(null);
+
+  // Monthly stats
+  const [numMonths, setNumMonths]         = useState(4);
+  const [monthlyStats, setMonthlyStats]   = useState(null);
+  const [monthlyLoading, setMonthlyLoading] = useState(false);
+  const [monthlySearch, setMonthlySearch]   = useState('');
 
   useEffect(() => {
     if (!supabase) return;
@@ -1013,15 +1136,17 @@ function DispenseSummaryModal({ onClose }) {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from('dispense_logs').select('department').then(({ data }) => {
-      if (data) setDepts([...new Set(data.map(d => d.department).filter(Boolean))].sort());
-    });
+    fetchAllDepts(supabase).then(setDepts);
   }, []);
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from('dispense_logs').select('drug_name').then(({ data }) => {
-      if (data) setDrugNames([...new Set(data.map(d => d.drug_name).filter(Boolean))].sort());
+    supabase.from('dispense_logs').select('drug_name, drug_type').then(({ data }) => {
+      if (!data) return;
+      const typeMap = {};
+      data.forEach(d => { if (d.drug_name && d.drug_type && d.drug_type !== '-') typeMap[d.drug_name] = d.drug_type; });
+      const names = [...new Set(data.map(d => d.drug_name).filter(Boolean))].sort();
+      setDrugNames(names.map(name => ({ name, type: typeMap[name] || '' })));
     });
   }, []);
 
@@ -1067,9 +1192,66 @@ function DispenseSummaryModal({ onClose }) {
 
   useEffect(() => { loadStats(); }, [loadStats]);
 
+  // ฟังก์ชันคำนวณ label เดือน Thai เช่น "พ.ย. 68"
+  const getMonthLabel = (yyyy, mm) => {
+    const d = new Date(yyyy, mm - 1, 1);
+    return d.toLocaleDateString('th-TH', { month: 'short', year: '2-digit' });
+  };
+
+  const loadMonthlyStats = useCallback(async () => {
+    if (!supabase) return;
+    setMonthlyLoading(true);
+    const now = new Date();
+    // คำนวณเดือนย้อนหลัง numMonths เดือน
+    const months = [];
+    for (let i = numMonths - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      months.push({ key, label: getMonthLabel(d.getFullYear(), d.getMonth() + 1) });
+    }
+    const startISO = months[0].key + '-01';
+    const { data } = await supabase
+      .from('dispense_logs')
+      .select('drug_name, drug_code, qty_out, dispense_date')
+      .gte('dispense_date', startISO);
+
+    if (!data) { setMonthlyLoading(false); return; }
+
+    // รวม qty ตาม drug_name + เดือน
+    const map = {};
+    data.forEach(r => {
+      if (!r.drug_name || !r.dispense_date) return;
+      const mk = r.dispense_date.slice(0, 7);
+      if (!map[r.drug_name]) map[r.drug_name] = { code: r.drug_code };
+      map[r.drug_name][mk] = (map[r.drug_name][mk] || 0) + (r.qty_out || 0);
+    });
+
+    const drugs = Object.entries(map).map(([name, d]) => {
+      const qtys = months.map(m => d[m.key] || 0);
+      const total = qtys.reduce((s, q) => s + q, 0);
+      const nonZero = qtys.filter(q => q > 0);
+      const max = nonZero.length > 0 ? Math.max(...qtys) : 0;
+      const avg = total / numMonths;
+      return { name, code: d.code, qtys, total, max, avg };
+    }).sort((a, b) => b.total - a.total);
+
+    setMonthlyStats({ months, drugs });
+    setMonthlyLoading(false);
+  }, [numMonths]);
+
+  useEffect(() => {
+    if (activeTab === 'monthly') loadMonthlyStats();
+  }, [activeTab, loadMonthlyStats]);
+
+  const filteredMonthlyDrugs = monthlyStats
+    ? (monthlySearch.trim()
+        ? monthlyStats.drugs.filter(d => d.name.toLowerCase().includes(monthlySearch.toLowerCase()))
+        : monthlyStats.drugs)
+    : [];
+
   return (
     <div className="fixed inset-0 bg-slate-900/70 flex items-start justify-center z-50 p-3 pt-4 backdrop-blur-sm overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col mb-6">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col mb-6">
         {/* Header */}
         <div className="bg-gradient-to-r from-slate-800 to-rose-800 p-5 flex justify-between items-center text-white rounded-t-2xl">
           <h3 className="text-xl font-bold flex items-center gap-3">
@@ -1078,76 +1260,182 @@ function DispenseSummaryModal({ onClose }) {
           <button onClick={onClose} className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-xl transition-colors"><X size={20}/></button>
         </div>
 
+        {/* Tabs */}
+        <div className="flex border-b border-slate-200 px-5 pt-3 gap-1">
+          {[
+            { key: 'overview', label: 'ภาพรวม' },
+            { key: 'monthly',  label: 'สถิติการเบิก รายเดือน' },
+          ].map(t => (
+            <button key={t.key} onClick={() => setActiveTab(t.key)}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
+                activeTab === t.key
+                  ? 'border-rose-500 text-rose-600 bg-rose-50'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}>{t.label}</button>
+          ))}
+        </div>
+
         <div className="p-5 space-y-5">
-          {/* Filters */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap items-center gap-3">
-            <span className="text-sm font-semibold text-slate-600">กรองข้อมูล:</span>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">ตั้งแต่</span>
-              <ThaiDateInput value={dateFrom} onChange={setDateFrom} />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">ถึง</span>
-              <ThaiDateInput value={dateTo} onChange={setDateTo} />
-            </div>
-            <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)}
-              className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-rose-400">
-              <option value="">ทุกหน่วยงาน</option>
-              {departments.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-            {/* Drug search dropdown */}
-            <div className="relative" ref={drugRef}>
-              <input
-                type="text" value={drugFilter}
-                onChange={e => { setDrugFilter(e.target.value); setShowDrugDd(true); }}
-                onFocus={() => { if (drugFilter.trim()) setShowDrugDd(true); }}
-                placeholder="ค้นหายา..."
-                className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-rose-400 w-40"
-              />
-              {drugFilter && <button onClick={() => setDrugFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"><X size={12}/></button>}
-              {showDrugDd && drugFilter && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-30 w-64 overflow-hidden">
-                  {drugNames.filter(n => n.toLowerCase().includes(drugFilter.toLowerCase())).slice(0,8).map(name => (
-                    <button key={name} onMouseDown={e => { e.preventDefault(); setDrugFilter(name); setShowDrugDd(false); }}
-                      className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-rose-50 border-b border-slate-100 last:border-0">{name}</button>
-                  ))}
-                </div>
+
+          {/* ========== TAB: ภาพรวม ========== */}
+          {activeTab === 'overview' && (<>
+            {/* Filters */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap items-center gap-3">
+              <span className="text-sm font-semibold text-slate-600">กรองข้อมูล:</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">ตั้งแต่</span>
+                <ThaiDateInput value={dateFrom} onChange={setDateFrom} />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">ถึง</span>
+                <ThaiDateInput value={dateTo} onChange={setDateTo} />
+              </div>
+              <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)}
+                className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-rose-400">
+                <option value="">ทุกหน่วยงาน</option>
+                {departments.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+              <div className="relative" ref={drugRef}>
+                <input type="text" value={drugFilter}
+                  onChange={e => { setDrugFilter(e.target.value); setShowDrugDd(true); }}
+                  onFocus={() => { if (drugFilter.trim()) setShowDrugDd(true); }}
+                  placeholder="ค้นหายา..."
+                  className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-rose-400 w-40"
+                />
+                {drugFilter && <button onClick={() => setDrugFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"><X size={12}/></button>}
+                {showDrugDd && drugFilter && (
+                  <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-30 w-64 overflow-hidden">
+                    {drugNames.filter(n => n.name.toLowerCase().includes(drugFilter.toLowerCase())).slice(0,8).map(({ name, type }) => (
+                      <button key={name} onMouseDown={e => { e.preventDefault(); setDrugFilter(name); setShowDrugDd(false); }}
+                        className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-rose-50 border-b border-slate-100 last:border-0">
+                        <div className="flex items-center gap-2 flex-wrap"><span>{name}</span>{type && <DrugTypeBadge type={type} />}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {(dateFrom || dateTo || deptFilter || drugFilter) && (
+                <button onClick={() => { setDateFrom(''); setDateTo(''); setDeptFilter(''); setDrugFilter(''); }}
+                  className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1"><X size={12}/>ล้าง</button>
               )}
             </div>
-            {(dateFrom || dateTo || deptFilter || drugFilter) && (
-              <button onClick={() => { setDateFrom(''); setDateTo(''); setDeptFilter(''); setDrugFilter(''); }}
-                className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1"><X size={12}/>ล้าง</button>
+
+            {loading ? (
+              <p className="text-center text-slate-400 py-16">กำลังโหลด...</p>
+            ) : !stats ? (
+              <p className="text-center text-slate-400 py-16">ไม่พบข้อมูลที่กรอง หรือเลือก</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label:'รายการเบิกทั้งหมด', value:(allTimeTotal ?? '...').toLocaleString?.() ?? '...', unit:'รายการ (ทุกช่วงเวลา)', bg:'bg-indigo-50', bd:'border-indigo-200', lbl:'text-indigo-600', val:'text-indigo-900' },
+                    { label:'จำนวนวันที่มีการเบิก', value:stats.uniqueDays.toLocaleString(), unit:'วัน (ในช่วงที่กรอง)', bg:'bg-rose-50', bd:'border-rose-200', lbl:'text-rose-600', val:'text-rose-900' },
+                    { label:'มูลค่าเบิกทั้งหมด (บาท)', value:allTimeValue != null ? allTimeValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:'บาท (ทุกช่วงเวลา)', bg:'bg-amber-50', bd:'border-amber-200', lbl:'text-amber-600', val:'text-amber-900' },
+                  ].map((k,i) => (
+                    <div key={i} className={`${k.bg} border ${k.bd} rounded-xl p-4 shadow-sm`}>
+                      <div className={`text-xs font-bold uppercase tracking-wide ${k.lbl} mb-1`}>{k.label}</div>
+                      <div className={`text-2xl font-black ${k.val}`}>{k.value}</div>
+                      <div className="text-xs text-slate-500">{k.unit}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <BarSection title="หน่วยงานที่เบิกสูงสุด (ปริมาณ)" items={stats.topDepts}      barColor="bg-rose-400"  unit="หน่วย" />
+                  <BarSection title="หน่วยงาน — มูลค่าสูงสุด"        items={stats.topDeptsValue} barColor="bg-amber-400" unit="บาท"   />
+                </div>
+                <BarSection title="ยาที่มีมูลค่าเบิกสูงสุด" items={stats.topDrugsByValue} barColor="bg-indigo-400" unit="บาท" />
+              </>
             )}
-          </div>
+          </>)}
 
-          {loading ? (
-            <p className="text-center text-slate-400 py-16">กำลังโหลด...</p>
-          ) : !stats ? (
-            <p className="text-center text-slate-400 py-16">ไม่พบข้อมูลที่กรอง หรือเลือก</p>
-          ) : (
-            <>
-              {/* KPI */}
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  { label:'รายการเบิกทั้งหมด', value:(allTimeTotal ?? '...').toLocaleString?.() ?? '...', unit:'รายการ (ทุกช่วงเวลา)', bg:'bg-indigo-50', bd:'border-indigo-200', lbl:'text-indigo-600', val:'text-indigo-900' },
-                  { label:'จำนวนวันที่มีการเบิก', value:stats.uniqueDays.toLocaleString(), unit:'วัน (ในช่วงที่กรอง)', bg:'bg-rose-50', bd:'border-rose-200', lbl:'text-rose-600', val:'text-rose-900' },
-                  { label:'มูลค่าเบิกทั้งหมด (บาท)', value:allTimeValue != null ? allTimeValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:'บาท (ทุกช่วงเวลา)', bg:'bg-amber-50', bd:'border-amber-200', lbl:'text-amber-600', val:'text-amber-900' },
-                ].map((k,i) => (
-                  <div key={i} className={`${k.bg} border ${k.bd} rounded-xl p-4 shadow-sm`}>
-                    <div className={`text-xs font-bold uppercase tracking-wide ${k.lbl} mb-1`}>{k.label}</div>
-                    <div className={`text-2xl font-black ${k.val}`}>{k.value}</div>
-                    <div className="text-xs text-slate-500">{k.unit}</div>
-                  </div>
+          {/* ========== TAB: สถิติรายเดือน ========== */}
+          {activeTab === 'monthly' && (
+            <div className="space-y-4">
+              {/* Controls */}
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-sm font-semibold text-slate-600">ย้อนหลัง:</span>
+                {[2,3,4,6,12].map(n => (
+                  <button key={n} onClick={() => setNumMonths(n)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                      numMonths === n
+                        ? 'bg-rose-500 text-white border-rose-500'
+                        : 'bg-white text-slate-600 border-slate-300 hover:border-rose-300'
+                    }`}>{n} เดือน</button>
                 ))}
+                <div className="ml-auto relative">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"/>
+                  <input type="text" value={monthlySearch} onChange={e => setMonthlySearch(e.target.value)}
+                    placeholder="ค้นหายา..." className="pl-8 pr-3 py-1.5 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-rose-400 w-44"/>
+                  {monthlySearch && <button onClick={() => setMonthlySearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"><X size={12}/></button>}
+                </div>
               </div>
 
-              {/* Bar charts */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <BarSection title="หน่วยงานที่เบิกสูงสุด (ปริมาณ)" items={stats.topDepts}      barColor="bg-rose-400"  unit="หน่วย" />
-                <BarSection title="หน่วยงาน — มูลค่าสูงสุด"        items={stats.topDeptsValue} barColor="bg-amber-400" unit="บาท"   />
-              </div>
-              <BarSection title="ยาที่มีมูลค่าเบิกสูงสุด" items={stats.topDrugsByValue} barColor="bg-indigo-400" unit="บาท" />
-            </>
+              {monthlyLoading ? (
+                <p className="text-center text-slate-400 py-16">กำลังโหลดข้อมูล...</p>
+              ) : !monthlyStats ? (
+                <p className="text-center text-slate-400 py-16">ไม่พบข้อมูล</p>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+                  <table className="w-full text-xs min-w-[700px]">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="bg-slate-700 text-white text-center">
+                        <th className="px-3 py-2.5 text-left font-semibold sticky left-0 bg-slate-700 min-w-[180px]">รายการยา</th>
+                        <th className="px-3 py-2.5 font-semibold bg-rose-700 whitespace-nowrap">Max รายเดือน</th>
+                        <th className="px-3 py-2.5 font-semibold bg-indigo-700 whitespace-nowrap">Avg รายเดือน</th>
+                        <th className="px-3 py-2.5 font-semibold bg-amber-700 whitespace-nowrap">รวม {numMonths} เดือน</th>
+                        {monthlyStats.months.map(m => (
+                          <th key={m.key} className="px-3 py-2.5 font-semibold whitespace-nowrap">{m.label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredMonthlyDrugs.length === 0 ? (
+                        <tr><td colSpan={4 + (monthlyStats?.months?.length || 0)} className="text-center py-10 text-slate-400">ไม่พบยา</td></tr>
+                      ) : filteredMonthlyDrugs.map((drug, i) => (
+                        <tr key={drug.name} className={`border-b border-slate-100 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} hover:bg-rose-50/40 transition-colors`}>
+                          <td className="px-3 py-2 font-medium text-slate-800 sticky left-0 bg-inherit">
+                            <span className="block truncate max-w-[180px]" title={drug.name}>{drug.name}</span>
+                            {drug.code && drug.code !== '-' && <span className="text-slate-400 font-normal">{drug.code}</span>}
+                          </td>
+                          <td className="px-3 py-2 text-center font-bold text-rose-600">{drug.max > 0 ? drug.max.toLocaleString() : '-'}</td>
+                          <td className="px-3 py-2 text-center font-semibold text-indigo-600">{drug.avg > 0 ? drug.avg.toLocaleString(undefined, {maximumFractionDigits:1}) : '-'}</td>
+                          <td className="px-3 py-2 text-center font-bold text-amber-700">{drug.total > 0 ? drug.total.toLocaleString() : '-'}</td>
+                          {drug.qtys.map((q, mi) => (
+                            <td key={mi} className={`px-3 py-2 text-center ${q > 0 ? 'text-slate-700' : 'text-slate-300'}`}>
+                              {q > 0 ? q.toLocaleString() : '-'}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-slate-100 font-bold text-slate-700 border-t-2 border-slate-300">
+                        <td className="px-3 py-2 sticky left-0 bg-slate-100">รวมทั้งหมด</td>
+                        <td className="px-3 py-2 text-center text-rose-700">
+                          {filteredMonthlyDrugs.length > 0 ? Math.max(...filteredMonthlyDrugs.map(d => d.max)).toLocaleString() : '-'}
+                        </td>
+                        <td className="px-3 py-2 text-center text-indigo-700">
+                          {filteredMonthlyDrugs.length > 0
+                            ? (filteredMonthlyDrugs.reduce((s,d)=>s+d.avg,0)/filteredMonthlyDrugs.length).toLocaleString(undefined,{maximumFractionDigits:1})
+                            : '-'}
+                        </td>
+                        <td className="px-3 py-2 text-center text-amber-800">
+                          {filteredMonthlyDrugs.reduce((s,d)=>s+d.total,0).toLocaleString()}
+                        </td>
+                        {monthlyStats.months.map((_m, mi) => (
+                          <td key={mi} className="px-3 py-2 text-center">
+                            {filteredMonthlyDrugs.reduce((s,d)=>s+(d.qtys[mi]||0),0).toLocaleString()}
+                          </td>
+                        ))}
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+              {monthlyStats && (
+                <p className="text-xs text-slate-400 text-right">{filteredMonthlyDrugs.length} รายการยา</p>
+              )}
+            </div>
           )}
         </div>
 

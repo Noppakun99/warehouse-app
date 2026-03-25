@@ -78,14 +78,14 @@ function LoginPage({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-sky-400 via-blue-500 to-indigo-600 flex flex-col items-center justify-center p-4">
       {/* Brand */}
       <div className="text-center mb-8">
-        <div className="inline-flex items-center justify-center w-20 h-20 bg-indigo-600 rounded-2xl shadow-lg mb-4">
+        <div className="inline-flex items-center justify-center w-20 h-20 bg-white/20 backdrop-blur rounded-2xl shadow-xl mb-4 border border-white/30">
           <Pill size={40} className="text-white" />
         </div>
-        <h1 className="text-3xl font-bold text-slate-800">ระบบบริหารคลังยา</h1>
-        <p className="text-slate-500 mt-1.5">โรงพยาบาล · Pharmacy Management System</p>
+        <h1 className="text-3xl font-bold text-white drop-shadow">ระบบบริหารคลังยา</h1>
+        <p className="text-indigo-200 mt-1.5">โรงพยาบาล · Pharmacy Management System</p>
       </div>
 
       {/* Card */}
@@ -96,7 +96,7 @@ function LoginPage({ onLogin }) {
             onClick={() => { setTab('requester'); setError(''); }}
             className={`flex items-center justify-center gap-2 py-3.5 text-sm font-semibold transition-colors ${
               tab === 'requester'
-                ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600'
+                ? 'bg-sky-50 text-sky-700 border-b-2 border-sky-500'
                 : 'text-slate-500 hover:text-slate-700'
             }`}
           >
@@ -106,7 +106,7 @@ function LoginPage({ onLogin }) {
             onClick={() => { setTab('staff'); setError(''); }}
             className={`flex items-center justify-center gap-2 py-3.5 text-sm font-semibold transition-colors ${
               tab === 'staff'
-                ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600'
+                ? 'bg-sky-50 text-sky-700 border-b-2 border-sky-500'
                 : 'text-slate-500 hover:text-slate-700'
             }`}
           >
@@ -148,7 +148,7 @@ function LoginPage({ onLogin }) {
 
           <button
             type="submit"
-            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 font-semibold text-sm transition-colors shadow-sm mt-2"
+            className="w-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white rounded-xl py-3 font-semibold text-sm transition-colors shadow-sm mt-2"
           >
             เข้าสู่ระบบ
           </button>
@@ -169,12 +169,14 @@ const SYSTEMS = [
     icon:        Database,
     title:       'ระบบแผนผังคลังยา',
     desc:        'ดูแผนผังตำแหน่งยา ค้นหาสต็อก ตรวจสอบวันหมดอายุ',
-    color:       'indigo',
-    bg:          'bg-indigo-50',
-    border:      'border-indigo-200 hover:border-indigo-400',
-    iconBg:      'bg-indigo-100 text-indigo-600',
-    badge:       'bg-indigo-100 text-indigo-700',
+    bg:          'bg-indigo-50 hover:bg-indigo-100',
+    border:      'border-indigo-300 hover:border-indigo-500',
+    iconBg:      'bg-sky-500 text-white',
+    badge:       'bg-sky-500 text-white',
     badgeText:   'แผนผัง',
+    accentText:  'text-sky-600',
+    hoverLink:   'group-hover:text-sky-700',
+    clockColor:  'text-sky-600',
     roles:       ['requester', 'staff'],
   },
   {
@@ -182,12 +184,14 @@ const SYSTEMS = [
     icon:        Package,
     title:       'ระบบเบิกยาออนไลน์',
     desc:        'ส่งใบเบิก ตรวจสอบสถานะ อนุมัติและจ่ายยา',
-    color:       'blue',
-    bg:          'bg-blue-50',
-    border:      'border-blue-200 hover:border-blue-400',
-    iconBg:      'bg-blue-100 text-blue-600',
-    badge:       'bg-blue-100 text-blue-700',
+    bg:          'bg-blue-50 hover:bg-blue-100',
+    border:      'border-blue-300 hover:border-blue-500',
+    iconBg:      'bg-blue-600 text-white',
+    badge:       'bg-blue-600 text-white',
     badgeText:   'เบิกยา',
+    accentText:  'text-blue-600',
+    hoverLink:   'group-hover:text-blue-700',
+    clockColor:  'text-blue-600',
     roles:       ['requester', 'staff'],
   },
   {
@@ -195,12 +199,14 @@ const SYSTEMS = [
     icon:        TrendingUp,
     title:       'ประวัติการรับยาเข้าคลัง',
     desc:        'ค้นหาประวัติการรับเวชภัณฑ์เข้าคลัง ดูสรุปยอดและมูลค่า',
-    color:       'emerald',
-    bg:          'bg-emerald-50',
-    border:      'border-emerald-200 hover:border-emerald-400',
-    iconBg:      'bg-emerald-100 text-emerald-600',
-    badge:       'bg-emerald-100 text-emerald-700',
+    bg:          'bg-emerald-50 hover:bg-emerald-100',
+    border:      'border-emerald-300 hover:border-emerald-500',
+    iconBg:      'bg-emerald-600 text-white',
+    badge:       'bg-emerald-600 text-white',
     badgeText:   'คลังรับ',
+    accentText:  'text-emerald-600',
+    hoverLink:   'group-hover:text-emerald-700',
+    clockColor:  'text-emerald-600',
     roles:       ['staff'],
   },
   {
@@ -208,12 +214,14 @@ const SYSTEMS = [
     icon:        TrendingDown,
     title:       'ประวัติการเบิกจ่ายยา',
     desc:        'ค้นหาและวิเคราะห์ประวัติการเบิกจ่ายตามหน่วยงาน',
-    color:       'slate',
-    bg:          'bg-slate-50',
-    border:      'border-slate-300 hover:border-slate-500',
-    iconBg:      'bg-slate-200 text-slate-600',
-    badge:       'bg-slate-200 text-slate-700',
+    bg:          'bg-rose-50 hover:bg-rose-100',
+    border:      'border-rose-300 hover:border-rose-500',
+    iconBg:      'bg-rose-600 text-white',
+    badge:       'bg-rose-600 text-white',
     badgeText:   'คลังเบิก',
+    accentText:  'text-rose-600',
+    hoverLink:   'group-hover:text-rose-700',
+    clockColor:  'text-rose-600',
     roles:       ['staff'],
   },
 ];
@@ -249,34 +257,34 @@ function Dashboard({ auth, onNavigate, onLogout }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 font-sans">
+    <div className="min-h-screen bg-gradient-to-br from-slate-200 via-slate-100 to-indigo-100 font-sans">
       {/* Top navbar */}
-      <header className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-10">
+      <header className="bg-gradient-to-r from-sky-500 to-blue-600 shadow-md sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-100 text-indigo-600 rounded-xl">
+            <div className="p-2 bg-white/20 text-white rounded-xl">
               <Pill size={22} />
             </div>
             <div>
-              <p className="font-bold text-slate-800 text-sm leading-tight">ระบบบริหารคลังยา</p>
-              <p className="text-xs text-slate-400">Pharmacy Management System</p>
+              <p className="font-bold text-white text-sm leading-tight">ระบบบริหารคลังยา</p>
+              <p className="text-xs text-indigo-200">Pharmacy Management System</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
+            <div className="hidden sm:flex items-center gap-2 bg-white/15 border border-white/20 rounded-xl px-3 py-1.5">
               {isStaff
-                ? <Shield size={14} className="text-indigo-500" />
-                : <User   size={14} className="text-blue-500" />
+                ? <Shield size={14} className="text-indigo-200" />
+                : <User   size={14} className="text-indigo-200" />
               }
               <div className="text-xs">
-                <p className="font-semibold text-slate-700">{auth.name}</p>
-                <p className="text-slate-400">{isStaff ? 'เจ้าหน้าที่คลังยา' : auth.department}</p>
+                <p className="font-semibold text-white">{auth.name}</p>
+                <p className="text-indigo-200">{isStaff ? 'เจ้าหน้าที่คลังยา' : auth.department}</p>
               </div>
             </div>
             <button
               onClick={onLogout}
-              className="flex items-center gap-1.5 text-slate-500 hover:text-slate-700 text-sm font-medium transition-colors px-3 py-1.5 rounded-xl hover:bg-slate-100"
+              className="flex items-center gap-1.5 text-indigo-100 hover:text-white text-sm font-medium transition-colors px-3 py-1.5 rounded-xl hover:bg-white/10"
             >
               <LogOut size={15} /> ออกจากระบบ
             </button>
@@ -306,13 +314,13 @@ function Dashboard({ auth, onNavigate, onLogout }) {
               <button
                 key={sys.key}
                 onClick={() => onNavigate(sys.key)}
-                className={`group bg-white ${sys.border} border-2 rounded-2xl p-6 text-left shadow-sm hover:shadow-md transition-all`}
+                className={`group ${sys.bg} ${sys.border} border-2 rounded-2xl p-6 text-left shadow-md hover:shadow-xl transition-all duration-200`}
               >
                 <div className="flex items-start justify-between gap-4">
-                  <div className={`p-3.5 ${sys.iconBg} rounded-xl shrink-0`}>
+                  <div className={`p-3.5 ${sys.iconBg} rounded-xl shrink-0 shadow-sm`}>
                     <Icon size={28} />
                   </div>
-                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${sys.badge} shrink-0 mt-1`}>
+                  <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${sys.badge} shrink-0 mt-1 shadow-sm`}>
                     {sys.badgeText}
                   </span>
                 </div>
@@ -321,23 +329,23 @@ function Dashboard({ auth, onNavigate, onLogout }) {
                   <h3 className="font-bold text-slate-800 text-lg leading-tight">{sys.title}</h3>
                   <p className="text-slate-500 text-sm mt-1.5 leading-relaxed">{sys.desc}</p>
                   {sys.key === 'inventory' && fmtDate(uploadMeta.inventory?.updated_at) && (
-                    <p className="flex items-center gap-1 text-xs text-indigo-600 mt-2 font-medium">
+                    <p className={`flex items-center gap-1 text-xs mt-2 font-medium ${sys.clockColor}`}>
                       <Clock size={11} /> อัพเดต: {fmtDate(uploadMeta.inventory?.updated_at)}
                     </p>
                   )}
                   {sys.key === 'receive' && fmtDate(lastReceive) && (
-                    <p className="flex items-center gap-1 text-xs text-emerald-600 mt-2 font-medium">
-                      <Clock size={11} /> รายการล่าสุด: {fmtDate(lastReceive)}
+                    <p className={`flex items-center gap-1 text-xs mt-2 font-medium ${sys.clockColor}`}>
+                      <Clock size={11} /> อัพเดต: {fmtDate(lastReceive)}
                     </p>
                   )}
                   {sys.key === 'dispense' && fmtDate(lastDispense) && (
-                    <p className="flex items-center gap-1 text-xs text-slate-500 mt-2 font-medium">
-                      <Clock size={11} /> รายการล่าสุด: {fmtDate(lastDispense)}
+                    <p className={`flex items-center gap-1 text-xs mt-2 font-medium ${sys.clockColor}`}>
+                      <Clock size={11} /> อัพเดต: {fmtDate(lastDispense)}
                     </p>
                   )}
                 </div>
 
-                <div className="flex items-center gap-1 mt-5 text-sm font-semibold text-slate-400 group-hover:text-indigo-600 transition-colors">
+                <div className={`flex items-center gap-1 mt-5 text-sm font-semibold text-slate-400 ${sys.hoverLink} transition-colors`}>
                   เข้าสู่ระบบ <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
                 </div>
               </button>
@@ -375,18 +383,18 @@ function StatsStrip() {
   }, []);
 
   const items = [
-    { label: 'รายการยาในคลัง',    value: stats.inventory,  color: 'text-indigo-600' },
-    { label: 'ใบเบิกรอดำเนินการ', value: stats.pending,    color: stats.pending > 0 ? 'text-amber-600' : 'text-slate-600' },
-    { label: 'เบิกจ่าย (30 วัน)', value: stats.dispense30, color: 'text-rose-600' },
-    { label: 'รับเข้า (30 วัน)',   value: stats.receive30,  color: 'text-emerald-600' },
+    { label: 'รายการยาในคลัง',    value: stats.inventory,  color: 'text-sky-700',  cardBg: 'bg-sky-50',  borderColor: 'border-sky-200',  labelColor: 'text-sky-500' },
+    { label: 'ใบเบิกรอดำเนินการ', value: stats.pending,    color: stats.pending > 0 ? 'text-amber-700' : 'text-slate-700',  cardBg: stats.pending > 0 ? 'bg-amber-50' : 'bg-slate-50',  borderColor: stats.pending > 0 ? 'border-amber-200' : 'border-slate-200',  labelColor: stats.pending > 0 ? 'text-amber-600' : 'text-slate-500' },
+    { label: 'เบิกจ่าย (30 วัน)', value: stats.dispense30, color: 'text-rose-700',    cardBg: 'bg-rose-50',    borderColor: 'border-rose-200',    labelColor: 'text-rose-500' },
+    { label: 'รับเข้า (30 วัน)',   value: stats.receive30,  color: 'text-emerald-700', cardBg: 'bg-emerald-50', borderColor: 'border-emerald-200', labelColor: 'text-emerald-600' },
   ];
 
   return (
     <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
       {items.map(item => (
-        <div key={item.label} className="bg-white border border-slate-200 rounded-xl p-4 text-center shadow-sm">
+        <div key={item.label} className={`${item.cardBg} border ${item.borderColor} rounded-xl p-4 text-center shadow-sm`}>
           <p className={`text-2xl font-bold ${item.color}`}>{typeof item.value === 'number' ? item.value.toLocaleString() : item.value}</p>
-          <p className="text-xs text-slate-500 mt-1 leading-tight">{item.label}</p>
+          <p className={`text-xs mt-1 leading-tight ${item.labelColor}`}>{item.label}</p>
         </div>
       ))}
     </div>

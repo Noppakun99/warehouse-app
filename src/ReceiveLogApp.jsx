@@ -7,33 +7,54 @@ import {
   TrendingUp, BarChart3,
 } from 'lucide-react';
 
+function DrugTypeBadge({ type }) {
+  if (!type || type === '-') return null;
+  const t = type.trim().toLowerCase();
+  let cls = 'bg-slate-100 text-slate-600';
+  if (t.includes('เม็ด') || t.includes('tablet') || t.includes('cap')) cls = 'bg-blue-100 text-blue-700';
+  else if (t.includes('น้ำ') || t.includes('syrup') || t.includes('liquid') || t.includes('sol')) cls = 'bg-emerald-100 text-emerald-700';
+  else if (t.includes('ฉีด') || t.includes('inject') || t.includes('iv') || t.includes('im')) cls = 'bg-rose-100 text-rose-700';
+  else if (t.includes('apply') || t.includes('cream') || t.includes('oint') || t.includes('ทา')) cls = 'bg-amber-100 text-amber-700';
+  else if (t.includes('inhale') || t.includes('สูด') || t.includes('spray')) cls = 'bg-purple-100 text-purple-700';
+  return <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>{type}</span>;
+}
+
 // ============================================================
 // Column aliases
 // ============================================================
 const COL_MAP = {
-  order_date:           ['วันที่แจ้งสั่ง', 'order date', 'order_date', 'วันสั่ง'],
-  receive_date:         ['วันที่รับ', 'receive date', 'receive_date', 'วันที่รับของ', 'วันรับ'],
+  order_date:           ['วันที่แจ้งสั่ง', 'order date', 'order_date', 'วันสั่ง', 'วันที่สั่ง'],
+  receive_date:         ['วันที่รับ', 'receive date', 'receive_date', 'วันที่รับของ', 'วันรับ', 'วันที่'],
   inspect_date:         ['วันที่ตรวจรับ', 'inspect date', 'inspect_date', 'วันตรวจรับ'],
   leadtime:             ['leadtime', 'lead time', 'ระยะเวลา'],
   inspect_lag:          ['วันที่ตรวจรับ-วันที่รับของ', 'inspect lag', 'lag', 'ระยะตรวจรับ'],
   bill_number:          ['เลขที่บิลซื้อ', 'เลขบิล', 'bill', 'bill_number', 'เลขที่บิล', 'invoice'],
   po_number:            ['เลขที่po', 'po number', 'po_number', 'po', 'เลข po'],
-  purchase_type:        ['สถานะการซื้อ', 'purchase type', 'purchase_type', 'ประเภทการซื้อ'],
-  receive_status:       ['สถานะตรวจรับ', 'receive status', 'receive_status', 'สถานะรับ'],
-  drug_code:            ['รหัส', 'รหัสยา', 'code', 'drug_code', 'รหัส hosxp', 'รหัสhosxp'],
+  purchase_type:        ['สถานะ', 'สถานะการซื้อ', 'สถานะการสั่ง', 'purchase type', 'purchase_type', 'ประเภทการซื้อ'],
+  receive_status:       ['ผลการพิจารณา', 'สถานะตรวจรับ', 'สถานะการตรวจรับ', 'สถานะตรวจ', 'receive status', 'receive_status', 'สถานะรับ'],
+  main_log:             ['mainlog', 'main_log', 'main log', 'log หลัก'],
+  detail_log:           ['detailedlog', 'detail_log', 'detailed log', 'detaillog', 'log ย่อย'],
+  drug_code:            ['รหัส', 'รหัสยา', 'รหัสhosxp', 'รหัส hosxp', 'code', 'drug_code'],
   drug_name:            ['รายการยา', 'ชื่อยา', 'drug_name', 'name', 'item'],
   drug_type:            ['รูปแบบ', 'ชนิด', 'type', 'drug_type', 'form'],
-  supplier_current:     ['บริษัทปัจจุบัน', 'บริษัท', 'supplier', 'supplier_current', 'vendor'],
-  supplier_prev:        ['บริษัทก่อนหน้า', 'supplier_prev', 'previous supplier', 'บริษัทเก่า'],
+  item_type:            ['ชนิดรายการ', 'item_type', 'item type'],
+  drug_unit:            ['หน่วย', 'หน่วยยา', 'drug_unit', 'unit_label'],
+  supplier_current:     ['บริษัทปัจจุบัน', 'บริษัทยา', 'บริษัท', 'supplier', 'supplier_current', 'vendor'],
+  supplier_prev:        ['บริษัทก่อนหน้า', 'บริษัทก่อนนาน', 'supplier_prev', 'previous supplier', 'บริษัทเก่า'],
   supplier_changed:     ['เปลี่ยนบริษัท', 'supplier_changed', 'change', 'เปลี่ยน'],
-  lot:                  ['lot', 'lot.', 'lot no', 'เลขที่ lot'],
+  lot:                  ['lot', 'lot.', 'lot number', 'lot no', 'เลขที่ lot'],
   exp:                  ['exp', 'exp.', 'exp date', 'วันหมดอายุ'],
+  note:                 ['หมายเหตุ', 'note', 'notes', 'remark', 'หมายเหตุรับ'],
   exp_note:             ['หมายเหตุหมดอายุ', 'exp_note', 'exp note', 'expiry note'],
   qty_received:         ['จำนวนที่รับ', 'qty_received', 'quantity', 'จำนวนรับ', 'จำนวน'],
   unit_per_bill:        ['หน่วย/บิล', 'unit_per_bill', 'unit per bill', 'หน่วยบิล'],
   price_per_unit:       ['ราคาต่อหน่วย(บาท)', 'ราคาต่อหน่วย', 'ราคา/หน่วย', 'price_per_unit', 'price', 'unit price'],
   total_price_vat:      ['ราคารวมภาษี (บาท)', 'ราคารวมภาษี', 'total_price_vat', 'total vat', 'ราคารวม'],
   total_price_formula:  ['ราคารวมภาษี (บาท)/สูตร', 'ราคารวมภาษี/สูตร', 'total_price_formula', 'formula price'],
+  safety_stock:         ['safety stock', 'safety_stock', 'สต็อกขั้นต่ำ', 'ปริมาณขั้นต่ำ'],
+  sum_of_lead_time:     ['sum of lead time (in days)', 'sum of lead time', 'sum_of_lead_time', 'lead time (in days)'],
+  swap_condition:       ['เงื่อนไขการแลกเปลี่ยนยาของบริษัท', 'swap_condition', 'swap condition', 'เงื่อนไขการแลกเปลี่ยน'],
+  swap_items:           ['ระบุรายการยาและเงื่อนไขยาแต่ละตัว', 'swap_items', 'swap items', 'ระบุรายการยาแลกเปลี่ยน'],
 };
 
 const CHUNK = 300;
@@ -76,26 +97,40 @@ const FIELD_LABELS = {
   po_number:           'เลขที่ PO',
   purchase_type:       'ประเภทการซื้อ',
   receive_status:      'สถานะตรวจรับ',
+  main_log:            'MainLog',
+  detail_log:          'DetailedLog',
   drug_code:           'รหัสยา',
   drug_name:           'ชื่อรายการยา',
   drug_type:           'รูปแบบยา',
+  item_type:           'ชนิดรายการ',
+  drug_unit:           'หน่วย',
   supplier_current:    'บริษัทปัจจุบัน',
   supplier_prev:       'บริษัทก่อนหน้า',
   supplier_changed:    'เปลี่ยนบริษัท',
   lot:                 'Lot',
   exp:                 'Exp',
+  note:                'หมายเหตุ',
   exp_note:            'หมายเหตุ Exp',
   qty_received:        'จำนวนที่รับ',
   unit_per_bill:       'หน่วย/บิล',
   price_per_unit:      'ราคา/หน่วย',
   total_price_vat:     'มูลค่ารวมภาษี',
   total_price_formula: 'มูลค่า/สูตร',
+  safety_stock:        'Safety Stock',
+  sum_of_lead_time:    'Sum of Lead Time',
+  swap_condition:      'เงื่อนไขแลกเปลี่ยน',
+  swap_items:          'รายการยาแลกเปลี่ยน',
 };
 
 function matchHeader(header) {
   const h = header.toLowerCase().trim().replace(/\s+/g, ' ');
+  // Pass 1: exact match
   for (const [field, aliases] of Object.entries(COL_MAP)) {
-    if (aliases.some(a => h === a.toLowerCase() || h.includes(a.toLowerCase()))) return field;
+    if (aliases.some(a => h === a.toLowerCase().trim())) return field;
+  }
+  // Pass 2: partial includes — เฉพาะ alias >= 7 ตัว เพื่อกันชนกับ alias สั้น
+  for (const [field, aliases] of Object.entries(COL_MAP)) {
+    if (aliases.some(a => a.trim().length >= 7 && h.includes(a.toLowerCase().trim()))) return field;
   }
   return null;
 }
@@ -183,20 +218,20 @@ export default function ReceiveLogApp({ onBack }) {
   const [showSummary, setShowSummary] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800 font-sans">
-      <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm px-4 py-3 flex items-center gap-2">
-        <button onClick={onBack} className="text-slate-500 hover:text-indigo-600 p-1 transition-colors shrink-0"><ArrowLeft size={20}/></button>
+    <div className="min-h-screen bg-slate-200 text-slate-800 font-sans">
+      <div className="sticky top-0 z-10 bg-emerald-700 shadow-md px-4 py-3 flex items-center gap-2">
+        <button onClick={onBack} className="text-emerald-100 hover:text-white p-1 transition-colors shrink-0"><ArrowLeft size={20}/></button>
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <TrendingUp size={20} className="text-emerald-500 shrink-0" />
-          <span className="font-semibold text-slate-800 truncate">บันทึกการรับเข้าคลัง (คลังรับ)</span>
+          <TrendingUp size={20} className="text-white shrink-0" />
+          <span className="font-semibold text-white truncate">บันทึกการรับเข้าคลัง (คลังรับ)</span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <button onClick={() => setShowSummary(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200 transition-all">
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white/20 text-white hover:bg-white/30 border border-white/30 transition-all">
             <BarChart3 size={15}/> สรุปผล
           </button>
           <button onClick={() => setTab('import')}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'import' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'import' ? 'bg-white text-emerald-700 font-bold' : 'text-emerald-100 hover:text-white hover:bg-white/20'}`}
           >Import CSV</button>
         </div>
       </div>
@@ -218,6 +253,7 @@ function ReceiveImport({ onDone }) {
   const [rawHeaders, setRawHeaders] = useState([]);
   const [rawRows, setRawRows]       = useState([]);
   const [loading, setLoading]       = useState(false);
+  const [uploadWarnings, setUploadWarnings] = useState(null);
   const fileRef = useRef(null);
 
   const handleFile = (e) => {
@@ -245,54 +281,93 @@ function ReceiveImport({ onDone }) {
   const getVal = (row, field) => {
     const idx = mapping[field];
     if (idx == null || idx === '') return null;
-    return row[idx]?.trim() || null;
+    const v = row[idx]?.trim() || null;
+    if (!v) return null;
+    const lower = v.toLowerCase();
+    if (lower === '(blank)' || lower === 'blank' || v === '-') return null;
+    return v;
   };
 
   const handleImport = async () => {
     if (!rawRows.length || !supabase) return;
     setLoading(true); setError('');
     try {
-      const rows = rawRows
-        .filter(row => row.some(c => c.trim()))
-        .map(row => {
-          const drugName = getVal(row, 'drug_name');
-          if (!drugName) return null;
+      const warnRows = [];
+      const activeRaws = rawRows
+        .map((row, i) => ({ row, rowNum: i + 2 }))
+        .filter(({ row }) => row.some(c => c.trim()));
+
+      const rows = activeRaws.map(({ row, rowNum }) => {
+          const drugName   = getVal(row, 'drug_name');
+          const drugCode   = normalizeCode(getVal(row, 'drug_code'));
+          const lot        = getVal(row, 'lot') || '-';
+          const billNumber = getVal(row, 'bill_number') || '-';
+
+          const issues = [];
+          if (!drugName) issues.push('ไม่มีชื่อยา');
+          if (!drugCode || drugCode === '-') issues.push('ไม่มีรหัสยา');
+          if (!lot || lot === '-') issues.push('ไม่มี Lot');
+          if (!billNumber || billNumber === '-') issues.push('ไม่มีเลขที่บิล');
+          if (issues.length > 0) warnRows.push({ row: rowNum, name: drugName || '-', code: drugCode || '-', issues });
+
+          const swapFromCsv = [getVal(row, 'swap_condition'), getVal(row, 'swap_items')].filter(Boolean).join(' | ') || null;
           return {
             order_date:           parseDate(getVal(row, 'order_date')),
             receive_date:         parseDate(getVal(row, 'receive_date')),
             inspect_date:         parseDate(getVal(row, 'inspect_date')),
             leadtime:             getVal(row, 'leadtime'),
             inspect_lag:          getVal(row, 'inspect_lag'),
-            bill_number:          getVal(row, 'bill_number') || '-',
+            bill_number:          billNumber,
             po_number:            getVal(row, 'po_number') || '-',
             purchase_type:        getVal(row, 'purchase_type') || '-',
             receive_status:       getVal(row, 'receive_status') || '-',
-            drug_code:            normalizeCode(getVal(row, 'drug_code')),
-            drug_name:            drugName,
+            main_log:             getVal(row, 'main_log') || null,
+            detail_log:           getVal(row, 'detail_log') || null,
+            drug_code:            drugCode,
+            drug_name:            drugName || '-',
             drug_type:            getVal(row, 'drug_type') || '-',
+            item_type:            getVal(row, 'item_type') || null,
+            drug_unit:            getVal(row, 'drug_unit') || null,
             supplier_current:     getVal(row, 'supplier_current') || '-',
             supplier_prev:        getVal(row, 'supplier_prev') || '-',
             supplier_changed:     getVal(row, 'supplier_changed') || '-',
-            lot:                  getVal(row, 'lot') || '-',
+            lot,
             exp:                  getVal(row, 'exp') || '-',
+            note:                 getVal(row, 'note'),
             exp_note:             getVal(row, 'exp_note'),
             qty_received:         parseFloat(String(getVal(row, 'qty_received') || '0').replace(/,/g,'')) || null,
             unit_per_bill:        getVal(row, 'unit_per_bill') || '-',
             price_per_unit:       parseFloat(String(getVal(row, 'price_per_unit') || '0').replace(/,/g,'')) || null,
             total_price_vat:      parseFloat(String(getVal(row, 'total_price_vat') || '0').replace(/,/g,'')) || null,
             total_price_formula:  getVal(row, 'total_price_formula'),
+            safety_stock:         parseFloat(String(getVal(row, 'safety_stock') || '').replace(/,/g,'')) || null,
+            sum_of_lead_time:     getVal(row, 'sum_of_lead_time') || null,
+            drug_swap_policy:     swapFromCsv,
           };
-        })
-        .filter(Boolean);
+        });
+
+      // Fallback: ดึง drug_swap_policy จาก drug_details DB สำหรับ row ที่ CSV ไม่มีข้อมูล
+      const needLookup = [...new Set(rows.filter(r => !r.drug_swap_policy && r.drug_code && r.drug_code !== '-').map(r => r.drug_code))];
+      if (needLookup.length > 0) {
+        const { data: ddRows } = await supabase.from('drug_details').select('code, drug_swap_policy').in('code', needLookup);
+        if (ddRows) {
+          const swapByCode = {};
+          ddRows.forEach(d => { if (d.code && d.drug_swap_policy && !swapByCode[d.code]) swapByCode[d.code] = d.drug_swap_policy; });
+          rows.forEach(r => { if (!r.drug_swap_policy && swapByCode[r.drug_code]) r.drug_swap_policy = swapByCode[r.drug_code]; });
+        }
+      }
 
       for (let i = 0; i < rows.length; i += CHUNK) {
         const { error: e } = await supabase.from('receive_logs').insert(rows.slice(i, i + CHUNK));
         if (e) throw e;
+        // รอ 500ms ก่อน chunk ถัดไป ป้องกัน Supabase rate limit
+        if (i + CHUNK < rows.length) await new Promise(r => setTimeout(r, 500));
       }
       const now = new Date();
       const importTime = now.toLocaleString('th-TH', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
       setStatus(`นำเข้าสำเร็จ ${rows.length.toLocaleString()} รายการ · นำเข้าเมื่อ ${importTime}`);
       setPreview(null); setRawRows([]); setRawHeaders([]);
+      if (warnRows.length > 0) setUploadWarnings({ fileName: preview?.fileName || '', type: 'CSV คลังรับ', rows: warnRows });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -302,6 +377,43 @@ function ReceiveImport({ onDone }) {
 
   return (
     <div className="p-4 space-y-4 max-w-3xl mx-auto">
+      {/* Upload Warning Modal */}
+      {uploadWarnings && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div className="bg-amber-500 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
+              <div>
+                <p className="font-bold text-lg">⚠️ พบ Row ที่ไม่ผ่านเงื่อนไข</p>
+                <p className="text-amber-100 text-sm">{uploadWarnings.type}: {uploadWarnings.fileName} — {uploadWarnings.rows.length} row มีปัญหา</p>
+              </div>
+              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors">✕</button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-4 space-y-2">
+              {uploadWarnings.rows.map((r, i) => (
+                <div key={i} className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-sm">
+                  <div className="flex gap-3 items-start">
+                    <span className="font-mono bg-amber-200 text-amber-900 px-2 py-0.5 rounded text-xs font-bold shrink-0">Row {r.row}</span>
+                    <div className="flex-1">
+                      <span className="font-semibold text-slate-800">{r.name}</span>
+                      {r.code && r.code !== '-' && <span className="text-slate-400 ml-2 text-xs">[{r.code}]</span>}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {r.issues.map((issue, j) => (
+                          <span key={j} className="bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full text-xs">{issue}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex justify-between items-center">
+              <p className="text-sm text-slate-500">ข้อมูลที่ถูกต้องถูกบันทึกแล้ว — แก้ไข CSV แล้วอัปโหลดใหม่</p>
+              <button onClick={() => setUploadWarnings(null)} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm">รับทราบ</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div onClick={() => fileRef.current?.click()}
         className="border-2 border-dashed border-slate-300 hover:border-emerald-400 bg-white rounded-2xl p-10 text-center cursor-pointer transition-colors">
         <FileSpreadsheet size={40} className="mx-auto mb-3 text-slate-400" />
@@ -327,7 +439,7 @@ function ReceiveImport({ onDone }) {
               { label: 'บริษัทปัจจุบัน',    req: false, hints: ['บริษัทปัจจุบัน', 'บริษัท', 'supplier'] },
               { label: 'เลขที่บิล',         req: false, hints: ['เลขที่บิลซื้อ', 'เลขบิล', 'bill_number'] },
               { label: 'เลขที่ PO',         req: false, hints: ['เลขที่po', 'po_number', 'po'] },
-              { label: 'Lot',               req: false, hints: ['lot', 'lot.', 'เลขที่ lot'] },
+              { label: 'Lot',               req: false, hints: ['lot', 'lot.', 'lot number', 'เลขที่ lot'] },
               { label: 'Exp',               req: false, hints: ['exp', 'exp.', 'วันหมดอายุ'] },
               { label: 'จำนวนที่รับ',       req: false, hints: ['จำนวนที่รับ', 'qty_received', 'จำนวน'] },
               { label: 'หน่วย/บิล',         req: false, hints: ['หน่วย/บิล', 'unit_per_bill'] },
@@ -335,9 +447,10 @@ function ReceiveImport({ onDone }) {
               { label: 'มูลค่ารวมภาษี',     req: false, hints: ['ราคารวมภาษี (บาท)', 'ราคารวมภาษี', 'total_price_vat'] },
               { label: 'วันที่แจ้งสั่ง',    req: false, hints: ['วันที่แจ้งสั่ง', 'order_date'] },
               { label: 'วันที่ตรวจรับ',     req: false, hints: ['วันที่ตรวจรับ', 'inspect_date'] },
-              { label: 'สถานะตรวจรับ',      req: false, hints: ['สถานะตรวจรับ', 'receive_status'] },
-              { label: 'ประเภทการซื้อ',     req: false, hints: ['สถานะการซื้อ', 'purchase_type'] },
-              { label: 'บริษัทก่อนหน้า',   req: false, hints: ['บริษัทก่อนหน้า', 'supplier_prev'] },
+              { label: 'สถานะตรวจรับ',      req: false, hints: ['สถานะตรวจรับ', 'สถานะตรวจ', 'receive_status'] },
+              { label: 'ประเภทการซื้อ',     req: false, hints: ['สถานะการซื้อ', 'สถานะการสั่ง', 'purchase_type'] },
+              { label: 'บริษัทก่อนหน้า',   req: false, hints: ['บริษัทก่อนหน้า', 'บริษัทก่อนนาน', 'supplier_prev'] },
+              { label: 'หมายเหตุ',          req: false, hints: ['หมายเหตุ', 'note', 'remark'] },
             ].map(({ label, req, hints }) => (
               <div key={label} className="bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
                 <div className="flex items-center gap-1.5 mb-1">
@@ -386,13 +499,13 @@ function ReceiveImport({ onDone }) {
           {/* Editable mapping (collapsed) */}
           <details>
             <summary className="cursor-pointer text-xs text-indigo-600 hover:text-indigo-800 font-medium select-none">แก้ไขการจับคู่คอลัมน์ด้วยตัวเอง ▸</summary>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto mt-2">
+            <div className="grid grid-cols-1 gap-1.5 max-h-72 overflow-y-auto mt-2 pr-1">
               {Object.keys(COL_MAP).map(field => (
-                <div key={field} className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500 w-36 shrink-0">{FIELD_LABELS[field] || field}</span>
+                <div key={field} className="grid gap-2 items-center" style={{gridTemplateColumns:'10rem 1fr'}}>
+                  <span className="text-xs text-slate-600 font-medium truncate">{FIELD_LABELS[field] || field}</span>
                   <select value={mapping[field] ?? ''}
                     onChange={e => setMapping(p => ({ ...p, [field]: e.target.value === '' ? undefined : Number(e.target.value) }))}
-                    className="flex-1 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400">
                     <option value="">-- ไม่ใช้ --</option>
                     {rawHeaders.map((h, i) => <option key={i} value={i}>{h}</option>)}
                   </select>
@@ -440,8 +553,8 @@ function ReceiveImport({ onDone }) {
       )}
 
       {status && (
-        <button onClick={onDone} className="w-full bg-slate-800 hover:bg-slate-700 text-white rounded-xl py-3 font-semibold transition-all">
-          ไปดูข้อมูล →
+        <button onClick={onDone} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-3 font-semibold transition-all flex items-center justify-center gap-2">
+          <ArrowLeft size={18}/> กลับไปหน้าประวัติรับยา
         </button>
       )}
     </div>
@@ -526,8 +639,11 @@ function ReceiveView() {
       .order('receive_date', { ascending: false })
       .order('id', { ascending: false });
     if (search.trim())  q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%,bill_number.ilike.%${search}%`);
-    if (dateFrom)       q = q.gte('receive_date', thaiToIso(dateFrom) || dateFrom);
-    if (dateTo)         q = q.lte('receive_date', thaiToIso(dateTo)   || dateTo);
+    const isoFrom = thaiToIso(dateFrom) || dateFrom;
+    const isoTo   = thaiToIso(dateTo)   || dateTo;
+    if (dateFrom && dateTo)   { q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo); }
+    else if (dateFrom)        { q = q.eq('receive_date', isoFrom); }
+    else if (dateTo)          { q = q.lte('receive_date', isoTo); }
     q = q.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
     const { data } = await q;
     setRows(data || []);
@@ -554,8 +670,12 @@ function ReceiveView() {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from('receive_logs').select('drug_name').then(({ data }) => {
-      if (data) setDrugNames([...new Set(data.map(d => d.drug_name).filter(Boolean))].sort());
+    supabase.from('receive_logs').select('drug_name, drug_type').then(({ data }) => {
+      if (!data) return;
+      const typeMap = {};
+      data.forEach(d => { if (d.drug_name && d.drug_type && d.drug_type !== '-') typeMap[d.drug_name] = d.drug_type; });
+      const names = [...new Set(data.map(d => d.drug_name).filter(Boolean))].sort();
+      setDrugNames(names.map(name => ({ name, type: typeMap[name] || '' })));
     });
   }, []);
 
@@ -581,7 +701,7 @@ function ReceiveView() {
   }, [selectedDrug]);
 
   const filteredDrugs = search.trim()
-    ? drugNames.filter(n => n.toLowerCase().includes(search.toLowerCase())).slice(0, 10)
+    ? drugNames.filter(n => n.name.toLowerCase().includes(search.toLowerCase())).slice(0, 10)
     : [];
 
   const selectDrug = (name) => {
@@ -600,25 +720,74 @@ function ReceiveView() {
     setPage(0);
   };
 
-  // กรองด้วย date range ฝั่ง drug table (client-side)
-  const filteredDrugRows = drugRows.filter(r => {
-    if (drugDateFrom && r.receive_date < drugDateFrom) return false;
-    if (drugDateTo   && r.receive_date > drugDateTo)   return false;
-    return true;
-  });
+  // dedup key: วันที่+ชื่อยา+lot+exp+เลขบิล (ใช้ drug_name แทน drug_code เพราะบางแถว code = "-")
+  const dedupKey = (r) => [
+    r.receive_date || '',
+    (r.drug_name   || '').trim().toLowerCase(),
+    (r.lot         || '').trim().toLowerCase().replace(/^-$/, ''),
+    (r.exp         || '').trim().toLowerCase().replace(/^-$/, ''),
+    (r.bill_number || '').trim().toLowerCase().replace(/^-$/, ''),
+  ].join('|');
+
+  // กรองด้วย date range ฝั่ง drug table (client-side) + dedup
+  const filteredDrugRows = (() => {
+    const seen = new Set();
+    // เรียง: row ที่มีข้อมูลครบกว่า (supplier, price) ขึ้นก่อน → dedup จะเก็บ row ดีกว่า
+    const sorted = [...drugRows].sort((a, b) => {
+      const aScore = (a.supplier_current && a.supplier_current !== '-' ? 1 : 0) + (a.total_price_vat ? 1 : 0);
+      const bScore = (b.supplier_current && b.supplier_current !== '-' ? 1 : 0) + (b.total_price_vat ? 1 : 0);
+      return bScore - aScore;
+    });
+    return sorted.filter(r => {
+      if (drugDateFrom && r.receive_date < drugDateFrom) return false;
+      if (drugDateTo   && r.receive_date > drugDateTo)   return false;
+      const key = dedupKey(r);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  })();
   const drugCode  = drugRows.find(r => r.drug_code    && r.drug_code    !== '-')?.drug_code    || '-';
-  const drugUnit  = drugRows.find(r => r.unit_per_bill && r.unit_per_bill !== '-')?.unit_per_bill || '-';
+  const drugUnit  = drugRows.find(r => (r.drug_unit && r.drug_unit !== '-') || (r.unit_per_bill && r.unit_per_bill !== '-'))
+    ?.drug_unit || drugRows.find(r => r.unit_per_bill && r.unit_per_bill !== '-')?.unit_per_bill || '-';
   const drugTotalQty   = filteredDrugRows.reduce((s, r) => s + (r.qty_received    || 0), 0);
   const drugTotalValue = filteredDrugRows.reduce((s, r) => s + (r.total_price_vat || 0), 0);
 
-  const displayRows = supplierFilter
-    ? rows.filter(r => (getDetailSupplier(r) || r.supplier_current || '') === supplierFilter)
-    : rows;
+  const displayRows = (() => {
+    const seen = new Set();
+    const base = supplierFilter
+      ? rows.filter(r => (getDetailSupplier(r) || r.supplier_current || '') === supplierFilter)
+      : rows;
+    // เรียง: row ที่มีข้อมูลครบกว่าขึ้นก่อน
+    const sorted = [...base].sort((a, b) => {
+      const aScore = (a.supplier_current && a.supplier_current !== '-' ? 1 : 0) + (a.total_price_vat ? 1 : 0);
+      const bScore = (b.supplier_current && b.supplier_current !== '-' ? 1 : 0) + (b.total_price_vat ? 1 : 0);
+      return bScore - aScore;
+    });
+    return sorted.filter(r => {
+      const key = dedupKey(r);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  })();
   const totalQty   = displayRows.reduce((s, r) => s + (r.qty_received || 0), 0);
   const totalValue = displayRows.reduce((s, r) => s + (r.total_price_vat || 0), 0);
   const hasFilter  = search || supplierFilter || dateFrom || dateTo;
 
   const clearAll = () => { clearSearch(); setSupplier(''); setSupplierSearch(''); setDateFrom(''); setDateTo(''); };
+
+  const deleteBlankRows = async () => {
+    if (!supabase) return;
+    if (!window.confirm('ลบ row ที่ชื่อยาเป็น (blank) หรือ - ออกจากฐานข้อมูล?')) return;
+    const { error } = await supabase
+      .from('receive_logs')
+      .delete()
+      .or('drug_name.ilike.(blank),drug_name.eq.-,drug_name.is.null');
+    if (error) { alert('เกิดข้อผิดพลาด: ' + error.message); return; }
+    alert('ลบเรียบร้อย');
+    load();
+  };
 
   return (
     <div className="p-4 space-y-4 max-w-5xl mx-auto">
@@ -643,13 +812,16 @@ function ReceiveView() {
             {/* Dropdown ชื่อยา */}
             {showDropdown && filteredDrugs.length > 0 && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 overflow-hidden">
-                {filteredDrugs.map(name => (
+                {filteredDrugs.map(({ name, type }) => (
                   <button
                     key={name}
                     onMouseDown={e => { e.preventDefault(); selectDrug(name); }}
                     className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors border-b border-slate-100 last:border-0"
                   >
-                    {name}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span>{name}</span>
+                      {type && <DrugTypeBadge type={type} />}
+                    </div>
                   </button>
                 ))}
               </div>
@@ -691,6 +863,9 @@ function ReceiveView() {
           <button onClick={clearAll} className="text-slate-400 hover:text-slate-600 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
             <RefreshCcw size={16}/>
           </button>
+          <button onClick={deleteBlankRows} className="text-rose-400 hover:text-rose-600 text-xs px-2 py-1.5 rounded-lg border border-rose-200 hover:bg-rose-50 transition-colors" title="ลบ row ที่เป็น (blank)">
+            ลบ blank
+          </button>
         </div>
         {/* Date range */}
         <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -707,31 +882,30 @@ function ReceiveView() {
 
       {/* ตารางประวัติรับยาที่เลือก */}
       {selectedDrug && (
-        <div className="bg-white border border-emerald-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="bg-white border border-emerald-300 rounded-xl shadow-md overflow-hidden">
           {/* Header */}
-          <div className="bg-emerald-50 px-4 py-3 border-b border-emerald-200">
+          <div className="bg-emerald-700 px-4 py-3">
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
-                <p className="font-bold text-emerald-800">{selectedDrug}</p>
-                <p className="text-xs text-emerald-600 mt-0.5">รหัส: {drugCode} · หน่วย: {drugUnit}</p>
-                {/* บริษัทที่เคยรับ */}
+                <p className="font-bold text-white text-base">{selectedDrug}</p>
+                <p className="text-xs text-emerald-200 mt-0.5">รหัส: {drugCode} · หน่วย: {drugUnit}</p>
                 {drugRows.length > 0 && (() => {
                   const suppliers = [...new Set(drugRows.map(r => r.supplier_current).filter(s => s && s !== '-'))];
                   return suppliers.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5 mt-2 items-center">
-                      <span className="text-xs text-emerald-700 font-semibold shrink-0">บริษัทที่เคยรับ:</span>
+                      <span className="text-xs text-emerald-200 font-semibold shrink-0">บริษัทที่เคยรับ:</span>
                       {suppliers.map(s => (
-                        <span key={s} className="text-xs bg-white border border-emerald-200 text-emerald-700 px-2 py-0.5 rounded-full">{s}</span>
+                        <span key={s} className="text-xs bg-white/20 border border-white/30 text-white px-2 py-0.5 rounded-full">{s}</span>
                       ))}
                     </div>
                   ) : null;
                 })()}
               </div>
-              <button onClick={clearSearch} className="text-emerald-400 hover:text-emerald-600 shrink-0 mt-0.5"><X size={16}/></button>
+              <button onClick={clearSearch} className="text-emerald-200 hover:text-white shrink-0 mt-0.5"><X size={16}/></button>
             </div>
           </div>
 
-          {/* Date filter + totals */}
+          {/* Date filter */}
           <div className="px-4 py-2.5 border-b border-slate-100 flex flex-wrap items-center gap-3">
             <span className="text-xs text-slate-500 font-medium">ช่วงวันที่:</span>
             <input type="date" value={drugDateFrom} onChange={e => setDrugDateFrom(e.target.value)}
@@ -743,10 +917,21 @@ function ReceiveView() {
               <button onClick={() => { setDrugDateFrom(''); setDrugDateTo(''); }}
                 className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-0.5"><X size={11}/>ล้าง</button>
             )}
-            <div className="ml-auto flex items-center gap-4 text-xs">
-              <span className="text-slate-500">{filteredDrugRows.length.toLocaleString()} รายการ</span>
-              <span className="font-semibold text-emerald-700">รับรวม {drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})} {drugUnit}</span>
-              <span className="font-semibold text-amber-700">{drugTotalValue.toLocaleString(undefined,{maximumFractionDigits:0})} บาท</span>
+          </div>
+
+          {/* Summary cards */}
+          <div className="grid grid-cols-3 gap-3 px-4 py-3">
+            <div className="bg-slate-700 border border-slate-600 rounded-xl p-3 text-center shadow-sm">
+              <p className="text-2xl font-bold text-white">{filteredDrugRows.length.toLocaleString()}</p>
+              <p className="text-xs text-slate-300 mt-0.5">รายการ (กรอง)</p>
+            </div>
+            <div className="bg-emerald-700 border border-emerald-600 rounded-xl p-3 text-center shadow-sm">
+              <p className="text-2xl font-bold text-white">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+              <p className="text-xs text-emerald-200 mt-0.5">ปริมาณรับรวม</p>
+            </div>
+            <div className="bg-amber-600 border border-amber-500 rounded-xl p-3 text-center shadow-sm">
+              <p className="text-2xl font-bold text-white">{drugTotalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+              <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวมภาษี (บาท)</p>
             </div>
           </div>
 
@@ -756,20 +941,20 @@ function ReceiveView() {
           ) : filteredDrugRows.length === 0 ? (
             <p className="text-center text-slate-400 py-8 text-sm">ไม่พบข้อมูลในช่วงที่เลือก</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-auto max-h-[480px]">
               <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 font-semibold">
-                    <th className="px-4 py-2.5 text-left">วันที่รับ</th>
-                    <th className="px-4 py-2.5 text-right">จำนวน</th>
-                    <th className="px-4 py-2.5 text-left">หน่วย</th>
-                    <th className="px-4 py-2.5 text-left">Lot</th>
-                    <th className="px-4 py-2.5 text-left">Exp</th>
-                    <th className="px-4 py-2.5 text-right">ราคา/หน่วย</th>
-                    <th className="px-4 py-2.5 text-right">มูลค่ารวมภาษี (บาท)</th>
-                    <th className="px-4 py-2.5 text-left">บริษัท</th>
-                    <th className="px-4 py-2.5 text-left">เลขบิล</th>
-                    <th className="px-4 py-2.5 w-6"></th>
+                <thead className="sticky top-0 z-[5]">
+                  <tr className="text-xs text-white font-bold border-b border-slate-600">
+                    <th className="px-4 py-2.5 text-left bg-slate-700">วันที่รับ</th>
+                    <th className="px-4 py-2.5 text-right bg-slate-700">จำนวน</th>
+                    <th className="px-4 py-2.5 text-left bg-slate-700">หน่วย</th>
+                    <th className="px-4 py-2.5 text-left bg-slate-700">Lot</th>
+                    <th className="px-4 py-2.5 text-left bg-slate-700">Exp</th>
+                    <th className="px-4 py-2.5 text-right bg-slate-700">ราคา/หน่วย</th>
+                    <th className="px-4 py-2.5 text-right bg-slate-700">มูลค่ารวมภาษี (บาท)</th>
+                    <th className="px-4 py-2.5 text-left bg-slate-700">บริษัท</th>
+                    <th className="px-4 py-2.5 text-left bg-slate-700">เลขบิล</th>
+                    <th className="px-4 py-2.5 w-6 bg-slate-700"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -777,30 +962,22 @@ function ReceiveView() {
                     <React.Fragment key={r.id}>
                       <tr
                         onClick={() => setDrugExpanded(drugExpanded === r.id ? null : r.id)}
-                        className={`border-b border-slate-100 cursor-pointer transition-colors ${drugExpanded === r.id ? 'bg-emerald-50' : i % 2 === 0 ? 'hover:bg-slate-50' : 'bg-slate-50/40 hover:bg-slate-100'}`}
+                        className={`border-b border-slate-200 cursor-pointer transition-colors ${drugExpanded === r.id ? 'bg-emerald-100' : i % 2 === 0 ? 'hover:bg-emerald-50' : 'bg-slate-50 hover:bg-emerald-50'}`}
                       >
-                        <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap">{fmtDate(r.receive_date)}</td>
-                        <td className="px-4 py-2.5 text-emerald-700 font-semibold text-right whitespace-nowrap">+{(r.qty_received || 0).toLocaleString()}</td>
-                        <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{r.unit_per_bill || '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{r.lot || '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
-                        <td className="px-4 py-2.5 text-slate-600 text-right whitespace-nowrap">{r.price_per_unit != null ? Number(r.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                        <td className="px-4 py-2.5 text-amber-700 text-right whitespace-nowrap">{r.total_price_vat != null ? Number(r.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                        <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(r.receive_date)}</td>
+                        <td className="px-4 py-2.5 text-emerald-800 font-bold text-right whitespace-nowrap">+{(r.qty_received || 0).toLocaleString()}</td>
+                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{r.drug_unit || r.unit_per_bill || '-'}</td>
+                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{r.lot || '-'}</td>
+                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
+                        <td className="px-4 py-2.5 text-slate-800 font-medium text-right whitespace-nowrap">{r.price_per_unit != null ? Number(r.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                        <td className="px-4 py-2.5 text-amber-800 font-bold text-right whitespace-nowrap">{r.total_price_vat != null ? Number(r.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
                         <td className="px-4 py-2.5 max-w-[160px]">
-                          {(() => {
-                            const ds = getDetailSupplier(r);
-                            const raw = r.supplier_current || '-';
-                            if (ds && ds !== raw) return (
-                              <div>
-                                <div className="text-emerald-700 font-medium truncate text-xs">{ds}</div>
-                                <div className="text-slate-400 line-through truncate text-xs">{raw}</div>
-                              </div>
-                            );
-                            return <span className="text-slate-600 truncate block">{ds || raw}</span>;
-                          })()}
+                          <span className="text-slate-800 font-medium truncate block text-xs">
+                            {getDetailSupplier(r) || r.supplier_current || '-'}
+                          </span>
                         </td>
-                        <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{r.bill_number || '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-400">
+                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{r.bill_number || '-'}</td>
+                        <td className="px-4 py-2.5 text-slate-500">
                           {drugExpanded === r.id ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
                         </td>
                       </tr>
@@ -817,8 +994,8 @@ function ReceiveView() {
                                 ['ประเภทการซื้อ',      r.purchase_type],
                                 ['สถานะตรวจรับ',      r.receive_status],
                                 ['รูปแบบ',            r.drug_type],
-                                ['บริษัทก่อนหน้า',    r.supplier_prev],
-                                ['เปลี่ยนบริษัท',     r.supplier_changed],
+                                ['บริษัทก่อนหน้า',    r.supplier_prev && r.supplier_prev !== '-' ? r.supplier_prev : null],
+                                ['เคยเปลี่ยนบริษัท',  r.supplier_changed && r.supplier_changed !== '-' ? r.supplier_changed : null],
                                 ['หมายเหตุหมดอายุ',   r.exp_note],
                                 ['ราคารวมภาษี/สูตร',  r.total_price_formula],
                               ].map(([label, val]) => val != null && val !== '-' && val !== '' ? (
@@ -852,17 +1029,17 @@ function ReceiveView() {
 
       {!selectedDrug && rows.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
-          <div className="bg-white border border-slate-200 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-slate-800">{rows.length.toLocaleString()}</p>
-            <p className="text-xs text-slate-500 mt-0.5">รายการ{hasFilter ? ' (กรอง)' : ' (หน้านี้)'}</p>
+          <div className="bg-slate-700 border border-slate-600 rounded-xl p-3 text-center shadow-sm">
+            <p className="text-2xl font-bold text-white">{rows.length.toLocaleString()}</p>
+            <p className="text-xs text-slate-300 mt-0.5">รายการ{hasFilter ? ' (กรอง)' : ' (หน้านี้)'}</p>
           </div>
-          <div className="bg-white border border-slate-200 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-emerald-600">{totalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-            <p className="text-xs text-slate-500 mt-0.5">ปริมาณรับรวม</p>
+          <div className="bg-emerald-700 border border-emerald-600 rounded-xl p-3 text-center shadow-sm">
+            <p className="text-2xl font-bold text-white">{totalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+            <p className="text-xs text-emerald-200 mt-0.5">ปริมาณรับรวม</p>
           </div>
-          <div className="bg-white border border-slate-200 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-amber-600">{totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-            <p className="text-xs text-slate-500 mt-0.5">มูลค่ารวมภาษี (บาท)</p>
+          <div className="bg-amber-600 border border-amber-500 rounded-xl p-3 text-center shadow-sm">
+            <p className="text-2xl font-bold text-white">{totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+            <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวมภาษี (บาท)</p>
           </div>
         </div>
       )}
@@ -880,18 +1057,18 @@ function ReceiveView() {
           <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-260px)]">
             <table className="w-full min-w-[900px] text-sm">
               <thead className="sticky top-0 z-[5]">
-                <tr className="text-xs text-slate-500 font-semibold border-b border-slate-200">
-                  <th className="px-4 py-2.5 text-left bg-slate-100">วันที่รับ</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-100">ชื่อรายการยา</th>
-                  <th className="px-4 py-2.5 text-right bg-slate-100">จำนวน</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-100">หน่วย</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-100">Lot</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-100">Exp</th>
-                  <th className="px-4 py-2.5 text-right bg-slate-100">ราคา/หน่วย</th>
-                  <th className="px-4 py-2.5 text-right bg-slate-100">มูลค่ารวมภาษี (บาท)</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-100">บริษัท</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-100">เลขบิล</th>
-                  <th className="px-4 py-2.5 w-8 bg-slate-100"></th>
+                <tr className="text-xs text-white font-bold border-b border-slate-600">
+                  <th className="px-4 py-2.5 text-left bg-slate-700">วันที่รับ</th>
+                  <th className="px-4 py-2.5 text-left bg-slate-700">ชื่อรายการยา</th>
+                  <th className="px-4 py-2.5 text-right bg-slate-700">จำนวน</th>
+                  <th className="px-4 py-2.5 text-left bg-slate-700">หน่วย</th>
+                  <th className="px-4 py-2.5 text-left bg-slate-700">Lot</th>
+                  <th className="px-4 py-2.5 text-left bg-slate-700">Exp</th>
+                  <th className="px-4 py-2.5 text-right bg-slate-700">ราคา/หน่วย</th>
+                  <th className="px-4 py-2.5 text-right bg-slate-700">มูลค่ารวมภาษี (บาท)</th>
+                  <th className="px-4 py-2.5 text-left bg-slate-700">บริษัท</th>
+                  <th className="px-4 py-2.5 text-left bg-slate-700">เลขบิล</th>
+                  <th className="px-4 py-2.5 w-8 bg-slate-700"></th>
                 </tr>
               </thead>
               <tbody>
@@ -899,24 +1076,24 @@ function ReceiveView() {
                   <React.Fragment key={row.id}>
                     <tr
                       onClick={() => setExpanded(expanded === row.id ? null : row.id)}
-                      className={`border-b border-slate-100 cursor-pointer transition-colors ${expanded === row.id ? 'bg-emerald-50' : i % 2 === 0 ? 'hover:bg-slate-50' : 'bg-slate-50/40 hover:bg-slate-100'}`}
+                      className={`border-b border-slate-200 cursor-pointer transition-colors ${expanded === row.id ? 'bg-emerald-100' : i % 2 === 0 ? 'hover:bg-emerald-50' : 'bg-slate-50 hover:bg-emerald-50'}`}
                     >
-                      <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{fmtDate(row.receive_date)}</td>
-                      <td className="px-4 py-2.5 font-medium text-slate-800 max-w-[220px]">
+                      <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(row.receive_date)}</td>
+                      <td className="px-4 py-2.5 font-semibold text-slate-900 max-w-[220px]">
                         <span className="block truncate">{row.drug_name}</span>
-                        <span className="text-xs text-slate-400 font-normal">{row.drug_code}</span>
+                        <span className="text-xs text-slate-600 font-normal">{row.drug_code}</span>
                       </td>
-                      <td className="px-4 py-2.5 text-emerald-700 font-semibold text-right whitespace-nowrap">+{(row.qty_received || 0).toLocaleString()}</td>
-                      <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{row.unit_per_bill || '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{row.lot || '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>
-                      <td className="px-4 py-2.5 text-slate-600 text-right whitespace-nowrap">{row.price_per_unit != null ? Number(row.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-2.5 text-amber-700 text-right whitespace-nowrap">{row.total_price_vat != null ? Number(row.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-600 max-w-[140px] truncate">
+                      <td className="px-4 py-2.5 text-emerald-800 font-bold text-right whitespace-nowrap">+{(row.qty_received || 0).toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{row.drug_unit || row.unit_per_bill || '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{row.lot || '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>
+                      <td className="px-4 py-2.5 text-slate-800 font-medium text-right whitespace-nowrap">{row.price_per_unit != null ? Number(row.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                      <td className="px-4 py-2.5 text-amber-800 font-bold text-right whitespace-nowrap">{row.total_price_vat != null ? Number(row.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-800 max-w-[160px] truncate font-medium text-xs">
                         {getDetailSupplier(row) || row.supplier_current || '-'}
                       </td>
-                      <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">{row.bill_number || '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-400">
+                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{row.bill_number || '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-500">
                         {expanded === row.id ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                       </td>
                     </tr>
@@ -1008,8 +1185,12 @@ function ReceiveSummaryModal({ onClose }) {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from('receive_logs').select('drug_name').then(({ data }) => {
-      if (data) setDrugNames([...new Set(data.map(d => d.drug_name).filter(Boolean))].sort());
+    supabase.from('receive_logs').select('drug_name, drug_type').then(({ data }) => {
+      if (!data) return;
+      const typeMap = {};
+      data.forEach(d => { if (d.drug_name && d.drug_type && d.drug_type !== '-') typeMap[d.drug_name] = d.drug_type; });
+      const names = [...new Set(data.map(d => d.drug_name).filter(Boolean))].sort();
+      setDrugNames(names.map(name => ({ name, type: typeMap[name] || '' })));
     });
   }, []);
 
@@ -1103,9 +1284,11 @@ function ReceiveSummaryModal({ onClose }) {
               {drugFilter && <button onClick={() => setDrugFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"><X size={12}/></button>}
               {showDrugDd && drugFilter && (
                 <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-30 w-64 overflow-hidden">
-                  {drugNames.filter(n => n.toLowerCase().includes(drugFilter.toLowerCase())).slice(0,8).map(name => (
+                  {drugNames.filter(n => n.name.toLowerCase().includes(drugFilter.toLowerCase())).slice(0,8).map(({ name, type }) => (
                     <button key={name} onMouseDown={e => { e.preventDefault(); setDrugFilter(name); setShowDrugDd(false); }}
-                      className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-emerald-50 border-b border-slate-100 last:border-0">{name}</button>
+                      className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-emerald-50 border-b border-slate-100 last:border-0">
+                      <div className="flex items-center gap-2 flex-wrap"><span>{name}</span>{type && <DrugTypeBadge type={type} />}</div>
+                    </button>
                   ))}
                 </div>
               )}

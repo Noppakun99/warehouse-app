@@ -1,9 +1,10 @@
-import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { fetchInventory, saveInventory, fetchDrugDetails, saveDrugDetails, fetchUploadMeta, saveUploadMeta } from './lib/db';
-import { 
-  Search, Package, MapPin, X, UploadCloud, FileSpreadsheet, 
-  AlertCircle, BarChart3, Layers, Pill, FileText, ChevronDown, 
-  ChevronUp, Database, Clock, Info, Copy, Check, CalendarDays, AlertTriangle, RefreshCcw
+import { supabase } from './lib/supabase';
+import {
+  Search, Package, MapPin, X, UploadCloud, FileSpreadsheet,
+  AlertCircle, BarChart3, Layers, Pill, FileText,
+  ChevronUp, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw
 } from 'lucide-react';
 
 // --- ข้อมูลตั้งต้นสำหรับคลังยา (Mockup Data) ---
@@ -66,10 +67,54 @@ const normalizeDateStr = (raw) => {
   return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
 };
 
-// บังคับ รหัสยา เป็น text (ป้องกัน Excel แปลง "003" → 3)
+// บังคับ รหัสยา เป็น text + แก้ scientific notation + ตัด leading zeros
 const normalizeCode = (val) => {
   if (!val && val !== 0) return '-';
-  return String(val).trim() || '-';
+  let s = String(val).trim();
+  if (!s) return '-';
+  // แก้ scientific notation เช่น 1.5E+6 → "1500000"
+  if (/^[\d.]+[eE][+\-]?\d+$/.test(s)) {
+    const n = parseFloat(s);
+    s = isFinite(n) ? BigInt(Math.round(n)).toString() : s;
+  }
+  return s || '-';
+};
+
+// ใช้สำหรับ match/เปรียบเทียบ code — lowercase + ตัด leading zeros + trim
+const codeKey = (val) => {
+  if (!val || val === '-') return '';
+  let s = String(val).trim().toLowerCase();
+  if (/^[\d.]+[eE][+\-]?\d+$/.test(s)) {
+    const n = parseFloat(s);
+    s = isFinite(n) ? BigInt(Math.round(n)).toString() : s;
+  }
+  // ตัด leading zeros เพื่อให้ "003" === "3"
+  s = s.replace(/^0+(\d)/, '$1');
+  return s;
+};
+
+// ใช้สำหรับ match ชื่อยา — lowercase + collapse spaces + trim
+const nameKey = (val) => {
+  if (!val || val === '-') return '';
+  return String(val).trim().toLowerCase().replace(/\s+/g, ' ');
+};
+
+// แปลง scientific notation → ตัวเลขเต็ม (เช่น 1.12512E+11 → "112512000000")
+const normalizeNumericText = (val) => {
+  if (!val) return '-';
+  const v = String(val).trim();
+  if (/^[\d.]+[eE][+\-]?\d+$/.test(v)) {
+    const n = parseFloat(v);
+    return isFinite(n) ? BigInt(Math.round(n)).toString() : v;
+  }
+  return v || '-';
+};
+
+// แปลง "(blank)" → "-"
+const cleanCell = (val) => {
+  if (!val) return '';
+  const v = String(val).trim();
+  return v.toLowerCase() === '(blank)' ? '-' : v;
 };
 
 const formatDateDisplay = (dateInput) => {
@@ -110,18 +155,145 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
   const [drugFileName, setDrugFileName] = useState('');
   const [logUpdateDate, setLogUpdateDate] = useState(null);
   const [drugUpdateDate, setDrugUpdateDate] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearchDd, setShowSearchDd] = useState(false);
   const appSearchRef = useRef(null);
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [expandedDetailsId, setExpandedDetailsId] = useState(null);
-  const [expiryViewFilter, setExpiryViewFilter] = useState(null); 
+  const [expiryViewFilter, setExpiryViewFilter] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [showLowStockModal, setShowLowStockModal] = useState(false);
+  const [dispenseUsage, setDispenseUsage] = useState({});
+  const [uploadWarnings, setUploadWarnings] = useState(null); // { fileName, rows: [{row, issues[]}] }
+  const [usageDateRange, setUsageDateRange] = useState(null);
+  const [orderedItems, setOrderedItems] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('orderedItems') || '{}'); } catch { return {}; }
+  });
+
+  // fetch เรทการใช้ยา 4 เดือนล่าสุด จาก dispense_logs เมื่อเปิด modal
+  useEffect(() => {
+    if (!showLowStockModal || !supabase) return;
+    const now = new Date();
+    const from = new Date();
+    from.setMonth(from.getMonth() - 4);
+    const fromStr = from.toISOString().split('T')[0];
+    const fmt = (d) => `${d.getDate()}/${d.getMonth()+1}/${String(d.getFullYear()).slice(2)}`;
+    setUsageDateRange({ from: fmt(from), to: fmt(now) });
+
+    // แปลง "1000เม็ด" → { packSize:1000, baseUnit:"เม็ด" }
+    const parseUnit = (unit) => {
+      if (!unit || unit === '-') return { packSize: 1, baseUnit: '-', ok: true };
+      const u = unit.trim();
+      const m = u.match(/^(\d+\.?\d*)\s*(.+)$/);
+      if (m) {
+        const packSize = parseFloat(m[1]);
+        const baseUnit = m[2].trim();
+        if (packSize > 0 && baseUnit) return { packSize, baseUnit, ok: true };
+      }
+      return { packSize: 1, baseUnit: u, ok: true };
+    };
+
+    const fetchAll = async () => {
+      const PAGE = 1000;
+      let all = [];
+      let page = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from('dispense_logs')
+          .select('drug_code, drug_name, drug_unit, qty_out, dispense_date')
+          .gte('dispense_date', fromStr)
+          .order('dispense_date', { ascending: false })
+          .range(page, page + PAGE - 1);
+        if (error || !data || data.length === 0) break;
+        all = all.concat(data);
+        if (data.length < PAGE) break;
+        page += PAGE;
+      }
+
+      // raw[key] = { totalBase, monthly, baseUnit, unitVariants:{baseUnit→qty}, ambiguous, name, code }
+      const raw = {};
+
+      all.forEach(row => {
+        const byCode = codeKey(row.drug_code);
+        const byName = nameKey(row.drug_name);
+        const keys = [...new Set([byCode, byName].filter(Boolean))];
+        if (keys.length === 0) return;
+
+        const qty = parseFloat(String(row.qty_out || '0').replace(/,/g, '')) || 0;
+        if (qty <= 0) return;
+
+        const unitRaw = row.drug_unit ? String(row.drug_unit).trim() : '';
+
+        // row ที่ไม่มีหน่วย: นับแยก ไม่รวมใน totals (ไม่รู้จะแปลงยังไง)
+        if (!unitRaw || unitRaw === '-') {
+          keys.forEach(key => {
+            if (!raw[key]) raw[key] = { totalBase: 0, monthly: {}, baseUnit: '-', name: row.drug_name, code: row.drug_code, unitVariants: {}, noUnitRows: 0 };
+            raw[key].noUnitRows = (raw[key].noUnitRows || 0) + 1;
+          });
+          return;
+        }
+
+        const { packSize, baseUnit } = parseUnit(unitRaw);
+        const qtyBase = qty * packSize; // แปลงเป็น base unit เช่น 1000เม็ด×10 = 10000เม็ด
+        const month = String(row.dispense_date || '').slice(0, 7);
+
+        keys.forEach(key => {
+          if (!raw[key]) {
+            raw[key] = { totalBase: 0, monthly: {}, baseUnit, name: row.drug_name, code: row.drug_code, unitVariants: {}, noUnitRows: 0 };
+          }
+          raw[key].totalBase += qtyBase;
+          raw[key].unitVariants[baseUnit] = (raw[key].unitVariants[baseUnit] || 0) + qtyBase;
+          if (month) raw[key].monthly[month] = (raw[key].monthly[month] || 0) + qtyBase;
+          // อัปเดต baseUnit เป็นตัวที่พบมากที่สุด (dominant)
+          const dominant = Object.entries(raw[key].unitVariants).sort((a,b) => b[1]-a[1])[0];
+          if (dominant) raw[key].baseUnit = dominant[0];
+        });
+      });
+
+      const result = {};
+      Object.entries(raw).forEach(([key, { totalBase, monthly, baseUnit, unitVariants, name, code, noUnitRows }]) => {
+        const vals = Object.values(monthly);
+        const maxMonth = vals.length ? Math.max(...vals) : 0;
+        const avg = Math.round(totalBase / 4);
+        const units = Object.keys(unitVariants);
+        // ambiguous = หน่วย base ต่างกันจริงๆ เช่น เม็ด vs ml (ไม่ใช่แค่ packSize ต่างกัน)
+        const ambiguous = units.length > 1 ? units : null;
+        result[key] = {
+          total: Math.round(totalBase),
+          maxMonth: Math.round(maxMonth),
+          avg,
+          baseUnit: baseUnit || '-',
+          ambiguous, // null = ปกติ, array = มีหลายหน่วยที่รวมไม่ได้
+          unitVariants,
+          noUnitRows: noUnitRows || 0,
+          name,
+          code,
+        };
+      });
+      setDispenseUsage(result);
+    };
+    fetchAll();
+  }, [showLowStockModal]);
+
+  const toggleOrdered = useCallback((code) => {
+    setOrderedItems(prev => {
+      const next = { ...prev };
+      if (next[code]) {
+        delete next[code];
+      } else {
+        next[code] = new Date().toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit' });
+      }
+      localStorage.setItem('orderedItems', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const [debugDrugQuery, setDebugDrugQuery] = useState('');
+  const [showColumnGuide, setShowColumnGuide] = useState(null); // 'log' | 'drug' | null
   
   const logInputRef = useRef(null);
   const drugInputRef = useRef(null);
@@ -130,7 +302,6 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
   useEffect(() => {
     async function loadFromSupabase() {
       try {
-        setIsLoading(true);
         const [inv, drugs, meta] = await Promise.all([
           fetchInventory(),
           fetchDrugDetails(),
@@ -152,7 +323,6 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
         setErrorMsg('ไม่สามารถเชื่อมต่อ Supabase: ' + err.message + ' (ใช้ข้อมูลท้องถิ่นแทน)');
         setTimeout(() => setErrorMsg(''), 8000);
       } finally {
-        setIsLoading(false);
       }
     }
     loadFromSupabase();
@@ -180,13 +350,18 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
     
     Object.entries(inventory).forEach(([loc, items]) => {
       items.forEach((item, idx) => {
+        // ข้ามยาตัดออกจากบัญชีที่คงเหลือ 0
+        const itemQty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
+        const isDiscontinued = item.receiveStatus && String(item.receiveStatus).includes('ตัดออก');
+        if (isDiscontinued && itemQty === 0) return;
+
         const expDate = parseDateString(item.exp);
         const itemData = { ...item, location: loc, originalIndex: idx };
-        
+
         if (expDate) {
           expDate.setHours(0,0,0,0);
           itemData.parsedExp = expDate;
-          
+
           if (expDate < todayForDisplay) expired.push(itemData);
           else if (expDate <= targetDateForDisplay) near.push(itemData);
           else safe.push(itemData);
@@ -203,12 +378,139 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
     return { expiredItems: expired, nearExpiryItems: near, safeItems: safe };
   }, [inventory, todayForDisplay, targetDateForDisplay]);
 
+  // คำนวณยาที่ต่ำกว่า Safety Stock (Low Stock Alert)
+  const lowStockItems = useMemo(() => {
+    // ค้นหาค่าใน object แบบ case-insensitive
+    const findVal = (obj, ...keys) => {
+      const lowers = keys.map(k => k.toLowerCase().trim());
+      for (const [k, v] of Object.entries(obj)) {
+        if (lowers.includes(k.toLowerCase().trim())) return v;
+      }
+      return undefined;
+    };
+
+    // สร้าง map: code → { safetyStock, leadTimeDays, name }
+    const safetyMap = {};
+    const nameMap   = {};
+    const typeMap   = {};
+    const unitMap   = {};
+    Object.values(drugDetails).forEach(d => {
+      const code = codeKey(d._code);
+      if (!code || code === '-') return;
+      const ssVal = findVal(d, 'Safety Stock', 'safety_stock', 'สต็อกขั้นต่ำ', 'ปริมาณขั้นต่ำ', 'ss');
+      const ss = parseFloat(String(ssVal || '0').replace(/,/g, '')) || 0;
+      const ltVal = findVal(d, 'Sum of Lead Time (In days)', 'sum of lead time (in days)', 'Sum of Lead Time', 'sum_of_lead_time', 'lead time (in days)', 'lead time', 'leadtime');
+      const lt = parseFloat(String(ltVal || '0').replace(/,/g, '')) || 20;
+      if (ss > 0) {
+        if (!safetyMap[code] || ss > safetyMap[code].ss) {
+          safetyMap[code] = { ss, lt };
+        }
+        if (!nameMap[code]) nameMap[code] = d._name;
+      }
+    });
+
+    // รวม qty ต่อ drug_code จาก inventory ทุก location
+    const qtyMap = {};
+    const discontinuedSet = new Set();
+    Object.values(inventory).forEach(items => {
+      items.forEach(item => {
+        const code = codeKey(item.code);
+        if (!code || code === '-') return;
+        const qty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
+        qtyMap[code] = (qtyMap[code] || 0) + qty;
+        if (!nameMap[code]) nameMap[code] = item.name;
+        if (!typeMap[code] && item.type && item.type !== '-') typeMap[code] = item.type;
+        if (!unitMap[code] && item.unit && item.unit !== '-') unitMap[code] = item.unit;
+        if (item.receiveStatus && String(item.receiveStatus).includes('ตัดออก')) {
+          discontinuedSet.add(code);
+        }
+        const ss = item.safetyStock || 0;
+        if (ss > 0 && !safetyMap[code]) {
+          safetyMap[code] = { ss, lt: 20 };
+          if (!nameMap[code]) nameMap[code] = item.name;
+        }
+      });
+    });
+
+    if (Object.keys(safetyMap).length === 0) return [];
+
+    // หายาที่ qty < safety stock และคำนวณ Reorder Point
+    const alerts = [];
+    Object.entries(safetyMap).forEach(([code, { ss, lt }]) => {
+      const currentQty = qtyMap[code] || 0;
+      const avgPerDay  = ss > 0 ? ss / 60 : 0;
+      const reorderPt  = ss + Math.round(avgPerDay * lt);
+      alerts.push({
+        code,
+        name:        nameMap[code] || code,
+        type:        typeMap[code] || '-',
+        unit:        unitMap[code] || '-',
+        currentQty,
+        safetyStock: ss,
+        leadTime:    lt,
+        reorderPoint: reorderPt,
+        deficit:     Math.max(0, ss - currentQty),
+        belowReorder: currentQty <= reorderPt,
+        belowSafety:  currentQty < ss,
+        pct:         ss > 0 ? Math.round((currentQty / ss) * 100) : 100,
+      });
+    });
+
+    // แสดงเฉพาะที่ต่ำกว่า Reorder Point เรียงจากวิกฤตที่สุด
+    // ยกเว้นยาที่ตัดออกจากบัญชีและคงเหลือ 0 (ไม่ต้องสั่งซื้อ)
+    return alerts
+      .filter(a => a.belowReorder)
+      .filter(a => !(a.currentQty === 0 && discontinuedSet.has(a.code)))
+      .sort((a, b) => a.pct - b.pct);
+  }, [drugDetails, inventory]);
+
+  // Debug: ตรวจสอบว่ามีข้อมูล Safety Stock จากทั้ง drugDetails และ inventory
+  const lowStockDebug = useMemo(() => {
+    const totalDrugs = Object.keys(drugDetails).length;
+    // นับจาก inventory (log CSV)
+    let withSSFromLog = 0;
+    let ssExamples = [];
+    Object.values(inventory).forEach(items => {
+      items.forEach(item => {
+        const ss = item.safetyStock || 0;
+        if (ss > 0) {
+          withSSFromLog++;
+          if (ssExamples.length < 3) ssExamples.push(`${item.name?.slice(0,20)}: SS=${ss}`);
+        }
+      });
+    });
+    return { totalDrugs, withSSFromLog: new Set(Object.values(inventory).flat().filter(i => (i.safetyStock||0) > 0).map(i => i.code)).size, ssExamples };
+  }, [drugDetails, inventory]);
+
+  const exportLowStockCSV = useCallback(() => {
+    const headers = ['รายการยา', 'รหัส', 'ชนิดยา', 'หน่วย', 'คงเหลือ', 'Safety Stock', 'Reorder Point', 'Lead Time (วัน)', 'ขาด (ถึง SS)', 'สถานะ', 'สั่งแล้ว', 'วันที่สั่ง'];
+    const rows = lowStockItems.map(item => [
+      item.name,
+      item.code,
+      item.type,
+      item.unit,
+      item.currentQty,
+      item.safetyStock,
+      item.reorderPoint,
+      item.leadTime,
+      item.deficit,
+      item.belowSafety ? 'วิกฤต' : 'สั่งได้เลย',
+      orderedItems[item.code] ? 'สั่งแล้ว' : '',
+      orderedItems[item.code] || '',
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'รายการต้องสั่งยา.csv'; a.click();
+    URL.revokeObjectURL(url);
+  }, [lowStockItems, orderedItems]);
+
   // คำนวณรายการยารอตรวจรับ
   const pendingReceiveItems = useMemo(() => {
     const pending = [];
     Object.entries(inventory).forEach(([loc, items]) => {
       items.forEach((item, idx) => {
-        if (item.receiveStatus === 'รอตรวจรับ') {
+        if (String(item.receiveStatus || '').includes('รอตรวจรับ')) {
           pending.push({
             ...item,
             location: loc,
@@ -405,39 +707,63 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
         const expIdx = headers.findIndex(h => h.toLowerCase().includes('exp') || h.includes('หมดอายุ'));
         const qtyIdx = headers.findIndex(h => h.includes('คงเหลือ') || h.toLowerCase() === 'qty');
         const invoiceIdx = headers.findIndex(h => h.includes('บิล') || h.includes('ใบเสร็จ') || h.toLowerCase().includes('invoice') || h.toLowerCase().includes('inv'));
-        const statusIdx = headers.findIndex(h => h.includes('สถานะ') || h.includes('ตรวจรับ') || h.toLowerCase().includes('status'));
+        // สถานะตรวจรับ → รอตรวจรับ (เช็คก่อน เพราะต้องการค่า "รอตรวจรับ" จากคอลัมน์นี้)
+        const statusIdx = headers.findIndex(h => h.includes('สถานะตรวจรับ') || h.includes('ตรวจรับ') || h.toLowerCase().includes('status'));
+        // ผลการพิจารณา → ตัดออกจากบัญชี (แยก index ต่างหาก)
+        const resultIdx = headers.findIndex(h => h.includes('ผลการพิจารณา'));
+        // Safety Stock และ Lead Time จาก log CSV
+        const ssIdx = headers.findIndex(h => h.toLowerCase().replace(/\s+/g,' ').trim() === 'safety stock' || h.toLowerCase().trim() === 'safety_stock' || h.toLowerCase().includes('safety stock') || h.includes('สต็อกขั้นต่ำ'));
+        const ltIdx = headers.findIndex(h => h.toLowerCase().includes('lead time') || h.toLowerCase() === 'leadtime');
 
         const newInventory = {};
+        const warnRows = [];
 
         for (let i = headerRowIndex + 1; i < lines.length; i++) {
           if (!lines[i].trim()) continue;
-          
-          const row = parseCSVRow(lines[i]);
-          const location = row[logIdx]?.trim() || '';
-          const code = codeIdx !== -1 && row[codeIdx] ? row[codeIdx].trim() : '-';
-          const name = row[nameIdx]?.trim() || '';
+
+          const rawRow = parseCSVRow(lines[i]);
+          const row = rawRow.map(cleanCell); // แปลง (blank) → -
+          const location = row[logIdx] || '';
+          const code = codeIdx !== -1 && row[codeIdx] ? row[codeIdx] : '-';
+          const name = row[nameIdx] || '';
 
           if (!location || (!name && code === '-')) continue;
 
-          const qtyStr = qtyIdx !== -1 && row[qtyIdx] ? row[qtyIdx].trim() : '-';
-          
-          if (qtyStr !== '-') {
-            const numericQty = parseFloat(qtyStr.replace(/,/g, ''));
-            if (!isNaN(numericQty) && numericQty <= 0) continue; 
-          }
+          // --- Row Validation ---
+          const issues = [];
+          const rowNum = i - headerRowIndex;
+          if (!code || code === '-') issues.push('ไม่มีรหัสยา');
+          if (!name) issues.push('ไม่มีชื่อยา');
+          if (!location) issues.push('ไม่มีตำแหน่ง');
+          if (expIdx !== -1 && row[expIdx] && row[expIdx] !== '-' && !parseDateString(row[expIdx]))
+            issues.push(`วันหมดอายุไม่ถูกต้อง: "${row[expIdx]}"`);
+          if (qtyIdx !== -1 && row[qtyIdx] && row[qtyIdx] !== '-' && isNaN(parseFloat(String(row[qtyIdx]).replace(/,/g,''))))
+            issues.push(`qty ไม่ใช่ตัวเลข: "${row[qtyIdx]}"`);
+          if (issues.length > 0) warnRows.push({ row: rowNum, code, name: name || '-', location, issues });
+
+          const qtyStr = qtyIdx !== -1 && row[qtyIdx] ? row[qtyIdx] : '-';
+          // ไม่กรองออก qty=0 — แสดงในแผนผังด้วยเพื่อให้เห็นว่ายาหมดและต้องสั่ง
 
           if (!newInventory[location]) newInventory[location] = [];
 
           newInventory[location].push({
             code: normalizeCode(code),
             name,
-            type: typeIdx !== -1 && row[typeIdx] ? row[typeIdx].trim() : '-',
-            unit: unitIdx !== -1 && row[unitIdx] ? row[unitIdx].trim() : '-',
-            lot: lotIdx !== -1 && row[lotIdx]?.trim() ? String(row[lotIdx].trim()) : '-',
+            type: typeIdx !== -1 && row[typeIdx] ? row[typeIdx] : '-',
+            unit: unitIdx !== -1 && row[unitIdx] ? row[unitIdx] : '-',
+            lot: lotIdx !== -1 && row[lotIdx] ? normalizeNumericText(row[lotIdx]) : '-',
             exp: normalizeDateStr(expIdx !== -1 ? row[expIdx] : '-'),
             qty: qtyStr,
-            invoice: invoiceIdx !== -1 && row[invoiceIdx]?.trim() ? row[invoiceIdx].trim() : '-',
-            receiveStatus: statusIdx !== -1 && row[statusIdx]?.trim() ? row[statusIdx].trim() : 'ไม่มีการดำเนินการ'
+            invoice: invoiceIdx !== -1 ? normalizeNumericText(row[invoiceIdx]) : '-',
+            safetyStock: ssIdx !== -1 ? parseFloat(String(row[ssIdx] || '0').replace(/,/g, '')) || 0 : 0,
+            leadTime: ltIdx !== -1 ? parseFloat(String(row[ltIdx] || '0').replace(/,/g, '')) || 20 : 20,
+            receiveStatus: (() => {
+              const s = statusIdx !== -1 ? row[statusIdx]?.trim() : '';   // สถานะตรวจรับ เช่น "รอตรวจรับ"
+              const r = resultIdx !== -1 ? row[resultIdx]?.trim() : '';   // ผลการพิจารณา เช่น "ตัดออก", "คงไว้"
+              // เก็บทั้งสองค่าด้วย | เพื่อให้ตรวจสอบได้ทั้งคู่
+              const combined = [s, r].filter(Boolean).join('|');
+              return combined || 'ไม่มีการดำเนินการ';
+            })()
           });
         }
 
@@ -447,6 +773,7 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
         setLogFileName(file.name);
         setLogUpdateDate(now);
         setErrorMsg('');
+        if (warnRows.length > 0) setUploadWarnings({ fileName: file.name, type: 'Log คลังยา', rows: warnRows });
         setSuccessMsg(`กำลังบันทึก Log คลังยา "${file.name}" ขึ้น Supabase...`);
 
         saveInventory(newInventory)
@@ -481,21 +808,35 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
         const nameIdx = headers.findIndex(h => h.includes('รายการยา') || h.includes('ชื่อยา') || h.toLowerCase().includes('drug'));
         const lotIdx = headers.findIndex(h => h.toLowerCase().includes('lot') || h.includes('รุ่น'));
         const invoiceIdx = headers.findIndex(h => h.includes('บิล') || h.includes('ใบเสร็จ') || h.toLowerCase().includes('invoice') || h.toLowerCase().includes('inv'));
+        const companyIdx = headers.findIndex(h => h.includes('บริษัท') && !h.includes('ก่อนหน้า'));
+        const swapIdx1 = headers.findIndex(h => h.includes('เงื่อนไขการแลกเปลี่ยนยาของบริษัท'));
+        const swapIdx2 = headers.findIndex(h => h.includes('ระบุเงื่อนไขการแลกเปลี่ยนยา'));
+        const swapIdx3 = headers.findIndex(h => h.includes('ระบุรายการยาและเงื่อนไขยาแต่ละตัว'));
+        const drugTypeIdx = headers.findIndex(h => h.includes('รูปแบบ'));
 
         if (codeIdx === -1) throw new Error('ไฟล์ข้อมูลยา ต้องมีคอลัมน์ "รหัสยา" หรือ "Code"');
 
         const newDrugDetails = {};
+        const warnRowsDrug = [];
 
         for (let i = 1; i < lines.length; i++) {
           if (!lines[i].trim()) continue;
-          const row = parseCSVRow(lines[i]);
+          const row = parseCSVRow(lines[i]).map(cleanCell);
           
           const drugCode = normalizeCode(row[codeIdx]);
           const drugName = nameIdx !== -1 && row[nameIdx] ? row[nameIdx].trim() : '-';
-          const lot = lotIdx !== -1 && row[lotIdx]?.trim() ? String(row[lotIdx].trim()) : '-';
-          const invoice = invoiceIdx !== -1 && row[invoiceIdx]?.trim() ? row[invoiceIdx].trim() : '-';
+          const lot = lotIdx !== -1 && row[lotIdx]?.trim() ? normalizeNumericText(row[lotIdx].trim()) : '-';
+          const invoice = invoiceIdx !== -1 && row[invoiceIdx]?.trim() ? normalizeNumericText(row[invoiceIdx].trim()) : '-';
 
           if (!drugCode || drugCode === '-') continue;
+
+          // --- Row Validation ---
+          const drugIssues = [];
+          if (!drugCode || drugCode === '-') drugIssues.push('ไม่มีรหัสยา');
+          if (!drugName || drugName === '-') drugIssues.push('ไม่มีชื่อยา');
+          if (lot === '-') drugIssues.push('ไม่มี Lot');
+          if (invoice === '-') drugIssues.push('ไม่มีเลขที่บิล');
+          if (drugIssues.length > 0) warnRowsDrug.push({ row: i, code: drugCode, name: drugName, issues: drugIssues });
 
           // คำสำคัญที่บ่งบอกว่าคอลัมน์นั้นเป็นวันที่
           const DATE_KEYWORDS = ['exp', 'วันที่', 'date', 'หมดอายุ'];
@@ -507,12 +848,22 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
             return hl.includes('exp') || hl.includes('หมดอายุ');
           });
 
+          const company = companyIdx !== -1 ? (row[companyIdx]?.trim() || '') : '';
+          const swapParts = [swapIdx1, swapIdx2, swapIdx3]
+            .map(idx => idx !== -1 ? row[idx]?.trim() : '')
+            .filter(v => v);
+          const drug_swap_policy = swapParts.join(' | ');
+          const drug_type = drugTypeIdx !== -1 ? (row[drugTypeIdx]?.trim() || '') : '';
+
           let details = {
             _code: drugCode,
             _name: drugName,
             _lot: lot,
             _invoice: invoice,
-            _exp: expHeaderIdx !== -1 && row[expHeaderIdx]?.trim() ? normalizeDateStr(row[expHeaderIdx].trim()) : '-'
+            _exp: expHeaderIdx !== -1 && row[expHeaderIdx]?.trim() ? normalizeDateStr(row[expHeaderIdx].trim()) : '-',
+            _company: company,
+            _drug_swap_policy: drug_swap_policy,
+            _drug_type: drug_type,
           };
 
           headers.forEach((headerName, index) => {
@@ -522,7 +873,7 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
             }
           });
 
-          const compositeKey = `${drugCode.toLowerCase()}|${lot.toLowerCase()}|${invoice.toLowerCase()}`;
+          const compositeKey = `${codeKey(drugCode)}|${lot.toLowerCase()}|${invoice.toLowerCase()}`;
           newDrugDetails[compositeKey] = details;
         }
 
@@ -532,6 +883,7 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
         setDrugFileName(file.name);
         setDrugUpdateDate(now);
         setErrorMsg('');
+        if (warnRowsDrug.length > 0) setUploadWarnings({ fileName: file.name, type: 'CSV รับยา', rows: warnRowsDrug });
         setSuccessMsg(`กำลังบันทึกฐานข้อมูลยา "${file.name}" ขึ้น Supabase...`);
 
         saveDrugDetails(newDrugDetails)
@@ -592,9 +944,14 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
   }, [layout, otherZones, searchTerm, isMatch]);
 
   const handleLocationClick = (locationId) => {
+    const allItems = inventory[locationId] || [];
     setSelectedLocation({
       id: locationId,
-      items: inventory[locationId] || []
+      items: allItems.filter(item => {
+        const isDiscontinued = String(item.receiveStatus || '').includes('ตัดออก');
+        const qty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
+        return !(isDiscontinued && qty === 0);
+      })
     });
     setExpandedDetailsId(null);
   };
@@ -604,13 +961,19 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
   };
 
   const Slot = ({ id }) => {
-    const itemCount = inventory[id] ? inventory[id].length : 0;
+    // กรองรายการ ตัดออก+qty=0 ออก; ถ้ายังมีของเหลือให้แสดงตามปกติ
+    const visibleItems = (inventory[id] || []).filter(item => {
+      const isDiscontinued = String(item.receiveStatus || '').includes('ตัดออก');
+      const qty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
+      return !(isDiscontinued && qty === 0);
+    });
+    const itemCount = visibleItems.length;
     const highlighted = isMatch(id);
-    
+
     let hasExpired = false;
     let hasNearExpiry = false;
 
-    inventory[id]?.forEach(item => {
+    visibleItems.forEach(item => {
        const d = parseDateString(item.exp);
        if (!d) return;
        d.setHours(0,0,0,0);
@@ -618,36 +981,54 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
        else if (d <= targetDateForDisplay) hasNearExpiry = true;
     });
 
-    let statusClasses = 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100';
-    let countClasses = 'text-emerald-600';
+    let gradient = 'bg-gradient-to-br from-emerald-100 via-teal-50 to-emerald-100';
+    let border   = 'border-emerald-300';
+    let textMain = 'text-slate-900';
+    let textSub  = 'text-slate-700';
+    let shadow   = 'shadow-emerald-100';
+    let ring     = 'hover:ring-2 hover:ring-emerald-300';
     let StatusIcon = null;
 
     if (hasExpired) {
-      statusClasses = 'bg-rose-50 border-rose-400 text-rose-800 hover:bg-rose-100';
-      countClasses = 'text-rose-600';
-      StatusIcon = <AlertTriangle size={12} className="absolute top-1 right-1 text-rose-500" />;
+      gradient = 'bg-gradient-to-br from-rose-100 via-red-50 to-rose-100';
+      border   = 'border-rose-300';
+      textMain = 'text-slate-900';
+      textSub  = 'text-slate-700';
+      shadow   = 'shadow-rose-100';
+      ring     = 'hover:ring-2 hover:ring-rose-300';
+      StatusIcon = <AlertTriangle size={12} className="absolute top-1 right-1 text-rose-500 drop-shadow" />;
     } else if (hasNearExpiry) {
-      statusClasses = 'bg-amber-50 border-amber-400 text-amber-800 hover:bg-amber-100';
-      countClasses = 'text-amber-600';
-      StatusIcon = <Clock size={12} className="absolute top-1 right-1 text-amber-500" />;
+      gradient = 'bg-gradient-to-br from-amber-100 via-yellow-50 to-amber-100';
+      border   = 'border-amber-300';
+      textMain = 'text-slate-900';
+      textSub  = 'text-slate-700';
+      shadow   = 'shadow-amber-100';
+      ring     = 'hover:ring-2 hover:ring-amber-300';
+      StatusIcon = <Clock size={12} className="absolute top-1 right-1 text-amber-500 drop-shadow" />;
     }
 
     return (
-      <div 
+      <div
         onClick={() => handleLocationClick(id)}
         className={`
-          relative cursor-pointer transition-all duration-200 border rounded-lg flex items-center justify-center text-xs font-bold px-3 py-3 min-w-[70px] flex-1
-          ${highlighted ? 'ring-4 ring-yellow-400 scale-105 z-10 shadow-lg' : 'shadow-sm hover:scale-105 hover:shadow-md'}
-          ${statusClasses}
+          relative cursor-pointer transition-all duration-200 border-2 rounded-xl
+          flex items-center justify-center text-xs font-bold px-3 py-3 min-w-[70px] flex-1
+          ${gradient} ${border} shadow-md ${shadow} ${ring}
+          ${highlighted
+            ? 'ring-4 ring-yellow-400 scale-110 z-10 shadow-xl'
+            : 'hover:scale-105 hover:shadow-lg active:scale-95'}
+          overflow-hidden
         `}
       >
-        <div className="flex flex-col items-center">
-          <span>{id}</span>
-          <span className={`text-[10px] font-medium mt-1 ${countClasses}`}>
+        {/* shine overlay */}
+        <div className="absolute inset-0 bg-gradient-to-b from-white/30 to-transparent pointer-events-none rounded-xl" />
+        <div className="flex flex-col items-center relative z-10">
+          <span className="tracking-wide drop-shadow-sm">{id}</span>
+          <span className={`text-[10px] font-semibold mt-0.5 ${textSub}`}>
             {itemCount} รายการ
           </span>
-          {StatusIcon}
         </div>
+        {StatusIcon}
       </div>
     );
   };
@@ -665,18 +1046,28 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
     const exactKey = `${lookupCode}|${lookupLot}|${lookupInvoice}`;
     const exactMatch = drugDetails[exactKey];
 
-    // 2) ถ้าไม่พบ → fallback ค้นด้วย code + lot + exp (ดึงทุกบิลที่ตรงกัน)
+    // 2) ถ้าไม่พบ → fallback ค้นด้วย code + lot + exp
+    // 3) ถ้ายังไม่พบ → fallback ค้นด้วย name + lot (กรณี code คนละรูปแบบ)
     let allMatchedDetails;
     if (exactMatch) {
       allMatchedDetails = [exactMatch];
     } else {
+      const lookupName = item.name?.trim().toLowerCase() || '';
       const fallbacks = Object.values(drugDetails).filter(d =>
         d._code?.toLowerCase() === lookupCode &&
         d._lot?.toLowerCase() === lookupLot &&
-        // ถ้า _exp ไม่มีในฐานข้อมูลเก่า หรือ lookupExp เป็น '-' → match ด้วย code+lot เพียงอย่างเดียว
         (lookupExp === '-' || !d._exp || d._exp === '-' || d._exp === lookupExp)
       );
-      allMatchedDetails = fallbacks;
+      if (fallbacks.length > 0) {
+        allMatchedDetails = fallbacks;
+      } else {
+        // fallback ด้วย name + lot เมื่อ code format ต่างกัน
+        const nameMatches = Object.values(drugDetails).filter(d =>
+          d._name?.trim().toLowerCase() === lookupName &&
+          d._lot?.toLowerCase() === lookupLot
+        );
+        allMatchedDetails = nameMatches;
+      }
     }
 
     const hasDrugDetails = allMatchedDetails.length > 0;
@@ -702,7 +1093,7 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
       }
     }
 
-    const isPendingStatus = item.receiveStatus === 'รอตรวจรับ' || item.isPending;
+    const isPendingStatus = String(item.receiveStatus || '').includes('รอตรวจรับ') || item.isPending;
 
     return (
       <div key={uniqueItemId} className={`bg-white border ${isPendingStatus ? 'border-sky-300 bg-sky-50/40 border-dashed' : 'border-slate-200'} shadow-sm rounded-xl p-5 hover:border-indigo-300 transition-colors`}>
@@ -833,16 +1224,16 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
 
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4 md:p-6 font-sans text-slate-800 pb-20">
+    <div className="min-h-screen bg-slate-200 p-4 md:p-6 font-sans text-slate-800 pb-20">
       <div className="max-w-[1400px] mx-auto space-y-6">
         
         {/* Header & Controls */}
-        <div className="bg-white rounded-2xl shadow-sm p-6 flex flex-col gap-6 border border-slate-200">
+        <div className="bg-gradient-to-r from-slate-900 to-slate-600 rounded-2xl shadow-md p-6 flex flex-col gap-6">
 
           {onBackToDashboard && (
             <button
               onClick={onBackToDashboard}
-              className="self-start flex items-center gap-1.5 text-slate-500 hover:text-indigo-600 text-sm font-medium transition-colors"
+              className="self-start flex items-center gap-1.5 text-indigo-200 hover:text-white text-sm font-medium transition-colors"
             >
               ← กลับหน้าหลัก
             </button>
@@ -851,35 +1242,35 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
           <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
 
             <div className="flex items-center gap-4">
-              <div className="p-4 bg-indigo-100 text-indigo-700 rounded-xl shadow-inner relative overflow-hidden shrink-0">
+              <div className="p-4 bg-white/20 text-white rounded-xl shadow-inner relative overflow-hidden shrink-0">
                 <Database size={28} className="relative z-10" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                <h1 className="text-2xl font-bold text-white flex items-center gap-2">
                   ระบบแผนผังและข้อมูลคลังยา
                 </h1>
                 {isStaff && (
-                  <div className="text-sm text-slate-500 mt-2 flex flex-col sm:flex-row gap-2">
-                    <div className="flex items-center gap-2 flex-wrap bg-slate-50/50 px-3 py-1.5 rounded-lg border border-slate-100">
-                      <span>📦 Log คลัง: <span className="text-slate-700 font-medium">{logFileName || 'ข้อมูลตั้งต้น (Mockup)'}</span></span>
+                  <div className="text-sm text-indigo-100 mt-2 flex flex-col sm:flex-row gap-2">
+                    <div className="flex items-center gap-2 flex-wrap bg-white/15 px-3 py-1.5 rounded-lg border border-white/20">
+                      <span>📦 Log คลัง: <span className="text-white font-medium">{logFileName || 'ข้อมูลตั้งต้น (Mockup)'}</span></span>
                       {logUpdateDate ? (
-                        <span className="flex items-center gap-1 text-[11px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md font-medium shadow-sm">
+                        <span className="flex items-center gap-1 text-[11px] bg-white/25 text-white px-2 py-0.5 rounded-md font-medium shadow-sm">
                           <Clock size={12} /> อัปโหลดเมื่อ: {formatDateTime(logUpdateDate)}
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 text-[11px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md font-medium shadow-sm">
+                        <span className="flex items-center gap-1 text-[11px] bg-white/15 text-indigo-200 px-2 py-0.5 rounded-md font-medium shadow-sm">
                           <Clock size={12} /> ข้อมูลระบบเริ่มต้น
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap bg-slate-50/50 px-3 py-1.5 rounded-lg border border-slate-100">
-                      <span>💊 ข้อมูลยา: <span className="text-slate-700 font-medium">{drugFileName || 'ข้อมูลตั้งต้น (Mockup)'}</span></span>
+                    <div className="flex items-center gap-2 flex-wrap bg-white/15 px-3 py-1.5 rounded-lg border border-white/20">
+                      <span>💊 ข้อมูลยา: <span className="text-white font-medium">{drugFileName || 'ข้อมูลตั้งต้น (Mockup)'}</span></span>
                       {drugUpdateDate ? (
-                        <span className="flex items-center gap-1 text-[11px] bg-teal-100 text-teal-700 px-2 py-0.5 rounded-md font-medium shadow-sm">
+                        <span className="flex items-center gap-1 text-[11px] bg-white/25 text-white px-2 py-0.5 rounded-md font-medium shadow-sm">
                           <Clock size={12} /> อัปโหลดเมื่อ: {formatDateTime(drugUpdateDate)}
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 text-[11px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md font-medium shadow-sm">
+                        <span className="flex items-center gap-1 text-[11px] bg-white/15 text-indigo-200 px-2 py-0.5 rounded-md font-medium shadow-sm">
                           <Clock size={12} /> ข้อมูลระบบเริ่มต้น
                         </span>
                       )}
@@ -889,9 +1280,9 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
               </div>
             </div>
 
-            <div className="flex flex-col xl:items-end gap-2 bg-slate-50 p-4 rounded-xl border border-slate-200 w-full xl:w-auto shadow-sm">
-              <div className="text-xs text-slate-500 font-medium flex items-center gap-1.5 mb-2 bg-white px-3 py-1.5 rounded-full border border-slate-100 shadow-sm w-fit">
-                <AlertCircle size={14} className="text-indigo-400" />
+            <div className="flex flex-col xl:items-end gap-2 bg-white/15 p-4 rounded-xl border border-white/25 w-full xl:w-auto shadow-sm">
+              <div className="text-xs text-indigo-100 font-medium flex items-center gap-1.5 mb-2 bg-white/20 px-3 py-1.5 rounded-full border border-white/20 shadow-sm w-fit">
+                <AlertCircle size={14} className="text-white" />
                 กระดานแจ้งเตือนสถานะ (คำนวณวันหมดอายุ 16 เดือน: {formatDateDisplay(todayForDisplay)} - {formatDateDisplay(targetDateForDisplay)})
               </div>
               <div className="flex flex-wrap gap-3 w-full xl:w-auto">
@@ -915,7 +1306,7 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
                   <span className="text-xl font-black">{nearExpiryItems.length}</span>
                 </div>
 
-                <div 
+                <div
                   onClick={() => pendingReceiveItems.length > 0 && setExpiryViewFilter('pending')}
                   className={`flex-1 xl:flex-none flex items-center justify-between gap-4 px-4 py-2 rounded-lg border-2 transition-all min-w-[150px] ${pendingReceiveItems.length > 0 ? 'bg-sky-50 border-sky-300 hover:border-sky-500 cursor-pointer text-sky-700 shadow-sm' : 'bg-white border-slate-200 opacity-60 text-slate-400'}`}
                 >
@@ -924,6 +1315,18 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
                   </div>
                   <span className="text-xl font-black">{pendingReceiveItems.length}</span>
                 </div>
+
+                {isStaff && (
+                  <div
+                    onClick={() => setShowLowStockModal(true)}
+                    className={`flex-1 xl:flex-none flex items-center justify-between gap-4 px-4 py-2 rounded-lg border-2 transition-all min-w-[150px] cursor-pointer ${lowStockItems.length > 0 ? 'bg-orange-50 border-orange-400 hover:border-orange-600 text-orange-700 shadow-sm animate-pulse' : 'bg-white border-slate-200 hover:border-slate-400 text-slate-400'}`}
+                  >
+                    <div className="flex items-center gap-2 font-bold text-sm">
+                      <AlertTriangle size={16} /> ต้องสั่งยา
+                    </div>
+                    <span className="text-xl font-black">{lowStockItems.length}</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -974,18 +1377,79 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
                     <RefreshCcw size={16} /> รีเซ็ตข้อมูล
                   </button>
 
-                  <button onClick={() => logInputRef.current?.click()} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
-                    <UploadCloud size={16} /> อัปโหลด Log
-                  </button>
+                  <div className="flex gap-1">
+                    <button onClick={() => logInputRef.current?.click()} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
+                      <UploadCloud size={16} /> อัปโหลด Log
+                    </button>
+                    <button onClick={() => setShowColumnGuide(showColumnGuide === 'log' ? null : 'log')} className="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-2.5 py-2.5 rounded-xl text-xs font-bold transition-colors shadow-sm" title="ดูคอลัมน์ที่ต้องการ">?</button>
+                  </div>
                   <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={logInputRef} onChange={handleLogFileUpload} className="hidden" />
 
-                  <button onClick={() => drugInputRef.current?.click()} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
-                    <FileText size={16} /> อัปโหลดข้อมูลยา
-                  </button>
+                  <div className="flex gap-1">
+                    <button onClick={() => drugInputRef.current?.click()} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
+                      <FileText size={16} /> อัปโหลดข้อมูลยา
+                    </button>
+                    <button onClick={() => setShowColumnGuide(showColumnGuide === 'drug' ? null : 'drug')} className="bg-teal-100 hover:bg-teal-200 text-teal-700 px-2.5 py-2.5 rounded-xl text-xs font-bold transition-colors shadow-sm" title="ดูคอลัมน์ที่ต้องการ">?</button>
+                  </div>
                   <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={drugInputRef} onChange={handleDrugFileUpload} className="hidden" />
                 </>}
               </div>
               {isStaff && <span className="text-[11px] text-slate-500 bg-white px-2 py-0.5 rounded shadow-sm border border-slate-100">*อัปโหลดได้เฉพาะไฟล์ .csv เท่านั้น (หากบันทึกจาก Excel ในมือถือ ให้บันทึกเป็น CSV ก่อน)</span>}
+              {/* Column Guide Popup */}
+              {showColumnGuide && (
+                <div className="w-full bg-white border border-slate-200 rounded-2xl shadow-lg p-4 mt-1 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <p className="text-sm font-semibold text-slate-700">
+                      {showColumnGuide === 'log' ? 'หัวคอลัมน์ที่รองรับ — ไฟล์ Log คลังยา' : 'หัวคอลัมน์ที่รองรับ — ไฟล์ข้อมูลยา'}
+                    </p>
+                    <button onClick={() => setShowColumnGuide(null)} className="text-slate-400 hover:text-slate-700"><X size={14}/></button>
+                  </div>
+                  <p className="text-xs text-slate-400">ชื่อหัวคอลัมน์ใน CSV ต้องตรงกับชื่อด้านล่าง (ไม่ต้องครบทุก column)</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(showColumnGuide === 'log' ? [
+                      { label: 'ตำแหน่งจัดเก็บ',  req: true,  hints: ['DetailedLog', 'ตำแหน่ง', 'location'] },
+                      { label: 'ชื่อยา',            req: true,  hints: ['รายการยา', 'ชื่อยา'] },
+                      { label: 'คงเหลือ',           req: true,  hints: ['คงเหลือ', 'qty'] },
+                      { label: 'รหัสยา',            req: false, hints: ['รหัส', 'รหัสยา', 'code'] },
+                      { label: 'รูปแบบยา',          req: false, hints: ['ชนิด', 'type'] },
+                      { label: 'หน่วยนับ',          req: false, hints: ['หน่วย', 'unit_label'] },
+                      { label: 'Lot Number',        req: false, hints: ['Lot Number', 'lot', 'lot.'] },
+                      { label: 'Exp',               req: false, hints: ['Exp', 'exp.', 'วันหมดอายุ'] },
+                      { label: 'ราคา/หน่วย',        req: false, hints: ['ราคา/หน่วย', 'ราคาต่อหน่วย'] },
+                      { label: 'ชนิดรายการ',        req: false, hints: ['ชนิดรายการ', 'item_type'] },
+                      { label: 'บริษัท',            req: false, hints: ['บริษัทยา', 'บริษัท'] },
+                      { label: 'เลขบิล',            req: false, hints: ['เลขที่บิลซื้อ', 'เลขบิล'] },
+                      { label: 'Safety Stock',      req: false, hints: ['Safety Stock', 'safety_stock'] },
+                      { label: 'Lead Time',         req: false, hints: ['Lead Time', 'leadtime'] },
+                      { label: 'ผลการพิจารณา',      req: false, hints: ['ผลการพิจารณา'] },
+                      { label: 'สถานะตรวจรับ',      req: false, hints: ['สถานะตรวจรับ', 'สถานะ'] },
+                      { label: 'MainLog',           req: false, hints: ['MainLog', 'main_log'] },
+                    ] : [
+                      { label: 'รหัสยา',            req: true,  hints: ['รหัส', 'รหัสยา', 'code'] },
+                      { label: 'ชื่อยา',            req: false, hints: ['รายการยา', 'ชื่อยา'] },
+                      { label: 'Safety Stock',      req: false, hints: ['Safety Stock', 'safety_stock'] },
+                      { label: 'Lead Time',         req: false, hints: ['Sum of Lead Time (In days)', 'Lead Time (In days)', 'lead time'] },
+                      { label: 'Lot Number',        req: false, hints: ['Lot Number', 'lot'] },
+                      { label: 'เลขบิล',            req: false, hints: ['เลขที่บิลซื้อ', 'invoice'] },
+                      { label: 'Exp',               req: false, hints: ['Exp', 'exp date'] },
+                      { label: 'ผลการพิจารณา',      req: false, hints: ['ผลการพิจารณา'] },
+                    ]).map(({ label, req, hints }) => (
+                      <div key={label} className="bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">{label}</span>
+                          {req && <span className="text-[10px] font-bold bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full">จำเป็น</span>}
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {hints.map(h => (
+                            <code key={h} className="text-[10px] bg-white border border-slate-200 text-slate-500 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">{h}</code>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {showColumnGuide === 'drug' && <p className="text-xs text-slate-400">💡 สามารถใช้ไฟล์ Log คลังยาไฟล์เดียวกันได้</p>}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1029,10 +1493,10 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
                 <MapPin size={20} className="text-indigo-500" /> ตำแหน่งบนแผนผัง
               </h3>
             )}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-6">
               {Object.keys(filteredLayout).sort().map(cabinet => (
                 <div key={cabinet} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                  <div className="bg-indigo-600 text-white py-3 px-5 flex justify-between items-center">
+                  <div className="bg-gradient-to-r from-slate-900 to-slate-600 text-white py-3 px-5 flex justify-between items-center">
                     <h2 className="text-lg font-bold flex items-center gap-2">
                       <Layers size={20} /> Log {cabinet}
                     </h2>
@@ -1089,6 +1553,44 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
 
 
       </div>
+
+      {/* Upload Warning Modal */}
+      {uploadWarnings && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div className="bg-amber-500 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
+              <div>
+                <p className="font-bold text-lg">⚠️ พบ Row ที่ไม่ผ่านเงื่อนไข</p>
+                <p className="text-amber-100 text-sm">{uploadWarnings.type}: {uploadWarnings.fileName} — {uploadWarnings.rows.length} row มีปัญหา</p>
+              </div>
+              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors">✕</button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-4 space-y-2">
+              {uploadWarnings.rows.map((r, i) => (
+                <div key={i} className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-sm">
+                  <div className="flex gap-3 items-start">
+                    <span className="font-mono bg-amber-200 text-amber-900 px-2 py-0.5 rounded text-xs font-bold shrink-0">Row {r.row}</span>
+                    <div className="flex-1">
+                      <span className="font-semibold text-slate-800">{r.name}</span>
+                      {r.code && r.code !== '-' && <span className="text-slate-400 ml-2 text-xs">[{r.code}]</span>}
+                      {r.location && <span className="text-slate-500 ml-2 text-xs">📍{r.location}</span>}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {r.issues.map((issue, j) => (
+                          <span key={j} className="bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full text-xs">{issue}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex justify-between items-center">
+              <p className="text-sm text-slate-500">ข้อมูลที่ถูกต้องถูกบันทึกแล้ว — แก้ไข CSV แล้วอัปโหลดใหม่</p>
+              <button onClick={() => setUploadWarnings(null)} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm">รับทราบ</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showSummaryModal && (() => {
         const totalLogItems = expiredItems.length + nearExpiryItems.length + safeItems.length;
@@ -1281,6 +1783,334 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
           </div>
         );
       })()}
+
+      {showLowStockModal && (
+        <div className="fixed inset-0 bg-slate-900/70 flex items-start justify-center z-50 p-3 pt-4 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col mb-6">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-orange-700 to-rose-700 p-5 flex justify-between items-center text-white rounded-t-2xl">
+              <div>
+                <h3 className="text-xl font-bold flex items-center gap-3">
+                  <AlertTriangle size={22} className="text-orange-200" />
+                  แจ้งเตือนการสั่งยา — ต้องสั่งเพิ่ม
+                </h3>
+                <p className="text-sm text-orange-200 mt-1">ยาที่อยู่ต่ำกว่า Reorder Point (Safety Stock + Buffer สำหรับ Lead Time)</p>
+              </div>
+              <button onClick={() => setShowLowStockModal(false)} className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-xl transition-colors">
+                <X size={20}/>
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* Debug panel: แสดงเมื่อไม่มีรายการ */}
+              {/* Debug panel */}
+              <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 text-sm space-y-2">
+                <p className="font-bold text-yellow-800">ℹ️ Debug</p>
+                <p className="text-yellow-700">• ยาที่อ่าน SS จาก log CSV ได้: <b>{lowStockDebug.withSSFromLog} รายการ</b></p>
+                {lowStockDebug.ssExamples.length > 0 && <p className="text-yellow-600 text-xs">ตัวอย่าง: {lowStockDebug.ssExamples.join(' | ')}</p>}
+                {lowStockDebug.withSSFromLog === 0 && <p className="text-red-600 font-bold">⚠️ ไม่พบ Safety Stock — ตรวจสอบชื่อ column ในไฟล์</p>}
+                {/* Drug lookup */}
+                <div className="pt-1">
+                  <p className="font-semibold text-yellow-800 mb-1">ค้นหายาเฉพาะตัว:</p>
+                  <input
+                    className="border border-yellow-400 rounded-lg px-3 py-1.5 text-sm w-full bg-white"
+                    placeholder="พิมพ์ชื่อหรือรหัสยา เช่น Lorazepam"
+                    value={debugDrugQuery}
+                    onChange={e => setDebugDrugQuery(e.target.value)}
+                  />
+                  {debugDrugQuery.trim() && (() => {
+                    const q = debugDrugQuery.trim().toLowerCase();
+                    const found = [];
+                    const seen = new Set();
+                    Object.values(inventory).forEach(items => items.forEach(item => {
+                      if ((item.name?.toLowerCase().includes(q) || item.code?.toLowerCase().includes(q)) && !seen.has(item.code)) {
+                        seen.add(item.code);
+                        const totalQty = Object.values(inventory).flat().filter(i => i.code === item.code).reduce((s, i) => s + (parseFloat(String(i.qty||'0').replace(/,/g,''))||0), 0);
+                        found.push({ name: item.name, code: item.code, ss: item.safetyStock || 0, lt: item.leadTime || 20, qty: totalQty });
+                      }
+                    }));
+                    if (found.length === 0) return <p className="text-slate-500 mt-1">ไม่พบรายการ</p>;
+                    return (
+                      <div className="mt-2 space-y-1">
+                        {found.map((f, i) => {
+                          const rop = f.ss + Math.round((f.ss / 60) * f.lt);
+                          const uByCode = dispenseUsage[codeKey(f.code)];
+                          const uByName = dispenseUsage[nameKey(f.name)];
+                          const u = uByCode || uByName;
+                          const matchedBy = uByCode ? `code: ${codeKey(f.code)}` : uByName ? `name: ${nameKey(f.name)}` : null;
+                          return (
+                            <div key={i} className={`rounded-lg px-3 py-2 border text-xs space-y-1 ${f.qty <= rop && f.ss > 0 ? 'bg-orange-50 border-orange-300' : 'bg-white border-slate-200'}`}>
+                              <div><b>{f.name}</b> <span className="text-slate-400">[{f.code}]</span></div>
+                              <div>คงเหลือ: <b>{f.qty}</b> | SS: <b>{f.ss}</b> | LT: <b>{f.lt}</b> วัน | ROP: <b>{rop}</b></div>
+                              {f.ss === 0 && <div className="text-red-500">⚠️ SS=0 ไม่มีค่า SS</div>}
+                              {f.ss > 0 && f.qty <= rop && <div className="text-orange-600">→ ควรโชว์ใน ต้องสั่งยา</div>}
+                              {f.ss > 0 && f.qty > rop && <div className="text-green-600">→ ยังพอ (qty &gt; ROP)</div>}
+                              <div className={`pt-1 border-t mt-1 ${u ? 'border-blue-200' : 'border-slate-200'}`}>
+                                <span className="font-semibold text-blue-700">เรทการใช้ (4 เดือน): </span>
+                                {u ? (
+                                  <span className="text-blue-600">
+                                    รวม <b>{u.total}</b> | สูงสุด/เดือน <b>{u.maxMonth}</b> | เฉลี่ย/เดือน <b>{u.avg}</b>
+                                    <span className="text-slate-400 ml-1">(match จาก {matchedBy})</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400">ไม่พบข้อมูลใน dispense_logs
+                                    <span className="ml-1 text-red-400">— key ที่ใช้: [{codeKey(f.code)}] / [{nameKey(f.name)}]</span>
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+              {/* Unit Warning Panel */}
+              {(() => {
+                const ambiguousDrugs = Object.values(dispenseUsage).filter(u => u.ambiguous && u.ambiguous.length > 1);
+                if (ambiguousDrugs.length === 0) return null;
+                return (
+                  <div className="bg-amber-50 border border-amber-400 rounded-xl p-4 text-sm space-y-2">
+                    <p className="font-bold text-amber-800">⚠️ พบหน่วยไม่ตรงกัน {ambiguousDrugs.length} รายการ — ต้องแก้ไขใน CSV เบิก</p>
+                    <p className="text-amber-700 text-xs">รายการด้านล่างมีหน่วยหลายชนิดที่รวมกันไม่ได้ เช่น "เม็ด" กับ "ml" — ค่า rate อาจไม่ถูกต้อง กรุณาตรวจสอบและแก้หน่วยให้ตรงกันใน CSV ก่อนอัพโหลดใหม่</p>
+                    <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                      {ambiguousDrugs.map((u, i) => (
+                        <div key={i} className="bg-white border border-amber-200 rounded-lg px-3 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                          <span className="font-semibold text-slate-800 text-xs">{u.name || u.code}</span>
+                          <span className="text-slate-400 text-xs">[{u.code}]</span>
+                          <span className="text-amber-700 text-xs">
+                            {Object.entries(u.unitVariants).sort((a,b) => b[1]-a[1]).map(([unit, qty]) =>
+                              `${unit}: ${Math.round(qty).toLocaleString()}`
+                            ).join('  |  ')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Summary badges */}
+              <div className="flex flex-wrap gap-3">
+                <div className="bg-rose-50 border border-rose-200 rounded-xl px-4 py-2 text-center">
+                  <p className="text-2xl font-black text-rose-700">{lowStockItems.filter(i => i.belowSafety).length}</p>
+                  <p className="text-xs text-rose-500 font-medium">ต่ำกว่า Safety Stock</p>
+                </div>
+                <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-2 text-center">
+                  <p className="text-2xl font-black text-orange-700">{lowStockItems.filter(i => !i.belowSafety).length}</p>
+                  <p className="text-xs text-orange-500 font-medium">ถึง Reorder Point</p>
+                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-center">
+                  <p className="text-2xl font-black text-slate-700">{lowStockItems.length}</p>
+                  <p className="text-xs text-slate-500 font-medium">รายการทั้งหมดที่ต้องสั่ง</p>
+                </div>
+              </div>
+
+              {/* Table */}
+              <div className="overflow-x-auto overflow-y-auto max-h-[420px] rounded-xl border border-slate-200 shadow-sm">
+                <table className="w-full text-base min-w-[780px]">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-slate-700 text-white text-sm">
+                      <th className="px-3 py-2.5 text-left font-semibold">รายการยา</th>
+                      <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">ชนิดยา</th>
+                      <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">หน่วย</th>
+                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">คงเหลือ</th>
+                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-rose-800">
+                        <div>Safety Stock</div>
+                        <div className="text-[10px] font-normal opacity-80">ปัจจุบัน</div>
+                      </th>
+                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-violet-700">
+                        <div>แนะนำ SS</div>
+                        <div className="text-[10px] font-normal opacity-80">จากเรทจริง</div>
+                      </th>
+                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-orange-800">
+                        <div>Reorder Point</div>
+                        <div className="text-[10px] font-normal opacity-80">SS + เฉลี่ย×LT</div>
+                      </th>
+                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-cyan-700">
+                        <div>ต้องซื้อ</div>
+                        <div className="text-[10px] font-normal opacity-80">จากเรทจริง</div>
+                      </th>
+                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Lead Time (วัน)</th>
+                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">ขาด (ถึง SS)</th>
+                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-blue-800">
+                        <div>รวมการใช้</div>
+                        {usageDateRange && <div className="text-[10px] font-normal opacity-80">{usageDateRange.from} – {usageDateRange.to}</div>}
+                      </th>
+                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-blue-700">
+                        <div>สูงสุด/เดือน</div>
+                        {usageDateRange && <div className="text-[10px] font-normal opacity-80">4 เดือนล่าสุด</div>}
+                      </th>
+                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-blue-600">
+                        <div>เฉลี่ย/เดือน</div>
+                        {usageDateRange && <div className="text-[10px] font-normal opacity-80">4 เดือนล่าสุด</div>}
+                      </th>
+                      <th className="px-3 py-2.5 text-center font-semibold">สถานะ</th>
+                      <th className="px-3 py-2.5 text-center font-semibold bg-emerald-800">สั่งแล้ว / วันที่</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lowStockItems.map((item, i) => {
+                      const isOrdered = !!orderedItems[item.code];
+                      return (
+                        <tr key={item.code} className={`border-b border-slate-100 transition-colors ${isOrdered ? 'bg-emerald-50/60 opacity-70' : i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} ${!isOrdered && item.belowSafety ? 'bg-rose-50/60' : ''}`}>
+                          <td className="px-4 py-3">
+                            <span className={`font-semibold block text-base ${isOrdered ? 'line-through text-slate-400' : 'text-slate-800'}`}>{item.name}</span>
+                            <span className="text-slate-400 text-sm">{item.code}</span>
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 text-sm whitespace-nowrap">{item.type !== '-' ? item.type : '—'}</td>
+                          <td className="px-4 py-3 text-slate-600 text-sm whitespace-nowrap">{item.unit !== '-' ? item.unit : '—'}</td>
+                          <td className="px-4 py-3 text-right font-bold text-slate-700 text-base">
+                            {item.currentQty.toLocaleString()}
+                            <div className="w-full bg-slate-200 rounded-full h-2 mt-1">
+                              <div
+                                className={`h-2 rounded-full transition-all ${item.pct < 50 ? 'bg-rose-500' : item.pct < 100 ? 'bg-orange-400' : 'bg-emerald-500'}`}
+                                style={{ width: `${Math.min(item.pct, 100)}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-slate-400">{item.pct}% ของ SS</span>
+                          </td>
+                          <td className="px-4 py-3 text-right text-rose-700 font-bold text-base">{item.safetyStock.toLocaleString()}</td>
+                          {(() => {
+                            const u = dispenseUsage[codeKey(item.code)] || dispenseUsage[nameKey(item.name)] || {};
+                            const ltMonths = (item.leadTime || 20) / 30;
+                            const recSS = u.maxMonth > 0 ? Math.ceil(u.maxMonth * ltMonths * 1.5) : null;
+                            const current = item.safetyStock;
+                            let badge = null;
+                            if (recSS != null) {
+                              if (current < recSS * 0.8) badge = { label: 'ควรเพิ่ม', cls: 'bg-rose-100 text-rose-700 border-rose-300' };
+                              else if (current > recSS * 2) badge = { label: 'Overstock', cls: 'bg-amber-100 text-amber-700 border-amber-300' };
+                              else badge = { label: 'เหมาะสม', cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' };
+                            }
+                            return (
+                              <td className="px-4 py-3 text-right whitespace-nowrap">
+                                {recSS != null ? (
+                                  <div className="flex flex-col items-end gap-1">
+                                    <span className="font-bold text-violet-700 text-base">{recSS.toLocaleString()}</span>
+                                    {badge && <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${badge.cls}`}>{badge.label}</span>}
+                                  </div>
+                                ) : <span className="text-slate-300">—</span>}
+                              </td>
+                            );
+                          })()}
+                          <td className="px-4 py-3 text-right text-orange-700 font-bold text-base">{item.reorderPoint.toLocaleString()}</td>
+                          {(() => {
+                            const u = dispenseUsage[codeKey(item.code)] || dispenseUsage[nameKey(item.name)] || {};
+                            const ltMonths = (item.leadTime || 20) / 30;
+                            const recSS = u.maxMonth > 0 ? Math.ceil(u.maxMonth * ltMonths * 1.5) : null;
+                            const orderQty = recSS != null && u.avg > 0
+                              ? Math.max(0, Math.ceil(recSS + (u.avg * ltMonths) - item.currentQty))
+                              : null;
+                            return (
+                              <td className="px-4 py-3 text-right whitespace-nowrap">
+                                {orderQty != null ? (
+                                  orderQty > 0 ? (
+                                    <span className="font-black text-cyan-700 text-base">{orderQty.toLocaleString()}</span>
+                                  ) : (
+                                    <span className="text-emerald-600 font-semibold text-sm">เพียงพอ</span>
+                                  )
+                                ) : <span className="text-slate-300">—</span>}
+                              </td>
+                            );
+                          })()}
+                          <td className="px-4 py-3 text-right text-slate-500 text-base">{item.leadTime > 0 ? item.leadTime : '-'}</td>
+                          <td className="px-4 py-3 text-right font-bold text-rose-600 text-base">{item.deficit > 0 ? `−${item.deficit.toLocaleString()}` : '—'}</td>
+                          {(() => {
+                            const u = dispenseUsage[codeKey(item.code)] || dispenseUsage[nameKey(item.name)] || {};
+                            const hasData = u.total != null;
+                            const unit = u.baseUnit || '';
+                            const isAmbiguous = u.ambiguous && u.ambiguous.length > 1;
+                            const ambigDetail = isAmbiguous
+                              ? Object.entries(u.unitVariants).sort((a,b) => b[1]-a[1]).map(([un, q]) => `${un}:${Math.round(q).toLocaleString()}`).join(' / ')
+                              : null;
+                            return (
+                              <>
+                                <td className={`px-4 py-3 text-right font-semibold text-sm ${isAmbiguous ? 'bg-amber-50' : ''}`}>
+                                  {hasData ? (
+                                    <div className="flex flex-col items-end gap-0.5">
+                                      <span className={isAmbiguous ? 'text-amber-700' : 'text-blue-700'}>
+                                        {isAmbiguous ? '⚠️ ' : ''}{u.total.toLocaleString()}
+                                        {!isAmbiguous && unit && <span className="text-blue-400 text-xs ml-1">{unit}</span>}
+                                      </span>
+                                      {isAmbiguous && (
+                                        <span className="text-[10px] text-amber-600 leading-tight text-right">{ambigDetail}</span>
+                                      )}
+                                    </div>
+                                  ) : <span className="text-slate-300">—</span>}
+                                </td>
+                                <td className={`px-4 py-3 text-right font-semibold text-sm ${isAmbiguous ? 'bg-amber-50 text-amber-600' : 'text-blue-600'}`}>
+                                  {hasData ? <span>{u.maxMonth.toLocaleString()}{!isAmbiguous && <span className="text-blue-400 text-xs ml-1">{unit}</span>}</span>
+                                    : <span className="text-slate-300">—</span>}
+                                </td>
+                                <td className={`px-4 py-3 text-right font-semibold text-sm ${isAmbiguous ? 'bg-amber-50 text-amber-500' : 'text-blue-500'}`}>
+                                  {hasData ? <span>{u.avg.toLocaleString()}{!isAmbiguous && <span className="text-blue-400 text-xs ml-1">{unit}</span>}</span>
+                                    : <span className="text-slate-300">—</span>}
+                                </td>
+                              </>
+                            );
+                          })()}
+                          <td className="px-4 py-3 text-center">
+                            {item.belowSafety && !isOrdered ? (
+                              <span className="inline-flex items-center gap-1 bg-rose-100 text-rose-700 text-sm font-bold px-3 py-1 rounded-full border border-rose-200">
+                                <AlertTriangle size={12}/> วิกฤต
+                              </span>
+                            ) : isOrdered ? (
+                              <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 text-sm font-bold px-3 py-1 rounded-full border border-emerald-200">
+                                <Check size={12}/> สั่งแล้ว
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 bg-orange-100 text-orange-700 text-sm font-bold px-3 py-1 rounded-full border border-orange-200">
+                                <Clock size={12}/> สั่งได้เลย
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-center min-w-[140px]">
+                            <div className="flex flex-col items-center gap-1">
+                              <button
+                                onClick={() => toggleOrdered(item.code)}
+                                className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-colors ${isOrdered ? 'bg-emerald-500 border-emerald-500 text-white hover:bg-red-400 hover:border-red-400' : 'border-slate-300 hover:border-emerald-400 hover:bg-emerald-50'}`}
+                                title={isOrdered ? 'คลิกเพื่อยกเลิก' : 'คลิกเพื่อทำเครื่องหมายว่าสั่งแล้ว'}
+                              >
+                                {isOrdered && <Check size={12}/>}
+                              </button>
+                              {isOrdered && (
+                                <input
+                                  type="date"
+                                  value={(() => { const d = orderedItems[item.code]; if (!d || d.includes('/')) { return new Date().toISOString().slice(0,10); } return d; })()}
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    setOrderedItems(prev => {
+                                      const next = { ...prev, [item.code]: val };
+                                      localStorage.setItem('orderedItems', JSON.stringify(next));
+                                      return next;
+                                    });
+                                  }}
+                                  className="border border-emerald-300 rounded px-1 py-0.5 text-[10px] text-emerald-700 bg-emerald-50 w-28"
+                                />
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-xs text-slate-400">
+                * Reorder Point = Safety Stock + (Safety Stock ÷ 60 วัน × Lead Time) — สั่งเมื่อคงเหลือถึงจุดนี้เพื่อไม่ให้ขาดก่อนของมา · รายการที่ไม่มี Lead Time ใช้ค่า default = 20 วัน
+              </p>
+            </div>
+
+            <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-between items-center rounded-b-2xl">
+              <button onClick={exportLowStockCSV} className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium transition-colors shadow-sm text-sm">
+                <FileSpreadsheet size={16}/> Export CSV
+              </button>
+              <button onClick={() => setShowLowStockModal(false)} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-medium transition-colors shadow-sm">ปิด</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {selectedLocation && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
