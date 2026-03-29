@@ -192,7 +192,7 @@ const fmtAnyDate = (raw) => {
 
 function parseDate(raw) {
   if (!raw || raw === '-' || raw === '0' || String(raw).trim() === '') return null;
-  const s = String(raw).trim();
+  const s = String(raw).trim().split(/[\sT]/)[0];
   const sep = s.includes('/') ? '/' : s.includes('-') ? '-' : null;
   if (sep) {
     const p = s.split(sep).map(x => x.trim());
@@ -337,7 +337,7 @@ function ReceiveImport({ onDone }) {
             exp_note:             getVal(row, 'exp_note'),
             qty_received:         parseFloat(String(getVal(row, 'qty_received') || '0').replace(/,/g,'')) || null,
             unit_per_bill:        getVal(row, 'unit_per_bill') || '-',
-            price_per_unit:       parseFloat(String(getVal(row, 'price_per_unit') || '0').replace(/,/g,'')) || null,
+            price_per_unit:       (() => { const p = parseFloat(String(getVal(row, 'price_per_unit') || '').replace(/,/g,'')); return isNaN(p) ? null : p; })(),
             total_price_vat:      parseFloat(String(getVal(row, 'total_price_vat') || '0').replace(/,/g,'')) || null,
             total_price_formula:  getVal(row, 'total_price_formula'),
             safety_stock:         parseFloat(String(getVal(row, 'safety_stock') || '').replace(/,/g,'')) || null,
@@ -349,14 +349,16 @@ function ReceiveImport({ onDone }) {
       // Fallback: ดึง drug_swap_policy จาก drug_details DB สำหรับ row ที่ CSV ไม่มีข้อมูล
       const needLookup = [...new Set(rows.filter(r => !r.drug_swap_policy && r.drug_code && r.drug_code !== '-').map(r => r.drug_code))];
       if (needLookup.length > 0) {
-        const { data: ddRows } = await supabase.from('drug_details').select('code, drug_swap_policy').in('code', needLookup);
+        const { data: ddRows } = await supabase.from('receive_logs').select('drug_code, drug_swap_policy').in('drug_code', needLookup);
         if (ddRows) {
           const swapByCode = {};
-          ddRows.forEach(d => { if (d.code && d.drug_swap_policy && !swapByCode[d.code]) swapByCode[d.code] = d.drug_swap_policy; });
+          ddRows.forEach(d => { if (d.drug_code && d.drug_swap_policy && !swapByCode[d.drug_code]) swapByCode[d.drug_code] = d.drug_swap_policy; });
           rows.forEach(r => { if (!r.drug_swap_policy && swapByCode[r.drug_code]) r.drug_swap_policy = swapByCode[r.drug_code]; });
         }
       }
 
+      const { error: delErr } = await supabase.from('receive_logs').delete().gte('id', 0);
+      if (delErr) throw delErr;
       for (let i = 0; i < rows.length; i += CHUNK) {
         const { error: e } = await supabase.from('receive_logs').insert(rows.slice(i, i + CHUNK));
         if (e) throw e;
@@ -745,6 +747,11 @@ function ReceiveView() {
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
+    }).sort((a, b) => {
+      if (!a.receive_date && !b.receive_date) return 0;
+      if (!a.receive_date) return 1;
+      if (!b.receive_date) return -1;
+      return b.receive_date.localeCompare(a.receive_date);
     });
   })();
   const drugCode  = drugRows.find(r => r.drug_code    && r.drug_code    !== '-')?.drug_code    || '-';
@@ -1060,6 +1067,7 @@ function ReceiveView() {
                 <tr className="text-xs text-white font-bold border-b border-slate-600">
                   <th className="px-4 py-2.5 text-left bg-slate-700">วันที่รับ</th>
                   <th className="px-4 py-2.5 text-left bg-slate-700">ชื่อรายการยา</th>
+                  <th className="px-4 py-2.5 text-left bg-slate-700">ชนิดยา</th>
                   <th className="px-4 py-2.5 text-right bg-slate-700">จำนวน</th>
                   <th className="px-4 py-2.5 text-left bg-slate-700">หน่วย</th>
                   <th className="px-4 py-2.5 text-left bg-slate-700">Lot</th>
@@ -1083,6 +1091,7 @@ function ReceiveView() {
                         <span className="block truncate">{row.drug_name}</span>
                         <span className="text-xs text-slate-600 font-normal">{row.drug_code}</span>
                       </td>
+                      <td className="px-4 py-2.5 text-slate-600 text-xs whitespace-nowrap">{row.drug_type || '-'}</td>
                       <td className="px-4 py-2.5 text-emerald-800 font-bold text-right whitespace-nowrap">+{(row.qty_received || 0).toLocaleString()}</td>
                       <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{row.drug_unit || row.unit_per_bill || '-'}</td>
                       <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{row.lot || '-'}</td>
@@ -1099,7 +1108,7 @@ function ReceiveView() {
                     </tr>
                     {expanded === row.id && (
                       <tr className="bg-emerald-50/60 border-b border-emerald-100">
-                        <td colSpan={11} className="px-6 py-3">
+                        <td colSpan={12} className="px-6 py-3">
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-1.5 text-sm">
                             {[
                               ['วันที่แจ้งสั่ง',   fmtDate(row.order_date)],
@@ -1308,9 +1317,9 @@ function ReceiveSummaryModal({ onClose }) {
               {/* KPI */}
               <div className="grid grid-cols-3 gap-3">
                 {[
-                  { label:'รายการรับทั้งหมด',      value:(allTimeTotal ?? '...').toLocaleString?.() ?? '...', unit:'รายการ (ทุกช่วงเวลา)', bg:'bg-indigo-50',  bd:'border-indigo-200',  lbl:'text-indigo-600',  val:'text-indigo-900'  },
-                  { label:'ปริมาณรับรวม (กรอง)',   value:stats.totalQty.toLocaleString(undefined,{maximumFractionDigits:0}), unit:'หน่วย', bg:'bg-emerald-50', bd:'border-emerald-200', lbl:'text-emerald-600', val:'text-emerald-900' },
-                  { label:'มูลค่ารับทั้งหมด (บาท)', value:allTimeValue != null ? allTimeValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:'บาท (ทุกช่วงเวลา)', bg:'bg-amber-50', bd:'border-amber-200', lbl:'text-amber-600', val:'text-amber-900' },
+                  { label:'รายการรับทั้งหมด',      value:stats.total.toLocaleString(), unit:'รายการ (กรอง)', bg:'bg-indigo-50',  bd:'border-indigo-200',  lbl:'text-indigo-600',  val:'text-indigo-900'  },
+                  { label:'ปริมาณรับรวม',          value:stats.totalQty.toLocaleString(undefined,{maximumFractionDigits:0}), unit:'หน่วย (กรอง)', bg:'bg-emerald-50', bd:'border-emerald-200', lbl:'text-emerald-600', val:'text-emerald-900' },
+                  { label:'มูลค่ารับรวม (บาท)',    value:stats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}), unit:'บาท (กรอง)', bg:'bg-amber-50', bd:'border-amber-200', lbl:'text-amber-600', val:'text-amber-900' },
                 ].map((k,i) => (
                   <div key={i} className={`${k.bg} border ${k.bd} rounded-xl p-4 shadow-sm`}>
                     <div className={`text-xs font-bold uppercase tracking-wide ${k.lbl} mb-1`}>{k.label}</div>
