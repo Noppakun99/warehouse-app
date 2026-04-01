@@ -702,6 +702,8 @@ function DispenseView() {
   const [drugLoading, setDrugLoading]   = useState(false);
   const [drugDateFrom, setDrugDateFrom] = useState('');
   const [drugDateTo, setDrugDateTo]     = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
+  const searchRef = useRef(null);
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
@@ -723,6 +725,12 @@ function DispenseView() {
   }, [search, deptFilter, dateFrom, dateTo, page]);
 
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [load]);
+
+  useEffect(() => {
+    const h = (e) => { if (searchRef.current && !searchRef.current.contains(e.target)) setShowDropdown(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
 
   useEffect(() => {
     if (!supabase) return;
