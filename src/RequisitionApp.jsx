@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from './lib/supabase';
+import SearchableSelect from './SearchableSelect';
 import {
   ArrowLeft, Search, Plus, Minus, Trash2, Send, Pencil,
   CheckCircle, XCircle, Package, FileText,
@@ -52,29 +53,39 @@ const STATUS_CONFIG = {
 };
 
 const exportCSV = (reqs, filename) => {
-  const rows = [
-    ['เลขที่ใบเบิก','วันที่เบิก','log','รหัส','ชนิดยา','รายการยา','lot','exp','จำนวนที่เบิก','หน่วย','ราคา/หน่วย','หน่วยงานที่เบิก','หมายเหตุ']
-  ];
-  let logNo = 1;
+  // หัวข้อตรงกับ COL_MAP ของ dispense log เรียงลำดับตาม template
+  const rows = [[
+    'วันที่เบิก', 'mainlog', 'detailedlog',
+    'รหัส', 'ชนิดยา', 'รายการยา',
+    'หน่วยนับ', 'ราคา/หน่วย',
+    'lot number', 'exp', 'ชนิดรายการ',
+    'คงเหลือก่อนเบิก', 'ปริมาณ (ออก)', 'คงเหลือหลังจ่าย',
+    'หน่วยงานที่เบิก', 'หมายเหตุ',
+    'เลขที่ใบเบิก',
+  ]];
   reqs.forEach(req => {
     const d = new Date(req.created_at);
     const pad = n => String(n).padStart(2,'0');
     const date = `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;
     (req.requisition_items || []).forEach(item => {
       rows.push([
-        req.req_number,
         date,
-        logNo++,
+        item.main_log || '',
+        item.detail_log || '',
         item.drug_code || '-',
         item.drug_type || '-',
-        item.drug_name,
+        item.drug_name || '-',
+        item.drug_unit || '-',
+        item.price_per_unit || '',
         item.lot || '-',
         item.exp || '-',
+        item.item_type || '',
+        '',
         item.requested_qty,
-        item.drug_unit || '-',
-        item.price_per_unit || '-',
+        '',
         req.department,
         item.item_note || req.note || '',
+        req.req_number,
       ]);
     });
   });
@@ -171,14 +182,31 @@ function HomeView({ onSelect, onBack }) {
 // ============================================================
 // Requester Root
 // ============================================================
+const CART_KEY = 'req_cart_draft';
+
 function RequesterRoot({ onBack, prefilledUser }) {
   const [step, setStep] = useState(prefilledUser ? 'search' : 'login');
   const [info, setInfo] = useState(prefilledUser || null);
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem(CART_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  // sync cart → sessionStorage ทุกครั้งที่ cart เปลี่ยน
+  useEffect(() => {
+    try { sessionStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch {}
+  }, [cart]);
+
+  const clearCart = () => {
+    setCart([]);
+    try { sessionStorage.removeItem(CART_KEY); } catch {}
+  };
 
   if (step === 'login')   return <RequesterLogin onLogin={v => { setInfo(v); setStep('search'); }} onBack={onBack} />;
   if (step === 'search')  return <DrugSearch info={info} cart={cart} setCart={setCart} onCart={() => setStep('cart')} onHistory={() => setStep('history')} onBack={onBack} />;
-  if (step === 'cart')    return <CartView info={info} cart={cart} setCart={setCart} onBack={() => setStep('search')} onSubmitted={() => { setCart([]); setStep('history'); }} />;
+  if (step === 'cart')    return <CartView info={info} cart={cart} setCart={setCart} onBack={() => setStep('search')} onSubmitted={() => { clearCart(); setStep('history'); }} />;
   if (step === 'history') return <RequisitionHistory info={info} onBack={() => setStep('search')} />;
   return null;
 }
@@ -227,11 +255,9 @@ function RequesterLogin({ onLogin, onBack }) {
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">หน่วยงาน / แผนก</label>
-            <select value={dept} onChange={e => setDept(e.target.value)} required
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF] focus:border-transparent bg-white">
-              <option value="">-- เลือกหน่วยงาน --</option>
-              {departments.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
+            <SearchableSelect value={dept} onChange={setDept}
+              options={departments} placeholder="-- เลือกหน่วยงาน --"
+              className="w-full" />
           </div>
           <button type="submit" disabled={!name.trim() || !dept}
             className="w-full bg-[#1E90FF] hover:bg-[#1a7fe0] disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold text-sm transition-all mt-2">
@@ -278,6 +304,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
   const [warnMap, setWarnMap]  = useState({});   // key = lotKey → warning msg
   const [drugNames, setDrugNames]   = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [toast, setToast] = useState(null);
   const searchRef = useRef(null);
 
   const today = new Date(); today.setHours(0,0,0,0);
@@ -303,10 +330,10 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
       if (uniqueCodes.length > 0) {
         const CHUNK = 500;
         for (let i = 0; i < uniqueCodes.length; i += CHUNK) {
-          const { data: dd } = await supabase.from('drug_details').select('code, drug_type, data').in('code', uniqueCodes.slice(i, i + CHUNK));
+          const { data: dd } = await supabase.from('receive_logs').select('drug_code, drug_type').in('drug_code', uniqueCodes.slice(i, i + CHUNK));
           (dd || []).forEach(r => {
-            const t = r.drug_type || r.data?.['รูปแบบ'] || r.data?.['ชนิด'] || '';
-            if (t && !codeTypeMap[r.code]) codeTypeMap[r.code] = t;
+            const t = r.drug_type || '';
+            if (t && t !== '-' && !codeTypeMap[r.drug_code]) codeTypeMap[r.drug_code] = t;
           });
         }
       }
@@ -375,6 +402,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
             supplier: r.company || r.data?.['บริษัทปัจจุบัน'] || r.data?.['บริษัท'] || r.data?.['supplier_current'] || r.data?.['supplier'] || '',
             price:    r.data?.['ราคาต่อหน่วย(บาท)'] || r.data?.['ราคาต่อหน่วย'] || r.data?.['ราคา/หน่วย'] || r.data?.['price_per_unit'] || '',
             drugType: r.drug_type || r.data?.['รูปแบบ'] || r.data?.['ชนิด'] || r.data?.['drug_type'] || r.data?.['type'] || '',
+            itemType: r.data?.['ชนิดรายการ'] || r.data?.['item_type'] || r.data?.['item type'] || '',
           };
           if (!supplierMap[k3]) supplierMap[k3] = entry;
           if (!supplierMap[k2]) supplierMap[k2] = entry;
@@ -403,7 +431,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
           grouped[key].availableQty += rowQty;
         }
         const detail = getDetail(row);
-        grouped[key].lots.push({ lot: row.lot, exp: row.exp, qty: rowQty, rawQty: row.qty, unit: row.unit, location: row.location, invoice: row.invoice, supplier: detail.supplier || '', price: detail.price || '', drugType: detail.drugType || '', pending: isPending, expired: isExpired });
+        grouped[key].lots.push({ lot: row.lot, exp: row.exp, qty: rowQty, rawQty: row.qty, unit: row.unit, location: row.location, invoice: row.invoice, supplier: detail.supplier || '', price: detail.price || '', drugType: detail.drugType || '', itemType: detail.itemType || '', pending: isPending, expired: isExpired });
       });
 
       const result = Object.values(grouped);
@@ -445,20 +473,31 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
         }
         const u = [...prev]; u[idx] = { ...u[idx], requestedQty: newQty }; return u;
       }
-      return [...prev, { code: drug.code, name: drug.name, unit: lot.unit, lot: lot.lot, exp: lot.exp, price: lot.price, drugType: lot.drugType, availableQty: drug.availableQty, lotRawQty: lot.rawQty ?? lot.qty, requestedQty: safeQty, note: '' }];
+      return [...prev, { code: drug.code, name: drug.name, unit: lot.unit, lot: lot.lot, exp: lot.exp, price: lot.price, drugType: lot.drugType, itemType: lot.itemType || '', location: lot.location || '', availableQty: drug.availableQty, lotRawQty: lot.rawQty ?? lot.qty, requestedQty: safeQty, note: '', addedAt: new Date().toISOString() }];
     });
     setQtyMap(p => ({ ...p, [lotKey]: 1 }));
+    setToast({ name: drug.name, type: lot.drugType || drug.type || '', qty: safeQty, unit: lot.unit || drug.unit || '' });
+    setTimeout(() => setToast(null), 3000);
   };
 
   return (
     <div className="min-h-screen flex flex-col">
+      {toast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-green-600 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 animate-fade-in max-w-sm w-full mx-4">
+          <span className="text-xl">✅</span>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-sm truncate">{toast.name}</p>
+            <p className="text-xs text-green-100">{toast.type && `${toast.type} · `}เพิ่มเข้าตะกร้าแล้ว · จำนวน <span className="font-bold text-white">{toast.qty} × {toast.unit}</span></p>
+          </div>
+        </div>
+      )}
       <PageHeader onBack={onBack} title={info.name} subtitle={info.department}>
-        <button onClick={onHistory} className="transition-colors px-3 py-2 rounded-lg border-2 border-white/70 hover:bg-white/20 flex items-center gap-1.5" style={{color:'#000'}}>
-          <FileText size={18} strokeWidth={2.5} />
-          <span className="text-sm font-semibold">ประวัติการเบิก</span>
+        <button onClick={onHistory} className="transition-colors px-3 py-2 rounded-lg border border-white/50 bg-white/10 hover:bg-white/25 flex items-center gap-1.5 text-white">
+          <FileText size={16} strokeWidth={2} />
+          <span className="text-sm font-medium">ประวัติการเบิก</span>
         </button>
-        <button onClick={onCart} className="relative rounded-lg border-2 border-white/70 px-3 py-2 flex items-center gap-1.5 transition-colors hover:bg-white/20" style={{color:'#000'}}>
-          <Package size={18} /><span className="text-sm font-semibold">ตะกร้า</span>
+        <button onClick={onCart} className="relative rounded-lg border border-white/50 bg-white/10 hover:bg-white/25 px-3 py-2 flex items-center gap-1.5 transition-colors text-white">
+          <Package size={16} /><span className="text-sm font-medium">ตะกร้า</span>
           {cart.length > 0 && <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">{cart.length}</span>}
         </button>
       </PageHeader>
@@ -568,6 +607,8 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
                         {lot.drugType && lot.drugType !== '-' && <span className="text-base font-medium text-[#1E90FF]">💊 {lot.drugType}</span>}
                         {lot.supplier && <span className="text-base font-medium text-slate-600">🏢 {lot.supplier}</span>}
                         {lot.location && lot.location !== '-' && <span className="text-base text-slate-400">📍 {lot.location}</span>}
+                        {lot.itemType && lot.itemType !== '-' && <span className="text-base text-slate-500">📋 {lot.itemType}</span>}
+                        {lot.price && lot.price !== '-' && <span className="text-base font-medium text-amber-700">฿ {lot.price}</span>}
                       </div>
                     </div>
                     {canAdd ? (
@@ -607,9 +648,10 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
 
 // ---- Cart ----
 function CartView({ info, cart, setCart, onBack, onSubmitted }) {
-  const [note, setNote]     = useState('');
+  const [note, setNote]       = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError]   = useState('');
+  const [error, setError]     = useState('');
+  const [doneInfo, setDoneInfo] = useState(null);
 
   const updateQty   = (i, v) => setCart(p => { const u=[...p]; u[i]={...u[i], requestedQty: Math.min(Math.max(1, parseInt(v)||1), u[i].availableQty || 99999)}; return u; });
   const updateNote  = (i, v) => setCart(p => { const u=[...p]; u[i]={...u[i], note: v}; return u; });
@@ -632,18 +674,50 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
             drug_name:      item.name,
             drug_unit:      item.unit || null,
             drug_type:      item.drugType || null,
+            item_type:      item.itemType || null,
             lot:            item.lot || null,
             exp:            item.exp || null,
             price_per_unit: item.price || null,
+            location:       item.location || null,
             requested_qty:  item.requestedQty,
             item_note:      item.note?.trim() || null,
           }))
         );
         if (e2) throw e2;
+        const d = new Date();
+        setDoneInfo({
+          reqNumber:  req.req_number,
+          department: info.department,
+          name:       info.name,
+          itemCount:  cart.length,
+          date:       d.toLocaleDateString('th-TH', { day:'numeric', month:'long', year:'numeric' }),
+          time:       d.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit' }),
+        });
+      } else {
+        onSubmitted();
       }
-      onSubmitted();
     } catch (e) { setError(e.message); } finally { setLoading(false); }
   };
+
+  if (doneInfo) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center space-y-4">
+        <div className="text-5xl">✅</div>
+        <h2 className="text-xl font-black text-slate-800">ส่งใบเบิกสำเร็จ</h2>
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-left space-y-2 text-sm">
+          <div className="flex justify-between"><span className="text-slate-500">เลขที่ใบเบิก</span><span className="font-bold text-[#1E90FF]">{doneInfo.reqNumber}</span></div>
+          <div className="flex justify-between"><span className="text-slate-500">วันที่</span><span className="font-semibold text-slate-800">{doneInfo.date} {doneInfo.time}</span></div>
+          <div className="flex justify-between"><span className="text-slate-500">แผนก</span><span className="font-semibold text-slate-800">{doneInfo.department}</span></div>
+          <div className="flex justify-between"><span className="text-slate-500">ชื่อผู้ส่ง</span><span className="font-semibold text-slate-800">{doneInfo.name}</span></div>
+          <div className="flex justify-between"><span className="text-slate-500">จำนวนรายการ</span><span className="font-bold text-emerald-600">{doneInfo.itemCount} รายการ</span></div>
+        </div>
+        <button onClick={onSubmitted}
+          className="w-full bg-[#1E90FF] hover:bg-[#1a7fe0] text-white rounded-xl py-3 font-bold text-base transition-colors">
+          ตกลง
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -664,6 +738,9 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
                   )}
                   {item.lotRawQty != null && (
                     <p className="text-base text-emerald-600 font-medium mt-0.5">คงเหลือ: {item.lotRawQty}×{item.unit || ''}</p>
+                  )}
+                  {item.addedAt && (
+                    <p className="text-xs text-slate-400 mt-1">เพิ่มเข้าตะกร้า: {new Date(item.addedAt).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'})}</p>
                   )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0 mt-1">
@@ -814,23 +891,35 @@ function RequisitionHistory({ info, onBack }) {
   const handleDeleteItem = async (e, item, req) => {
     e.stopPropagation();
     if (!supabase) return;
+    if (req.status !== 'pending') {
+      alert('ไม่สามารถแก้ไขใบเบิกได้ เพราะดำเนินการอนุมัติแล้ว');
+      return;
+    }
     setSaving(true);
     await supabase.from('requisition_items').delete().eq('id', item.id);
     const remaining = (req.requisition_items || []).filter(i => i.id !== item.id);
     if (remaining.length === 0) {
       // ลบ requisition ทั้งใบถ้าไม่มีรายการเหลือ
       await supabase.from('requisitions').delete().eq('id', req.id);
+    } else {
+      await supabase.from('requisitions').update({ updated_at: new Date().toISOString() }).eq('id', req.id);
     }
     setSaving(false);
     load();
   };
 
-  const handleSaveQty = async (e, item) => {
+  const handleSaveQty = async (e, item, req) => {
     e.stopPropagation();
     const qty = parseInt(editQty);
     if (!qty || qty <= 0 || !supabase) return;
+    if (req.status !== 'pending') {
+      alert('ไม่สามารถแก้ไขใบเบิกได้ เพราะดำเนินการอนุมัติแล้ว');
+      setEditingId(null);
+      return;
+    }
     setSaving(true);
     await supabase.from('requisition_items').update({ requested_qty: qty }).eq('id', item.id);
+    await supabase.from('requisitions').update({ updated_at: new Date().toISOString() }).eq('id', req.id);
     setEditingId(null);
     setSaving(false);
     load();
@@ -865,6 +954,11 @@ function RequisitionHistory({ info, onBack }) {
                     {new Date(req.created_at).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'})}
                     &nbsp;· {req.requisition_items?.length||0} รายการ
                   </p>
+                  {req.updated_at && req.updated_at !== req.created_at && (
+                    <p className="text-xs text-amber-600 mt-0.5">
+                      แก้ไขล่าสุด: {new Date(req.updated_at).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'})}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${cfg.badge}`}>{cfg.label}</span>
@@ -902,7 +996,7 @@ function RequisitionHistory({ info, onBack }) {
                               onChange={e => setEditQty(e.target.value)}
                               onClick={e => e.stopPropagation()}
                               className="w-16 border border-[#E6E6FA] rounded-lg px-2 py-1 text-center text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
-                            <button onClick={e => handleSaveQty(e, item)} disabled={saving}
+                            <button onClick={e => handleSaveQty(e, item, req)} disabled={saving}
                               className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg px-2 py-1 text-xs font-bold transition-colors">
                               <Check size={13}/>
                             </button>
@@ -980,6 +1074,10 @@ function StaffDashboard({ onLogout, onSelect }) {
   const [filter, setFilter]     = useState('pending');
   const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 10));
   const [deleteId, setDeleteId] = useState(null); // id รอยืนยันลบ
+  const [selected, setSelected] = useState(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [searchName, setSearchName] = useState('');
+  const [searchDept, setSearchDept] = useState('');
 
   const handleDelete = async (e, id) => {
     e.stopPropagation();
@@ -988,6 +1086,48 @@ function StaffDashboard({ onLogout, onSelect }) {
     await supabase.from('requisitions').delete().eq('id', id);
     setDeleteId(null);
     setList(prev => prev.filter(r => r.id !== id));
+    setSelected(prev => { const s = new Set(prev); s.delete(id); return s; });
+  };
+
+  const toggleSelect = (e, id) => {
+    e.stopPropagation();
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  };
+
+  const toggleAll = () => {
+    if (selected.size === filtered.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(filtered.map(r => r.id)));
+    }
+  };
+
+  const bulkDelete = async () => {
+    if (!selected.size) return;
+    setBulkLoading(true);
+    for (const id of selected) {
+      await supabase.from('requisition_items').delete().eq('requisition_id', id);
+      await supabase.from('requisitions').delete().eq('id', id);
+    }
+    setList(prev => prev.filter(r => !selected.has(r.id)));
+    setSelected(new Set());
+    setBulkLoading(false);
+  };
+
+  const bulkApprove = async () => {
+    if (!selected.size) return;
+    setBulkLoading(true);
+    for (const id of selected) {
+      const req = list.find(r => r.id === id);
+      if (!req || req.status !== 'pending') continue;
+      for (const item of req.requisition_items || []) {
+        await supabase.from('requisition_items').update({ approved_qty: item.requested_qty }).eq('id', item.id);
+      }
+      await supabase.from('requisitions').update({ status: 'approved', updated_at: new Date().toISOString() }).eq('id', id);
+    }
+    await load();
+    setSelected(new Set());
+    setBulkLoading(false);
   };
 
   const load = useCallback(async () => {
@@ -1007,11 +1147,14 @@ function StaffDashboard({ onLogout, onSelect }) {
 
   const pendingCount = list.filter(r=>r.status==='pending').length;
 
+  const allDepts = [...new Set(list.map(r => r.department).filter(Boolean))].sort();
+
   const filtered = list.filter(r => {
     const statusMatch = filter === 'all' || r.status === filter;
-    // pending tab shows all dates (don't miss any unprocessed request)
     const dateMatch = filter === 'pending' || !dateFilter || (r.created_at && r.created_at.slice(0, 10) === dateFilter);
-    return statusMatch && dateMatch;
+    const nameMatch = !searchName.trim() || (r.requester_name||'').toLowerCase().includes(searchName.trim().toLowerCase());
+    const deptMatch = !searchDept || r.department === searchDept;
+    return statusMatch && dateMatch && nameMatch && deptMatch;
   });
 
   const tabs = [
@@ -1030,13 +1173,32 @@ function StaffDashboard({ onLogout, onSelect }) {
         <button onClick={load} className="text-slate-500 hover:text-[#1E90FF] p-1 transition-colors"><RefreshCcw size={18}/></button>
       </PageHeader>
 
-      <div className="flex items-center gap-2 px-3 py-2 bg-white border-b border-slate-100">
+      <div className="flex items-center gap-2 px-3 py-2 bg-white border-b border-slate-100 flex-wrap">
         <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
           className="border border-slate-300 rounded-lg px-2 py-1 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
         <button onClick={() => setDateFilter('')}
           className={`text-xs px-2 py-1 rounded-lg border transition-colors ${!dateFilter ? 'bg-[#F0F8FF] text-[#1E90FF] border-[#1E90FF]' : 'text-slate-500 border-slate-300 hover:bg-slate-100'}`}>
           ทั้งหมด
         </button>
+        <div className="relative min-w-[160px] flex-1">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input type="text" value={searchName} onChange={e => setSearchName(e.target.value)}
+            placeholder="ชื่อผู้เบิก..."
+            className="w-full pl-8 pr-7 py-1 border border-slate-300 rounded-lg text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+          {searchName && (
+            <button onClick={() => setSearchName('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <X size={13}/>
+            </button>
+          )}
+        </div>
+        <div className="relative min-w-[160px] flex-1">
+          <select value={searchDept} onChange={e => setSearchDept(e.target.value)}
+            className="w-full appearance-none pl-3 pr-7 py-1 border border-slate-300 rounded-lg text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]">
+            <option value="">-- ทุกแผนก --</option>
+            {allDepts.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+          <ChevronRight size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none rotate-90" />
+        </div>
         <button onClick={() => exportCSV(filtered, `ใบเบิกยา_${new Date().toISOString().slice(0,10)}.csv`)}
           className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors">
           <Download size={16}/> Export CSV
@@ -1067,6 +1229,31 @@ function StaffDashboard({ onLogout, onSelect }) {
         ))}
       </div>
 
+      {/* Bulk action toolbar */}
+      {filtered.length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-white border-b border-slate-100">
+          <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-slate-600" onClick={toggleAll}>
+            <input type="checkbox" readOnly checked={selected.size > 0 && selected.size === filtered.length}
+              ref={el => { if (el) el.indeterminate = selected.size > 0 && selected.size < filtered.length; }}
+              className="w-4 h-4 accent-[#1E90FF] cursor-pointer" />
+            เลือกทั้งหมด
+          </label>
+          {selected.size > 0 && (
+            <>
+              <span className="text-xs text-slate-400">({selected.size} รายการ)</span>
+              <button onClick={bulkApprove} disabled={bulkLoading}
+                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">
+                <Check size={13}/> อนุมัติที่เลือก
+              </button>
+              <button onClick={bulkDelete} disabled={bulkLoading}
+                className="flex items-center gap-1.5 bg-red-500 hover:bg-red-600 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">
+                <Trash2 size={13}/> ลบที่เลือก
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="flex-1 p-4 space-y-3">
         {loading && <p className="text-center text-slate-500 py-10">กำลังโหลด...</p>}
         {!loading && filtered.length===0 && <p className="text-center text-slate-500 py-20">ไม่มีรายการ</p>}
@@ -1075,6 +1262,10 @@ function StaffDashboard({ onLogout, onSelect }) {
           const confirming = deleteId === req.id;
           return (
             <div key={req.id} className="bg-white border border-slate-200 rounded-xl shadow-sm flex items-stretch overflow-hidden">
+              <div className="flex items-center pl-3" onClick={e => toggleSelect(e, req.id)}>
+                <input type="checkbox" readOnly checked={selected.has(req.id)}
+                  className="w-4 h-4 accent-[#1E90FF] cursor-pointer" />
+              </div>
               <button onClick={() => onSelect(req)}
                 className="flex-1 p-4 text-left flex items-start justify-between gap-3 hover:bg-slate-50 transition-colors">
                 <div className="min-w-0">
@@ -1135,8 +1326,9 @@ function RequisitionDetail({ req, onBack, onDone }) {
     itemNote:   item.note||'',
   }));
 
+  const requesterNote = req.note || '';
   const [items, setItems] = useState(() => toItemState(req.requisition_items));
-  const [staffNote, setStaffNote] = useState(req.note||'');
+  const [staffNote, setStaffNote] = useState('');
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
 
@@ -1187,7 +1379,7 @@ function RequisitionDetail({ req, onBack, onDone }) {
           const allApprove = items.every(i=>i.decision==='approve');
           status = allReject?'rejected':allApprove?'approved':'partial';
         }
-        await supabase.from('requisitions').update({ status, note:staffNote||null, updated_at:new Date().toISOString() }).eq('id',req.id);
+        await supabase.from('requisitions').update({ status, note:staffNote||requesterNote||null, updated_at:new Date().toISOString() }).eq('id',req.id);
         // Stock is updated via CSV import in แผนผังคลังยา, not deducted here
       }
       onDone();
@@ -1205,7 +1397,7 @@ function RequisitionDetail({ req, onBack, onDone }) {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 border-white/70 text-white hover:bg-white/20 transition-colors text-sm font-semibold no-print">
               <Download size={16}/> โหลด CSV
             </button>
-            <button onClick={() => window.print()}
+            <button onClick={() => printReq(currentReq)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 border-white/70 text-white hover:bg-white/20 transition-colors text-sm font-semibold no-print">
               <Printer size={16}/> พิมพ์
             </button>
@@ -1232,6 +1424,7 @@ function RequisitionDetail({ req, onBack, onDone }) {
                   <p className="font-semibold text-slate-800">{i+1}. {item.drug_name}</p>
                   <p className="text-xs text-slate-500 mt-0.5">รหัส: {item.drug_code} · หน่วย: {item.drug_unit||'-'}</p>
                   <p className="text-sm mt-1 text-slate-600">ขอ: <span className="font-bold text-slate-800">{item.requested_qty}</span>{item.drug_unit && item.drug_unit !== '-' && <span className="text-slate-600"> × {item.drug_unit}</span>}</p>
+                  {item.item_note && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 mt-1">หมายเหตุจากผู้เบิก: {item.item_note}</p>}
                 </div>
                 {isPending && (
                   <div className="no-print flex flex-col gap-2 shrink-0 min-w-[160px]">
@@ -1269,6 +1462,11 @@ function RequisitionDetail({ req, onBack, onDone }) {
             </div>
           ))}
 
+          {isPending && requesterNote && (
+            <div className="no-print bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+              <span className="font-semibold">หมายเหตุจากผู้เบิก:</span> {requesterNote}
+            </div>
+          )}
           {isPending && (
             <textarea value={staffNote} onChange={e => setStaffNote(e.target.value)} placeholder="หมายเหตุโดยรวมจากเจ้าหน้าที่..." rows={2}
               className="no-print w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF] resize-none shadow-sm" />

@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from './lib/supabase';
+import SearchableSelect from './SearchableSelect';
+import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
 import {
   ArrowLeft, UploadCloud, RefreshCcw, Search, X,
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
@@ -49,18 +51,6 @@ async function fetchAllDepts(supabaseClient) {
     from += PAGE;
   }
   return [...found].sort();
-}
-
-function DrugTypeBadge({ type }) {
-  if (!type || type === '-') return null;
-  const t = type.trim().toLowerCase();
-  let cls = 'bg-slate-100 text-slate-600';
-  if (t.includes('เม็ด') || t.includes('tablet') || t.includes('cap')) cls = 'bg-blue-100 text-blue-700';
-  else if (t.includes('น้ำ') || t.includes('syrup') || t.includes('liquid') || t.includes('sol')) cls = 'bg-emerald-100 text-emerald-700';
-  else if (t.includes('ฉีด') || t.includes('inject') || t.includes('iv') || t.includes('im')) cls = 'bg-rose-100 text-rose-700';
-  else if (t.includes('apply') || t.includes('cream') || t.includes('oint') || t.includes('ทา')) cls = 'bg-amber-100 text-amber-700';
-  else if (t.includes('inhale') || t.includes('สูด') || t.includes('spray')) cls = 'bg-purple-100 text-purple-700';
-  return <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>{type}</span>;
 }
 
 const FIELD_LABELS = {
@@ -185,7 +175,7 @@ const fmtAnyDate = (raw) => {
 
 function parseDate(raw) {
   if (!raw || raw === '-' || raw.trim() === '') return null;
-  const s = String(raw).trim();
+  const s = String(raw).trim().split(/[\sT]/)[0];
   const sep = s.includes('/') ? '/' : s.includes('-') ? '-' : null;
   if (sep) {
     const p = s.split(sep).map(x => x.trim());
@@ -310,7 +300,7 @@ function DispenseImport({ onDone }) {
             drug_type:      getVal(row, 'drug_type') || '-',
             item_type:      getVal(row, 'item_type') || null,
             drug_unit:      getVal(row, 'drug_unit') || '-',
-            price_per_unit: parseFloat(String(getVal(row, 'price_per_unit') || '0').replace(/,/g, '')) || null,
+            price_per_unit: (() => { const p = parseFloat(String(getVal(row, 'price_per_unit') || '').replace(/,/g, '')); return isNaN(p) ? null : p; })(),
             lot,
             exp:            getVal(row, 'exp') || '-',
             near_exp_date:  parseDate(getVal(row, 'near_exp_date')) || null,
@@ -334,6 +324,8 @@ function DispenseImport({ onDone }) {
         }
       });
 
+      const { error: delErr } = await supabase.from('dispense_logs').delete().gte('id', 0);
+      if (delErr) throw delErr;
       for (let i = 0; i < rows.length; i += CHUNK) {
         const { error: e } = await supabase.from('dispense_logs').insert(rows.slice(i, i + CHUNK));
         if (e) throw e;
@@ -705,13 +697,11 @@ function DispenseView() {
   const [page, setPage]             = useState(0);
   const PAGE_SIZE = 50;
   const [drugNames, setDrugNames]       = useState([]);
-  const [showDropdown, setShowDropdown] = useState(false);
   const [selectedDrug, setSelectedDrug] = useState('');
   const [drugRows, setDrugRows]         = useState([]);
   const [drugLoading, setDrugLoading]   = useState(false);
   const [drugDateFrom, setDrugDateFrom] = useState('');
   const [drugDateTo, setDrugDateTo]     = useState('');
-  const searchRef = useRef(null);
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
@@ -748,14 +738,6 @@ function DispenseView() {
       const names = [...new Set(data.map(d => d.drug_name).filter(Boolean))].sort();
       setDrugNames(names.map(name => ({ name, type: typeMap[name] || '' })));
     });
-  }, []);
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (searchRef.current && !searchRef.current.contains(e.target)) setShowDropdown(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
   const totalOut   = rows.reduce((s, r) => s + (r.qty_out || 0), 0);
@@ -854,11 +836,9 @@ function DispenseView() {
               </div>
             )}
           </div>
-          <select value={deptFilter} onChange={e => { setDeptFilter(e.target.value); setPage(0); }}
-            className="bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-400">
-            <option value="">ทุกหน่วยงาน</option>
-            {departments.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
+          <SearchableSelect value={deptFilter} onChange={v => { setDeptFilter(v); setPage(0); }}
+            options={departments} emptyLabel="ทุกหน่วยงาน" placeholder="ทุกหน่วยงาน"
+            className="w-44" />
           <button onClick={clearAll} className="text-slate-400 hover:text-slate-600 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
             <RefreshCcw size={16} />
           </button>
@@ -1290,11 +1270,9 @@ function DispenseSummaryModal({ onClose }) {
                 <span className="text-xs text-slate-500">ถึง</span>
                 <ThaiDateInput value={dateTo} onChange={setDateTo} />
               </div>
-              <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)}
-                className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-rose-400">
-                <option value="">ทุกหน่วยงาน</option>
-                {departments.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
+              <SearchableSelect value={deptFilter} onChange={setDeptFilter}
+                options={departments} emptyLabel="ทุกหน่วยงาน" placeholder="ทุกหน่วยงาน"
+                className="w-44" />
               <div className="relative" ref={drugRef}>
                 <input type="text" value={drugFilter}
                   onChange={e => { setDrugFilter(e.target.value); setShowDrugDd(true); }}

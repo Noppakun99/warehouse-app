@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import SearchableSelect from './SearchableSelect';
 import {
   Pill, Package, TrendingUp, TrendingDown,
   User, Shield, LogOut,
@@ -131,13 +132,9 @@ function LoginPage({ onLogin }) {
           {tab === 'requester' && (
             <div>
               <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">หน่วยงาน / แผนก</label>
-              <select
-                value={dept} onChange={e => setDept(e.target.value)} required
-                className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
-              >
-                <option value="">-- เลือกหน่วยงาน --</option>
-                {departments.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
+              <SearchableSelect value={dept} onChange={setDept}
+                options={departments} placeholder="-- เลือกหน่วยงาน --"
+                className="w-full" />
             </div>
           )}
 
