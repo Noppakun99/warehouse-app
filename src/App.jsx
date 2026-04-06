@@ -184,7 +184,7 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
   const [successMsg, setSuccessMsg] = useState('');
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
-  const [showLowStockModal, setShowLowStockModal] = useState(false);
+  const [view, setView] = useState('map'); // 'map' | 'order'
   const [dispenseUsage, setDispenseUsage] = useState({});
   const [uploadWarnings, setUploadWarnings] = useState(null); // { fileName, rows: [{row, issues[]}] }
   const [usageDateRange, setUsageDateRange] = useState(null);
@@ -192,9 +192,9 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
     try { return JSON.parse(localStorage.getItem('orderedItems') || '{}'); } catch { return {}; }
   });
 
-  // fetch เรทการใช้ยา 4 เดือนล่าสุด จาก dispense_logs เมื่อเปิด modal
+  // fetch เรทการใช้ยา 4 เดือนล่าสุด จาก dispense_logs เมื่อเปิดระบบสั่งยา
   useEffect(() => {
-    if (!showLowStockModal || !supabase) return;
+    if (view !== 'order' || !supabase) return;
     const now = new Date();
     const from = new Date();
     from.setMonth(from.getMonth() - 4);
@@ -295,7 +295,7 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
       setDispenseUsage(result);
     };
     fetchAll();
-  }, [showLowStockModal]);
+  }, [view]);
 
   const toggleOrdered = useCallback((code) => {
     setOrderedItems(prev => {
@@ -311,7 +311,6 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
   }, []);
 
   const [debugDrugQuery, setDebugDrugQuery] = useState('');
-  const [highlightCode, setHighlightCode] = useState(null);
   const [showColumnGuide, setShowColumnGuide] = useState(null); // 'log' | 'drug' | null
   
   const logInputRef     = useRef(null);
@@ -1201,6 +1200,419 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
   const TrackingModalIcon = trackingModal.icon;
 
 
+  // ===== ระบบสั่งยา (full-page view) =====
+  if (view === 'order') {
+    const ambiguousDrugs = Object.values(dispenseUsage).filter(u => u.ambiguous && u.ambiguous.length > 1);
+    return (
+      <div className="min-h-screen bg-slate-100 font-sans text-slate-800">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-orange-700 to-rose-700 px-6 py-4 flex items-center justify-between text-white shadow-md sticky top-0 z-30">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setView('map')}
+              className="flex items-center gap-1.5 text-orange-100 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors"
+            >
+              ← กลับ
+            </button>
+            <div>
+              <h1 className="text-xl font-bold flex items-center gap-2">
+                <AlertTriangle size={20} className="text-orange-200" /> ระบบสั่งยา
+              </h1>
+              <p className="text-sm text-orange-200 mt-0.5">ยาที่อยู่ต่ำกว่า Reorder Point (Safety Stock + Buffer สำหรับ Lead Time)</p>
+            </div>
+          </div>
+          <button
+            onClick={exportLowStockCSV}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium transition-colors shadow-sm text-sm"
+          >
+            <FileSpreadsheet size={15}/> Export CSV
+          </button>
+        </div>
+
+        <div className="max-w-[1600px] mx-auto px-4 py-6 space-y-4">
+          {/* Info panel */}
+          <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 text-sm space-y-2">
+            <p className="font-bold text-yellow-800">ℹ️ ข้อมูลการคำนวณ</p>
+            <div className="bg-white border border-yellow-200 rounded-lg p-3 space-y-2 text-xs text-slate-700">
+              <p className="font-bold text-slate-800 mb-1">📐 สูตรคำนวณแต่ละคอลัมน์</p>
+              <div className="space-y-1.5">
+                <div>
+                  <span className="font-semibold text-violet-700">แนะนำ SS</span>
+                  <span className="text-slate-500 ml-1">=</span>
+                  <span className="ml-1">ยอดใช้สูงสุดใน 1 เดือน (จาก 4 เดือนล่าสุด) × 2</span>
+                  <p className="text-slate-400 pl-3">→ ให้มีสต็อกรองรับอย่างน้อย 2 เดือนในกรณีใช้สูงสุด</p>
+                </div>
+                <div>
+                  <span className="font-semibold text-orange-700">Reorder Point</span>
+                  <span className="text-slate-500 ml-1">=</span>
+                  <span className="ml-1">SS ปัจจุบัน + (SS ÷ 60 วัน × Lead Time)</span>
+                  <p className="text-slate-400 pl-3">→ จุดที่ต้องสั่งซื้อ เพื่อให้ของมาทันก่อนสต็อกหมด</p>
+                </div>
+                <div>
+                  <span className="font-semibold text-cyan-700">ต้องซื้อ</span>
+                  <span className="text-slate-500 ml-1">=</span>
+                  <span className="ml-1">SS แนะนำ + (เฉลี่ยใช้/เดือน × เดือนรอของ) − คงเหลือปัจจุบัน</span>
+                  <p className="text-slate-400 pl-3">→ จำนวนที่ต้องสั่งเพื่อให้ถึง SS แนะนำ หลังของมาถึง</p>
+                </div>
+                <div className="border-t border-yellow-100 pt-1.5 text-slate-400">
+                  เฉลี่ยใช้/เดือน = ยอดรวม 4 เดือน ÷ 4 · Lead Time default = 20 วัน หากไม่มีข้อมูล
+                </div>
+              </div>
+            </div>
+            <p className="text-yellow-700">• ยาที่อ่าน SS จาก log CSV ได้: <b>{lowStockDebug.withSSFromLog} รายการ</b></p>
+            {lowStockDebug.withSSFromLog === 0 && <p className="text-red-600 font-bold">⚠️ ไม่พบ Safety Stock — ตรวจสอบชื่อ column ในไฟล์</p>}
+
+            {/* Drug search */}
+            <div className="pt-1">
+              <p className="font-semibold text-yellow-800 mb-1">ค้นหายาเฉพาะตัว:</p>
+              <input
+                className="border border-yellow-400 rounded-lg px-3 py-1.5 text-sm w-full bg-white"
+                placeholder="พิมพ์ชื่อหรือรหัสยา เช่น Lorazepam"
+                value={debugDrugQuery}
+                onChange={e => setDebugDrugQuery(e.target.value)}
+              />
+              {debugDrugQuery.trim() && (() => {
+                const q = debugDrugQuery.trim().toLowerCase();
+                const grouped = {};
+                Object.entries(inventory).forEach(([loc, items]) => items.forEach(item => {
+                  if (!(item.name?.toLowerCase().includes(q) || item.code?.toLowerCase().includes(q))) return;
+                  if (!grouped[item.code]) grouped[item.code] = { name: item.name, code: item.code, ss: item.safetyStock || 0, lt: item.leadTime || 20, lots: [] };
+                  grouped[item.code].lots.push({ ...item, location: loc });
+                }));
+                const found = Object.values(grouped);
+                if (found.length === 0) return <p className="text-slate-500 mt-2 text-sm">ไม่พบรายการ</p>;
+                return (
+                  <div className="mt-3 space-y-3">
+                    <p className="text-xs text-yellow-700 font-semibold">ผลการค้นหา: พบ {found.length} รายการ</p>
+                    {found.map((f) => {
+                      const totalQty = f.lots.reduce((s, l) => s + (parseFloat(String(l.qty||'0').replace(/,/g,''))||0), 0);
+                      const rop = f.ss + Math.round((f.ss / 60) * f.lt);
+                      const uByCode = dispenseUsage[codeKey(f.code)];
+                      const uByName = dispenseUsage[nameKey(f.name)];
+                      const u = uByCode || uByName;
+                      const belowRop = f.ss > 0 && totalQty <= rop;
+                      const inLowStockList = lowStockItems.some(item => item.code === f.code);
+                      return (
+                        <div key={f.code} className={`bg-white border ${inLowStockList ? 'border-orange-400' : 'border-slate-200'} shadow-sm rounded-xl p-4`}>
+                          <div className="flex items-start justify-between gap-3 mb-3">
+                            <div>
+                              <h4 className="font-bold text-slate-800 text-base leading-tight">
+                                <span className="text-indigo-600 mr-1">[{f.code}]</span>{f.name}
+                              </h4>
+                              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                {inLowStockList
+                                  ? <span className="inline-flex items-center gap-1 bg-red-500 text-white px-2.5 py-0.5 rounded-full text-xs font-bold">🔔 อยู่ในรายการต้องสั่งยา</span>
+                                  : <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-xs font-bold border border-emerald-200">✓ ไม่อยู่ในรายการต้องสั่งยา</span>
+                                }
+                                {belowRop && !inLowStockList && <span className="inline-flex items-center gap-1 bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full text-xs font-bold border border-orange-200">⚠ qty ≤ ROP</span>}
+                                {f.ss === 0 && <span className="inline-flex items-center gap-1 bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-xs font-bold border border-red-200">SS = 0</span>}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-4 gap-2 mb-3">
+                            <div className="bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
+                              <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">คงเหลือรวม</div>
+                              <div className="text-sm font-black text-slate-800">{totalQty.toLocaleString()}</div>
+                            </div>
+                            <div className="bg-rose-50 px-3 py-2 rounded-lg border border-rose-100">
+                              <div className="text-[10px] text-rose-500 uppercase font-bold tracking-wider mb-0.5">Safety Stock</div>
+                              <div className="text-sm font-black text-rose-700">{f.ss}</div>
+                            </div>
+                            <div className="bg-orange-50 px-3 py-2 rounded-lg border border-orange-100">
+                              <div className="text-[10px] text-orange-500 uppercase font-bold tracking-wider mb-0.5">ROP</div>
+                              <div className="text-sm font-black text-orange-700">{rop}</div>
+                            </div>
+                            <div className="bg-blue-50 px-3 py-2 rounded-lg border border-blue-100">
+                              <div className="text-[10px] text-blue-500 uppercase font-bold tracking-wider mb-0.5">เฉลี่ย/เดือน</div>
+                              <div className="text-sm font-black text-blue-700">{u ? u.avg : '—'}</div>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            {f.lots.map((lot, li) => (
+                              <div key={li} className="grid grid-cols-2 md:grid-cols-5 gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                                <div>
+                                  <div className="text-[10px] text-slate-400 uppercase font-bold mb-0.5">ตำแหน่ง</div>
+                                  <div className="text-xs font-semibold text-indigo-700">{lot.location}</div>
+                                </div>
+                                <div>
+                                  <div className="text-[10px] text-slate-400 uppercase font-bold mb-0.5">ชนิด/หน่วย</div>
+                                  <div className="text-xs text-slate-700">{lot.type} <span className="text-slate-400">({lot.unit})</span></div>
+                                </div>
+                                <div>
+                                  <div className="text-[10px] text-slate-400 uppercase font-bold mb-0.5">จำนวน</div>
+                                  <div className="text-xs font-black text-slate-800">{lot.qty}</div>
+                                </div>
+                                <div>
+                                  <div className="text-[10px] text-slate-400 uppercase font-bold mb-0.5">Lot / บิล</div>
+                                  <div className="text-xs text-slate-700">{lot.lot || '—'} / <span className="text-indigo-600">{lot.invoice || '—'}</span></div>
+                                </div>
+                                <div>
+                                  <div className="text-[10px] text-slate-400 uppercase font-bold mb-0.5">Exp Date</div>
+                                  <div className="text-xs font-semibold text-emerald-700">{lot.exp || '—'}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+
+          {/* Unit warning */}
+          {ambiguousDrugs.length > 0 && (
+            <div className="bg-amber-50 border border-amber-400 rounded-xl p-4 text-sm space-y-2">
+              <p className="font-bold text-amber-800">⚠️ พบหน่วยไม่ตรงกัน {ambiguousDrugs.length} รายการ — ต้องแก้ไขใน CSV เบิก</p>
+              <p className="text-amber-700 text-xs">รายการด้านล่างมีหน่วยหลายชนิดที่รวมกันไม่ได้ เช่น "เม็ด" กับ "ml" — ค่า rate อาจไม่ถูกต้อง กรุณาตรวจสอบและแก้หน่วยให้ตรงกันใน CSV ก่อนอัพโหลดใหม่</p>
+              <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                {ambiguousDrugs.map((u, i) => (
+                  <div key={i} className="bg-white border border-amber-200 rounded-lg px-3 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                    <span className="font-semibold text-slate-800 text-xs">{u.name || u.code}</span>
+                    <span className="text-slate-400 text-xs">[{u.code}]</span>
+                    <span className="text-amber-700 text-xs">
+                      {Object.entries(u.unitVariants).sort((a,b) => b[1]-a[1]).map(([unit, qty]) =>
+                        `${unit}: ${Math.round(qty).toLocaleString()}`
+                      ).join('  |  ')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Summary badges */}
+          <div className="flex flex-wrap gap-3">
+            <div className="bg-rose-50 border border-rose-200 rounded-xl px-4 py-2 text-center">
+              <p className="text-2xl font-black text-rose-700">{lowStockItems.filter(i => i.belowSafety).length}</p>
+              <p className="text-xs text-rose-500 font-medium">ต่ำกว่า Safety Stock</p>
+            </div>
+            <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-2 text-center">
+              <p className="text-2xl font-black text-orange-700">{lowStockItems.filter(i => !i.belowSafety).length}</p>
+              <p className="text-xs text-orange-500 font-medium">ถึง Reorder Point</p>
+            </div>
+            <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-center">
+              <p className="text-2xl font-black text-slate-700">{lowStockItems.length}</p>
+              <p className="text-xs text-slate-500 font-medium">รายการทั้งหมดที่ต้องสั่ง</p>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="overflow-auto rounded-xl border border-slate-200 shadow-sm bg-white" style={{maxHeight: 'calc(100vh - 180px)'}}>
+            <table className="w-full text-base min-w-[780px]">
+              <thead className="sticky top-0 z-20">
+                <tr className="bg-slate-700 text-white text-sm">
+                  <th className="px-3 py-2.5 text-left font-semibold sticky left-0 z-30 bg-slate-700 shadow-[2px_0_4px_rgba(0,0,0,0.15)]">รายการยา</th>
+                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">ชนิดยา</th>
+                  <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">หน่วย</th>
+                  <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">คงเหลือ</th>
+                  <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-rose-800">
+                    <div>Safety Stock</div>
+                    <div className="text-[10px] font-normal opacity-80">ปัจจุบัน</div>
+                  </th>
+                  <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-violet-700">
+                    <div>แนะนำ SS</div>
+                    <div className="text-[10px] font-normal opacity-80">จากเรทจริง</div>
+                  </th>
+                  <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-orange-800">
+                    <div>Reorder Point</div>
+                    <div className="text-[10px] font-normal opacity-80">SS + เฉลี่ย×LT</div>
+                  </th>
+                  <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-cyan-700">
+                    <div>ต้องซื้อ</div>
+                    <div className="text-[10px] font-normal opacity-80">จากเรทจริง</div>
+                  </th>
+                  <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Lead Time (วัน)</th>
+                  <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-blue-800">
+                    <div>รวมการใช้</div>
+                    {usageDateRange && <div className="text-[10px] font-normal opacity-80">{usageDateRange.from} – {usageDateRange.to}</div>}
+                  </th>
+                  <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-blue-700">
+                    <div>สูงสุด/เดือน</div>
+                    {usageDateRange && <div className="text-[10px] font-normal opacity-80">4 เดือนล่าสุด</div>}
+                  </th>
+                  <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-blue-600">
+                    <div>เฉลี่ย/เดือน</div>
+                    {usageDateRange && <div className="text-[10px] font-normal opacity-80">4 เดือนล่าสุด</div>}
+                  </th>
+                  <th className="px-3 py-2.5 text-center font-semibold">สถานะ</th>
+                  <th className="px-3 py-2.5 text-center font-semibold bg-emerald-800">สั่งแล้ว / วันที่</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lowStockItems.map((item, i) => {
+                  const isOrdered = !!orderedItems[item.code];
+                  return (
+                    <tr key={item.code} className={`border-b border-slate-100 transition-colors ${isOrdered ? 'bg-emerald-50/60 opacity-70' : i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} ${!isOrdered && item.belowSafety ? 'bg-rose-50/60' : ''}`}>
+                      <td className="px-4 py-3 sticky left-0 z-10 bg-white shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
+                        <span className={`font-semibold block text-base ${isOrdered ? 'line-through text-slate-400' : 'text-slate-800'}`}>{item.name}</span>
+                        <span className="text-slate-400 text-sm">{item.code}</span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 text-sm whitespace-nowrap">{item.type !== '-' ? item.type : '—'}</td>
+                      <td className="px-4 py-3 text-slate-600 text-sm whitespace-nowrap">{item.unit !== '-' ? item.unit : '—'}</td>
+                      <td className="px-4 py-3 text-right font-bold text-slate-700 text-base">
+                        {item.currentQty.toLocaleString()}
+                        <div className="w-full bg-slate-200 rounded-full h-2 mt-1">
+                          <div
+                            className={`h-2 rounded-full transition-all ${item.pct < 50 ? 'bg-rose-500' : item.pct < 100 ? 'bg-orange-400' : 'bg-emerald-500'}`}
+                            style={{ width: `${Math.min(item.pct, 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-slate-400">{item.pct}% ของ SS</span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-rose-700 font-bold text-base">{item.safetyStock.toLocaleString()}</td>
+                      {(() => {
+                        const u = dispenseUsage[codeKey(item.code)] || dispenseUsage[nameKey(item.name)] || {};
+                        const recSS = u.maxMonth > 0 ? Math.ceil(u.maxMonth * 2) : null;
+                        const { packSize: ssPackSize } = parsePackUnit(item.unit);
+                        const currentBase = item.safetyStock * ssPackSize;
+                        let badge = null;
+                        if (recSS != null) {
+                          if (currentBase < recSS * 0.8) badge = { label: 'ควรเพิ่ม', cls: 'bg-rose-100 text-rose-700 border-rose-300' };
+                          else if (currentBase > recSS * 2) badge = { label: 'Overstock', cls: 'bg-amber-100 text-amber-700 border-amber-300' };
+                          else badge = { label: 'เหมาะสม', cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' };
+                        }
+                        return (
+                          <td className="px-4 py-3 text-right whitespace-nowrap">
+                            {recSS != null ? (
+                              <div className="flex flex-col items-end gap-1">
+                                {(() => {
+                                  const { packSize, label } = parsePackUnit(item.unit);
+                                  const packs = Math.ceil(recSS / packSize);
+                                  return (
+                                    <span className="font-bold text-violet-700 text-base">
+                                      {packs.toLocaleString()}
+                                      {label && <><span className="text-xs font-normal text-violet-400 mx-1">×</span><span className="text-xs font-normal text-violet-400">{label}</span></>}
+                                    </span>
+                                  );
+                                })()}
+                                {badge && <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${badge.cls}`}>{badge.label}</span>}
+                              </div>
+                            ) : <span className="text-slate-300">—</span>}
+                          </td>
+                        );
+                      })()}
+                      <td className="px-4 py-3 text-right text-orange-700 font-bold text-base">{item.reorderPoint.toLocaleString()}</td>
+                      {(() => {
+                        const u = dispenseUsage[codeKey(item.code)] || dispenseUsage[nameKey(item.name)] || {};
+                        const ltMonths = (item.leadTime || 20) / 30;
+                        const recSS = u.maxMonth > 0 ? Math.ceil(u.maxMonth * 2) : null;
+                        const orderQty = recSS != null && u.avg > 0
+                          ? Math.max(0, Math.ceil(recSS + (u.avg * ltMonths) - item.currentQty))
+                          : null;
+                        return (
+                          <td className="px-4 py-3 text-right whitespace-nowrap">
+                            {orderQty != null ? (
+                              orderQty > 0 ? (
+                                (() => {
+                                  const { packSize, label } = parsePackUnit(item.unit);
+                                  const packs = Math.ceil(orderQty / packSize);
+                                  return (
+                                    <span className="font-black text-cyan-700 text-base">
+                                      {packs.toLocaleString()}
+                                      {label && <><span className="text-xs font-normal text-cyan-400 mx-1">×</span><span className="text-xs font-normal text-cyan-400">{label}</span></>}
+                                    </span>
+                                  );
+                                })()
+                              ) : (
+                                <span className="text-emerald-600 font-semibold text-sm">เพียงพอ</span>
+                              )
+                            ) : <span className="text-slate-300">—</span>}
+                          </td>
+                        );
+                      })()}
+                      <td className="px-4 py-3 text-right text-slate-500 text-base">{item.leadTime > 0 ? item.leadTime : '-'}</td>
+                      {(() => {
+                        const u = dispenseUsage[codeKey(item.code)] || dispenseUsage[nameKey(item.name)] || {};
+                        const hasData = u.total != null;
+                        const unit = u.baseUnit || '';
+                        const isAmbiguous = u.ambiguous && u.ambiguous.length > 1;
+                        const ambigDetail = isAmbiguous
+                          ? Object.entries(u.unitVariants).sort((a,b) => b[1]-a[1]).map(([un, q]) => `${un}:${Math.round(q).toLocaleString()}`).join(' / ')
+                          : null;
+                        return (
+                          <>
+                            <td className={`px-4 py-3 text-right font-semibold text-sm ${isAmbiguous ? 'bg-amber-50' : ''}`}>
+                              {hasData ? (
+                                <div className="flex flex-col items-end gap-0.5">
+                                  <span className={isAmbiguous ? 'text-amber-700' : 'text-blue-700'}>
+                                    {isAmbiguous ? '⚠️ ' : ''}{u.total.toLocaleString()}
+                                    {!isAmbiguous && unit && <span className="text-blue-400 text-xs ml-1">{unit}</span>}
+                                  </span>
+                                  {isAmbiguous && (
+                                    <span className="text-[10px] text-amber-600 leading-tight text-right">{ambigDetail}</span>
+                                  )}
+                                </div>
+                              ) : <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className={`px-4 py-3 text-right font-semibold text-sm ${isAmbiguous ? 'bg-amber-50 text-amber-600' : 'text-blue-600'}`}>
+                              {hasData ? <span>{u.maxMonth.toLocaleString()}{!isAmbiguous && <span className="text-blue-400 text-xs ml-1">{unit}</span>}</span>
+                                : <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className={`px-4 py-3 text-right font-semibold text-sm ${isAmbiguous ? 'bg-amber-50 text-amber-500' : 'text-blue-500'}`}>
+                              {hasData ? <span>{u.avg.toLocaleString()}{!isAmbiguous && <span className="text-blue-400 text-xs ml-1">{unit}</span>}</span>
+                                : <span className="text-slate-300">—</span>}
+                            </td>
+                          </>
+                        );
+                      })()}
+                      <td className="px-4 py-3 text-center">
+                        {item.belowSafety && !isOrdered ? (
+                          <span className="inline-flex items-center gap-1 bg-rose-100 text-rose-700 text-sm font-bold px-3 py-1 rounded-full border border-rose-200">
+                            <AlertTriangle size={12}/> วิกฤต
+                          </span>
+                        ) : isOrdered ? (
+                          <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 text-sm font-bold px-3 py-1 rounded-full border border-emerald-200">
+                            <Check size={12}/> สั่งแล้ว
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 bg-orange-100 text-orange-700 text-sm font-bold px-3 py-1 rounded-full border border-orange-200">
+                            <Clock size={12}/> สั่งได้เลย
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-center min-w-[140px]">
+                        <div className="flex flex-col items-center gap-1">
+                          <button
+                            onClick={() => toggleOrdered(item.code)}
+                            className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-colors ${isOrdered ? 'bg-emerald-500 border-emerald-500 text-white hover:bg-red-400 hover:border-red-400' : 'border-slate-300 hover:border-emerald-400 hover:bg-emerald-50'}`}
+                            title={isOrdered ? 'คลิกเพื่อยกเลิก' : 'คลิกเพื่อทำเครื่องหมายว่าสั่งแล้ว'}
+                          >
+                            {isOrdered && <Check size={12}/>}
+                          </button>
+                          {isOrdered && (
+                            <input
+                              type="date"
+                              value={(() => { const d = orderedItems[item.code]; if (!d || d.includes('/')) { return new Date().toISOString().slice(0,10); } return d; })()}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setOrderedItems(prev => {
+                                  const next = { ...prev, [item.code]: val };
+                                  localStorage.setItem('orderedItems', JSON.stringify(next));
+                                  return next;
+                                });
+                              }}
+                              className="border border-emerald-300 rounded px-1 py-0.5 text-[10px] text-emerald-700 bg-emerald-50 w-28"
+                            />
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-slate-400">
+            * Reorder Point = Safety Stock + (Safety Stock ÷ 60 วัน × Lead Time) — สั่งเมื่อคงเหลือถึงจุดนี้เพื่อไม่ให้ขาดก่อนของมา · รายการที่ไม่มี Lead Time ใช้ค่า default = 20 วัน
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-200 p-4 md:p-6 font-sans text-slate-800 pb-20">
       <div className="max-w-[1400px] mx-auto space-y-6">
@@ -1287,11 +1699,11 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
 
                 {isStaff && (
                   <div
-                    onClick={() => setShowLowStockModal(true)}
+                    onClick={() => setView('order')}
                     className={`flex-1 xl:flex-none flex items-center justify-between gap-4 px-4 py-2 rounded-lg border-2 transition-all min-w-[150px] cursor-pointer ${lowStockItems.length > 0 ? 'bg-orange-50 border-orange-400 hover:border-orange-600 text-orange-700 shadow-sm animate-pulse' : 'bg-white border-slate-200 hover:border-slate-400 text-slate-400'}`}
                   >
                     <div className="flex items-center gap-2 font-bold text-sm">
-                      <AlertTriangle size={16} /> ต้องสั่งยา
+                      <AlertTriangle size={16} /> ระบบสั่งยา
                     </div>
                     <span className="text-xl font-black">{lowStockItems.length}</span>
                   </div>
@@ -1729,432 +2141,6 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
         );
       })()}
 
-      {showLowStockModal && (
-        <div className="fixed inset-0 bg-slate-900/70 flex items-start justify-center z-50 p-3 pt-4 backdrop-blur-sm overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col mb-6">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-orange-700 to-rose-700 p-5 flex justify-between items-center text-white rounded-t-2xl">
-              <div>
-                <h3 className="text-xl font-bold flex items-center gap-3">
-                  <AlertTriangle size={22} className="text-orange-200" />
-                  แจ้งเตือนการสั่งยา — ต้องสั่งเพิ่ม
-                </h3>
-                <p className="text-sm text-orange-200 mt-1">ยาที่อยู่ต่ำกว่า Reorder Point (Safety Stock + Buffer สำหรับ Lead Time)</p>
-              </div>
-              <button onClick={() => setShowLowStockModal(false)} className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-xl transition-colors">
-                <X size={20}/>
-              </button>
-            </div>
-
-            <div className="p-5 space-y-4">
-              {/* Debug panel: แสดงเมื่อไม่มีรายการ */}
-              {/* Debug panel */}
-              <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 text-sm space-y-2">
-                <p className="font-bold text-yellow-800">ℹ️ ข้อมูลการคำนวณ</p>
-                {/* สูตรคำนวณแต่ละคอลัมน์ */}
-                <div className="bg-white border border-yellow-200 rounded-lg p-3 space-y-2 text-xs text-slate-700">
-                  <p className="font-bold text-slate-800 mb-1">📐 สูตรคำนวณแต่ละคอลัมน์</p>
-                  <div className="space-y-1.5">
-                    <div>
-                      <span className="font-semibold text-violet-700">แนะนำ SS</span>
-                      <span className="text-slate-500 ml-1">=</span>
-                      <span className="ml-1">ยอดใช้สูงสุดใน 1 เดือน (จาก 4 เดือนล่าสุด) × 2</span>
-                      <p className="text-slate-400 pl-3">→ ให้มีสต็อกรองรับอย่างน้อย 2 เดือนในกรณีใช้สูงสุด</p>
-                    </div>
-                    <div>
-                      <span className="font-semibold text-orange-700">Reorder Point</span>
-                      <span className="text-slate-500 ml-1">=</span>
-                      <span className="ml-1">SS ปัจจุบัน + (SS ÷ 60 วัน × Lead Time)</span>
-                      <p className="text-slate-400 pl-3">→ จุดที่ต้องสั่งซื้อ เพื่อให้ของมาทันก่อนสต็อกหมด</p>
-                    </div>
-                    <div>
-                      <span className="font-semibold text-cyan-700">ต้องซื้อ</span>
-                      <span className="text-slate-500 ml-1">=</span>
-                      <span className="ml-1">SS แนะนำ + (เฉลี่ยใช้/เดือน × เดือนรอของ) − คงเหลือปัจจุบัน</span>
-                      <p className="text-slate-400 pl-3">→ จำนวนที่ต้องสั่งเพื่อให้ถึง SS แนะนำ หลังของมาถึง</p>
-                    </div>
-                    <div className="border-t border-yellow-100 pt-1.5 text-slate-400">
-                      เฉลี่ยใช้/เดือน = ยอดรวม 4 เดือน ÷ 4 · Lead Time default = 20 วัน หากไม่มีข้อมูล
-                    </div>
-                  </div>
-                </div>
-                <p className="text-yellow-700">• ยาที่อ่าน SS จาก log CSV ได้: <b>{lowStockDebug.withSSFromLog} รายการ</b></p>
-                {lowStockDebug.withSSFromLog === 0 && <p className="text-red-600 font-bold">⚠️ ไม่พบ Safety Stock — ตรวจสอบชื่อ column ในไฟล์</p>}
-                {/* Drug lookup */}
-                <div className="pt-1">
-                  <p className="font-semibold text-yellow-800 mb-1">ค้นหายาเฉพาะตัว:</p>
-                  <input
-                    className="border border-yellow-400 rounded-lg px-3 py-1.5 text-sm w-full bg-white"
-                    placeholder="พิมพ์ชื่อหรือรหัสยา เช่น Lorazepam"
-                    value={debugDrugQuery}
-                    onChange={e => setDebugDrugQuery(e.target.value)}
-                  />
-                  {debugDrugQuery.trim() && (() => {
-                    const q = debugDrugQuery.trim().toLowerCase();
-                    // จัดกลุ่ม lots ตาม code
-                    const grouped = {};
-                    Object.entries(inventory).forEach(([loc, items]) => items.forEach(item => {
-                      if (!(item.name?.toLowerCase().includes(q) || item.code?.toLowerCase().includes(q))) return;
-                      if (!grouped[item.code]) grouped[item.code] = { name: item.name, code: item.code, ss: item.safetyStock || 0, lt: item.leadTime || 20, lots: [] };
-                      grouped[item.code].lots.push({ ...item, location: loc });
-                    }));
-                    const found = Object.values(grouped);
-                    if (found.length === 0) return <p className="text-slate-500 mt-2 text-sm">ไม่พบรายการ</p>;
-                    return (
-                      <div className="mt-3 space-y-3">
-                        <p className="text-xs text-yellow-700 font-semibold">ผลการค้นหา: พบ {found.length} รายการ</p>
-                        {found.map((f) => {
-                          const totalQty = f.lots.reduce((s, l) => s + (parseFloat(String(l.qty||'0').replace(/,/g,''))||0), 0);
-                          const rop = f.ss + Math.round((f.ss / 60) * f.lt);
-                          const uByCode = dispenseUsage[codeKey(f.code)];
-                          const uByName = dispenseUsage[nameKey(f.name)];
-                          const u = uByCode || uByName;
-                          const belowRop = f.ss > 0 && totalQty <= rop;
-                          const inLowStockList = lowStockItems.some(item => item.code === f.code);
-                          return (
-                            <div key={f.code} className={`bg-white border ${inLowStockList ? 'border-orange-400' : 'border-slate-200'} shadow-sm rounded-xl p-4`}>
-                              {/* Header */}
-                              <div className="flex items-start justify-between gap-3 mb-3">
-                                <div>
-                                  <h4 className="font-bold text-slate-800 text-base leading-tight">
-                                    <span className="text-indigo-600 mr-1">[{f.code}]</span>{f.name}
-                                  </h4>
-                                  <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                    {inLowStockList
-                                      ? <span className="inline-flex items-center gap-1 bg-red-500 text-white px-2.5 py-0.5 rounded-full text-xs font-bold">🔔 อยู่ในรายการต้องสั่งยา</span>
-                                      : <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-xs font-bold border border-emerald-200">✓ ไม่อยู่ในรายการต้องสั่งยา</span>
-                                    }
-                                    {belowRop && !inLowStockList && <span className="inline-flex items-center gap-1 bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full text-xs font-bold border border-orange-200">⚠ qty ≤ ROP</span>}
-                                    {f.ss === 0 && <span className="inline-flex items-center gap-1 bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-xs font-bold border border-red-200">SS = 0</span>}
-                                  </div>
-                                </div>
-                                <button
-                                  onClick={() => {
-                                    setHighlightCode(f.code);
-                                    const el = document.getElementById(`drug-row-${f.code}`);
-                                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                    setTimeout(() => setHighlightCode(null), 3000);
-                                  }}
-                                  className="shrink-0 text-xs bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-semibold px-3 py-1.5 rounded-lg transition-colors"
-                                >ไปที่แถว ↓</button>
-                              </div>
-
-                              {/* Summary row */}
-                              <div className="grid grid-cols-4 gap-2 mb-3">
-                                <div className="bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
-                                  <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">คงเหลือรวม</div>
-                                  <div className="text-sm font-black text-slate-800">{totalQty.toLocaleString()}</div>
-                                </div>
-                                <div className="bg-rose-50 px-3 py-2 rounded-lg border border-rose-100">
-                                  <div className="text-[10px] text-rose-500 uppercase font-bold tracking-wider mb-0.5">Safety Stock</div>
-                                  <div className="text-sm font-black text-rose-700">{f.ss}</div>
-                                </div>
-                                <div className="bg-orange-50 px-3 py-2 rounded-lg border border-orange-100">
-                                  <div className="text-[10px] text-orange-500 uppercase font-bold tracking-wider mb-0.5">ROP</div>
-                                  <div className="text-sm font-black text-orange-700">{rop}</div>
-                                </div>
-                                <div className="bg-blue-50 px-3 py-2 rounded-lg border border-blue-100">
-                                  <div className="text-[10px] text-blue-500 uppercase font-bold tracking-wider mb-0.5">เฉลี่ย/เดือน</div>
-                                  <div className="text-sm font-black text-blue-700">{u ? u.avg : '—'}</div>
-                                </div>
-                              </div>
-
-                              {/* Per-lot cards */}
-                              <div className="space-y-2">
-                                {f.lots.map((lot, li) => (
-                                  <div key={li} className="grid grid-cols-2 md:grid-cols-5 gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                                    <div>
-                                      <div className="text-[10px] text-slate-400 uppercase font-bold mb-0.5">ตำแหน่ง</div>
-                                      <div className="text-xs font-semibold text-indigo-700">{lot.location}</div>
-                                    </div>
-                                    <div>
-                                      <div className="text-[10px] text-slate-400 uppercase font-bold mb-0.5">ชนิด/หน่วย</div>
-                                      <div className="text-xs text-slate-700">{lot.type} <span className="text-slate-400">({lot.unit})</span></div>
-                                    </div>
-                                    <div>
-                                      <div className="text-[10px] text-slate-400 uppercase font-bold mb-0.5">จำนวน</div>
-                                      <div className="text-xs font-black text-slate-800">{lot.qty}</div>
-                                    </div>
-                                    <div>
-                                      <div className="text-[10px] text-slate-400 uppercase font-bold mb-0.5">Lot / บิล</div>
-                                      <div className="text-xs text-slate-700">{lot.lot || '—'} / <span className="text-indigo-600">{lot.invoice || '—'}</span></div>
-                                    </div>
-                                    <div>
-                                      <div className="text-[10px] text-slate-400 uppercase font-bold mb-0.5">Exp Date</div>
-                                      <div className="text-xs font-semibold text-emerald-700">{lot.exp || '—'}</div>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
-              {/* Unit Warning Panel */}
-              {(() => {
-                const ambiguousDrugs = Object.values(dispenseUsage).filter(u => u.ambiguous && u.ambiguous.length > 1);
-                if (ambiguousDrugs.length === 0) return null;
-                return (
-                  <div className="bg-amber-50 border border-amber-400 rounded-xl p-4 text-sm space-y-2">
-                    <p className="font-bold text-amber-800">⚠️ พบหน่วยไม่ตรงกัน {ambiguousDrugs.length} รายการ — ต้องแก้ไขใน CSV เบิก</p>
-                    <p className="text-amber-700 text-xs">รายการด้านล่างมีหน่วยหลายชนิดที่รวมกันไม่ได้ เช่น "เม็ด" กับ "ml" — ค่า rate อาจไม่ถูกต้อง กรุณาตรวจสอบและแก้หน่วยให้ตรงกันใน CSV ก่อนอัพโหลดใหม่</p>
-                    <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
-                      {ambiguousDrugs.map((u, i) => (
-                        <div key={i} className="bg-white border border-amber-200 rounded-lg px-3 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                          <span className="font-semibold text-slate-800 text-xs">{u.name || u.code}</span>
-                          <span className="text-slate-400 text-xs">[{u.code}]</span>
-                          <span className="text-amber-700 text-xs">
-                            {Object.entries(u.unitVariants).sort((a,b) => b[1]-a[1]).map(([unit, qty]) =>
-                              `${unit}: ${Math.round(qty).toLocaleString()}`
-                            ).join('  |  ')}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Summary badges */}
-              <div className="flex flex-wrap gap-3">
-                <div className="bg-rose-50 border border-rose-200 rounded-xl px-4 py-2 text-center">
-                  <p className="text-2xl font-black text-rose-700">{lowStockItems.filter(i => i.belowSafety).length}</p>
-                  <p className="text-xs text-rose-500 font-medium">ต่ำกว่า Safety Stock</p>
-                </div>
-                <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-2 text-center">
-                  <p className="text-2xl font-black text-orange-700">{lowStockItems.filter(i => !i.belowSafety).length}</p>
-                  <p className="text-xs text-orange-500 font-medium">ถึง Reorder Point</p>
-                </div>
-                <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-center">
-                  <p className="text-2xl font-black text-slate-700">{lowStockItems.length}</p>
-                  <p className="text-xs text-slate-500 font-medium">รายการทั้งหมดที่ต้องสั่ง</p>
-                </div>
-              </div>
-
-              {/* Table */}
-              <div className="overflow-x-auto overflow-y-auto max-h-[420px] rounded-xl border border-slate-200 shadow-sm">
-                <table className="w-full text-base min-w-[780px]">
-                  <thead className="sticky top-0 z-20">
-                    <tr className="bg-slate-700 text-white text-sm">
-                      <th className="px-3 py-2.5 text-left font-semibold sticky left-0 z-30 bg-slate-700 shadow-[2px_0_4px_rgba(0,0,0,0.15)]">รายการยา</th>
-                      <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">ชนิดยา</th>
-                      <th className="px-3 py-2.5 text-left font-semibold whitespace-nowrap">หน่วย</th>
-                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">คงเหลือ</th>
-                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-rose-800">
-                        <div>Safety Stock</div>
-                        <div className="text-[10px] font-normal opacity-80">ปัจจุบัน</div>
-                      </th>
-                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-violet-700">
-                        <div>แนะนำ SS</div>
-                        <div className="text-[10px] font-normal opacity-80">จากเรทจริง</div>
-                      </th>
-                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-orange-800">
-                        <div>Reorder Point</div>
-                        <div className="text-[10px] font-normal opacity-80">SS + เฉลี่ย×LT</div>
-                      </th>
-                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-cyan-700">
-                        <div>ต้องซื้อ</div>
-                        <div className="text-[10px] font-normal opacity-80">จากเรทจริง</div>
-                      </th>
-                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">Lead Time (วัน)</th>
-                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-blue-800">
-                        <div>รวมการใช้</div>
-                        {usageDateRange && <div className="text-[10px] font-normal opacity-80">{usageDateRange.from} – {usageDateRange.to}</div>}
-                      </th>
-                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-blue-700">
-                        <div>สูงสุด/เดือน</div>
-                        {usageDateRange && <div className="text-[10px] font-normal opacity-80">4 เดือนล่าสุด</div>}
-                      </th>
-                      <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-blue-600">
-                        <div>เฉลี่ย/เดือน</div>
-                        {usageDateRange && <div className="text-[10px] font-normal opacity-80">4 เดือนล่าสุด</div>}
-                      </th>
-                      <th className="px-3 py-2.5 text-center font-semibold">สถานะ</th>
-                      <th className="px-3 py-2.5 text-center font-semibold bg-emerald-800">สั่งแล้ว / วันที่</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lowStockItems.map((item, i) => {
-                      const isOrdered = !!orderedItems[item.code];
-                      return (
-                        <tr key={item.code} id={`drug-row-${item.code}`} className={`border-b border-slate-100 transition-colors ${highlightCode === item.code ? 'ring-2 ring-inset ring-yellow-400 bg-yellow-50' : isOrdered ? 'bg-emerald-50/60 opacity-70' : i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} ${!isOrdered && item.belowSafety && highlightCode !== item.code ? 'bg-rose-50/60' : ''}`}>
-                          <td className="px-4 py-3 sticky left-0 z-10 bg-white shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
-                            <span className={`font-semibold block text-base ${isOrdered ? 'line-through text-slate-400' : 'text-slate-800'}`}>{item.name}</span>
-                            <span className="text-slate-400 text-sm">{item.code}</span>
-                          </td>
-                          <td className="px-4 py-3 text-slate-600 text-sm whitespace-nowrap">{item.type !== '-' ? item.type : '—'}</td>
-                          <td className="px-4 py-3 text-slate-600 text-sm whitespace-nowrap">{item.unit !== '-' ? item.unit : '—'}</td>
-                          <td className="px-4 py-3 text-right font-bold text-slate-700 text-base">
-                            {item.currentQty.toLocaleString()}
-                            <div className="w-full bg-slate-200 rounded-full h-2 mt-1">
-                              <div
-                                className={`h-2 rounded-full transition-all ${item.pct < 50 ? 'bg-rose-500' : item.pct < 100 ? 'bg-orange-400' : 'bg-emerald-500'}`}
-                                style={{ width: `${Math.min(item.pct, 100)}%` }}
-                              />
-                            </div>
-                            <span className="text-xs text-slate-400">{item.pct}% ของ SS</span>
-                          </td>
-                          <td className="px-4 py-3 text-right text-rose-700 font-bold text-base">{item.safetyStock.toLocaleString()}</td>
-                          {(() => {
-                            const u = dispenseUsage[codeKey(item.code)] || dispenseUsage[nameKey(item.name)] || {};
-                            const recSS = u.maxMonth > 0 ? Math.ceil(u.maxMonth * 2) : null;
-                            const { packSize: ssPackSize } = parsePackUnit(item.unit);
-                            const currentBase = item.safetyStock * ssPackSize; // แปลงเป็น base unit
-                            let badge = null;
-                            if (recSS != null) {
-                              if (currentBase < recSS * 0.8) badge = { label: 'ควรเพิ่ม', cls: 'bg-rose-100 text-rose-700 border-rose-300' };
-                              else if (currentBase > recSS * 2) badge = { label: 'Overstock', cls: 'bg-amber-100 text-amber-700 border-amber-300' };
-                              else badge = { label: 'เหมาะสม', cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' };
-                            }
-                            return (
-                              <td className="px-4 py-3 text-right whitespace-nowrap">
-                                {recSS != null ? (
-                                  <div className="flex flex-col items-end gap-1">
-                                    {(() => {
-                                      const { packSize, label } = parsePackUnit(item.unit);
-                                      const packs = Math.ceil(recSS / packSize);
-                                      return (
-                                        <span className="font-bold text-violet-700 text-base">
-                                          {packs.toLocaleString()}
-                                          {label && <><span className="text-xs font-normal text-violet-400 mx-1">×</span><span className="text-xs font-normal text-violet-400">{label}</span></>}
-                                        </span>
-                                      );
-                                    })()}
-                                    {badge && <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${badge.cls}`}>{badge.label}</span>}
-                                  </div>
-                                ) : <span className="text-slate-300">—</span>}
-                              </td>
-                            );
-                          })()}
-                          <td className="px-4 py-3 text-right text-orange-700 font-bold text-base">{item.reorderPoint.toLocaleString()}</td>
-                          {(() => {
-                            const u = dispenseUsage[codeKey(item.code)] || dispenseUsage[nameKey(item.name)] || {};
-                            const ltMonths = (item.leadTime || 20) / 30;
-                            const recSS = u.maxMonth > 0 ? Math.ceil(u.maxMonth * 2) : null;
-                            const orderQty = recSS != null && u.avg > 0
-                              ? Math.max(0, Math.ceil(recSS + (u.avg * ltMonths) - item.currentQty))
-                              : null;
-                            return (
-                              <td className="px-4 py-3 text-right whitespace-nowrap">
-                                {orderQty != null ? (
-                                  orderQty > 0 ? (
-                                    (() => {
-                                      const { packSize, label } = parsePackUnit(item.unit);
-                                      const packs = Math.ceil(orderQty / packSize);
-                                      return (
-                                        <span className="font-black text-cyan-700 text-base">
-                                          {packs.toLocaleString()}
-                                          {label && <><span className="text-xs font-normal text-cyan-400 mx-1">×</span><span className="text-xs font-normal text-cyan-400">{label}</span></>}
-                                        </span>
-                                      );
-                                    })()
-                                  ) : (
-                                    <span className="text-emerald-600 font-semibold text-sm">เพียงพอ</span>
-                                  )
-                                ) : <span className="text-slate-300">—</span>}
-                              </td>
-                            );
-                          })()}
-                          <td className="px-4 py-3 text-right text-slate-500 text-base">{item.leadTime > 0 ? item.leadTime : '-'}</td>
-                          {(() => {
-                            const u = dispenseUsage[codeKey(item.code)] || dispenseUsage[nameKey(item.name)] || {};
-                            const hasData = u.total != null;
-                            const unit = u.baseUnit || '';
-                            const isAmbiguous = u.ambiguous && u.ambiguous.length > 1;
-                            const ambigDetail = isAmbiguous
-                              ? Object.entries(u.unitVariants).sort((a,b) => b[1]-a[1]).map(([un, q]) => `${un}:${Math.round(q).toLocaleString()}`).join(' / ')
-                              : null;
-                            return (
-                              <>
-                                <td className={`px-4 py-3 text-right font-semibold text-sm ${isAmbiguous ? 'bg-amber-50' : ''}`}>
-                                  {hasData ? (
-                                    <div className="flex flex-col items-end gap-0.5">
-                                      <span className={isAmbiguous ? 'text-amber-700' : 'text-blue-700'}>
-                                        {isAmbiguous ? '⚠️ ' : ''}{u.total.toLocaleString()}
-                                        {!isAmbiguous && unit && <span className="text-blue-400 text-xs ml-1">{unit}</span>}
-                                      </span>
-                                      {isAmbiguous && (
-                                        <span className="text-[10px] text-amber-600 leading-tight text-right">{ambigDetail}</span>
-                                      )}
-                                    </div>
-                                  ) : <span className="text-slate-300">—</span>}
-                                </td>
-                                <td className={`px-4 py-3 text-right font-semibold text-sm ${isAmbiguous ? 'bg-amber-50 text-amber-600' : 'text-blue-600'}`}>
-                                  {hasData ? <span>{u.maxMonth.toLocaleString()}{!isAmbiguous && <span className="text-blue-400 text-xs ml-1">{unit}</span>}</span>
-                                    : <span className="text-slate-300">—</span>}
-                                </td>
-                                <td className={`px-4 py-3 text-right font-semibold text-sm ${isAmbiguous ? 'bg-amber-50 text-amber-500' : 'text-blue-500'}`}>
-                                  {hasData ? <span>{u.avg.toLocaleString()}{!isAmbiguous && <span className="text-blue-400 text-xs ml-1">{unit}</span>}</span>
-                                    : <span className="text-slate-300">—</span>}
-                                </td>
-                              </>
-                            );
-                          })()}
-                          <td className="px-4 py-3 text-center">
-                            {item.belowSafety && !isOrdered ? (
-                              <span className="inline-flex items-center gap-1 bg-rose-100 text-rose-700 text-sm font-bold px-3 py-1 rounded-full border border-rose-200">
-                                <AlertTriangle size={12}/> วิกฤต
-                              </span>
-                            ) : isOrdered ? (
-                              <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 text-sm font-bold px-3 py-1 rounded-full border border-emerald-200">
-                                <Check size={12}/> สั่งแล้ว
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 bg-orange-100 text-orange-700 text-sm font-bold px-3 py-1 rounded-full border border-orange-200">
-                                <Clock size={12}/> สั่งได้เลย
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2.5 text-center min-w-[140px]">
-                            <div className="flex flex-col items-center gap-1">
-                              <button
-                                onClick={() => toggleOrdered(item.code)}
-                                className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-colors ${isOrdered ? 'bg-emerald-500 border-emerald-500 text-white hover:bg-red-400 hover:border-red-400' : 'border-slate-300 hover:border-emerald-400 hover:bg-emerald-50'}`}
-                                title={isOrdered ? 'คลิกเพื่อยกเลิก' : 'คลิกเพื่อทำเครื่องหมายว่าสั่งแล้ว'}
-                              >
-                                {isOrdered && <Check size={12}/>}
-                              </button>
-                              {isOrdered && (
-                                <input
-                                  type="date"
-                                  value={(() => { const d = orderedItems[item.code]; if (!d || d.includes('/')) { return new Date().toISOString().slice(0,10); } return d; })()}
-                                  onChange={e => {
-                                    const val = e.target.value;
-                                    setOrderedItems(prev => {
-                                      const next = { ...prev, [item.code]: val };
-                                      localStorage.setItem('orderedItems', JSON.stringify(next));
-                                      return next;
-                                    });
-                                  }}
-                                  className="border border-emerald-300 rounded px-1 py-0.5 text-[10px] text-emerald-700 bg-emerald-50 w-28"
-                                />
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-xs text-slate-400">
-                * Reorder Point = Safety Stock + (Safety Stock ÷ 60 วัน × Lead Time) — สั่งเมื่อคงเหลือถึงจุดนี้เพื่อไม่ให้ขาดก่อนของมา · รายการที่ไม่มี Lead Time ใช้ค่า default = 20 วัน
-              </p>
-            </div>
-
-            <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-between items-center rounded-b-2xl">
-              <button onClick={exportLowStockCSV} className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium transition-colors shadow-sm text-sm">
-                <FileSpreadsheet size={16}/> Export CSV
-              </button>
-              <button onClick={() => setShowLowStockModal(false)} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-medium transition-colors shadow-sm">ปิด</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {selectedLocation && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
