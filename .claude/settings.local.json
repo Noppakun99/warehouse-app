@@ -3,7 +3,9 @@
     "allow": [
       "Bash(npx vite:*)",
       "Bash(npm run:*)",
-      "Bash(wc -l /c/Users/Admin/OneDrive/Desktop/warehouse-app/src/*.jsx)"
+      "Bash(wc -l /c/Users/Admin/OneDrive/Desktop/warehouse-app/src/*.jsx)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
