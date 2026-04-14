@@ -208,7 +208,7 @@ function _parseReceiveDate(raw) {
   return null;
 }
 
-export async function importReceiveLogs(csvText) {
+export async function importReceiveLogs(csvText, auth = {}) {
   if (!supabase) throw new Error('Supabase not configured')
   const lines = csvText.split('\n').filter(l => l.trim())
   if (lines.length < 2) throw new Error('ไฟล์ไม่มีข้อมูล')
@@ -230,7 +230,7 @@ export async function importReceiveLogs(csvText) {
   }
 
   const rows = rawRows
-    .filter(row => row.some(c => c.trim()))
+    .filter(row => row.some(c => c && c.trim() && c.trim() !== '-'))
     .map(row => {
       const swapFromCsv = [getVal(row,'swap_condition'),getVal(row,'swap_items')].filter(Boolean).join(' | ')||null;
       const drugCode = (() => { const v=getVal(row,'drug_code'); return v?String(v).trim()||'-':'-'; })();
@@ -278,7 +278,192 @@ export async function importReceiveLogs(csvText) {
     if (e) throw e
     if (i + CHUNK < rows.length) await new Promise(r => setTimeout(r, 500))
   }
+  await insertAuditLog({
+    action: 'import_receive', table_name: 'receive_logs',
+    user_name: auth.name, department: auth.department,
+    record_count: rows.length,
+  })
   return rows.length
+}
+
+// --- Dashboard Alerts ---
+
+function _parseExpDate(raw) {
+  if (!raw || raw === '-' || String(raw).trim() === '') return null
+  const s = String(raw).trim()
+  // DD/MM/YYYY หรือ D/M/YYYY
+  const m1 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+  if (m1) {
+    let [, d, mo, y] = m1.map(Number)
+    if (y < 100) y += 2000
+    if (y > 2500) y -= 543
+    const dt = new Date(y, mo - 1, d)
+    return isNaN(dt) ? null : dt
+  }
+  // YYYY-MM-DD
+  const m2 = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (m2) {
+    let [, y, mo, d] = m2.map(Number)
+    if (y > 2500) y -= 543
+    const dt = new Date(y, mo - 1, d)
+    return isNaN(dt) ? null : dt
+  }
+  // MM/YYYY หรือ MM-YYYY (ไม่มีวัน → ใช้วันสุดท้ายของเดือน)
+  const m3 = s.match(/^(\d{1,2})[\/\-](\d{4})$/)
+  if (m3) {
+    let [, mo, y] = m3.map(Number)
+    if (y > 2500) y -= 543
+    const dt = new Date(y, mo, 0)
+    return isNaN(dt) ? null : dt
+  }
+  return null
+}
+
+export async function fetchDashboardAlerts() {
+  if (!supabase) return { expiring: [], lowStock: [] }
+
+  const { data, error } = await supabase
+    .from('inventory')
+    .select('name, code, exp, qty, lot, location, safety_stock, type, unit, receive_status')
+
+  if (error || !data) return { expiring: [], lowStock: [] }
+
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const inLimit = new Date(today); inLimit.setMonth(inLimit.getMonth() + 16)
+
+  const expiring = []
+  const lowStock = []
+
+  data.forEach(row => {
+    const isDiscontinued = String(row.receive_status || '').includes('ตัดออก')
+    const qtyNum = parseFloat(row.qty) || 0
+
+    // --- ตรวจสอบวันหมดอายุ ---
+    const expDate = _parseExpDate(row.exp)
+    if (expDate && !isNaN(expDate) && expDate <= inLimit && qtyNum > 0 && !isDiscontinued) {
+      const daysLeft = Math.floor((expDate - today) / 86400000)
+      expiring.push({
+        name:     row.name,
+        code:     row.code,
+        exp:      row.exp,
+        expDate,
+        daysLeft,
+        qty:      row.qty,
+        lot:      row.lot,
+        location: row.location,
+        type:     row.type,
+        unit:     row.unit,
+      })
+    }
+
+    // --- ตรวจสอบ stock ต่ำ ---
+    const qty = parseFloat(row.qty) || 0
+    const ss  = row.safety_stock != null ? parseFloat(row.safety_stock) : null
+    if (ss != null && ss > 0 && qty < ss && !isDiscontinued) {
+      lowStock.push({
+        name:         row.name,
+        code:         row.code,
+        qty,
+        safety_stock: ss,
+        location:     row.location,
+        type:         row.type,
+        unit:         row.unit,
+        ratio:        qty / ss,
+      })
+    }
+  })
+
+  return {
+    expiring: expiring.sort((a, b) => a.expDate - b.expDate),
+    lowStock: lowStock.sort((a, b) => a.ratio - b.ratio),
+  }
+}
+
+// --- Return Logs ---
+
+export async function fetchReturnLogs({ dateFrom, dateTo, returnType, drugName } = {}) {
+  if (!supabase) return []
+
+  let q = supabase
+    .from('return_logs')
+    .select('*')
+    .order('return_date', { ascending: false })
+    .order('created_at',  { ascending: false })
+
+  if (dateFrom)                      q = q.gte('return_date', dateFrom)
+  if (dateTo)                        q = q.lte('return_date', dateTo)
+  if (returnType && returnType !== 'all') q = q.eq('return_type', returnType)
+  if (drugName)                      q = q.ilike('drug_name', `%${drugName}%`)
+
+  const { data, error } = await q.limit(500)
+  if (error) throw error
+  return data || []
+}
+
+export async function insertReturnLog(log, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const { data, error } = await supabase
+    .from('return_logs')
+    .insert([log])
+    .select()
+    .single()
+  if (error) throw error
+  await insertAuditLog({
+    action: 'insert_return', table_name: 'return_logs',
+    user_name: auth.name || log.returned_by, department: auth.department || log.department,
+    record_count: 1,
+    details: { drug_name: log.drug_name, return_type: log.return_type, qty: log.qty_returned },
+  })
+  return data
+}
+
+// --- Audit Log ---
+
+export async function insertAuditLog({ action, table_name, user_name, department, record_count, details }) {
+  if (!supabase) return
+  await supabase.from('audit_logs').insert([{
+    action,
+    table_name: table_name || null,
+    user_name:  user_name  || '-',
+    department: department || '-',
+    record_count: record_count != null ? record_count : null,
+    details:    details    || null,
+  }])
+  // ไม่ throw error เพื่อไม่ให้ audit failure ขัดการทำงานหลัก
+}
+
+export async function updateAuditLog(id, { user_name, department, record_count, details }) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error } = await supabase.from('audit_logs').update({
+    user_name,
+    department: department || null,
+    record_count: record_count != null ? Number(record_count) : null,
+    details: details || null,
+  }).eq('id', id)
+  if (error) throw error
+}
+
+export async function deleteAuditLog(id) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error } = await supabase.from('audit_logs').delete().eq('id', id)
+  if (error) throw error
+}
+
+export async function fetchAuditLogs({ dateFrom, dateTo, action, userName } = {}) {
+  if (!supabase) return []
+  let q = supabase
+    .from('audit_logs')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  if (dateFrom) q = q.gte('created_at', dateFrom + 'T00:00:00')
+  if (dateTo)   q = q.lte('created_at', dateTo   + 'T23:59:59')
+  if (action && action !== 'all') q = q.eq('action', action)
+  if (userName) q = q.ilike('user_name', `%${userName}%`)
+
+  const { data, error } = await q.limit(500)
+  if (error) throw error
+  return data || []
 }
 
 // --- Upload Meta ---
@@ -300,4 +485,143 @@ export async function saveUploadMeta(type, fileName) {
     { type, file_name: fileName, updated_at: new Date().toISOString() },
     { onConflict: 'type' }
   )
+}
+
+// --- App Users (Auth) ---
+
+const hashPassword = async (password) => {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(password))
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+// ตรวจสอบว่าเป็นการใช้งานครั้งแรก (ไม่มีผู้ใช้ในระบบ)
+export async function checkFirstRun() {
+  if (!supabase) return false
+  const { count } = await supabase.from('app_users').select('*', { count: 'exact', head: true })
+  return count === 0
+}
+
+export async function loginUser(username, password) {
+  if (!supabase) return { error: 'Supabase ไม่ได้ตั้งค่า' }
+  const { data, error } = await supabase
+    .from('app_users')
+    .select('id, username, full_name, department, role, is_active, password_hash')
+    .eq('username', username.trim())
+    .single()
+  if (error || !data) return { error: 'ไม่พบชื่อผู้ใช้' }
+  if (!data.is_active) return { error: 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ' }
+  const hash = await hashPassword(password)
+  if (hash !== data.password_hash) return { error: 'รหัสผ่านไม่ถูกต้อง' }
+  return {
+    user: {
+      id: data.id,
+      username: data.username,
+      name: data.full_name,
+      department: data.department || '',
+      role: data.role,
+    },
+  }
+}
+
+export async function registerUser({ username, password, full_name, department }) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const trimmed = username.trim()
+  const { data: existing } = await supabase.from('app_users').select('id').eq('username', trimmed).maybeSingle()
+  if (existing) throw new Error('ชื่อผู้ใช้นี้มีอยู่แล้ว กรุณาเลือกชื่ออื่น')
+  const hash = await hashPassword(password)
+  const { data: allUsers } = await supabase.from('app_users').select('password_hash')
+  if ((allUsers || []).some(u => u.password_hash === hash)) {
+    throw new Error('รหัสผ่านนี้ถูกใช้งานแล้ว กรุณาตั้งรหัสผ่านใหม่')
+  }
+  const { error } = await supabase.from('app_users').insert([{
+    username: trimmed,
+    password_hash: hash,
+    full_name: (full_name || '').trim(),
+    department: department || null,
+    role: 'requester',
+    is_active: true,
+  }])
+  if (error) {
+    if (error.code === '23505') throw new Error('ชื่อผู้ใช้นี้มีอยู่แล้ว กรุณาเลือกชื่ออื่น')
+    throw error
+  }
+}
+
+export async function fetchAppUsers() {
+  if (!supabase) return []
+  const { data, error } = await supabase
+    .from('app_users')
+    .select('id, username, full_name, department, role, is_active, created_at')
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+export async function createAppUser({ username, password, full_name, department, role }) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const hash = await hashPassword(password)
+  const { error } = await supabase.from('app_users').insert([{
+    username: username.trim(),
+    password_hash: hash,
+    full_name: full_name.trim(),
+    department: department || null,
+    role,
+    is_active: true,
+  }])
+  if (error) {
+    if (error.code === '23505') throw new Error('ชื่อผู้ใช้นี้มีอยู่แล้ว')
+    throw error
+  }
+}
+
+export async function updateAppUser(id, { full_name, department, role, is_active }) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error } = await supabase.from('app_users').update({
+    full_name,
+    department: department || null,
+    role,
+    is_active,
+    updated_at: new Date().toISOString(),
+  }).eq('id', id)
+  if (error) throw error
+}
+
+export async function deleteAppUser(id) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error } = await supabase.from('app_users').delete().eq('id', id)
+  if (error) throw error
+}
+
+export async function changeAppUserPassword(id, newPassword) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const hash = await hashPassword(newPassword)
+  const { error } = await supabase.from('app_users')
+    .update({ password_hash: hash, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+}
+
+// --- Analytics ---
+
+export async function fetchDispenseAnalytics(dateFrom, dateTo) {
+  if (!supabase) return []
+  const PAGE = 1000
+  let from = 0
+  let allRows = []
+  while (true) {
+    let q = supabase
+      .from('dispense_logs')
+      .select('drug_name, drug_code, drug_type, qty_out, price_per_unit, drug_unit, department, dispense_date, item_type')
+      .order('dispense_date', { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (dateFrom) q = q.gte('dispense_date', dateFrom)
+    if (dateTo)   q = q.lte('dispense_date', dateTo)
+    const { data, error } = await q
+    if (error) throw error
+    if (!data || data.length === 0) break
+    allRows = allRows.concat(data)
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+  return allRows
 }

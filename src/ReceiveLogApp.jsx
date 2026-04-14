@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from './lib/supabase';
 import { fetchDrugDetails } from './lib/db';
+import DrugSearchBar from './DrugSearchBar';
 import {
   ArrowLeft, UploadCloud, RefreshCcw, Search, X,
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
-  TrendingUp, BarChart3,
+  TrendingUp, BarChart3, FileDown,
 } from 'lucide-react';
+import { exportToExcel } from './lib/exportExcel';
 
 function DrugTypeBadge({ type }) {
   if (!type || type === '-') return null;
@@ -85,6 +87,21 @@ function ThaiDateInput({ value, onChange, ring = 'focus-within:ring-emerald-400'
         onChange={e => onChange(isoToThai(e.target.value))} />
     </div>
   );
+}
+
+// ดึงข้อมูลทั้งหมดโดยใช้ pagination เพื่อข้าม Supabase default 1,000-row limit
+async function fetchAllRows(buildQuery) {
+  const PAGE = 1000;
+  let from = 0;
+  let allRows = [];
+  while (true) {
+    const { data, error } = await buildQuery().range(from, from + PAGE - 1);
+    if (error || !data || data.length === 0) break;
+    allRows = allRows.concat(data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return allRows;
 }
 
 const FIELD_LABELS = {
@@ -210,12 +227,33 @@ function parseDate(raw) {
   return null;
 }
 
+const RECEIVE_EXCEL_COLS = [
+  { header: 'วันที่รับ',          key: 'receive_date' },
+  { header: 'วันที่ตรวจรับ',      key: 'inspect_date' },
+  { header: 'ชื่อยา',             key: 'drug_name' },
+  { header: 'รหัสยา',             key: 'drug_code' },
+  { header: 'ชนิด',               key: 'drug_type' },
+  { header: 'Lot',                 key: 'lot' },
+  { header: 'Exp',                 key: 'exp' },
+  { header: 'จำนวนรับ',           key: 'qty_received' },
+  { header: 'หน่วย',              key: 'drug_unit' },
+  { header: 'ราคา/หน่วย',        key: 'price_per_unit' },
+  { header: 'เลขที่บิล',          key: 'bill_number' },
+  { header: 'เลขที่ PO',          key: 'po_number' },
+  { header: 'บริษัท',             key: 'supplier_current' },
+  { header: 'ผลการพิจารณา',       key: 'receive_status' },
+  { header: 'ประเภทการซื้อ',      key: 'purchase_type' },
+  { header: 'หมายเหตุ',           key: 'note' },
+]
+
 // ============================================================
 // Root
 // ============================================================
-export default function ReceiveLogApp({ onBack }) {
+export default function ReceiveLogApp({ onBack, auth = {} }) {
   const [tab, setTab]                 = useState('view');
   const [showSummary, setShowSummary] = useState(false);
+  const isStaff = auth.role === 'staff' || auth.role === 'admin';
+  const isAdmin = auth.role === 'admin';
 
   return (
     <div className="min-h-screen bg-slate-200 text-slate-800 font-sans">
@@ -230,13 +268,15 @@ export default function ReceiveLogApp({ onBack }) {
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white/20 text-white hover:bg-white/30 border border-white/30 transition-all">
             <BarChart3 size={15}/> สรุปผล
           </button>
-          <button onClick={() => setTab('import')}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'import' ? 'bg-white text-emerald-700 font-bold' : 'text-emerald-100 hover:text-white hover:bg-white/20'}`}
-          >Import CSV</button>
+          {isStaff && (
+            <button onClick={() => setTab('import')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'import' ? 'bg-white text-emerald-700 font-bold' : 'text-emerald-100 hover:text-white hover:bg-white/20'}`}
+            >Import CSV</button>
+          )}
         </div>
       </div>
-      {tab === 'import' && <ReceiveImport onDone={() => setTab('view')} />}
-      {tab === 'view'   && <ReceiveView />}
+      {tab === 'import' && isStaff && <ReceiveImport onDone={() => setTab('view')} />}
+      {tab === 'view'   && <ReceiveView isAdmin={isAdmin} />}
       {showSummary      && <ReceiveSummaryModal onClose={() => setShowSummary(false)} />}
     </div>
   );
@@ -566,7 +606,7 @@ function ReceiveImport({ onDone }) {
 // ============================================================
 // View
 // ============================================================
-function ReceiveView() {
+function ReceiveView({ isAdmin = false }) {
   const [rows, setRows]               = useState([]);
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState('');
@@ -653,6 +693,33 @@ function ReceiveView() {
   }, [search, dateFrom, dateTo, page]);
 
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [load]);
+
+  // โหลด aggregate stats ของทุก rows ที่ตรงกับ filter (ไม่ใช่แค่หน้าปัจจุบัน)
+  const loadAgg = useCallback(async () => {
+    if (!supabase) return;
+    setAggStats(null);
+    const isoFrom = thaiToIso(dateFrom) || dateFrom;
+    const isoTo   = thaiToIso(dateTo)   || dateTo;
+    const applyFilters = (q) => {
+      if (search.trim())    q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%,bill_number.ilike.%${search}%`);
+      if (dateFrom && dateTo)  { q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo); }
+      else if (dateFrom)       { q = q.eq('receive_date', isoFrom); }
+      else if (dateTo)         { q = q.lte('receive_date', isoTo); }
+      if (supplierFilter) q = q.eq('supplier_current', supplierFilter);
+      return q;
+    };
+    const { count } = await applyFilters(
+      supabase.from('receive_logs').select('*', { count: 'exact', head: true })
+    );
+    const data = await fetchAllRows(() =>
+      applyFilters(supabase.from('receive_logs').select('qty_received, total_price_vat'))
+    );
+    const totalQty   = data.reduce((s, r) => s + (r.qty_received    || 0), 0);
+    const totalValue = data.reduce((s, r) => s + (r.total_price_vat || 0), 0);
+    setAggStats({ count: count ?? data.length, totalQty, totalValue });
+  }, [search, supplierFilter, dateFrom, dateTo]);
+
+  useEffect(() => { const t = setTimeout(loadAgg, 300); return () => clearTimeout(t); }, [loadAgg]);
 
   useEffect(() => {
     fetchDrugDetails().then(details => {
@@ -781,6 +848,7 @@ function ReceiveView() {
   const totalQty   = displayRows.reduce((s, r) => s + (r.qty_received || 0), 0);
   const totalValue = displayRows.reduce((s, r) => s + (r.total_price_vat || 0), 0);
   const hasFilter  = search || supplierFilter || dateFrom || dateTo;
+  const [aggStats, setAggStats] = useState(null);
 
   const clearAll = () => { clearSearch(); setSupplier(''); setSupplierSearch(''); setDateFrom(''); setDateTo(''); };
 
@@ -870,9 +938,18 @@ function ReceiveView() {
           <button onClick={clearAll} className="text-slate-400 hover:text-slate-600 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
             <RefreshCcw size={16}/>
           </button>
-          <button onClick={deleteBlankRows} className="text-rose-400 hover:text-rose-600 text-xs px-2 py-1.5 rounded-lg border border-rose-200 hover:bg-rose-50 transition-colors" title="ลบ row ที่เป็น (blank)">
-            ลบ blank
+          <button
+            onClick={() => exportToExcel(rows, RECEIVE_EXCEL_COLS, 'ประวัติรับยา', `receive_logs_${new Date().toISOString().slice(0,10)}.xlsx`)}
+            disabled={rows.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-xl text-xs font-semibold transition-colors"
+            title="ส่งออก Excel">
+            <FileDown size={14} /> Excel
           </button>
+          {isAdmin && (
+            <button onClick={deleteBlankRows} className="text-rose-400 hover:text-rose-600 text-xs px-2 py-1.5 rounded-lg border border-rose-200 hover:bg-rose-50 transition-colors" title="ลบ row ที่เป็น (blank)">
+              ลบ blank
+            </button>
+          )}
         </div>
         {/* Date range */}
         <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -972,7 +1049,7 @@ function ReceiveView() {
                         className={`border-b border-slate-200 cursor-pointer transition-colors ${drugExpanded === r.id ? 'bg-emerald-100' : i % 2 === 0 ? 'hover:bg-emerald-50' : 'bg-slate-50 hover:bg-emerald-50'}`}
                       >
                         <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(r.receive_date)}</td>
-                        <td className="px-4 py-2.5 text-emerald-800 font-bold text-right whitespace-nowrap">+{(r.qty_received || 0).toLocaleString()}</td>
+                        <td className="px-4 py-2.5 text-emerald-800 font-bold text-right whitespace-nowrap">{r.qty_received ? `+${r.qty_received.toLocaleString()}` : '-'}</td>
                         <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{r.drug_unit || r.unit_per_bill || '-'}</td>
                         <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{r.lot || '-'}</td>
                         <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
@@ -1037,16 +1114,16 @@ function ReceiveView() {
       {!selectedDrug && rows.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-slate-700 border border-slate-600 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-white">{rows.length.toLocaleString()}</p>
-            <p className="text-xs text-slate-300 mt-0.5">รายการ{hasFilter ? ' (กรอง)' : ' (หน้านี้)'}</p>
+            <p className="text-2xl font-bold text-white">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
+            <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
           </div>
           <div className="bg-emerald-700 border border-emerald-600 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-white">{totalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-            <p className="text-xs text-emerald-200 mt-0.5">ปริมาณรับรวม</p>
+            <p className="text-2xl font-bold text-white">{aggStats ? aggStats.totalQty.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
+            <p className="text-xs text-emerald-200 mt-0.5">ปริมาณรับรวม{supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
           </div>
           <div className="bg-amber-600 border border-amber-500 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-white">{totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-            <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวมภาษี (บาท)</p>
+            <p className="text-2xl font-bold text-white">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
+            <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวมภาษี (บาท){supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
           </div>
         </div>
       )}
@@ -1163,22 +1240,24 @@ function ReceiveSummaryModal({ onClose }) {
   const [loading, setLoading]         = useState(true);
   const [drugFilter, setDrugFilter]   = useState('');
   const [drugNames, setDrugNames]     = useState([]);
-  const [showDrugDd, setShowDrugDd]   = useState(false);
-  const drugRef = useRef(null);
-  const [allTimeTotal, setAllTimeTotal] = useState(null);
-  const [allTimeValue, setAllTimeValue] = useState(null);
+  const [allTimeTotal, setAllTimeTotal]           = useState(null);
+  const [allTimeValue, setAllTimeValue]           = useState(null);
+  const [allTimeUniqueDays, setAllTimeUniqueDays] = useState(null);
 
   useEffect(() => {
     if (!supabase) return;
-    // ดึงจำนวนรายการทั้งหมด
+    // count ทั้งหมด (ไม่โหลด rows จริง — แม่นยำ)
     supabase.from('receive_logs').select('*', { count: 'exact', head: true })
       .then(({ count }) => setAllTimeTotal(count ?? 0));
-    // ดึงมูลค่าทั้งหมด
-    supabase.from('receive_logs').select('total_price_vat')
-      .then(({ data }) => {
-        if (data) setAllTimeValue(data.reduce((s, r) => s + (r.total_price_vat || 0), 0));
-      });
-    // ดึงวันแรก-วันล่าสุด → แปลงเป็น dd/mm/yyyy
+    // มูลค่า + unique days (paginated — ข้าม 1,000-row limit)
+    fetchAllRows(() =>
+      supabase.from('receive_logs').select('total_price_vat, receive_date')
+    ).then(data => {
+      if (!data || data.length === 0) return;
+      setAllTimeValue(data.reduce((s, r) => s + (r.total_price_vat || 0), 0));
+      setAllTimeUniqueDays(new Set(data.map(r => r.receive_date).filter(Boolean)).size);
+    });
+    // วันแรก–วันล่าสุด → set dateFrom/dateTo อัตโนมัติ
     supabase.from('receive_logs').select('receive_date').order('receive_date', { ascending: true  }).limit(1)
       .then(({ data }) => { if (data?.[0]?.receive_date) setDateFrom(isoToThai(data[0].receive_date)); });
     supabase.from('receive_logs').select('receive_date').order('receive_date', { ascending: false }).limit(1)
@@ -1203,27 +1282,25 @@ function ReceiveSummaryModal({ onClose }) {
     });
   }, []);
 
-  useEffect(() => {
-    const h = (e) => { if (drugRef.current && !drugRef.current.contains(e.target)) setShowDrugDd(false); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, []);
 
   const loadStats = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
     setLoading(true);
-    let q = supabase.from('receive_logs').select('supplier_current, drug_name, qty_received, total_price_vat, receive_date');
-    const isoFrom = thaiToIso(dateFrom);
-    const isoTo   = thaiToIso(dateTo);
-    if (isoFrom)        q = q.gte('receive_date', isoFrom);
-    if (isoTo)          q = q.lte('receive_date', isoTo);
-    if (supplierFilter) q = q.eq('supplier_current', supplierFilter);
-    if (drugFilter)     q = q.ilike('drug_name', `%${drugFilter}%`);
-    const { data: rows } = await q;
+    const rows = await fetchAllRows(() => {
+      let q = supabase.from('receive_logs').select('supplier_current, drug_name, qty_received, total_price_vat, price_per_unit, receive_date');
+      const isoFrom = thaiToIso(dateFrom);
+      const isoTo   = thaiToIso(dateTo);
+      if (isoFrom)        q = q.gte('receive_date', isoFrom);
+      if (isoTo)          q = q.lte('receive_date', isoTo);
+      if (supplierFilter) q = q.eq('supplier_current', supplierFilter);
+      if (drugFilter)     q = q.ilike('drug_name', `%${drugFilter}%`);
+      return q;
+    });
     if (!rows || rows.length === 0) { setStats(null); setLoading(false); return; }
 
     const totalQty   = rows.reduce((s, r) => s + (r.qty_received || 0), 0);
     const totalValue = rows.reduce((s, r) => s + (r.total_price_vat || 0), 0);
+    const uniqueDays = new Set(rows.map(r => r.receive_date).filter(Boolean)).size;
 
     const aggBy = (key, valFn) => {
       const map = {};
@@ -1235,17 +1312,42 @@ function ReceiveSummaryModal({ onClose }) {
       total: rows.length,
       totalQty,
       totalValue,
+      uniqueDays,
       topSuppliers:      aggBy('supplier_current', r => r.total_price_vat || 0).slice(0, 10),
-      topSuppliersQty:   aggBy('supplier_current', r => r.qty_received || 0).slice(0, 10),
+      topSuppliersShare: (() => {
+        const valMap = {};
+        rows.forEach(r => {
+          const k = r.supplier_current || 'ไม่ระบุ';
+          valMap[k] = (valMap[k] || 0) + (r.total_price_vat || 0);
+        });
+        const grand = Object.values(valMap).reduce((s, v) => s + v, 0) || 1;
+        // isGPO = องค์การเภสัชกรรม — บังคับซื้อตามกฎระเบียบ ไม่นับเป็น supply risk
+        const isGPO = (name) => name.includes('องค์การเภสัช');
+        return Object.entries(valMap)
+          .map(([name, val]) => [name, parseFloat((val / grand * 100).toFixed(1)), isGPO(name)])
+          .sort((a, b) => b[1] - a[1]).slice(0, 10);
+      })(),
       topDrugsByFreq:        (() => {
-        const cnt = {};
-        rows.forEach(r => { const k = r.drug_name || 'ไม่ระบุ'; cnt[k] = (cnt[k] || 0) + 1; });
-        return Object.entries(cnt).sort((a, b) => b[1] - a[1]).slice(0, 10);
+        // นับ unique receive_date ต่อยา (1 วัน = 1 ครั้ง)
+        const dateSet = {};
+        rows.forEach(r => {
+          const k = r.drug_name || 'ไม่ระบุ';
+          if (!dateSet[k]) dateSet[k] = new Set();
+          dateSet[k].add(r.receive_date || `id_${r.id}`);
+        });
+        return Object.entries(dateSet).map(([name, s]) => [name, s.size]).sort((a, b) => b[1] - a[1]).slice(0, 10);
       })(),
       topDrugsByValuePerTx:  (() => {
-        const val = {}, cnt = {};
-        rows.forEach(r => { const k = r.drug_name || 'ไม่ระบุ'; val[k] = (val[k] || 0) + (r.total_price_vat || 0); cnt[k] = (cnt[k] || 0) + 1; });
-        return Object.entries(val).map(([name, total]) => [name, Math.round(total / (cnt[name] || 1))]).sort((a, b) => b[1] - a[1]).slice(0, 10);
+        // มูลค่ารับเข้ารวม = qty_received × price_per_unit (ใช้ total_price_vat ถ้ามี)
+        const val = {};
+        rows.forEach(r => {
+          const k = r.drug_name || 'ไม่ระบุ';
+          const rowVal = (r.total_price_vat && r.total_price_vat > 0)
+            ? r.total_price_vat
+            : (r.qty_received || 0) * (r.price_per_unit || 0);
+          val[k] = (val[k] || 0) + rowVal;
+        });
+        return Object.entries(val).map(([name, total]) => [name, Math.round(total)]).sort((a, b) => b[1] - a[1]).slice(0, 10);
       })(),
     });
     setLoading(false);
@@ -1281,27 +1383,15 @@ function ReceiveSummaryModal({ onClose }) {
               <option value="">ทุกบริษัท</option>
               {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-            {/* Drug search dropdown */}
-            <div className="relative" ref={drugRef}>
-              <input
-                type="text" value={drugFilter}
-                onChange={e => { setDrugFilter(e.target.value); setShowDrugDd(true); }}
-                onFocus={() => { if (drugFilter.trim()) setShowDrugDd(true); }}
-                placeholder="ค้นหายา..."
-                className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400 w-40"
-              />
-              {drugFilter && <button onClick={() => setDrugFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"><X size={12}/></button>}
-              {showDrugDd && drugFilter && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-30 w-64 overflow-hidden">
-                  {drugNames.filter(n => n.name.toLowerCase().includes(drugFilter.toLowerCase())).slice(0,8).map(({ name, type }) => (
-                    <button key={name} onMouseDown={e => { e.preventDefault(); setDrugFilter(name); setShowDrugDd(false); }}
-                      className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-emerald-50 border-b border-slate-100 last:border-0">
-                      <div className="flex items-center gap-2 flex-wrap"><span>{name}</span>{type && <DrugTypeBadge type={type} />}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <DrugSearchBar
+              value={drugFilter}
+              onChange={setDrugFilter}
+              options={drugNames}
+              placeholder="ค้นหายา..."
+              className="w-44"
+              ringClass="focus:ring-emerald-400"
+              hoverClass="hover:bg-emerald-50"
+            />
             {(dateFrom || dateTo || supplierFilter || drugFilter) && (
               <button onClick={() => { setDateFrom(''); setDateTo(''); setSupplier(''); setDrugFilter(''); }}
                 className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1"><X size={12}/>ล้าง</button>
@@ -1313,13 +1403,19 @@ function ReceiveSummaryModal({ onClose }) {
           ) : !stats ? (
             <p className="text-center text-slate-400 py-16">ไม่มีข้อมูลในช่วงที่เลือก</p>
           ) : (
-            <>
+            (() => {
+              const isFiltered  = !!(supplierFilter || drugFilter);
+              const filterLabel = supplierFilter || (drugFilter ? `ยา: ${drugFilter}` : 'ทุกช่วงเวลา');
+              const cardTotal   = isFiltered ? stats.total      : (allTimeTotal      ?? null);
+              const cardDays    = isFiltered ? stats.uniqueDays : (allTimeUniqueDays ?? null);
+              const cardValue   = isFiltered ? stats.totalValue : (allTimeValue      ?? null);
+              return (<>
               {/* KPI */}
               <div className="grid grid-cols-3 gap-3">
                 {[
-                  { label:'รายการรับทั้งหมด',      value:stats.total.toLocaleString(), unit:'รายการ (กรอง)', bg:'bg-indigo-50',  bd:'border-indigo-200',  lbl:'text-indigo-600',  val:'text-indigo-900'  },
-                  { label:'ปริมาณรับรวม',          value:stats.totalQty.toLocaleString(undefined,{maximumFractionDigits:0}), unit:'หน่วย (กรอง)', bg:'bg-emerald-50', bd:'border-emerald-200', lbl:'text-emerald-600', val:'text-emerald-900' },
-                  { label:'มูลค่ารับรวม (บาท)',    value:stats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}), unit:'บาท (กรอง)', bg:'bg-amber-50', bd:'border-amber-200', lbl:'text-amber-600', val:'text-amber-900' },
+                  { label:'รายการรับทั้งหมด',   value: cardTotal != null ? cardTotal.toLocaleString() : '...', unit:`รายการ (${filterLabel})`, bg:'bg-indigo-50',  bd:'border-indigo-200',  lbl:'text-indigo-600',  val:'text-indigo-900'  },
+                  { label:'จำนวนวันที่มีการรับ', value: cardDays  != null ? cardDays.toLocaleString()  : '...', unit:`วัน (${filterLabel})`,    bg:'bg-emerald-50', bd:'border-emerald-200', lbl:'text-emerald-600', val:'text-emerald-900' },
+                  { label:'มูลค่ารับรวม (บาท)',  value: cardValue != null ? cardValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:`บาท (${filterLabel})`, bg:'bg-amber-50', bd:'border-amber-200', lbl:'text-amber-600', val:'text-amber-900' },
                 ].map((k,i) => (
                   <div key={i} className={`${k.bg} border ${k.bd} rounded-xl p-4 shadow-sm`}>
                     <div className={`text-xs font-bold uppercase tracking-wide ${k.lbl} mb-1`}>{k.label}</div>
@@ -1331,8 +1427,8 @@ function ReceiveSummaryModal({ onClose }) {
 
               {/* Bar charts */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <BarSection title="บริษัทที่มูลค่าสูงสุด (บาท)"    items={stats.topSuppliers}    barColor="bg-emerald-500" unit="บาท"   />
-                <BarSection title="บริษัทที่รับปริมาณสูงสุด (หน่วย)" items={stats.topSuppliersQty} barColor="bg-teal-400"    unit="หน่วย" />
+                <BarSection title="บริษัทที่มูลค่าสูงสุด (บาท)"       items={stats.topSuppliers}      barColor="bg-emerald-500" unit="บาท" />
+                <BarSection title="สัดส่วนมูลค่าต่อบริษัท (%)"        items={stats.topSuppliersShare} shareMode />
               </div>
               {/* Drug comparison — frequency vs value/tx */}
               <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
@@ -1340,8 +1436,8 @@ function ReceiveSummaryModal({ onClose }) {
                   <BarChart3 size={16} className="text-emerald-500"/> ยาที่รับเข้าบ่อยและมูลค่าต่อครั้ง
                 </h4>
                 <div className="flex gap-5 mb-4 pt-2 border-b border-slate-100 pb-3">
-                  <span className="flex items-center gap-1.5 text-xs text-slate-500"><span className="inline-block w-3 h-3 rounded-full bg-indigo-400"/>&nbsp;จำนวนครั้งที่รับ</span>
-                  <span className="flex items-center gap-1.5 text-xs text-slate-500"><span className="inline-block w-3 h-3 rounded-full bg-amber-400"/>&nbsp;มูลค่าเฉลี่ย/ครั้ง (บาท)</span>
+                  <span className="flex items-center gap-1.5 text-xs text-slate-500"><span className="inline-block w-3 h-3 rounded-full bg-indigo-400"/>&nbsp;จำนวนครั้งที่รับ (วัน)</span>
+                  <span className="flex items-center gap-1.5 text-xs text-slate-500"><span className="inline-block w-3 h-3 rounded-full bg-amber-400"/>&nbsp;มูลค่ารับเข้ารวม (บาท)</span>
                 </div>
                 {(() => {
                   const freqMap  = Object.fromEntries(stats.topDrugsByFreq);
@@ -1384,7 +1480,8 @@ function ReceiveSummaryModal({ onClose }) {
                   );
                 })()}
               </div>
-            </>
+              </>);
+            })()
           )}
         </div>
 
@@ -1399,23 +1496,54 @@ function ReceiveSummaryModal({ onClose }) {
 // ============================================================
 // Shared bar chart section
 // ============================================================
-function BarSection({ title, items, barColor, unit }) {
+function BarSection({ title, items, barColor, unit, shareMode = false }) {
   if (!items || items.length === 0) return null;
   const max = items[0][1] || 1;
+
+  const shareBarColor = (pct, gpo) => {
+    if (gpo) return 'bg-blue-400';
+    if (pct >= 40) return 'bg-red-500';
+    if (pct >= 20) return 'bg-orange-400';
+    if (pct >= 10) return 'bg-amber-400';
+    return 'bg-emerald-400';
+  };
+  const shareBadge = (pct, gpo) => {
+    if (gpo) return <span className="ml-1 text-[10px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-full shrink-0">รัฐ</span>;
+    if (pct >= 40) return <span className="ml-1 text-[10px] font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full shrink-0">เสี่ยงสูง</span>;
+    if (pct >= 20) return <span className="ml-1 text-[10px] font-bold text-orange-600 bg-orange-100 px-1.5 py-0.5 rounded-full shrink-0">ระวัง</span>;
+    return null;
+  };
+
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-      <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
+      <h4 className="font-bold text-slate-700 mb-1 flex items-center gap-2 border-b border-slate-100 pb-3">
         <BarChart3 size={16} className="text-slate-400"/> {title}
       </h4>
+      {shareMode && (
+        <p className="text-[11px] text-slate-400 mb-3">
+          <span className="inline-block w-2 h-2 rounded-full bg-blue-400 mr-1"/>รัฐ (ยกเว้นประเมิน) &nbsp;
+          <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1"/>≥40% เสี่ยงสูง &nbsp;
+          <span className="inline-block w-2 h-2 rounded-full bg-orange-400 mr-1"/>≥20% ระวัง &nbsp;
+          <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 mr-1"/>&lt;10% ปลอดภัย
+        </p>
+      )}
       <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
-        {items.map(([name, val], i) => (
+        {items.map(([name, val, gpo], i) => (
           <div key={i}>
-            <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1">
-              <span className="truncate mr-2">{name}</span>
-              <span className="font-bold text-slate-700 shrink-0">{Number(val).toLocaleString(undefined,{maximumFractionDigits:0})} {unit}</span>
+            <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1 gap-1">
+              <span className="truncate">{name}</span>
+              <div className="flex items-center shrink-0">
+                <span className="font-bold text-slate-700">
+                  {shareMode ? `${val}%` : Number(val).toLocaleString(undefined,{maximumFractionDigits:0}) + ' ' + unit}
+                </span>
+                {shareMode && shareBadge(val, gpo)}
+              </div>
             </div>
             <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-              <div className={`${barColor} h-2 rounded-full`} style={{ width:`${(val/max)*100}%` }}/>
+              <div
+                className={`${shareMode ? shareBarColor(val, gpo) : barColor} h-2 rounded-full transition-all`}
+                style={{ width:`${shareMode ? val : (val/max)*100}%` }}
+              />
             </div>
           </div>
         ))}

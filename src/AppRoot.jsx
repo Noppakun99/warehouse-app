@@ -2,22 +2,29 @@ import React, { useState, useEffect } from 'react';
 import SearchableSelect from './SearchableSelect';
 import {
   Pill, Package, TrendingUp, TrendingDown,
-  User, Shield, LogOut,
+  User, Shield, LogOut, ShieldCheck, Users,
   ChevronRight, Activity, Database, Clock,
+  AlertTriangle, ChevronDown, ChevronUp, RotateCcw, ClipboardList,
+  Eye, EyeOff, X,
 } from 'lucide-react';
-import App            from './App';
-import RequisitionApp from './RequisitionApp';
-import DispenseLogApp from './DispenseLogApp';
-import ReceiveLogApp  from './ReceiveLogApp';
-import { supabase }   from './lib/supabase';
+import App                from './App';
+import RequisitionApp     from './RequisitionApp';
+import DispenseLogApp     from './DispenseLogApp';
+import ReceiveLogApp      from './ReceiveLogApp';
+import { supabase }       from './lib/supabase';
+import { fetchDashboardAlerts, loginUser, registerUser, checkFirstRun, createAppUser } from './lib/db';
+import ReturnApp          from './ReturnApp';
+import AuditLogApp        from './AuditLogApp';
+import UserManagementApp  from './UserManagementApp';
+import AnalyticsApp       from './AnalyticsApp';
 
 
 // ============================================================
 // Root — manages auth + page routing
 // ============================================================
 export default function AppRoot() {
-  const [auth, setAuth]   = useState(null); // { name, role, department }
-  const [page, setPage]   = useState('dashboard'); // dashboard | inventory | requisition | dispense | receive
+  const [auth, setAuth]   = useState(null); // { id, username, name, role, department }
+  const [page, setPage]   = useState('dashboard');
 
   const logout = () => { setAuth(null); setPage('dashboard'); };
 
@@ -27,17 +34,28 @@ export default function AppRoot() {
     case 'inventory':
       return <App onBackToDashboard={() => setPage('dashboard')} role={auth.role} />;
     case 'requisition':
+    case 'requisition-history':
       return (
         <RequisitionApp
           onBack={() => setPage('dashboard')}
-          prefilledUser={auth.role === 'requester' ? { name: auth.name, department: auth.department } : null}
-          startAsStaff={auth.role === 'staff'}
+          prefilledUser={{ name: (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username, department: auth.department }}
+          startAsStaff={auth.role === 'staff' || auth.role === 'admin'}
+          initialStep={page === 'requisition-history' ? 'history' : null}
+          auth={auth}
         />
       );
     case 'dispense':
-      return <DispenseLogApp onBack={() => setPage('dashboard')} />;
+      return <DispenseLogApp onBack={() => setPage('dashboard')} auth={auth} />;
     case 'receive':
-      return <ReceiveLogApp onBack={() => setPage('dashboard')} />;
+      return <ReceiveLogApp onBack={() => setPage('dashboard')} auth={auth} />;
+    case 'return':
+      return <ReturnApp onBack={() => setPage('dashboard')} auth={auth} />;
+    case 'audit':
+      return <AuditLogApp onBack={() => setPage('dashboard')} auth={auth} />;
+    case 'users':
+      return <UserManagementApp onBack={() => setPage('dashboard')} auth={auth} />;
+    case 'analytics':
+      return <AnalyticsApp onBack={() => setPage('dashboard')} />;
     default:
       return <Dashboard auth={auth} onNavigate={setPage} onLogout={logout} />;
   }
@@ -46,37 +64,98 @@ export default function AppRoot() {
 // ============================================================
 // Login Page
 // ============================================================
-function LoginPage({ onLogin }) {
-  const [tab, setTab]     = useState('requester'); // requester | staff
-  const [name, setName]   = useState('');
-  const [dept, setDept]   = useState('');
-  const [error, setError] = useState('');
-  const [departments]     = useState([
-    'ห้องยา G', 'ห้องยา 1',
-    'ER (ฉุกเฉิน)', 'IPD (ผู้ป่วยใน)', 'OPD (ผู้ป่วยนอก)', 'LR (ห้องคลอด)',
-    'ทันตกรรม', 'แผนไทย', 'กายภาพ', 'LAB', 'X-ray',
-    'ห้องทำแผล', 'งานส่งต่อ', 'บริหารทั่วไป', 'พ.ข.ร (พนักงานขับรถ)',
-    'กลุ่มงานจิตเวชและยาเสพติด', 'IPD-หน่วยวัง', 'IPD-โดม',
-    'รพสต.คูคต', 'รพสต.วัดประยูร',
-    'ศูนย์บริการสาธารณสุข 2 (ชุมชนรัตนโกสินทร์)',
-    'ศูนย์บริการสาธารณสุข 3 (เทพธัญญะอุปถัมภ์)',
-    'ศูนย์บริการสาธารณสุข 4 (สิริเวชชะพันธ์อุปถัมภ์)',
-    'เทศบาลนครรังสิต',
-    'รพ.สามโคก', 'รพ.เปาโล', 'รพ.ปทุมเวศ', 'รพ.ลาดหลุมแก้ว',
-    'เบิกเพิ่มจากความผิดพลาด', 'เบิกยาหมดอายุจากคลัง',
-  ]);
+const DEPARTMENTS_LIST = [
+  'คลังยา',
+  'ห้องยา G', 'ห้องยา 1',
+  'ER (ฉุกเฉิน)', 'IPD (ผู้ป่วยใน)', 'OPD (ผู้ป่วยนอก)', 'LR (ห้องคลอด)',
+  'ทันตกรรม', 'แผนไทย', 'กายภาพ', 'LAB', 'X-ray',
+  'ห้องทำแผล', 'งานส่งต่อ', 'บริหารทั่วไป', 'พ.ข.ร (พนักงานขับรถ)',
+  'กลุ่มงานจิตเวชและยาเสพติด', 'IPD-หน่วยวัง', 'IPD-โดม',
+  'รพสต.คูคต', 'รพสต.วัดประยูร',
+  'ศูนย์บริการสาธารณสุข 2 (ชุมชนรัตนโกสินทร์)',
+  'ศูนย์บริการสาธารณสุข 3 (เทพธัญญะอุปถัมภ์)',
+  'ศูนย์บริการสาธารณสุข 4 (สิริเวชชะพันธ์อุปถัมภ์)',
+  'เทศบาลนครรังสิต',
+  'รพ.สามโคก', 'รพ.เปาโล', 'รพ.ปทุมเวศ', 'รพ.ลาดหลุมแก้ว',
+  'เบิกเพิ่มจากความผิดพลาด', 'เบิกยาหมดอายุจากคลัง',
+];
 
-  const handleSubmit = (e) => {
+function LoginPage({ onLogin }) {
+  const [view, setView]     = useState('login'); // login | register | firstrun
+  const [checking, setChecking] = useState(true);
+
+  // login fields
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPw, setShowPw]     = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState('');
+
+  // register fields
+  const [rUsername,   setRUsername]   = useState('');
+  const [rPassword,   setRPassword]   = useState('');
+  const [rConfirm,    setRConfirm]    = useState('');
+  const [rDept,       setRDept]       = useState('');
+  const [rShowPw,     setRShowPw]     = useState(false);
+  const [rSuccess,    setRSuccess]    = useState(false);
+
+  // first-run (admin setup) fields — same as register but role = admin
+  const [aUsername,   setAUsername]   = useState('');
+  const [aPassword,   setAPassword]   = useState('');
+  const [aConfirm,    setAConfirm]    = useState('');
+  const [aFullName,   setAFullName]   = useState('');
+  const [aShowPw,     setAShowPw]     = useState(false);
+
+  useEffect(() => {
+    checkFirstRun().then(first => {
+      if (first) setView('firstrun');
+      setChecking(false);
+    }).catch(() => setChecking(false));
+  }, []);
+
+  const handleLogin = async (e) => {
     e.preventDefault();
-    setError('');
-    if (tab === 'requester') {
-      if (!name.trim() || !dept) { setError('กรุณากรอกชื่อและเลือกหน่วยงาน'); return; }
-      onLogin({ name: name.trim(), role: 'requester', department: dept });
-    } else {
-      if (!name.trim()) { setError('กรุณากรอกชื่อ'); return; }
-      onLogin({ name: name.trim(), role: 'staff', department: 'คลังยา' });
-    }
+    if (!username.trim() || !password) { setError('กรุณากรอกชื่อผู้ใช้และรหัสผ่าน'); return; }
+    setLoading(true); setError('');
+    const result = await loginUser(username, password);
+    setLoading(false);
+    if (result.error) { setError(result.error); return; }
+    onLogin(result.user);
   };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    if (rPassword !== rConfirm) { setError('รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน'); return; }
+    if (rPassword.length < 6)   { setError('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร'); return; }
+    if (!rDept) { setError('กรุณาเลือกหน่วยงาน'); return; }
+    setLoading(true); setError('');
+    try {
+      await registerUser({ username: rUsername, password: rPassword, full_name: '', department: rDept });
+      setRSuccess(true);
+    } catch (err) { setError(err.message); }
+    setLoading(false);
+  };
+
+  const handleFirstRun = async (e) => {
+    e.preventDefault();
+    if (aPassword !== aConfirm) { setError('รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน'); return; }
+    if (aPassword.length < 6)   { setError('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร'); return; }
+    setLoading(true); setError('');
+    try {
+      await createAppUser({ username: aUsername, password: aPassword, full_name: aFullName, department: 'คลังยา', role: 'admin' });
+      setView('login');
+      setError('');
+    } catch (err) { setError(err.message); }
+    setLoading(false);
+  };
+
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-sky-400 via-blue-500 to-indigo-600 flex items-center justify-center">
+        <div className="text-white text-lg font-semibold animate-pulse">กำลังโหลด...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-400 via-blue-500 to-indigo-600 flex flex-col items-center justify-center p-4">
@@ -89,72 +168,137 @@ function LoginPage({ onLogin }) {
         <p className="text-indigo-200 mt-1.5">โรงพยาบาล · Pharmacy Management System</p>
       </div>
 
-      {/* Card */}
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        {/* Tab switcher */}
-        <div className="grid grid-cols-2 border-b border-slate-200">
-          <button
-            onClick={() => { setTab('requester'); setError(''); }}
-            className={`flex items-center justify-center gap-2 py-3.5 text-sm font-semibold transition-colors ${
-              tab === 'requester'
-                ? 'bg-sky-50 text-sky-700 border-b-2 border-sky-500'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <User size={16} /> ผู้เบิก
-          </button>
-          <button
-            onClick={() => { setTab('staff'); setError(''); }}
-            className={`flex items-center justify-center gap-2 py-3.5 text-sm font-semibold transition-colors ${
-              tab === 'staff'
-                ? 'bg-sky-50 text-sky-700 border-b-2 border-sky-500'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Shield size={16} /> เจ้าหน้าที่คลัง
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {/* Name */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
-              {tab === 'requester' ? 'ชื่อ-สกุล ผู้เบิก' : 'ชื่อ-สกุล เจ้าหน้าที่'}
-            </label>
-            <input
-              type="text" value={name} onChange={e => setName(e.target.value)}
-              placeholder="กรอกชื่อ-สกุล" required
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            />
+      {/* ===== First Run Setup ===== */}
+      {view === 'firstrun' && (
+        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="bg-violet-50 border-b border-violet-100 px-6 py-4 text-center">
+            <ShieldCheck size={28} className="mx-auto text-violet-600 mb-1"/>
+            <p className="font-bold text-violet-800">ตั้งค่าระบบครั้งแรก</p>
+            <p className="text-xs text-violet-500 mt-0.5">สร้างบัญชีผู้ดูแลระบบ (Admin)</p>
           </div>
-
-          {/* Department (requester only) */}
-          {tab === 'requester' && (
+          <form onSubmit={handleFirstRun} className="p-6 space-y-4">
+            <LabelInput label="ชื่อผู้ใช้ (username)" value={aUsername} onChange={e => setAUsername(e.target.value)} placeholder="เช่น admin" required autoComplete="off"/>
+            <LabelInput label="ชื่อ-สกุล" value={aFullName} onChange={e => setAFullName(e.target.value)} placeholder="ชื่อ-สกุลจริง" required/>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">หน่วยงาน / แผนก</label>
-              <SearchableSelect value={dept} onChange={setDept}
-                options={departments} placeholder="-- เลือกหน่วยงาน --"
-                className="w-full" />
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">รหัสผ่าน</label>
+              <PwInput value={aPassword} onChange={e => setAPassword(e.target.value)} show={aShowPw} onToggle={() => setAShowPw(s => !s)} required/>
             </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">ยืนยันรหัสผ่าน</label>
+              <PwInput value={aConfirm} onChange={e => setAConfirm(e.target.value)} show={aShowPw} onToggle={() => setAShowPw(s => !s)} placeholder="ยืนยันรหัสผ่าน" required/>
+            </div>
+            {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+            <button type="submit" disabled={loading}
+              className="w-full bg-gradient-to-r from-violet-600 to-violet-700 hover:from-violet-700 hover:to-violet-800 text-white rounded-xl py-3 font-semibold text-sm transition-colors shadow-sm disabled:opacity-50">
+              {loading ? 'กำลังสร้าง...' : 'สร้างบัญชี Admin'}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* ===== Login ===== */}
+      {view === 'login' && (
+        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <form onSubmit={handleLogin} className="p-6 space-y-4">
+            <LabelInput label="ชื่อผู้ใช้ (username)" value={username} onChange={e => setUsername(e.target.value)} placeholder="กรอกชื่อผู้ใช้" required autoComplete="username"/>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">รหัสผ่าน</label>
+              <PwInput value={password} onChange={e => setPassword(e.target.value)} show={showPw} onToggle={() => setShowPw(s => !s)} required autoComplete="current-password"/>
+            </div>
+            {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+            <button type="submit" disabled={loading}
+              className="w-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white rounded-xl py-3 font-semibold text-sm transition-colors shadow-sm disabled:opacity-50">
+              {loading ? 'กำลังตรวจสอบ...' : 'เข้าสู่ระบบ'}
+            </button>
+          </form>
+          <div className="border-t border-slate-100 px-6 py-4 text-center">
+            <button onClick={() => { setView('register'); setError(''); setRSuccess(false); }}
+              className="text-sky-600 hover:text-sky-800 text-sm font-medium transition-colors">
+              สมัครเข้าใช้งาน →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Register ===== */}
+      {view === 'register' && (
+        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="bg-sky-50 border-b border-sky-100 px-6 py-4">
+            <p className="font-bold text-sky-800">สมัครเข้าใช้งาน</p>
+            <p className="text-xs text-sky-500 mt-0.5">บัญชีใหม่จะได้รับสิทธิ์ผู้เบิก (requester)</p>
+          </div>
+          {rSuccess ? (
+            <div className="p-6 text-center space-y-3">
+              <div className="inline-flex items-center justify-center w-14 h-14 bg-emerald-100 rounded-full">
+                <CheckCircle size={28} className="text-emerald-600"/>
+              </div>
+              <p className="font-bold text-slate-800">สมัครสำเร็จ!</p>
+              <p className="text-sm text-slate-500">สามารถเข้าสู่ระบบได้ทันที</p>
+              <button onClick={() => { setView('login'); setError(''); }}
+                className="w-full bg-sky-600 hover:bg-sky-700 text-white rounded-xl py-2.5 font-semibold text-sm transition-colors">
+                ไปหน้าเข้าสู่ระบบ
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleRegister} className="p-6 space-y-3.5">
+              <LabelInput label="ชื่อผู้ใช้ (username)" value={rUsername} onChange={e => setRUsername(e.target.value)} placeholder="ภาษาอังกฤษ ไม่มีช่องว่าง" required autoComplete="off"/>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">หน่วยงาน</label>
+                <SearchableSelect value={rDept} onChange={setRDept} options={DEPARTMENTS_LIST} placeholder="-- เลือกหน่วยงาน --"/>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">รหัสผ่าน (อย่างน้อย 6 ตัว)</label>
+                <PwInput value={rPassword} onChange={e => setRPassword(e.target.value)} show={rShowPw} onToggle={() => setRShowPw(s => !s)} required/>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">ยืนยันรหัสผ่าน</label>
+                <PwInput value={rConfirm} onChange={e => setRConfirm(e.target.value)} show={rShowPw} onToggle={() => setRShowPw(s => !s)} placeholder="ยืนยันรหัสผ่าน" required/>
+              </div>
+              {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+              <button type="submit" disabled={loading}
+                className="w-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white rounded-xl py-3 font-semibold text-sm transition-colors shadow-sm disabled:opacity-50">
+                {loading ? 'กำลังสมัคร...' : 'สมัครเข้าใช้งาน'}
+              </button>
+              <button type="button" onClick={() => { setView('login'); setError(''); }}
+                className="w-full text-slate-500 hover:text-slate-700 text-sm font-medium transition-colors py-1">
+                ← กลับหน้าเข้าสู่ระบบ
+              </button>
+            </form>
           )}
+        </div>
+      )}
 
-
-          {error && (
-            <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
-          )}
-
-          <button
-            type="submit"
-            className="w-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white rounded-xl py-3 font-semibold text-sm transition-colors shadow-sm mt-2"
-          >
-            เข้าสู่ระบบ
-          </button>
-        </form>
-      </div>
-
-      <p className="text-slate-400 text-xs mt-6">Pharmacy Management System v2.0</p>
+      <p className="text-indigo-200 text-xs mt-6">Pharmacy Management System v2.0</p>
     </div>
   );
+}
+
+// ---- Login sub-components ----
+function LabelInput({ label, value, onChange, placeholder, required, autoComplete }) {
+  return (
+    <div>
+      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">{label}</label>
+      <input type="text" value={value} onChange={onChange} placeholder={placeholder} required={required} autoComplete={autoComplete}
+        className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"/>
+    </div>
+  );
+}
+
+function PwInput({ value, onChange, show, onToggle, placeholder = 'รหัสผ่าน', required, autoComplete }) {
+  return (
+    <div className="relative">
+      <input type={show ? 'text' : 'password'} value={value} onChange={onChange} placeholder={placeholder} required={required} autoComplete={autoComplete}
+        className="w-full border border-slate-300 rounded-xl px-4 py-2.5 pr-10 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"/>
+      <button type="button" onClick={onToggle} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+        {show ? <EyeOff size={16}/> : <Eye size={16}/>}
+      </button>
+    </div>
+  );
+}
+
+// ---- CheckCircle for register success (inline import) ----
+function CheckCircle({ size, className }) {
+  return <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>;
 }
 
 // ============================================================
@@ -174,7 +318,7 @@ const SYSTEMS = [
     accentText:  'text-sky-600',
     hoverLink:   'group-hover:text-sky-700',
     clockColor:  'text-sky-600',
-    roles:       ['requester', 'staff'],
+    roles:       ['requester', 'staff', 'admin'],
   },
   {
     key:         'requisition',
@@ -189,7 +333,7 @@ const SYSTEMS = [
     accentText:  'text-blue-600',
     hoverLink:   'group-hover:text-blue-700',
     clockColor:  'text-blue-600',
-    roles:       ['requester', 'staff'],
+    roles:       ['requester', 'staff', 'admin'],
   },
   {
     key:         'receive',
@@ -204,7 +348,7 @@ const SYSTEMS = [
     accentText:  'text-emerald-600',
     hoverLink:   'group-hover:text-emerald-700',
     clockColor:  'text-emerald-600',
-    roles:       ['staff'],
+    roles:       ['requester', 'staff', 'admin'],
   },
   {
     key:         'dispense',
@@ -219,16 +363,78 @@ const SYSTEMS = [
     accentText:  'text-rose-600',
     hoverLink:   'group-hover:text-rose-700',
     clockColor:  'text-rose-600',
-    roles:       ['staff'],
+    roles:       ['requester', 'staff', 'admin'],
+  },
+  {
+    key:         'return',
+    icon:        RotateCcw,
+    title:       'ระบบคืนยา / ยาเสียหาย',
+    desc:        'บันทึกการคืนยาจาก ward ยาเสียหาย ตัดยาหมดอายุ และส่งคืนบริษัท',
+    bg:          'bg-violet-50 hover:bg-violet-100',
+    border:      'border-violet-300 hover:border-violet-500',
+    iconBg:      'bg-violet-600 text-white',
+    badge:       'bg-violet-600 text-white',
+    badgeText:   'คืนยา',
+    accentText:  'text-violet-600',
+    hoverLink:   'group-hover:text-violet-700',
+    clockColor:  'text-violet-600',
+    roles:       ['requester', 'staff', 'admin'],
+  },
+  {
+    key:         'audit',
+    icon:        ClipboardList,
+    title:       'Audit Log',
+    desc:        'ประวัติการดำเนินการในระบบ — นำเข้า ส่งออก บันทึกคืนยา และเข้าสู่ระบบ',
+    bg:          'bg-slate-50 hover:bg-slate-100',
+    border:      'border-slate-300 hover:border-slate-500',
+    iconBg:      'bg-slate-600 text-white',
+    badge:       'bg-slate-600 text-white',
+    badgeText:   'Audit',
+    accentText:  'text-slate-600',
+    hoverLink:   'group-hover:text-slate-700',
+    clockColor:  'text-slate-600',
+    roles:       ['staff', 'admin'],
+  },
+  {
+    key:         'analytics',
+    icon:        Activity,
+    title:       'วิเคราะห์การเบิกยา',
+    desc:        'กราฟแนวโน้มการเบิก ยา Top 10 หน่วยงาน และมูลค่ารวม',
+    bg:          'bg-cyan-50 hover:bg-cyan-100',
+    border:      'border-cyan-400 hover:border-cyan-600',
+    iconBg:      'bg-cyan-600 text-white',
+    badge:       'bg-cyan-600 text-white',
+    badgeText:   'วิเคราะห์',
+    accentText:  'text-cyan-600',
+    hoverLink:   'group-hover:text-cyan-700',
+    clockColor:  'text-cyan-600',
+    roles:       ['staff', 'admin'],
+  },
+  {
+    key:         'users',
+    icon:        Users,
+    title:       'จัดการผู้ใช้งาน',
+    desc:        'สร้าง แก้ไข ลบบัญชีผู้ใช้ กำหนด role และระงับการใช้งาน',
+    bg:          'bg-violet-50 hover:bg-violet-100',
+    border:      'border-violet-400 hover:border-violet-600',
+    iconBg:      'bg-violet-700 text-white',
+    badge:       'bg-violet-700 text-white',
+    badgeText:   'Admin',
+    accentText:  'text-violet-700',
+    hoverLink:   'group-hover:text-violet-800',
+    clockColor:  'text-violet-700',
+    roles:       ['admin'],
   },
 ];
 
 function Dashboard({ auth, onNavigate, onLogout }) {
-  const isStaff = auth.role === 'staff';
+  const isStaff = auth.role === 'staff' || auth.role === 'admin';
   const visible = SYSTEMS.filter(s => s.roles.includes(auth.role));
   const [uploadMeta, setUploadMeta] = useState({ inventory: null, drug_details: null });
   const [lastReceive, setLastReceive] = useState(null);
   const [lastDispense, setLastDispense] = useState(null);
+  const [alerts, setAlerts] = useState({ expiring: [], lowStock: [] });
+  const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock'
 
   useEffect(() => {
     if (!supabase) return;
@@ -244,8 +450,11 @@ function Dashboard({ auth, onNavigate, onLogout }) {
         .then(({ data }) => { if (data?.[0]) setLastReceive(data[0].created_at); });
       supabase.from('dispense_logs').select('created_at').order('created_at', { ascending: false }).limit(1)
         .then(({ data }) => { if (data?.[0]) setLastDispense(data[0].created_at); });
+      fetchDashboardAlerts().then(setAlerts);
     }
   }, [isStaff]);
+
+  const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username;
 
   const fmtDate = (iso) => {
     if (!iso) return null;
@@ -270,13 +479,17 @@ function Dashboard({ auth, onNavigate, onLogout }) {
 
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-2 bg-white/15 border border-white/20 rounded-xl px-3 py-1.5">
-              {isStaff
-                ? <Shield size={14} className="text-indigo-200" />
-                : <User   size={14} className="text-indigo-200" />
+              {auth.role === 'admin'
+                ? <ShieldCheck size={14} className="text-violet-200" />
+                : isStaff
+                  ? <Shield size={14} className="text-indigo-200" />
+                  : <User   size={14} className="text-indigo-200" />
               }
               <div className="text-xs">
-                <p className="font-semibold text-white">{auth.name}</p>
-                <p className="text-indigo-200">{isStaff ? 'เจ้าหน้าที่คลังยา' : auth.department}</p>
+                <p className="font-semibold text-white">{displayName}</p>
+                <p className="text-indigo-200">
+                  {auth.role === 'admin' ? 'ผู้ดูแลระบบ' : isStaff ? 'เจ้าหน้าที่คลังยา' : auth.department}
+                </p>
               </div>
             </div>
             <button
@@ -292,7 +505,7 @@ function Dashboard({ auth, onNavigate, onLogout }) {
       {/* Welcome */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 pb-4">
         <h2 className="text-2xl font-bold text-slate-800">
-          สวัสดี, {auth.name} 👋
+          สวัสดี, {displayName} 👋
         </h2>
         <p className="text-slate-500 mt-1 text-sm">
           {isStaff
@@ -300,6 +513,17 @@ function Dashboard({ auth, onNavigate, onLogout }) {
             : `หน่วยงาน: ${auth.department} — เลือกระบบที่ต้องการ`
           }
         </p>
+      </div>
+
+      {/* Quick stats strip */}
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-4">
+        <StatsStrip
+          alerts={alerts}
+          isStaff={isStaff}
+          onOpenExpiry={() => setAlertModal('expiry')}
+          onOpenLowStock={() => setAlertModal('lowStock')}
+          onOpenRequisition={() => onNavigate(isStaff ? 'requisition' : 'requisition-history')}
+        />
       </div>
 
       {/* System cards */}
@@ -349,51 +573,370 @@ function Dashboard({ auth, onNavigate, onLogout }) {
             );
           })}
         </div>
-
-        {/* Quick stats strip (staff only) */}
-        {isStaff && <StatsStrip />}
       </div>
+
+
+      {/* Alert modals */}
+      {alertModal === 'expiry' && (
+        <ExpiryAlertSection expiring={alerts.expiring} onClose={() => setAlertModal(null)} />
+      )}
+      {alertModal === 'lowStock' && (
+        <LowStockAlertSection lowStock={alerts.lowStock} onClose={() => setAlertModal(null)} />
+      )}
     </div>
   );
 }
 
-// ---- Quick stats (staff view only) ----
-function StatsStrip() {
-  const [stats, setStats] = React.useState({ inventory: '-', pending: '-', dispense30: '-', receive30: '-' });
+// ---- Expiry Alert Section ----
+function ExpiryAlertSection({ expiring = [], onClose }) {
+  const [filter, setFilter]   = React.useState('all'); // all | expired | soon30 | soon90 | soon180 | soon16m
+  const [expanded, setExpanded] = React.useState(false);
 
-  React.useEffect(() => {
+  if (expiring.length === 0) return null;
+
+  const filtered = expiring.filter(r => {
+    if (filter === 'expired') return r.daysLeft < 0;
+    if (filter === 'soon30')  return r.daysLeft >= 0 && r.daysLeft < 30;
+    if (filter === 'soon90')  return r.daysLeft >= 30 && r.daysLeft < 90;
+    if (filter === 'soon180') return r.daysLeft >= 90 && r.daysLeft < 180;
+    if (filter === 'soon16m') return r.daysLeft >= 180;
+    return true;
+  });
+
+  const expiredCount = expiring.filter(r => r.daysLeft < 0).length;
+  const soon30Count  = expiring.filter(r => r.daysLeft >= 0 && r.daysLeft < 30).length;
+  const soon90Count  = expiring.filter(r => r.daysLeft >= 30 && r.daysLeft < 90).length;
+  const soon180Count = expiring.filter(r => r.daysLeft >= 90 && r.daysLeft < 180).length;
+  const soon16mCount = expiring.filter(r => r.daysLeft >= 180).length;
+
+  const fmtExp = (raw) => {
+    if (!raw || raw === '-') return '-';
+    return raw;
+  };
+
+  const rowColor = (daysLeft) => {
+    if (daysLeft < 0)   return 'bg-red-50 border-red-100';
+    if (daysLeft < 30)  return 'bg-orange-50 border-orange-100';
+    if (daysLeft < 90)  return 'bg-yellow-50 border-yellow-100';
+    if (daysLeft < 180) return 'bg-lime-50 border-lime-100';
+    return 'bg-blue-50 border-blue-100';
+  };
+
+  const badgeColor = (daysLeft) => {
+    if (daysLeft < 0)   return 'bg-red-100 text-red-700 border-red-200';
+    if (daysLeft < 30)  return 'bg-orange-100 text-orange-700 border-orange-200';
+    if (daysLeft < 90)  return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+    if (daysLeft < 180) return 'bg-lime-100 text-lime-700 border-lime-200';
+    return 'bg-blue-100 text-blue-700 border-blue-200';
+  };
+
+  const daysLabel = (daysLeft) => {
+    if (daysLeft < 0)  return `หมดอายุแล้ว ${Math.abs(daysLeft)} วัน`;
+    if (daysLeft === 0) return 'หมดอายุวันนี้';
+    return `อีก ${daysLeft} วัน`;
+  };
+
+  const displayed = expanded ? filtered : filtered.slice(0, 8);
+
+  const inner = (
+    <div className={`bg-white border border-red-200 rounded-2xl shadow-sm overflow-hidden flex flex-col ${onClose ? 'max-h-[90vh]' : 'mt-5'}`}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-3.5 bg-red-50 border-b border-red-200 shrink-0">
+        <div className="flex items-center gap-2">
+          <AlertTriangle size={18} className="text-red-500" />
+          <span className="font-bold text-red-800 text-sm">แจ้งเตือนยาใกล้หมดอายุ</span>
+          <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+            {expiring.length} รายการ
+          </span>
+        </div>
+        {onClose && (
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-red-100 rounded-lg transition-colors">
+            <X size={18} />
+          </button>
+        )}
+      </div>
+
+      {/* Filter tabs */}
+      <div className="flex gap-2 px-5 pt-3 pb-1 overflow-x-auto">
+        {[
+          { key: 'all',     label: 'ทั้งหมด',          count: expiring.length,  active: 'bg-slate-700 text-white' },
+          { key: 'expired', label: 'หมดอายุแล้ว',       count: expiredCount,     active: 'bg-red-600 text-white' },
+          { key: 'soon30',  label: 'ภายใน 30 วัน',      count: soon30Count,      active: 'bg-orange-500 text-white' },
+          { key: 'soon90',  label: '1–3 เดือน',          count: soon90Count,      active: 'bg-yellow-500 text-white' },
+          { key: 'soon180', label: '3–6 เดือน',          count: soon180Count,     active: 'bg-lime-500 text-white' },
+          { key: 'soon16m', label: '6–16 เดือน',         count: soon16mCount,     active: 'bg-blue-500 text-white' },
+        ].map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => { setFilter(tab.key); setExpanded(false); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
+              filter === tab.key
+                ? tab.active + ' border-transparent shadow-sm'
+                : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+            }`}
+          >
+            {tab.label}
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+              filter === tab.key ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'
+            }`}>{tab.count}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      {filtered.length === 0 ? (
+        <p className="text-center text-slate-400 text-sm py-6">ไม่มีรายการในหมวดนี้</p>
+      ) : (
+        <div className="overflow-auto" style={{ maxHeight: onClose ? 'calc(90vh - 200px)' : 'calc(100vh - 420px)' }}>
+          <table className="w-full text-xs min-w-[600px]">
+            <thead className="sticky top-0 z-20">
+              <tr className="text-slate-500 font-semibold border-b border-slate-100 bg-slate-50">
+                <th className="px-4 py-2 text-left bg-slate-50">ชื่อยา</th>
+                <th className="px-4 py-2 text-left bg-slate-50">ชนิด</th>
+                <th className="px-4 py-2 text-left bg-slate-50">ตำแหน่ง</th>
+                <th className="px-4 py-2 text-left bg-slate-50">Lot</th>
+                <th className="px-4 py-2 text-center bg-slate-50">วันหมดอายุ</th>
+                <th className="px-4 py-2 text-center bg-slate-50">สถานะ</th>
+                <th className="px-4 py-2 text-right bg-slate-50">คงเหลือ</th>
+                <th className="px-4 py-2 text-left bg-slate-50">หน่วย</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayed.map((r, i) => (
+                <tr key={i} className={`border-b ${rowColor(r.daysLeft)}`}>
+                  <td className="px-4 py-2.5 font-semibold text-slate-800 max-w-[200px]">
+                    <span className="block truncate">{r.name || '-'}</span>
+                    {r.code && r.code !== '-' && (
+                      <span className="text-slate-400 font-normal">{r.code}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-500">{r.type || '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-600 font-medium">{r.location || '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-500">{r.lot || '-'}</td>
+                  <td className="px-4 py-2.5 text-center font-medium text-slate-700">{fmtExp(r.exp)}</td>
+                  <td className="px-4 py-2.5 text-center">
+                    <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${badgeColor(r.daysLeft)}`}>
+                      {daysLabel(r.daysLeft)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-bold text-slate-700">{r.qty || '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-500">{r.unit || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Show more / less */}
+      {filtered.length > 8 && (
+        <div className="px-5 py-3 border-t border-slate-100 flex justify-center shrink-0">
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors"
+          >
+            {expanded
+              ? <><ChevronUp size={14}/> ย่อรายการ</>
+              : <><ChevronDown size={14}/> ดูทั้งหมด {filtered.length} รายการ</>
+            }
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  if (onClose) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+        <div className="w-full max-w-5xl">{inner}</div>
+      </div>
+    );
+  }
+  return inner;
+}
+
+// ---- Low Stock Alert Section ----
+function LowStockAlertSection({ lowStock = [], onClose }) {
+  const [expanded, setExpanded] = React.useState(false);
+  if (lowStock.length === 0) return null;
+  const displayed = expanded ? lowStock : lowStock.slice(0, 8);
+
+  const inner = (
+    <div className={`bg-white border border-amber-200 rounded-2xl shadow-sm overflow-hidden flex flex-col ${onClose ? 'max-h-[90vh]' : 'mt-4'}`}>
+      <div className="flex items-center justify-between px-5 py-3.5 bg-amber-50 border-b border-amber-200 shrink-0">
+        <div className="flex items-center gap-2">
+          <AlertTriangle size={18} className="text-amber-500" />
+          <span className="font-bold text-amber-800 text-sm">แจ้งเตือน Stock ต่ำกว่ากำหนด</span>
+          <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+            {lowStock.length} รายการ
+          </span>
+        </div>
+        {onClose && (
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-amber-100 rounded-lg transition-colors">
+            <X size={18} />
+          </button>
+        )}
+      </div>
+
+      <div className="overflow-auto" style={{ maxHeight: onClose ? 'calc(90vh - 160px)' : 'calc(100vh - 420px)' }}>
+        <table className="w-full text-xs min-w-[520px]">
+          <thead className="sticky top-0 z-20">
+            <tr className="text-slate-500 font-semibold border-b border-slate-100 bg-slate-50">
+              <th className="px-4 py-2 text-left bg-slate-50">ชื่อยา</th>
+              <th className="px-4 py-2 text-left bg-slate-50">ชนิด</th>
+              <th className="px-4 py-2 text-left bg-slate-50">ตำแหน่ง</th>
+              <th className="px-4 py-2 text-right bg-slate-50">คงเหลือ</th>
+              <th className="px-4 py-2 text-left bg-slate-50">หน่วย</th>
+              <th className="px-4 py-2 text-right bg-slate-50">Safety Stock</th>
+              <th className="px-4 py-2 text-left bg-slate-50">ระดับ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayed.map((r, i) => {
+              const pct      = Math.min(100, r.ratio * 100);
+              const isEmpty  = r.qty === 0;
+              const barColor = isEmpty ? 'bg-red-500' : pct < 30 ? 'bg-orange-400' : 'bg-amber-400';
+              return (
+                <tr key={i} className={`border-b border-slate-100 transition-colors ${isEmpty ? 'bg-red-50' : 'hover:bg-amber-50'}`}>
+                  <td className="px-4 py-2.5 font-semibold text-slate-800 max-w-[200px]">
+                    <span className="block truncate">{r.name}</span>
+                    {r.code && r.code !== '-' && <span className="text-slate-400 font-normal">{r.code}</span>}
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-500">{r.type || '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-600 font-medium">{r.location || '-'}</td>
+                  <td className={`px-4 py-2.5 text-right font-bold ${isEmpty ? 'text-red-600' : 'text-amber-700'}`}>
+                    {r.qty.toLocaleString()}
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-500">{r.unit || '-'}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-500">{r.safety_stock.toLocaleString()}</td>
+                  <td className="px-4 py-2.5 min-w-[100px]">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 bg-slate-200 rounded-full h-2 overflow-hidden">
+                        <div className={`${barColor} h-2 rounded-full`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-500 shrink-0 w-8 text-right">
+                        {isEmpty ? 'หมด' : `${Math.round(pct)}%`}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {lowStock.length > 8 && (
+        <div className="px-5 py-3 border-t border-slate-100 flex justify-center shrink-0">
+          <button onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors">
+            {expanded
+              ? <><ChevronUp size={14}/> ย่อรายการ</>
+              : <><ChevronDown size={14}/> ดูทั้งหมด {lowStock.length} รายการ</>
+            }
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  if (onClose) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+        <div className="w-full max-w-4xl">{inner}</div>
+      </div>
+    );
+  }
+  return inner;
+}
+
+// ---- Quick stats (staff view only) ----
+function StatsStrip({ alerts = { expiring: [], lowStock: [] }, isStaff = false, onOpenExpiry, onOpenLowStock, onOpenRequisition }) {
+  const [stats, setStats] = React.useState({ inventory: '-', pending: '-' });
+
+  const loadStats = React.useCallback(async () => {
     if (!supabase) return;
-    const ago30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-    Promise.all([
-      supabase.from('inventory').select('id', { count: 'exact', head: true }),
+    const [inv, pend] = await Promise.all([
+      supabase.from('inventory').select('code'),
       supabase.from('requisitions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-      supabase.from('dispense_logs').select('id', { count: 'exact', head: true }).gte('dispense_date', ago30),
-      supabase.from('receive_logs').select('id', { count: 'exact', head: true }).gte('receive_date', ago30),
-    ]).then(([inv, pend, disp, recv]) => {
-      setStats({
-        inventory:  inv.count  ?? '-',
-        pending:    pend.count ?? '-',
-        dispense30: disp.count ?? '-',
-        receive30:  recv.count ?? '-',
-      });
-    });
+    ]);
+    const uniqueDrugs = new Set((inv.data || []).map(r => r.code).filter(Boolean)).size;
+    setStats({ inventory: uniqueDrugs || '-', pending: pend.count ?? '-' });
   }, []);
 
-  const items = [
-    { label: 'รายการยาในคลัง',    value: stats.inventory,  color: 'text-sky-700',  cardBg: 'bg-sky-50',  borderColor: 'border-sky-200',  labelColor: 'text-sky-500' },
-    { label: 'ใบเบิกรอดำเนินการ', value: stats.pending,    color: stats.pending > 0 ? 'text-amber-700' : 'text-slate-700',  cardBg: stats.pending > 0 ? 'bg-amber-50' : 'bg-slate-50',  borderColor: stats.pending > 0 ? 'border-amber-200' : 'border-slate-200',  labelColor: stats.pending > 0 ? 'text-amber-600' : 'text-slate-500' },
-    { label: 'เบิกจ่าย (30 วัน)', value: stats.dispense30, color: 'text-rose-700',    cardBg: 'bg-rose-50',    borderColor: 'border-rose-200',    labelColor: 'text-rose-500' },
-    { label: 'รับเข้า (30 วัน)',   value: stats.receive30,  color: 'text-emerald-700', cardBg: 'bg-emerald-50', borderColor: 'border-emerald-200', labelColor: 'text-emerald-600' },
+  React.useEffect(() => {
+    loadStats();
+    if (!supabase) return;
+    // อัพเดต pending count แบบ realtime เมื่อมีใบเบิกใหม่หรือสถานะเปลี่ยน
+    const ch = supabase
+      .channel('statsstrip-requisitions')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'requisitions' }, loadStats)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [loadStats]);
+
+  const expiryCount   = alerts.expiring.length;
+  const expiredCount  = alerts.expiring.filter(r => r.daysLeft < 0).length;
+  const lowStockCount = alerts.lowStock.length;
+
+  const baseItems = [
+    {
+      label: 'รายการยาในคลัง',
+      value: stats.inventory,
+      color: 'text-sky-700', cardBg: 'bg-sky-50', borderColor: 'border-sky-200', labelColor: 'text-sky-500',
+    },
+    {
+      label: 'ใบเบิกรอดำเนินการ',
+      value: stats.pending,
+      color:       stats.pending > 0 ? 'text-amber-700'   : 'text-slate-700',
+      cardBg:      stats.pending > 0 ? 'bg-amber-50'      : 'bg-slate-50',
+      borderColor: stats.pending > 0 ? 'border-amber-200' : 'border-slate-200',
+      labelColor:  stats.pending > 0 ? 'text-amber-600'   : 'text-slate-500',
+      onClick: stats.pending > 0 ? onOpenRequisition : undefined,
+    },
   ];
 
+  const staffItems = [
+    {
+      label: expiredCount > 0 ? `ยาหมดอายุแล้ว ${expiredCount} + ใกล้หมด` : 'ยาใกล้หมดอายุ (16 เดือน)',
+      value: expiryCount,
+      color:       expiryCount > 0 ? (expiredCount > 0 ? 'text-red-700' : 'text-orange-700')   : 'text-slate-700',
+      cardBg:      expiryCount > 0 ? (expiredCount > 0 ? 'bg-red-50'    : 'bg-orange-50')      : 'bg-slate-50',
+      borderColor: expiryCount > 0 ? (expiredCount > 0 ? 'border-red-200' : 'border-orange-200') : 'border-slate-200',
+      labelColor:  expiryCount > 0 ? (expiredCount > 0 ? 'text-red-500' : 'text-orange-500')   : 'text-slate-500',
+      onClick: expiryCount > 0 ? onOpenExpiry : undefined,
+    },
+    {
+      label: 'Stock ต่ำกว่ากำหนด',
+      value: lowStockCount,
+      color:       lowStockCount > 0 ? 'text-amber-700'   : 'text-slate-700',
+      cardBg:      lowStockCount > 0 ? 'bg-amber-50'      : 'bg-slate-50',
+      borderColor: lowStockCount > 0 ? 'border-amber-200' : 'border-slate-200',
+      labelColor:  lowStockCount > 0 ? 'text-amber-600'   : 'text-slate-500',
+      onClick: lowStockCount > 0 ? onOpenLowStock : undefined,
+    },
+  ];
+
+  const items = isStaff ? [...baseItems, ...staffItems] : baseItems;
+  const cols = items.length === 4 ? 'sm:grid-cols-4' : 'sm:grid-cols-2';
+
   return (
-    <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
-      {items.map(item => (
-        <div key={item.label} className={`${item.cardBg} border ${item.borderColor} rounded-xl p-4 text-center shadow-sm`}>
-          <p className={`text-2xl font-bold ${item.color}`}>{typeof item.value === 'number' ? item.value.toLocaleString() : item.value}</p>
-          <p className={`text-xs mt-1 leading-tight ${item.labelColor}`}>{item.label}</p>
-        </div>
-      ))}
+    <div className={`mt-6 grid grid-cols-2 ${cols} gap-3`}>
+      {items.map(item => {
+        const cls = `${item.cardBg} border ${item.borderColor} rounded-xl p-4 text-center shadow-sm ${item.onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`;
+        const content = (
+          <>
+            <p className={`text-2xl font-bold ${item.color}`}>{typeof item.value === 'number' ? item.value.toLocaleString() : item.value}</p>
+            <p className={`text-xs mt-1 leading-tight ${item.labelColor}`}>{item.label}</p>
+            {item.onClick && <p className="text-[10px] mt-1.5 text-slate-400">กดเพื่อดูรายละเอียด</p>}
+          </>
+        );
+        return item.onClick
+          ? <button key={item.label} onClick={item.onClick} className={cls}>{content}</button>
+          : <div key={item.label} className={cls}>{content}</div>;
+      })}
     </div>
   );
 }

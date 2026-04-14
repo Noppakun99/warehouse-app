@@ -1,0 +1,48 @@
+import * as XLSX from 'xlsx';
+import { insertAuditLog } from './db';
+
+/**
+ * ส่งออกข้อมูลเป็น Excel (.xlsx)
+ * @param {object[]} rows  - array ของ data object
+ * @param {Array<{header: string, key?: string, value?: (row)=>any}>} columns - column definitions
+ * @param {string} sheetName - ชื่อ sheet
+ * @param {string} fileName  - ชื่อไฟล์ (รวม .xlsx)
+ * @param {object} auth      - { name, department } สำหรับ audit log
+ */
+export async function exportToExcel(rows, columns, sheetName, fileName, auth = {}) {
+  const wsData = [
+    columns.map(c => c.header),
+    ...rows.map(row =>
+      columns.map(c => {
+        const v = typeof c.value === 'function' ? c.value(row) : row[c.key];
+        return v != null && v !== '-' ? v : '';
+      })
+    ),
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // ปรับความกว้าง column อัตโนมัติ
+  const colWidths = columns.map((c, ci) => {
+    const maxLen = Math.max(
+      c.header.length,
+      ...rows.map(row => {
+        const v = wsData[rows.indexOf(row) + 1]?.[ci];
+        return String(v ?? '').length;
+      })
+    );
+    return { wch: Math.min(maxLen + 2, 40) };
+  });
+  ws['!cols'] = colWidths;
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, fileName);
+
+  await insertAuditLog({
+    action: 'export_excel', table_name: sheetName,
+    user_name: auth.name, department: auth.department,
+    record_count: rows.length,
+    details: { file: fileName },
+  });
+}

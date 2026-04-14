@@ -5,8 +5,9 @@ import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
 import {
   ArrowLeft, UploadCloud, RefreshCcw, Search, X,
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
-  TrendingDown, BarChart3, Pencil, Trash2, Save,
+  TrendingDown, BarChart3, Pencil, Trash2, Save, FileDown,
 } from 'lucide-react';
+import { exportToExcel } from './lib/exportExcel';
 
 // ============================================================
 // Column aliases
@@ -156,6 +157,22 @@ const getPrice = (r) => {
   return null;
 };
 
+// ดึงข้อมูลทั้งหมดโดยใช้ pagination เพื่อข้าม Supabase default 1,000-row limit
+// buildQuery = ฟังก์ชันที่คืน query builder ใหม่ทุกครั้ง (ต้องสร้างใหม่เพราะ builder ใช้ครั้งเดียว)
+async function fetchAllRows(buildQuery) {
+  const PAGE = 1000;
+  let from = 0;
+  let allRows = [];
+  while (true) {
+    const { data, error } = await buildQuery().range(from, from + PAGE - 1);
+    if (error || !data || data.length === 0) break;
+    allRows = allRows.concat(data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return allRows;
+}
+
 // แปลง Excel serial / text date หลายรูปแบบ → d/m/yyyy
 const fmtAnyDate = (raw) => {
   if (!raw && raw !== 0) return '-';
@@ -193,12 +210,33 @@ function parseDate(raw) {
   return null;
 }
 
+const DISPENSE_EXCEL_COLS = [
+  { header: 'วันที่เบิก',        key: 'dispense_date' },
+  { header: 'MainLog',            key: 'main_log' },
+  { header: 'DetailedLog',        key: 'detail_log' },
+  { header: 'รหัส',              key: 'drug_code' },
+  { header: 'ชนิด',              key: 'drug_type' },
+  { header: 'รายการยา',          key: 'drug_name' },
+  { header: 'หน่วย',             key: 'drug_unit' },
+  { header: 'ราคา/หน่วย',       key: 'price_per_unit' },
+  { header: 'Lot Number',         key: 'lot' },
+  { header: 'Exp',                key: 'exp' },
+  { header: 'ชนิดรายการ',        key: 'item_type' },
+  { header: 'คงเหลือก่อนเบิก',  key: 'qty_before' },
+  { header: 'ปริมาณ (ออก)',      key: 'qty_out' },
+  { header: 'คงเหลือหลังจ่าย',  key: 'qty_after' },
+  { header: 'หน่วยงานที่เบิก',  key: 'department' },
+  { header: 'หมายเหตุ',          key: 'note' },
+]
+
 // ============================================================
 // Root
 // ============================================================
-export default function DispenseLogApp({ onBack }) {
+export default function DispenseLogApp({ onBack, auth = {} }) {
   const [tab, setTab]             = useState('view');
   const [showSummary, setShowSummary] = useState(false);
+  const isStaff = auth.role === 'staff' || auth.role === 'admin';
+  const isAdmin = auth.role === 'admin';
 
   return (
     <div className="min-h-screen bg-slate-200 text-slate-800 font-sans">
@@ -213,14 +251,16 @@ export default function DispenseLogApp({ onBack }) {
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white/20 text-white hover:bg-white/30 border border-white/30 transition-all">
             <BarChart3 size={15} /> สรุปผล
           </button>
-          <button onClick={() => setTab('import')}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'import' ? 'bg-white text-rose-700 font-bold' : 'text-rose-100 hover:text-white hover:bg-white/20'}`}
-          >Import CSV</button>
+          {isStaff && (
+            <button onClick={() => setTab('import')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'import' ? 'bg-white text-rose-700 font-bold' : 'text-rose-100 hover:text-white hover:bg-white/20'}`}
+            >Import CSV</button>
+          )}
         </div>
       </div>
 
-      {tab === 'import' && <DispenseImport onDone={() => setTab('view')} />}
-      {tab === 'view'   && <DispenseView />}
+      {tab === 'import' && isStaff && <DispenseImport onDone={() => setTab('view')} />}
+      {tab === 'view'   && <DispenseView isAdmin={isAdmin} />}
       {showSummary      && <DispenseSummaryModal onClose={() => setShowSummary(false)} />}
     </div>
   );
@@ -684,7 +724,7 @@ function EditModal({ row, onClose, onSaved }) {
 // ============================================================
 // View / Search
 // ============================================================
-function DispenseView() {
+function DispenseView({ isAdmin = false }) {
   const [rows, setRows]             = useState([]);
   const [loading, setLoading]       = useState(true);
   const [search, setSearch]         = useState('');
@@ -693,6 +733,7 @@ function DispenseView() {
   const [dateTo, setDateTo]         = useState('');
   const [departments, setDepts]     = useState([]);
   const [expanded, setExpanded]     = useState(null);
+  const [expandedDrug, setExpandedDrug] = useState(null);
   const [editingRow, setEditingRow] = useState(null);
   const [page, setPage]             = useState(0);
   const PAGE_SIZE = 50;
@@ -704,6 +745,7 @@ function DispenseView() {
   const [drugDateTo, setDrugDateTo]     = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const searchRef = useRef(null);
+  const [aggStats, setAggStats] = useState(null);
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
@@ -725,6 +767,33 @@ function DispenseView() {
   }, [search, deptFilter, dateFrom, dateTo, page]);
 
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [load]);
+
+  // โหลด aggregate stats (count, qty, value) ของทุก rows ที่ตรงกับ filter — ไม่ใช่แค่หน้าปัจจุบัน
+  const loadAgg = useCallback(async () => {
+    if (!supabase) return;
+    setAggStats(null);
+    const isoFrom = thaiToIso(dateFrom) || dateFrom;
+    const isoTo   = thaiToIso(dateTo)   || dateTo;
+    const applyFilters = (q) => {
+      if (deptFilter) q = q.eq('department', deptFilter);
+      if (dateFrom && dateTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
+      else if (dateFrom)        { q = q.eq('dispense_date', isoFrom); }
+      else if (dateTo)          { q = q.lte('dispense_date', isoTo); }
+      if (search.trim()) q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%`);
+      return q;
+    };
+    // count แยก (เร็วกว่า)
+    const { count } = await applyFilters(supabase.from('dispense_logs').select('*', { count: 'exact', head: true }));
+    // ดึง qty + price สำหรับคำนวณ qty รวม และมูลค่ารวม
+    const data = await fetchAllRows(() =>
+      applyFilters(supabase.from('dispense_logs').select('qty_out, price_per_unit, drug_unit'))
+    );
+    const totalQty   = data.reduce((s, r) => s + (r.qty_out || 0), 0);
+    const totalValue = data.reduce((s, r) => s + ((r.qty_out || 0) * (getPrice(r) || 0)), 0);
+    setAggStats({ count: count ?? data.length, totalQty, totalValue });
+  }, [search, deptFilter, dateFrom, dateTo]);
+
+  useEffect(() => { const t = setTimeout(loadAgg, 300); return () => clearTimeout(t); }, [loadAgg]);
 
   useEffect(() => {
     const h = (e) => { if (searchRef.current && !searchRef.current.contains(e.target)) setShowDropdown(false); };
@@ -748,8 +817,6 @@ function DispenseView() {
     });
   }, []);
 
-  const totalOut   = rows.reduce((s, r) => s + (r.qty_out || 0), 0);
-  const totalValue = rows.reduce((s, r) => s + ((r.qty_out || 0) * (getPrice(r) || 0)), 0);
   const hasFilter  = search || deptFilter || dateFrom || dateTo;
 
   const clearAll = () => { setSearch(''); setDeptFilter(''); setDateFrom(''); setDateTo(''); setPage(0); };
@@ -797,6 +864,7 @@ function DispenseView() {
     setSelectedDrug(name);
     setShowDropdown(false);
     setPage(0);
+    setExpandedDrug(null);
   };
 
   const clearSearchDrug = () => {
@@ -849,6 +917,13 @@ function DispenseView() {
             className="w-44" />
           <button onClick={clearAll} className="text-slate-400 hover:text-slate-600 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
             <RefreshCcw size={16} />
+          </button>
+          <button
+            onClick={() => exportToExcel(rows, DISPENSE_EXCEL_COLS, 'ประวัติเบิกยา', `dispense_logs_${new Date().toISOString().slice(0,10)}.xlsx`, auth)}
+            disabled={rows.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-xl text-xs font-semibold transition-colors"
+            title="ส่งออก Excel">
+            <FileDown size={14} /> Excel
           </button>
         </div>
         {/* Date range row */}
@@ -935,20 +1010,70 @@ function DispenseView() {
                     <th className="px-4 py-2.5 text-right bg-slate-700">ราคา/หน่วย</th>
                     <th className="px-4 py-2.5 text-right bg-slate-700">มูลค่า (บาท)</th>
                     <th className="px-4 py-2.5 text-left bg-slate-700">หน่วยงาน</th>
+                    <th className="px-4 py-2.5 w-8 bg-slate-700"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredDrugRows.map((r, i) => (
-                    <tr key={r.id} className={`border-b border-slate-200 transition-colors ${i % 2 === 0 ? 'hover:bg-rose-50' : 'bg-slate-50 hover:bg-rose-50'}`}>
-                      <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(r.dispense_date)}</td>
-                      <td className="px-4 py-2.5 text-rose-700 font-bold text-right whitespace-nowrap">-{(r.qty_out || 0).toLocaleString()}</td>
-                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{getUnit(r) !== '-' ? getUnit(r) : drugUnit}</td>
-                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{r.lot || '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
-                      <td className="px-4 py-2.5 text-slate-800 font-medium text-right whitespace-nowrap">{getPrice(r) != null ? Number(getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-2.5 text-amber-800 font-bold text-right whitespace-nowrap">{getPrice(r) != null ? ((r.qty_out||0)*getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-800 max-w-[160px] truncate font-medium">{r.department || '-'}</td>
-                    </tr>
+                    <React.Fragment key={r.id}>
+                      <tr
+                        onClick={() => setExpandedDrug(expandedDrug === r.id ? null : r.id)}
+                        className={`border-b border-slate-200 cursor-pointer transition-colors ${expandedDrug === r.id ? 'bg-rose-100' : i % 2 === 0 ? 'hover:bg-rose-50' : 'bg-slate-50 hover:bg-rose-50'}`}
+                      >
+                        <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(r.dispense_date)}</td>
+                        <td className="px-4 py-2.5 text-rose-700 font-bold text-right whitespace-nowrap">-{(r.qty_out || 0).toLocaleString()}</td>
+                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{getUnit(r) !== '-' ? getUnit(r) : drugUnit}</td>
+                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{r.lot || '-'}</td>
+                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
+                        <td className="px-4 py-2.5 text-slate-800 font-medium text-right whitespace-nowrap">{getPrice(r) != null ? Number(getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                        <td className="px-4 py-2.5 text-amber-800 font-bold text-right whitespace-nowrap">{getPrice(r) != null ? ((r.qty_out||0)*getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                        <td className="px-4 py-2.5 text-slate-800 max-w-[160px] truncate font-medium">{r.department || '-'}</td>
+                        <td className="px-4 py-2.5 text-slate-500">
+                          {expandedDrug === r.id ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                        </td>
+                      </tr>
+                      {expandedDrug === r.id && (
+                        <tr key={`${r.id}-detail`} className="bg-rose-50/60 border-b border-rose-100">
+                          <td colSpan={9} className="px-6 py-3">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-1.5 text-sm mb-3">
+                              {[
+                                ['รหัสยา', r.drug_code],
+                                ['ชนิด', r.drug_type],
+                                ['หน่วยงาน', r.department],
+                                ['MainLog', r.main_log],
+                                ['DetailedLog', r.detail_log],
+                                ['Lot', r.lot],
+                                ['Exp', fmtAnyDate(r.exp)],
+                                ['ราคา/หน่วย', getPrice(r) != null ? `${Number(getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} บาท` : null],
+                                ['คงเหลือก่อนเบิก', r.qty_before?.toLocaleString()],
+                                ['ปริมาณออก', r.qty_out?.toLocaleString()],
+                                ['คงเหลือหลังจ่าย', r.qty_after?.toLocaleString()],
+                                ['หมายเหตุ', r.note],
+                              ].map(([label, val]) => val != null && val !== '-' && val !== '' ? (
+                                <div key={label}>
+                                  <span className="text-slate-400 text-xs">{label}: </span>
+                                  <span className="text-slate-700 font-medium">{val}</span>
+                                </div>
+                              ) : null)}
+                            </div>
+                            {isAdmin && (
+                              <div className="flex gap-2 pt-2 border-t border-rose-100">
+                                <button
+                                  onClick={e => { e.stopPropagation(); setEditingRow(r); }}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors">
+                                  <Pencil size={13}/> แก้ไข
+                                </button>
+                                <button
+                                  onClick={e => handleDelete(r, e)}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors">
+                                  <Trash2 size={13}/> ลบ
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
@@ -961,16 +1086,16 @@ function DispenseView() {
       {!selectedDrug && rows.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-slate-700 border border-slate-600 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-white">{rows.length.toLocaleString()}</p>
-            <p className="text-xs text-slate-300 mt-0.5">รายการ{hasFilter ? ' (กรอง)' : ' (หน้านี้)'}</p>
+            <p className="text-2xl font-bold text-white">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
+            <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
           </div>
           <div className="bg-rose-700 border border-rose-600 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-white">{totalOut.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-            <p className="text-xs text-rose-200 mt-0.5">ปริมาณรวม (ออก)</p>
+            <p className="text-2xl font-bold text-white">{aggStats ? aggStats.totalQty.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
+            <p className="text-xs text-rose-200 mt-0.5">ปริมาณรวมออก{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
           </div>
           <div className="bg-amber-600 border border-amber-500 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-white">{totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-            <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวม (บาท)</p>
+            <p className="text-2xl font-bold text-white">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
+            <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวม (บาท){deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
           </div>
         </div>
       )}
@@ -1048,18 +1173,20 @@ function DispenseView() {
                               </div>
                             ) : null)}
                           </div>
-                          <div className="flex gap-2 pt-2 border-t border-rose-100">
-                            <button
-                              onClick={e => { e.stopPropagation(); setEditingRow(row); }}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors">
-                              <Pencil size={13}/> แก้ไข
-                            </button>
-                            <button
-                              onClick={e => handleDelete(row, e)}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors">
-                              <Trash2 size={13}/> ลบ
-                            </button>
-                          </div>
+                          {isAdmin && (
+                            <div className="flex gap-2 pt-2 border-t border-rose-100">
+                              <button
+                                onClick={e => { e.stopPropagation(); setEditingRow(row); }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors">
+                                <Pencil size={13}/> แก้ไข
+                              </button>
+                              <button
+                                onClick={e => handleDelete(row, e)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors">
+                                <Trash2 size={13}/> ลบ
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     )}
@@ -1098,6 +1225,8 @@ function DispenseSummaryModal({ onClose }) {
   const drugRef = useRef(null);
   const [allTimeTotal, setAllTimeTotal] = useState(null);
   const [allTimeValue, setAllTimeValue] = useState(null);
+  const [allTimeUniqueDays, setAllTimeUniqueDays] = useState(null);
+  const [allTimeTopDrugsByValue, setAllTimeTopDrugsByValue] = useState([]);
 
   // Monthly stats
   const [numMonths, setNumMonths]         = useState(4);
@@ -1107,14 +1236,24 @@ function DispenseSummaryModal({ onClose }) {
 
   useEffect(() => {
     if (!supabase) return;
-    // ดึงจำนวนรายการทั้งหมด
+    // ดึงจำนวนรายการทั้งหมด (ใช้ count query แยก เพราะแม่นยำกว่า)
     supabase.from('dispense_logs').select('*', { count: 'exact', head: true })
       .then(({ count }) => setAllTimeTotal(count ?? 0));
-    // ดึงมูลค่าทั้งหมด
-    supabase.from('dispense_logs').select('qty_out, price_per_unit, drug_unit')
-      .then(({ data }) => {
-        if (data) setAllTimeValue(data.reduce((s, r) => s + ((r.qty_out || 0) * (getPrice(r) || 0)), 0));
+    // ดึงมูลค่าทั้งหมด + top drugs + unique days โดยใช้ pagination เพื่อข้าม 1,000-row limit
+    fetchAllRows(() =>
+      supabase.from('dispense_logs').select('drug_name, qty_out, price_per_unit, drug_unit, dispense_date')
+    ).then(data => {
+      if (!data || data.length === 0) return;
+      setAllTimeValue(data.reduce((s, r) => s + ((r.qty_out || 0) * (getPrice(r) || 0)), 0));
+      setAllTimeUniqueDays(new Set(data.map(r => r.dispense_date).filter(Boolean)).size);
+      // คำนวณ top drugs by value
+      const map = {};
+      data.forEach(r => {
+        const k = r.drug_name || 'ไม่ระบุ';
+        map[k] = (map[k] || 0) + ((r.qty_out || 0) * (getPrice(r) || 0));
       });
+      setAllTimeTopDrugsByValue(Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 10));
+    });
     // ดึงวันแรก-วันล่าสุด → แปลงเป็น dd/mm/yyyy
     supabase.from('dispense_logs').select('dispense_date').order('dispense_date', { ascending: true  }).limit(1)
       .then(({ data }) => { if (data?.[0]?.dispense_date) setDateFrom(isoToThai(data[0].dispense_date)); });
@@ -1147,12 +1286,15 @@ function DispenseSummaryModal({ onClose }) {
   const loadStats = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
     setLoading(true);
-    let q = supabase.from('dispense_logs').select('department, drug_name, qty_out, price_per_unit, drug_unit, dispense_date');
-    if (dateFrom)   q = q.gte('dispense_date', thaiToIso(dateFrom) || dateFrom);
-    if (dateTo)     q = q.lte('dispense_date', thaiToIso(dateTo)   || dateTo);
-    if (deptFilter) q = q.eq('department', deptFilter);
-    if (drugFilter) q = q.ilike('drug_name', `%${drugFilter}%`);
-    const { data: rows } = await q;
+    // ใช้ fetchAllRows เพื่อดึงข้อมูลทั้งหมดโดยไม่ติด Supabase default 1,000-row limit
+    const rows = await fetchAllRows(() => {
+      let q = supabase.from('dispense_logs').select('department, drug_name, qty_out, price_per_unit, drug_unit, dispense_date');
+      if (dateFrom)   q = q.gte('dispense_date', thaiToIso(dateFrom) || dateFrom);
+      if (dateTo)     q = q.lte('dispense_date', thaiToIso(dateTo)   || dateTo);
+      if (deptFilter) q = q.eq('department', deptFilter);
+      if (drugFilter) q = q.ilike('drug_name', `%${drugFilter}%`);
+      return q;
+    });
     if (!rows || rows.length === 0) { setStats(null); setLoading(false); return; }
 
     const totalQty   = rows.reduce((s, r) => s + (r.qty_out || 0), 0);
@@ -1165,11 +1307,26 @@ function DispenseSummaryModal({ onClose }) {
       return Object.entries(map).sort((a, b) => b[1] - a[1]);
     };
 
+    // นับจำนวนวันที่แต่ละหน่วยงานมีการเบิก (unique days)
+    const deptDaysMap = {};
+    rows.forEach(r => {
+      const dept = r.department || 'ไม่ระบุ';
+      const date = r.dispense_date;
+      if (!date) return;
+      if (!deptDaysMap[dept]) deptDaysMap[dept] = new Set();
+      deptDaysMap[dept].add(date);
+    });
+    const topDeptsByDays = Object.entries(deptDaysMap)
+      .map(([dept, days]) => [dept, days.size])
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10);
+
     setStats({
       total: rows.length,
       totalQty,
       totalValue,
       uniqueDays,
+      topDeptsByDays,
       topDepts:       aggBy('department', r => r.qty_out || 0).slice(0, 10),
       topDeptsValue:  aggBy('department', r => (r.qty_out || 0) * (getPrice(r) || 0)).slice(0, 10),
       topDrugs:         aggBy('drug_name', r => r.qty_out || 0).slice(0, 10),
@@ -1311,12 +1468,20 @@ function DispenseSummaryModal({ onClose }) {
             ) : !stats ? (
               <p className="text-center text-slate-400 py-16">ไม่พบข้อมูลที่กรอง หรือเลือก</p>
             ) : (
-              <>
+              (() => {
+                const isFiltered = !!(deptFilter || drugFilter);
+                const filterLabel = deptFilter || (drugFilter ? `ยา: ${drugFilter}` : 'ทุกช่วงเวลา');
+                const cardTotal = isFiltered ? stats.total : (allTimeTotal ?? null);
+                const cardDays  = isFiltered ? stats.uniqueDays : (allTimeUniqueDays ?? null);
+                const cardValue = isFiltered ? stats.totalValue : (allTimeValue ?? null);
+                const topDrugsItems = isFiltered ? stats.topDrugsByValue : allTimeTopDrugsByValue;
+                const topDrugsTitle = `ยาที่มีมูลค่าเบิกสูงสุด (${filterLabel})`;
+                return (<>
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label:'รายการเบิกทั้งหมด', value:(allTimeTotal ?? '...').toLocaleString?.() ?? '...', unit:'รายการ (ทุกช่วงเวลา)', bg:'bg-indigo-50', bd:'border-indigo-200', lbl:'text-indigo-600', val:'text-indigo-900' },
-                    { label:'จำนวนวันที่มีการเบิก', value:stats.uniqueDays.toLocaleString(), unit:'วัน (ในช่วงที่กรอง)', bg:'bg-rose-50', bd:'border-rose-200', lbl:'text-rose-600', val:'text-rose-900' },
-                    { label:'มูลค่าเบิกทั้งหมด (บาท)', value:allTimeValue != null ? allTimeValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:'บาท (ทุกช่วงเวลา)', bg:'bg-amber-50', bd:'border-amber-200', lbl:'text-amber-600', val:'text-amber-900' },
+                    { label:'รายการเบิกทั้งหมด', value: cardTotal != null ? cardTotal.toLocaleString() : '...', unit:`รายการ (${filterLabel})`, bg:'bg-indigo-50', bd:'border-indigo-200', lbl:'text-indigo-600', val:'text-indigo-900' },
+                    { label:'จำนวนวันที่มีการเบิก', value: cardDays != null ? cardDays.toLocaleString() : '...', unit:`วัน (${filterLabel})`, bg:'bg-rose-50', bd:'border-rose-200', lbl:'text-rose-600', val:'text-rose-900' },
+                    { label:'มูลค่าเบิกทั้งหมด (บาท)', value: cardValue != null ? cardValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:`บาท (${filterLabel})`, bg:'bg-amber-50', bd:'border-amber-200', lbl:'text-amber-600', val:'text-amber-900' },
                   ].map((k,i) => (
                     <div key={i} className={`${k.bg} border ${k.bd} rounded-xl p-4 shadow-sm`}>
                       <div className={`text-xs font-bold uppercase tracking-wide ${k.lbl} mb-1`}>{k.label}</div>
@@ -1326,11 +1491,12 @@ function DispenseSummaryModal({ onClose }) {
                   ))}
                 </div>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <BarSection title="หน่วยงานที่เบิกสูงสุด (ปริมาณ)" items={stats.topDepts}      barColor="bg-rose-400"  unit="หน่วย" />
+                  <BarSection title="หน่วยงานที่เบิกบ่อย (จำนวนวัน)" items={stats.topDeptsByDays} barColor="bg-rose-400"  unit="วัน" />
                   <BarSection title="หน่วยงาน — มูลค่าสูงสุด"        items={stats.topDeptsValue} barColor="bg-amber-400" unit="บาท"   />
                 </div>
-                <BarSection title="ยาที่มีมูลค่าเบิกสูงสุด" items={stats.topDrugsByValue} barColor="bg-indigo-400" unit="บาท" />
-              </>
+                <BarSection title={topDrugsTitle} items={topDrugsItems} barColor="bg-indigo-400" unit="บาท" />
+                </>);
+              })()
             )}
           </>)}
 
@@ -1348,12 +1514,15 @@ function DispenseSummaryModal({ onClose }) {
                         : 'bg-white text-slate-600 border-slate-300 hover:border-rose-300'
                     }`}>{n} เดือน</button>
                 ))}
-                <div className="ml-auto relative">
-                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"/>
-                  <input type="text" value={monthlySearch} onChange={e => setMonthlySearch(e.target.value)}
-                    placeholder="ค้นหายา..." className="pl-8 pr-3 py-1.5 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-rose-400 w-44"/>
-                  {monthlySearch && <button onClick={() => setMonthlySearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"><X size={12}/></button>}
-                </div>
+                <DrugSearchBar
+                  value={monthlySearch}
+                  onChange={setMonthlySearch}
+                  options={drugNames}
+                  placeholder="ค้นหายา..."
+                  className="ml-auto w-56"
+                  ringClass="focus:ring-rose-400"
+                  hoverClass="hover:bg-rose-50"
+                />
               </div>
 
               {monthlyLoading ? (
@@ -1361,11 +1530,11 @@ function DispenseSummaryModal({ onClose }) {
               ) : !monthlyStats ? (
                 <p className="text-center text-slate-400 py-16">ไม่พบข้อมูล</p>
               ) : (
-                <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+                <div className="overflow-auto rounded-xl border border-slate-200 shadow-sm" style={{ maxHeight: 'calc(100vh - 340px)' }}>
                   <table className="w-full text-xs min-w-[700px]">
-                    <thead className="sticky top-0 z-10">
+                    <thead className="sticky top-0 z-20">
                       <tr className="bg-slate-700 text-white text-center">
-                        <th className="px-3 py-2.5 text-left font-semibold sticky left-0 bg-slate-700 min-w-[180px]">รายการยา</th>
+                        <th className="px-3 py-2.5 text-left font-semibold sticky left-0 z-30 bg-slate-700 min-w-[180px] shadow-[2px_0_4px_rgba(0,0,0,0.15)]">รายการยา</th>
                         <th className="px-3 py-2.5 font-semibold bg-rose-700 whitespace-nowrap">Max รายเดือน</th>
                         <th className="px-3 py-2.5 font-semibold bg-indigo-700 whitespace-nowrap">Avg รายเดือน</th>
                         <th className="px-3 py-2.5 font-semibold bg-amber-700 whitespace-nowrap">รวม {numMonths} เดือน</th>
@@ -1379,7 +1548,7 @@ function DispenseSummaryModal({ onClose }) {
                         <tr><td colSpan={4 + (monthlyStats?.months?.length || 0)} className="text-center py-10 text-slate-400">ไม่พบยา</td></tr>
                       ) : filteredMonthlyDrugs.map((drug, i) => (
                         <tr key={drug.name} className={`border-b border-slate-100 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} hover:bg-rose-50/40 transition-colors`}>
-                          <td className="px-3 py-2 font-medium text-slate-800 sticky left-0 bg-inherit">
+                          <td className="px-3 py-2 font-medium text-slate-800 sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
                             <span className="block truncate max-w-[180px]" title={drug.name}>{drug.name}</span>
                             {drug.code && drug.code !== '-' && <span className="text-slate-400 font-normal">{drug.code}</span>}
                           </td>
@@ -1396,7 +1565,7 @@ function DispenseSummaryModal({ onClose }) {
                     </tbody>
                     <tfoot>
                       <tr className="bg-slate-100 font-bold text-slate-700 border-t-2 border-slate-300">
-                        <td className="px-3 py-2 sticky left-0 bg-slate-100">รวมทั้งหมด</td>
+                        <td className="px-3 py-2 sticky left-0 z-10 bg-slate-100 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">รวมทั้งหมด</td>
                         <td className="px-3 py-2 text-center text-rose-700">
                           {filteredMonthlyDrugs.length > 0 ? Math.max(...filteredMonthlyDrugs.map(d => d.max)).toLocaleString() : '-'}
                         </td>

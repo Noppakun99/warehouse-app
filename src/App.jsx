@@ -169,7 +169,7 @@ const parseCSVRow = (str) => {
 };
 
 export default function App({ onBackToDashboard, role = 'staff' }) {
-  const isStaff = role === 'staff';
+  const isStaff = role === 'staff' || role === 'admin';
   const [inventory, setInventory] = useState(initialInventory);
   const [drugDetails, setDrugDetails] = useState(initialDrugDetails);
   const [logFileName, setLogFileName] = useState('');
@@ -765,6 +765,7 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
         const lotIdx = headers.findIndex(h => h.toLowerCase().includes('lot') || h.includes('รุ่น'));
         const expIdx = headers.findIndex(h => h.toLowerCase().includes('exp') || h.includes('หมดอายุ'));
         const qtyIdx = headers.findIndex(h => h.includes('คงเหลือ') || h.toLowerCase() === 'qty');
+        const qtyReceivedIdx = headers.findIndex(h => h.includes('จำนวนที่รับ') || h.includes('ที่รับ') || h.toLowerCase().includes('qty_received') || h.toLowerCase().includes('received'));
         const invoiceIdx = headers.findIndex(h => h.includes('บิล') || h.includes('ใบเสร็จ') || h.toLowerCase().includes('invoice') || h.toLowerCase().includes('inv'));
         // สถานะตรวจรับ → รอตรวจรับ (เช็คก่อน เพราะต้องการค่า "รอตรวจรับ" จากคอลัมน์นี้)
         const statusIdx = headers.findIndex(h => h.includes('สถานะตรวจรับ') || h.includes('ตรวจรับ') || h.toLowerCase().includes('status'));
@@ -813,6 +814,7 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
             lot: lotIdx !== -1 && row[lotIdx] ? normalizeNumericText(row[lotIdx]) : '-',
             exp: normalizeDateStr(expIdx !== -1 ? row[expIdx] : '-'),
             qty: qtyStr,
+            qtyReceived: qtyReceivedIdx !== -1 && row[qtyReceivedIdx] ? normalizeNumericText(row[qtyReceivedIdx]) : null,
             invoice: invoiceIdx !== -1 ? normalizeNumericText(row[invoiceIdx]) : '-',
             safetyStock: ssIdx !== -1 ? parseFloat(String(row[ssIdx] || '0').replace(/,/g, '')) || 0 : 0,
             leadTime: ltIdx !== -1 ? parseFloat(String(row[ltIdx] || '0').replace(/,/g, '')) || 20 : 20,
@@ -1111,8 +1113,12 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
                 <div className="text-sm font-medium text-slate-700">{item.type} <span className="text-slate-400">({item.unit})</span></div>
               </div>
               <div className={`${item.isPending ? 'bg-sky-50 border-sky-100' : 'bg-slate-50 border-slate-100'} px-3 py-2.5 rounded-lg border`}>
-                <div className="text-[11px] text-slate-500 uppercase font-bold tracking-wider mb-1">จำนวนคงเหลือ</div>
-                <div className={`text-sm font-black ${item.isPending ? 'text-sky-700' : 'text-slate-700'}`}>{item.qty}</div>
+                <div className="text-[11px] text-slate-500 uppercase font-bold tracking-wider mb-1">
+                  {item.isPending && item.qtyReceived != null ? 'จำนวนที่รับ' : 'จำนวนคงเหลือ'}
+                </div>
+                <div className={`text-sm font-black ${item.isPending ? 'text-sky-700' : 'text-slate-700'}`}>
+                  {item.isPending && item.qtyReceived != null ? item.qtyReceived : item.qty}
+                </div>
               </div>
               <div className="bg-slate-50 px-3 py-2.5 rounded-lg border border-slate-100">
                 <div className="text-[11px] text-slate-500 uppercase font-bold tracking-wider mb-1">Lot Number</div>
