@@ -62,15 +62,22 @@ This is a single-page React app (no React Router) for hospital pharmacy warehous
 
 ## Custom Skills
 
-Use these skills for common tasks:
+Skills อยู่ใน `.claude/skills/` — อ่านไฟล์ที่ระบุก่อนทำงานทุกครั้ง
 
-- `/add-db-column` — Add a column to Supabase + wire it through `db.js` and CSV parsing
-- `/add-csv-column` — Add a new CSV column mapping without a DB column change
-- `/new-print` — Create a `window.open()` print view for any sub-app
-- `/drug-search-bar` — Add drug search input with autocomplete dropdown + type badges to any component
-- `/dispense-summary-modal` — Reference pattern for the dispense summary modal (stat cards, bar charts, fetchAllRows, isFiltered logic)
-- `/monthly-stats-table` — Pattern ตาราง drug × month พร้อม sticky header + frozen col แรก + DrugSearchBar
-- `/excel-export` — เพิ่มปุ่ม Export Excel (.xlsx) + audit log ให้ component ใดๆ (รวม nested items → flat rows)
+| Slash command | ไฟล์ | สรุปสั้น |
+|---------------|------|---------|
+| `/add-db-column` | `.claude/skills/add-db-column.md` | เพิ่ม column ใน Supabase + wire ผ่าน `db.js` และ CSV parsing |
+| `/add-csv-column` | `.claude/skills/add-csv-column.md` | เพิ่ม column จาก CSV โดยไม่เพิ่ม DB column |
+| `/new-print` | `.claude/skills/new-print.md` | สร้าง `window.open()` print view สำหรับ sub-app |
+| `/drug-search-bar` | `.claude/skills/drug-search-bar.md` | เพิ่ม DrugSearchBar พร้อม autocomplete + badge ชนิดยา |
+| `/dispense-summary-modal` | `.claude/skills/dispense-summary-modal.md` | Pattern dispense summary modal (stat cards, bar chart, fetchAllRows) |
+| `/monthly-stats-table` | `.claude/skills/monthly-stats-table.md` | ตาราง drug × month พร้อม sticky header + frozen col + DrugSearchBar |
+| `/excel-export` | `.claude/skills/excel-export.md` | ปุ่ม Export Excel (.xlsx) + audit log รองรับ nested items |
+| `/ui-style-guide` | `.claude/skills/ui-style-guide.md` | Tailwind patterns: สี, layout, buttons, inputs, badges, tables |
+| `/plan` | `.claude/skills/plan.md` | วางแผน feature ก่อนลงมือ — ระบุไฟล์, risk, scope ก่อน confirm |
+| `/pipeline` | `.claude/skills/pipeline.md` | รัน lint → build → test ตามลำดับ พร้อมสรุปผล |
+
+**เมื่อสร้าง UI ใหม่ → อ่าน `.claude/skills/ui-style-guide.md` ก่อนเสมอ เพื่อคุมโทนสีและ component style ให้สม่ำเสมอ**
 
 ## Workflow
 
@@ -83,15 +90,36 @@ Use these skills for common tasks:
 5. **ตรวจ Thai text** — UI text ทั้งหมดต้องเป็นภาษาไทย ยกเว้น field name / code / technical term
 
 ### เมื่อเพิ่มฟีเจอร์ใหม่
+- feature กระทบ 2+ ไฟล์ → `/plan` ก่อนเสมอ
 - column ใหม่ใน DB → `/add-db-column`
 - column ใหม่จาก CSV เท่านั้น → `/add-csv-column`
 - print view ใหม่ → `/new-print`
 - search bar ใหม่ → `/drug-search-bar`
+- ตรวจความพร้อมก่อน deploy → `/pipeline`
 
 ### เมื่อแก้บั๊ก
 - อ่าน error message ก่อน — ระบุสาเหตุก่อน switch approach
 - ถ้า supabase return null → เช็ค `.env` และ RLS policy ก่อน
 - ถ้า CSV import ผิดพลาด → เช็ค `_matchHeader()` และ `getVal()` ใน `db.js`
+
+### Skills vs Subagents — เลือกแบบนี้
+
+| สถานการณ์ | ใช้อะไร |
+|-----------|---------|
+| มี pattern ซ้ำ (print, search bar, excel, chart) | **Skill** — อ่าน `.claude/skills/` |
+| ค้นหา/สำรวจ codebase กว้างๆ ไม่รู้ path | **Subagent Explore** |
+| งาน 2 อย่างที่ไม่ depend กัน | **Parallel tool calls** ใน message เดียว |
+| รู้ path ไฟล์ชัดเจน | **ทำเอง** ด้วย Read/Edit/Grep โดยตรง |
+
+### Parallelization — อ่านหลายไฟล์พร้อมกันได้เสมอ
+
+```
+✓ Read หลายไฟล์ในคำสั่งเดียว
+✓ Grep + Glob พร้อมกัน
+✓ execute_sql + อ่าน component พร้อมกัน
+✗ อย่า Edit ไฟล์ก่อน Read ไฟล์นั้น
+✗ อย่า build ก่อน lint ผ่าน
+```
 
 ## Technical References
 
@@ -253,6 +281,42 @@ changeAppUserPassword(id, newPassword)
 
 ### RequisitionApp (`REQUISITION_EXCEL_COLS`)
 ใช้คอลัมน์เดียวกับ DispenseLogApp เพื่อ paste-compatible — `exportReqExcel()` ทำ async lookup `receive_logs` เพื่อ auto-fill MainLog, DetailedLog, ชนิดรายการ ก่อน export
+
+## Playwright E2E Tests
+
+### Test Accounts (ใช้ใน DB จริง)
+| username | password | role | ใช้ใน |
+|----------|----------|------|-------|
+| `test`   | `444444` | requester | `authenticatedPage` fixture (default) |
+| `test2`  | `555555` | staff     | `staffPage` fixture (default) |
+
+### รัน tests
+```bash
+npx playwright test                          # รัน all tests
+npx playwright test tests/05-staff-flow.spec.js  # staff flow เฉพาะ
+npx playwright test --reporter=list          # verbose output
+```
+
+### Override credentials ผ่าน env
+```bash
+TEST_STAFF_USER=test2 TEST_STAFF_PASS=555555 npx playwright test
+```
+
+### Test files
+| file | ครอบคลุม |
+|------|---------|
+| `01-login.spec.js` | login/logout flow |
+| `02-dashboard.spec.js` | Dashboard cards, navigation |
+| `03-requisition.spec.js` | Drug search, cart, submit |
+| `04-return.spec.js` | Return record, history, print |
+| `05-staff-flow.spec.js` | Staff approve/reject (ต้องมี staff account) |
+| `06-validation.spec.js` | Form validation, HTML5 + JS |
+| `07-permissions.spec.js` | Role-based visibility (requester vs staff) |
+
+### Notes
+- `authenticatedPage` และ `staffPage` ใช้ `scope: 'worker'` — login ครั้งเดียวต่อ worker
+- Auth persist ผ่าน `sessionStorage` — `page.goto('/')` ไม่ทำให้ session หาย
+- `staffPage` คืน `null` ถ้า login ล้มเหลว — tests ที่ใช้ `staffPage` ต้อง `if (!page) test.skip()`
 
 ## StatsStrip Realtime
 

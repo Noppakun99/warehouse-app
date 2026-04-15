@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { insertAuditLog } from './db';
+import { insertAuditLog, resolveAuditUserName } from './db';
 
 /**
  * ส่งออกข้อมูลเป็น Excel (.xlsx)
@@ -41,7 +41,7 @@ export async function exportToExcel(rows, columns, sheetName, fileName, auth = {
 
   await insertAuditLog({
     action: 'export_excel', table_name: sheetName,
-    user_name: auth.name, department: auth.department,
+    user_name: resolveAuditUserName(auth), department: auth.department,
     record_count: rows.length,
     details: { file: fileName },
   });

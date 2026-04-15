@@ -28,6 +28,8 @@ export async function fetchInventory() {
       exp: row.exp,
       qty: row.qty,
       invoice: row.invoice,
+      mainLog: row.main_log || null,
+      itemType: row.item_type || null,
       receiveStatus: row.receive_status,
       safetyStock: row.safety_stock != null ? parseFloat(row.safety_stock) : null,
     })
@@ -52,6 +54,8 @@ export async function saveInventory(inventoryObj) {
         exp: item.exp || '-',
         qty: item.qty || '0',
         invoice: item.invoice || '-',
+        main_log:      item.mainLog || null,
+        item_type:     item.itemType || null,
         receive_status: item.receiveStatus || 'ไม่มีการดำเนินการ',
         safety_stock: item.safetyStock != null ? item.safetyStock : null,
         updated_at: new Date().toISOString(),
@@ -280,7 +284,7 @@ export async function importReceiveLogs(csvText, auth = {}) {
   }
   await insertAuditLog({
     action: 'import_receive', table_name: 'receive_logs',
-    user_name: auth.name, department: auth.department,
+    user_name: resolveUserName(auth), department: auth.department,
     record_count: rows.length,
   })
   return rows.length
@@ -410,7 +414,7 @@ export async function insertReturnLog(log, auth = {}) {
   if (error) throw error
   await insertAuditLog({
     action: 'insert_return', table_name: 'return_logs',
-    user_name: auth.name || log.returned_by, department: auth.department || log.department,
+    user_name: resolveUserName(auth) !== '-' ? resolveUserName(auth) : (log.returned_by || '-'), department: auth.department || log.department,
     record_count: 1,
     details: { drug_name: log.drug_name, return_type: log.return_type, qty: log.qty_returned },
   })
@@ -418,6 +422,16 @@ export async function insertReturnLog(log, auth = {}) {
 }
 
 // --- Audit Log ---
+
+export function resolveAuditUserName(auth) {
+  if (!auth) return '-'
+  const name = (auth.name || auth.full_name || '').trim()
+  if (name && name !== '-') return name
+  return auth.username || '-'
+}
+
+// ใช้ภายใน db.js
+const resolveUserName = resolveAuditUserName
 
 export async function insertAuditLog({ action, table_name, user_name, department, record_count, details }) {
   if (!supabase) return
@@ -449,6 +463,28 @@ export async function deleteAuditLog(id) {
   if (error) throw error
 }
 
+// --- Requester self-edit/delete requisition (pending only) ---
+
+export async function deleteRequesterRequisition(id, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error: itemErr } = await supabase.from('requisition_items').delete().eq('requisition_id', id)
+  if (itemErr) throw itemErr
+  const { error } = await supabase.from('requisitions').delete().eq('id', id)
+  if (error) throw error
+  await insertAuditLog({ action: 'requester_delete_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id } })
+}
+
+export async function updateRequesterRequisition(id, { note, items }, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error } = await supabase.from('requisitions').update({ note: note || null, updated_at: new Date().toISOString() }).eq('id', id)
+  if (error) throw error
+  for (const item of items) {
+    const { error: itemErr } = await supabase.from('requisition_items').update({ requested_qty: item.requested_qty, note: item.note || null }).eq('id', item.id)
+    if (itemErr) throw itemErr
+  }
+  await insertAuditLog({ action: 'requester_edit_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id } })
+}
+
 export async function fetchAuditLogs({ dateFrom, dateTo, action, userName } = {}) {
   if (!supabase) return []
   let q = supabase
@@ -462,6 +498,33 @@ export async function fetchAuditLogs({ dateFrom, dateTo, action, userName } = {}
   if (userName) q = q.ilike('user_name', `%${userName}%`)
 
   const { data, error } = await q.limit(500)
+  if (error) throw error
+  return data || []
+}
+
+export async function fetchNotifications() {
+  if (!supabase) return []
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const NOTIFY_ACTIONS = [
+    'submit_requisition',
+    'requester_edit_requisition',
+    'requester_delete_requisition',
+    'insert_return',
+    'delete_requisition',
+    'update_requisition',
+    'delete_dispense',
+    'update_dispense',
+    'delete_receive',
+    'update_receive',
+    'export_excel',
+  ]
+  const { data, error } = await supabase
+    .from('audit_logs')
+    .select('id, action, table_name, user_name, department, details, created_at')
+    .in('action', NOTIFY_ACTIONS)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(30)
   if (error) throw error
   return data || []
 }

@@ -1,18 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import SearchableSelect from './SearchableSelect';
 import {
   Pill, Package, TrendingUp, TrendingDown,
   User, Shield, LogOut, ShieldCheck, Users,
   ChevronRight, Activity, Database, Clock,
   AlertTriangle, ChevronDown, ChevronUp, RotateCcw, ClipboardList,
-  Eye, EyeOff, X,
+  Eye, EyeOff, X, Bell,
 } from 'lucide-react';
 import App                from './App';
 import RequisitionApp     from './RequisitionApp';
 import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
-import { fetchDashboardAlerts, loginUser, registerUser, checkFirstRun, createAppUser } from './lib/db';
+import { fetchDashboardAlerts, fetchNotifications, loginUser, registerUser, checkFirstRun, createAppUser } from './lib/db';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
@@ -22,43 +23,75 @@ import AnalyticsApp       from './AnalyticsApp';
 // ============================================================
 // Root — manages auth + page routing
 // ============================================================
+const AUTH_KEY = 'wh_auth';
+
+const PAGE_VARIANTS = {
+  initial:  { opacity: 0, y: 18 },
+  animate:  { opacity: 1, y: 0,  transition: { duration: 0.22, ease: 'easeOut' } },
+  exit:     { opacity: 0, y: -10, transition: { duration: 0.15, ease: 'easeIn'  } },
+};
+
 export default function AppRoot() {
-  const [auth, setAuth]   = useState(null); // { id, username, name, role, department }
+  const [auth, setAuth]   = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem(AUTH_KEY)) || null; } catch { return null; }
+  });
   const [page, setPage]   = useState('dashboard');
 
-  const logout = () => { setAuth(null); setPage('dashboard'); };
+  const handleLogin = (user) => { sessionStorage.setItem(AUTH_KEY, JSON.stringify(user)); setAuth(user); };
+  const logout = () => { sessionStorage.removeItem(AUTH_KEY); setAuth(null); setPage('dashboard'); };
 
-  if (!auth) return <LoginPage onLogin={setAuth} />;
-
-  switch (page) {
-    case 'inventory':
-      return <App onBackToDashboard={() => setPage('dashboard')} role={auth.role} />;
-    case 'requisition':
-    case 'requisition-history':
-      return (
-        <RequisitionApp
-          onBack={() => setPage('dashboard')}
-          prefilledUser={{ name: (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username, department: auth.department }}
-          startAsStaff={auth.role === 'staff' || auth.role === 'admin'}
-          initialStep={page === 'requisition-history' ? 'history' : null}
-          auth={auth}
-        />
-      );
-    case 'dispense':
-      return <DispenseLogApp onBack={() => setPage('dashboard')} auth={auth} />;
-    case 'receive':
-      return <ReceiveLogApp onBack={() => setPage('dashboard')} auth={auth} />;
-    case 'return':
-      return <ReturnApp onBack={() => setPage('dashboard')} auth={auth} />;
-    case 'audit':
-      return <AuditLogApp onBack={() => setPage('dashboard')} auth={auth} />;
-    case 'users':
-      return <UserManagementApp onBack={() => setPage('dashboard')} auth={auth} />;
-    case 'analytics':
-      return <AnalyticsApp onBack={() => setPage('dashboard')} />;
-    default:
-      return <Dashboard auth={auth} onNavigate={setPage} onLogout={logout} />;
+  let content;
+  if (!auth) {
+    content = <LoginPage onLogin={handleLogin} />;
+  } else {
+    switch (page) {
+      case 'inventory':
+        content = <App onBackToDashboard={() => setPage('dashboard')} role={auth.role} />;
+        break;
+      case 'requisition':
+      case 'requisition-history':
+        content = (
+          <RequisitionApp
+            onBack={() => setPage('dashboard')}
+            prefilledUser={{ name: (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username, department: auth.department }}
+            startAsStaff={auth.role === 'staff' || auth.role === 'admin'}
+            initialStep={page === 'requisition-history' ? 'history' : null}
+            auth={auth}
+          />
+        );
+        break;
+      case 'dispense':
+        content = <DispenseLogApp onBack={() => setPage('dashboard')} auth={auth} />;
+        break;
+      case 'receive':
+        content = <ReceiveLogApp onBack={() => setPage('dashboard')} auth={auth} />;
+        break;
+      case 'return':
+        content = <ReturnApp onBack={() => setPage('dashboard')} auth={auth} />;
+        break;
+      case 'audit':
+        content = <AuditLogApp onBack={() => setPage('dashboard')} auth={auth} />;
+        break;
+      case 'users':
+        content = <UserManagementApp onBack={() => setPage('dashboard')} auth={auth} />;
+        break;
+      case 'analytics':
+        content = <AnalyticsApp onBack={() => setPage('dashboard')} />;
+        break;
+      default:
+        content = <Dashboard auth={auth} onNavigate={setPage} onLogout={logout} />;
+    }
   }
+
+  const pageKey = auth ? page : '__login__';
+
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div key={pageKey} variants={PAGE_VARIANTS} initial="initial" animate="animate" exit="exit">
+        {content}
+      </motion.div>
+    </AnimatePresence>
+  );
 }
 
 // ============================================================
@@ -408,7 +441,7 @@ const SYSTEMS = [
     accentText:  'text-cyan-600',
     hoverLink:   'group-hover:text-cyan-700',
     clockColor:  'text-cyan-600',
-    roles:       ['staff', 'admin'],
+    roles:       ['requester', 'staff', 'admin'],
   },
   {
     key:         'users',
@@ -427,6 +460,55 @@ const SYSTEMS = [
   },
 ];
 
+// ---- Notification helpers ----
+const NOTIF_LABELS = {
+  submit_requisition:           { label: 'ส่งใบเบิกใหม่',        color: 'text-[#1E90FF]',  dot: 'bg-[#1E90FF]' },
+  requester_edit_requisition:   { label: 'แก้ไขใบเบิก',          color: 'text-amber-600',  dot: 'bg-amber-400' },
+  requester_delete_requisition: { label: 'ลบใบเบิก',             color: 'text-red-600',    dot: 'bg-red-400'   },
+  delete_requisition:           { label: 'ลบใบเบิก',             color: 'text-red-600',    dot: 'bg-red-400'   },
+  update_requisition:           { label: 'แก้ไขใบเบิก',          color: 'text-amber-600',  dot: 'bg-amber-400' },
+  insert_return:                { label: 'คืนยา',                color: 'text-blue-600',   dot: 'bg-blue-400'  },
+  delete_dispense:              { label: 'ลบรายการจ่ายยา',       color: 'text-red-600',    dot: 'bg-red-400'   },
+  update_dispense:              { label: 'แก้ไขรายการจ่ายยา',    color: 'text-amber-600',  dot: 'bg-amber-400' },
+  delete_receive:               { label: 'ลบรายการรับยา',        color: 'text-red-600',    dot: 'bg-red-400'   },
+  update_receive:               { label: 'แก้ไขรายการรับยา',     color: 'text-amber-600',  dot: 'bg-amber-400' },
+  export_excel:                 { label: 'Export Excel',         color: 'text-emerald-600', dot: 'bg-emerald-400' },
+};
+
+const NOTIFY_ACTIONS = Object.keys(NOTIF_LABELS);
+
+function notifMessage(n) {
+  const who = n.user_name && n.user_name !== '-' ? n.user_name : (n.department || 'ผู้ใช้');
+  const d = n.details || {};
+  switch (n.action) {
+    case 'submit_requisition':
+      return `${who} ส่งใบเบิก${d.req_number ? ` ${d.req_number}` : ''} ${n.record_count ? `(${n.record_count} รายการ)` : ''} · ${n.department}`;
+    case 'insert_return':
+      return `${who} คืนยา "${d.drug_name || ''}" ${d.qty ? `${d.qty} หน่วย` : ''} · ${n.department}`;
+    case 'export_excel':
+      return `${who} Export Excel · ${n.department}`;
+    case 'requester_edit_requisition':
+    case 'update_requisition':
+      return `${who} แก้ไขใบเบิก · ${n.department}`;
+    case 'requester_delete_requisition':
+    case 'delete_requisition':
+      return `${who} ลบใบเบิก · ${n.department}`;
+    default:
+      return `${who} · ${n.department}`;
+  }
+}
+
+function timeAgo(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'เมื่อกี้';
+  if (mins < 60) return `${mins} นาทีที่แล้ว`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} ชั่วโมงที่แล้ว`;
+  const days = Math.floor(hrs / 24);
+  return `${days} วันที่แล้ว`;
+}
+
 function Dashboard({ auth, onNavigate, onLogout }) {
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
   const visible = SYSTEMS.filter(s => s.roles.includes(auth.role));
@@ -435,6 +517,25 @@ function Dashboard({ auth, onNavigate, onLogout }) {
   const [lastDispense, setLastDispense] = useState(null);
   const [alerts, setAlerts] = useState({ expiring: [], lowStock: [] });
   const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock'
+
+  // Notification bell
+  const LAST_READ_KEY = `notif_last_read_${auth.id}`;
+  const [notifs, setNotifs]       = useState([]);
+  const [showBell, setShowBell]   = useState(false);
+  const [lastRead, setLastRead]   = useState(() => localStorage.getItem(LAST_READ_KEY) || null);
+  const bellRef = useRef(null);
+
+  const unreadCount = notifs.filter(n => !lastRead || new Date(n.created_at) > new Date(lastRead)).length;
+
+  const markRead = useCallback(() => {
+    const now = new Date().toISOString();
+    localStorage.setItem(LAST_READ_KEY, now);
+    setLastRead(now);
+  }, [LAST_READ_KEY]);
+
+  const loadNotifs = useCallback(() => {
+    fetchNotifications().then(setNotifs).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!supabase) return;
@@ -451,8 +552,28 @@ function Dashboard({ auth, onNavigate, onLogout }) {
       supabase.from('dispense_logs').select('created_at').order('created_at', { ascending: false }).limit(1)
         .then(({ data }) => { if (data?.[0]) setLastDispense(data[0].created_at); });
       fetchDashboardAlerts().then(setAlerts);
+      loadNotifs();
+
+      const sub = supabase
+        .channel('notif-bell')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'audit_logs' }, (payload) => {
+          const row = payload.new;
+          if (NOTIFY_ACTIONS.includes(row.action)) {
+            setNotifs(prev => [row, ...prev].slice(0, 30));
+          }
+        })
+        .subscribe();
+      return () => { supabase.removeChannel(sub); };
     }
-  }, [isStaff]);
+  }, [isStaff, loadNotifs]);
+
+  // ปิด dropdown เมื่อคลิกนอก
+  useEffect(() => {
+    if (!showBell) return;
+    const handler = (e) => { if (bellRef.current && !bellRef.current.contains(e.target)) setShowBell(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showBell]);
 
   const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username;
 
@@ -492,6 +613,80 @@ function Dashboard({ auth, onNavigate, onLogout }) {
                 </p>
               </div>
             </div>
+
+            {/* Bell — staff/admin เท่านั้น */}
+            {isStaff && (
+              <div className="relative" ref={bellRef}>
+                <button
+                  onClick={() => { setShowBell(v => { if (!v) markRead(); return !v; }); }}
+                  className="relative p-2 text-indigo-100 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
+                  title="การแจ้งเตือน"
+                >
+                  <Bell size={20} />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-0.5 leading-none shadow">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {showBell && (
+                  <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
+                      <span className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                        <Bell size={14} className="text-slate-500" /> การแจ้งเตือน
+                        {notifs.length > 0 && (
+                          <span className="text-xs text-slate-400 font-normal">7 วันล่าสุด</span>
+                        )}
+                      </span>
+                      <button onClick={() => setShowBell(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                        <X size={16} />
+                      </button>
+                    </div>
+
+                    <div className="max-h-96 overflow-y-auto divide-y divide-slate-100">
+                      {notifs.length === 0
+                        ? (
+                          <div className="py-12 text-center">
+                            <Bell size={28} className="text-slate-300 mx-auto mb-2" />
+                            <p className="text-slate-400 text-sm">ไม่มีการแจ้งเตือน</p>
+                          </div>
+                        )
+                        : notifs.map(n => {
+                          const meta = NOTIF_LABELS[n.action] || { label: n.action, color: 'text-slate-600', dot: 'bg-slate-400' };
+                          const isNew = !lastRead || new Date(n.created_at) > new Date(lastRead);
+                          return (
+                            <div key={n.id} className={`px-4 py-3 ${isNew ? 'bg-blue-50/50' : ''}`}>
+                              <div className="flex items-start gap-2.5">
+                                <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${meta.dot}`} />
+                                <div className="flex-1 min-w-0">
+                                  <p className={`text-xs font-bold ${meta.color}`}>{meta.label}</p>
+                                  <p className="text-sm text-slate-700 leading-snug mt-0.5 break-words">{notifMessage(n)}</p>
+                                  <p className="text-xs text-slate-400 mt-1">{timeAgo(n.created_at)}</p>
+                                </div>
+                                {isNew && <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0 mt-1.5" />}
+                              </div>
+                            </div>
+                          );
+                        })
+                      }
+                    </div>
+
+                    {notifs.length > 0 && (
+                      <div className="px-4 py-2.5 border-t border-slate-100 bg-slate-50 text-center">
+                        <button
+                          onClick={() => { setShowBell(false); onNavigate('audit'); }}
+                          className="text-xs text-[#1E90FF] hover:underline font-semibold"
+                        >
+                          ดูประวัติทั้งหมด →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <button
               onClick={onLogout}
               className="flex items-center gap-1.5 text-indigo-100 hover:text-white text-sm font-medium transition-colors px-3 py-1.5 rounded-xl hover:bg-white/10"

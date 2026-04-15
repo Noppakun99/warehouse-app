@@ -8,6 +8,7 @@ import {
   Check, X, AlertCircle, Clock, Download, FileDown,
 } from 'lucide-react';
 import { exportToExcel } from './lib/exportExcel';
+import { deleteRequesterRequisition, updateRequesterRequisition, insertAuditLog, resolveAuditUserName } from './lib/db';
 
 // ============================================================
 // Config
@@ -127,21 +128,21 @@ const flattenReqs = (reqs) =>
     (req.requisition_items?.length ? req.requisition_items : [{}]).map(item => ({ ...req, _item: item }))
   );
 
-// Export Excel พร้อม lookup main_log / detail_log / item_type จาก receive_logs
+// Export Excel พร้อม lookup main_log / detail_log / item_type จาก inventory ตาม drug_code+lot
 async function exportReqExcel(reqs, auth) {
   const flat = flattenReqs(reqs);
-  // lookup main_log, detail_log, item_type จาก receive_logs ตาม drug_code+lot
+  // lookup main_log, location (detail_log), item_type จาก inventory ตาม drug_code+lot
   const logMap = {};
   if (supabase) {
     const lots = [...new Set(flat.map(r => r._item?.lot).filter(Boolean))];
     const codes = [...new Set(flat.map(r => r._item?.drug_code).filter(Boolean))];
     if (lots.length > 0 || codes.length > 0) {
-      let q = supabase.from('receive_logs').select('drug_code, lot, main_log, detail_log, item_type');
-      if (lots.length > 0) q = q.in('lot', lots);
+      let q = supabase.from('inventory').select('code, lot, main_log, location, item_type');
+      if (codes.length > 0) q = q.in('code', codes);
       const { data } = await q.limit(2000);
       (data || []).forEach(r => {
-        const key = `${String(r.drug_code||'').trim()}|${String(r.lot||'').trim()}`;
-        if (!logMap[key]) logMap[key] = { main_log: r.main_log || '', detail_log: r.detail_log || '', item_type: r.item_type || '' };
+        const key = `${String(r.code||'').trim()}|${String(r.lot||'').trim()}`;
+        if (!logMap[key]) logMap[key] = { main_log: r.main_log || '', detail_log: r.location || '', item_type: r.item_type || '' };
       });
     }
   }
@@ -520,7 +521,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
           grouped[key].availableQty += rowQty; // raw qty; useMemo adjusts with reservedMap
         }
         const detail = getDetail(row);
-        grouped[key].lots.push({ lot: row.lot, exp: row.exp, qty: rowQty, rawQty: row.qty, unit: row.unit, location: row.location, invoice: row.invoice, supplier: detail.supplier || '', price: detail.price || '', drugType: detail.drugType || '', itemType: detail.itemType || '', pending: isPending, expired: isExpired });
+        grouped[key].lots.push({ lot: row.lot, exp: row.exp, qty: rowQty, rawQty: row.qty, unit: row.unit, location: row.location, invoice: row.invoice, supplier: detail.supplier || '', price: detail.price || '', drugType: detail.drugType || '', itemType: row.itemType || detail.itemType || '', pending: isPending, expired: isExpired });
       });
 
       const result = Object.values(grouped);
@@ -866,6 +867,7 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
   const [doneInfo, setDoneInfo] = useState(null);
+  const [search, setSearch]   = useState('');
 
   const updateQty   = (i, v) => setCart(p => { const u=[...p]; u[i]={...u[i], requestedQty: Math.min(Math.max(1, parseInt(v)||1), u[i].availableQty || 99999)}; return u; });
   const updateNote  = (i, v) => setCart(p => { const u=[...p]; u[i]={...u[i], note: v}; return u; });
@@ -932,6 +934,12 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
           }))
         );
         if (e2) throw e2;
+        insertAuditLog({
+          action: 'submit_requisition', table_name: 'requisitions',
+          user_name: info.name, department: info.department,
+          record_count: cart.length,
+          details: { req_number: req.req_number, requisition_id: req.id },
+        });
         const d = new Date();
         setDoneInfo({
           reqNumber:  req.req_number,
@@ -967,13 +975,38 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
     </div>
   );
 
+  const filteredCart = search.trim()
+    ? cart.filter(item => item.name?.toLowerCase().includes(search.toLowerCase()) || item.code?.toLowerCase().includes(search.toLowerCase()))
+    : cart;
+
   return (
     <div className="min-h-screen flex flex-col">
       <PageHeader onBack={onBack} title="ตะกร้าใบเบิก" subtitle={`${info.department} · ${info.name}`} />
+
+      {cart.length > 1 && (
+        <div className="px-4 pt-3 pb-1">
+          <div className="relative">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="ค้นหายาในตะกร้า..."
+              className="w-full border border-slate-300 rounded-xl pl-9 pr-4 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1E90FF] bg-white" />
+          </div>
+          {search && (
+            <p className="text-xs text-slate-400 mt-1.5 px-1">
+              แสดง {filteredCart.length} / {cart.length} รายการ
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="flex-1 p-4 space-y-2 pb-32">
         {cart.length === 0
           ? <p className="text-center text-slate-500 py-20">ยังไม่มีรายการยา</p>
-          : cart.map((item, i) => (
+          : filteredCart.length === 0
+            ? <p className="text-center text-slate-500 py-10">ไม่พบยาที่ค้นหา</p>
+          : filteredCart.map((item) => {
+              const i = cart.indexOf(item);
+              return (
             <div key={i} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
               <div className="p-4 flex items-start gap-3">
                 <div className="flex-1 min-w-0">
@@ -1006,8 +1039,7 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-700 placeholder-slate-400 text-base focus:outline-none focus:ring-1 focus:ring-[#1E90FF]" />
               </div>
             </div>
-          ))
-        }
+          ); })}
         {cart.length > 0 && (
           <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="หมายเหตุ (ถ้ามี)..." rows={2}
             className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF] resize-none mt-2" />
@@ -1126,6 +1158,10 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
   const [list, setList]           = useState([]);
   const [loading, setLoading]     = useState(true);
   const [expanded, setExpanded]   = useState(null);
+  const [confirmModal, setConfirmModal] = useState(null); // { type:'delete'|'edit', req }
+  const [editDraft, setEditDraft]       = useState(null); // { note, items:[{id,requested_qty,note,...}] }
+  const [saving, setSaving]             = useState(false);
+  const [actionMsg, setActionMsg]       = useState('');
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
@@ -1143,16 +1179,53 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
     return () => supabase.removeChannel(ch);
   }, [load]);
 
+  const openEdit = (req) => {
+    setEditDraft({ note: req.note || '', items: req.requisition_items.map(i => ({ ...i, requested_qty: i.requested_qty })) });
+    setConfirmModal({ type: 'edit', req });
+  };
+
+  const handleDelete = async () => {
+    setSaving(true);
+    try {
+      await deleteRequesterRequisition(confirmModal.req.id, auth);
+      setActionMsg('ลบใบเบิกสำเร็จ — เจ้าหน้าที่คลังยารับทราบแล้ว');
+      setConfirmModal(null);
+      load();
+    } catch (e) { setActionMsg('เกิดข้อผิดพลาด: ' + e.message); }
+    setSaving(false);
+    setTimeout(() => setActionMsg(''), 4000);
+  };
+
+  const handleEdit = async () => {
+    setSaving(true);
+    try {
+      await updateRequesterRequisition(confirmModal.req.id, editDraft, auth);
+      setActionMsg('แก้ไขใบเบิกสำเร็จ — เจ้าหน้าที่คลังยารับทราบแล้ว');
+      setConfirmModal(null);
+      load();
+    } catch (e) { setActionMsg('เกิดข้อผิดพลาด: ' + e.message); }
+    setSaving(false);
+    setTimeout(() => setActionMsg(''), 4000);
+  };
+
   return (
     <div className="min-h-screen flex flex-col">
       <PageHeader onBack={onBack} title="ประวัติการเบิกยา">
         <button onClick={load} className="text-slate-500 hover:text-[#1E90FF] p-1 transition-colors"><RefreshCcw size={18} /></button>
       </PageHeader>
+
+      {actionMsg && (
+        <div className="mx-4 mt-3 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-emerald-800 text-sm font-medium">
+          <CheckCircle size={16} className="text-emerald-600 shrink-0" /> {actionMsg}
+        </div>
+      )}
+
       <div className="flex-1 p-4 space-y-3">
         {loading && <p className="text-center text-slate-500 py-10">กำลังโหลด...</p>}
         {!loading && list.length === 0 && <p className="text-center text-slate-500 py-20">ยังไม่มีประวัติการเบิกยา</p>}
         {list.map(req => {
           const cfg = STATUS_CONFIG[req.status] || STATUS_CONFIG.pending;
+          const isPending = req.status === 'pending';
           return (
             <div key={req.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
               <button className="w-full p-4 text-left flex items-start justify-between gap-3"
@@ -1180,6 +1253,16 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                     className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Export Excel">
                     <FileDown size={15} />
                   </button>
+                  {isPending && (<>
+                    <button onClick={e => { e.stopPropagation(); openEdit(req); }}
+                      className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="แก้ไขใบเบิก">
+                      <Pencil size={15} />
+                    </button>
+                    <button onClick={e => { e.stopPropagation(); setConfirmModal({ type: 'delete', req }); }}
+                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="ลบใบเบิก">
+                      <Trash2 size={15} />
+                    </button>
+                  </>)}
                   <ChevronRight size={16} className={`text-slate-400 transition-transform ${expanded===req.id?'rotate-90':''}`} />
                 </div>
               </button>
@@ -1201,7 +1284,6 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="text-slate-500 text-xs">ขอ <b>{item.requested_qty}</b>{item.drug_unit && item.drug_unit !== '-' && <span> × {item.drug_unit}</span>}</span>
-                        {item.approved_qty == null && item.approved_qty !== 0 && null}
                       </div>
                     </div>
                   ))}
@@ -1212,6 +1294,74 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
           );
         })}
       </div>
+
+      {/* ===== Confirmation / Edit Modal ===== */}
+      {confirmModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            {/* Header */}
+            <div className={`px-5 py-4 border-b flex items-center gap-3 ${confirmModal.type==='delete' ? 'bg-red-50 border-red-100' : 'bg-blue-50 border-blue-100'}`}>
+              <AlertCircle size={20} className={confirmModal.type==='delete' ? 'text-red-500' : 'text-blue-500'} />
+              <div>
+                <p className={`font-bold text-sm ${confirmModal.type==='delete' ? 'text-red-800' : 'text-blue-800'}`}>
+                  {confirmModal.type==='delete' ? 'ลบใบเบิก' : 'แก้ไขใบเบิก'}
+                </p>
+                <p className="text-xs text-slate-500 font-mono">{confirmModal.req.req_number}</p>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* Staff notification warning */}
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+                <Bell size={15} className="text-amber-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-800">การดำเนินการนี้จะ<span className="font-semibold">แจ้งให้เจ้าหน้าที่คลังยาและผู้ดูแลระบบรับทราบ</span>ทันที</p>
+              </div>
+
+              {confirmModal.type === 'delete' ? (
+                <p className="text-sm text-slate-700">ต้องการลบใบเบิก <span className="font-semibold">{confirmModal.req.req_number}</span> ใช่หรือไม่? การดำเนินการนี้ไม่สามารถย้อนกลับได้</p>
+              ) : (
+                <div className="space-y-3">
+                  {/* Edit items qty */}
+                  {editDraft?.items.map((item, idx) => (
+                    <div key={item.id} className="flex items-center justify-between gap-3 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800 truncate">{item.drug_name}</p>
+                        <p className="text-xs text-slate-400">{item.drug_unit||'-'}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button onClick={() => setEditDraft(d => ({ ...d, items: d.items.map((it,i) => i===idx ? { ...it, requested_qty: Math.max(1, it.requested_qty-1) } : it) }))}
+                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold transition-colors">−</button>
+                        <span className="w-8 text-center font-bold text-slate-800">{item.requested_qty}</span>
+                        <button onClick={() => setEditDraft(d => ({ ...d, items: d.items.map((it,i) => i===idx ? { ...it, requested_qty: it.requested_qty+1 } : it) }))}
+                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold transition-colors">+</button>
+                      </div>
+                    </div>
+                  ))}
+                  {/* Note */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">หมายเหตุ</label>
+                    <input type="text" value={editDraft?.note||''} onChange={e => setEditDraft(d => ({ ...d, note: e.target.value }))}
+                      placeholder="หมายเหตุ (ถ้ามี)"
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="px-5 pb-5 flex gap-2">
+              <button onClick={() => setConfirmModal(null)} disabled={saving}
+                className="flex-1 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl py-2.5 font-medium text-sm transition-colors">
+                ยกเลิก
+              </button>
+              <button onClick={confirmModal.type==='delete' ? handleDelete : handleEdit} disabled={saving}
+                className={`flex-1 text-white rounded-xl py-2.5 font-semibold text-sm transition-colors disabled:opacity-50 ${confirmModal.type==='delete' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                {saving ? 'กำลังดำเนินการ...' : confirmModal.type==='delete' ? 'ลบใบเบิก' : 'บันทึกการแก้ไข'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

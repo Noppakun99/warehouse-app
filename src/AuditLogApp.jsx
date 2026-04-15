@@ -3,12 +3,73 @@ import { ArrowLeft, Search, ClipboardList, Pencil, Trash2, X, Save } from 'lucid
 import { fetchAuditLogs, updateAuditLog, deleteAuditLog } from './lib/db';
 
 const ACTION_LABELS = {
-  import_inventory: { label: 'นำเข้า Inventory',  color: 'bg-blue-100 text-blue-700'   },
-  import_receive:   { label: 'นำเข้าประวัติรับยา', color: 'bg-indigo-100 text-indigo-700' },
-  insert_return:    { label: 'บันทึกคืนยา',         color: 'bg-violet-100 text-violet-700' },
-  export_excel:     { label: 'ส่งออก Excel',         color: 'bg-emerald-100 text-emerald-700' },
-  login:            { label: 'เข้าสู่ระบบ',          color: 'bg-slate-100 text-slate-600'  },
+  import_inventory:             { label: 'นำเข้า Inventory',       color: 'bg-blue-100 text-blue-700'      },
+  import_receive:               { label: 'นำเข้าประวัติรับยา',      color: 'bg-indigo-100 text-indigo-700'  },
+  insert_return:                { label: 'บันทึกคืนยา',              color: 'bg-violet-100 text-violet-700'  },
+  export_excel:                 { label: 'ส่งออก Excel',             color: 'bg-emerald-100 text-emerald-700'},
+  submit_requisition:           { label: 'ส่งใบเบิกยา',             color: 'bg-sky-100 text-sky-700'        },
+  requester_edit_requisition:   { label: 'แก้ไขใบเบิก',             color: 'bg-amber-100 text-amber-700'    },
+  requester_delete_requisition: { label: 'ลบใบเบิก',                color: 'bg-red-100 text-red-700'        },
+  delete_requisition:           { label: 'ลบใบเบิก (staff)',         color: 'bg-red-100 text-red-700'        },
+  update_requisition:           { label: 'แก้ไขใบเบิก (staff)',      color: 'bg-amber-100 text-amber-700'    },
+  delete_dispense:              { label: 'ลบรายการจ่ายยา',           color: 'bg-red-100 text-red-700'        },
+  update_dispense:              { label: 'แก้ไขรายการจ่ายยา',        color: 'bg-amber-100 text-amber-700'    },
+  delete_receive:               { label: 'ลบรายการรับยา',            color: 'bg-red-100 text-red-700'        },
+  update_receive:               { label: 'แก้ไขรายการรับยา',         color: 'bg-amber-100 text-amber-700'    },
+  login:                        { label: 'เข้าสู่ระบบ',              color: 'bg-slate-100 text-slate-600'   },
 };
+
+const RETURN_TYPE_LABELS = {
+  ward_return:    'คืนจากหอผู้ป่วย',
+  damaged:        'ยาเสียหาย',
+  expired:        'ยาหมดอายุ',
+  over_dispensed: 'จ่ายเกิน',
+};
+
+function formatDetails(action, details, recordCount) {
+  const d = details || {};
+  switch (action) {
+    case 'submit_requisition':
+      return [
+        d.req_number && `เลขที่ใบเบิก: ${d.req_number}`,
+        recordCount != null && `${recordCount} รายการยา`,
+      ].filter(Boolean).join(' · ') || '-';
+
+    case 'requester_edit_requisition':
+    case 'update_requisition':
+      return [
+        d.req_number && `เลขที่: ${d.req_number}`,
+        d.requisition_id && !d.req_number && `ใบเบิก #${d.requisition_id}`,
+      ].filter(Boolean).join(' · ') || '-';
+
+    case 'requester_delete_requisition':
+    case 'delete_requisition':
+      return [
+        d.req_number && `เลขที่: ${d.req_number}`,
+        d.requisition_id && !d.req_number && `ใบเบิก #${d.requisition_id}`,
+      ].filter(Boolean).join(' · ') || '-';
+
+    case 'insert_return': {
+      const rtLabel = RETURN_TYPE_LABELS[d.return_type] || d.return_type || '';
+      return [
+        d.drug_name && `ยา: ${d.drug_name}`,
+        d.qty != null && `${d.qty} หน่วย`,
+        rtLabel && `(${rtLabel})`,
+      ].filter(Boolean).join(' · ') || '-';
+    }
+
+    case 'export_excel':
+      return d.file ? `ไฟล์: ${d.file}` : '-';
+
+    case 'import_receive':
+    case 'import_inventory':
+      return recordCount != null ? `${recordCount.toLocaleString()} รายการ` : '-';
+
+    default:
+      if (!details) return '-';
+      return Object.entries(d).filter(([, v]) => v != null).map(([k, v]) => `${k}: ${v}`).join(' · ') || '-';
+  }
+}
 
 function fmtDatetime(iso) {
   if (!iso) return '-';
@@ -116,11 +177,14 @@ export default function AuditLogApp({ onBack, auth }) {
   useEffect(() => { load(); }, [load]);
 
   const actionTabs = [
-    { key: 'all',              label: 'ทั้งหมด' },
-    { key: 'import_receive',   label: 'นำเข้าประวัติรับยา' },
-    { key: 'insert_return',    label: 'บันทึกคืนยา' },
-    { key: 'import_inventory', label: 'นำเข้า Inventory' },
-    { key: 'export_excel',     label: 'ส่งออก Excel' },
+    { key: 'all',                          label: 'ทั้งหมด' },
+    { key: 'submit_requisition',           label: 'ส่งใบเบิก' },
+    { key: 'requester_edit_requisition',   label: 'แก้ไขใบเบิก' },
+    { key: 'requester_delete_requisition', label: 'ลบใบเบิก' },
+    { key: 'insert_return',                label: 'คืนยา' },
+    { key: 'import_receive',               label: 'นำเข้าประวัติรับยา' },
+    { key: 'import_inventory',             label: 'นำเข้า Inventory' },
+    { key: 'export_excel',                 label: 'ส่งออก Excel' },
   ];
 
   return (
@@ -246,7 +310,7 @@ export default function AuditLogApp({ onBack, auth }) {
                         </td>
 
                         {/* รายละเอียด */}
-                        <td className="px-4 py-2.5 text-slate-500 max-w-[240px]">
+                        <td className="px-4 py-2.5 text-slate-600 max-w-[280px]">
                           {isEditing ? (
                             <div className="space-y-1">
                               <textarea value={editDetails} onChange={e => setEditDetails(e.target.value)} rows={2}
@@ -255,9 +319,9 @@ export default function AuditLogApp({ onBack, auth }) {
                               {editError && <p className="text-red-500 text-[10px]">{editError}</p>}
                             </div>
                           ) : (
-                            r.details
-                              ? Object.entries(r.details).filter(([, v]) => v != null).map(([k, v]) => `${k}: ${v}`).join(' · ')
-                              : '-'
+                            <span className="leading-relaxed">
+                              {formatDetails(r.action, r.details, r.record_count)}
+                            </span>
                           )}
                         </td>
 

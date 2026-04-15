@@ -774,6 +774,8 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
         // Safety Stock และ Lead Time จาก log CSV
         const ssIdx = headers.findIndex(h => h.toLowerCase().replace(/\s+/g,' ').trim() === 'safety stock' || h.toLowerCase().trim() === 'safety_stock' || h.toLowerCase().includes('safety stock') || h.includes('สต็อกขั้นต่ำ'));
         const ltIdx = headers.findIndex(h => h.toLowerCase().includes('lead time') || h.toLowerCase() === 'leadtime');
+        const itemTypeIdx = headers.findIndex(h => h.includes('ชนิดรายการ') || h.toLowerCase().trim() === 'item_type' || h.toLowerCase().trim() === 'item type');
+        const mainLogIdx = headers.findIndex(h => h.toLowerCase().trim() === 'mainlog' || h.toLowerCase().trim() === 'main_log' || h.toLowerCase().trim() === 'main log');
 
         const newInventory = {};
         const warnRows = [];
@@ -816,6 +818,8 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
             qty: qtyStr,
             qtyReceived: qtyReceivedIdx !== -1 && row[qtyReceivedIdx] ? normalizeNumericText(row[qtyReceivedIdx]) : null,
             invoice: invoiceIdx !== -1 ? normalizeNumericText(row[invoiceIdx]) : '-',
+            mainLog: mainLogIdx !== -1 && row[mainLogIdx] ? row[mainLogIdx] : null,
+            itemType: itemTypeIdx !== -1 && row[itemTypeIdx] ? row[itemTypeIdx] : null,
             safetyStock: ssIdx !== -1 ? parseFloat(String(row[ssIdx] || '0').replace(/,/g, '')) || 0 : 0,
             leadTime: ltIdx !== -1 ? parseFloat(String(row[ltIdx] || '0').replace(/,/g, '')) || 20 : 20,
             receiveStatus: (() => {
