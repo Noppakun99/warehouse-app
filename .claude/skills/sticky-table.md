@@ -40,7 +40,7 @@ Create a data table with sticky header and optional frozen first column for any 
 ```jsx
 <div
   className="overflow-auto"
-  style={{ maxHeight: 'calc(100vh - {OFFSET}px)' }}
+  style={{ maxHeight: "calc(100vh - {OFFSET}px)" }}
 >
   <table className="w-full text-xs min-w-[{MIN_WIDTH}px]">
     <thead className="sticky top-0 z-20">
@@ -85,11 +85,13 @@ Create a data table with sticky header and optional frozen first column for any 
    - First `<td>` (frozen): add `sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.06)]`
 
 4. **Colored header columns** (optional):
+
    ```jsx
    <th className="px-3 py-2.5 text-right font-semibold whitespace-nowrap bg-rose-800">
      Safety Stock
    </th>
    ```
+
    Common colors: `bg-rose-800`, `bg-violet-700`, `bg-orange-800`, `bg-cyan-700`, `bg-blue-800`, `bg-emerald-800`
 
 5. **Row highlight states**:
@@ -102,11 +104,11 @@ Create a data table with sticky header and optional frozen first column for any 
 
 ## z-index rules
 
-| element | z-index | เหตุผล |
-|---|---|---|
-| `<thead>` | `z-20` | ติดบนสุดเมื่อ scroll แนวตั้ง |
-| header frozen `<th>` | `z-30` | อยู่เหนือ thead เพื่อไม่ถูกทับมุม |
-| body frozen `<td>` | `z-10` | ติดซ้ายแต่อยู่ใต้ header |
+| element              | z-index | เหตุผล                            |
+| -------------------- | ------- | --------------------------------- |
+| `<thead>`            | `z-20`  | ติดบนสุดเมื่อ scroll แนวตั้ง      |
+| header frozen `<th>` | `z-30`  | อยู่เหนือ thead เพื่อไม่ถูกทับมุม |
+| body frozen `<td>`   | `z-10`  | ติดซ้ายแต่อยู่ใต้ header          |
 
 ## Notes
 

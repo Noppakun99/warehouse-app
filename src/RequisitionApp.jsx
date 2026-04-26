@@ -32,6 +32,8 @@ const nameKey = (val) => {
   return String(val).trim().toLowerCase().replace(/\s+/g, ' ');
 };
 
+const RefreshCtx = React.createContext(null);
+
 function DrugTypeBadge({ type }) {
   if (!type || type === '-') return null;
   const t = type.trim().toLowerCase();
@@ -168,12 +170,17 @@ const genReqNumber = () => {
 // Shared: sticky page header
 // ============================================================
 function PageHeader({ onBack, title, subtitle, children }) {
+  const onRefresh = React.useContext(RefreshCtx);
   return (
     <div className="sticky top-0 z-10 shadow-md px-4 py-3 flex items-center gap-3" style={{background:'#1E90FF'}}>
       <button onClick={onBack} className="p-1 transition-colors hover:opacity-70" style={{color:'#001F3F'}}>
         <ArrowLeft size={20} />
       </button>
-      <div className="flex-1 min-w-0 border-l-4 pl-3 py-0.5" style={{borderColor:'rgba(255,255,255,0.7)'}}>
+      <div
+        className={`flex-1 min-w-0 border-l-4 pl-3 py-0.5${onRefresh ? ' hover:opacity-80 transition-opacity cursor-pointer' : ''}`}
+        style={{borderColor:'rgba(255,255,255,0.7)'}}
+        onClick={onRefresh}
+      >
         {title    && <p className="font-bold truncate drop-shadow" style={{fontSize:'23px',color:'#ffffff'}}>{title}</p>}
         {subtitle && <p className="truncate font-medium" style={{fontSize:'20px',color:'rgba(0,0,0,0.55)'}}>{subtitle}</p>}
       </div>
@@ -187,18 +194,20 @@ function PageHeader({ onBack, title, subtitle, children }) {
 // prefilledUser: { name, department } → skip requester login
 // startAsStaff: true → skip staff login (AppRoot already authed)
 // ============================================================
-export default function RequisitionApp({ onBack, prefilledUser = null, startAsStaff = false, initialStep = null, auth = {} }) {
+export default function RequisitionApp({ onBack, onRefresh, prefilledUser = null, startAsStaff = false, initialStep = null, auth = {} }) {
   const [view, setView] = useState(
     startAsStaff  ? 'staff'     :
     prefilledUser ? 'requester' :
     'home'
   );
   return (
-    <div className="min-h-screen text-slate-800 font-sans" style={{background:'#F0F8FF'}}>
-      {view === 'home'      && <HomeView      onSelect={setView} onBack={onBack} />}
-      {view === 'requester' && <RequesterRoot onBack={() => prefilledUser ? onBack() : setView('home')} prefilledUser={prefilledUser} initialStep={initialStep} auth={auth} />}
-      {view === 'staff'     && <StaffRoot     onBack={() => startAsStaff  ? onBack() : setView('home')} alreadyAuthed={startAsStaff} auth={auth} />}
-    </div>
+    <RefreshCtx.Provider value={onRefresh}>
+      <div className="min-h-screen text-slate-800 font-sans" style={{background:'#F0F8FF'}}>
+        {view === 'home'      && <HomeView      onSelect={setView} onBack={onBack} />}
+        {view === 'requester' && <RequesterRoot onBack={() => prefilledUser ? onBack() : setView('home')} prefilledUser={prefilledUser} initialStep={initialStep} auth={auth} />}
+        {view === 'staff'     && <StaffRoot     onBack={() => startAsStaff  ? onBack() : setView('home')} alreadyAuthed={startAsStaff} auth={auth} />}
+      </div>
+    </RefreshCtx.Provider>
   );
 }
 
@@ -475,28 +484,32 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
         });
       }
 
-      // Get supplier from drug_details (บริษัทปัจจุบัน) — more reliable than receive_logs
+      // Get supplier/price/type from receive_logs — source of truth for drug details
       const uniqueCodes = [...new Set(merged.map(r => r.code).filter(Boolean))];
-      const supplierMap = {}; // "code|lot|invoice" → supplier (exact), "code|lot" → fallback
+      const supplierMap = {}; // "code|lot|invoice" → entry (exact), "code|lot" → fallback
       if (uniqueCodes.length > 0) {
-        const { data: dd } = await supabase.from('drug_details')
-          .select('code, lot, invoice, drug_type, company, data')
-          .in('code', uniqueCodes);
-        (dd || []).forEach(r => {
-          const code = codeKey(r.code);
-          const lot  = String(r.lot  || '').trim().toLowerCase();
-          const inv  = String(r.invoice || '').trim().toLowerCase();
-          const k3 = `${code}|${lot}|${inv}`;
-          const k2 = `${code}|${lot}`;
-          const entry = {
-            supplier: r.company || r.data?.['บริษัทปัจจุบัน'] || r.data?.['บริษัท'] || r.data?.['supplier_current'] || r.data?.['supplier'] || '',
-            price:    r.data?.['ราคาต่อหน่วย(บาท)'] || r.data?.['ราคาต่อหน่วย'] || r.data?.['ราคา/หน่วย'] || r.data?.['price_per_unit'] || '',
-            drugType: r.drug_type || r.data?.['รูปแบบ'] || r.data?.['ชนิด'] || r.data?.['drug_type'] || r.data?.['type'] || '',
-            itemType: r.data?.['ชนิดรายการ'] || r.data?.['item_type'] || r.data?.['item type'] || '',
-          };
-          if (!supplierMap[k3]) supplierMap[k3] = entry;
-          if (!supplierMap[k2]) supplierMap[k2] = entry;
-        });
+        const CHUNK = 500;
+        for (let ci = 0; ci < uniqueCodes.length; ci += CHUNK) {
+          const { data: rl } = await supabase.from('receive_logs')
+            .select('drug_code, lot, bill_number, supplier_current, price_per_unit, drug_type, item_type')
+            .in('drug_code', uniqueCodes.slice(ci, ci + CHUNK))
+            .order('receive_date', { ascending: false });
+          (rl || []).forEach(r => {
+            const code = codeKey(r.drug_code);
+            const lot  = String(r.lot || '').trim().toLowerCase();
+            const inv  = String(r.bill_number || '').trim().toLowerCase();
+            const k3 = `${code}|${lot}|${inv}`;
+            const k2 = `${code}|${lot}`;
+            const entry = {
+              supplier: r.supplier_current || '',
+              price:    r.price_per_unit != null ? String(r.price_per_unit) : '',
+              drugType: r.drug_type || '',
+              itemType: r.item_type || '',
+            };
+            if (!supplierMap[k3]) supplierMap[k3] = entry;
+            if (!supplierMap[k2]) supplierMap[k2] = entry;
+          });
+        }
       }
 
       const getDetail = (row) => {
@@ -1393,7 +1406,7 @@ function StaffRoot({ onBack, alreadyAuthed = false, auth = {} }) {
       </div>
     );
   }
-  if (selected) return <RequisitionDetail req={selected} onBack={() => setSelected(null)} onDone={() => setSelected(null)} />;
+  if (selected) return <RequisitionDetail req={selected} onBack={() => setSelected(null)} onDone={() => setSelected(null)} auth={auth} />;
   return <StaffDashboard onLogout={() => alreadyAuthed ? onBack() : setAuthed(false)} onSelect={setSelected} auth={auth} />;
 }
 
@@ -1412,8 +1425,10 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
   const handleDelete = async (e, id) => {
     e.stopPropagation();
     if (deleteId !== id) { setDeleteId(id); return; }
+    const req = list.find(r => r.id === id);
     await supabase.from('requisition_items').delete().eq('requisition_id', id);
     await supabase.from('requisitions').delete().eq('id', id);
+    insertAuditLog({ action: 'delete_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { req_number: req?.req_number, requisition_id: id } });
     setDeleteId(null);
     setList(prev => prev.filter(r => r.id !== id));
     setSelected(prev => { const s = new Set(prev); s.delete(id); return s; });
@@ -1435,9 +1450,12 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
   const bulkDelete = async () => {
     if (!selected.size) return;
     setBulkLoading(true);
-    for (const id of selected) {
+    const ids = [...selected];
+    for (const id of ids) {
+      const req = list.find(r => r.id === id);
       await supabase.from('requisition_items').delete().eq('requisition_id', id);
       await supabase.from('requisitions').delete().eq('id', id);
+      insertAuditLog({ action: 'delete_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { req_number: req?.req_number, requisition_id: id } });
     }
     setList(prev => prev.filter(r => !selected.has(r.id)));
     setSelected(new Set());
@@ -1454,6 +1472,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
         await supabase.from('requisition_items').update({ approved_qty: item.requested_qty }).eq('id', item.id);
       }
       await supabase.from('requisitions').update({ status: 'approved', updated_at: new Date().toISOString() }).eq('id', id);
+      insertAuditLog({ action: 'update_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { req_number: req.req_number, requisition_id: id, action_detail: 'bulk_approve' } });
     }
     await load();
     setSelected(new Set());
@@ -1643,7 +1662,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
 }
 
 // ---- Requisition Detail ----
-function RequisitionDetail({ req, onBack, onDone }) {
+function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
   const [currentReq, setCurrentReq] = useState(req);
   const isPending    = currentReq.status==='pending';
   const isApproved   = currentReq.status==='approved'||currentReq.status==='partial';
@@ -1690,6 +1709,7 @@ function RequisitionDetail({ req, onBack, onDone }) {
       if (supabase) {
         await supabase.from('requisition_items').delete().eq('requisition_id', req.id);
         await supabase.from('requisitions').delete().eq('id', req.id);
+        insertAuditLog({ action: 'delete_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { req_number: req.req_number, requisition_id: req.id } });
       }
       onDone();
     } catch(e) { setError(e.message); setLoading(false); }
@@ -1710,7 +1730,7 @@ function RequisitionDetail({ req, onBack, onDone }) {
           status = allReject?'rejected':allApprove?'approved':'partial';
         }
         await supabase.from('requisitions').update({ status, note:staffNote||requesterNote||null, updated_at:new Date().toISOString() }).eq('id',req.id);
-        // Stock is updated via CSV import in แผนผังคลังยา, not deducted here
+        insertAuditLog({ action: 'update_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { req_number: req.req_number, requisition_id: req.id, status } });
       }
       onDone();
     } catch(e) { setError(e.message); } finally { setLoading(false); }

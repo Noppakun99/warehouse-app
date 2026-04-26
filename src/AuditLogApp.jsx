@@ -91,7 +91,7 @@ function monthAgoStr() {
   return d.toISOString().slice(0, 10);
 }
 
-export default function AuditLogApp({ onBack, auth }) {
+export default function AuditLogApp({ onBack, onRefresh, auth }) {
   const [logs, setLogs]           = useState([]);
   const [loading, setLoading]     = useState(false);
   const [dateFrom, setDateFrom]   = useState(monthAgoStr());
@@ -194,11 +194,13 @@ export default function AuditLogApp({ onBack, auth }) {
         <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-white/20 transition-colors">
           <ArrowLeft size={20} />
         </button>
-        <ClipboardList size={22} />
-        <div>
-          <h1 className="font-bold text-lg leading-tight">Audit Log</h1>
-          <p className="text-slate-300 text-xs">ประวัติการดำเนินการในระบบ</p>
-        </div>
+        <button onClick={onRefresh} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+          <ClipboardList size={22} />
+          <div>
+            <h1 className="font-bold text-lg leading-tight">Audit Log</h1>
+            <p className="text-slate-300 text-xs">ประวัติการดำเนินการในระบบ</p>
+          </div>
+        </button>
       </div>
 
       <div className="max-w-6xl mx-auto px-4 py-5 space-y-4">

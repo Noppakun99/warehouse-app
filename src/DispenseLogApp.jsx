@@ -1,13 +1,18 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from './lib/supabase';
 import SearchableSelect from './SearchableSelect';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
 import {
   ArrowLeft, UploadCloud, RefreshCcw, Search, X,
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
-  TrendingDown, BarChart3, Pencil, Trash2, Save, FileDown,
+  TrendingDown, TrendingUp, BarChart3, Pencil, Trash2, Save, FileDown,
 } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
+  LineChart, Line, Legend,
+} from 'recharts';
 import { exportToExcel } from './lib/exportExcel';
+import { normalizeLotSearch } from './lib/db';
 
 // ============================================================
 // Column aliases
@@ -193,6 +198,10 @@ const fmtAnyDate = (raw) => {
 function parseDate(raw) {
   if (!raw || raw === '-' || raw.trim() === '') return null;
   const s = String(raw).trim().split(/[\sT]/)[0];
+  if (/^\d{5}$/.test(s)) {
+    const d = new Date(Date.UTC(1899, 11, 30) + parseInt(s) * 86400000);
+    if (!isNaN(d)) return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+  }
   const sep = s.includes('/') ? '/' : s.includes('-') ? '-' : null;
   if (sep) {
     const p = s.split(sep).map(x => x.trim());
@@ -232,7 +241,7 @@ const DISPENSE_EXCEL_COLS = [
 // ============================================================
 // Root
 // ============================================================
-export default function DispenseLogApp({ onBack, auth = {} }) {
+export default function DispenseLogApp({ onBack, onRefresh, auth = {} }) {
   const [tab, setTab]             = useState('view');
   const [showSummary, setShowSummary] = useState(false);
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
@@ -242,10 +251,10 @@ export default function DispenseLogApp({ onBack, auth = {} }) {
     <div className="min-h-screen bg-slate-200 text-slate-800 font-sans">
       <div className="sticky top-0 z-10 bg-rose-700 shadow-md px-4 py-3 flex items-center gap-2">
         <button onClick={onBack} className="text-rose-100 hover:text-white p-1 transition-colors shrink-0"><ArrowLeft size={20} /></button>
-        <div className="flex items-center gap-2 flex-1 min-w-0">
+        <button onClick={onRefresh} className="flex items-center gap-2 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity">
           <TrendingDown size={20} className="text-white shrink-0" />
           <span className="font-semibold text-white truncate">บันทึกการเบิกจ่าย (คลังเบิก)</span>
-        </div>
+        </button>
         <div className="flex items-center gap-1 shrink-0">
           <button onClick={() => setShowSummary(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white/20 text-white hover:bg-white/30 border border-white/30 transition-all">
@@ -260,7 +269,7 @@ export default function DispenseLogApp({ onBack, auth = {} }) {
       </div>
 
       {tab === 'import' && isStaff && <DispenseImport onDone={() => setTab('view')} />}
-      {tab === 'view'   && <DispenseView isAdmin={isAdmin} />}
+      {tab === 'view'   && <DispenseView isAdmin={isAdmin} auth={auth} />}
       {showSummary      && <DispenseSummaryModal onClose={() => setShowSummary(false)} />}
     </div>
   );
@@ -342,7 +351,7 @@ function DispenseImport({ onDone }) {
             drug_unit:      getVal(row, 'drug_unit') || '-',
             price_per_unit: (() => { const p = parseFloat(String(getVal(row, 'price_per_unit') || '').replace(/,/g, '')); return isNaN(p) ? null : p; })(),
             lot,
-            exp:            getVal(row, 'exp') || '-',
+            exp:            fmtAnyDate(getVal(row, 'exp')),
             near_exp_date:  parseDate(getVal(row, 'near_exp_date')) || null,
             qty_before:     parseFloat(String(getVal(row, 'qty_before') || '').replace(/,/g, '')) || null,
             qty_out:        qtyOut,
@@ -724,9 +733,10 @@ function EditModal({ row, onClose, onSaved }) {
 // ============================================================
 // View / Search
 // ============================================================
-function DispenseView({ isAdmin = false }) {
+function DispenseView({ isAdmin = false, auth = {} }) {
   const [rows, setRows]             = useState([]);
   const [loading, setLoading]       = useState(true);
+  const [exportLoading, setExportLoading] = useState(false);
   const [search, setSearch]         = useState('');
   const [deptFilter, setDeptFilter] = useState('');
   const [dateFrom, setDateFrom]     = useState('');
@@ -759,12 +769,35 @@ function DispenseView({ isAdmin = false }) {
     if (dateFrom && dateTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
     else if (dateFrom)        { q = q.eq('dispense_date', isoFrom); }
     else if (dateTo)          { q = q.lte('dispense_date', isoTo); }
-    if (search.trim()) q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%`);
+    if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%`); }
     q = q.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
     const { data } = await q;
     setRows(data || []);
     setLoading(false);
   }, [search, deptFilter, dateFrom, dateTo, page]);
+
+  const handleExport = useCallback(async () => {
+    if (!supabase) return;
+    setExportLoading(true);
+    try {
+      const isoFrom = thaiToIso(dateFrom) || dateFrom;
+      const isoTo   = thaiToIso(dateTo)   || dateTo;
+      const allRows = await fetchAllRows(() => {
+        let q = supabase.from('dispense_logs').select('*')
+          .order('dispense_date', { ascending: false })
+          .order('id', { ascending: false });
+        if (deptFilter) q = q.eq('department', deptFilter);
+        if (dateFrom && dateTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
+        else if (dateFrom)        { q = q.eq('dispense_date', isoFrom); }
+        else if (dateTo)          { q = q.lte('dispense_date', isoTo); }
+        if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%`); }
+        return q;
+      });
+      await exportToExcel(allRows, DISPENSE_EXCEL_COLS, 'ประวัติเบิกยา', `dispense_logs_${new Date().toISOString().slice(0,10)}.xlsx`, auth);
+    } finally {
+      setExportLoading(false);
+    }
+  }, [search, deptFilter, dateFrom, dateTo, auth]);
 
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [load]);
 
@@ -779,7 +812,7 @@ function DispenseView({ isAdmin = false }) {
       if (dateFrom && dateTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
       else if (dateFrom)        { q = q.eq('dispense_date', isoFrom); }
       else if (dateTo)          { q = q.lte('dispense_date', isoTo); }
-      if (search.trim()) q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%`);
+      if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%`); }
       return q;
     };
     // count แยก (เร็วกว่า)
@@ -919,11 +952,11 @@ function DispenseView({ isAdmin = false }) {
             <RefreshCcw size={16} />
           </button>
           <button
-            onClick={() => exportToExcel(rows, DISPENSE_EXCEL_COLS, 'ประวัติเบิกยา', `dispense_logs_${new Date().toISOString().slice(0,10)}.xlsx`, auth)}
-            disabled={rows.length === 0}
+            onClick={handleExport}
+            disabled={exportLoading || (aggStats ? aggStats.count === 0 : rows.length === 0)}
             className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-xl text-xs font-semibold transition-colors"
-            title="ส่งออก Excel">
-            <FileDown size={14} /> Excel
+            title="ส่งออก Excel (ทุก row)">
+            <FileDown size={14} /> {exportLoading ? 'กำลังส่งออก...' : 'Excel'}
           </button>
         </div>
         {/* Date range row */}
@@ -1211,6 +1244,65 @@ function DispenseView({ isAdmin = false }) {
 // ============================================================
 // Summary Modal
 // ============================================================
+// ---- Forecast helpers ----
+const FC_COLORS = ['#1E90FF','#3B82F6','#06B6D4','#10B981','#8B5CF6','#F59E0B','#EF4444','#EC4899','#6366F1','#14B8A6'];
+function fmtV(n) {
+  if (n == null || isNaN(n)) return '-';
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'K';
+  return String(Math.round(n));
+}
+function fmtM(n) {
+  if (n == null || isNaN(n)) return '-';
+  return n.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' ฿';
+}
+function thMon(iso) {
+  if (!iso) return '';
+  const [y, m] = iso.split('-');
+  const mn = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+  return `${mn[parseInt(m) - 1]} ${parseInt(y) + 543}`;
+}
+function linR(xs, ys) {
+  const n = xs.length;
+  if (n < 2) return { m: 0, b: ys[0] ?? 0 };
+  const xm = xs.reduce((s, v) => s + v, 0) / n;
+  const ym = ys.reduce((s, v) => s + v, 0) / n;
+  let num = 0, den = 0;
+  xs.forEach((x, i) => { num += (x - xm) * (ys[i] - ym); den += (x - xm) ** 2; });
+  const m = den ? num / den : 0;
+  return { m, b: ym - m * xm };
+}
+function addM(iso, n) {
+  const [y, mo] = iso.split('-').map(Number);
+  const t = mo + n;
+  return `${y + Math.floor((t - 1) / 12)}-${String(((t - 1) % 12) + 1).padStart(2, '0')}`;
+}
+function FcTip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  const items = payload.filter(p => p.value != null);
+  if (!items.length) return null;
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 text-sm">
+      <p className="font-semibold text-slate-700 mb-2">{label}</p>
+      {items.map((p, i) => (
+        <p key={i} style={{ color: p.color }} className="flex items-center gap-2">
+          <span className="font-medium">{p.name}:</span> <strong>{fmtM(p.value)}</strong>
+        </p>
+      ))}
+    </div>
+  );
+}
+function ValTip({ active, payload, label, lbl, money }) {
+  if (!active || !payload?.length) return null;
+  const val = payload[0]?.value;
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 text-sm">
+      <p className="font-semibold text-slate-700 mb-1">{label}</p>
+      <p style={{ color: '#1E90FF' }}>{lbl}: <strong>{money ? fmtM(val) : Number(val).toLocaleString('th-TH')}</strong></p>
+    </div>
+  );
+}
+
 function DispenseSummaryModal({ onClose }) {
   const [activeTab, setActiveTab]   = useState('overview'); // 'overview' | 'monthly'
   const [dateFrom, setDateFrom]     = useState('');
@@ -1233,6 +1325,8 @@ function DispenseSummaryModal({ onClose }) {
   const [monthlyStats, setMonthlyStats]   = useState(null);
   const [monthlyLoading, setMonthlyLoading] = useState(false);
   const [monthlySearch, setMonthlySearch]   = useState('');
+  const [rawRows,       setRawRows]         = useState([]);
+  const [forecastPrd,   setForecastPrd]     = useState(12);
 
   useEffect(() => {
     if (!supabase) return;
@@ -1295,6 +1389,7 @@ function DispenseSummaryModal({ onClose }) {
       if (drugFilter) q = q.ilike('drug_name', `%${drugFilter}%`);
       return q;
     });
+    setRawRows(rows || []);
     if (!rows || rows.length === 0) { setStats(null); setLoading(false); return; }
 
     const totalQty   = rows.reduce((s, r) => s + (r.qty_out || 0), 0);
@@ -1394,6 +1489,65 @@ function DispenseSummaryModal({ onClose }) {
         : monthlyStats.drugs)
     : [];
 
+  const { fcChart, fcRising, fcReady } = useMemo(() => {
+    if (rawRows.length === 0) return { fcChart: [], fcRising: [], fcReady: false };
+    const monthMap = {};
+    rawRows.forEach(r => {
+      const mon = (r.dispense_date || '').slice(0, 7);
+      if (!mon) return;
+      monthMap[mon] = (monthMap[mon] || 0) + (parseFloat(r.qty_out) || 0) * (getPrice(r) || 0);
+    });
+    const sortedMons = Object.keys(monthMap).sort();
+    if (sortedMons.length < 2) return { fcChart: sortedMons.map(m => ({ label: thMon(m), actual: monthMap[m] })), fcRising: [], fcReady: false };
+    const monthIdx = {};
+    sortedMons.forEach((m, i) => { monthIdx[m] = i; });
+    const lastIdx = sortedMons.length - 1;
+    const lastMon = sortedMons[lastIdx];
+    const futureMons = Array.from({ length: 12 }, (_, i) => addM(lastMon, i + 1));
+    const drugMon = {};
+    rawRows.forEach(r => {
+      const key = r.drug_name || '-';
+      const mon = (r.dispense_date || '').slice(0, 7);
+      if (!mon || monthIdx[mon] === undefined) return;
+      if (!drugMon[key]) drugMon[key] = {};
+      drugMon[key][mon] = (drugMon[key][mon] || 0) + (parseFloat(r.qty_out) || 0) * (getPrice(r) || 0);
+    });
+    const totalFut = new Array(12).fill(0);
+    const risingArr = [];
+    Object.entries(drugMon).forEach(([drug, mVals]) => {
+      const sorted = Object.keys(mVals).sort();
+      if (sorted.length < 2) return;
+      const xs = sorted.map(m => monthIdx[m]);
+      const ys = sorted.map(m => mVals[m]);
+      const { m: slope, b } = linR(xs, ys);
+      const preds = futureMons.map((_, i) => Math.max(0, slope * (lastIdx + i + 1) + b));
+      preds.forEach((v, i) => { totalFut[i] += v; });
+      const curAvg = ys.reduce((a, v) => a + v, 0) / ys.length;
+      if (curAvg > 0) risingArr.push({
+        name: drug, nameShort: drug.length > 30 ? drug.slice(0, 30) + '…' : drug,
+        curAvg, p1: preds[0], p6: preds[5], p12: preds[11],
+        grow1:  preds[0]  - curAvg,
+        grow6:  preds[5]  - curAvg,
+        grow12: preds[11] - curAvg,
+        pct1:  ((preds[0]  - curAvg) / curAvg) * 100,
+        pct6:  ((preds[5]  - curAvg) / curAvg) * 100,
+        pct12: ((preds[11] - curAvg) / curAvg) * 100,
+      });
+    });
+    risingArr.sort((a, b) => b.curAvg - a.curAvg);
+    const lastActual = monthMap[lastMon];
+    const combined = [
+      ...sortedMons.map((m, i) => ({ label: thMon(m), actual: monthMap[m], forecast: i === lastIdx ? lastActual : undefined })),
+      ...futureMons.map((mon, i) => ({ label: thMon(mon), actual: undefined, forecast: totalFut[i] })),
+    ];
+    return { fcChart: combined, fcRising: risingArr.slice(0, 10), fcReady: true };
+  }, [rawRows]);
+
+  const sortedFcDrugs = useMemo(() => {
+    const key = forecastPrd === 1 ? 'p1' : forecastPrd === 6 ? 'p6' : 'p12';
+    return [...fcRising].sort((a, b) => b[key] - a[key]);
+  }, [fcRising, forecastPrd]);
+
   return (
     <div className="fixed inset-0 bg-slate-900/70 flex items-start justify-center z-50 p-3 pt-4 backdrop-blur-sm overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col mb-6">
@@ -1408,8 +1562,9 @@ function DispenseSummaryModal({ onClose }) {
         {/* Tabs */}
         <div className="flex border-b border-slate-200 px-5 pt-3 gap-1">
           {[
-            { key: 'overview', label: 'ภาพรวม' },
-            { key: 'monthly',  label: 'สถิติการเบิก รายเดือน' },
+            { key: 'overview',  label: 'ภาพรวม' },
+            { key: 'monthly',   label: 'สถิติการเบิก รายเดือน' },
+            { key: 'forecast',  label: 'แนวโน้มในอนาคต' },
           ].map(t => (
             <button key={t.key} onClick={() => setActiveTab(t.key)}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
@@ -1593,6 +1748,110 @@ function DispenseSummaryModal({ onClose }) {
             </div>
           )}
         </div>
+
+          {/* ========== TAB: แนวโน้มในอนาคต ========== */}
+          {activeTab === 'forecast' && (
+            <div className="space-y-4">
+              {rawRows.length === 0 ? (
+                <p className="text-center text-slate-400 py-16">กรุณาโหลดข้อมูลจากแท็บ "ภาพรวม" ก่อน</p>
+              ) : !fcReady ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-700">
+                  ข้อมูลน้อยเกินไปสำหรับการคาดการณ์ (ต้องการข้อมูลอย่างน้อย 2 เดือน)
+                </div>
+              ) : (<>
+                <div className="bg-white border border-slate-200 rounded-xl p-4">
+                  <h4 className="font-bold text-slate-700 mb-1 flex items-center gap-2">
+                    <TrendingUp size={16} className="text-amber-500" /> แนวโน้มการเบิกยาในอนาคต (12 เดือน)
+                  </h4>
+                  <p className="text-xs text-slate-400 mb-2">เส้นน้ำเงิน = ข้อมูลจริง | เส้นประส้ม = คาดการณ์ (Linear Regression)</p>
+                  <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mb-3 flex items-start gap-2">
+                    <span className="shrink-0">⚠️</span>
+                    <span>คาดการณ์จากแนวโน้มในอดีต ใช้เพื่อประเมินทิศทางเท่านั้น</span>
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <LineChart data={fcChart} margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtM} width={84} />
+                      <Tooltip content={<FcTip />} />
+                      <Legend verticalAlign="top" height={30} />
+                      <Line type="monotone" dataKey="actual" name="ข้อมูลจริง"
+                        stroke="#1E90FF" strokeWidth={2.5} dot={{ r: 3, fill: '#1E90FF' }} connectNulls={false} />
+                      <Line type="monotone" dataKey="forecast" name="คาดการณ์"
+                        stroke="#F59E0B" strokeWidth={2} strokeDasharray="7 4"
+                        dot={{ r: 3, fill: 'white', stroke: '#F59E0B', strokeWidth: 2 }} connectNulls={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {sortedFcDrugs.length > 0 && (
+                  <div className="bg-white border border-slate-200 rounded-xl p-4">
+                    <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+                      <div>
+                        <h4 className="font-bold text-slate-700 flex items-center gap-2">
+                          <TrendingUp size={16} className="text-emerald-500" /> คาดการณ์มูลค่าการเบิกยา Top 10
+                        </h4>
+                        <p className="text-xs text-slate-400 mt-0.5">ราคา/หน่วย × จำนวนที่เบิก — เรียงตามมูลค่าเบิกเฉลี่ย/เดือน</p>
+                      </div>
+                      <div className="flex items-center bg-slate-100 rounded-xl p-1 gap-1 shrink-0">
+                        {[1, 6, 12].map(p => (
+                          <button key={p} onClick={() => setForecastPrd(p)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                              forecastPrd === p ? 'bg-white text-[#1E90FF] shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                            }`}>+{p} เดือน</button>
+                        ))}
+                      </div>
+                    </div>
+                    <ResponsiveContainer width="100%" height={sortedFcDrugs.length * 36 + 20}>
+                      <BarChart data={sortedFcDrugs} layout="vertical" margin={{ top: 0, right: 70, left: 8, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F1F5F9" />
+                        <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={fmtV} />
+                        <YAxis type="category" dataKey="nameShort" tick={{ fontSize: 10 }} width={160} />
+                        <Tooltip content={<ValTip lbl={`มูลค่าคาดการณ์ (+${forecastPrd} เดือน)`} money />} />
+                        <Bar dataKey={forecastPrd === 1 ? 'p1' : forecastPrd === 6 ? 'p6' : 'p12'}
+                          radius={[0, 4, 4, 0]} label={{ position: 'right', fontSize: 10, fill: '#64748B', formatter: fmtV }}>
+                          {sortedFcDrugs.map((_, i) => <Cell key={i} fill={FC_COLORS[i % FC_COLORS.length]} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <div className="mt-4 overflow-x-auto">
+                      <table className="w-full text-xs text-slate-600">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-slate-500">
+                            <th className="text-left py-2 pr-2 font-semibold">ยา</th>
+                            <th className="text-right py-2 pr-2 font-semibold">เฉลี่ย/เดือน</th>
+                            <th className="text-right py-2 pr-2 font-semibold">+1 เดือน</th>
+                            <th className="text-right py-2 pr-2 font-semibold">+6 เดือน</th>
+                            <th className="text-right py-2 pr-2 font-semibold">+12 เดือน</th>
+                            <th className="text-right py-2 font-semibold">% Growth</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedFcDrugs.map((d, i) => {
+                            const pct = forecastPrd === 1 ? d.pct1 : forecastPrd === 6 ? d.pct6 : d.pct12;
+                            const pc = pct >= 50 ? 'text-red-600 bg-red-50' : pct >= 20 ? 'text-orange-500 bg-orange-50' : pct >= 0 ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 bg-slate-100';
+                            return (
+                              <tr key={i} className={`border-b border-slate-100 ${i % 2 ? 'bg-slate-50' : ''}`}>
+                                <td className="py-1.5 pr-2 font-medium">{d.nameShort}</td>
+                                <td className="py-1.5 pr-2 text-right text-slate-500">{fmtV(d.curAvg)}</td>
+                                <td className={`py-1.5 pr-2 text-right ${forecastPrd === 1  ? 'font-semibold text-[#1E90FF]' : 'text-amber-600'}`}>{fmtV(d.p1)}</td>
+                                <td className={`py-1.5 pr-2 text-right ${forecastPrd === 6  ? 'font-semibold text-[#1E90FF]' : 'text-amber-600'}`}>{fmtV(d.p6)}</td>
+                                <td className={`py-1.5 pr-2 text-right ${forecastPrd === 12 ? 'font-semibold text-[#1E90FF]' : 'text-amber-600'}`}>{fmtV(d.p12)}</td>
+                                <td className="py-1.5 text-right">
+                                  <span className={`inline-block px-2 py-0.5 rounded-full font-bold ${pc}`}>{pct >= 0 ? '+' : ''}{pct.toFixed(1)}%</span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      <p className="text-xs text-slate-400 mt-2">* % Growth = มูลค่าคาดการณ์ ณ เดือนที่เลือก เทียบกับค่าเฉลี่ยต่อเดือนปัจจุบัน</p>
+                    </div>
+                  </div>
+                )}
+              </>)}
+            </div>
+          )}
 
         <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end rounded-b-2xl">
           <button onClick={onClose} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-medium transition-colors shadow-sm">ปิด</button>

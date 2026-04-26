@@ -133,39 +133,39 @@ export async function fetchDrugDetails() {
 
 // --- Import Receive Logs from CSV text ---
 
-const RECEIVE_COL_MAP = {
-  order_date:['วันที่แจ้งสั่ง','order date','order_date','วันสั่ง','วันที่สั่ง'],
-  receive_date:['วันที่รับ','receive date','receive_date','วันที่รับของ','วันรับ','วันที่'],
-  inspect_date:['วันที่ตรวจรับ','inspect date','inspect_date','วันตรวจรับ'],
-  leadtime:['leadtime','lead time','ระยะเวลา'],
-  inspect_lag:['วันที่ตรวจรับ-วันที่รับของ','inspect lag','lag','ระยะตรวจรับ'],
-  bill_number:['เลขที่บิลซื้อ','เลขบิล','bill','bill_number','เลขที่บิล','invoice'],
-  po_number:['เลขที่po','po number','po_number','po','เลข po'],
-  purchase_type:['สถานะ','สถานะการซื้อ','สถานะการสั่ง','purchase type','purchase_type','ประเภทการซื้อ'],
-  receive_status:['ผลการพิจารณา','สถานะตรวจรับ','สถานะการตรวจรับ','สถานะตรวจ','receive status','receive_status','สถานะรับ'],
-  main_log:['mainlog','main_log','main log','log หลัก'],
-  detail_log:['detailedlog','detail_log','detailed log','detaillog','log ย่อย'],
-  drug_code:['รหัส','รหัสยา','รหัสhosxp','รหัส hosxp','code','drug_code'],
-  drug_name:['รายการยา','ชื่อยา','drug_name','name','item'],
-  drug_type:['รูปแบบ','ชนิด','type','drug_type','form'],
-  item_type:['ชนิดรายการ','item_type','item type'],
-  drug_unit:['หน่วย','หน่วยยา','drug_unit','unit_label'],
-  supplier_current:['บริษัทปัจจุบัน','บริษัทยา','บริษัท','supplier','supplier_current','vendor'],
-  supplier_prev:['บริษัทก่อนหน้า','บริษัทก่อนนาน','supplier_prev','previous supplier','บริษัทเก่า'],
-  supplier_changed:['เปลี่ยนบริษัท','supplier_changed','change','เปลี่ยน'],
-  lot:['lot','lot.','lot number','lot no','เลขที่ lot'],
-  exp:['exp','exp.','exp date','วันหมดอายุ'],
-  note:['หมายเหตุ','note','notes','remark','หมายเหตุรับ'],
-  exp_note:['หมายเหตุหมดอายุ','exp_note','exp note','expiry note'],
-  qty_received:['จำนวนที่รับ','qty_received','quantity','จำนวนรับ','จำนวน'],
-  unit_per_bill:['หน่วย/บิล','unit_per_bill','unit per bill','หน่วยบิล'],
-  price_per_unit:['ราคาต่อหน่วย(บาท)','ราคาต่อหน่วย','ราคา/หน่วย','price_per_unit','price','unit price'],
-  total_price_vat:['มูลค่ารวมภาษี','total_price_vat','total price vat'],
-  total_price_formula:['มูลค่า/สูตร','total_price_formula'],
-  safety_stock:['safety stock','safety_stock','สต็อกขั้นต่ำ'],
-  sum_of_lead_time:['sum of lead time (in days)','sum of lead time','sum_of_lead_time','lead time (in days)'],
-  swap_condition:['เงื่อนไขการแลกเปลี่ยนยาของบริษัท','เงื่อนไขแลกเปลี่ยน'],
-  swap_items:['ระบุรายการยาและเงื่อนไขยาแต่ละตัว','ระบุเงื่อนไขการแลกเปลี่ยนยา','รายการยาแลกเปลี่ยน'],
+export const RECEIVE_COL_MAP = {
+  order_date:          ['วันที่แจ้งสั่ง','order date','order_date','วันสั่ง','วันที่สั่ง'],
+  receive_date:        ['วันที่รับ','receive date','receive_date','วันที่รับของ','วันรับ','วันที่'],
+  inspect_date:        ['วันที่ตรวจรับ','inspect date','inspect_date','วันตรวจรับ'],
+  leadtime:            ['leadtime','lead time','ระยะเวลา'],
+  inspect_lag:         ['วันที่ตรวจรับ-วันที่รับของ','inspect lag','lag','ระยะตรวจรับ'],
+  bill_number:         ['เลขที่บิลซื้อ','เลขบิล','bill','bill_number','เลขที่บิล','invoice'],
+  po_number:           ['เลขที่po','po number','po_number','po','เลข po'],
+  purchase_type:       ['สถานะ','สถานะการซื้อ','สถานะการสั่ง','purchase type','purchase_type','ประเภทการซื้อ'],
+  receive_status:      ['ผลการพิจารณา','สถานะตรวจรับ','สถานะการตรวจรับ','สถานะตรวจ','receive status','receive_status','สถานะรับ'],
+  main_log:            ['mainlog','main_log','main log','log หลัก'],
+  detail_log:          ['detailedlog','detail_log','detailed log','detaillog','log ย่อย'],
+  drug_code:           ['รหัส','รหัสยา','รหัสhosxp','รหัส hosxp','code','drug_code'],
+  drug_name:           ['รายการยา','ชื่อยา','drug_name','name','item'],
+  drug_type:           ['รูปแบบ','ชนิด','type','drug_type','form'],
+  item_type:           ['ชนิดรายการ','item_type','item type'],
+  drug_unit:           ['หน่วย','หน่วยยา','drug_unit','unit_label'],
+  supplier_current:    ['บริษัทปัจจุบัน','บริษัทยา','บริษัท','supplier','supplier_current','vendor'],
+  supplier_prev:       ['บริษัทก่อนหน้า','บริษัทก่อนนาน','supplier_prev','previous supplier','บริษัทเก่า'],
+  supplier_changed:    ['เปลี่ยนบริษัท','supplier_changed','change','เปลี่ยน'],
+  lot:                 ['lot','lot.','lot number','lot no','เลขที่ lot'],
+  exp:                 ['exp','exp.','exp date','วันหมดอายุ'],
+  note:                ['หมายเหตุ','note','notes','remark','หมายเหตุรับ'],
+  exp_note:            ['หมายเหตุหมดอายุ','exp_note','exp note','expiry note'],
+  qty_received:        ['จำนวนที่รับ','qty_received','quantity','จำนวนรับ','จำนวน'],
+  unit_per_bill:       ['หน่วย/บิล','unit_per_bill','unit per bill','หน่วยบิล'],
+  price_per_unit:      ['ราคาต่อหน่วย(บาท)','ราคาต่อหน่วย','ราคา/หน่วย','price_per_unit','price','unit price'],
+  total_price_vat:     ['ราคารวมภาษี (บาท)','ราคารวมภาษี','มูลค่ารวมภาษี','total_price_vat','total price vat','total vat','ราคารวม'],
+  total_price_formula: ['ราคารวมภาษี (บาท)/สูตร','ราคารวมภาษี/สูตร','มูลค่า/สูตร','total_price_formula','formula price'],
+  safety_stock:        ['safety stock','safety_stock','สต็อกขั้นต่ำ','ปริมาณขั้นต่ำ'],
+  sum_of_lead_time:    ['sum of lead time (in days)','sum of lead time','sum_of_lead_time','lead time (in days)'],
+  swap_condition:      ['เงื่อนไขการแลกเปลี่ยนยาของบริษัท','swap_condition','swap condition','เงื่อนไขการแลกเปลี่ยน','เงื่อนไขแลกเปลี่ยน'],
+  swap_items:          ['ระบุรายการยาและเงื่อนไขยาแต่ละตัว','swap_items','swap items','ระบุเงื่อนไขการแลกเปลี่ยนยา','รายการยาแลกเปลี่ยน','ระบุรายการยาแลกเปลี่ยน'],
 }
 
 function _parseCSVRow(str) {
@@ -192,9 +192,17 @@ function _matchHeader(header) {
   return null;
 }
 
+function _parseExcelSerial(s) {
+  if (!/^\d{5}$/.test(s)) return null;
+  const d = new Date(Date.UTC(1899, 11, 30) + parseInt(s) * 86400000);
+  return isNaN(d) ? null : d;
+}
+
 function _parseReceiveDate(raw) {
   if (!raw||raw==='-'||raw==='0'||String(raw).trim()==='') return null;
   const s = String(raw).trim().split(/[\sT]/)[0];
+  const serial = _parseExcelSerial(s);
+  if (serial) return `${serial.getUTCFullYear()}-${String(serial.getUTCMonth()+1).padStart(2,'0')}-${String(serial.getUTCDate()).padStart(2,'0')}`;
   const sep = s.includes('/')?'/':s.includes('-')?'-':null;
   if (sep) {
     const p = s.split(sep).map(x=>x.trim());
@@ -212,6 +220,47 @@ function _parseReceiveDate(raw) {
   return null;
 }
 
+function _parseExpStr(raw) {
+  if (!raw || raw === '-') return '-';
+  const s = String(raw).trim();
+  const serial = _parseExcelSerial(s);
+  if (serial) return `${serial.getUTCDate()}/${serial.getUTCMonth()+1}/${serial.getUTCFullYear()}`;
+  return s || '-';
+}
+
+// insertReceiveRows — shared by importReceiveLogs (App.jsx path) and ReceiveLogApp
+// handles: drug_swap_policy backfill → DELETE all → INSERT chunks → audit log
+export async function insertReceiveRows(rows, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+
+  // Backfill drug_swap_policy จาก DB สำหรับ row ที่ CSV ไม่มีข้อมูล (ก่อน DELETE)
+  const needLookup = [...new Set(rows.filter(r => !r.drug_swap_policy && r.drug_code && r.drug_code !== '-').map(r => r.drug_code))]
+  if (needLookup.length > 0) {
+    const { data: ddRows } = await supabase.from('receive_logs').select('drug_code, drug_swap_policy').in('drug_code', needLookup)
+    if (ddRows) {
+      const swapByCode = {}
+      ddRows.forEach(d => { if (d.drug_code && d.drug_swap_policy && !swapByCode[d.drug_code]) swapByCode[d.drug_code] = d.drug_swap_policy })
+      rows.forEach(r => { if (!r.drug_swap_policy && swapByCode[r.drug_code]) r.drug_swap_policy = swapByCode[r.drug_code] })
+    }
+  }
+
+  const { error: delErr } = await supabase.from('receive_logs').delete().gte('id', 0)
+  if (delErr) throw delErr
+
+  const CHUNK = 300
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const { error: e } = await supabase.from('receive_logs').insert(rows.slice(i, i + CHUNK))
+    if (e) throw e
+    if (i + CHUNK < rows.length) await new Promise(r => setTimeout(r, 500))
+  }
+  await insertAuditLog({
+    action: 'import_receive', table_name: 'receive_logs',
+    user_name: resolveUserName(auth), department: auth.department,
+    record_count: rows.length,
+  })
+  return rows.length
+}
+
 export async function importReceiveLogs(csvText, auth = {}) {
   if (!supabase) throw new Error('Supabase not configured')
   const lines = csvText.split('\n').filter(l => l.trim())
@@ -220,8 +269,6 @@ export async function importReceiveLogs(csvText, auth = {}) {
   const headers = _parseCSVRow(lines[0])
   const mapping = {}
   headers.forEach((h, i) => { const f = _matchHeader(h); if (f) mapping[f] = i; })
-
-  const rawRows = lines.slice(1).map(_parseCSVRow)
 
   const getVal = (row, field) => {
     const idx = mapping[field];
@@ -233,7 +280,7 @@ export async function importReceiveLogs(csvText, auth = {}) {
     return v;
   }
 
-  const rows = rawRows
+  const rows = lines.slice(1).map(_parseCSVRow)
     .filter(row => row.some(c => c && c.trim() && c.trim() !== '-'))
     .map(row => {
       const swapFromCsv = [getVal(row,'swap_condition'),getVal(row,'swap_items')].filter(Boolean).join(' | ')||null;
@@ -259,7 +306,7 @@ export async function importReceiveLogs(csvText, auth = {}) {
         supplier_prev:       getVal(row,'supplier_prev')||'-',
         supplier_changed:    getVal(row,'supplier_changed')||'-',
         lot:                 getVal(row,'lot')||'-',
-        exp:                 getVal(row,'exp')||'-',
+        exp:                 _parseExpStr(getVal(row,'exp')),
         note:                getVal(row,'note'),
         exp_note:            getVal(row,'exp_note'),
         qty_received:        parseFloat(String(getVal(row,'qty_received')||'0').replace(/,/g,''))||null,
@@ -273,21 +320,7 @@ export async function importReceiveLogs(csvText, auth = {}) {
       }
     })
 
-  const { error: delErr } = await supabase.from('receive_logs').delete().gte('id', 0)
-  if (delErr) throw delErr
-
-  const CHUNK = 300
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const { error: e } = await supabase.from('receive_logs').insert(rows.slice(i, i + CHUNK))
-    if (e) throw e
-    if (i + CHUNK < rows.length) await new Promise(r => setTimeout(r, 500))
-  }
-  await insertAuditLog({
-    action: 'import_receive', table_name: 'receive_logs',
-    user_name: resolveUserName(auth), department: auth.department,
-    record_count: rows.length,
-  })
-  return rows.length
+  return insertReceiveRows(rows, auth)
 }
 
 // --- Dashboard Alerts ---
@@ -423,6 +456,15 @@ export async function insertReturnLog(log, auth = {}) {
 
 // --- Audit Log ---
 
+// normalize lot number สำหรับ search — strip leading zeros เฉพาะกรณีตัวเลขล้วน
+// "007" → "7", "B007" → "B007", "0" → "0"
+export function normalizeLotSearch(term) {
+  const t = String(term || '').trim();
+  if (!t) return t;
+  const stripped = t.replace(/^0+/, '') || '0';
+  return /^\d+$/.test(stripped) ? stripped : t;
+}
+
 export function resolveAuditUserName(auth) {
   if (!auth) return '-'
   const name = (auth.name || auth.full_name || '').trim()
@@ -550,6 +592,62 @@ export async function saveUploadMeta(type, fileName) {
   )
 }
 
+// --- Usage Rates (avg qty/day per drug from dispense_logs) ---
+
+export async function fetchUsageRates(months = 6) {
+  if (!supabase) return {}
+
+  const from = new Date()
+  from.setMonth(from.getMonth() - months)
+  const fromStr = from.toISOString().slice(0, 10)
+
+  const PAGE = 1000
+  const allRows = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('dispense_logs')
+      .select('drug_code, qty_out, dispense_date')
+      .gte('dispense_date', fromStr)
+      .range(offset, offset + PAGE - 1)
+    if (error) throw error
+    if (!data || data.length === 0) break
+    allRows.push(...data)
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+
+  // normalize ให้ตรงกับ codeKey() ใน App.jsx
+  const toKey = (val) => {
+    if (!val || val === '-') return ''
+    let s = String(val).trim().toLowerCase()
+    if (/^[\d.]+[eE][+\-]?\d+$/.test(s)) {
+      const n = parseFloat(s)
+      if (isFinite(n)) s = BigInt(Math.round(n)).toString()
+    }
+    return s.replace(/^0+(\d)/, '$1')
+  }
+
+  const codeData = {}
+  allRows.forEach(row => {
+    const code = toKey(row.drug_code)
+    if (!code) return
+    const qty = parseFloat(row.qty_out || 0) || 0
+    if (qty <= 0) return
+    if (!codeData[code]) codeData[code] = { totalQty: 0, monthSet: new Set() }
+    codeData[code].totalQty += qty
+    if (row.dispense_date) codeData[code].monthSet.add(String(row.dispense_date).slice(0, 7))
+  })
+
+  // คืนค่า avgPerDay เฉพาะยาที่มีข้อมูล ≥3 เดือน (ถ้าน้อยกว่านี้ fallback ss/60 ใน App.jsx)
+  const totalDays = months * 30
+  const result = {}
+  Object.entries(codeData).forEach(([code, { totalQty, monthSet }]) => {
+    if (monthSet.size >= 3) result[code] = totalQty / totalDays
+  })
+  return result
+}
+
 // --- App Users (Auth) ---
 
 const hashPassword = async (password) => {
@@ -568,7 +666,7 @@ export async function loginUser(username, password) {
   if (!supabase) return { error: 'Supabase ไม่ได้ตั้งค่า' }
   const { data, error } = await supabase
     .from('app_users')
-    .select('id, username, full_name, department, role, is_active, password_hash')
+    .select('*')
     .eq('username', username.trim())
     .single()
   if (error || !data) return { error: 'ไม่พบชื่อผู้ใช้' }
@@ -582,6 +680,7 @@ export async function loginUser(username, password) {
       name: data.full_name,
       department: data.department || '',
       role: data.role,
+      permissions: data.permissions || [],
     },
   }
 }
@@ -614,7 +713,7 @@ export async function fetchAppUsers() {
   if (!supabase) return []
   const { data, error } = await supabase
     .from('app_users')
-    .select('id, username, full_name, department, role, is_active, created_at')
+    .select('*')
     .order('created_at', { ascending: false })
   if (error) throw error
   return data || []
@@ -649,6 +748,15 @@ export async function updateAppUser(id, { full_name, department, role, is_active
   if (error) throw error
 }
 
+export async function updateUserPermissions(id, permissions) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error } = await supabase.from('app_users').update({
+    permissions: permissions,
+    updated_at: new Date().toISOString(),
+  }).eq('id', id)
+  if (error) throw error
+}
+
 export async function deleteAppUser(id) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
   const { error } = await supabase.from('app_users').delete().eq('id', id)
@@ -662,6 +770,78 @@ export async function changeAppUserPassword(id, newPassword) {
     .update({ password_hash: hash, updated_at: new Date().toISOString() })
     .eq('id', id)
   if (error) throw error
+}
+
+// --- Stock Summary (Dashboard modal) ---
+
+const parseUnitFactor = (unit) => {
+  const m = String(unit || '').match(/^(\d+)\s*(.+)$/);
+  if (m) return { factor: parseInt(m[1]), base: m[2].trim() };
+  return { factor: 1, base: String(unit || '-').trim() };
+};
+
+export async function fetchStockSummary() {
+  if (!supabase) return [];
+
+  const [invRes, recRes] = await Promise.all([
+    supabase.from('inventory').select('code, name, type, unit, qty, receive_status'),
+    supabase.from('receive_logs')
+      .select('drug_code, drug_unit, receive_date')
+      .not('drug_unit', 'is', null)
+      .not('drug_code', 'is', null)
+      .order('receive_date', { ascending: false })
+      .limit(10000),
+  ]);
+
+  if (invRes.error) throw invRes.error;
+
+  // latest unit per drug_code from receive_logs
+  const latestUnit = {};
+  (recRes.data || []).forEach(r => {
+    const key = (r.drug_code || '').trim();
+    if (key && key !== '-' && !latestUnit[key] && r.drug_unit) latestUnit[key] = r.drug_unit;
+  });
+
+  // group inventory by drug code
+  const drugMap = {};
+  (invRes.data || []).forEach(row => {
+    const qty = parseFloat(String(row.qty || '0').replace(/,/g, '')) || 0;
+    if (qty <= 0) return;
+    if (String(row.receive_status || '').includes('ตัดออก')) return;
+    const key = (row.code && row.code !== '-') ? row.code.trim() : (row.name || '').trim();
+    if (!key) return;
+    if (!drugMap[key]) drugMap[key] = { code: row.code, name: row.name, type: row.type, lots: [] };
+    drugMap[key].lots.push({ unit: row.unit, qty });
+  });
+
+  return Object.values(drugMap).map(drug => {
+    const codeKey = (drug.code && drug.code !== '-') ? drug.code.trim() : '';
+    const mainUnit = (codeKey && latestUnit[codeKey]) || drug.lots[0]?.unit || '-';
+    const mainParsed = parseUnitFactor(mainUnit);
+
+    const uniqueUnits = [...new Set(drug.lots.map(l => l.unit))];
+    const hasMultipleUnits = uniqueUnits.length > 1;
+
+    let totalSmallest = 0;
+    drug.lots.forEach(lot => {
+      const p = parseUnitFactor(lot.unit);
+      totalSmallest += lot.qty * p.factor;
+    });
+
+    const totalInMain = mainParsed.factor > 0 ? totalSmallest / mainParsed.factor : totalSmallest;
+    return {
+      code: drug.code,
+      name: drug.name,
+      type: drug.type,
+      mainUnit,
+      totalQty: Math.ceil(totalInMain),
+      hasMultipleUnits,
+      units: uniqueUnits,
+      lotCount: drug.lots.length,
+    };
+  })
+  .filter(d => d.totalQty > 0)
+  .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'th'));
 }
 
 // --- Analytics ---

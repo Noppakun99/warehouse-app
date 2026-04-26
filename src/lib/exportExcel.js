@@ -23,14 +23,12 @@ export async function exportToExcel(rows, columns, sheetName, fileName, auth = {
   const ws = XLSX.utils.aoa_to_sheet(wsData);
 
   // ปรับความกว้าง column อัตโนมัติ
-  const colWidths = columns.map((c, ci) => {
-    const maxLen = Math.max(
-      c.header.length,
-      ...rows.map(row => {
-        const v = wsData[rows.indexOf(row) + 1]?.[ci];
-        return String(v ?? '').length;
-      })
-    );
+  const colWidths = columns.map((_, ci) => {
+    let maxLen = String(wsData[0][ci] ?? '').length;
+    for (let ri = 1; ri < wsData.length; ri++) {
+      const len = String(wsData[ri][ci] ?? '').length;
+      if (len > maxLen) maxLen = len;
+    }
     return { wch: Math.min(maxLen + 2, 40) };
   });
   ws['!cols'] = colWidths;

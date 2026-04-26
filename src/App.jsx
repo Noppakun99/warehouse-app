@@ -1,12 +1,27 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { fetchInventory, saveInventory, fetchDrugDetails, fetchUploadMeta, saveUploadMeta, importReceiveLogs } from './lib/db';
+import { fetchInventory, saveInventory, fetchDrugDetails, fetchUploadMeta, saveUploadMeta, importReceiveLogs, fetchUsageRates, normalizeLotSearch } from './lib/db';
 import { supabase } from './lib/supabase';
+import { exportToExcel } from './lib/exportExcel';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
 import {
   Search, Package, MapPin, X, UploadCloud, FileSpreadsheet,
   AlertCircle, BarChart3, Layers, Pill, FileText,
-  ChevronUp, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw
+  ChevronUp, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw, FileDown,
 } from 'lucide-react';
+
+const INVENTORY_EXCEL_COLS = [
+  { header: 'ตำแหน่งจัดเก็บ',  key: 'location' },
+  { header: 'รหัสยา',           key: 'code' },
+  { header: 'ชื่อยา',           key: 'name' },
+  { header: 'ประเภท',           key: 'type' },
+  { header: 'หน่วย',            key: 'unit' },
+  { header: 'Lot Number',       key: 'lot' },
+  { header: 'Exp',              key: 'exp' },
+  { header: 'คงเหลือ',          key: 'qty' },
+  { header: 'ชนิดรายการ',       key: 'itemType' },
+  { header: 'สถานะรับยา',       key: 'receiveStatus' },
+  { header: 'Safety Stock',     key: 'safetyStock' },
+];
 
 // --- ข้อมูลตั้งต้นสำหรับคลังยา (Mockup Data) ---
 // * อัปเดต: เพิ่มฟิลด์ code (รหัสยา) เข้ามาเพื่อใช้ในการอ้างอิง
@@ -168,9 +183,10 @@ const parseCSVRow = (str) => {
   return arr;
 };
 
-export default function App({ onBackToDashboard, role = 'staff' }) {
+export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth = {} }) {
   const isStaff = role === 'staff' || role === 'admin';
   const [inventory, setInventory] = useState(initialInventory);
+  const [exportLoading, setExportLoading] = useState(false);
   const [drugDetails, setDrugDetails] = useState(initialDrugDetails);
   const [logFileName, setLogFileName] = useState('');
   const [logUpdateDate, setLogUpdateDate] = useState(null);
@@ -186,6 +202,7 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [view, setView] = useState('map'); // 'map' | 'order'
   const [dispenseUsage, setDispenseUsage] = useState({});
+  const [usageRates, setUsageRates] = useState({});
   const [uploadWarnings, setUploadWarnings] = useState(null); // { fileName, rows: [{row, issues[]}] }
   const [usageDateRange, setUsageDateRange] = useState(null);
   const [orderedItems, setOrderedItems] = useState(() => {
@@ -344,6 +361,14 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
     loadFromSupabase();
   }, []);
 
+  // โหลดเรทการใช้ยาจริง (avgPerDay) จาก dispense_logs 6 เดือนล่าสุด
+  useEffect(() => {
+    if (!supabase) return;
+    fetchUsageRates(6)
+      .then(r => setUsageRates(r))
+      .catch(() => {}); // fallback: lowStockItems ใช้ ss/60 แทนถ้าโหลดไม่ได้
+  }, []);
+
   const { todayForDisplay, targetDateForDisplay } = useMemo(() => {
     const today = new Date(); today.setHours(0,0,0,0);
     const target = new Date(today); target.setMonth(target.getMonth() + 16);
@@ -451,7 +476,8 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
     Object.entries(safetyMap).forEach(([code, { ss }]) => {
       const lt = ltMap[code] || 20; // ใช้ leadtime จาก CSV ถ้ามี ไม่งั้น default 20
       const currentQty = qtyMap[code] || 0;
-      const avgPerDay  = ss > 0 ? ss / 60 : 0;
+      // ใช้เรทการใช้จริงจาก dispense_logs ถ้ามีข้อมูล ≥3 เดือน ไม่งั้น fallback ss/60
+      const avgPerDay  = usageRates[code] ?? (ss > 0 ? ss / 60 : 0);
       const reorderPt  = ss + Math.round(avgPerDay * lt);
       alerts.push({
         code,
@@ -475,7 +501,7 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
       .filter(a => a.belowReorder)
       .filter(a => !(a.currentQty === 0 && discontinuedSet.has(a.code)))
       .sort((a, b) => a.pct - b.pct);
-  }, [drugDetails, inventory]);
+  }, [drugDetails, inventory, usageRates]);
 
   // Debug: ตรวจสอบว่ามีข้อมูล Safety Stock จากทั้ง drugDetails และ inventory
   const lowStockDebug = useMemo(() => {
@@ -666,14 +692,15 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
   const searchResults = useMemo(() => {
     if (!searchTerm) return [];
     const term = searchTerm.toLowerCase();
+    const lotTerm = normalizeLotSearch(term);
     const results = [];
-    
+
     Object.entries(inventory).forEach(([loc, items]) => {
       items.forEach((item, idx) => {
         if (
           item.name.toLowerCase().includes(term) ||
           (item.code && item.code.toLowerCase().includes(term)) ||
-          (item.lot && item.lot.toLowerCase().includes(term)) ||
+          (item.lot && normalizeLotSearch(item.lot.toLowerCase()).includes(lotTerm)) ||
           loc.toLowerCase().includes(term) ||
           (item.invoice && item.invoice.toLowerCase().includes(term))
         ) {
@@ -681,7 +708,7 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
         }
       });
     });
-    
+
     return results;
   }, [inventory, searchTerm]);
 
@@ -705,6 +732,22 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
       setErrorMsg('โหลดข้อมูลล้มเหลว: ' + err.message);
     }
     setTimeout(() => setSuccessMsg(''), 5000);
+  };
+
+  const handleInventoryExport = async () => {
+    setExportLoading(true);
+    try {
+      const rows = [];
+      Object.entries(inventory).forEach(([location, items]) => {
+        items.forEach(item => {
+          if ((item.qty || 0) > 0) rows.push({ ...item, location });
+        });
+      });
+      rows.sort((a, b) => a.location.localeCompare(b.location, 'th'));
+      await exportToExcel(rows, INVENTORY_EXCEL_COLS, 'คลังยา', `inventory_${new Date().toISOString().slice(0,10)}.xlsx`, auth);
+    } finally {
+      setExportLoading(false);
+    }
   };
 
   const handleReceiveFileUpload = (e) => {
@@ -901,13 +944,22 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
 
   const handleLocationClick = (locationId) => {
     const allItems = inventory[locationId] || [];
+    const filtered = allItems.filter(item => {
+      const qty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
+      return qty > 0;
+    });
+    // เรียงลำดับ exp ใกล้หมดก่อน (ascending) — ไม่มี exp อยู่ล่างสุด
+    filtered.sort((a, b) => {
+      const da = parseDateString(a.exp);
+      const db = parseDateString(b.exp);
+      if (da && db) return da - db;
+      if (da) return -1;
+      if (db) return 1;
+      return 0;
+    });
     setSelectedLocation({
       id: locationId,
-      items: allItems.filter(item => {
-        const isDiscontinued = String(item.receiveStatus || '').includes('ตัดออก');
-        const qty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
-        return !(isDiscontinued && qty === 0);
-      })
+      items: filtered,
     });
     setExpandedDetailsId(null);
   };
@@ -917,11 +969,10 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
   };
 
   const Slot = ({ id }) => {
-    // กรองรายการ ตัดออก+qty=0 ออก; ถ้ายังมีของเหลือให้แสดงตามปกติ
+    // ซ่อน qty=0 จากแผนผัง — ข้อมูลยังอยู่ใน inventory state เพื่อคำนวณ low-stock alert
     const visibleItems = (inventory[id] || []).filter(item => {
-      const isDiscontinued = String(item.receiveStatus || '').includes('ตัดออก');
       const qty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
-      return !(isDiscontinued && qty === 0);
+      return qty > 0;
     });
     const itemCount = visibleItems.length;
     const highlighted = isMatch(id);
@@ -1646,7 +1697,7 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
                 <Database size={28} className="relative z-10" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+                <h1 className="text-2xl font-bold text-white flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity" onClick={onRefresh}>
                   ระบบแผนผังและข้อมูลคลังยา
                 </h1>
                 {isStaff && (
@@ -1741,11 +1792,14 @@ export default function App({ onBackToDashboard, role = 'staff' }) {
                   <BarChart3 size={16} /> สรุปข้อมูล
                 </button>
 
-                {isStaff && <>
-                  <button onClick={() => setShowResetConfirm(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
-                    <RefreshCcw size={16} /> รีเซ็ตข้อมูล
-                  </button>
+                <button
+                  onClick={handleInventoryExport}
+                  disabled={exportLoading || Object.keys(inventory).length === 0}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
+                  <FileDown size={16} /> {exportLoading ? 'กำลังส่งออก...' : 'Export Excel'}
+                </button>
 
+                {isStaff && <>
                   <div className="flex gap-1">
                     <button onClick={() => logInputRef.current?.click()} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
                       <UploadCloud size={16} /> อัปโหลด Log

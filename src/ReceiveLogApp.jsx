@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from './lib/supabase';
-import { fetchDrugDetails } from './lib/db';
+import { fetchDrugDetails, RECEIVE_COL_MAP, insertReceiveRows, normalizeLotSearch } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 import {
   ArrowLeft, UploadCloud, RefreshCcw, Search, X,
@@ -21,45 +21,7 @@ function DrugTypeBadge({ type }) {
   return <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>{type}</span>;
 }
 
-// ============================================================
-// Column aliases
-// ============================================================
-const COL_MAP = {
-  order_date:           ['วันที่แจ้งสั่ง', 'order date', 'order_date', 'วันสั่ง', 'วันที่สั่ง'],
-  receive_date:         ['วันที่รับ', 'receive date', 'receive_date', 'วันที่รับของ', 'วันรับ', 'วันที่'],
-  inspect_date:         ['วันที่ตรวจรับ', 'inspect date', 'inspect_date', 'วันตรวจรับ'],
-  leadtime:             ['leadtime', 'lead time', 'ระยะเวลา'],
-  inspect_lag:          ['วันที่ตรวจรับ-วันที่รับของ', 'inspect lag', 'lag', 'ระยะตรวจรับ'],
-  bill_number:          ['เลขที่บิลซื้อ', 'เลขบิล', 'bill', 'bill_number', 'เลขที่บิล', 'invoice'],
-  po_number:            ['เลขที่po', 'po number', 'po_number', 'po', 'เลข po'],
-  purchase_type:        ['สถานะ', 'สถานะการซื้อ', 'สถานะการสั่ง', 'purchase type', 'purchase_type', 'ประเภทการซื้อ'],
-  receive_status:       ['ผลการพิจารณา', 'สถานะตรวจรับ', 'สถานะการตรวจรับ', 'สถานะตรวจ', 'receive status', 'receive_status', 'สถานะรับ'],
-  main_log:             ['mainlog', 'main_log', 'main log', 'log หลัก'],
-  detail_log:           ['detailedlog', 'detail_log', 'detailed log', 'detaillog', 'log ย่อย'],
-  drug_code:            ['รหัส', 'รหัสยา', 'รหัสhosxp', 'รหัส hosxp', 'code', 'drug_code'],
-  drug_name:            ['รายการยา', 'ชื่อยา', 'drug_name', 'name', 'item'],
-  drug_type:            ['รูปแบบ', 'ชนิด', 'type', 'drug_type', 'form'],
-  item_type:            ['ชนิดรายการ', 'item_type', 'item type'],
-  drug_unit:            ['หน่วย', 'หน่วยยา', 'drug_unit', 'unit_label'],
-  supplier_current:     ['บริษัทปัจจุบัน', 'บริษัทยา', 'บริษัท', 'supplier', 'supplier_current', 'vendor'],
-  supplier_prev:        ['บริษัทก่อนหน้า', 'บริษัทก่อนนาน', 'supplier_prev', 'previous supplier', 'บริษัทเก่า'],
-  supplier_changed:     ['เปลี่ยนบริษัท', 'supplier_changed', 'change', 'เปลี่ยน'],
-  lot:                  ['lot', 'lot.', 'lot number', 'lot no', 'เลขที่ lot'],
-  exp:                  ['exp', 'exp.', 'exp date', 'วันหมดอายุ'],
-  note:                 ['หมายเหตุ', 'note', 'notes', 'remark', 'หมายเหตุรับ'],
-  exp_note:             ['หมายเหตุหมดอายุ', 'exp_note', 'exp note', 'expiry note'],
-  qty_received:         ['จำนวนที่รับ', 'qty_received', 'quantity', 'จำนวนรับ', 'จำนวน'],
-  unit_per_bill:        ['หน่วย/บิล', 'unit_per_bill', 'unit per bill', 'หน่วยบิล'],
-  price_per_unit:       ['ราคาต่อหน่วย(บาท)', 'ราคาต่อหน่วย', 'ราคา/หน่วย', 'price_per_unit', 'price', 'unit price'],
-  total_price_vat:      ['ราคารวมภาษี (บาท)', 'ราคารวมภาษี', 'total_price_vat', 'total vat', 'ราคารวม'],
-  total_price_formula:  ['ราคารวมภาษี (บาท)/สูตร', 'ราคารวมภาษี/สูตร', 'total_price_formula', 'formula price'],
-  safety_stock:         ['safety stock', 'safety_stock', 'สต็อกขั้นต่ำ', 'ปริมาณขั้นต่ำ'],
-  sum_of_lead_time:     ['sum of lead time (in days)', 'sum of lead time', 'sum_of_lead_time', 'lead time (in days)'],
-  swap_condition:       ['เงื่อนไขการแลกเปลี่ยนยาของบริษัท', 'swap_condition', 'swap condition', 'เงื่อนไขการแลกเปลี่ยน'],
-  swap_items:           ['ระบุรายการยาและเงื่อนไขยาแต่ละตัว', 'swap_items', 'swap items', 'ระบุรายการยาแลกเปลี่ยน'],
-};
-
-const CHUNK = 300;
+// COL_MAP อยู่ใน db.js (RECEIVE_COL_MAP) — import มาใช้ที่นี่แทน
 
 // แปลง ISO (yyyy-mm-dd) ↔ Thai (dd/mm/yyyy)
 const isoToThai = (iso) => {
@@ -141,12 +103,10 @@ const FIELD_LABELS = {
 
 function matchHeader(header) {
   const h = header.toLowerCase().trim().replace(/\s+/g, ' ');
-  // Pass 1: exact match
-  for (const [field, aliases] of Object.entries(COL_MAP)) {
+  for (const [field, aliases] of Object.entries(RECEIVE_COL_MAP)) {
     if (aliases.some(a => h === a.toLowerCase().trim())) return field;
   }
-  // Pass 2: partial includes — เฉพาะ alias >= 7 ตัว เพื่อกันชนกับ alias สั้น
-  for (const [field, aliases] of Object.entries(COL_MAP)) {
+  for (const [field, aliases] of Object.entries(RECEIVE_COL_MAP)) {
     if (aliases.some(a => a.trim().length >= 7 && h.includes(a.toLowerCase().trim()))) return field;
   }
   return null;
@@ -210,6 +170,10 @@ const fmtAnyDate = (raw) => {
 function parseDate(raw) {
   if (!raw || raw === '-' || raw === '0' || String(raw).trim() === '') return null;
   const s = String(raw).trim().split(/[\sT]/)[0];
+  if (/^\d{5}$/.test(s)) {
+    const d = new Date(Date.UTC(1899, 11, 30) + parseInt(s) * 86400000);
+    if (!isNaN(d)) return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+  }
   const sep = s.includes('/') ? '/' : s.includes('-') ? '-' : null;
   if (sep) {
     const p = s.split(sep).map(x => x.trim());
@@ -244,12 +208,13 @@ const RECEIVE_EXCEL_COLS = [
   { header: 'ผลการพิจารณา',       key: 'receive_status' },
   { header: 'ประเภทการซื้อ',      key: 'purchase_type' },
   { header: 'หมายเหตุ',           key: 'note' },
+  { header: 'เงื่อนไขแลกเปลี่ยนยา', key: 'drug_swap_policy' },
 ]
 
 // ============================================================
 // Root
 // ============================================================
-export default function ReceiveLogApp({ onBack, auth = {} }) {
+export default function ReceiveLogApp({ onBack, onRefresh, auth = {} }) {
   const [tab, setTab]                 = useState('view');
   const [showSummary, setShowSummary] = useState(false);
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
@@ -259,10 +224,10 @@ export default function ReceiveLogApp({ onBack, auth = {} }) {
     <div className="min-h-screen bg-slate-200 text-slate-800 font-sans">
       <div className="sticky top-0 z-10 bg-emerald-700 shadow-md px-4 py-3 flex items-center gap-2">
         <button onClick={onBack} className="text-emerald-100 hover:text-white p-1 transition-colors shrink-0"><ArrowLeft size={20}/></button>
-        <div className="flex items-center gap-2 flex-1 min-w-0">
+        <button onClick={onRefresh} className="flex items-center gap-2 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity">
           <TrendingUp size={20} className="text-white shrink-0" />
           <span className="font-semibold text-white truncate">บันทึกการรับเข้าคลัง (คลังรับ)</span>
-        </div>
+        </button>
         <div className="flex items-center gap-1 shrink-0">
           <button onClick={() => setShowSummary(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white/20 text-white hover:bg-white/30 border border-white/30 transition-all">
@@ -337,11 +302,14 @@ function ReceiveImport({ onDone }) {
         .map((row, i) => ({ row, rowNum: i + 2 }))
         .filter(({ row }) => row.some(c => c.trim()));
 
-      const rows = activeRaws.map(({ row, rowNum }) => {
+      const rows = activeRaws.flatMap(({ row, rowNum }) => {
           const drugName   = getVal(row, 'drug_name');
           const drugCode   = normalizeCode(getVal(row, 'drug_code'));
           const lot        = getVal(row, 'lot') || '-';
           const billNumber = getVal(row, 'bill_number') || '-';
+
+          // ข้ามแถวที่ไม่มีชื่อยาและไม่มีรหัสยาเลย (แถว footer/total/ว่าง)
+          if (!drugName && (!drugCode || drugCode === '-')) return [];
 
           const issues = [];
           if (!drugName) issues.push('ไม่มีชื่อยา');
@@ -351,7 +319,7 @@ function ReceiveImport({ onDone }) {
           if (issues.length > 0) warnRows.push({ row: rowNum, name: drugName || '-', code: drugCode || '-', issues });
 
           const swapFromCsv = [getVal(row, 'swap_condition'), getVal(row, 'swap_items')].filter(Boolean).join(' | ') || null;
-          return {
+          return [{
             order_date:           parseDate(getVal(row, 'order_date')),
             receive_date:         parseDate(getVal(row, 'receive_date')),
             inspect_date:         parseDate(getVal(row, 'inspect_date')),
@@ -372,7 +340,7 @@ function ReceiveImport({ onDone }) {
             supplier_prev:        getVal(row, 'supplier_prev') || '-',
             supplier_changed:     getVal(row, 'supplier_changed') || '-',
             lot,
-            exp:                  getVal(row, 'exp') || '-',
+            exp:                  fmtAnyDate(getVal(row, 'exp')),
             note:                 getVal(row, 'note'),
             exp_note:             getVal(row, 'exp_note'),
             qty_received:         parseFloat(String(getVal(row, 'qty_received') || '0').replace(/,/g,'')) || null,
@@ -383,28 +351,10 @@ function ReceiveImport({ onDone }) {
             safety_stock:         parseFloat(String(getVal(row, 'safety_stock') || '').replace(/,/g,'')) || null,
             sum_of_lead_time:     getVal(row, 'sum_of_lead_time') || null,
             drug_swap_policy:     swapFromCsv,
-          };
+          }];
         });
 
-      // Fallback: ดึง drug_swap_policy จาก drug_details DB สำหรับ row ที่ CSV ไม่มีข้อมูล
-      const needLookup = [...new Set(rows.filter(r => !r.drug_swap_policy && r.drug_code && r.drug_code !== '-').map(r => r.drug_code))];
-      if (needLookup.length > 0) {
-        const { data: ddRows } = await supabase.from('receive_logs').select('drug_code, drug_swap_policy').in('drug_code', needLookup);
-        if (ddRows) {
-          const swapByCode = {};
-          ddRows.forEach(d => { if (d.drug_code && d.drug_swap_policy && !swapByCode[d.drug_code]) swapByCode[d.drug_code] = d.drug_swap_policy; });
-          rows.forEach(r => { if (!r.drug_swap_policy && swapByCode[r.drug_code]) r.drug_swap_policy = swapByCode[r.drug_code]; });
-        }
-      }
-
-      const { error: delErr } = await supabase.from('receive_logs').delete().gte('id', 0);
-      if (delErr) throw delErr;
-      for (let i = 0; i < rows.length; i += CHUNK) {
-        const { error: e } = await supabase.from('receive_logs').insert(rows.slice(i, i + CHUNK));
-        if (e) throw e;
-        // รอ 500ms ก่อน chunk ถัดไป ป้องกัน Supabase rate limit
-        if (i + CHUNK < rows.length) await new Promise(r => setTimeout(r, 500));
-      }
+      await insertReceiveRows(rows, auth);
       const now = new Date();
       const importTime = now.toLocaleString('th-TH', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
       setStatus(`นำเข้าสำเร็จ ${rows.length.toLocaleString()} รายการ · นำเข้าเมื่อ ${importTime}`);
@@ -542,7 +492,7 @@ function ReceiveImport({ onDone }) {
           <details>
             <summary className="cursor-pointer text-xs text-indigo-600 hover:text-indigo-800 font-medium select-none">แก้ไขการจับคู่คอลัมน์ด้วยตัวเอง ▸</summary>
             <div className="grid grid-cols-1 gap-1.5 max-h-72 overflow-y-auto mt-2 pr-1">
-              {Object.keys(COL_MAP).map(field => (
+              {Object.keys(RECEIVE_COL_MAP).map(field => (
                 <div key={field} className="grid gap-2 items-center" style={{gridTemplateColumns:'10rem 1fr'}}>
                   <span className="text-xs text-slate-600 font-medium truncate">{FIELD_LABELS[field] || field}</span>
                   <select value={mapping[field] ?? ''}
@@ -563,7 +513,7 @@ function ReceiveImport({ onDone }) {
               <table className="text-xs w-full">
                 <thead>
                   <tr className="text-slate-600 border-b border-slate-200 bg-slate-50">
-                    {Object.keys(COL_MAP).filter(f => mapping[f] != null).map(f => (
+                    {Object.keys(RECEIVE_COL_MAP).filter(f => mapping[f] != null).map(f => (
                       <th key={f} className="px-3 py-2 text-left font-semibold whitespace-nowrap">{FIELD_LABELS[f] || f}</th>
                     ))}
                   </tr>
@@ -571,7 +521,7 @@ function ReceiveImport({ onDone }) {
                 <tbody>
                   {rawRows.slice(0, 3).map((row, i) => (
                     <tr key={i} className="border-b border-slate-100">
-                      {Object.keys(COL_MAP).filter(f => mapping[f] != null).map(f => {
+                      {Object.keys(RECEIVE_COL_MAP).filter(f => mapping[f] != null).map(f => {
                         const val = getVal(row, f);
                         return (
                           <td key={f} className={`px-3 py-1.5 truncate max-w-[140px] ${val ? 'text-slate-700' : 'text-rose-300'}`}>
@@ -624,6 +574,7 @@ function ReceiveView({ isAdmin = false }) {
   const [expanded, setExpanded]       = useState(null);
   const [drugExpanded, setDrugExpanded] = useState(null);
   const [page, setPage]               = useState(0);
+  const [exportLoading, setExportLoading] = useState(false);
   const PAGE_SIZE = 50;
   const searchRef    = useRef(null);
   const supplierRef  = useRef(null);
@@ -680,7 +631,7 @@ function ReceiveView({ isAdmin = false }) {
     let q = supabase.from('receive_logs').select('*')
       .order('receive_date', { ascending: false })
       .order('id', { ascending: false });
-    if (search.trim())  q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%,bill_number.ilike.%${search}%`);
+    if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%,bill_number.ilike.%${search}%`); }
     const isoFrom = thaiToIso(dateFrom) || dateFrom;
     const isoTo   = thaiToIso(dateTo)   || dateTo;
     if (dateFrom && dateTo)   { q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo); }
@@ -720,6 +671,29 @@ function ReceiveView({ isAdmin = false }) {
   }, [search, supplierFilter, dateFrom, dateTo]);
 
   useEffect(() => { const t = setTimeout(loadAgg, 300); return () => clearTimeout(t); }, [loadAgg]);
+
+  const handleExport = async () => {
+    if (!supabase) return;
+    setExportLoading(true);
+    try {
+      const isoFrom = thaiToIso(dateFrom) || dateFrom;
+      const isoTo   = thaiToIso(dateTo)   || dateTo;
+      const allRows = await fetchAllRows(() => {
+        let q = supabase.from('receive_logs').select('*')
+          .order('receive_date', { ascending: false })
+          .order('id', { ascending: false });
+        if (search.trim())       q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%,bill_number.ilike.%${search}%`);
+        if (supplierFilter)      q = q.eq('supplier_current', supplierFilter);
+        if (dateFrom && dateTo)  q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo);
+        else if (dateFrom)       q = q.eq('receive_date', isoFrom);
+        else if (dateTo)         q = q.lte('receive_date', isoTo);
+        return q;
+      });
+      exportToExcel(allRows, RECEIVE_EXCEL_COLS, 'ประวัติรับยา', `receive_logs_${new Date().toISOString().slice(0,10)}.xlsx`, auth);
+    } finally {
+      setExportLoading(false);
+    }
+  };
 
   useEffect(() => {
     fetchDrugDetails().then(details => {
@@ -939,11 +913,11 @@ function ReceiveView({ isAdmin = false }) {
             <RefreshCcw size={16}/>
           </button>
           <button
-            onClick={() => exportToExcel(rows, RECEIVE_EXCEL_COLS, 'ประวัติรับยา', `receive_logs_${new Date().toISOString().slice(0,10)}.xlsx`)}
-            disabled={rows.length === 0}
+            onClick={handleExport}
+            disabled={exportLoading || rows.length === 0}
             className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-xl text-xs font-semibold transition-colors"
-            title="ส่งออก Excel">
-            <FileDown size={14} /> Excel
+            title="ส่งออก Excel ทุกแถว">
+            <FileDown size={14} /> {exportLoading ? 'กำลังโหลด...' : 'Excel'}
           </button>
           {isAdmin && (
             <button onClick={deleteBlankRows} className="text-rose-400 hover:text-rose-600 text-xs px-2 py-1.5 rounded-lg border border-rose-200 hover:bg-rose-50 transition-colors" title="ลบ row ที่เป็น (blank)">

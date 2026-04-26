@@ -2,11 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft, Search, Plus, Pencil, Trash2, X,
   User, Shield, ShieldCheck, Eye, EyeOff, RefreshCcw,
-  CheckCircle, XCircle, KeyRound, Users,
+  CheckCircle, XCircle, KeyRound, Users, ShieldPlus,
 } from 'lucide-react';
 import {
   fetchAppUsers, createAppUser, updateAppUser,
-  deleteAppUser, changeAppUserPassword,
+  deleteAppUser, changeAppUserPassword, updateUserPermissions,
 } from './lib/db';
 
 const ROLE_CONFIG = {
@@ -46,6 +46,17 @@ const SYSTEM_ACCESS = {
     { name: 'จัดการผู้ใช้',    color: 'bg-violet-200 text-violet-800' },
   ],
 };
+
+// ระบบที่ admin สามารถ grant เพิ่มให้ผู้ใช้แต่ละคนได้ (ยกเว้น users ที่เป็น admin-only)
+const GRANTABLE_SYSTEMS = [
+  { key: 'inventory',  label: 'แผนผังคลังยา',        color: 'bg-indigo-100 text-indigo-700', defaultRoles: ['requester','staff','admin'] },
+  { key: 'requisition',label: 'เบิกยาออนไลน์',       color: 'bg-blue-100 text-blue-700',    defaultRoles: ['requester','staff','admin'] },
+  { key: 'receive',    label: 'ประวัติรับเข้าคลัง',  color: 'bg-emerald-100 text-emerald-700', defaultRoles: ['requester','staff','admin'] },
+  { key: 'dispense',   label: 'ประวัติเบิกยา',       color: 'bg-rose-100 text-rose-700',    defaultRoles: ['requester','staff','admin'] },
+  { key: 'return',     label: 'คืนยา',               color: 'bg-violet-100 text-violet-700', defaultRoles: ['requester','staff','admin'] },
+  { key: 'audit',      label: 'Audit Log',            color: 'bg-slate-100 text-slate-600',  defaultRoles: ['staff','admin'] },
+  { key: 'analytics',  label: 'วิเคราะห์การเบิกยา', color: 'bg-cyan-100 text-cyan-700',    defaultRoles: ['requester','staff','admin'] },
+];
 
 const DEPARTMENTS = [
   'คลังยา',
@@ -93,7 +104,7 @@ function PasswordInput({ value, onChange, placeholder = 'รหัสผ่า�
 // ============================================================
 // UserManagementApp
 // ============================================================
-export default function UserManagementApp({ onBack, auth }) {
+export default function UserManagementApp({ onBack, onRefresh, auth }) {
   const [users, setUsers]     = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch]   = useState('');
@@ -113,6 +124,7 @@ export default function UserManagementApp({ onBack, auth }) {
   const [fDepartment, setFDepartment] = useState('');
   const [fRole,       setFRole]       = useState('requester');
   const [fActive,     setFActive]     = useState(true);
+  const [fPermissions, setFPermissions] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -132,9 +144,10 @@ export default function UserManagementApp({ onBack, auth }) {
     setFRole(u.role); setFActive(u.is_active);
     setError(''); setModal('edit');
   };
-  const openPassword = (u) => { setTarget(u); setFPassword(''); setFConfirm(''); setError(''); setModal('password'); };
-  const openDelete   = (u) => { setTarget(u); setError(''); setModal('delete'); };
-  const closeModal   = () => { setModal(null); setTarget(null); setError(''); };
+  const openPassword    = (u) => { setTarget(u); setFPassword(''); setFConfirm(''); setError(''); setModal('password'); };
+  const openDelete      = (u) => { setTarget(u); setError(''); setModal('delete'); };
+  const openPermissions = (u) => { setTarget(u); setFPermissions(u.permissions || []); setError(''); setModal('permissions'); };
+  const closeModal      = () => { setModal(null); setTarget(null); setError(''); };
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -177,6 +190,18 @@ export default function UserManagementApp({ onBack, auth }) {
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   };
 
+  const handlePermissions = async () => {
+    setSaving(true); setError('');
+    try {
+      await updateUserPermissions(target.id, fPermissions);
+      await load(); closeModal();
+    } catch (err) { setError(err.message); } finally { setSaving(false); }
+  };
+
+  const togglePerm = (key) => {
+    setFPermissions(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
+
   const fmtDate = (iso) => {
     if (!iso) return '-';
     const d = new Date(iso);
@@ -199,10 +224,10 @@ export default function UserManagementApp({ onBack, auth }) {
         <button onClick={onBack} className="p-1 text-white/80 hover:text-white transition-colors">
           <ArrowLeft size={20}/>
         </button>
-        <div className="flex-1 border-l-4 border-white/40 pl-3 py-0.5">
+        <button onClick={onRefresh} className="flex-1 border-l-4 border-white/40 pl-3 py-0.5 text-left hover:opacity-80 transition-opacity">
           <p className="font-bold text-white text-xl drop-shadow">จัดการผู้ใช้งาน</p>
           <p className="text-violet-200 text-sm">สร้าง แก้ไข และลบบัญชีผู้ใช้</p>
-        </div>
+        </button>
         <button onClick={load} className="p-2 text-white/70 hover:text-white transition-colors" title="รีเฟรช">
           <RefreshCcw size={16}/>
         </button>
@@ -294,6 +319,15 @@ export default function UserManagementApp({ onBack, auth }) {
                           {(SYSTEM_ACCESS[u.role] || SYSTEM_ACCESS.requester).map(s => (
                             <span key={s.name} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap ${s.color}`}>{s.name}</span>
                           ))}
+                          {(u.permissions || []).filter(key => {
+                            const sys = GRANTABLE_SYSTEMS.find(g => g.key === key);
+                            return sys && !sys.defaultRoles.includes(u.role);
+                          }).map(key => {
+                            const sys = GRANTABLE_SYSTEMS.find(g => g.key === key);
+                            return sys ? (
+                              <span key={key} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap border border-dashed border-current ${sys.color}`}>+{sys.label}</span>
+                            ) : null;
+                          })}
                         </div>
                       </td>
 
@@ -309,6 +343,10 @@ export default function UserManagementApp({ onBack, auth }) {
                           <button onClick={() => openEdit(u)}
                             className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="แก้ไข">
                             <Pencil size={14}/>
+                          </button>
+                          <button onClick={() => openPermissions(u)}
+                            className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="กำหนดสิทธิ์ระบบ">
+                            <ShieldPlus size={14}/>
                           </button>
                           <button onClick={() => openPassword(u)}
                             className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors" title="เปลี่ยนรหัสผ่าน">
@@ -430,6 +468,49 @@ export default function UserManagementApp({ onBack, auth }) {
                 </div>
                 <ModalFooter saving={saving} onCancel={closeModal} submitLabel="เปลี่ยนรหัสผ่าน" danger/>
               </form>
+            )}
+
+            {/* Permissions */}
+            {modal === 'permissions' && target && (
+              <div>
+                <ModalHeader title={`สิทธิ์ระบบ: ${target.username}`} icon={<ShieldPlus size={18}/>} onClose={closeModal}/>
+                <div className="p-5 space-y-3">
+                  <p className="text-xs text-slate-500">
+                    บทบาท <strong>{ROLE_CONFIG[target.role]?.label || target.role}</strong> — ติ๊กถูกสีเทา = มีสิทธิ์จาก role แล้ว · ติ๊กถูกสีเขียว = grant เพิ่มเป็นพิเศษ
+                  </p>
+                  <div className="space-y-2">
+                    {GRANTABLE_SYSTEMS.map(sys => {
+                      const fromRole = sys.defaultRoles.includes(target.role);
+                      const granted  = fPermissions.includes(sys.key);
+                      return (
+                        <label key={sys.key} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors ${fromRole ? 'bg-slate-50 border-slate-200 cursor-default' : granted ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-slate-200 hover:bg-slate-50'}`}>
+                          <input
+                            type="checkbox"
+                            checked={fromRole || granted}
+                            disabled={fromRole}
+                            onChange={() => !fromRole && togglePerm(sys.key)}
+                            className="w-4 h-4 accent-emerald-600 disabled:accent-slate-400"
+                          />
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-md ${sys.color}`}>{sys.label}</span>
+                          {fromRole && <span className="ml-auto text-[10px] text-slate-400">จาก role</span>}
+                          {!fromRole && granted && <span className="ml-auto text-[10px] text-emerald-600 font-semibold">grant เพิ่ม</span>}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {error && <ErrorMsg>{error}</ErrorMsg>}
+                </div>
+                <div className="flex gap-2 px-5 pb-5">
+                  <button type="button" onClick={closeModal}
+                    className="flex-1 border border-slate-300 rounded-xl py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+                    ยกเลิก
+                  </button>
+                  <button type="button" onClick={handlePermissions} disabled={saving}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-2.5 text-sm font-semibold transition-colors disabled:opacity-50">
+                    {saving ? 'กำลังบันทึก...' : 'บันทึกสิทธิ์'}
+                  </button>
+                </div>
+              </div>
             )}
 
             {/* Delete Confirm */}

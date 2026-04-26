@@ -6,14 +6,16 @@ import {
   User, Shield, LogOut, ShieldCheck, Users,
   ChevronRight, Activity, Database, Clock,
   AlertTriangle, ChevronDown, ChevronUp, RotateCcw, ClipboardList,
-  Eye, EyeOff, X, Bell,
+  Eye, EyeOff, X, Bell, Search, RefreshCcw,
 } from 'lucide-react';
 import App                from './App';
+import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
+import { exportToExcel }  from './lib/exportExcel';
 import RequisitionApp     from './RequisitionApp';
 import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
-import { fetchDashboardAlerts, fetchNotifications, loginUser, registerUser, checkFirstRun, createAppUser } from './lib/db';
+import { fetchDashboardAlerts, fetchNotifications, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary } from './lib/db';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
@@ -36,9 +38,11 @@ export default function AppRoot() {
     try { return JSON.parse(sessionStorage.getItem(AUTH_KEY)) || null; } catch { return null; }
   });
   const [page, setPage]   = useState('dashboard');
+  const [subKey, setSubKey] = useState(0);
 
   const handleLogin = (user) => { sessionStorage.setItem(AUTH_KEY, JSON.stringify(user)); setAuth(user); };
   const logout = () => { sessionStorage.removeItem(AUTH_KEY); setAuth(null); setPage('dashboard'); };
+  const refreshPage = () => setSubKey(k => k + 1);
 
   let content;
   if (!auth) {
@@ -46,13 +50,15 @@ export default function AppRoot() {
   } else {
     switch (page) {
       case 'inventory':
-        content = <App onBackToDashboard={() => setPage('dashboard')} role={auth.role} />;
+        content = <App key={subKey} onBackToDashboard={() => setPage('dashboard')} onRefresh={refreshPage} role={auth.role} auth={auth} />;
         break;
       case 'requisition':
       case 'requisition-history':
         content = (
           <RequisitionApp
+            key={subKey}
             onBack={() => setPage('dashboard')}
+            onRefresh={refreshPage}
             prefilledUser={{ name: (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username, department: auth.department }}
             startAsStaff={auth.role === 'staff' || auth.role === 'admin'}
             initialStep={page === 'requisition-history' ? 'history' : null}
@@ -61,22 +67,22 @@ export default function AppRoot() {
         );
         break;
       case 'dispense':
-        content = <DispenseLogApp onBack={() => setPage('dashboard')} auth={auth} />;
+        content = <DispenseLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
         break;
       case 'receive':
-        content = <ReceiveLogApp onBack={() => setPage('dashboard')} auth={auth} />;
+        content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
         break;
       case 'return':
-        content = <ReturnApp onBack={() => setPage('dashboard')} auth={auth} />;
+        content = <ReturnApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
         break;
       case 'audit':
-        content = <AuditLogApp onBack={() => setPage('dashboard')} auth={auth} />;
+        content = <AuditLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
         break;
       case 'users':
-        content = <UserManagementApp onBack={() => setPage('dashboard')} auth={auth} />;
+        content = <UserManagementApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
         break;
       case 'analytics':
-        content = <AnalyticsApp onBack={() => setPage('dashboard')} />;
+        content = <AnalyticsApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} />;
         break;
       default:
         content = <Dashboard auth={auth} onNavigate={setPage} onLogout={logout} />;
@@ -511,12 +517,13 @@ function timeAgo(iso) {
 
 function Dashboard({ auth, onNavigate, onLogout }) {
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
-  const visible = SYSTEMS.filter(s => s.roles.includes(auth.role));
+  const extraPerms = auth.permissions || [];
+  const visible = SYSTEMS.filter(s => s.roles.includes(auth.role) || extraPerms.includes(s.key));
   const [uploadMeta, setUploadMeta] = useState({ inventory: null, drug_details: null });
   const [lastReceive, setLastReceive] = useState(null);
   const [lastDispense, setLastDispense] = useState(null);
   const [alerts, setAlerts] = useState({ expiring: [], lowStock: [] });
-  const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock'
+  const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock' | 'stock'
 
   // Notification bell
   const LAST_READ_KEY = `notif_last_read_${auth.id}`;
@@ -718,6 +725,7 @@ function Dashboard({ auth, onNavigate, onLogout }) {
           onOpenExpiry={() => setAlertModal('expiry')}
           onOpenLowStock={() => setAlertModal('lowStock')}
           onOpenRequisition={() => onNavigate(isStaff ? 'requisition' : 'requisition-history')}
+          onOpenStock={() => setAlertModal('stock')}
         />
       </div>
 
@@ -777,6 +785,9 @@ function Dashboard({ auth, onNavigate, onLogout }) {
       )}
       {alertModal === 'lowStock' && (
         <LowStockAlertSection lowStock={alerts.lowStock} onClose={() => setAlertModal(null)} />
+      )}
+      {alertModal === 'stock' && (
+        <StockSummaryModal onClose={() => setAlertModal(null)} auth={auth} />
       )}
     </div>
   );
@@ -1047,8 +1058,184 @@ function LowStockAlertSection({ lowStock = [], onClose }) {
   return inner;
 }
 
+const STOCK_EXCEL_COLS = [
+  { header: 'รหัสยา',      key: 'code' },
+  { header: 'ชื่อยา',      key: 'name' },
+  { header: 'ประเภท',      key: 'type' },
+  { header: 'คงเหลือ',     key: 'totalQty' },
+  { header: 'หน่วยหลัก',   key: 'mainUnit' },
+  { header: 'หลายหน่วย',   value: r => r.hasMultipleUnits ? r.units.join(', ') : '' },
+  { header: 'จำนวน Lot',   key: 'lotCount' },
+];
+
+// ---- Stock Summary Modal ----
+function StockSummaryModal({ onClose, auth = {} }) {
+  const [rows, setRows]             = React.useState([]);
+  const [loading, setLoading]       = React.useState(true);
+  const [search, setSearch]         = React.useState('');
+  const [drugNames, setDrugNames]   = React.useState([]);
+  const [error, setError]           = React.useState('');
+  const [exporting, setExporting]   = React.useState(false);
+  const [uploadInfo, setUploadInfo] = React.useState(null);
+
+  const load = React.useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const [summary, meta] = await Promise.all([
+        fetchStockSummary(),
+        supabase ? supabase.from('upload_meta').select('file_name, updated_at').eq('type', 'inventory').single().then(r => r.data) : null,
+      ]);
+      setRows(summary);
+      setUploadInfo(meta || null);
+    }
+    catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  // โหลด drugNames สำหรับ autocomplete จาก inventory
+  React.useEffect(() => {
+    if (!supabase) return;
+    supabase.from('inventory').select('name, type').then(({ data }) => {
+      if (!data) return;
+      const typeMap = {};
+      data.forEach(d => { if (d.name && d.type && d.type !== '-') typeMap[d.name] = d.type; });
+      const names = [...new Set(data.map(d => d.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'th'));
+      setDrugNames(names.map(name => ({ name, type: typeMap[name] || '' })));
+    });
+  }, []);
+
+  // Realtime subscribe
+  React.useEffect(() => {
+    if (!supabase) return;
+    const ch = supabase.channel('stock-modal-inv')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, load)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [load]);
+
+  const filtered = rows.filter(r =>
+    !search || (r.name || '').toLowerCase().includes(search.toLowerCase()) ||
+    (r.code || '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await exportToExcel(filtered, STOCK_EXCEL_COLS, 'คงเหลือในคลัง', `stock_summary_${new Date().toISOString().slice(0,10)}.xlsx`, auth);
+    } finally { setExporting(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 pt-8 overflow-y-auto" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col" style={{ maxHeight: 'calc(100vh - 64px)' }} onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-sky-50 rounded-t-2xl shrink-0">
+          <div>
+            <div className="flex items-center gap-2">
+              <Package size={18} className="text-sky-600" />
+              <span className="font-bold text-slate-800">จำนวนคงเหลือในคลัง</span>
+              {!loading && <span className="bg-sky-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">{rows.length} รายการ</span>}
+              {search && <span className="text-xs text-slate-500">· แสดง {filtered.length}</span>}
+            </div>
+            {uploadInfo && (
+              <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1">
+                <Clock size={10}/> อัพโหลด: {new Date(uploadInfo.updated_at).toLocaleString('th-TH', { day:'numeric', month:'short', year:'2-digit', hour:'2-digit', minute:'2-digit' })}
+                {uploadInfo.file_name && <span className="text-slate-300">· {uploadInfo.file_name}</span>}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button onClick={handleExport} disabled={exporting || filtered.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition-colors">
+              {exporting ? <RefreshCcw size={12} className="animate-spin"/> : <Database size={12}/>}
+              {exporting ? 'กำลังส่งออก...' : 'Excel'}
+            </button>
+            <button onClick={load} className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-100 rounded-lg transition-colors" title="รีเฟรช">
+              <RefreshCcw size={15}/>
+            </button>
+            <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg transition-colors">
+              <X size={18}/>
+            </button>
+          </div>
+        </div>
+
+        {/* DrugSearchBar */}
+        <div className="px-5 py-3 border-b border-slate-100 shrink-0">
+          <DrugSearchBar
+            value={search}
+            onChange={setSearch}
+            options={drugNames}
+            placeholder="ค้นหาชื่อยา หรือรหัสยา..."
+            ringClass="focus:ring-sky-400"
+            hoverClass="hover:bg-sky-50"
+          />
+        </div>
+
+        {/* Table — sticky header + frozen ชื่อยา */}
+        <div className="overflow-auto flex-1 rounded-b-2xl" style={{ maxHeight: 'calc(100vh - 280px)' }}>
+          {loading ? (
+            <div className="flex items-center justify-center py-16 text-slate-400">
+              <div className="w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full animate-spin mr-3"/>
+              กำลังคำนวณคงเหลือ...
+            </div>
+          ) : error ? (
+            <div className="text-center py-10 text-red-500 text-sm px-6">{error}</div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-10 text-slate-400 text-sm">ไม่พบรายการ</div>
+          ) : (
+            <table className="w-full text-sm min-w-[560px]">
+              <thead className="sticky top-0 z-20">
+                <tr>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 bg-slate-50 sticky left-0 z-30 shadow-[2px_0_4px_rgba(0,0,0,0.06)] whitespace-nowrap">ชื่อยา</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 bg-slate-50 whitespace-nowrap">ประเภท</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500 bg-slate-50 whitespace-nowrap">คงเหลือ</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 bg-slate-50 whitespace-nowrap">หน่วย</th>
+                  <th className="px-4 py-2.5 text-center text-xs font-semibold text-slate-500 bg-slate-50 whitespace-nowrap">LOT</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r, i) => (
+                  <tr key={r.code || r.name || i} className={`border-b border-slate-100 hover:bg-sky-50 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
+                    <td className="px-4 py-2.5 sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.04)]">
+                      <p className="font-medium text-slate-800 leading-snug">{r.name}</p>
+                      {r.code && r.code !== '-' && <p className="text-[10px] text-slate-400">{r.code}</p>}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <DrugTypeBadge type={r.type}/>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {r.hasMultipleUnits && (
+                          <span title={`มีหลายหน่วย: ${r.units.join(', ')} — ปัดเศษขึ้นแล้ว`}
+                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200 cursor-help whitespace-nowrap">
+                            ~หลายหน่วย
+                          </span>
+                        )}
+                        <span className="font-bold text-sky-700">{r.totalQty.toLocaleString()}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-600 text-xs whitespace-nowrap">{r.mainUnit}</td>
+                    <td className="px-4 py-2.5 text-center text-slate-400 text-xs">{r.lotCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="px-5 py-2.5 border-t border-slate-100 text-[11px] text-slate-400 bg-slate-50 rounded-b-2xl shrink-0">
+          คงเหลือรวม Lot · หน่วยหลักจากวันที่รับยาล่าสุด · ยาตัดออกจากบัญชีไม่แสดง
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---- Quick stats (staff view only) ----
-function StatsStrip({ alerts = { expiring: [], lowStock: [] }, isStaff = false, onOpenExpiry, onOpenLowStock, onOpenRequisition }) {
+function StatsStrip({ alerts = { expiring: [], lowStock: [] }, isStaff = false, onOpenExpiry, onOpenLowStock, onOpenRequisition, onOpenStock }) {
   const [stats, setStats] = React.useState({ inventory: '-', pending: '-' });
 
   const loadStats = React.useCallback(async () => {
@@ -1079,8 +1266,10 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [] }, isStaff = false, 
   const baseItems = [
     {
       label: 'รายการยาในคลัง',
+      subLabel: 'ดูจำนวนคงเหลือ',
       value: stats.inventory,
       color: 'text-sky-700', cardBg: 'bg-sky-50', borderColor: 'border-sky-200', labelColor: 'text-sky-500',
+      onClick: onOpenStock,
     },
     {
       label: 'ใบเบิกรอดำเนินการ',
@@ -1125,7 +1314,8 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [] }, isStaff = false, 
           <>
             <p className={`text-2xl font-bold ${item.color}`}>{typeof item.value === 'number' ? item.value.toLocaleString() : item.value}</p>
             <p className={`text-xs mt-1 leading-tight ${item.labelColor}`}>{item.label}</p>
-            {item.onClick && <p className="text-[10px] mt-1.5 text-slate-400">กดเพื่อดูรายละเอียด</p>}
+            {item.subLabel && <p className="text-xs mt-1.5 font-bold text-sky-600 underline underline-offset-2">{item.subLabel}</p>}
+            {item.onClick && !item.subLabel && <p className="text-[10px] mt-1.5 text-slate-400">กดเพื่อดูรายละเอียด</p>}
           </>
         );
         return item.onClick
