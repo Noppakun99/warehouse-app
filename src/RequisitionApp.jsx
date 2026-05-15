@@ -6,6 +6,7 @@ import {
   CheckCircle, XCircle, Package, FileText,
   Printer, RefreshCcw, ChevronRight, Bell,
   Check, X, AlertCircle, Clock, Download, FileDown,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { exportToExcel } from './lib/exportExcel';
 import { deleteRequesterRequisition, updateRequesterRequisition, insertAuditLog, resolveAuditUserName } from './lib/db';
@@ -164,6 +165,25 @@ const genReqNumber = () => {
   const d = new Date();
   const date = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
   return `REQ-${date}-${String(Math.floor(Math.random()*9000)+1000)}`;
+};
+
+// ============================================================
+// Helpers
+// ============================================================
+const timeAgo = (dateStr) => {
+  const mins = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
+  if (mins < 1) return 'เพิ่งส่งมา';
+  if (mins < 60) return `${mins} นาทีที่แล้ว`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} ชั่วโมงที่แล้ว`;
+  return `${Math.floor(hrs / 24)} วันที่แล้ว`;
+};
+
+const drugPreview = (items) => {
+  if (!items?.length) return 'ไม่มีรายการ';
+  const names = items.slice(0, 2).map(i => i.drug_name).filter(Boolean);
+  const extra = items.length > 2 ? ` +${items.length - 2} รายการ` : '';
+  return `${items.length} รายการ: ${names.join(', ')}${extra}`;
 };
 
 // ============================================================
@@ -1421,6 +1441,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [searchName, setSearchName] = useState('');
   const [searchDept, setSearchDept] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
 
   const handleDelete = async (e, id) => {
     e.stopPropagation();
@@ -1479,6 +1500,17 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
     setBulkLoading(false);
   };
 
+  const approveOne = async (req, e) => {
+    e.stopPropagation();
+    if (!supabase || req.status !== 'pending') return;
+    for (const item of req.requisition_items || []) {
+      await supabase.from('requisition_items').update({ approved_qty: item.requested_qty }).eq('id', item.id);
+    }
+    await supabase.from('requisitions').update({ status: 'approved', updated_at: new Date().toISOString() }).eq('id', req.id);
+    insertAuditLog({ action: 'update_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { req_number: req.req_number, requisition_id: req.id, action_detail: 'quick_approve' } });
+    load();
+  };
+
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
     const { data } = await supabase.from('requisitions').select('*, requisition_items(*)')
@@ -1501,7 +1533,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
   const filtered = list.filter(r => {
     const statusMatch = filter === 'all' || r.status === filter;
     const dateMatch = filter === 'pending' || !dateFilter || (r.created_at && r.created_at.slice(0, 10) === dateFilter);
-    const nameMatch = !searchName.trim() || (r.requester_name||'').toLowerCase().includes(searchName.trim().toLowerCase());
+    const nameMatch = !searchName.trim() || (r.requester_name||'').toLowerCase().includes(searchName.trim().toLowerCase()) || (r.req_number||'').toLowerCase().includes(searchName.trim().toLowerCase());
     const deptMatch = !searchDept || r.department === searchDept;
     return statusMatch && dateMatch && nameMatch && deptMatch;
   });
@@ -1511,67 +1543,125 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
     { key:'all',       label:'ทั้งหมด'      },
   ];
 
+  const today = new Date().toISOString().slice(0, 10);
+  const inProgressCount = list.filter(r => r.status === 'approved' || r.status === 'partial').length;
+  const doneTodayCount = list.filter(r => r.status === 'dispensed' && (r.updated_at?.slice(0, 10) === today || r.created_at?.slice(0, 10) === today)).length;
+
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-slate-50">
       <PageHeader onBack={onLogout} title="ระบบเบิกยาออนไลน์">
-        {pendingCount>0 && (
+        {pendingCount > 0 && (
           <span className="flex items-center gap-1 bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
             <Bell size={11}/> {pendingCount}
           </span>
         )}
-        <button onClick={load} className="text-slate-500 hover:text-[#1E90FF] p-1 transition-colors"><RefreshCcw size={18}/></button>
+        <button onClick={load} className="text-white/70 hover:text-white p-1 transition-colors"><RefreshCcw size={18}/></button>
       </PageHeader>
 
-      <div className="flex items-center gap-2 px-3 py-2 bg-white border-b border-slate-100 flex-wrap">
-        <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
-          className="border border-slate-300 rounded-lg px-2 py-1 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
-        <button onClick={() => setDateFilter('')}
-          className={`text-xs px-2 py-1 rounded-lg border transition-colors ${!dateFilter ? 'bg-[#F0F8FF] text-[#1E90FF] border-[#1E90FF]' : 'text-slate-500 border-slate-300 hover:bg-slate-100'}`}>
-          ทั้งหมด
-        </button>
-        <div className="relative min-w-[160px] flex-1">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-          <input type="text" value={searchName} onChange={e => setSearchName(e.target.value)}
-            placeholder="ชื่อผู้เบิก..."
-            className="w-full pl-8 pr-7 py-1 border border-slate-300 rounded-lg text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
-          {searchName && (
-            <button onClick={() => setSearchName('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-              <X size={13}/>
-            </button>
-          )}
+      {/* Task Summary Strip */}
+      <div className="bg-white border-b border-slate-100 px-3 py-2 flex gap-2 overflow-x-auto">
+        <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-xl px-3 py-1.5 shrink-0">
+          <div className="w-2 h-2 rounded-full bg-red-500"/>
+          <span className="text-xs text-red-600">รอดำเนินการ</span>
+          <span className="text-sm font-bold text-red-700">{pendingCount}</span>
         </div>
-        <div className="relative min-w-[160px] flex-1">
-          <select value={searchDept} onChange={e => setSearchDept(e.target.value)}
-            className="w-full appearance-none pl-3 pr-7 py-1 border border-slate-300 rounded-lg text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]">
-            <option value="">-- ทุกหน่วยงาน --</option>
-            {allDepts.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-          <ChevronRight size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none rotate-90" />
+        <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-xl px-3 py-1.5 shrink-0">
+          <div className="w-2 h-2 rounded-full bg-amber-400"/>
+          <span className="text-xs text-amber-600">กำลังดำเนินการ</span>
+          <span className="text-sm font-bold text-amber-700">{inProgressCount}</span>
         </div>
-        <button onClick={() => exportReqExcel(filtered, auth)}
-          className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors">
-          <FileDown size={16}/> Excel
-        </button>
+        <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-1.5 shrink-0">
+          <div className="w-2 h-2 rounded-full bg-emerald-500"/>
+          <span className="text-xs text-emerald-600">เสร็จสิ้นวันนี้</span>
+          <span className="text-sm font-bold text-emerald-700">{doneTodayCount}</span>
+        </div>
       </div>
 
-      <div className="flex gap-1 px-3 py-2.5 bg-white border-b border-slate-200 overflow-x-auto">
+      {/* Filter Bar — mobile-responsive */}
+      <div className="bg-white border-b border-slate-100 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input type="text" value={searchName} onChange={e => setSearchName(e.target.value)}
+              placeholder="ชื่อผู้เบิก หรือ เลขใบเบิก..."
+              className="w-full pl-8 pr-7 py-1.5 border border-slate-300 rounded-xl text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+            {searchName && (
+              <button onClick={() => setSearchName('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                <X size={13}/>
+              </button>
+            )}
+          </div>
+          {/* Filter toggle — mobile only */}
+          <button onClick={() => setShowFilters(f => !f)}
+            className={`sm:hidden flex items-center justify-center w-9 h-9 rounded-xl border transition-colors shrink-0 ${showFilters || searchDept || !dateFilter ? 'bg-[#F0F8FF] border-[#1E90FF] text-[#1E90FF]' : 'border-slate-300 text-slate-500 hover:border-slate-400'}`}>
+            <SlidersHorizontal size={16}/>
+          </button>
+          {/* Desktop: always visible */}
+          <div className="hidden sm:flex items-center gap-2">
+            <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+              className="border border-slate-300 rounded-xl px-2 py-1.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+            <button onClick={() => setDateFilter('')}
+              className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] text-[#1E90FF] border-[#1E90FF]' : 'text-slate-500 border-slate-300 hover:bg-slate-100'}`}>
+              ทั้งหมด
+            </button>
+            <div className="relative min-w-[160px]">
+              <select value={searchDept} onChange={e => setSearchDept(e.target.value)}
+                className="w-full appearance-none pl-3 pr-7 py-1.5 border border-slate-300 rounded-xl text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]">
+                <option value="">-- ทุกหน่วยงาน --</option>
+                {allDepts.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+              <ChevronRight size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none rotate-90" />
+            </div>
+            <button onClick={() => exportReqExcel(filtered, auth)}
+              className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-xl px-3 py-1.5 text-sm font-medium transition-colors whitespace-nowrap">
+              <FileDown size={16}/> Excel
+            </button>
+          </div>
+        </div>
+        {/* Mobile expanded filters */}
+        {showFilters && (
+          <div className="sm:hidden mt-2 space-y-2">
+            <div className="flex gap-2">
+              <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+                className="flex-1 border border-slate-300 rounded-xl px-2 py-1.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+              <button onClick={() => setDateFilter('')}
+                className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] text-[#1E90FF] border-[#1E90FF]' : 'text-slate-500 border-slate-300 hover:bg-slate-100'}`}>
+                ทั้งหมด
+              </button>
+            </div>
+            <div className="relative">
+              <select value={searchDept} onChange={e => setSearchDept(e.target.value)}
+                className="w-full appearance-none pl-3 pr-7 py-1.5 border border-slate-300 rounded-xl text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]">
+                <option value="">-- ทุกหน่วยงาน --</option>
+                {allDepts.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+              <ChevronRight size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none rotate-90" />
+            </div>
+            <button onClick={() => exportReqExcel(filtered, auth)}
+              className="w-full flex items-center justify-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-xl py-2 text-sm font-medium transition-colors">
+              <FileDown size={16}/> Export Excel
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 px-3 py-2.5 bg-white border-b border-slate-200 overflow-x-auto shadow-sm">
         {tabs.map(tab => (
           <button key={tab.key} onClick={() => {
             setFilter(tab.key);
             setDeleteId(null);
             if (tab.key === 'all') {
-              // ทั้งหมด = ไม่กรองวัน (แสดงทุกวัน)
               setDateFilter('');
             } else if (tab.key !== 'pending' && !dateFilter) {
-              // กลับมา tab อื่น → restore วันนี้
               setDateFilter(new Date().toISOString().slice(0, 10));
             }
           }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm whitespace-nowrap font-medium transition-all ${
-              filter===tab.key ? 'bg-[#F0F8FF] text-[#1E90FF]' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm whitespace-nowrap font-medium transition-all ${
+              filter === tab.key ? 'bg-[#F0F8FF] text-[#1E90FF]' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
             }`}>
             {tab.label}
-            {tab.key==='pending' && pendingCount>0 && (
+            {tab.key === 'pending' && pendingCount > 0 && (
               <span className="bg-amber-500 text-white text-xs font-bold rounded-full px-1.5">{pendingCount}</span>
             )}
           </button>
@@ -1591,11 +1681,11 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
             <>
               <span className="text-xs text-slate-400">({selected.size} รายการ)</span>
               <button onClick={bulkApprove} disabled={bulkLoading}
-                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">
+                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
                 <Check size={13}/> อนุมัติที่เลือก
               </button>
               <button onClick={bulkDelete} disabled={bulkLoading}
-                className="flex items-center gap-1.5 bg-red-500 hover:bg-red-600 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">
+                className="flex items-center gap-1.5 bg-red-500 hover:bg-red-600 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
                 <Trash2 size={13}/> ลบที่เลือก
               </button>
             </>
@@ -1603,56 +1693,93 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
         </div>
       )}
 
-      <div className="flex-1 p-4 space-y-3">
-        {loading && <p className="text-center text-slate-500 py-10">กำลังโหลด...</p>}
-        {!loading && filtered.length===0 && <p className="text-center text-slate-500 py-20">ไม่มีรายการ</p>}
+      {/* Requisition Cards */}
+      <div className="flex-1 p-3 space-y-3">
+        {loading && (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <RefreshCcw size={24} className="text-slate-300 animate-spin mb-2"/>
+            <p className="text-sm text-slate-400">กำลังโหลด...</p>
+          </div>
+        )}
+        {!loading && filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mb-4">
+              <CheckCircle size={32} className="text-emerald-500"/>
+            </div>
+            <p className="text-base font-semibold text-slate-700">
+              {filter === 'pending' ? 'ยอดเยี่ยม!' : 'ไม่พบรายการ'}
+            </p>
+            <p className="text-sm text-slate-400 mt-1">
+              {filter === 'pending' ? 'ไม่มีใบเบิกตกค้าง ทำงานได้ดีมาก' : 'ลองปรับตัวกรองหรือเปลี่ยนวันที่'}
+            </p>
+          </div>
+        )}
         {filtered.map(req => {
-          const cfg = STATUS_CONFIG[req.status]||STATUS_CONFIG.pending;
+          const cfg = STATUS_CONFIG[req.status] || STATUS_CONFIG.pending;
           const confirming = deleteId === req.id;
+          const isPending = req.status === 'pending';
           return (
-            <div key={req.id} className="bg-white border border-slate-200 rounded-xl shadow-sm flex items-stretch overflow-hidden">
-              <div className="flex items-center pl-3" onClick={e => toggleSelect(e, req.id)}>
-                <input type="checkbox" readOnly checked={selected.has(req.id)}
-                  className="w-4 h-4 accent-[#1E90FF] cursor-pointer" />
-              </div>
-              <button onClick={() => onSelect(req)}
-                className="flex-1 p-4 text-left flex items-start justify-between gap-3 hover:bg-slate-50 transition-colors">
-                <div className="min-w-0">
-                  <p className="font-mono text-xs text-slate-400">{req.req_number}</p>
-                  <p className="font-semibold text-slate-800 mt-0.5">{req.department}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <p className="text-sm text-slate-500">ผู้เบิก: {req.requester_name}</p>
-                    <button onClick={e => { e.stopPropagation(); printReq(req); }}
-                      className="p-1 text-slate-400 hover:text-[#1E90FF] hover:bg-[#F0F8FF] rounded-lg transition-colors" title="พิมพ์ใบเบิก">
-                      <Printer size={13} />
-                    </button>
-                    <button onClick={e => { e.stopPropagation(); exportReqExcel([req], auth); }}
-                      className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Export Excel">
-                      <FileDown size={13} />
-                    </button>
+            <div key={req.id} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+              {/* Card body — clickable to detail */}
+              <button onClick={() => onSelect(req)} className="w-full text-left p-4 hover:bg-slate-50 transition-colors">
+                <div className="flex items-start gap-3">
+                  <div className="pt-1 shrink-0" onClick={e => toggleSelect(e, req.id)}>
+                    <input type="checkbox" readOnly checked={selected.has(req.id)}
+                      className="w-4 h-4 accent-[#1E90FF] cursor-pointer" />
                   </div>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {new Date(req.created_at).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'})}
-                    &nbsp;· {req.requisition_items?.length||0} รายการ
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0 mt-1">
-                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${cfg.badge}`}>{cfg.label}</span>
-                  <ChevronRight size={16} className="text-slate-400"/>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="font-bold text-slate-800 truncate">{req.department}</p>
+                      <p className="text-xs text-slate-400 shrink-0">{timeAgo(req.created_at)}</p>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      <p className="text-sm text-slate-500">ผู้เบิก: <span className="font-medium text-slate-700">{req.requester_name}</span></p>
+                      <span className="text-slate-300 text-xs">·</span>
+                      <p className="font-mono text-xs text-slate-400">{req.req_number}</p>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1.5 bg-slate-50 rounded-xl px-2.5 py-1 truncate">
+                      {drugPreview(req.requisition_items)}
+                    </p>
+                  </div>
+                  <div className="shrink-0 flex flex-col items-end gap-1.5 pt-0.5">
+                    <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${cfg.badge}`}>{cfg.label}</span>
+                    <ChevronRight size={14} className="text-slate-300"/>
+                  </div>
                 </div>
               </button>
-              {filter === 'all' && (
-                <button
-                  onClick={(e) => handleDelete(e, req.id)}
-                  className={`shrink-0 px-4 flex flex-col items-center justify-center gap-1 border-l transition-colors ${
-                    confirming
-                      ? 'bg-red-500 border-red-500 text-white'
-                      : 'border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-500 hover:border-red-200'
-                  }`}>
-                  <Trash2 size={16}/>
-                  <span className="text-[10px] font-medium">{confirming ? 'ยืนยัน?' : 'ลบ'}</span>
-                </button>
-              )}
+              {/* Card footer — action buttons */}
+              <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-t border-slate-100">
+                <div className="flex items-center gap-1">
+                  <button onClick={e => { e.stopPropagation(); printReq(req); }}
+                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-[#1E90FF] transition-colors px-2 py-1 rounded-xl hover:bg-white">
+                    <Printer size={13}/> พิมพ์
+                  </button>
+                  <button onClick={e => { e.stopPropagation(); exportReqExcel([req], auth); }}
+                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-emerald-600 transition-colors px-2 py-1 rounded-xl hover:bg-white">
+                    <FileDown size={13}/> Excel
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {filter === 'all' && (
+                    <button onClick={e => handleDelete(e, req.id)}
+                      className={`flex items-center gap-1 text-xs px-2 py-1 rounded-xl border transition-colors ${
+                        confirming ? 'bg-red-500 text-white border-red-500' : 'text-slate-400 border-slate-200 hover:text-red-500 hover:border-red-200 hover:bg-red-50'
+                      }`}>
+                      <Trash2 size={12}/> {confirming ? 'ยืนยัน?' : 'ลบ'}
+                    </button>
+                  )}
+                  {isPending && (
+                    <button onClick={e => approveOne(req, e)}
+                      className="flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors">
+                      <Check size={12}/> อนุมัติด่วน
+                    </button>
+                  )}
+                  <button onClick={() => onSelect(req)}
+                    className="flex items-center gap-1 bg-[#1E90FF] hover:bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
+                    {isPending ? 'จัดยา' : 'ดูรายละเอียด'} <ChevronRight size={12}/>
+                  </button>
+                </div>
+              </div>
             </div>
           );
         })}

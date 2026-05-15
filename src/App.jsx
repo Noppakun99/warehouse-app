@@ -6,7 +6,7 @@ import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
 import {
   Search, Package, MapPin, X, UploadCloud, FileSpreadsheet,
   AlertCircle, BarChart3, Layers, Pill, FileText,
-  ChevronUp, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw, FileDown,
+  ChevronUp, ChevronDown, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw, FileDown,
 } from 'lucide-react';
 
 const INVENTORY_EXCEL_COLS = [
@@ -192,6 +192,10 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
   const [logUpdateDate, setLogUpdateDate] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [activeZone,      setActiveZone]      = useState(null);   // null = auto-first
+  const [hideEmptySlots,  setHideEmptySlots]  = useState(false);
+  const [collapsedLevels, setCollapsedLevels] = useState(new Set());
+  const [showManageMenu,  setShowManageMenu]  = useState(false);
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [expandedDetailsId, setExpandedDetailsId] = useState(null);
   const [expiryViewFilter, setExpiryViewFilter] = useState(null);
@@ -942,6 +946,23 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
     return { filteredLayout: fl, filteredOtherZones: fo };
   }, [layout, otherZones, searchTerm, isMatch]);
 
+  // Zone tab helpers
+  const zoneKeys = useMemo(() => Object.keys(filteredLayout).sort(), [filteredLayout]);
+  const activeZoneKey = useMemo(() => {
+    if (activeZone === '__other__') return '__other__';
+    if (activeZone && zoneKeys.includes(activeZone)) return activeZone;
+    return zoneKeys[0] || null;
+  }, [activeZone, zoneKeys]);
+
+  const toggleLevel = useCallback((cab, lev) => {
+    const key = `${cab}-${lev}`;
+    setCollapsedLevels(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
+
   const handleLocationClick = (locationId) => {
     const allItems = inventory[locationId] || [];
     const filtered = allItems.filter(item => {
@@ -1016,20 +1037,26 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
       StatusIcon = <Clock size={12} className="absolute top-1 right-1 text-amber-500 drop-shadow" />;
     }
 
+    // Heatmap: items เยอะ = สีเข้ม (opacity ของ background layer เพิ่มขึ้น — ไม่กระทบสี hue หรือ text)
+    const bgOpacity = itemCount === 0 ? 0.35 : itemCount <= 2 ? 0.6 : itemCount <= 6 ? 0.78 : itemCount <= 12 ? 0.9 : 1;
+
     return (
       <div
         onClick={() => handleLocationClick(id)}
         className={`
-          relative cursor-pointer transition-all duration-200 border-2 rounded-xl
-          flex items-center justify-center text-xs font-bold px-3 py-3 min-w-[70px] flex-1
-          ${gradient} ${border} shadow-md ${shadow} ${ring}
+          relative cursor-pointer transition-all duration-200 border-2 rounded-xl bg-white
+          flex items-center justify-center text-xs font-bold px-3 min-w-[70px] flex-1
+          min-h-[44px]
+          ${border} shadow-md ${shadow} ${ring}
           ${highlighted
             ? 'ring-4 ring-yellow-400 scale-110 z-10 shadow-xl'
             : 'hover:scale-105 hover:shadow-lg active:scale-95'}
           overflow-hidden
         `}
       >
-        {/* shine overlay */}
+        {/* Heatmap background layer — opacity สะท้อนความหนาแน่น */}
+        <div className={`absolute inset-0 rounded-xl ${gradient}`} style={{ opacity: bgOpacity }} />
+        {/* Shine overlay */}
         <div className="absolute inset-0 bg-gradient-to-b from-white/30 to-transparent pointer-events-none rounded-xl" />
         <div className="flex flex-col items-center relative z-10">
           <span className="tracking-wide drop-shadow-sm">{id}</span>
@@ -1774,48 +1801,73 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
 
           </div>
 
-          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-4 border-t border-slate-100">
-            <DrugSearchBar
-              value={searchTerm}
-              onChange={setSearchTerm}
-              options={drugNamesList}
-              placeholder="ค้นหาชื่อยา, รหัส, ตำแหน่ง, Lot, บิล..."
-              ringClass="focus:ring-indigo-500"
-              hoverClass="hover:bg-indigo-50 hover:text-indigo-700"
-              className="w-full sm:max-w-md"
-              inputClassName="py-2.5 shadow-sm"
-            />
-            
-            <div className="flex flex-col items-end gap-2 w-full sm:w-auto">
-              <div className="flex flex-wrap justify-end gap-2 w-full sm:w-auto">
-                <button onClick={() => setShowSummaryModal(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
-                  <BarChart3 size={16} /> สรุปข้อมูล
-                </button>
-
+          {/* Command Center: Search + Manage dropdown */}
+          <div className="pt-4 border-t border-slate-100 space-y-3">
+            <div className="flex gap-2 items-stretch">
+              <DrugSearchBar
+                value={searchTerm}
+                onChange={setSearchTerm}
+                options={drugNamesList}
+                placeholder="ค้นหาชื่อยา, รหัส, ตำแหน่ง, Lot, บิล..."
+                ringClass="focus:ring-indigo-500"
+                hoverClass="hover:bg-indigo-50 hover:text-indigo-700"
+                className="flex-1"
+                inputClassName="py-2.5 shadow-sm"
+              />
+              <button onClick={() => setShowSummaryModal(true)} className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white px-3 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm shrink-0">
+                <BarChart3 size={16} /><span className="hidden sm:inline">สรุปข้อมูล</span>
+              </button>
+              {/* Manage dropdown */}
+              <div className="relative shrink-0">
                 <button
-                  onClick={handleInventoryExport}
-                  disabled={exportLoading || Object.keys(inventory).length === 0}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
-                  <FileDown size={16} /> {exportLoading ? 'กำลังส่งออก...' : 'Export Excel'}
+                  onClick={() => setShowManageMenu(v => !v)}
+                  className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm"
+                >
+                  จัดการข้อมูล <ChevronDown size={14} className={`transition-transform ${showManageMenu ? 'rotate-180' : ''}`} />
                 </button>
-
-                {isStaff && <>
-                  <div className="flex gap-1">
-                    <button onClick={() => logInputRef.current?.click()} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
-                      <UploadCloud size={16} /> อัปโหลด Log
+                {showManageMenu && (
+                  <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[200px]">
+                    <button
+                      onClick={() => { handleInventoryExport(); setShowManageMenu(false); }}
+                      disabled={exportLoading || Object.keys(inventory).length === 0}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors disabled:opacity-40"
+                    >
+                      <FileDown size={15} /> {exportLoading ? 'กำลังส่งออก...' : 'Export Excel'}
                     </button>
-                    <button onClick={() => setShowColumnGuide(showColumnGuide === 'log' ? null : 'log')} className="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-2.5 py-2.5 rounded-xl text-xs font-bold transition-colors shadow-sm" title="ดูคอลัมน์ที่ต้องการ">?</button>
+                    {isStaff && <>
+                      <div className="border-t border-slate-100 my-1" />
+                      <button
+                        onClick={() => { logInputRef.current?.click(); setShowManageMenu(false); }}
+                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
+                      >
+                        <UploadCloud size={15} /> อัปโหลด Log คลัง
+                      </button>
+                      <button
+                        onClick={() => { setShowColumnGuide(showColumnGuide === 'log' ? null : 'log'); setShowManageMenu(false); }}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                      >
+                        ดูหัวคอลัมน์ที่รองรับ
+                      </button>
+                      <button
+                        onClick={() => { receiveInputRef.current?.click(); setShowManageMenu(false); }}
+                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
+                      >
+                        <UploadCloud size={15} /> อัปโหลดประวัติรับยา
+                      </button>
+                    </>}
                   </div>
-                  <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={logInputRef} onChange={handleLogFileUpload} className="hidden" />
+                )}
+              </div>
+            </div>
 
-                  <button onClick={() => receiveInputRef.current?.click()} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm">
-                    <UploadCloud size={16} /> อัปโหลดประวัติรับยา
-                  </button>
+            {/* Hidden file inputs */}
+            {isStaff && <>
+                  <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={logInputRef} onChange={handleLogFileUpload} className="hidden" />
                   <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={receiveInputRef} onChange={handleReceiveFileUpload} className="hidden" />
 
                 </>}
-              </div>
-              {isStaff && <span className="text-[11px] text-slate-500 bg-white px-2 py-0.5 rounded shadow-sm border border-slate-100">*อัปโหลดได้เฉพาะไฟล์ .csv เท่านั้น (หากบันทึกจาก Excel ในมือถือ ให้บันทึกเป็น CSV ก่อน)</span>}
+
+              {isStaff && <p className="text-[11px] text-slate-400">*อัปโหลดได้เฉพาะไฟล์ .csv (หากบันทึกจาก Excel ในมือถือ ให้บันทึกเป็น CSV ก่อน)</p>}
               {/* Column Guide Popup */}
               {showColumnGuide && (
                 <div className="w-full bg-white border border-slate-200 rounded-2xl shadow-lg p-4 mt-1 space-y-3">
@@ -1871,9 +1923,41 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                   {showColumnGuide === 'drug' && <p className="text-xs text-slate-400">💡 สามารถใช้ไฟล์ Log คลังยาไฟล์เดียวกันได้</p>}
                 </div>
               )}
-            </div>
           </div>
         </div>
+
+        {/* Zone Tabs + Hide Empty Toggle */}
+        {(zoneKeys.length > 0 || Object.keys(filteredOtherZones).length > 0) && (
+          <div className="flex items-center gap-2 flex-wrap bg-white rounded-xl border border-slate-200 px-3 py-2 shadow-sm">
+            <div className="flex gap-1.5 flex-wrap flex-1 min-w-0">
+              {zoneKeys.map(cab => (
+                <button
+                  key={cab}
+                  onClick={() => setActiveZone(cab)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && activeZoneKey === cab ? 'bg-slate-800 text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  Log {cab}
+                  <span className="ml-1.5 opacity-60">({summary[cab]?.names.size || 0})</span>
+                </button>
+              ))}
+              {Object.keys(filteredOtherZones).length > 0 && (
+                <button
+                  onClick={() => setActiveZone('__other__')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && activeZoneKey === '__other__' ? 'bg-slate-800 text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  โซนอื่นๆ
+                  <span className="ml-1.5 opacity-60">({Object.keys(filteredOtherZones).length})</span>
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => setHideEmptySlots(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all shrink-0 ${hideEmptySlots ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-300 hover:border-indigo-400'}`}
+            >
+              {hideEmptySlots ? '✓ ซ่อนช่องว่าง' : '○ ซ่อนช่องว่าง'}
+            </button>
+          </div>
+        )}
 
         {successMsg && (
           <div className="bg-emerald-50 text-emerald-700 p-4 rounded-xl border border-emerald-200 flex items-center gap-3 shadow-sm mb-6 animate-in fade-in slide-in-from-top-2">
@@ -1915,7 +1999,10 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
               </h3>
             )}
             <div className="grid grid-cols-1 gap-6">
-              {Object.keys(filteredLayout).sort().map(cabinet => (
+              {(searchTerm
+                ? zoneKeys
+                : (activeZoneKey && activeZoneKey !== '__other__' ? [activeZoneKey] : zoneKeys)
+              ).filter(cab => filteredLayout[cab]).map(cabinet => (
                 <div key={cabinet} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                   <div className="bg-gradient-to-r from-slate-900 to-slate-600 text-white py-3 px-5 flex justify-between items-center">
                     <h2 className="text-lg font-bold flex items-center gap-2">
@@ -1930,26 +2017,49 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                       </span>
                     </div>
                   </div>
-                  
-                  <div className="p-5 bg-slate-50/50 space-y-4">
-                    {Object.keys(filteredLayout[cabinet]).sort((a, b) => Number(a) - Number(b)).map(level => (
-                      <div key={`${cabinet}-${level}`} className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-                        <div className="w-full sm:w-16 shrink-0 bg-slate-200 text-slate-700 text-center font-bold py-2 rounded-lg text-sm border border-slate-300">
-                          ชั้น {level}
+
+                  <div className="p-4 bg-slate-50/50 space-y-2">
+                    {Object.keys(filteredLayout[cabinet]).sort((a, b) => Number(a) - Number(b)).map(level => {
+                      const levelKey = `${cabinet}-${level}`;
+                      const isCollapsed = collapsedLevels.has(levelKey);
+                      const allSlots = filteredLayout[cabinet][level];
+                      const displaySlots = hideEmptySlots
+                        ? allSlots.filter(slot =>
+                            (inventory[slot.id] || []).some(item =>
+                              parseFloat(String(item.qty || '0').replace(/,/g, '')) > 0
+                            )
+                          )
+                        : allSlots;
+                      if (hideEmptySlots && displaySlots.length === 0) return null;
+                      return (
+                        <div key={levelKey}>
+                          {/* Accordion header */}
+                          <button
+                            onClick={() => toggleLevel(cabinet, level)}
+                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors text-left"
+                          >
+                            <span className="text-sm font-bold text-slate-700">ชั้น {level}</span>
+                            <span className="text-xs text-slate-400">{displaySlots.length} ช่อง</span>
+                            <div className="flex-1" />
+                            {isCollapsed
+                              ? <ChevronDown size={14} className="text-slate-400 shrink-0" />
+                              : <ChevronUp   size={14} className="text-slate-400 shrink-0" />
+                            }
+                          </button>
+                          {!isCollapsed && (
+                            <div className="flex flex-wrap gap-2 px-1 pt-2 pb-1">
+                              {displaySlots.map(slot => <Slot key={slot.id} id={slot.id} />)}
+                            </div>
+                          )}
                         </div>
-                        <div className="flex-1 flex flex-wrap gap-2 w-full">
-                          {filteredLayout[cabinet][level].map(slot => (
-                            <Slot key={slot.id} id={slot.id} />
-                          ))}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ))}
             </div>
 
-            {Object.keys(filteredOtherZones).length > 0 && (
+            {(searchTerm || activeZoneKey === '__other__') && Object.keys(filteredOtherZones).length > 0 && (
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mt-6">
                 <div className="bg-slate-700 text-white py-3 px-5 flex justify-between items-center">
                   <h2 className="text-lg font-bold flex items-center gap-2">

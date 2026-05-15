@@ -27,7 +27,7 @@ This is a single-page React app (no React Router) for hospital pharmacy warehous
 - `App.jsx` — Inventory map, CSV upload, drug location grid
 - `RequisitionApp.jsx` — Drug requisition (submit + staff approval workflow)
 - `DispenseLogApp.jsx` — Dispense history and analysis
-- `ReceiveLogApp.jsx` — Receive history (stock intake)
+- `ReceiveLogApp.jsx` — Receive history (stock intake) + tab สแกนบิล AI Vision
 - `ReturnApp.jsx` — Drug return / damaged / expired recording + print view with signatures
 - `AnalyticsApp.jsx` — Dispense analytics dashboard (staff/admin only, page='analytics')
 - `AuditLogApp.jsx` — Audit log viewer with inline edit/delete
@@ -43,6 +43,7 @@ This is a single-page React app (no React Router) for hospital pharmacy warehous
 - `requisition_schema.sql` — requisitions, dispense_logs, receive_logs
 - `audit_schema.sql` — audit_logs
 - `auth_schema.sql` — app_users
+- `scan_invoice_migration.sql` — เพิ่ม 10 columns ใน receive_logs + Storage bucket invoice-images
 - RLS enabled with public read/write policies (internal app)
 
 **Reusable components:**
@@ -318,32 +319,51 @@ changeAppUserPassword(id, newPassword)
 ## AnalyticsApp (วิเคราะห์การเบิกยา)
 
 - file: `src/AnalyticsApp.jsx` — เข้าได้เฉพาะ role `staff` / `admin` (SYSTEMS roles: `['staff','admin']`)
-- ดึงข้อมูลผ่าน `fetchDispenseAnalytics(dateFrom, dateTo)` ใน `db.js` — ใช้ pagination 1,000 rows/page เพื่อดึงครบทุก row
+- ดึงข้อมูลผ่าน `fetchDispenseAnalytics(dateFrom, dateTo)` ใน `db.js` — pagination 1,000 rows/page
 - `fetchDispenseAnalytics` select: `drug_name, drug_code, drug_type, qty_out, price_per_unit, drug_unit, department, dispense_date, item_type`
 
-### การคำนวณ (ตรงกับ DispenseSummaryModal ทุกจุด)
-- **ราคาต่อหน่วย**: `getPrice(r)` — ใช้ `price_per_unit` ก่อน, fallback จาก `drug_unit` ถ้า `price_per_unit = null`
-- **มูลค่า**: `qty_out × getPrice(r)` (ไม่ใช้ `price_per_unit` โดยตรง)
-- **uniqueDays**: `new Set(rows.map(r => r.dispense_date))` — จำนวนวันที่มีการเบิกจริง
-- **deptDaysMap**: unique days ต่อหน่วยงาน (เหมือน "หน่วยงานที่เบิกบ่อย" ใน SummaryModal)
-- **drugDaysMap**: unique days ต่อยา
+### โครงสร้าง 3 Tab
+| Tab | ชื่อ | เนื้อหา |
+|-----|------|--------|
+| 🏥 ภาพรวม | Executive Summary | KPI cards, Attention panel (top drugs/dept), Forecast snapshot, Rising Demand alerts |
+| 📦 คลังยา / ABC | Inventory & ABC | ABC table + filter, bar charts gradient, dept top-5 (expand) |
+| 📈 แนวโน้ม | Trends & Forecasting | Monthly trend + MA3, YoY chart, Forecast chart + table |
 
-### Charts
-| กราฟ | ชนิด | เรียงโดย |
-|------|------|---------|
-| แนวโน้มการเบิกรายเดือน | LineChart | เดือน ASC — แสดง **มูลค่า** (value = qty × price) ไม่ใช่จำนวน |
-| ยาที่มีมูลค่าเบิกสูงสุด | BarChart (horizontal) | value DESC |
-| ยาที่เบิกบ่อย (จำนวนวัน) | BarChart (horizontal) | days DESC |
-| หน่วยงานที่เบิกบ่อย (จำนวนวัน) | BarChart (horizontal) | days DESC |
-| หน่วยงาน — มูลค่าสูงสุด | BarChart (horizontal) | value DESC |
+### การคำนวณหลัก
+- **ราคาต่อหน่วย**: `getPrice(r)` — `price_per_unit` ก่อน, fallback `drug_unit`
+- **มูลค่า**: `qty_out × getPrice(r)`
+- **uniqueDays**: `new Set(rows.map(r => r.dispense_date))`
+- **drugMonMap**: per-drug per-month value (ใช้คำนวณ momentum)
 
-### StatCards
-| Card | ค่าที่แสดง |
-|------|-----------|
-| รายการเบิกทั้งหมด | `rows.length` (sub: ปริมาณรวม) |
-| มูลค่าเบิกทั้งหมด | `totalValue` (ราคา × จำนวน) |
-| จำนวนวันที่มีการเบิก | `uniqueDays` |
-| หน่วยงานที่เบิก | `topDeptsValue.length` |
+### Statistical Models
+- **MA3**: 3-month Moving Average — เส้นประบน trend chart ตัดสัญญาณรบกวน
+- **Linear Regression** (`linReg`): Forecast เส้นตรง — เหมาะแนวโน้มคงที่
+- **Holt's Exponential Smoothing** (`holtForecast`, α=0.3, β=0.15): ให้น้ำหนักข้อมูลล่าสุดมากกว่า — เหมาะแนวโน้มเปลี่ยนเร็ว
+- ทั้ง 2 โมเดลคำนวณพร้อมกันใน useMemo เดียว (`combinedChartLinear`, `combinedChartHolt`) — toggle สลับ state เท่านั้น ไม่ recompute
+
+### Rising Demand (Momentum Detection)
+- คำนวณใน main useMemo: `lastMon` vs `avg(prev3Mons)` ต่อยา
+- เงื่อนไข: `momentum >= 30%` AND `prevAvg > 0`
+- แสดงใน Tab ภาพรวม พร้อม badge กลุ่ม ABC ของยานั้น
+
+### ABC Analysis (`abcClassify`)
+- Sort drugs DESC by value → คำนวณ cumulative %
+- A = cumPct ≤ 80%, B = ≤ 95%, C = ที่เหลือ
+- แสดงใน Tab คลังยา — filter tab A/B/C, ตาราง max 30 รายการ
+
+### Year-over-Year Seasonality
+- `yoySufficient` = ปีอ้างอิง (ไม่ใช่ปีล่าสุด) มีข้อมูล ≥ 6 เดือน
+- ถ้าไม่ sufficient: แสดง warning สีม่วง + เส้นกราฟปีนั้นเป็นเส้นประ
+- ซ่อนกราฟทั้งหมดถ้า `yoyYears.length < 2`
+
+### Forecast Reliability
+- `forecastReliable` = `monthlyTrend.length >= 6`
+- ถ้าไม่ reliable: แสดง banner สีแดงเตือนไม่ให้นำไปตัดสินใจจัดซื้อโดยตรง
+
+### UI Conventions
+- **Bar chart สี**: `heatBlue(i, total)` — gradient น้ำเงินเข้ม (#1E40AF) → อ่อน (#93C5FD) ไม่ใช้ rainbow COLORS
+- **Dept chart**: แสดง Top 5 default, ปุ่ม "ดูทั้งหมด" toggle `showAllDepts`
+- **Forecast table**: sort by `p1`/`p6`/`p12` ตาม `forecastPeriod` toggle (1/6/12 เดือน)
 
 ## ReturnApp — Print View
 
@@ -403,6 +423,39 @@ TEST_STAFF_USER=test2 TEST_STAFF_PASS=555555 npx playwright test
 
 - `loadStats` ใช้ `useCallback` + subscribe `postgres_changes` บน `requisitions` table
 - อัพเดต "ใบเบิกรอดำเนินการ" อัตโนมัติหลังผู้ใช้ส่งใบเบิก
+
+## Invoice Scanner (AI Vision) — ระบบสแกนบิลยา
+
+- file: `src/ReceiveLogApp.jsx` → component `ScanInvoice` — เข้าได้เฉพาะ role `staff` / `admin`
+- tab: "สแกนบิล" ใน ReceiveLogApp header (ปุ่มซ้ายของ Import CSV)
+- Edge Function: `supabase/functions/scan-invoice/index.ts` — เรียก Claude Vision API
+  - ต้องตั้ง secret: `supabase secrets set ANTHROPIC_API_KEY=sk-ant-...`
+  - deploy: `supabase functions deploy scan-invoice`
+- Migration: `scan_invoice_migration.sql` — รันใน SQL Editor ก่อนใช้งาน
+- db.js functions:
+  - `scanInvoiceImage(base64, mimeType)` — invoke edge function
+  - `insertScannedBillRows(rows, auth)` — **APPEND ONLY ไม่ DELETE** (ต่างจาก insertReceiveRows)
+  - `uploadInvoiceImage(file, fileName)` — upload ไป bucket `invoice-images`
+  - `lookupDrugCodes(names)` — จับคู่ drug_code อัตโนมัติจาก receive_logs เดิม
+
+### New columns ใน receive_logs (scan-specific)
+| column | type | คำอธิบาย |
+|--------|------|---------|
+| `gpu_code` | TEXT | รหัส GPU กรมบัญชีกลาง |
+| `tpu_code` | TEXT | รหัส TPU |
+| `ttmp_code` | TEXT | รหัส TTMP |
+| `mfg_date` | TEXT | วันผลิต (dd/mm/yyyy) |
+| `invoice_date` | DATE | วันที่ในบิล |
+| `vat_percent` | NUMERIC | อัตรา VAT (0 หรือ 7) |
+| `subtotal` | NUMERIC | มูลค่าก่อน VAT |
+| `vat_amount` | NUMERIC | ภาษีมูลค่าเพิ่ม |
+| `invoice_total` | NUMERIC | ยอดรวมทั้งบิล |
+| `scan_image_url` | TEXT | URL รูปบิลต้นฉบับใน Storage |
+
+### Do Not (Invoice Scanner)
+- **อย่าใช้ `insertReceiveRows` สำหรับ scan** — มัน DELETE ALL ก่อน insert ทำลายข้อมูลเดิม
+- **อย่า expose ANTHROPIC_API_KEY ใน frontend** — ต้องผ่าน Edge Function เท่านั้น
+- `receive_status` ของแถวที่สแกน = `'สแกนบิล AI'` เพื่อแยกจาก CSV import
 
 ## Do Not
 

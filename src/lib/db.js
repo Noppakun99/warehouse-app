@@ -772,6 +772,66 @@ export async function changeAppUserPassword(id, newPassword) {
   if (error) throw error
 }
 
+// --- Invoice Scanner (AI Vision) ---
+
+// เรียก Edge Function scan-invoice → ส่งรูปบิล → รับ JSON
+export async function scanInvoiceImage(imageBase64, mimeType) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const { data, error } = await supabase.functions.invoke('scan-invoice', {
+    body: { image: imageBase64, mimeType },
+  })
+  if (error) throw new Error(error.message || 'Edge Function error')
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+
+// INSERT only — ไม่ DELETE ข้อมูลเดิม (ต่างจาก insertReceiveRows)
+export async function insertScannedBillRows(rows, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const CHUNK = 100
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const { error } = await supabase.from('receive_logs').insert(rows.slice(i, i + CHUNK))
+    if (error) throw error
+  }
+  await insertAuditLog({
+    action: 'scan_invoice', table_name: 'receive_logs',
+    user_name: resolveUserName(auth), department: auth.department,
+    record_count: rows.length,
+  })
+  return rows.length
+}
+
+// อัพโหลดภาพบิลไปยัง Supabase Storage → return public URL
+export async function uploadInvoiceImage(file, fileName) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const { data, error } = await supabase.storage
+    .from('invoice-images')
+    .upload(fileName, file, { cacheControl: '3600', upsert: false })
+  if (error) throw error
+  const { data: urlData } = supabase.storage.from('invoice-images').getPublicUrl(data.path)
+  return urlData.publicUrl
+}
+
+// ค้นหา drug_code จาก receive_logs ที่มีอยู่แล้ว โดยจับคู่ drug_name
+export async function lookupDrugCodes(names) {
+  if (!supabase || !names.length) return {}
+  const { data } = await supabase.from('receive_logs')
+    .select('drug_name, drug_code')
+    .in('drug_name', names)
+    .not('drug_code', 'is', null)
+    .neq('drug_code', '-')
+    .order('id', { ascending: false })
+    .limit(500)
+  const result = {}
+  if (data) {
+    data.forEach(r => {
+      if (!result[r.drug_name] && r.drug_code && r.drug_code !== '-')
+        result[r.drug_name] = r.drug_code
+    })
+  }
+  return result
+}
+
 // --- Stock Summary (Dashboard modal) ---
 
 const parseUnitFactor = (unit) => {

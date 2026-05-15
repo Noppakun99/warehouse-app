@@ -7,7 +7,10 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(npm install:*)",
-      "Bash(npx playwright:*)"
+      "Bash(npx playwright:*)",
+      "Bash(git fetch *)",
+      "Bash(node -e \"const fs=require\\('fs'\\); const c=fs.readFileSync\\('src/App.jsx','utf8'\\).split\\('\\\\n'\\); let d=0; c.forEach\\(\\(l,i\\)=>{ const op=\\(l.match\\(/<[a-zA-Z][^/]*>/g\\)||[]\\).length; const cl=\\(l.match\\(/<\\\\/[a-zA-Z]|\\\\/>/g\\)||[]\\).length; d+=op-cl; if\\(Math.abs\\(d\\)>15||i>2440\\) console.log\\(i+1, d, l.trim\\(\\).slice\\(0,60\\)\\) }\\);\")",
+      "Bash(npx supabase *)"
     ]
   }
 }

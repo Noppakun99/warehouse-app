@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from './lib/supabase';
-import { fetchDrugDetails, RECEIVE_COL_MAP, insertReceiveRows, normalizeLotSearch } from './lib/db';
+import { fetchDrugDetails, RECEIVE_COL_MAP, insertReceiveRows, normalizeLotSearch, scanInvoiceImage, insertScannedBillRows, uploadInvoiceImage, lookupDrugCodes } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 import {
   ArrowLeft, UploadCloud, RefreshCcw, Search, X,
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
-  TrendingUp, BarChart3, FileDown,
+  TrendingUp, BarChart3, FileDown, ScanLine, CheckCircle2,
+  ImagePlus, Pencil, Trash2, Info,
 } from 'lucide-react';
 import { exportToExcel } from './lib/exportExcel';
 
@@ -234,15 +235,481 @@ export default function ReceiveLogApp({ onBack, onRefresh, auth = {} }) {
             <BarChart3 size={15}/> สรุปผล
           </button>
           {isStaff && (
-            <button onClick={() => setTab('import')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'import' ? 'bg-white text-emerald-700 font-bold' : 'text-emerald-100 hover:text-white hover:bg-white/20'}`}
-            >Import CSV</button>
+            <>
+              <button onClick={() => setTab('scan')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'scan' ? 'bg-white text-emerald-700 font-bold' : 'text-emerald-100 hover:text-white hover:bg-white/20'}`}
+              ><ScanLine size={15}/>สแกนบิล</button>
+              <button onClick={() => setTab('import')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'import' ? 'bg-white text-emerald-700 font-bold' : 'text-emerald-100 hover:text-white hover:bg-white/20'}`}
+              >Import CSV</button>
+            </>
           )}
         </div>
       </div>
+      {tab === 'scan'   && isStaff && <ScanInvoice onDone={() => setTab('view')} auth={auth} />}
       {tab === 'import' && isStaff && <ReceiveImport onDone={() => setTab('view')} />}
       {tab === 'view'   && <ReceiveView isAdmin={isAdmin} />}
       {showSummary      && <ReceiveSummaryModal onClose={() => setShowSummary(false)} />}
+    </div>
+  );
+}
+
+// ============================================================
+// Invoice Scanner (AI Vision)
+// ============================================================
+const toBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const result = reader.result; // data:image/jpeg;base64,...
+    const base64 = result.split(',')[1];
+    resolve(base64);
+  };
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
+
+const fmtExpFromIso = (iso) => {
+  if (!iso) return '-';
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  return `${m[3]}/${m[2]}/${m[1]}`;
+};
+
+const isoToDisplay = (iso) => {
+  if (!iso) return '';
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  return `${m[3]}/${m[2]}/${m[1]}`;
+};
+
+const displayToIso = (display) => {
+  if (!display) return null;
+  const m = display.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const [, d, mo, y] = m;
+  return `${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`;
+};
+
+function EditableCell({ value, onChange, type = 'text', className = '' }) {
+  return (
+    <input
+      type={type}
+      value={value ?? ''}
+      onChange={e => onChange(e.target.value)}
+      className={`w-full border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white ${className}`}
+    />
+  );
+}
+
+function ScanInvoice({ onDone, auth }) {
+  const [files, setFiles] = useState([]);
+  const [invoices, setInvoices] = useState([]); // [{ file, previewUrl, header, items, vatMode }]
+  const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState({ done: 0, total: 0 });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
+  const dropRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  // Drag & drop
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const dropped = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    if (dropped.length) addFiles(dropped);
+  };
+
+  const addFiles = (newFiles) => {
+    setFiles(prev => {
+      const existing = new Set(prev.map(f => f.name + f.size));
+      return [...prev, ...newFiles.filter(f => !existing.has(f.name + f.size))];
+    });
+    setInvoices([]);
+    setSaved(false);
+    setError('');
+  };
+
+  const removeFile = (idx) => {
+    setFiles(prev => prev.filter((_, i) => i !== idx));
+    setInvoices([]);
+  };
+
+  // Process all images
+  const handleScan = async () => {
+    if (!files.length) return;
+    setScanning(true);
+    setError('');
+    setScanProgress({ done: 0, total: files.length });
+    const results = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const base64 = await toBase64(file);
+        const data = await scanInvoiceImage(base64, file.type);
+        if (data?._debug_error) {
+          throw new Error(`Gemini (${data.status}): ${data.detail}`);
+        }
+        const previewUrl = URL.createObjectURL(file);
+
+        // Auto-lookup drug codes from existing DB
+        const names = (data.items || []).map(it => it.drug_name).filter(Boolean);
+        const codeMap = await lookupDrugCodes(names);
+
+        const items = (data.items || []).map(it => ({
+          drug_name:      it.drug_name || '',
+          drug_code:      codeMap[it.drug_name] || '',
+          gpu_code:       it.gpu_code || '',
+          tpu_code:       it.tpu_code || '',
+          ttmp_code:      it.ttmp_code || '',
+          lot:            it.lot_number || '',
+          exp:            fmtExpFromIso(it.expiry_date),
+          mfg_date:       isoToDisplay(it.mfg_date),
+          qty_received:   it.qty_received ?? '',
+          drug_unit:      it.drug_unit || '',
+          price_per_unit: it.price_per_unit ?? '',
+          total_price_vat: it.total_price_vat ?? '',
+          _autoCode:      !!codeMap[it.drug_name],
+        }));
+
+        results.push({
+          file,
+          previewUrl,
+          vatMode: 'included', // 'included' | 'excluded'
+          header: {
+            supplier:      data.supplier || '',
+            bill_number:   data.invoice_number || '',
+            invoice_date:  isoToDisplay(data.invoice_date),
+            vat_percent:   data.vat_percent ?? 0,
+            subtotal:      data.subtotal ?? '',
+            vat_amount:    data.vat_amount ?? '',
+            invoice_total: data.invoice_total ?? '',
+          },
+          items,
+        });
+      } catch (err) {
+        results.push({ file, previewUrl: URL.createObjectURL(file), error: err.message, header: {}, items: [] });
+      }
+      setScanProgress({ done: i + 1, total: files.length });
+    }
+    setInvoices(results);
+    setScanning(false);
+  };
+
+  // Edit helpers
+  const updateHeader = (invIdx, field, val) => {
+    setInvoices(prev => prev.map((inv, i) =>
+      i !== invIdx ? inv : { ...inv, header: { ...inv.header, [field]: val } }
+    ));
+  };
+
+  const updateItem = (invIdx, itemIdx, field, val) => {
+    setInvoices(prev => prev.map((inv, i) =>
+      i !== invIdx ? inv : {
+        ...inv,
+        items: inv.items.map((it, j) => j !== itemIdx ? it : { ...it, [field]: val }),
+      }
+    ));
+  };
+
+  const removeItem = (invIdx, itemIdx) => {
+    setInvoices(prev => prev.map((inv, i) =>
+      i !== invIdx ? inv : { ...inv, items: inv.items.filter((_, j) => j !== itemIdx) }
+    ));
+  };
+
+  const setVatMode = (invIdx, mode) => {
+    setInvoices(prev => prev.map((inv, i) => i !== invIdx ? inv : { ...inv, vatMode: mode }));
+  };
+
+  // Confirm & save
+  const handleSave = async () => {
+    if (!invoices.length) return;
+    setSaving(true);
+    setError('');
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const allRows = [];
+
+      for (const inv of invoices) {
+        if (inv.error || !inv.items.length) continue;
+
+        // Upload image to Supabase Storage
+        let imageUrl = null;
+        try {
+          const ts = Date.now();
+          const safeName = inv.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          imageUrl = await uploadInvoiceImage(inv.file, `${ts}_${safeName}`);
+        } catch (_) {
+          // ถ้าอัพโหลดรูปไม่สำเร็จ ยังคง save ข้อมูลต่อ
+        }
+
+        for (const it of inv.items) {
+          if (!it.drug_name && !it.drug_code) continue;
+
+          let itemTotal = parseFloat(String(it.total_price_vat).replace(/,/g,'')) || null;
+          const qty     = parseFloat(String(it.qty_received).replace(/,/g,'')) || null;
+          const price   = parseFloat(String(it.price_per_unit).replace(/,/g,'')) || null;
+          const vat     = parseFloat(inv.header.vat_percent) || 0;
+
+          // ถ้า vatMode = 'excluded' → คำนวณ VAT เพิ่ม
+          if (inv.vatMode === 'excluded' && vat > 0 && qty && price) {
+            itemTotal = (qty * price * (1 + vat / 100));
+          }
+
+          allRows.push({
+            receive_date:      today,
+            bill_number:       inv.header.bill_number || '-',
+            supplier_current:  inv.header.supplier || '-',
+            invoice_date:      displayToIso(inv.header.invoice_date) || null,
+            vat_percent:       vat || null,
+            subtotal:          parseFloat(String(inv.header.subtotal).replace(/,/g,'')) || null,
+            vat_amount:        parseFloat(String(inv.header.vat_amount).replace(/,/g,'')) || null,
+            invoice_total:     parseFloat(String(inv.header.invoice_total).replace(/,/g,'')) || null,
+            drug_name:         it.drug_name || '-',
+            drug_code:         it.drug_code || '-',
+            gpu_code:          it.gpu_code || null,
+            tpu_code:          it.tpu_code || null,
+            ttmp_code:         it.ttmp_code || null,
+            lot:               it.lot || '-',
+            exp:               it.exp || '-',
+            mfg_date:          it.mfg_date || null,
+            qty_received:      qty,
+            drug_unit:         it.drug_unit || null,
+            price_per_unit:    price,
+            total_price_vat:   itemTotal,
+            scan_image_url:    imageUrl,
+            receive_status:    'สแกนบิล AI',
+          });
+        }
+      }
+
+      if (!allRows.length) throw new Error('ไม่มีรายการยาที่จะบันทึก');
+      await insertScannedBillRows(allRows, auth);
+      setSaved(true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const totalItems = invoices.reduce((s, inv) => s + (inv.items?.length || 0), 0);
+
+  if (saved) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-12 text-center">
+        <div className="bg-white rounded-2xl shadow-sm border border-emerald-200 p-8">
+          <CheckCircle2 size={48} className="text-emerald-500 mx-auto mb-4"/>
+          <h2 className="text-xl font-bold text-slate-800 mb-2">บันทึกสำเร็จ</h2>
+          <p className="text-slate-600 mb-6">บันทึกข้อมูล {totalItems} รายการจาก {invoices.length} บิล เข้าระบบแล้ว</p>
+          <button onClick={onDone}
+            className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-xl py-2.5 px-6 font-semibold text-sm transition-colors">
+            กลับหน้าหลัก
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
+
+      {/* Upload Area */}
+      {!invoices.length && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+          <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+            <ScanLine size={18} className="text-emerald-600"/> อัพโหลดภาพบิลยา
+          </h2>
+
+          <div
+            ref={dropRef}
+            onDrop={handleDrop}
+            onDragOver={e => e.preventDefault()}
+            onClick={() => fileInputRef.current?.click()}
+            className="border-2 border-dashed border-emerald-300 rounded-xl p-8 text-center cursor-pointer hover:bg-emerald-50 transition-colors"
+          >
+            <ImagePlus size={36} className="text-emerald-400 mx-auto mb-3"/>
+            <p className="text-sm font-medium text-slate-700 mb-1">ลากวางหรือคลิกเพื่อเลือกรูปบิล</p>
+            <p className="text-xs text-slate-500">รองรับหลายรูปพร้อมกัน · JPG, PNG, HEIC</p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={e => addFiles(Array.from(e.target.files))}
+            />
+          </div>
+
+          {files.length > 0 && (
+            <div className="mt-4 space-y-2">
+              {files.map((f, i) => (
+                <div key={i} className="flex items-center gap-3 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200">
+                  <img src={URL.createObjectURL(f)} alt="" className="w-10 h-10 object-cover rounded-lg border border-slate-200"/>
+                  <span className="flex-1 text-sm text-slate-700 truncate">{f.name}</span>
+                  <span className="text-xs text-slate-400">{(f.size/1024).toFixed(0)} KB</span>
+                  <button onClick={(e) => { e.stopPropagation(); removeFile(i); }} className="text-slate-400 hover:text-red-500 transition-colors">
+                    <X size={16}/>
+                  </button>
+                </div>
+              ))}
+
+              <button
+                onClick={handleScan}
+                disabled={scanning}
+                className="mt-2 w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:opacity-60 text-white rounded-xl py-2.5 font-semibold text-sm transition-colors shadow-sm"
+              >
+                {scanning
+                  ? <><RefreshCcw size={16} className="animate-spin"/> กำลังอ่านบิล {scanProgress.done}/{scanProgress.total}...</>
+                  : <><ScanLine size={16}/> เริ่มอ่านบิล AI ({files.length} รูป)</>
+                }
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Preview per invoice */}
+      {invoices.map((inv, invIdx) => (
+        <div key={invIdx} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+
+          {/* Invoice header */}
+          <div className="bg-emerald-50 border-b border-emerald-100 px-5 py-4">
+            <div className="flex items-start gap-4">
+              <img src={inv.previewUrl} alt="" className="w-16 h-16 object-cover rounded-xl border border-emerald-200 shrink-0"/>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-2">ข้อมูลบิล #{invIdx + 1}</p>
+                {inv.error ? (
+                  <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                    <AlertCircle size={16}/> อ่านบิลไม่สำเร็จ: {inv.error}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {[
+                      { label: 'บริษัทผู้ขาย', field: 'supplier' },
+                      { label: 'เลขที่บิล',    field: 'bill_number' },
+                      { label: 'วันที่บิล',     field: 'invoice_date' },
+                    ].map(({ label, field }) => (
+                      <div key={field}>
+                        <p className="text-xs text-slate-500 mb-0.5">{label}</p>
+                        <EditableCell value={inv.header[field]} onChange={v => updateHeader(invIdx, field, v)}/>
+                      </div>
+                    ))}
+                    {[
+                      { label: 'VAT (%)',    field: 'vat_percent' },
+                      { label: 'ก่อน VAT',  field: 'subtotal' },
+                      { label: 'VAT',        field: 'vat_amount' },
+                      { label: 'รวมทั้งบิล', field: 'invoice_total' },
+                    ].map(({ label, field }) => (
+                      <div key={field}>
+                        <p className="text-xs text-slate-500 mb-0.5">{label}</p>
+                        <EditableCell value={inv.header[field]} onChange={v => updateHeader(invIdx, field, v)} type="number"/>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* VAT toggle */}
+            {!inv.error && (
+              <div className="mt-3 flex items-center gap-3">
+                <Info size={13} className="text-slate-400 shrink-0"/>
+                <span className="text-xs text-slate-600">ราคาในบิลนี้:</span>
+                {['included','excluded'].map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setVatMode(invIdx, mode)}
+                    className={`text-xs px-3 py-1 rounded-full border font-medium transition-colors ${inv.vatMode === mode ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-300 hover:border-emerald-400'}`}
+                  >
+                    {mode === 'included' ? 'รวม VAT แล้ว' : 'ยังไม่รวม VAT'}
+                  </button>
+                ))}
+                {inv.vatMode === 'excluded' && parseFloat(inv.header.vat_percent) > 0 && (
+                  <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-0.5">
+                    ระบบจะคำนวณ +{inv.header.vat_percent}% ให้อัตโนมัติ
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Items table */}
+          {!inv.error && inv.items.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    {['ชื่อยา','รหัสยา','GPU','TPU','TTMP','Lot','Exp','Mfg','จำนวน','หน่วย','ราคา/หน่วย','มูลค่า',''].map(h => (
+                      <th key={h} className="text-left px-3 py-2 font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {inv.items.map((it, itemIdx) => (
+                    <tr key={itemIdx} className="hover:bg-slate-50">
+                      <td className="px-3 py-1.5 min-w-40"><EditableCell value={it.drug_name} onChange={v => updateItem(invIdx, itemIdx, 'drug_name', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-24">
+                        <div className="relative">
+                          <EditableCell value={it.drug_code} onChange={v => updateItem(invIdx, itemIdx, 'drug_code', v)}/>
+                          {it._autoCode && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" title="จับคู่อัตโนมัติ"/>}
+                        </div>
+                      </td>
+                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.gpu_code} onChange={v => updateItem(invIdx, itemIdx, 'gpu_code', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.tpu_code} onChange={v => updateItem(invIdx, itemIdx, 'tpu_code', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.ttmp_code} onChange={v => updateItem(invIdx, itemIdx, 'ttmp_code', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.lot} onChange={v => updateItem(invIdx, itemIdx, 'lot', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.exp} onChange={v => updateItem(invIdx, itemIdx, 'exp', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.mfg_date} onChange={v => updateItem(invIdx, itemIdx, 'mfg_date', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-16"><EditableCell value={it.qty_received} onChange={v => updateItem(invIdx, itemIdx, 'qty_received', v)} type="number"/></td>
+                      <td className="px-3 py-1.5 min-w-16"><EditableCell value={it.drug_unit} onChange={v => updateItem(invIdx, itemIdx, 'drug_unit', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.price_per_unit} onChange={v => updateItem(invIdx, itemIdx, 'price_per_unit', v)} type="number"/></td>
+                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.total_price_vat} onChange={v => updateItem(invIdx, itemIdx, 'total_price_vat', v)} type="number"/></td>
+                      <td className="px-3 py-1.5">
+                        <button onClick={() => removeItem(invIdx, itemIdx)} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={14}/></button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!inv.error && (
+            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+              <span>{inv.items.length} รายการ</span>
+              <span className="font-semibold text-slate-700">
+                รวมทั้งบิล: {Number(inv.header.invoice_total || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
+              </span>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {/* Action bar */}
+      {invoices.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 px-5 py-4 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-slate-800">{invoices.length} บิล · {totalItems} รายการ</p>
+            {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => { setInvoices([]); setFiles([]); setSaved(false); setError(''); }}
+              className="px-4 py-2 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl text-sm font-medium transition-colors"
+            >
+              สแกนใหม่
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || !totalItems}
+              className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:opacity-60 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm"
+            >
+              {saving ? <><RefreshCcw size={15} className="animate-spin"/> กำลังบันทึก...</> : <><CheckCircle2 size={15}/> ยืนยันบันทึก {totalItems} รายการ</>}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -813,6 +1280,13 @@ function ReceiveView({ isAdmin = false }) {
       return bScore - aScore;
     });
     return sorted.filter(r => {
+      // ซ่อน blank row: ทั้ง drug_name และ drug_code ต้องมีค่าจริง
+      const name = (r.drug_name || '').trim().toLowerCase();
+      const code = (r.drug_code || '').trim();
+      const hasName = name && name !== '-' && name !== '(blank)' && name !== 'blank';
+      const hasCode = code && code !== '-';
+      if (!hasName && !hasCode) return false;
+
       const key = dedupKey(r);
       if (seen.has(key)) return false;
       seen.add(key);
