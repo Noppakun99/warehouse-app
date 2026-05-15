@@ -36,13 +36,13 @@ const thaiToIso = (thai) => {
   return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
 };
 
-function ThaiDateInput({ value, onChange, ring = 'focus-within:ring-emerald-400', size = 'w-28' }) {
+function ThaiDateInput({ value, onChange, placeholder = 'dd/mm/yyyy', ring = 'focus-within:ring-emerald-400', size = 'w-28' }) {
   const ref = React.useRef(null);
   return (
     <div className={`relative ${size} border border-slate-300 rounded-lg bg-white cursor-pointer flex items-center focus-within:ring-2 focus-within:outline-none ${ring}`}
       onClick={() => ref.current?.showPicker?.()}>
       <span className={`px-2 py-1.5 text-sm w-full select-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
-        {value || 'dd/mm/yyyy'}
+        {value || placeholder}
       </span>
       <input type="date" ref={ref} tabIndex={-1}
         className="absolute opacity-0 w-0 h-0 top-0 left-0 pointer-events-none"
@@ -1034,15 +1034,13 @@ function ReceiveView({ isAdmin = false }) {
   const [selectedDrug, setSelectedDrug] = useState('');
   const [drugRows, setDrugRows]         = useState([]);
   const [drugLoading, setDrugLoading]   = useState(false);
-  const [drugDateFrom, setDrugDateFrom] = useState('');
-  const [drugDateTo, setDrugDateTo]     = useState('');
   const [dateFrom, setDateFrom]         = useState('');
   const [dateTo, setDateTo]           = useState('');
   const [expanded, setExpanded]       = useState(null);
   const [drugExpanded, setDrugExpanded] = useState(null);
   const [page, setPage]               = useState(0);
   const [exportLoading, setExportLoading] = useState(false);
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = 200;
   const searchRef    = useRef(null);
   const supplierRef  = useRef(null);
   const [supplierSearch, setSupplierSearch] = useState('');
@@ -1100,10 +1098,10 @@ function ReceiveView({ isAdmin = false }) {
       .order('id', { ascending: false });
     if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%,bill_number.ilike.%${search}%`); }
     const isoFrom = thaiToIso(dateFrom) || dateFrom;
-    const isoTo   = thaiToIso(dateTo)   || dateTo;
-    if (dateFrom && dateTo)   { q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo); }
-    else if (dateFrom)        { q = q.eq('receive_date', isoFrom); }
-    else if (dateTo)          { q = q.lte('receive_date', isoTo); }
+    const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
+    if (isoFrom && isoTo)   { q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo); }
+    else if (isoFrom)       { q = q.gte('receive_date', isoFrom); }
+    else if (isoTo)         { q = q.lte('receive_date', isoTo); }
     q = q.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
     const { data } = await q;
     setRows(data || []);
@@ -1117,12 +1115,12 @@ function ReceiveView({ isAdmin = false }) {
     if (!supabase) return;
     setAggStats(null);
     const isoFrom = thaiToIso(dateFrom) || dateFrom;
-    const isoTo   = thaiToIso(dateTo)   || dateTo;
+    const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
     const applyFilters = (q) => {
       if (search.trim())    q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%,bill_number.ilike.%${search}%`);
-      if (dateFrom && dateTo)  { q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo); }
-      else if (dateFrom)       { q = q.eq('receive_date', isoFrom); }
-      else if (dateTo)         { q = q.lte('receive_date', isoTo); }
+      if (isoFrom && isoTo)  { q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo); }
+      else if (isoFrom)      { q = q.gte('receive_date', isoFrom); }
+      else if (isoTo)        { q = q.lte('receive_date', isoTo); }
       if (supplierFilter) q = q.eq('supplier_current', supplierFilter);
       return q;
     };
@@ -1144,16 +1142,16 @@ function ReceiveView({ isAdmin = false }) {
     setExportLoading(true);
     try {
       const isoFrom = thaiToIso(dateFrom) || dateFrom;
-      const isoTo   = thaiToIso(dateTo)   || dateTo;
+      const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
       const allRows = await fetchAllRows(() => {
         let q = supabase.from('receive_logs').select('*')
           .order('receive_date', { ascending: false })
           .order('id', { ascending: false });
-        if (search.trim())       q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%,bill_number.ilike.%${search}%`);
-        if (supplierFilter)      q = q.eq('supplier_current', supplierFilter);
-        if (dateFrom && dateTo)  q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo);
-        else if (dateFrom)       q = q.eq('receive_date', isoFrom);
-        else if (dateTo)         q = q.lte('receive_date', isoTo);
+        if (search.trim())  q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%,bill_number.ilike.%${search}%`);
+        if (supplierFilter) q = q.eq('supplier_current', supplierFilter);
+        if (isoFrom && isoTo)  q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo);
+        else if (isoFrom)      q = q.gte('receive_date', isoFrom);
+        else if (isoTo)        q = q.lte('receive_date', isoTo);
         return q;
       });
       exportToExcel(allRows, RECEIVE_EXCEL_COLS, 'ประวัติรับยา', `receive_logs_${new Date().toISOString().slice(0,10)}.xlsx`, auth);
@@ -1180,8 +1178,7 @@ function ReceiveView({ isAdmin = false }) {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from('receive_logs').select('drug_name, drug_type').then(({ data }) => {
-      if (!data) return;
+    fetchAllRows(() => supabase.from('receive_logs').select('drug_name, drug_type')).then(data => {
       const typeMap = {};
       data.forEach(d => { if (d.drug_name && d.drug_type && d.drug_type !== '-') typeMap[d.drug_name] = d.drug_type; });
       const names = [...new Set(data.map(d => d.drug_name).filter(Boolean))].sort();
@@ -1225,8 +1222,6 @@ function ReceiveView({ isAdmin = false }) {
     setSearch('');
     setSelectedDrug('');
     setDrugRows([]);
-    setDrugDateFrom('');
-    setDrugDateTo('');
     setPage(0);
   };
 
@@ -1239,8 +1234,10 @@ function ReceiveView({ isAdmin = false }) {
     (r.bill_number || '').trim().toLowerCase().replace(/^-$/, ''),
   ].join('|');
 
-  // กรองด้วย date range ฝั่ง drug table (client-side) + dedup
+  // กรองด้วย date range จาก main filter + dedup
   const filteredDrugRows = (() => {
+    const isoFrom = thaiToIso(dateFrom) || dateFrom;
+    const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
     const seen = new Set();
     // เรียง: row ที่มีข้อมูลครบกว่า (supplier, price) ขึ้นก่อน → dedup จะเก็บ row ดีกว่า
     const sorted = [...drugRows].sort((a, b) => {
@@ -1249,8 +1246,8 @@ function ReceiveView({ isAdmin = false }) {
       return bScore - aScore;
     });
     return sorted.filter(r => {
-      if (drugDateFrom && r.receive_date < drugDateFrom) return false;
-      if (drugDateTo   && r.receive_date > drugDateTo)   return false;
+      if (isoFrom && r.receive_date < isoFrom) return false;
+      if (isoTo   && r.receive_date > isoTo)   return false;
       const key = dedupKey(r);
       if (seen.has(key)) return false;
       seen.add(key);
@@ -1404,7 +1401,8 @@ function ReceiveView({ isAdmin = false }) {
           <span className="text-xs text-slate-500 font-medium">ตั้งแต่</span>
           <ThaiDateInput value={dateFrom} onChange={v => { setDateFrom(v); setPage(0); }} />
           <span className="text-xs text-slate-400">ถึง</span>
-          <ThaiDateInput value={dateTo} onChange={v => { setDateTo(v); setPage(0); }} />
+          <ThaiDateInput value={dateTo} onChange={v => { setDateTo(v); setPage(0); }}
+            placeholder={dateFrom ? isoToThai(new Date().toISOString().split('T')[0]) : 'dd/mm/yyyy'} />
           {(dateFrom || dateTo) && (
             <button onClick={() => { setDateFrom(''); setDateTo(''); setPage(0); }}
               className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1"><X size={12}/>ล้างวันที่</button>
@@ -1435,20 +1433,6 @@ function ReceiveView({ isAdmin = false }) {
               </div>
               <button onClick={clearSearch} className="text-emerald-200 hover:text-white shrink-0 mt-0.5"><X size={16}/></button>
             </div>
-          </div>
-
-          {/* Date filter */}
-          <div className="px-4 py-2.5 border-b border-slate-100 flex flex-wrap items-center gap-3">
-            <span className="text-xs text-slate-500 font-medium">ช่วงวันที่:</span>
-            <input type="date" value={drugDateFrom} onChange={e => setDrugDateFrom(e.target.value)}
-              className="border border-slate-300 rounded-lg px-2 py-1 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white" />
-            <span className="text-xs text-slate-400">—</span>
-            <input type="date" value={drugDateTo} onChange={e => setDrugDateTo(e.target.value)}
-              className="border border-slate-300 rounded-lg px-2 py-1 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white" />
-            {(drugDateFrom || drugDateTo) && (
-              <button onClick={() => { setDrugDateFrom(''); setDrugDateTo(''); }}
-                className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-0.5"><X size={11}/>ล้าง</button>
-            )}
           </div>
 
           {/* Summary cards */}
@@ -1666,12 +1650,37 @@ function ReceiveView({ isAdmin = false }) {
         </div>
       )}
 
-      {!selectedDrug && rows.length === PAGE_SIZE && (
-        <div className="flex gap-2 justify-center pt-2">
-          {page > 0 && <button onClick={() => setPage(p => p-1)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl px-4 py-2 text-sm shadow-sm">← ก่อนหน้า</button>}
-          <button onClick={() => setPage(p => p+1)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl px-4 py-2 text-sm shadow-sm">ถัดไป →</button>
-        </div>
-      )}
+      {!selectedDrug && (rows.length === PAGE_SIZE || page > 0) && (() => {
+        const totalPages = aggStats ? Math.ceil(aggStats.count / PAGE_SIZE) : null;
+        return (
+          <div className="flex items-center gap-3 justify-center pt-2 flex-wrap">
+            {page > 0 && <button onClick={() => setPage(p => p-1)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl px-4 py-2 text-sm shadow-sm">← ก่อนหน้า</button>}
+            {aggStats && (
+              <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                <span>หน้า</span>
+                <input
+                  type="number" min={1} max={totalPages || undefined}
+                  defaultValue={page + 1} key={page}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      const v = parseInt(e.target.value, 10);
+                      if (v >= 1 && (!totalPages || v <= totalPages)) setPage(v - 1);
+                    }
+                  }}
+                  onBlur={e => {
+                    const v = parseInt(e.target.value, 10);
+                    if (v >= 1 && (!totalPages || v <= totalPages)) setPage(v - 1);
+                  }}
+                  className="w-14 text-center border border-slate-300 rounded-lg px-1 py-1 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                />
+                <span>/ {totalPages}</span>
+                <span className="text-slate-400 ml-1">({aggStats.count.toLocaleString()} รายการ)</span>
+              </div>
+            )}
+            {rows.length === PAGE_SIZE && <button onClick={() => setPage(p => p+1)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl px-4 py-2 text-sm shadow-sm">ถัดไป →</button>}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1721,8 +1730,7 @@ function ReceiveSummaryModal({ onClose }) {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from('receive_logs').select('drug_name, drug_type').then(({ data }) => {
-      if (!data) return;
+    fetchAllRows(() => supabase.from('receive_logs').select('drug_name, drug_type')).then(data => {
       const typeMap = {};
       data.forEach(d => { if (d.drug_name && d.drug_type && d.drug_type !== '-') typeMap[d.drug_name] = d.drug_type; });
       const names = [...new Set(data.map(d => d.drug_name).filter(Boolean))].sort();

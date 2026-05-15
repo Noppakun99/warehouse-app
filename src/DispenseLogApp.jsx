@@ -746,7 +746,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
   const [expandedDrug, setExpandedDrug] = useState(null);
   const [editingRow, setEditingRow] = useState(null);
   const [page, setPage]             = useState(0);
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = 200;
   const [drugNames, setDrugNames]       = useState([]);
   const [selectedDrug, setSelectedDrug] = useState('');
   const [drugRows, setDrugRows]         = useState([]);
@@ -765,10 +765,10 @@ function DispenseView({ isAdmin = false, auth = {} }) {
       .order('id', { ascending: false });
     if (deptFilter)    q = q.eq('department', deptFilter);
     const isoFrom = thaiToIso(dateFrom) || dateFrom;
-    const isoTo   = thaiToIso(dateTo)   || dateTo;
-    if (dateFrom && dateTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
-    else if (dateFrom)        { q = q.eq('dispense_date', isoFrom); }
-    else if (dateTo)          { q = q.lte('dispense_date', isoTo); }
+    const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
+    if (isoFrom && isoTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
+    else if (isoFrom)       { q = q.gte('dispense_date', isoFrom); }
+    else if (isoTo)         { q = q.lte('dispense_date', isoTo); }
     if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%`); }
     q = q.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
     const { data } = await q;
@@ -781,15 +781,15 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     setExportLoading(true);
     try {
       const isoFrom = thaiToIso(dateFrom) || dateFrom;
-      const isoTo   = thaiToIso(dateTo)   || dateTo;
+      const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
       const allRows = await fetchAllRows(() => {
         let q = supabase.from('dispense_logs').select('*')
           .order('dispense_date', { ascending: false })
           .order('id', { ascending: false });
         if (deptFilter) q = q.eq('department', deptFilter);
-        if (dateFrom && dateTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
-        else if (dateFrom)        { q = q.eq('dispense_date', isoFrom); }
-        else if (dateTo)          { q = q.lte('dispense_date', isoTo); }
+        if (isoFrom && isoTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
+        else if (isoFrom)       { q = q.gte('dispense_date', isoFrom); }
+        else if (isoTo)         { q = q.lte('dispense_date', isoTo); }
         if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%`); }
         return q;
       });
@@ -806,12 +806,12 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     if (!supabase) return;
     setAggStats(null);
     const isoFrom = thaiToIso(dateFrom) || dateFrom;
-    const isoTo   = thaiToIso(dateTo)   || dateTo;
+    const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
     const applyFilters = (q) => {
       if (deptFilter) q = q.eq('department', deptFilter);
-      if (dateFrom && dateTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
-      else if (dateFrom)        { q = q.eq('dispense_date', isoFrom); }
-      else if (dateTo)          { q = q.lte('dispense_date', isoTo); }
+      if (isoFrom && isoTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
+      else if (isoFrom)       { q = q.gte('dispense_date', isoFrom); }
+      else if (isoTo)         { q = q.lte('dispense_date', isoTo); }
       if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%`); }
       return q;
     };
@@ -841,8 +841,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from('dispense_logs').select('drug_name, drug_type').then(({ data }) => {
-      if (!data) return;
+    fetchAllRows(() => supabase.from('dispense_logs').select('drug_name, drug_type')).then(data => {
       const typeMap = {};
       data.forEach(d => { if (d.drug_name && d.drug_type && d.drug_type !== '-') typeMap[d.drug_name] = d.drug_type; });
       const names = [...new Set(data.map(d => d.drug_name).filter(Boolean))].sort();
@@ -964,7 +963,8 @@ function DispenseView({ isAdmin = false, auth = {} }) {
           <span className="text-xs text-slate-500 font-medium">ตั้งแต่</span>
           <ThaiDateInput value={dateFrom} onChange={v => { setDateFrom(v); setPage(0); }} />
           <span className="text-xs text-slate-400">ถึง</span>
-          <ThaiDateInput value={dateTo} onChange={v => { setDateTo(v); setPage(0); }} />
+          <ThaiDateInput value={dateTo} onChange={v => { setDateTo(v); setPage(0); }}
+            placeholder={dateFrom ? isoToThai(new Date().toISOString().split('T')[0]) : 'dd/mm/yyyy'} />
           {(dateFrom || dateTo) && (
             <button onClick={() => { setDateFrom(''); setDateTo(''); setPage(0); }}
               className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1"><X size={12}/>ล้างวันที่</button>
@@ -1231,12 +1231,37 @@ function DispenseView({ isAdmin = false, auth = {} }) {
         </div>
       )}
 
-      {rows.length === PAGE_SIZE && (
-        <div className="flex gap-2 justify-center pt-2">
-          {page > 0 && <button onClick={() => setPage(p => p-1)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl px-4 py-2 text-sm shadow-sm">← ก่อนหน้า</button>}
-          <button onClick={() => setPage(p => p+1)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl px-4 py-2 text-sm shadow-sm">ถัดไป →</button>
-        </div>
-      )}
+      {(rows.length === PAGE_SIZE || page > 0) && (() => {
+        const totalPages = aggStats ? Math.ceil(aggStats.count / PAGE_SIZE) : null;
+        return (
+          <div className="flex items-center gap-3 justify-center pt-2 flex-wrap">
+            {page > 0 && <button onClick={() => setPage(p => p-1)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl px-4 py-2 text-sm shadow-sm">← ก่อนหน้า</button>}
+            {aggStats && (
+              <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                <span>หน้า</span>
+                <input
+                  type="number" min={1} max={totalPages || undefined}
+                  defaultValue={page + 1} key={page}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      const v = parseInt(e.target.value, 10);
+                      if (v >= 1 && (!totalPages || v <= totalPages)) setPage(v - 1);
+                    }
+                  }}
+                  onBlur={e => {
+                    const v = parseInt(e.target.value, 10);
+                    if (v >= 1 && (!totalPages || v <= totalPages)) setPage(v - 1);
+                  }}
+                  className="w-14 text-center border border-slate-300 rounded-lg px-1 py-1 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                />
+                <span>/ {totalPages}</span>
+                <span className="text-slate-400 ml-1">({aggStats.count.toLocaleString()} รายการ)</span>
+              </div>
+            )}
+            {rows.length === PAGE_SIZE && <button onClick={() => setPage(p => p+1)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl px-4 py-2 text-sm shadow-sm">ถัดไป →</button>}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1362,8 +1387,7 @@ function DispenseSummaryModal({ onClose }) {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from('dispense_logs').select('drug_name, drug_type').then(({ data }) => {
-      if (!data) return;
+    fetchAllRows(() => supabase.from('dispense_logs').select('drug_name, drug_type')).then(data => {
       const typeMap = {};
       data.forEach(d => { if (d.drug_name && d.drug_type && d.drug_type !== '-') typeMap[d.drug_name] = d.drug_type; });
       const names = [...new Set(data.map(d => d.drug_name).filter(Boolean))].sort();

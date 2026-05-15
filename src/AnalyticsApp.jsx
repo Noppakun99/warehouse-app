@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { fetchDispenseAnalytics } from './lib/db';
 import { exportToExcel } from './lib/exportExcel';
+import DrugSearchBar from './DrugSearchBar';
 
 // ============================================================
 // Constants & helpers
@@ -189,6 +190,7 @@ export default function AnalyticsApp({ onBack, onRefresh, auth = {} }) {
   const [rows,           setRows]           = useState([]);
   const [loading,        setLoading]        = useState(true);
   const [activeTab,      setActiveTab]      = useState('summary');
+  const [drugSearch,     setDrugSearch]     = useState('');
   const [forecastPeriod, setForecastPeriod] = useState(12);
   const [forecastModel,  setForecastModel]  = useState('linear');
   const [abcFilter,      setAbcFilter]      = useState('A');
@@ -203,12 +205,29 @@ export default function AnalyticsApp({ onBack, onRefresh, auth = {} }) {
 
   useEffect(() => { load(); }, [dateFrom, dateTo]);
 
+  // รายชื่อยาสำหรับ DrugSearchBar autocomplete
+  const drugNames = useMemo(() => {
+    const typeMap = {};
+    rows.forEach(r => { if (r.drug_name && r.drug_type && r.drug_type !== '-') typeMap[r.drug_name] = r.drug_type; });
+    return [...new Set(rows.map(r => r.drug_name).filter(Boolean))].sort()
+      .map(name => ({ name, type: typeMap[name] || '' }));
+  }, [rows]);
+
+  // กรองตามชื่อยาที่พิมพ์/เลือก
+  const filteredRows = useMemo(
+    () => drugSearch.trim()
+      ? rows.filter(r => r.drug_name?.toLowerCase().includes(drugSearch.toLowerCase()))
+      : rows,
+    [rows, drugSearch]
+  );
+
   // ---- Core aggregations ----
   const {
     topDrugs, topDrugsByDays, monthlyTrend, topDepts, topDeptsValue,
     totalQty, totalValue, uniqueDays, uniqueDrugCount,
     abcDrugs, yoyData, yoyYears, yoySufficient, yoyMonthsPerYear,
     ma3Trend, risingMomentum, lastMonthLabel,
+    actualDateMin, actualDateMax,
   } = useMemo(() => {
     const drugMap     = {};
     const drugDaysMap = {};
@@ -218,7 +237,7 @@ export default function AnalyticsApp({ onBack, onRefresh, auth = {} }) {
     const deptDaysMap = {};
     let totalQty = 0, totalValue = 0;
 
-    rows.forEach(r => {
+    filteredRows.forEach(r => {
       const qty   = parseFloat(r.qty_out) || 0;
       const price = getPrice(r);
       const value = qty * price;
@@ -260,7 +279,7 @@ export default function AnalyticsApp({ onBack, onRefresh, auth = {} }) {
       if (drugMap[k]) drugMap[k].days = drugDaysMap[k].size;
     });
 
-    const allDates     = new Set(rows.map(r => r.dispense_date).filter(Boolean));
+    const allDates     = new Set(filteredRows.map(r => r.dispense_date).filter(Boolean));
     const uniqueDays   = allDates.size;
     const uniqueDrugCount = Object.keys(drugMap).length;
 
@@ -342,13 +361,19 @@ export default function AnalyticsApp({ onBack, onRefresh, auth = {} }) {
 
     const lastMonthLabel = lastMon ? thMonth(lastMon) : '';
 
+    const isoFmt = iso => { if (!iso) return ''; const [y, m, d] = iso.split('-'); return `${d}/${m}/${parseInt(y) + 543}`; };
+    const dates = filteredRows.map(r => r.dispense_date).filter(Boolean).sort();
+    const actualDateMin = dates.length ? isoFmt(dates[0]) : '';
+    const actualDateMax = dates.length ? isoFmt(dates[dates.length - 1]) : '';
+
     return {
       topDrugs, topDrugsByDays, monthlyTrend, topDepts, topDeptsValue,
       totalQty, totalValue, uniqueDays, uniqueDrugCount,
       abcDrugs, yoyData, yoyYears, yoySufficient, yoyMonthsPerYear,
       ma3Trend, risingMomentum, lastMonthLabel,
+      actualDateMin, actualDateMax,
     };
-  }, [rows]);
+  }, [filteredRows]);
 
   // ---- Forecast: Linear & Holt Exponential Smoothing ----
   const { combinedChartLinear, combinedChartHolt, risingDrugsLinear, risingDrugsHolt, hasEnoughData, forecastReliable } = useMemo(() => {
@@ -362,7 +387,7 @@ export default function AnalyticsApp({ onBack, onRefresh, auth = {} }) {
     const futureMons = Array.from({ length: 12 }, (_, i) => addMonth(lastMon, i + 1));
 
     const drugMon = {};
-    rows.forEach(r => {
+    filteredRows.forEach(r => {
       const key = r.drug_name || r.drug_code || '-';
       const mon = (r.dispense_date || '').slice(0, 7);
       if (!mon || monthIdx[mon] === undefined) return;
@@ -407,7 +432,7 @@ export default function AnalyticsApp({ onBack, onRefresh, auth = {} }) {
 
     const forecastReliable = monthlyTrend.length >= 6;
     return { combinedChartLinear: buildCombined(totalFutLin), combinedChartHolt: buildCombined(totalFutHolt), risingDrugsLinear: risingLin, risingDrugsHolt: risingHolt, hasEnoughData: true, forecastReliable };
-  }, [rows, monthlyTrend]);
+  }, [filteredRows, monthlyTrend]);
 
   const risingDrugs = useMemo(
     () => forecastModel === 'linear' ? risingDrugsLinear : risingDrugsHolt,
@@ -455,19 +480,36 @@ export default function AnalyticsApp({ onBack, onRefresh, auth = {} }) {
           </button>
           <button onClick={onRefresh} className="flex-1 text-left hover:opacity-80 transition-opacity">
             <h1 className="text-lg font-black">วิเคราะห์การเบิกยา</h1>
-            <p className="text-white/70 text-xs">ข้อมูลจาก Dispense Log</p>
+            <p className="text-white/70 text-xs">
+              {actualDateMin && actualDateMax
+                ? `ข้อมูล ${actualDateMin} – ${actualDateMax}`
+                : 'ข้อมูลจาก Dispense Log'}
+            </p>
           </button>
           <button onClick={load} className="p-2 rounded-xl bg-white/10 hover:bg-white/25 transition-colors" title="รีเฟรช">
             <RefreshCcw size={18} />
           </button>
         </div>
-        <div className="flex items-center gap-2 pb-4 flex-wrap">
+        <div className="flex items-center gap-2 pb-2 flex-wrap">
           <span className="text-white/70 text-sm">ตั้งแต่</span>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
             className="bg-white/10 border border-white/30 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:bg-white/20" />
           <span className="text-white/70 text-sm">ถึง</span>
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
             className="bg-white/10 border border-white/30 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:bg-white/20" />
+        </div>
+        {/* Drug filter */}
+        <div className="pb-4">
+          <DrugSearchBar
+            value={drugSearch}
+            onChange={setDrugSearch}
+            options={drugNames}
+            placeholder="ค้นหารายการยา... (ทั้งหมด)"
+            maxResults={12}
+            ringClass="focus:ring-blue-400"
+            hoverClass="hover:bg-blue-50"
+            className="w-full max-w-sm"
+          />
         </div>
       </div>
 

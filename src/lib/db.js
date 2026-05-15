@@ -670,7 +670,19 @@ export async function loginUser(username, password) {
     .eq('username', username.trim())
     .single()
   if (error || !data) return { error: 'ไม่พบชื่อผู้ใช้' }
-  if (!data.is_active) return { error: 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ' }
+  if (!data.is_active) {
+    if (data.suspend_until) {
+      const until = new Date(data.suspend_until)
+      if (until > new Date()) {
+        const d = until
+        const fmt = `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()+543} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')} น.`
+        return { error: `บัญชีถูกระงับชั่วคราว ถึง ${fmt}` }
+      }
+      // หมดเวลาระงับแล้ว → อนุญาตให้เข้าใช้งาน
+    } else {
+      return { error: 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ' }
+    }
+  }
   const hash = await hashPassword(password)
   if (hash !== data.password_hash) return { error: 'รหัสผ่านไม่ถูกต้อง' }
   return {
@@ -736,13 +748,14 @@ export async function createAppUser({ username, password, full_name, department,
   }
 }
 
-export async function updateAppUser(id, { full_name, department, role, is_active }) {
+export async function updateAppUser(id, { full_name, department, role, is_active, suspend_until }) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
   const { error } = await supabase.from('app_users').update({
     full_name,
     department: department || null,
     role,
     is_active,
+    suspend_until: suspend_until || null,
     updated_at: new Date().toISOString(),
   }).eq('id', id)
   if (error) throw error

@@ -120,7 +120,7 @@ const DEPARTMENTS_LIST = [
 ];
 
 function LoginPage({ onLogin }) {
-  const [view, setView]     = useState('login'); // login | register | firstrun
+  const [view, setView]     = useState('login'); // login | register | firstrun | forgot
   const [checking, setChecking] = useState(true);
 
   // login fields
@@ -250,7 +250,11 @@ function LoginPage({ onLogin }) {
               {loading ? 'กำลังตรวจสอบ...' : 'เข้าสู่ระบบ'}
             </button>
           </form>
-          <div className="border-t border-slate-100 px-6 py-4 text-center">
+          <div className="border-t border-slate-100 px-6 py-4 flex items-center justify-between">
+            <button onClick={() => { setView('forgot'); setError(''); }}
+              className="text-slate-400 hover:text-slate-600 text-sm transition-colors">
+              ลืมรหัสผ่าน?
+            </button>
             <button onClick={() => { setView('register'); setError(''); setRSuccess(false); }}
               className="text-sky-600 hover:text-sky-800 text-sm font-medium transition-colors">
               สมัครเข้าใช้งาน →
@@ -304,6 +308,39 @@ function LoginPage({ onLogin }) {
               </button>
             </form>
           )}
+        </div>
+      )}
+
+      {/* ===== Forgot Password ===== */}
+      {view === 'forgot' && (
+        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="bg-amber-50 border-b border-amber-100 px-6 py-4 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+              <svg xmlns="http://www.w3.org/2000/svg" width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-600"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </div>
+            <div>
+              <p className="font-bold text-amber-800 text-sm">ลืมรหัสผ่าน</p>
+              <p className="text-xs text-amber-600 mt-0.5">ติดต่อผู้ดูแลระบบเพื่อรีเซ็ตรหัสผ่าน</p>
+            </div>
+          </div>
+          <div className="px-6 py-5 space-y-4">
+            <p className="text-sm text-slate-600 leading-relaxed">
+              ระบบนี้ไม่รองรับการรีเซ็ตรหัสผ่านด้วยตนเอง<br/>
+              กรุณาติดต่อ <span className="font-semibold text-slate-800">ผู้ดูแลระบบ (Admin)</span> เพื่อให้รีเซ็ตรหัสผ่านให้
+            </p>
+            <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 space-y-1.5">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">ขั้นตอน</p>
+              <p className="text-sm text-slate-700">1. แจ้ง Username ของคุณให้ Admin</p>
+              <p className="text-sm text-slate-700">2. Admin รีเซ็ตรหัสผ่านชั่วคราวให้</p>
+              <p className="text-sm text-slate-700">3. เข้าสู่ระบบด้วยรหัสใหม่</p>
+            </div>
+          </div>
+          <div className="border-t border-slate-100 px-6 py-4 text-center">
+            <button onClick={() => { setView('login'); setError(''); }}
+              className="text-sky-600 hover:text-sky-800 text-sm font-medium transition-colors">
+              ← กลับหน้าเข้าสู่ระบบ
+            </button>
+          </div>
         </div>
       )}
 

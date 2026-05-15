@@ -122,8 +122,13 @@ export default function UserManagementApp({ onBack, onRefresh, auth }) {
   const [fConfirm,    setFConfirm]    = useState('');
   const [fFullName,   setFFullName]   = useState('');
   const [fDepartment, setFDepartment] = useState('');
-  const [fRole,       setFRole]       = useState('requester');
-  const [fActive,     setFActive]     = useState(true);
+  const [fRole,         setFRole]         = useState('requester');
+  const [fActive,       setFActive]       = useState(true);
+  const [fSuspendMode,  setFSuspendMode]  = useState('active'); // 'active' | 'temp' | 'perm'
+  const [fSuspendUntil, setFSuspendUntil] = useState('');
+  const [fShowPw,       setFShowPw]       = useState(true);
+  const [pwSaved,       setPwSaved]       = useState(''); // รหัสผ่านที่บันทึกสำเร็จ — เพื่อ copy ส่งให้ user
+  const [copied,        setCopied]        = useState(false);
   const [fPermissions, setFPermissions] = useState([]);
 
   const load = useCallback(async () => {
@@ -142,12 +147,20 @@ export default function UserManagementApp({ onBack, onRefresh, auth }) {
     setTarget(u);
     setFFullName(u.full_name); setFDepartment(u.department || '');
     setFRole(u.role); setFActive(u.is_active);
+    if (u.is_active) {
+      setFSuspendMode('active'); setFSuspendUntil('');
+    } else if (u.suspend_until) {
+      setFSuspendMode('temp');
+      setFSuspendUntil(u.suspend_until.slice(0, 16)); // datetime-local format
+    } else {
+      setFSuspendMode('perm'); setFSuspendUntil('');
+    }
     setError(''); setModal('edit');
   };
-  const openPassword    = (u) => { setTarget(u); setFPassword(''); setFConfirm(''); setError(''); setModal('password'); };
+  const openPassword    = (u) => { setTarget(u); setFPassword(''); setFShowPw(true); setPwSaved(''); setCopied(false); setError(''); setModal('password'); };
   const openDelete      = (u) => { setTarget(u); setError(''); setModal('delete'); };
   const openPermissions = (u) => { setTarget(u); setFPermissions(u.permissions || []); setError(''); setModal('permissions'); };
-  const closeModal      = () => { setModal(null); setTarget(null); setError(''); };
+  const closeModal      = () => { setModal(null); setTarget(null); setError(''); setPwSaved(''); setCopied(false); };
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -163,21 +176,23 @@ export default function UserManagementApp({ onBack, onRefresh, auth }) {
   const handleEdit = async (e) => {
     e.preventDefault();
     if (target.id === auth.id && fRole !== 'admin') { setError('ไม่สามารถเปลี่ยน role ของตัวเองออกจาก admin ได้'); return; }
+    if (fSuspendMode === 'temp' && !fSuspendUntil) { setError('กรุณาระบุวันเวลาสิ้นสุดการระงับ'); return; }
+    const isActive = fSuspendMode === 'active';
+    const suspendUntil = fSuspendMode === 'temp' ? new Date(fSuspendUntil).toISOString() : null;
     setSaving(true); setError('');
     try {
-      await updateAppUser(target.id, { full_name: fFullName, department: fDepartment, role: fRole, is_active: fActive });
+      await updateAppUser(target.id, { full_name: fFullName, department: fDepartment, role: fRole, is_active: isActive, suspend_until: suspendUntil });
       await load(); closeModal();
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   };
 
   const handlePassword = async (e) => {
     e.preventDefault();
-    if (fPassword !== fConfirm) { setError('รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน'); return; }
-    if (fPassword.length < 6)   { setError('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร'); return; }
+    if (fPassword.length < 6) { setError('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร'); return; }
     setSaving(true); setError('');
     try {
       await changeAppUserPassword(target.id, fPassword);
-      closeModal();
+      setPwSaved(fPassword); // เก็บไว้แสดงให้ copy — ไม่ปิด modal
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   };
 
@@ -334,7 +349,12 @@ export default function UserManagementApp({ onBack, onRefresh, auth }) {
                       <td className="px-4 py-3 text-center">
                         {u.is_active
                           ? <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full"><CheckCircle size={11}/>ใช้งานได้</span>
-                          : <span className="inline-flex items-center gap-1 text-xs text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full"><XCircle size={11}/>ถูกระงับ</span>
+                          : u.suspend_until
+                            ? <div className="space-y-0.5">
+                                <span className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full"><XCircle size={11}/>ระงับชั่วคราว</span>
+                                <p className="text-[10px] text-amber-600 text-center">ถึง {fmtDate(u.suspend_until)}</p>
+                              </div>
+                            : <span className="inline-flex items-center gap-1 text-xs text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full"><XCircle size={11}/>ระงับถาวร</span>
                         }
                       </td>
                       <td className="px-4 py-3 text-center text-slate-500 text-xs">{fmtDate(u.created_at)}</td>
@@ -440,11 +460,27 @@ export default function UserManagementApp({ onBack, onRefresh, auth }) {
                     </select>
                   </Field>
                   <Field label="สถานะบัญชี">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={fActive} onChange={e => setFActive(e.target.checked)}
-                        className="w-4 h-4 accent-violet-600"/>
-                      <span className="text-sm text-slate-700">เปิดใช้งาน (ปิด = ระงับบัญชี)</span>
-                    </label>
+                    <div className="space-y-2">
+                      {[
+                        { val: 'active', label: 'ใช้งานได้',              color: 'text-emerald-700 bg-emerald-50 border-emerald-300' },
+                        { val: 'temp',   label: 'ระงับชั่วคราว',          color: 'text-amber-700 bg-amber-50 border-amber-300' },
+                        { val: 'perm',   label: 'ระงับถาวร',              color: 'text-red-700 bg-red-50 border-red-300' },
+                      ].map(({ val, label, color }) => (
+                        <label key={val} className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border cursor-pointer transition-colors ${fSuspendMode === val ? color : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+                          <input type="radio" name="suspendMode" value={val} checked={fSuspendMode === val}
+                            onChange={() => setFSuspendMode(val)} className="accent-violet-600"/>
+                          <span className="text-sm font-medium">{label}</span>
+                        </label>
+                      ))}
+                      {fSuspendMode === 'temp' && (
+                        <div className="pt-1">
+                          <label className="text-xs text-slate-500 font-medium block mb-1">ระงับถึงวันเวลา</label>
+                          <input type="datetime-local" value={fSuspendUntil} onChange={e => setFSuspendUntil(e.target.value)}
+                            min={new Date().toISOString().slice(0,16)}
+                            className="w-full border border-amber-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-amber-50"/>
+                        </div>
+                      )}
+                    </div>
                   </Field>
                   {error && <ErrorMsg>{error}</ErrorMsg>}
                 </div>
@@ -454,20 +490,81 @@ export default function UserManagementApp({ onBack, onRefresh, auth }) {
 
             {/* Change Password */}
             {modal === 'password' && target && (
-              <form onSubmit={handlePassword}>
-                <ModalHeader title={`รีเซ็ตรหัสผ่าน: ${target.username}`} icon={<KeyRound size={18}/>} onClose={closeModal}/>
-                <div className="p-5 space-y-3.5">
-                  <p className="text-sm text-slate-500">ตั้งรหัสผ่านใหม่สำหรับ <strong>{target.full_name}</strong></p>
-                  <Field label="รหัสผ่านใหม่">
-                    <PasswordInput value={fPassword} onChange={e => setFPassword(e.target.value)} placeholder="รหัสผ่านใหม่ (อย่างน้อย 6 ตัว)" required/>
-                  </Field>
-                  <Field label="ยืนยันรหัสผ่าน">
-                    <PasswordInput value={fConfirm} onChange={e => setFConfirm(e.target.value)} placeholder="ยืนยันรหัสผ่าน" required/>
-                  </Field>
-                  {error && <ErrorMsg>{error}</ErrorMsg>}
+              pwSaved ? (
+                /* ── Success panel ── */
+                <div>
+                  <ModalHeader title={`ตั้งรหัสผ่าน: ${target.username}`} icon={<KeyRound size={18}/>} onClose={closeModal}/>
+                  <div className="p-5 space-y-4">
+                    <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                      <svg xmlns="http://www.w3.org/2000/svg" width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
+                      <span className="text-sm font-semibold">บันทึกรหัสผ่านใหม่สำเร็จ</span>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500 font-medium mb-2">ข้อความสำหรับแจ้ง User — กด Copy แล้วส่งทาง Line / SMS</p>
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1 font-mono text-sm text-slate-800 select-all">
+                        <p>ชื่อผู้ใช้: <span className="font-bold">{target.username}</span></p>
+                        <p>รหัสผ่านใหม่: <span className="font-bold text-violet-700">{pwSaved}</span></p>
+                        <p className="text-xs text-slate-400 font-sans mt-2">* กรุณาเข้าสู่ระบบด้วยรหัสผ่านนี้ และเปลี่ยนรหัสผ่านใหม่ด้วยตนเอง</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(
+                          `ชื่อผู้ใช้: ${target.username}\nรหัสผ่านใหม่: ${pwSaved}\n* กรุณาเข้าสู่ระบบด้วยรหัสผ่านนี้ และเปลี่ยนรหัสผ่านใหม่ด้วยตนเอง`
+                        );
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2500);
+                      }}
+                      className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-colors ${copied ? 'bg-emerald-600 text-white' : 'bg-violet-600 hover:bg-violet-700 text-white'}`}>
+                      {copied
+                        ? <><svg xmlns="http://www.w3.org/2000/svg" width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> คัดลอกแล้ว!</>
+                        : <><svg xmlns="http://www.w3.org/2000/svg" width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy ข้อความ</>
+                      }
+                    </button>
+                  </div>
+                  <div className="border-t border-slate-100 px-5 py-3 flex justify-end">
+                    <button onClick={closeModal} className="bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl px-5 py-2 text-sm font-medium transition-colors">ปิด</button>
+                  </div>
                 </div>
-                <ModalFooter saving={saving} onCancel={closeModal} submitLabel="เปลี่ยนรหัสผ่าน" danger/>
-              </form>
+              ) : (
+                /* ── Input form ── */
+                <form onSubmit={handlePassword}>
+                  <ModalHeader title={`ตั้งรหัสผ่าน: ${target.username}`} icon={<KeyRound size={18}/>} onClose={closeModal}/>
+                  <div className="p-5 space-y-3.5">
+                    <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-xs text-slate-500">ผู้ใช้</p>
+                        <p className="text-sm font-semibold text-slate-800">{target.username}</p>
+                      </div>
+                      {target.full_name && target.full_name !== '-' && (
+                        <div className="min-w-0 border-l border-slate-200 pl-3">
+                          <p className="text-xs text-slate-500">ชื่อ-สกุล</p>
+                          <p className="text-sm text-slate-700">{target.full_name}</p>
+                        </div>
+                      )}
+                    </div>
+                    <Field label="รหัสผ่านใหม่">
+                      <div className="relative">
+                        <input
+                          type={fShowPw ? 'text' : 'password'}
+                          value={fPassword} onChange={e => setFPassword(e.target.value)}
+                          placeholder="อย่างน้อย 6 ตัวอักษร" required autoComplete="new-password"
+                          className="w-full border border-slate-300 rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 font-mono tracking-wider"/>
+                        <button type="button" onClick={() => setFShowPw(s => !s)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                          {fShowPw
+                            ? <svg xmlns="http://www.w3.org/2000/svg" width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                            : <svg xmlns="http://www.w3.org/2000/svg" width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                          }
+                        </button>
+                      </div>
+                    </Field>
+                    <p className="text-xs text-slate-400">รหัสผ่านจะถูกเข้ารหัสก่อนบันทึก — ระบบไม่สามารถแสดงรหัสผ่านเดิมได้</p>
+                    {error && <ErrorMsg>{error}</ErrorMsg>}
+                  </div>
+                  <ModalFooter saving={saving} onCancel={closeModal} submitLabel="บันทึกรหัสผ่าน" danger/>
+                </form>
+              )
             )}
 
             {/* Permissions */}

@@ -210,6 +210,23 @@ insertReceiveRows(rows, {})                            // auth ว่าง
 - มูลค่ารับเข้ารวมต่อยา: `total_price_vat > 0 ? total_price_vat : qty_received × price_per_unit` (สะสมทุก row)
 - ตัวอย่าง: รับยาวันที่ 1 มูลค่า 200 บาท + วันที่ 2 มูลค่า 300 บาท = แสดง 500 บาท
 
+## Date Filter — Default dateTo = วันนี้ (ReceiveLogApp & DispenseLogApp)
+
+- เมื่อ `dateFrom` มีค่าแต่ `dateTo` ว่าง → query ใช้วันนี้เป็น upper bound อัตโนมัติ
+- Pattern: `const isoTo = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');`
+- ใช้ใน 3 จุดต่อ app: `load`, `handleExport`, `loadAgg` (และ `filteredDrugRows` ใน ReceiveLogApp)
+- ช่อง "ถึง" แสดง placeholder วันนี้เป็นสีเทาเมื่อ `dateFrom` ตั้งค่าอยู่: `placeholder={dateFrom ? isoToThai(today) : 'dd/mm/yyyy'}`
+- อย่าเปลี่ยนกลับเป็น `q.eq('dispense_date/receive_date', isoFrom)` เมื่อ dateFrom เดียว — ต้องเป็น `gte` เสมอ
+
+## Pagination — ReceiveLogApp & DispenseLogApp
+
+- `PAGE_SIZE = 200` (ทั้งสอง app)
+- Pagination block แสดงเมื่อ `rows.length === PAGE_SIZE || page > 0`
+- ปุ่ม "ก่อนหน้า" แสดงเมื่อ `page > 0` (แม้อยู่หน้าสุดท้ายที่ rows < PAGE_SIZE)
+- ปุ่ม "ถัดไป" แสดงเฉพาะ `rows.length === PAGE_SIZE`
+- แสดง input พิมพ์เลขหน้า: `key={page}` + `defaultValue={page+1}` → กด Enter หรือ blur เพื่อ jump
+- แสดงข้อความ: หน้า [input] / {totalPages} ({count} รายการ) โดยใช้ `aggStats.count`
+
 ## receive_logs — Upload สองที่ (Known Duplication)
 
 มี 2 path ที่ upload ข้อมูลเข้า `receive_logs`:
@@ -456,6 +473,59 @@ TEST_STAFF_USER=test2 TEST_STAFF_PASS=555555 npx playwright test
 - **อย่าใช้ `insertReceiveRows` สำหรับ scan** — มัน DELETE ALL ก่อน insert ทำลายข้อมูลเดิม
 - **อย่า expose ANTHROPIC_API_KEY ใน frontend** — ต้องผ่าน Edge Function เท่านั้น
 - `receive_status` ของแถวที่สแกน = `'สแกนบิล AI'` เพื่อแยกจาก CSV import
+
+## Known Bug Pattern — Supabase 1,000-row Limit (CRITICAL)
+
+Supabase REST API คืนค่าสูงสุด **1,000 rows** ต่อ request โดย default ถ้า table มีข้อมูลมากกว่านั้น query แบบธรรมดาจะได้ข้อมูลไม่ครบ
+
+### อาการ
+- dropdown ชื่อยาหาไม่เจอบางตัว (เช่น Etonogestrel ใน DispenseLogApp)
+- stats/aggregate ผิดเพราะคำนวณจากข้อมูลแค่บางส่วน
+
+### สาเหตุ
+```js
+// ❌ ผิด — ได้แค่ 1,000 rows แรก
+supabase.from('dispense_logs').select('drug_name, drug_type').then(({ data }) => ...)
+```
+
+### วิธีแก้ — ใช้ `fetchAllRows` เสมอเมื่อต้องการข้อมูลครบทุก row
+```js
+// ✅ ถูก — ดึงครบทุก row ด้วย pagination อัตโนมัติ
+fetchAllRows(() => supabase.from('dispense_logs').select('drug_name, drug_type')).then(data => ...)
+```
+
+### จุดที่ต้องระวัง
+- โหลด `drugNames` สำหรับ autocomplete dropdown ใน DispenseLogApp และ ReceiveLogApp
+- query ใดๆ ที่ต้องการ **ข้อมูลครบทุก row** เพื่อสร้าง dropdown / คำนวณ aggregate
+- `fetchAllRows` อยู่ใน scope ของ DispenseLogApp/ReceiveLogApp แล้ว — ใช้ได้เลย
+
+### กฎ
+- dropdown ชื่อยา → **ต้องใช้ `fetchAllRows`** เสมอ ห้ามใช้ `.then(({ data }) => ...)` ตรงๆ
+- aggregate stats (count, sum) → ใช้ `loadAgg` pattern ที่มีอยู่แล้ว ซึ่งใช้ `fetchAllRows` แล้ว
+
+## UserManagementApp — Password & Suspend
+
+### ตั้งรหัสผ่านใหม่ (Admin)
+- Modal ตั้งรหัสผ่าน: 1 field, แสดงได้ (toggle eye), ไม่มี confirm field
+- บันทึกสำเร็จ → แสดง panel พร้อมข้อความสำเร็จสำหรับ copy ส่งให้ user (username + รหัสใหม่)
+- state: `pwSaved` เก็บรหัสที่บันทึกแล้ว, `copied` สำหรับ copy feedback
+
+### สถานะบัญชี (Suspend)
+- DB column: `suspend_until TIMESTAMPTZ` ใน `app_users` (migration: `suspend_user_migration.sql`)
+- 3 โหมด: `active` (is_active=true) / `temp` (is_active=false + suspend_until=datetime) / `perm` (is_active=false + suspend_until=null)
+- Login check: ถ้า `suspend_until` ผ่านไปแล้ว → อนุญาตให้เข้าใช้, ถ้ายังไม่ถึงเวลา → แสดงข้อความ "บัญชีถูกระงับชั่วคราว ถึง DD/MM/YYYY HH:MM น."
+
+## AnalyticsApp — Drug Filter
+
+- `drugSearch` state กรองข้อมูลทุก tab (ภาพรวม, คลังยา/ABC, แนวโน้ม)
+- `filteredRows = drugSearch ? rows.filter(ilike) : rows` — ทุก useMemo ต้องใช้ `filteredRows` ไม่ใช่ `rows`
+- `drugNames` options: `{ name, type }[]` สร้างจาก `rows` ที่โหลดมาแล้ว (ไม่ต้อง query แยก)
+- ใช้ `DrugSearchBar` component — `ringClass="focus:ring-blue-400"` ให้เข้ากับ header สีน้ำเงิน
+
+## Login — ลืมรหัสผ่าน
+
+- view `'forgot'` ใน AppRoot — แสดงขั้นตอน 3 ข้อให้ติดต่อ Admin
+- ปุ่ม "ลืมรหัสผ่าน?" อยู่ซ้ายล่างของหน้า login (ขวาคือ "สมัครเข้าใช้งาน →")
 
 ## Do Not
 
