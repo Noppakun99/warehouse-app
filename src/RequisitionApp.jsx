@@ -392,6 +392,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
   const [rawResults, setRawResults] = useState([]);   // inventory data (no reservation)
   const [reservedMap, setReservedMap] = useState({}); // lot → total reserved qty (realtime)
   const [loading, setLoading]  = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
 
   // Combine inventory + reservation → effective qty (recomputes whenever either changes)
   const results = useMemo(() =>
@@ -457,6 +458,24 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  // โหลดและ subscribe ใบเบิกที่รอดำเนินการของ requester นี้
+  useEffect(() => {
+    if (!supabase || !info?.department || !info?.name) return;
+    const load = async () => {
+      const { count } = await supabase.from('requisitions')
+        .select('id', { count: 'exact', head: true })
+        .eq('department', info.department)
+        .eq('requester_name', info.name)
+        .eq('status', 'pending');
+      setPendingCount(count || 0);
+    };
+    load();
+    const ch = supabase.channel('drugsearch-pending')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'requisitions' }, load)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [info?.department, info?.name]);
 
   const filteredSuggestions = q.trim()
     ? drugNames.filter(n => n.name.toLowerCase().includes(q.toLowerCase())).slice(0, 10)
@@ -670,6 +689,18 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
           {cart.length > 0 && <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">{cart.length}</span>}
         </button>
       </PageHeader>
+
+      {/* Pending notification */}
+      {pendingCount > 0 && (
+        <button onClick={onHistory}
+          className="w-full flex items-center gap-2 px-4 py-3 bg-amber-50 border-b border-amber-200 text-left hover:bg-amber-100 transition-colors">
+          <Clock size={15} className="text-amber-500 shrink-0" />
+          <span className="text-sm text-amber-800 font-medium">
+            มี <span className="font-bold">{pendingCount}</span> ใบเบิกรอดำเนินการ
+          </span>
+          <ChevronRight size={14} className="text-amber-400 ml-auto" />
+        </button>
+      )}
 
       {/* Hero Search Area */}
       <div className="bg-gradient-to-br from-[#1E90FF] to-[#0055cc] px-4 pt-5 pb-10 shadow-md">
@@ -1200,6 +1231,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
   const [saving, setSaving]             = useState(false);
   const [actionMsg, setActionMsg]       = useState('');
   const [itemSearch, setItemSearch]     = useState('');
+  const [drugSearch, setDrugSearch]     = useState(''); // ค้นหาย้อนหลังตามชื่อยา
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
@@ -1247,6 +1279,26 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
     setTimeout(() => setActionMsg(''), 4000);
   };
 
+  // รายชื่อยาทั้งหมดจากประวัติ — สำหรับ autocomplete
+  const historyDrugNames = useMemo(() => {
+    const seen = new Set();
+    list.forEach(req => (req.requisition_items || []).forEach(item => {
+      if (item.drug_name) seen.add(item.drug_name.trim());
+    }));
+    return [...seen].sort().map(name => ({ name, type: '' }));
+  }, [list]);
+
+  // กรองใบเบิกที่มียาตรงกับ drugSearch
+  const filteredList = useMemo(() => {
+    if (!drugSearch.trim()) return list;
+    const q = drugSearch.toLowerCase();
+    return list.filter(req =>
+      (req.requisition_items || []).some(item =>
+        item.drug_name?.toLowerCase().includes(q)
+      )
+    );
+  }, [list, drugSearch]);
+
   return (
     <div className="min-h-screen flex flex-col">
       <PageHeader onBack={onBack} title="ประวัติการเบิกยา">
@@ -1260,9 +1312,30 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
       )}
 
       <div className="flex-1 p-4 space-y-3">
+        {/* DrugSearchBar — ค้นหาย้อนหลังตามชื่อยา */}
+        {!loading && list.length > 0 && (
+          <DrugSearchBar
+            value={drugSearch}
+            onChange={setDrugSearch}
+            options={historyDrugNames}
+            placeholder="ค้นหายาที่เคยเบิก..."
+            ringClass="focus:ring-[#1E90FF]"
+            hoverClass="hover:bg-blue-50"
+            maxResults={10}
+          />
+        )}
+        {drugSearch && (
+          <p className="text-xs text-slate-400 -mt-1">
+            พบ {filteredList.length} ใบเบิก · ค้นหา "{drugSearch}"
+          </p>
+        )}
         {loading && <p className="text-center text-slate-500 py-10">กำลังโหลด...</p>}
-        {!loading && list.length === 0 && <p className="text-center text-slate-500 py-20">ยังไม่มีประวัติการเบิกยา</p>}
-        {list.map(req => {
+        {!loading && filteredList.length === 0 && (
+          <p className="text-center text-slate-500 py-20">
+            {drugSearch ? `ไม่พบใบเบิกที่มียา "${drugSearch}"` : 'ยังไม่มีประวัติการเบิกยา'}
+          </p>
+        )}
+        {filteredList.map(req => {
           const cfg = STATUS_CONFIG[req.status] || STATUS_CONFIG.pending;
           const isPending = req.status === 'pending';
           return (
