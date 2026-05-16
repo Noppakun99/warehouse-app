@@ -37,15 +37,13 @@ const thaiToIso = (thai) => {
 };
 
 function ThaiDateInput({ value, onChange, placeholder = 'dd/mm/yyyy', ring = 'focus-within:ring-emerald-400', size = 'w-28' }) {
-  const ref = React.useRef(null);
   return (
-    <div className={`relative ${size} border border-slate-300 rounded-lg bg-white cursor-pointer flex items-center focus-within:ring-2 focus-within:outline-none ${ring}`}
-      onClick={() => ref.current?.showPicker?.()}>
-      <span className={`px-2 py-1.5 text-sm w-full select-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
+    <div className={`relative ${size} border border-slate-300 rounded-lg bg-white flex items-center focus-within:ring-2 focus-within:outline-none ${ring}`}>
+      <span className={`px-2 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
         {value || placeholder}
       </span>
-      <input type="date" ref={ref} tabIndex={-1}
-        className="absolute opacity-0 w-0 h-0 top-0 left-0 pointer-events-none"
+      <input type="date"
+        className="absolute inset-0 opacity-0 w-full cursor-pointer"
         value={thaiToIso(value) || ''}
         onChange={e => onChange(isoToThai(e.target.value))} />
     </div>
