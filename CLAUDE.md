@@ -572,6 +572,36 @@ fetchAllRows(() => supabase.from('dispense_logs').select('drug_name, drug_type')
 - view `'forgot'` ใน AppRoot — แสดงขั้นตอน 3 ข้อให้ติดต่อ Admin
 - ปุ่ม "ลืมรหัสผ่าน?" อยู่ซ้ายล่างของหน้า login (ขวาคือ "สมัครเข้าใช้งาน →")
 
+## ระบบสั่งยา (Drug Order System) — แผนพัฒนา (ยังไม่ได้ทำ)
+
+### สถานะปัจจุบัน
+- file: `src/App.jsx` → `view === 'order'` (full-page view)
+- คำนวณ Reorder Point, แนะนำ SS, ต้องซื้อ **แบบ client-side** จาก:
+  - `inventory` CSV → Safety Stock, Lead Time, qty ปัจจุบัน
+  - `dispense_logs` Supabase → เรทใช้จริง 4 เดือนล่าสุด
+- `orderedItems` เก็บใน **localStorage** เท่านั้น — ไม่ sync ระหว่าง user, ล้าง cache หายทันที
+
+### แผน: Import Excel "วิเคราะห์ซื้อยา" มาแทนคำนวณใน app
+
+**ที่มา**: มี Excel sheet วิเคราะห์การซื้อยาที่คำนวณไว้แล้ว รวมเรทปัจจุบัน + อดีต
+
+**ข้อดีของ Excel rate เทียบกับคำนวณใน app**
+- ครอบคลุมข้อมูลหลายปี (ไม่จำกัดแค่ 4 เดือน)
+- เภสัชกรปรับ seasonal / outlier ได้เองก่อน upload
+- ผ่านสายตาผู้เชี่ยวชาญแล้ว
+
+**สิ่งที่ต้องรู้ก่อนทำ (รอ user ยืนยัน)**
+- โครงสร้างคอลัมน์ใน Excel: รหัสยา, ชื่อยา, เรท/เดือน, เรทอดีต, SS, Lead Time, ...?
+- Excel rate จะ override dispense_logs calculation หรือแสดงคู่กัน?
+
+**สิ่งที่ต้องทำเมื่อพร้อม**
+1. ออกแบบ import schema (เพิ่ม column ใน `drug_details` หรือสร้าง table `drug_usage_rates`)
+2. สร้าง CSV/Excel import UI ใน order view พร้อม preview + unmatched drugs
+3. แสดง "อัพเดตล่าสุด: DD/MM/YYYY" + เตือนถ้าข้อมูลเกิน 30 วัน
+4. ย้าย `orderedItems` จาก localStorage → Supabase table (ให้ sync ระหว่าง user)
+
+**ยังไม่ต้องทำ** — รอ user ส่งโครงสร้าง Excel ให้ดูก่อน
+
 ## Do Not
 
 - **อย่าเรียก `supabase` โดยตรงในไฟล์ component** — ต้องผ่าน `src/lib/db.js` เสมอ

@@ -208,18 +208,24 @@ export default function AnalyticsApp({ onBack, onRefresh, auth = {} }) {
   // รายชื่อยาสำหรับ DrugSearchBar autocomplete
   const drugNames = useMemo(() => {
     const typeMap = {};
-    rows.forEach(r => { if (r.drug_name && r.drug_type && r.drug_type !== '-') typeMap[r.drug_name] = r.drug_type; });
-    return [...new Set(rows.map(r => r.drug_name).filter(Boolean))].sort()
-      .map(name => ({ name, type: typeMap[name] || '' }));
+    const normMap = {}; // normalized → original canonical name
+    rows.forEach(r => {
+      if (!r.drug_name) return;
+      const norm = r.drug_name.trim().replace(/\s+/g, ' ');
+      if (!normMap[norm]) normMap[norm] = norm; // ใช้ชื่อที่ normalize แล้วเป็น canonical
+      if (r.drug_type && r.drug_type !== '-') typeMap[norm] = r.drug_type;
+    });
+    return Object.keys(normMap).sort().map(name => ({ name, type: typeMap[name] || '' }));
   }, [rows]);
 
-  // กรองตามชื่อยาที่พิมพ์/เลือก
-  const filteredRows = useMemo(
-    () => drugSearch.trim()
-      ? rows.filter(r => r.drug_name?.toLowerCase().includes(drugSearch.toLowerCase()))
-      : rows,
-    [rows, drugSearch]
-  );
+  // กรองตามชื่อยาที่พิมพ์/เลือก — normalize ก่อน compare เพื่อรวม whitespace variants
+  const filteredRows = useMemo(() => {
+    if (!drugSearch.trim()) return rows;
+    const q = drugSearch.trim().replace(/\s+/g, ' ').toLowerCase();
+    return rows.filter(r =>
+      r.drug_name?.trim().replace(/\s+/g, ' ').toLowerCase().includes(q)
+    );
+  }, [rows, drugSearch]);
 
   // ---- Core aggregations ----
   const {

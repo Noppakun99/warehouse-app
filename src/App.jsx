@@ -701,6 +701,8 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
 
     Object.entries(inventory).forEach(([loc, items]) => {
       items.forEach((item, idx) => {
+        const qty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
+        if (qty === 0) return; // ซ่อน qty=0 เหมือนแผนผัง
         if (
           item.name.toLowerCase().includes(term) ||
           (item.code && item.code.toLowerCase().includes(term)) ||
@@ -711,6 +713,16 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
           results.push({ ...item, location: loc, originalIndex: idx });
         }
       });
+    });
+
+    // เรียง exp ใกล้หมดก่อน (ascending) — ไม่มี exp อยู่ล่างสุด
+    results.sort((a, b) => {
+      const da = parseDateString(a.exp);
+      const db = parseDateString(b.exp);
+      if (da && db) return da - db;
+      if (da) return -1;
+      if (db) return 1;
+      return 0;
     });
 
     return results;
@@ -1971,20 +1983,32 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
           </div>
         )}
 
-        {searchTerm && searchResults.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-6">
-            <div className="bg-amber-500 text-white py-3 px-6 flex justify-between items-center">
-              <h2 className="text-lg font-bold flex items-center gap-2">
-                <Search size={20} /> ผลการค้นหา: พบ {searchResults.length} รายการ
-              </h2>
-            </div>
-            <div className="p-6 bg-slate-50/50 max-h-[600px] overflow-y-auto">
-              <div className="grid grid-cols-1 gap-4">
-                {searchResults.map((item) => renderItemCard(item, item.originalIndex, item.location))}
+        {searchTerm && searchResults.length > 0 && (() => {
+          const uniqueDrugs = new Set(searchResults.map(r => r.code && r.code !== '-' ? r.code : r.name)).size;
+          const totalQty    = searchResults.reduce((s, r) => s + (parseFloat(String(r.qty || '0').replace(/,/g,'')) || 0), 0);
+          return (
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+              <div className="bg-amber-500 text-white py-3 px-6 flex flex-wrap justify-between items-center gap-2">
+                <h2 className="text-lg font-bold flex items-center gap-2">
+                  <Search size={20} /> ผลการค้นหา: พบ {searchResults.length} Lot
+                </h2>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="bg-white/20 rounded-xl px-3 py-1 font-semibold">
+                    {uniqueDrugs} ชนิดยา
+                  </span>
+                  <span className="bg-white/20 rounded-xl px-3 py-1 font-semibold">
+                    รวม {totalQty.toLocaleString()} หน่วย
+                  </span>
+                </div>
+              </div>
+              <div className="p-6 bg-slate-50/50 max-h-[600px] overflow-y-auto">
+                <div className="grid grid-cols-1 gap-4">
+                  {searchResults.map((item) => renderItemCard(item, item.originalIndex, item.location))}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {Object.keys(filteredLayout).length === 0 && Object.keys(filteredOtherZones).length === 0 && searchTerm ? (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-12 flex flex-col items-center justify-center text-slate-500">
