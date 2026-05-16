@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { exportToExcel } from './lib/exportExcel';
 import { deleteRequesterRequisition, updateRequesterRequisition, insertAuditLog, resolveAuditUserName } from './lib/db';
+import DrugSearchBar from './DrugSearchBar';
 
 // ============================================================
 // Config
@@ -1198,6 +1199,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
   const [editDraft, setEditDraft]       = useState(null); // { note, items:[{id,requested_qty,note,...}] }
   const [saving, setSaving]             = useState(false);
   const [actionMsg, setActionMsg]       = useState('');
+  const [itemSearch, setItemSearch]     = useState('');
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
@@ -1218,6 +1220,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
   const openEdit = (req) => {
     setEditDraft({ note: req.note || '', items: req.requisition_items.map(i => ({ ...i, requested_qty: i.requested_qty })) });
     setConfirmModal({ type: 'edit', req });
+    setItemSearch('');
   };
 
   const handleDelete = async () => {
@@ -1357,22 +1360,39 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                 <p className="text-sm text-slate-700">ต้องการลบใบเบิก <span className="font-semibold">{confirmModal.req.req_number}</span> ใช่หรือไม่? การดำเนินการนี้ไม่สามารถย้อนกลับได้</p>
               ) : (
                 <div className="space-y-3">
+                  {/* Search filter — แสดงเมื่อมีรายการ > 4 */}
+                  {(editDraft?.items.length || 0) > 4 && (
+                    <DrugSearchBar
+                      value={itemSearch}
+                      onChange={setItemSearch}
+                      options={(editDraft?.items || []).map(i => ({ name: i.drug_name, type: i.drug_type || '' }))}
+                      placeholder="ค้นหารายการยา..."
+                      ringClass="focus:ring-blue-400"
+                      hoverClass="hover:bg-blue-50"
+                      maxResults={10}
+                    />
+                  )}
                   {/* Edit items qty */}
-                  {editDraft?.items.map((item, idx) => (
+                  {editDraft?.items
+                    .filter(item => !itemSearch.trim() || item.drug_name.toLowerCase().includes(itemSearch.toLowerCase()))
+                    .map((item, idx) => {
+                    const realIdx = editDraft.items.findIndex(i => i.id === item.id);
+                    return (
                     <div key={item.id} className="flex items-center justify-between gap-3 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-slate-800 truncate">{item.drug_name}</p>
                         <p className="text-xs text-slate-400">{item.drug_unit||'-'}</p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <button onClick={() => setEditDraft(d => ({ ...d, items: d.items.map((it,i) => i===idx ? { ...it, requested_qty: Math.max(1, it.requested_qty-1) } : it) }))}
+                        <button onClick={() => setEditDraft(d => ({ ...d, items: d.items.map((it,i) => i===realIdx ? { ...it, requested_qty: Math.max(1, it.requested_qty-1) } : it) }))}
                           className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold transition-colors">−</button>
                         <span className="w-8 text-center font-bold text-slate-800">{item.requested_qty}</span>
-                        <button onClick={() => setEditDraft(d => ({ ...d, items: d.items.map((it,i) => i===idx ? { ...it, requested_qty: it.requested_qty+1 } : it) }))}
+                        <button onClick={() => setEditDraft(d => ({ ...d, items: d.items.map((it,i) => i===realIdx ? { ...it, requested_qty: it.requested_qty+1 } : it) }))}
                           className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold transition-colors">+</button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                   {/* Note */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">หมายเหตุ</label>
