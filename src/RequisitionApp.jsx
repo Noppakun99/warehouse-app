@@ -1627,6 +1627,14 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
     load();
   };
 
+  const markDispensed = async (req, e) => {
+    e.stopPropagation();
+    if (!supabase) return;
+    await supabase.from('requisitions').update({ status: 'dispensed', updated_at: new Date().toISOString() }).eq('id', req.id);
+    insertAuditLog({ action: 'update_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { req_number: req.req_number, requisition_id: req.id, action_detail: 'mark_dispensed' } });
+    load();
+  };
+
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
     const { data } = await supabase.from('requisitions').select('*, requisition_items(*)')
@@ -1888,6 +1896,12 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
                     <button onClick={e => approveOne(req, e)}
                       className="flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors">
                       <Check size={12}/> อนุมัติด่วน
+                    </button>
+                  )}
+                  {(req.status === 'approved' || req.status === 'partial') && (
+                    <button onClick={e => markDispensed(req, e)}
+                      className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors">
+                      <Check size={12}/> จ่ายยาแล้ว
                     </button>
                   )}
                   <button onClick={() => onSelect(req)}
