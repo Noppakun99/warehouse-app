@@ -667,6 +667,42 @@ touch event โดน native input โดยตรง → date picker เปิ�
 ### แก้
 Normalize ก่อน dedup: `.trim().replace(/\s+/g, ' ')` ทั้งใน `drugNames` useMemo และ `filteredRows` filter
 
+## Print Mobile — White Screen Bug (แก้แล้ว)
+
+### อาการ
+- กดปุ่มพิมพ์บน mobile → tab ใหม่เปิด แต่หน้าขาว (เฉพาะ iOS Safari)
+- พบใน RequisitionApp (`printReq`) และ ReturnApp (`printReturnLog`)
+
+### สาเหตุ
+`window.open('', '_blank') + w.document.write(html)` — iOS Safari ถือว่าการเขียน HTML เข้า `about:blank` tab เป็น cross-origin → block → หน้าขาว
+
+### แก้
+ใช้ **Blob URL** แทน `document.write()`:
+```js
+// ✅ ถูก — ใช้ Blob URL
+const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+const url  = URL.createObjectURL(blob);
+const w    = window.open(url, '_blank');
+if (w) setTimeout(() => URL.revokeObjectURL(url), 30000);
+else   URL.revokeObjectURL(url);
+
+// ❌ ผิด — mobile iOS ขาว
+const w = window.open('', '_blank', 'width=900,height=650');
+if (w) { w.document.write(html); w.document.close(); }
+```
+
+### ขอบเขต
+- `printReq` ใน **RequisitionApp** — แก้แล้ว ✅
+- `printReturnLog` ใน **ReturnApp** — แก้แล้ว ✅
+- ทุก print function ใหม่ต้องใช้ Blob URL เสมอ
+
+## RequisitionApp — Edit Modal Search Bar
+
+- edit modal แสดง `DrugSearchBar` กรองรายการยา เมื่อใบเบิกมีรายการ **> 4 รายการ**
+- state `itemSearch` reset เป็น `''` ทุกครั้งที่เปิด `openEdit()`
+- filter ใช้ `item.drug_name.toLowerCase().includes(itemSearch.toLowerCase())`
+- ปุ่ม −/+ ใช้ `realIdx` (index จาก `editDraft.items` ตัวจริง) ไม่ใช่ `idx` จาก filtered array — ป้องกัน qty update ผิดตัว
+
 ## Do Not
 
 - **อย่าเรียก `supabase` โดยตรงในไฟล์ component** — ต้องผ่าน `src/lib/db.js` เสมอ
