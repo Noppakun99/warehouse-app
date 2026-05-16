@@ -703,6 +703,22 @@ if (w) { w.document.write(html); w.document.close(); }
 - filter ใช้ `item.drug_name.toLowerCase().includes(itemSearch.toLowerCase())`
 - ปุ่ม −/+ ใช้ `realIdx` (index จาก `editDraft.items` ตัวจริง) ไม่ใช่ `idx` จาก filtered array — ป้องกัน qty update ผิดตัว
 
+## RequisitionHistory — Drug Search Bar (ค้นหาย้อนหลัง)
+
+- `DrugSearchBar` กรองประวัติใบเบิกตามชื่อยา — แสดงเมื่อ `list.length > 0`
+- `historyDrugNames` useMemo: ดึงชื่อยาทั้งหมดจาก `list[].requisition_items[].drug_name` (ไม่ query DB เพิ่ม)
+- `filteredList` useMemo: กรองใบเบิกที่มีอย่างน้อย 1 item ตรงกับ `drugSearch`
+- แสดง "พบ X ใบเบิก · ค้นหา 'ชื่อยา'" ใต้ search bar เมื่อมีคำค้น
+- state `drugSearch` แยกจาก `itemSearch` (ใช้ใน edit modal)
+
+## DrugSearch — Pending Notification Banner
+
+- `pendingCount` state โหลดจาก `requisitions` count โดย filter `department + requester_name + status='pending'`
+- subscribe `postgres_changes` บน `requisitions` → อัพเดต real-time เมื่อ staff อนุมัติ/ปฏิเสธ
+- แสดง banner สีเหลืองด้านบน Hero Search Area เมื่อ `pendingCount > 0`
+- คลิก banner → `onHistory()` ไปหน้าประวัติทันที
+- banner ซ่อนอัตโนมัติเมื่อ `pendingCount === 0` (ไม่ต้อง manual dismiss)
+
 ## Do Not
 
 - **อย่าเรียก `supabase` โดยตรงในไฟล์ component** — ต้องผ่าน `src/lib/db.js` เสมอ
