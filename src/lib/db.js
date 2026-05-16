@@ -917,6 +917,61 @@ export async function fetchStockSummary() {
   .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'th'));
 }
 
+// --- Picking Workflow ---
+
+export async function fetchInventoryByCodes(codes) {
+  if (!supabase || !codes.length) return []
+  const { data, error } = await supabase
+    .from('inventory')
+    .select('code, name, lot, exp, qty, location, main_log')
+    .in('code', codes)
+    .gt('qty', 0)
+  if (error) throw error
+  return data || []
+}
+
+export async function startPickingRequisition(id, { pickerName, items }, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  for (const item of items) {
+    const { error } = await supabase.from('requisition_items')
+      .update({ picked_lot: item.picked_lot || null, picked_exp: item.picked_exp || null, picked_qty: item.picked_qty ?? null })
+      .eq('id', item.id)
+    if (error) throw error
+  }
+  const { error } = await supabase.from('requisitions')
+    .update({ status: 'picking', picker_name: pickerName, picking_started_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+  await insertAuditLog({ action: 'picking_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id, picker_name: pickerName } })
+}
+
+export async function verifyRequisition(id, verifierName, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error } = await supabase.from('requisitions')
+    .update({ status: 'ready', verifier_name: verifierName, verified_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+  await insertAuditLog({ action: 'verify_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id, verifier_name: verifierName } })
+}
+
+export async function markRequisitionDispensed(id, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error } = await supabase.from('requisitions')
+    .update({ status: 'dispensed', dispensed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+  await insertAuditLog({ action: 'dispense_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id } })
+}
+
+export async function confirmReceivedRequisition(id, receivedBy, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error } = await supabase.from('requisitions')
+    .update({ status: 'received', received_at: new Date().toISOString(), received_by: receivedBy, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+  await insertAuditLog({ action: 'received_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id, received_by: receivedBy } })
+}
+
 // --- Analytics ---
 
 export async function fetchDispenseAnalytics(dateFrom, dateTo) {

@@ -5,11 +5,11 @@ import {
   ArrowLeft, Search, Plus, Minus, Trash2, Send, Pencil,
   CheckCircle, XCircle, Package, FileText,
   Printer, RefreshCcw, ChevronRight, Bell,
-  Check, X, AlertCircle, Clock, Download, FileDown,
+  Check, X, AlertCircle, Clock, FileDown,
   SlidersHorizontal,
 } from 'lucide-react';
 import { exportToExcel } from './lib/exportExcel';
-import { deleteRequesterRequisition, updateRequesterRequisition, insertAuditLog, resolveAuditUserName } from './lib/db';
+import { deleteRequesterRequisition, updateRequesterRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 
 // ============================================================
@@ -54,8 +54,11 @@ const STATUS_CONFIG = {
   pending:   { label: 'รอดำเนินการ',    badge: 'bg-amber-100  text-amber-700  border border-amber-300'   },
   approved:  { label: 'อนุมัติแล้ว',    badge: 'bg-green-100  text-green-700  border border-green-300'   },
   partial:   { label: 'อนุมัติบางส่วน', badge: 'bg-orange-100 text-orange-700 border border-orange-300'  },
-  rejected:  { label: 'ไม่อนุมัติ',         badge: 'bg-red-100    text-red-700    border border-red-300'     },
-  dispensed: { label: 'จ่ายยาแล้ว',     badge: 'bg-blue-100   text-blue-700   border border-blue-300'    },
+  rejected:  { label: 'ไม่อนุมัติ',     badge: 'bg-red-100    text-red-700    border border-red-300'     },
+  picking:   { label: 'กำลังจัดยา',    badge: 'bg-purple-100 text-purple-700 border border-purple-300'  },
+  ready:     { label: 'รอตรวจนับ',     badge: 'bg-indigo-100 text-indigo-700 border border-indigo-300'  },
+  dispensed: { label: 'จ่ายยาแล้ว',    badge: 'bg-blue-100   text-blue-700   border border-blue-300'    },
+  received:  { label: 'รับยาแล้ว',     badge: 'bg-teal-100   text-teal-700   border border-teal-300'    },
 };
 
 const exportCSV = (reqs, filename) => {
@@ -1231,9 +1234,10 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
   const [saving, setSaving]             = useState(false);
   const [actionMsg, setActionMsg]       = useState('');
   const [itemSearch, setItemSearch]     = useState('');
-  const [drugSearch, setDrugSearch]     = useState(''); // ค้นหาย้อนหลังตามชื่อยา
+  const [drugSearch, setDrugSearch]     = useState('');
   const [dateFrom, setDateFrom]         = useState('');
   const [dateTo, setDateTo]             = useState('');
+  const [confirmingReceived, setConfirmingReceived] = useState(null); // req.id
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
@@ -1269,6 +1273,16 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
       load();
     } catch (e) { setActionMsg('เกิดข้อผิดพลาด: ' + e.message); }
     setSaving(false);
+    setTimeout(() => setActionMsg(''), 4000);
+  };
+
+  const handleConfirmReceived = async (req) => {
+    try {
+      await confirmReceivedRequisition(req.id, info.name, auth);
+      setActionMsg('ยืนยันรับยาสำเร็จ');
+      setConfirmingReceived(null);
+      load();
+    } catch (e) { setActionMsg('เกิดข้อผิดพลาด: ' + e.message); }
     setTimeout(() => setActionMsg(''), 4000);
   };
 
@@ -1413,6 +1427,11 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                             → {item.approved_qty>0?`อนุมัติ ${item.approved_qty}`:'ไม่อนุมัติ'}
                           </span>
                         )}
+                        {item.picked_qty!=null && (
+                          <span className="text-xs text-purple-600 font-semibold ml-2">
+                            · จัด {item.picked_qty} {item.picked_lot ? `(Lot ${item.picked_lot})` : ''}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="text-slate-500 text-xs">ขอ <b>{item.requested_qty}</b>{item.drug_unit && item.drug_unit !== '-' && <span> × {item.drug_unit}</span>}</span>
@@ -1420,6 +1439,27 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                     </div>
                   ))}
                   {req.note && <p className="text-xs text-slate-400 pt-2 border-t border-slate-200">หมายเหตุ: {req.note}</p>}
+                  {req.status === 'dispensed' && (
+                    <div className="pt-2 border-t border-slate-200">
+                      {confirmingReceived === req.id ? (
+                        <div className="flex gap-2">
+                          <button onClick={() => setConfirmingReceived(null)}
+                            className="flex-1 bg-white border border-slate-200 text-slate-600 rounded-xl py-2 text-sm font-medium">
+                            ยกเลิก
+                          </button>
+                          <button onClick={() => handleConfirmReceived(req)}
+                            className="flex-1 bg-teal-600 hover:bg-teal-700 text-white rounded-xl py-2 text-sm font-semibold transition-colors">
+                            ยืนยันรับยาแล้ว
+                          </button>
+                        </div>
+                      ) : (
+                        <button onClick={e => { e.stopPropagation(); setConfirmingReceived(req.id); }}
+                          className="w-full bg-teal-50 hover:bg-teal-100 border border-teal-300 text-teal-700 rounded-xl py-2.5 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+                          <CheckCircle size={15}/> ยืนยันรับยาแล้ว
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1518,6 +1558,274 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
 // ============================================================
 // Staff Root
 // ============================================================
+// ============================================================
+// PickingModal — staff จัดยา เลือก Lot FEFO + บันทึกจำนวนที่จัด
+// ============================================================
+function PickingModal({ req, auth, onClose, onDone }) {
+  const defaultName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : (auth.username || '');
+  const [pickerName, setPickerName] = useState(defaultName);
+  const [inventoryMap, setInventoryMap] = useState({}); // code → [{lot, exp, qty, location}]
+  const [loadingInv, setLoadingInv]     = useState(true);
+  const [saving, setSaving]             = useState(false);
+  const [error, setError]               = useState('');
+
+  const approvedItems = useMemo(() =>
+    (req.requisition_items || []).filter(item => (item.approved_qty ?? item.requested_qty) > 0),
+    [req]
+  );
+
+  const [itemStates, setItemStates] = useState(() =>
+    approvedItems.map(item => ({
+      id:           item.id,
+      drug_name:    item.drug_name,
+      drug_code:    item.drug_code,
+      drug_unit:    item.drug_unit,
+      approved_qty: item.approved_qty ?? item.requested_qty,
+      picked_lot:   '',
+      picked_exp:   '',
+      picked_qty:   item.approved_qty ?? item.requested_qty,
+    }))
+  );
+
+  useEffect(() => {
+    const codes = [...new Set(approvedItems.map(i => i.drug_code).filter(Boolean))];
+    if (!codes.length) { setLoadingInv(false); return; }
+    fetchInventoryByCodes(codes).then(data => {
+      const map = {};
+      data.forEach(row => {
+        const code = String(row.code || '').trim();
+        if (!map[code]) map[code] = [];
+        map[code].push(row);
+      });
+      // sort FEFO client-side
+      Object.values(map).forEach(lots => {
+        lots.sort((a, b) => {
+          const da = parseExp(a.exp), db = parseExp(b.exp);
+          if (!da && !db) return 0;
+          if (!da) return 1;
+          if (!db) return -1;
+          return da - db;
+        });
+      });
+      setInventoryMap(map);
+      // auto-select first lot (FEFO)
+      setItemStates(prev => prev.map(item => {
+        const lots = map[String(item.drug_code || '').trim()] || [];
+        const first = lots[0];
+        return first ? { ...item, picked_lot: first.lot, picked_exp: first.exp } : item;
+      }));
+      setLoadingInv(false);
+    }).catch(() => setLoadingInv(false));
+  }, []);
+
+  const updateItem = (idx, field, val) =>
+    setItemStates(prev => prev.map((it, i) => i === idx ? { ...it, [field]: val } : it));
+
+  const handleLotChange = (idx, lot) => {
+    const code = itemStates[idx].drug_code;
+    const lots = inventoryMap[String(code || '').trim()] || [];
+    const row  = lots.find(l => l.lot === lot);
+    setItemStates(prev => prev.map((it, i) =>
+      i === idx ? { ...it, picked_lot: lot, picked_exp: row?.exp || '' } : it
+    ));
+  };
+
+  const handleConfirm = async () => {
+    if (!pickerName.trim()) { setError('กรุณากรอกชื่อผู้จัดยา'); return; }
+    setSaving(true); setError('');
+    try {
+      const items = itemStates.map(it => ({
+        id:         it.id,
+        picked_lot: it.picked_lot || null,
+        picked_exp: it.picked_exp || null,
+        picked_qty: parseInt(it.picked_qty) || 0,
+      }));
+      await startPickingRequisition(req.id, { pickerName: pickerName.trim(), items }, auth);
+      onDone();
+    } catch (e) { setError(e.message); setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 bg-purple-50 flex items-center gap-3 shrink-0">
+          <div className="w-9 h-9 bg-purple-100 rounded-xl flex items-center justify-center">
+            <Package size={18} className="text-purple-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-purple-800">เริ่มจัดยา</p>
+            <p className="text-xs text-slate-500 font-mono truncate">{req.req_number} · {req.department}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">ชื่อผู้จัดยา</label>
+            <input type="text" value={pickerName} onChange={e => setPickerName(e.target.value)}
+              placeholder="กรอกชื่อผู้จัดยา"
+              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-400" />
+          </div>
+
+          {loadingInv ? (
+            <div className="flex items-center justify-center py-8 text-slate-400 gap-2">
+              <RefreshCcw size={18} className="animate-spin" /> กำลังโหลดข้อมูล Lot...
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {itemStates.length === 0 && (
+                <p className="text-sm text-slate-500 text-center py-4">ไม่มีรายการที่อนุมัติ</p>
+              )}
+              {itemStates.map((item, idx) => {
+                const lots = inventoryMap[String(item.drug_code || '').trim()] || [];
+                return (
+                  <div key={item.id} className="bg-slate-50 rounded-xl border border-slate-200 p-3 space-y-2.5">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">{item.drug_name}</p>
+                      <p className="text-xs text-slate-500">
+                        อนุมัติ <span className="font-bold text-emerald-600">{item.approved_qty}</span> {item.drug_unit || ''}
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 mb-1">เลือก Lot (FEFO — ใกล้หมดอายุก่อน)</label>
+                      {lots.length > 0 ? (
+                        <select value={item.picked_lot} onChange={e => handleLotChange(idx, e.target.value)}
+                          className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white">
+                          <option value="">-- เลือก Lot --</option>
+                          {lots.map(l => (
+                            <option key={l.lot} value={l.lot}>
+                              {l.lot} | Exp: {fmtExp(l.exp)} | คงเหลือ: {parseFloat(l.qty) || 0}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                          ไม่พบ Lot ในคลัง — กรุณาตรวจสอบสต็อก
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <label className="text-xs font-semibold text-slate-500 shrink-0">จำนวนที่จัด</label>
+                      <input type="number" min="0" value={item.picked_qty}
+                        onChange={e => updateItem(idx, 'picked_qty', e.target.value)}
+                        className="w-24 border border-slate-300 rounded-xl px-3 py-1.5 text-sm text-slate-800 text-center focus:outline-none focus:ring-2 focus:ring-purple-400" />
+                      <span className="text-xs text-slate-500">{item.drug_unit || ''}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>}
+        </div>
+
+        <div className="px-4 pb-5 pt-3 border-t border-slate-100 flex gap-2 shrink-0">
+          <button onClick={onClose} disabled={saving}
+            className="flex-1 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl py-2.5 font-medium text-sm transition-colors">
+            ยกเลิก
+          </button>
+          <button onClick={handleConfirm} disabled={saving || loadingInv || !pickerName.trim()}
+            className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-2.5 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+            <Package size={15} /> {saving ? 'กำลังบันทึก...' : 'ยืนยันจัดยา'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// VerifyModal — staff คนที่ 2 ตรวจนับ (Double Check)
+// ============================================================
+function VerifyModal({ req, auth, onClose, onDone }) {
+  const defaultName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : (auth.username || '');
+  const [verifierName, setVerifierName] = useState(defaultName);
+  const [saving, setSaving]             = useState(false);
+  const [error, setError]               = useState('');
+
+  const pickedItems = (req.requisition_items || []).filter(item => item.picked_qty != null);
+  const isSamePicker = verifierName.trim() && verifierName.trim() === req.picker_name;
+
+  const handleConfirm = async () => {
+    if (!verifierName.trim()) { setError('กรุณากรอกชื่อผู้ตรวจนับ'); return; }
+    setSaving(true); setError('');
+    try {
+      await verifyRequisition(req.id, verifierName.trim(), auth);
+      onDone();
+    } catch (e) { setError(e.message); setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 bg-indigo-50 flex items-center gap-3 shrink-0">
+          <div className="w-9 h-9 bg-indigo-100 rounded-xl flex items-center justify-center">
+            <CheckCircle size={18} className="text-indigo-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-indigo-800">ตรวจนับยา (Double Check)</p>
+            <p className="text-xs text-slate-500 truncate">ผู้จัด: <span className="font-medium">{req.picker_name || '-'}</span> · {req.req_number}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">ชื่อผู้ตรวจนับ</label>
+            <input type="text" value={verifierName} onChange={e => setVerifierName(e.target.value)}
+              placeholder="กรอกชื่อผู้ตรวจนับ"
+              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+            {isSamePicker && (
+              <div className="flex items-start gap-2 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2 mt-2">
+                <AlertCircle size={14} className="text-orange-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-orange-700">ชื่อตรงกับผู้จัดยา — แนะนำให้ใช้เจ้าหน้าที่คนอื่นตรวจนับเพื่อความถูกต้อง</p>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">รายการที่จัดแล้ว</p>
+            {pickedItems.length === 0 && (
+              <p className="text-sm text-slate-500 text-center py-4">ไม่มีรายการที่จัดแล้ว</p>
+            )}
+            {pickedItems.map(item => (
+              <div key={item.id} className="bg-slate-50 rounded-xl border border-slate-200 px-3 py-2.5 flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-800 truncate">{item.drug_name}</p>
+                  <p className="text-xs text-slate-500">
+                    Lot: <span className="font-medium">{item.picked_lot || '-'}</span>
+                    {item.picked_exp ? ` · Exp: ${fmtExp(item.picked_exp)}` : ''}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <span className="text-sm font-bold text-indigo-700">{item.picked_qty}</span>
+                  <span className="text-xs text-slate-500 ml-1">{item.drug_unit || ''}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>}
+        </div>
+
+        <div className="px-4 pb-5 pt-3 border-t border-slate-100 flex gap-2 shrink-0">
+          <button onClick={onClose} disabled={saving}
+            className="flex-1 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl py-2.5 font-medium text-sm transition-colors">
+            ยกเลิก
+          </button>
+          <button onClick={handleConfirm} disabled={saving || !verifierName.trim()}
+            className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-2.5 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+            <CheckCircle size={15} /> {saving ? 'กำลังบันทึก...' : 'ยืนยันถูกต้อง'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StaffRoot({ onBack, alreadyAuthed = false, auth = {} }) {
   const [authed, setAuthed]     = useState(alreadyAuthed);
   const [selected, setSelected] = useState(null);
@@ -1552,12 +1860,15 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
   const [loading, setLoading]   = useState(true);
   const [filter, setFilter]     = useState('pending');
   const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 10));
-  const [deleteId, setDeleteId] = useState(null); // id รอยืนยันลบ
+  const [deleteId, setDeleteId] = useState(null);
   const [selected, setSelected] = useState(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [searchName, setSearchName] = useState('');
   const [searchDept, setSearchDept] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [pickingModal, setPickingModal] = useState(null); // req object
+  const [verifyModal, setVerifyModal]   = useState(null); // req object
+  const [dispatchingId, setDispatchingId] = useState(null); // id ที่กำลัง confirm จ่ายออก
 
   const handleDelete = async (e, id) => {
     e.stopPropagation();
@@ -1627,12 +1938,14 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
     load();
   };
 
-  const markDispensed = async (req, e) => {
+  const handleDispatch = async (req, e) => {
     e.stopPropagation();
-    if (!supabase) return;
-    await supabase.from('requisitions').update({ status: 'dispensed', updated_at: new Date().toISOString() }).eq('id', req.id);
-    insertAuditLog({ action: 'update_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { req_number: req.req_number, requisition_id: req.id, action_detail: 'mark_dispensed' } });
-    load();
+    if (dispatchingId !== req.id) { setDispatchingId(req.id); return; }
+    try {
+      await markRequisitionDispensed(req.id, auth);
+      load();
+    } catch {}
+    setDispatchingId(null);
   };
 
   const load = useCallback(async () => {
@@ -1650,26 +1963,32 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
     return () => supabase.removeChannel(ch);
   }, [load]);
 
-  const pendingCount = list.filter(r=>r.status==='pending').length;
+  const pendingCount    = list.filter(r => r.status === 'pending').length;
+  const today           = new Date().toISOString().slice(0, 10);
+  const approvedCount   = list.filter(r => r.status === 'approved' || r.status === 'partial').length;
+  const pickingCount    = list.filter(r => r.status === 'picking'  || r.status === 'ready').length;
+  const doneTodayCount  = list.filter(r => (r.status === 'dispensed' || r.status === 'received') && (r.updated_at?.slice(0, 10) === today || r.created_at?.slice(0, 10) === today)).length;
 
   const allDepts = [...new Set(list.map(r => r.department).filter(Boolean))].sort();
 
   const filtered = list.filter(r => {
-    const statusMatch = filter === 'all' || r.status === filter;
-    const dateMatch = filter === 'pending' || !dateFilter || (r.created_at && r.created_at.slice(0, 10) === dateFilter);
+    const statusMatch =
+      filter === 'all'      ? true :
+      filter === 'approved' ? (r.status === 'approved' || r.status === 'partial') :
+      filter === 'picking'  ? (r.status === 'picking'  || r.status === 'ready') :
+      r.status === filter;
+    const dateMatch = filter === 'pending' || filter === 'approved' || filter === 'picking' || !dateFilter || (r.created_at && r.created_at.slice(0, 10) === dateFilter);
     const nameMatch = !searchName.trim() || (r.requester_name||'').toLowerCase().includes(searchName.trim().toLowerCase()) || (r.req_number||'').toLowerCase().includes(searchName.trim().toLowerCase());
     const deptMatch = !searchDept || r.department === searchDept;
     return statusMatch && dateMatch && nameMatch && deptMatch;
   });
 
   const tabs = [
-    { key:'pending',   label:'รอดำเนินการ' },
-    { key:'all',       label:'ทั้งหมด'      },
+    { key:'pending',  label:'รอดำเนินการ'   },
+    { key:'approved', label:'รออนุมัติ/จัด' },
+    { key:'picking',  label:'กำลังจัด/ตรวจ' },
+    { key:'all',      label:'ทั้งหมด'        },
   ];
-
-  const today = new Date().toISOString().slice(0, 10);
-  const inProgressCount = list.filter(r => r.status === 'approved' || r.status === 'partial').length;
-  const doneTodayCount = list.filter(r => r.status === 'dispensed' && (r.updated_at?.slice(0, 10) === today || r.created_at?.slice(0, 10) === today)).length;
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
@@ -1691,8 +2010,13 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
         </div>
         <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-xl px-3 py-1.5 shrink-0">
           <div className="w-2 h-2 rounded-full bg-amber-400"/>
-          <span className="text-xs text-amber-600">กำลังดำเนินการ</span>
-          <span className="text-sm font-bold text-amber-700">{inProgressCount}</span>
+          <span className="text-xs text-amber-600">รออนุมัติ/จัด</span>
+          <span className="text-sm font-bold text-amber-700">{approvedCount}</span>
+        </div>
+        <div className="flex items-center gap-1.5 bg-purple-50 border border-purple-200 rounded-xl px-3 py-1.5 shrink-0">
+          <div className="w-2 h-2 rounded-full bg-purple-500"/>
+          <span className="text-xs text-purple-600">กำลังจัด/ตรวจ</span>
+          <span className="text-sm font-bold text-purple-700">{pickingCount}</span>
         </div>
         <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-1.5 shrink-0">
           <div className="w-2 h-2 rounded-full bg-emerald-500"/>
@@ -1722,8 +2046,13 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
           </button>
           {/* Desktop: always visible */}
           <div className="hidden sm:flex items-center gap-2">
-            <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
-              className="border border-slate-300 rounded-xl px-2 py-1.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+            <div className="relative border border-slate-300 rounded-xl bg-white focus-within:ring-2 focus-within:ring-[#1E90FF]">
+              <span className="px-2 py-1.5 text-sm text-slate-700 pointer-events-none block w-28">
+                {dateFilter ? dateFilter.split('-').reverse().join('/') : <span className="text-slate-400">dd/mm/yyyy</span>}
+              </span>
+              <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+                className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+            </div>
             <button onClick={() => setDateFilter('')}
               className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] text-[#1E90FF] border-[#1E90FF]' : 'text-slate-500 border-slate-300 hover:bg-slate-100'}`}>
               ทั้งหมด
@@ -1746,8 +2075,13 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
         {showFilters && (
           <div className="sm:hidden mt-2 space-y-2">
             <div className="flex gap-2">
-              <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
-                className="flex-1 border border-slate-300 rounded-xl px-2 py-1.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+              <div className="relative flex-1 border border-slate-300 rounded-xl bg-white focus-within:ring-2 focus-within:ring-[#1E90FF]">
+                <span className="px-2 py-1.5 text-sm text-slate-700 pointer-events-none block">
+                  {dateFilter ? dateFilter.split('-').reverse().join('/') : <span className="text-slate-400">dd/mm/yyyy</span>}
+                </span>
+                <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+                  className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+              </div>
               <button onClick={() => setDateFilter('')}
                 className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] text-[#1E90FF] border-[#1E90FF]' : 'text-slate-500 border-slate-300 hover:bg-slate-100'}`}>
                 ทั้งหมด
@@ -1777,7 +2111,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
             setDeleteId(null);
             if (tab.key === 'all') {
               setDateFilter('');
-            } else if (tab.key !== 'pending' && !dateFilter) {
+            } else if (tab.key !== 'pending' && tab.key !== 'approved' && tab.key !== 'picking' && !dateFilter) {
               setDateFilter(new Date().toISOString().slice(0, 10));
             }
           }}
@@ -1785,8 +2119,14 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
               filter === tab.key ? 'bg-[#F0F8FF] text-[#1E90FF]' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
             }`}>
             {tab.label}
-            {tab.key === 'pending' && pendingCount > 0 && (
-              <span className="bg-amber-500 text-white text-xs font-bold rounded-full px-1.5">{pendingCount}</span>
+            {tab.key === 'pending'  && pendingCount  > 0 && (
+              <span className="bg-amber-500  text-white text-xs font-bold rounded-full px-1.5">{pendingCount}</span>
+            )}
+            {tab.key === 'approved' && approvedCount > 0 && (
+              <span className="bg-green-500  text-white text-xs font-bold rounded-full px-1.5">{approvedCount}</span>
+            )}
+            {tab.key === 'picking'  && pickingCount  > 0 && (
+              <span className="bg-purple-500 text-white text-xs font-bold rounded-full px-1.5">{pickingCount}</span>
             )}
           </button>
         ))}
@@ -1804,10 +2144,12 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
           {selected.size > 0 && (
             <>
               <span className="text-xs text-slate-400">({selected.size} รายการ)</span>
-              <button onClick={bulkApprove} disabled={bulkLoading}
-                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
-                <Check size={13}/> อนุมัติที่เลือก
-              </button>
+              {[...selected].some(id => list.find(r => r.id === id)?.status === 'pending') && (
+                <button onClick={bulkApprove} disabled={bulkLoading}
+                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
+                  <Check size={13}/> อนุมัติที่เลือก
+                </button>
+              )}
               <button onClick={bulkDelete} disabled={bulkLoading}
                 className="flex items-center gap-1.5 bg-red-500 hover:bg-red-600 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
                 <Trash2 size={13}/> ลบที่เลือก
@@ -1825,13 +2167,15 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
             <p className="text-sm text-slate-400">กำลังโหลด...</p>
           </div>
         )}
-        {!loading && filtered.length === 0 && (
+        {filtered.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mb-4">
               <CheckCircle size={32} className="text-emerald-500"/>
             </div>
             <p className="text-base font-semibold text-slate-700">
-              {filter === 'pending' ? 'ยอดเยี่ยม!' : 'ไม่พบรายการ'}
+              {filter === 'pending'  ? 'ยอดเยี่ยม!' :
+               filter === 'approved' ? 'ไม่มีรายการรออนุมัติ' :
+               filter === 'picking'  ? 'ไม่มีรายการกำลังจัดยา' : 'ไม่พบรายการ'}
             </p>
             <p className="text-sm text-slate-400 mt-1">
               {filter === 'pending' ? 'ไม่มีใบเบิกตกค้าง ทำงานได้ดีมาก' : 'ลองปรับตัวกรองหรือเปลี่ยนวันที่'}
@@ -1899,14 +2243,26 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
                     </button>
                   )}
                   {(req.status === 'approved' || req.status === 'partial') && (
-                    <button onClick={e => markDispensed(req, e)}
-                      className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors">
-                      <Check size={12}/> จ่ายยาแล้ว
+                    <button onClick={e => { e.stopPropagation(); setPickingModal(req); }}
+                      className="flex items-center gap-1 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors">
+                      <Package size={12}/> เริ่มจัดยา
+                    </button>
+                  )}
+                  {req.status === 'picking' && (
+                    <button onClick={e => { e.stopPropagation(); setVerifyModal(req); }}
+                      className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors">
+                      <CheckCircle size={12}/> ตรวจนับ
+                    </button>
+                  )}
+                  {req.status === 'ready' && (
+                    <button onClick={e => handleDispatch(req, e)}
+                      className={`flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors ${dispatchingId === req.id ? 'bg-blue-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
+                      <Check size={12}/> {dispatchingId === req.id ? 'ยืนยัน?' : 'จ่ายออก'}
                     </button>
                   )}
                   <button onClick={() => onSelect(req)}
                     className="flex items-center gap-1 bg-[#1E90FF] hover:bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
-                    {isPending ? 'จัดยา' : 'ดูรายละเอียด'} <ChevronRight size={12}/>
+                    ดูรายละเอียด <ChevronRight size={12}/>
                   </button>
                 </div>
               </div>
@@ -1914,6 +2270,17 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
           );
         })}
       </div>
+
+      {pickingModal && (
+        <PickingModal req={pickingModal} auth={auth}
+          onClose={() => setPickingModal(null)}
+          onDone={() => { setPickingModal(null); load(); }} />
+      )}
+      {verifyModal && (
+        <VerifyModal req={verifyModal} auth={auth}
+          onClose={() => setVerifyModal(null)}
+          onDone={() => { setVerifyModal(null); load(); }} />
+      )}
     </div>
   );
 }
@@ -1933,10 +2300,22 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
   }));
 
   const requesterNote = req.note || '';
-  const [items, setItems] = useState(() => toItemState(req.requisition_items));
+  const [items, setItems]         = useState(() => toItemState(req.requisition_items));
   const [staffNote, setStaffNote] = useState('');
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
+  const [detailSearch, setDetailSearch] = useState('');
+
+  const filteredItems = useMemo(() => {
+    if (!detailSearch.trim()) return items;
+    const q = detailSearch.toLowerCase();
+    return items.filter(item => item.drug_name?.toLowerCase().includes(q));
+  }, [items, detailSearch]);
+
+  const detailDrugNames = useMemo(() =>
+    items.map(i => ({ name: i.drug_name, type: i.drug_type || '' })),
+    [items]
+  );
 
   // Realtime: รับการแก้ไขจากหน้าผู้เบิก (แก้จำนวน/ลบรายการ)
   useEffect(() => {
@@ -2000,12 +2379,12 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
       <div className="min-h-screen flex flex-col">
         <div className="no-print">
           <PageHeader onBack={onBack} title={currentReq.req_number} subtitle={`${currentReq.department} · ${currentReq.requester_name}`}>
-            <button onClick={() => exportCSV([{ ...currentReq }], `${currentReq.req_number}.csv`)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 border-white/70 text-white hover:bg-white/20 transition-colors text-sm font-semibold no-print">
-              <Download size={16}/> โหลด CSV
+            <button onClick={() => exportReqExcel([currentReq], auth)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-semibold transition-colors shadow-sm no-print">
+              <FileDown size={16}/> Excel
             </button>
             <button onClick={() => printReq(currentReq)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 border-white/70 text-white hover:bg-white/20 transition-colors text-sm font-semibold no-print">
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-[#1E90FF] text-sm font-semibold transition-colors shadow-sm no-print">
               <Printer size={16}/> พิมพ์
             </button>
           </PageHeader>
@@ -2024,11 +2403,34 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         </div>
 
         <div className="flex-1 p-4 space-y-3 pb-40">
-          {items.map((item,i) => (
+          {/* Search bar — แสดงเมื่อมีรายการ > 3 */}
+          {items.length > 3 && (
+            <div className="no-print">
+              <DrugSearchBar
+                value={detailSearch}
+                onChange={setDetailSearch}
+                options={detailDrugNames}
+                placeholder="ค้นหารายการยาในใบเบิก..."
+                ringClass="focus:ring-[#1E90FF]"
+                hoverClass="hover:bg-blue-50"
+                maxResults={15}
+              />
+              {detailSearch && (
+                <p className="text-xs text-slate-400 mt-1">
+                  พบ {filteredItems.length} / {items.length} รายการ
+                  {filteredItems.length === 0 && <span className="text-red-500"> — ไม่พบรายการที่ค้นหา</span>}
+                </p>
+              )}
+            </div>
+          )}
+
+          {filteredItems.map((item) => {
+            const realIdx = items.findIndex(it => it.id === item.id);
+            return (
             <div key={item.id} className="print-card bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
               <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-800">{i+1}. {item.drug_name}</p>
+                  <p className="font-semibold text-slate-800">{realIdx+1}. {item.drug_name}</p>
                   <p className="text-xs text-slate-500 mt-0.5">รหัส: {item.drug_code} · หน่วย: {item.drug_unit||'-'}</p>
                   <p className="text-sm mt-1 text-slate-600">ขอ: <span className="font-bold text-slate-800">{item.requested_qty}</span>{item.drug_unit && item.drug_unit !== '-' && <span className="text-slate-600"> × {item.drug_unit}</span>}</p>
                   {item.item_note && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 mt-1">หมายเหตุจากผู้เบิก: {item.item_note}</p>}
@@ -2036,11 +2438,11 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                 {isPending && (
                   <div className="no-print flex flex-col gap-2 shrink-0 min-w-[160px]">
                     <div className="flex gap-1">
-                      <button onClick={() => updateItem(i,'decision','approve')}
+                      <button onClick={() => updateItem(realIdx,'decision','approve')}
                         className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all border ${item.decision==='approve'?'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
                         <Check size={12}/> อนุมัติ
                       </button>
-                      <button onClick={() => updateItem(i,'decision','reject')}
+                      <button onClick={() => updateItem(realIdx,'decision','reject')}
                         className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all border ${item.decision==='reject'?'bg-red-500 text-white border-red-500':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
                         <X size={12}/> ไม่อนุมัติ
                       </button>
@@ -2048,12 +2450,12 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                     {item.decision==='approve' && (
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-slate-500">จำนวน:</span>
-                        <input type="number" min="0" value={item.approvedQty} onChange={e => updateItem(i,'approvedQty',e.target.value)}
+                        <input type="number" min="0" value={item.approvedQty} onChange={e => updateItem(realIdx,'approvedQty',e.target.value)}
                           className="w-20 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-slate-800 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
                         <span className="text-xs text-slate-500">{item.drug_unit||''}</span>
                       </div>
                     )}
-                    <input type="text" value={item.itemNote} onChange={e => updateItem(i,'itemNote',e.target.value)} placeholder="หมายเหตุ..."
+                    <input type="text" value={item.itemNote} onChange={e => updateItem(realIdx,'itemNote',e.target.value)} placeholder="หมายเหตุ..."
                       className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-slate-800 text-xs placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
                   </div>
                 )}
@@ -2067,7 +2469,8 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
 
           {isPending && requesterNote && (
             <div className="no-print bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
