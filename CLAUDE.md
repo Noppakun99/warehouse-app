@@ -611,6 +611,62 @@ fetchAllRows(() => supabase.from('dispense_logs').select('drug_name, drug_type')
 
 **ยังไม่ต้องทำ** — รอ user ส่งโครงสร้าง Excel ให้ดูก่อน
 
+## ThaiDateInput — Mobile Date Picker Bug (แก้แล้ว)
+
+### อาการ
+- กดช่องวันที่บน mobile → date picker ไม่เปิด (ทำงานได้ปกติบน desktop)
+- พบใน DispenseLogApp และ ReceiveLogApp
+
+### สาเหตุ
+`ThaiDateInput` ซ่อน `<input type="date">` ด้วย `pointer-events-none w-0 h-0` แล้วเรียก `showPicker()` จาก div `onClick` แทน
+iOS Safari และ Android Chrome block `showPicker()` ที่ไม่ได้เรียกจาก user gesture บน input element โดยตรง
+
+### แก้
+เปลี่ยน input เป็น `absolute inset-0 opacity-0 w-full cursor-pointer` — ขนาดเต็ม wrapper แต่ซ่อนด้วย opacity
+touch event โดน native input โดยตรง → date picker เปิดได้ทันที ไม่ต้อง `showPicker()` และไม่ต้องมี `ref`
+
+```jsx
+// ✅ ถูก
+<div className={`relative ${size} border ...`}>
+  <span className="... pointer-events-none">{value || placeholder}</span>
+  <input type="date"
+    className="absolute inset-0 opacity-0 w-full cursor-pointer"
+    value={thaiToIso(value) || ''}
+    onChange={e => onChange(isoToThai(e.target.value))} />
+</div>
+
+// ❌ ผิด — mobile ไม่ทำงาน
+<div onClick={() => ref.current?.showPicker?.()}>
+  <input type="date" ref={ref}
+    className="absolute opacity-0 w-0 h-0 pointer-events-none" .../>
+</div>
+```
+
+### ขอบเขต
+- `ThaiDateInput` ใน **DispenseLogApp** และ **ReceiveLogApp** — แก้แล้ว ✅
+- ReturnApp, AuditLogApp ใช้ `<input type="date">` ตรงอยู่แล้ว → ไม่มีปัญหา
+
+## DrugSearchBar — Keyboard Navigation
+
+- กด `↓` / `↑` เลื่อนรายการใน dropdown
+- กด `Enter` เลือกรายการที่ highlight
+- กด `Esc` ปิด dropdown
+- hover เมาส์ sync กับ keyboard highlight
+- dropdown มี `max-h-56 overflow-y-auto` — scroll ได้เมื่อรายการเยอะ
+- active item scroll into view อัตโนมัติ (`scrollIntoView({ block: 'nearest' })`)
+- **Do not**: อย่า set `pointer-events-none` บน input ของ dropdown — ทำให้ keyboard event ไม่ทำงาน
+
+## AnalyticsApp — Drug Name Deduplication
+
+### อาการ
+- dropdown ชื่อยาแสดงซ้ำ เช่น "Manidipine 20mg" ปรากฏ 2 ครั้ง
+
+### สาเหตุ
+`new Set(rows.map(r => r.drug_name))` dedup ด้วย exact string — ถ้าใน DB มีชื่อเดียวกันแต่ whitespace ต่างกัน (trailing space, double space) จะแยกเป็น 2 รายการ
+
+### แก้
+Normalize ก่อน dedup: `.trim().replace(/\s+/g, ' ')` ทั้งใน `drugNames` useMemo และ `filteredRows` filter
+
 ## Do Not
 
 - **อย่าเรียก `supabase` โดยตรงในไฟล์ component** — ต้องผ่าน `src/lib/db.js` เสมอ
