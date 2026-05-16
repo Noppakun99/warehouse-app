@@ -756,6 +756,8 @@ function DispenseView({ isAdmin = false, auth = {} }) {
   const [showDropdown, setShowDropdown] = useState(false);
   const searchRef = useRef(null);
   const [aggStats, setAggStats] = useState(null);
+  const [isMobile, setIsMobile]       = useState(() => window.innerWidth < 768);
+  const [mobileDetail, setMobileDetail] = useState(null);
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
@@ -832,6 +834,12 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     const h = (e) => { if (searchRef.current && !searchRef.current.contains(e.target)) setShowDropdown(false); };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  useEffect(() => {
+    const fn = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
   }, []);
 
   useEffect(() => {
@@ -1141,7 +1149,93 @@ function DispenseView({ isAdmin = false, auth = {} }) {
         </div>
       )}
 
-      {!selectedDrug && rows.length > 0 && (
+      {/* ── Mobile bottom sheet detail ── */}
+      {mobileDetail && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setMobileDetail(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="relative bg-white rounded-t-2xl shadow-2xl max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mt-3 mb-1" />
+            <div className="px-4 pb-3 border-b border-slate-100">
+              <p className="font-bold text-slate-900 text-base leading-tight">{mobileDetail.drug_name}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{mobileDetail.drug_code} · {fmtDate(mobileDetail.dispense_date)}</p>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-rose-50 rounded-xl p-2.5 text-center">
+                  <p className="text-lg font-bold text-rose-700">-{(mobileDetail.qty_out||0).toLocaleString()}</p>
+                  <p className="text-[10px] text-rose-600">{getUnit(mobileDetail)}</p>
+                </div>
+                <div className="bg-amber-50 rounded-xl p-2.5 text-center">
+                  <p className="text-base font-bold text-amber-700">{getPrice(mobileDetail) != null ? ((mobileDetail.qty_out||0)*getPrice(mobileDetail)).toLocaleString(undefined,{maximumFractionDigits:0}) : '-'}</p>
+                  <p className="text-[10px] text-amber-600">มูลค่า (บาท)</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-2.5 text-center">
+                  <p className="text-base font-bold text-slate-700">{getPrice(mobileDetail) != null ? Number(getPrice(mobileDetail)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</p>
+                  <p className="text-[10px] text-slate-500">ราคา/หน่วย</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {[
+                  ['ชนิดยา',           mobileDetail.drug_type],
+                  ['หน่วยงาน',         mobileDetail.department],
+                  ['MainLog',          mobileDetail.main_log],
+                  ['DetailedLog',      mobileDetail.detail_log],
+                  ['Lot',              mobileDetail.lot],
+                  ['Exp',              fmtAnyDate(mobileDetail.exp)],
+                  ['คงเหลือก่อนเบิก', mobileDetail.qty_before?.toLocaleString()],
+                  ['คงเหลือหลังจ่าย', mobileDetail.qty_after?.toLocaleString()],
+                  ['หมายเหตุ',         mobileDetail.note],
+                ].filter(([, val]) => val != null && val !== '-' && val !== '').map(([label, val]) => (
+                  <div key={label} className="flex justify-between items-start gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                    <span className="text-xs text-slate-400 shrink-0">{label}</span>
+                    <span className="text-sm text-slate-700 font-medium text-right">{val}</span>
+                  </div>
+                ))}
+              </div>
+              {isAdmin && (
+                <div className="flex gap-2 pt-2">
+                  <button onClick={e => { setEditingRow(mobileDetail); setMobileDetail(null); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    <Pencil size={13}/> แก้ไข
+                  </button>
+                  <button onClick={e => { handleDelete(mobileDetail, e); setMobileDetail(null); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-600 border border-red-200">
+                    <Trash2 size={13}/> ลบ
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!selectedDrug && rows.length > 0 && isMobile && (
+        <div className="space-y-2">
+          {rows.map((row, i) => (
+            <div key={row.id} onClick={() => setMobileDetail(row)}
+              className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm active:bg-rose-50 transition-colors cursor-pointer">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-slate-900 truncate text-sm">{row.drug_name}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{row.drug_code} · {fmtDate(row.dispense_date)}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-sm font-bold text-rose-700">-{(row.qty_out||0).toLocaleString()}</p>
+                  <p className="text-[10px] text-slate-400">{getUnit(row)}</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+                <span className="text-xs text-slate-500 truncate">{row.department || '-'}</span>
+                {getPrice(row) != null && (
+                  <span className="text-xs text-amber-700 font-medium">{((row.qty_out||0)*getPrice(row)).toLocaleString(undefined,{maximumFractionDigits:0})} บาท</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!selectedDrug && rows.length > 0 && !isMobile && (
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-260px)]">
             <table className="w-full min-w-[800px] text-sm">

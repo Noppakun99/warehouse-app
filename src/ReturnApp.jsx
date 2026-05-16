@@ -467,6 +467,14 @@ function HistoryTab({ auth = {} }) {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo]     = useState('')
   const [expanded, setExpanded] = useState(null)
+  const [isMobile, setIsMobile]     = useState(() => window.innerWidth < 768)
+  const [mobileDetail, setMobileDetail] = useState(null)
+
+  useEffect(() => {
+    const fn = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', fn)
+    return () => window.removeEventListener('resize', fn)
+  }, [])
 
   const load = async () => {
     setLoading(true)
@@ -534,6 +542,56 @@ function HistoryTab({ auth = {} }) {
         </div>
       </div>
 
+      {/* ── Mobile bottom sheet detail ── */}
+      {mobileDetail && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setMobileDetail(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="relative bg-white rounded-t-2xl shadow-2xl max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mt-3 mb-1" />
+            <div className="px-4 pb-3 border-b border-slate-100">
+              <p className="font-bold text-slate-900 text-base leading-tight">{mobileDetail.drug_name}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{mobileDetail.drug_code && mobileDetail.drug_code !== '-' ? mobileDetail.drug_code + ' · ' : ''}{isoToThai(mobileDetail.return_date)}</p>
+            </div>
+            <div className="p-4 space-y-3">
+              {(() => {
+                const t = TYPE_MAP[mobileDetail.return_type] || { badgeBg: 'bg-slate-100', badgeText: 'text-slate-600', label: mobileDetail.return_type }
+                return (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-violet-50 rounded-xl p-2.5 text-center col-span-1">
+                      <p className="text-lg font-bold text-violet-700">{Number(mobileDetail.qty_returned).toLocaleString()}</p>
+                      <p className="text-[10px] text-violet-500">{mobileDetail.drug_unit && mobileDetail.drug_unit !== '-' ? mobileDetail.drug_unit : 'หน่วย'}</p>
+                    </div>
+                    <div className="flex items-center justify-center">
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${t.badgeBg} ${t.badgeText}`}>{t.label}</span>
+                    </div>
+                  </div>
+                )
+              })()}
+              <div className="space-y-2">
+                {[
+                  ['ชนิดยา',     mobileDetail.drug_type],
+                  ['Lot',        mobileDetail.lot !== '-' ? mobileDetail.lot : null],
+                  ['Exp',        mobileDetail.exp !== '-' ? mobileDetail.exp : null],
+                  ['หน่วยงาน',   mobileDetail.department !== '-' ? mobileDetail.department : null],
+                  ['ผู้คืน',     mobileDetail.returned_by !== '-' ? mobileDetail.returned_by : null],
+                  ['ผู้รับ',     mobileDetail.received_by !== '-' ? mobileDetail.received_by : null],
+                  ['หมายเหตุ',   mobileDetail.note],
+                ].filter(([, val]) => val != null && val !== '').map(([label, val]) => (
+                  <div key={label} className="flex justify-between items-start gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                    <span className="text-xs text-slate-400 shrink-0">{label}</span>
+                    <span className="text-sm text-slate-700 font-medium text-right">{val}</span>
+                  </div>
+                ))}
+              </div>
+              <button onClick={e => { e.stopPropagation(); printReturnLog(mobileDetail); setMobileDetail(null) }}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-colors">
+                <Printer size={15} /> พิมพ์
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       {loading ? (
         <p className="text-center text-slate-400 py-10 text-sm">กำลังโหลด...</p>
@@ -541,6 +599,31 @@ function HistoryTab({ auth = {} }) {
         <div className="text-center text-slate-400 py-16">
           <FileText size={40} className="mx-auto mb-2 opacity-30" />
           <p className="text-sm">ไม่พบข้อมูล</p>
+        </div>
+      ) : isMobile ? (
+        <div className="space-y-2">
+          {logs.map((l, i) => {
+            const t = TYPE_MAP[l.return_type] || { badgeBg: 'bg-slate-100', badgeText: 'text-slate-600', short: l.return_type }
+            return (
+              <div key={l.id} onClick={() => setMobileDetail(l)}
+                className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm active:bg-violet-50 transition-colors cursor-pointer">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-slate-900 truncate text-sm">{l.drug_name}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{isoToThai(l.return_date)}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-bold text-violet-700">{Number(l.qty_returned).toLocaleString()}</p>
+                    {l.drug_unit && l.drug_unit !== '-' && <p className="text-[10px] text-slate-400">{l.drug_unit}</p>}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${t.badgeBg} ${t.badgeText}`}>{t.short}</span>
+                  <span className="text-xs text-slate-500 truncate ml-2">{l.department !== '-' ? l.department : ''}</span>
+                </div>
+              </div>
+            )
+          })}
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">

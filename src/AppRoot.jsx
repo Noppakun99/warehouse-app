@@ -39,9 +39,27 @@ export default function AppRoot() {
   });
   const [page, setPage]   = useState('dashboard');
   const [subKey, setSubKey] = useState(0);
+  const [toasts, setToasts] = useState([]);
+
+  const dismissToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
+
+  // Subscribe ใบเบิกใหม่ — เฉพาะ staff/admin เท่านั้น
+  useEffect(() => {
+    if (!supabase || !auth || (auth.role !== 'staff' && auth.role !== 'admin')) return;
+    const ch = supabase
+      .channel('approot-req-toast')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requisitions' }, (payload) => {
+        const req = payload.new;
+        const id = Date.now();
+        setToasts(prev => [...prev.slice(-2), { id, req }]); // max 3 toasts
+        setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 6000);
+      })
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [auth?.id]);
 
   const handleLogin = (user) => { sessionStorage.setItem(AUTH_KEY, JSON.stringify(user)); setAuth(user); };
-  const logout = () => { sessionStorage.removeItem(AUTH_KEY); setAuth(null); setPage('dashboard'); };
+  const logout = () => { sessionStorage.removeItem(AUTH_KEY); setAuth(null); setPage('dashboard'); setToasts([]); };
   const refreshPage = () => setSubKey(k => k + 1);
 
   let content;
@@ -92,11 +110,68 @@ export default function AppRoot() {
   const pageKey = auth ? page : '__login__';
 
   return (
-    <AnimatePresence mode="wait">
-      <motion.div key={pageKey} variants={PAGE_VARIANTS} initial="initial" animate="animate" exit="exit">
-        {content}
-      </motion.div>
-    </AnimatePresence>
+    <>
+      <AnimatePresence mode="wait">
+        <motion.div key={pageKey} variants={PAGE_VARIANTS} initial="initial" animate="animate" exit="exit">
+          {content}
+        </motion.div>
+      </AnimatePresence>
+
+      {/* ── Toast stack (ใบเบิกใหม่) ── */}
+      <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 items-end pointer-events-none">
+        <AnimatePresence>
+          {toasts.map(t => (
+            <motion.div
+              key={t.id}
+              initial={{ opacity: 0, y: 16, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0,  scale: 1 }}
+              exit={{    opacity: 0, x: 80, scale: 0.95 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              className="pointer-events-auto"
+            >
+              <ReqToast
+                toast={t}
+                onDismiss={() => dismissToast(t.id)}
+                onNavigate={() => { setPage('requisition'); dismissToast(t.id); }}
+              />
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+    </>
+  );
+}
+
+// ============================================================
+// Req Toast
+// ============================================================
+function ReqToast({ toast, onDismiss, onNavigate }) {
+  const { req } = toast;
+  const itemCount = (req.requisition_items || []).length;
+  return (
+    <div className="bg-white border border-amber-200 rounded-2xl shadow-2xl p-4 flex items-start gap-3 w-80 max-w-[calc(100vw-2rem)]">
+      <div className="shrink-0 w-9 h-9 bg-amber-100 rounded-xl flex items-center justify-center">
+        <Bell size={18} className="text-amber-600" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="font-semibold text-slate-800 text-sm leading-tight">ใบเบิกยาใหม่เข้า</p>
+        <p className="text-xs text-slate-500 mt-0.5 truncate">
+          {req.department} · {req.requester_name || 'ไม่ระบุ'}
+        </p>
+        {req.req_number && (
+          <p className="text-[11px] text-slate-400 font-mono mt-0.5">{req.req_number}</p>
+        )}
+        <button
+          onClick={onNavigate}
+          className="text-xs text-amber-600 font-semibold mt-1.5 hover:text-amber-700 hover:underline"
+        >
+          ไปดูใบเบิก →
+        </button>
+      </div>
+      <button onClick={onDismiss} className="shrink-0 text-slate-300 hover:text-slate-500 transition-colors mt-0.5">
+        <X size={14} />
+      </button>
+    </div>
   );
 }
 

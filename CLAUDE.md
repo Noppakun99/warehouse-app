@@ -151,13 +151,20 @@ Skills อยู่ใน `.claude/skills/` — อ่านไฟล์ที�
 
 ## Inventory Map — Display Rules (App.jsx)
 
-- **qty = 0 ซ่อนจากแผนผัง**: แสดงเฉพาะ `qty > 0` ใน Slot component และ modal (`handleLocationClick`)
+- **qty = 0 ซ่อนทุกที่**: แสดงเฉพาะ `qty > 0` ใน Slot, modal (`handleLocationClick`), **และผลการค้นหา (`searchResults` useMemo)**
   - ข้อมูล qty=0 **ยังอยู่ใน `inventory` state** — ใช้คำนวณ low-stock alert และ order calculation ต่อได้
   - ไม่กรองออกตอน import CSV — กรองเฉพาะตอน render เท่านั้น
 - **ยาตัดออก (discontinued)**: ซ่อนถ้า qty=0 ด้วย (เข้าเงื่อนไขเดียวกัน)
-- **เรียงลำดับ**: Modal รายการยาในตำแหน่ง (`handleLocationClick`) เรียง exp ascending — ใกล้หมดอายุก่อนอยู่บนสุด รายการที่ไม่มี exp อยู่ล่างสุด
+- **เรียงลำดับ exp ascending** ทุกที่ — ใกล้หมดอายุก่อนอยู่บนสุด รายการที่ไม่มี exp อยู่ล่างสุด:
+  - `handleLocationClick` (popup ตำแหน่ง) ✓
+  - `searchResults` useMemo ✓ (แก้แล้ว — เคยไม่เรียง)
 - อย่าเปลี่ยน filter logic เป็น `!(isDiscontinued && qty === 0)` เพราะ qty=0 ต้องซ่อนเสมอ
 - slot color (hasExpired/hasNearExpiry) คำนวณจาก `visibleItems` — qty=0 ถูก skip ใน loop อยู่แล้ว (`if (qty === 0) return`)
+
+### จุดที่เคยพลาด — searchResults ไม่กรอง qty=0 และไม่เรียง exp
+- **อาการ**: ผลการค้นหาแสดงรายการที่หมดแล้ว (qty=0) ปนกับรายการที่มีสต็อก
+- **สาเหตุ**: `searchResults` useMemo ไม่มี `qty === 0` guard และไม่ sort
+- **แก้**: เพิ่ม `if (qty === 0) return;` และ `.sort()` by `parseDateString(exp)` ใน useMemo
 
 ## Audit Log — Auth Rule (CRITICAL)
 
@@ -502,6 +509,44 @@ fetchAllRows(() => supabase.from('dispense_logs').select('drug_name, drug_type')
 ### กฎ
 - dropdown ชื่อยา → **ต้องใช้ `fetchAllRows`** เสมอ ห้ามใช้ `.then(({ data }) => ...)` ตรงๆ
 - aggregate stats (count, sum) → ใช้ `loadAgg` pattern ที่มีอยู่แล้ว ซึ่งใช้ `fetchAllRows` แล้ว
+
+## ReceiveLogApp — supplierFilter Bug (แก้แล้ว)
+
+### อาการ
+- กรองบริษัทแล้ว pagination แสดง "ถัดไป →" ทั้งที่มีแค่ 78 รายการ
+- `totalPages` แสดง 1/1 แต่ปุ่ม "ถัดไป" ยังอยู่
+
+### สาเหตุ
+`load` query ไม่ได้ส่ง `supplierFilter` ไป DB — กรองแค่ client-side ใน `displayRows`  
+ทำให้ `rows.length === PAGE_SIZE` (200) แม้จะกรองบริษัทแล้ว
+
+### แก้
+เพิ่ม `if (supplierFilter) q = q.eq('supplier_current', supplierFilter)` ใน `load` callback  
+และเพิ่ม `supplierFilter` ใน dependency array: `}, [search, supplierFilter, dateFrom, dateTo, page])`
+
+### Do Not
+อย่าลบ client-side filter ใน `displayRows` — ยังต้องไว้เพราะใช้ `getDetailSupplier()` ที่ละเอียดกว่า `supplier_current`
+
+## Mobile Layout — ทุก Sub-app
+
+**Pattern เดียวกันใช้กับทุก sub-app ที่มีตาราง:**
+- จอ < 768px → แสดง **card list** แทนตาราง (ตรวจด้วย `isMobile` state + resize listener)
+- แตะ card → **bottom sheet** เลื่อนขึ้นจากล่าง แสดงรายละเอียดครบ (ยกเว้น UserManagement ที่ใช้ modal เดิม)
+- state: `isMobile` (boolean), `mobileDetail` (row object หรือ null)
+- Desktop ≥ 768px: ตารางเดิมทุกอย่าง ไม่กระทบ
+- pattern resize: `useEffect(() => { const fn = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', fn); return () => window.removeEventListener('resize', fn); }, [])`
+
+| App | Mobile Support | หมายเหตุ |
+|-----|---------------|---------|
+| ReceiveLogApp | card list + bottom sheet ✅ | stat cards 3 ช่อง |
+| DispenseLogApp (DispenseView) | card list + bottom sheet ✅ | stat cards จำนวน/มูลค่า/ราคา |
+| ReturnApp (HistoryTab) | card list + bottom sheet ✅ | ปุ่ม Print ใน bottom sheet |
+| AuditLogApp | card list + edit bottom sheet ✅ | edit/delete ทำงานได้บน mobile |
+| UserManagementApp | card list + action buttons ✅ | ใช้ modal เดิม (modal เป็น fixed อยู่แล้ว) |
+| RequisitionApp | card-based ตลอด ✅ | ไม่ต้องแปลง เพราะ design เป็น card ตั้งแต่ต้น |
+| AppRoot (Dashboard) | responsive grid ✅ | ใช้ Tailwind sm:/md: ตลอด |
+
+**Do Not**: อย่าเพิ่ม `min-w-[...]` ในตารางโดยไม่มี `isMobile` guard — จะทำให้ scroll ไม่สวยบน mobile
 
 ## UserManagementApp — Password & Suspend
 

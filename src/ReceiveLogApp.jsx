@@ -1028,6 +1028,8 @@ function ReceiveView({ isAdmin = false }) {
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState('');
   const [supplierFilter, setSupplier] = useState('');
+  const [isMobile, setIsMobile]       = useState(() => window.innerWidth < 768);
+  const [mobileDetail, setMobileDetail] = useState(null); // row ที่เปิด bottom sheet
   const [suppliers, setSuppliers]     = useState([]);
   const [drugNames, setDrugNames]     = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -1097,6 +1099,7 @@ function ReceiveView({ isAdmin = false }) {
       .order('receive_date', { ascending: false })
       .order('id', { ascending: false });
     if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%,bill_number.ilike.%${search}%`); }
+    if (supplierFilter) q = q.eq('supplier_current', supplierFilter);
     const isoFrom = thaiToIso(dateFrom) || dateFrom;
     const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
     if (isoFrom && isoTo)   { q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo); }
@@ -1106,9 +1109,15 @@ function ReceiveView({ isAdmin = false }) {
     const { data } = await q;
     setRows(data || []);
     setLoading(false);
-  }, [search, dateFrom, dateTo, page]);
+  }, [search, supplierFilter, dateFrom, dateTo, page]);
 
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [load]);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   // โหลด aggregate stats ของทุก rows ที่ตรงกับ filter (ไม่ใช่แค่หน้าปัจจุบัน)
   const loadAgg = useCallback(async () => {
@@ -1568,7 +1577,96 @@ function ReceiveView({ isAdmin = false }) {
         </div>
       )}
 
-      {!selectedDrug && rows.length > 0 && (
+      {/* ── Mobile bottom sheet detail ── */}
+      {mobileDetail && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setMobileDetail(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="relative bg-white rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            {/* handle */}
+            <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 bg-slate-300 rounded-full"/></div>
+            {/* header */}
+            <div className="px-4 pb-3 border-b border-slate-100">
+              <p className="font-bold text-slate-900 text-base leading-tight">{mobileDetail.drug_name}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{mobileDetail.drug_code} · {fmtDate(mobileDetail.receive_date)}</p>
+            </div>
+            {/* body */}
+            <div className="overflow-y-auto px-4 py-3 space-y-3">
+              {/* key stats */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-emerald-50 rounded-xl p-2.5 text-center">
+                  <p className="text-lg font-bold text-emerald-700">+{(mobileDetail.qty_received||0).toLocaleString()}</p>
+                  <p className="text-[10px] text-emerald-600">{mobileDetail.drug_unit || mobileDetail.unit_per_bill || '-'}</p>
+                </div>
+                <div className="bg-amber-50 rounded-xl p-2.5 text-center">
+                  <p className="text-base font-bold text-amber-700">{mobileDetail.total_price_vat != null ? Number(mobileDetail.total_price_vat).toLocaleString(undefined,{maximumFractionDigits:0}) : '-'}</p>
+                  <p className="text-[10px] text-amber-600">มูลค่า (บาท)</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-2.5 text-center">
+                  <p className="text-base font-bold text-slate-700">{mobileDetail.price_per_unit != null ? Number(mobileDetail.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</p>
+                  <p className="text-[10px] text-slate-500">ราคา/หน่วย</p>
+                </div>
+              </div>
+              {/* detail fields */}
+              <div className="space-y-2">
+                {[
+                  ['บริษัท',           getDetailSupplier(mobileDetail) || mobileDetail.supplier_current],
+                  ['เลขบิล',           mobileDetail.bill_number],
+                  ['Lot',              mobileDetail.lot],
+                  ['Exp',              fmtAnyDate(mobileDetail.exp)],
+                  ['ชนิดยา',           mobileDetail.drug_type],
+                  ['สถานะตรวจรับ',     mobileDetail.receive_status],
+                  ['วันที่แจ้งสั่ง',   fmtDate(mobileDetail.order_date)],
+                  ['วันที่ตรวจรับ',    fmtDate(mobileDetail.inspect_date)],
+                  ['เลขที่ PO',        mobileDetail.po_number],
+                  ['ประเภทการซื้อ',    mobileDetail.purchase_type],
+                  ['Leadtime',         mobileDetail.leadtime],
+                  ['บริษัทก่อนหน้า',  mobileDetail.supplier_prev],
+                  ['ราคารวมภาษี/สูตร', mobileDetail.total_price_formula],
+                  ['หมายเหตุหมดอายุ', mobileDetail.exp_note],
+                ].filter(([, val]) => val != null && val !== '-' && val !== '').map(([label, val]) => (
+                  <div key={label} className="flex justify-between items-start gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                    <span className="text-xs text-slate-400 shrink-0">{label}</span>
+                    <span className="text-sm text-slate-800 font-medium text-right">{val}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* close */}
+            <div className="px-4 py-3 border-t border-slate-100">
+              <button onClick={() => setMobileDetail(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl py-2.5 text-sm font-medium transition-colors">ปิด</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!selectedDrug && rows.length > 0 && isMobile && (
+        /* ── Mobile card list ── */
+        <div className="space-y-2">
+          {displayRows.map(row => (
+            <button key={row.id} onClick={() => setMobileDetail(row)}
+              className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm text-left active:bg-emerald-50 transition-colors">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-slate-900 text-sm leading-tight truncate">{row.drug_name}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{row.drug_code} · {fmtDate(row.receive_date)}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-emerald-700 font-bold text-sm">+{(row.qty_received||0).toLocaleString()}</p>
+                  <p className="text-[10px] text-slate-400">{row.drug_unit || row.unit_per_bill || '-'}</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-xs text-slate-500 truncate max-w-[60%]">{getDetailSupplier(row) || row.supplier_current || '-'}</span>
+                <span className="text-amber-700 font-bold text-sm">
+                  {row.total_price_vat != null ? Number(row.total_price_vat).toLocaleString(undefined,{maximumFractionDigits:0}) + ' ฿' : '-'}
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!selectedDrug && rows.length > 0 && !isMobile && (
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-260px)]">
             <table className="w-full min-w-[900px] text-sm">

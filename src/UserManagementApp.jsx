@@ -131,6 +131,14 @@ export default function UserManagementApp({ onBack, onRefresh, auth }) {
   const [copied,        setCopied]        = useState(false);
   const [fPermissions, setFPermissions] = useState([]);
 
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+
+  useEffect(() => {
+    const fn = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     try { setUsers(await fetchAppUsers()); } finally { setLoading(false); }
@@ -292,6 +300,53 @@ export default function UserManagementApp({ onBack, onRefresh, auth }) {
             <div className="text-center py-12 text-slate-400">
               <Users size={32} className="mx-auto mb-2 opacity-30"/>
               ไม่พบผู้ใช้งาน
+            </div>
+          ) : isMobile ? (
+            <div className="divide-y divide-slate-100">
+              {filtered.map(u => {
+                const t = USER_TYPE[u.role] || USER_TYPE.requester;
+                return (
+                  <div key={u.id} className={`p-4 space-y-2.5 ${!u.is_active ? 'opacity-60' : ''}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono font-semibold text-slate-800">{u.username}</span>
+                          {u.id === auth.id && <span className="text-[10px] bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full font-semibold">คุณ</span>}
+                        </div>
+                        {u.full_name && <p className="text-xs text-slate-500 mt-0.5">{u.full_name}</p>}
+                      </div>
+                      <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${t.color}`}>{t.label}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
+                      {u.department && <span>{u.department}</span>}
+                      {u.is_active
+                        ? <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full"><CheckCircle size={10}/>ใช้งานได้</span>
+                        : u.suspend_until
+                          ? <span className="inline-flex items-center gap-1 text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full"><XCircle size={10}/>ระงับชั่วคราว</span>
+                          : <span className="inline-flex items-center gap-1 text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full"><XCircle size={10}/>ระงับถาวร</span>
+                      }
+                    </div>
+                    <div className="flex gap-2 flex-wrap">
+                      <button onClick={() => openEdit(u)}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                        <Pencil size={11}/> แก้ไข
+                      </button>
+                      <button onClick={() => openPermissions(u)}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <ShieldPlus size={11}/> สิทธิ์
+                      </button>
+                      <button onClick={() => openPassword(u)}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                        <KeyRound size={11}/> รหัสผ่าน
+                      </button>
+                      <button onClick={() => openDelete(u)} disabled={u.id === auth.id}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-red-50 text-red-600 border border-red-200 disabled:opacity-30 disabled:cursor-not-allowed">
+                        <Trash2 size={11}/> ลบ
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 380px)' }}>

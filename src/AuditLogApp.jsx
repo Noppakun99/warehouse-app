@@ -111,6 +111,13 @@ export default function AuditLogApp({ onBack, onRefresh, auth }) {
   // delete state
   const [deleteId, setDeleteId] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+
+  useEffect(() => {
+    const fn = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -249,6 +256,50 @@ export default function AuditLogApp({ onBack, onRefresh, auth }) {
           ))}
         </div>
 
+        {/* Mobile edit bottom sheet */}
+        {isMobile && editId && (
+          <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={cancelEdit}>
+            <div className="absolute inset-0 bg-black/40" />
+            <div className="relative bg-white rounded-t-2xl shadow-2xl p-5 space-y-3" onClick={e => e.stopPropagation()}>
+              <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-2" />
+              <p className="font-semibold text-slate-800 text-sm">แก้ไข Audit Log</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-500 mb-1 block">ผู้ดำเนินการ</label>
+                  <input value={editUserName} onChange={e => setEditUserName(e.target.value)}
+                    className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"/>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 mb-1 block">หน่วยงาน</label>
+                  <input value={editDept} onChange={e => setEditDept(e.target.value)}
+                    className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"/>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">จำนวน</label>
+                <input type="number" value={editCount} onChange={e => setEditCount(e.target.value)}
+                  className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"/>
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">Details (JSON)</label>
+                <textarea value={editDetails} onChange={e => setEditDetails(e.target.value)} rows={3}
+                  className="w-full border border-amber-300 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"/>
+                {editError && <p className="text-red-500 text-xs mt-1">{editError}</p>}
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => handleSave(editId)} disabled={saving}
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition-colors">
+                  {saving ? 'กำลังบันทึก...' : 'บันทึก'}
+                </button>
+                <button onClick={cancelEdit}
+                  className="px-4 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium">
+                  ยกเลิก
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Table */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
@@ -259,6 +310,50 @@ export default function AuditLogApp({ onBack, onRefresh, auth }) {
 
           {logs.length === 0 && !loading ? (
             <p className="text-center text-slate-400 text-sm py-10">ไม่มีข้อมูล</p>
+          ) : isMobile ? (
+            <div className="divide-y divide-slate-100">
+              {logs.map((r, i) => {
+                const meta = ACTION_LABELS[r.action] || { label: r.action, color: 'bg-slate-100 text-slate-600' };
+                const isDeletePending = deleteId === r.id;
+                return (
+                  <div key={r.id} className="p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${meta.color}`}>{meta.label}</span>
+                      <span className="text-[10px] text-slate-400 shrink-0">{fmtDatetime(r.created_at)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-slate-600">
+                      <span className="font-medium">{r.user_name || '-'}</span>
+                      {r.department && r.department !== '-' && <><span className="text-slate-300">·</span><span>{r.department}</span></>}
+                      {r.record_count != null && <><span className="text-slate-300">·</span><span>{r.record_count.toLocaleString()} รายการ</span></>}
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed">{formatDetails(r.action, r.details, r.record_count)}</p>
+                    <div className="flex gap-2 pt-1">
+                      <button onClick={() => openEdit(r)}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                        <Pencil size={11}/> แก้ไข
+                      </button>
+                      {isDeletePending ? (
+                        <>
+                          <button onClick={() => handleDelete(r.id)} disabled={deleting}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-red-600 text-white">
+                            {deleting ? '...' : 'ยืนยันลบ'}
+                          </button>
+                          <button onClick={() => setDeleteId(null)}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-600">
+                            ยกเลิก
+                          </button>
+                        </>
+                      ) : (
+                        <button onClick={() => setDeleteId(r.id)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-red-50 text-red-600 border border-red-200">
+                          <Trash2 size={11}/> ลบ
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           ) : (
             <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 340px)' }}>
               <table className="w-full text-xs min-w-[800px]">
