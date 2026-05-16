@@ -1295,13 +1295,13 @@ function StockSummaryModal({ onClose, auth = {} }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 pt-8 overflow-y-auto" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col" style={{ maxHeight: 'calc(100vh - 64px)' }} onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-start justify-center sm:p-4 sm:pt-6 overflow-y-auto" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-5xl flex flex-col" style={{ maxHeight: '95vh' }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-sky-50 rounded-t-2xl shrink-0">
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-100 bg-sky-50 rounded-t-2xl shrink-0">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Package size={18} className="text-sky-600" />
               <span className="font-bold text-slate-800">จำนวนคงเหลือในคลัง</span>
               {!loading && <span className="bg-sky-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">{rows.length} รายการ</span>}
@@ -1310,7 +1310,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
             {uploadInfo && (
               <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1">
                 <Clock size={10}/> อัพโหลด: {new Date(uploadInfo.updated_at).toLocaleString('th-TH', { day:'numeric', month:'short', year:'2-digit', hour:'2-digit', minute:'2-digit' })}
-                {uploadInfo.file_name && <span className="text-slate-300">· {uploadInfo.file_name}</span>}
+                {uploadInfo.file_name && <span className="text-slate-300 hidden sm:inline">· {uploadInfo.file_name}</span>}
               </p>
             )}
           </div>
@@ -1342,7 +1342,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
         </div>
 
         {/* Table — sticky header + frozen ชื่อยา */}
-        <div className="overflow-auto flex-1 rounded-b-2xl" style={{ maxHeight: 'calc(100vh - 280px)' }}>
+        <div className="overflow-auto flex-1 rounded-b-2xl">
           {loading ? (
             <div className="flex items-center justify-center py-16 text-slate-400">
               <div className="w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full animate-spin mr-3"/>

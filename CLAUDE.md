@@ -448,6 +448,15 @@ TEST_STAFF_USER=test2 TEST_STAFF_PASS=555555 npx playwright test
 - `loadStats` ใช้ `useCallback` + subscribe `postgres_changes` บน `requisitions` table
 - อัพเดต "ใบเบิกรอดำเนินการ" อัตโนมัติหลังผู้ใช้ส่งใบเบิก
 
+## StockSummaryModal — จำนวนคงเหลือในคลัง
+
+- เปิดจาก Dashboard card "รายการยาในคลัง" (StatsStrip)
+- **Layout**: Desktop → modal กว้าง `max-w-5xl` กลางหน้าจอ / Mobile → bottom sheet เลื่อนขึ้นจากล่าง (`rounded-t-2xl`)
+- ตาราง: sticky header + frozen column "ชื่อยา" (ซ้าย) + scroll แนวนอน บน mobile
+- Realtime: subscribe `postgres_changes` บน `inventory` table → อัพเดตอัตโนมัติ
+- DrugSearchBar ใน modal รองรับ keyboard navigation (↑↓ Enter Esc) แล้ว
+- **Do not**: อย่าใส่ `style={{ maxHeight }}` ซ้อนทับ `flex-1` ใน table area — ใช้ `95vh` บน modal wrapper แทน
+
 ## Invoice Scanner (AI Vision) — ระบบสแกนบิลยา
 
 - file: `src/ReceiveLogApp.jsx` → component `ScanInvoice` — เข้าได้เฉพาะ role `staff` / `admin`
