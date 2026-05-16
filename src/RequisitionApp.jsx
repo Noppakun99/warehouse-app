@@ -1232,14 +1232,19 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
   const [actionMsg, setActionMsg]       = useState('');
   const [itemSearch, setItemSearch]     = useState('');
   const [drugSearch, setDrugSearch]     = useState(''); // ค้นหาย้อนหลังตามชื่อยา
+  const [dateFrom, setDateFrom]         = useState('');
+  const [dateTo, setDateTo]             = useState('');
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
-    const { data } = await supabase.from('requisitions').select('*, requisition_items(*)')
+    let q = supabase.from('requisitions').select('*, requisition_items(*)')
       .eq('department', info.department).eq('requester_name', info.name)
-      .order('created_at', { ascending: false }).limit(30);
+      .order('created_at', { ascending: false }).limit(100);
+    if (dateFrom) q = q.gte('created_at', dateFrom);
+    if (dateTo)   q = q.lte('created_at', dateTo + 'T23:59:59');
+    const { data } = await q;
     setList(data || []); setLoading(false);
-  }, [info]);
+  }, [info, dateFrom, dateTo]);
 
   useEffect(() => {
     load();
@@ -1312,6 +1317,21 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
       )}
 
       <div className="flex-1 p-4 space-y-3">
+        {/* Date range filter */}
+        <div className="flex flex-wrap items-center gap-2">
+          <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setLoading(true); }}
+            className="flex-1 min-w-[130px] border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+          <span className="text-slate-400 text-sm">–</span>
+          <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setLoading(true); }}
+            className="flex-1 min-w-[130px] border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+          {(dateFrom || dateTo) && (
+            <button onClick={() => { setDateFrom(''); setDateTo(''); }}
+              className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-100">
+              <X size={12}/> ล้าง
+            </button>
+          )}
+        </div>
+
         {/* DrugSearchBar — ค้นหาย้อนหลังตามชื่อยา */}
         {!loading && list.length > 0 && (
           <DrugSearchBar

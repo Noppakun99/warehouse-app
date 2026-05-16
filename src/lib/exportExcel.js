@@ -35,7 +35,21 @@ export async function exportToExcel(rows, columns, sheetName, fileName, auth = {
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  XLSX.writeFile(wb, fileName);
+
+  // บน iOS Safari ใช้ Web Share API เพื่อเปิด share sheet (ดาวน์โหลดปกติไม่ทำงาน)
+  const xlsxType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const buf  = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([buf], { type: xlsxType });
+  const file = new File([blob], fileName, { type: xlsxType });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: sheetName });
+    } catch (e) {
+      if (e.name !== 'AbortError') XLSX.writeFile(wb, fileName); // fallback ถ้า share ล้มเหลว
+    }
+  } else {
+    XLSX.writeFile(wb, fileName); // desktop / Android
+  }
 
   await insertAuditLog({
     action: 'export_excel', table_name: sheetName,
