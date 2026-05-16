@@ -1244,6 +1244,13 @@ function StockSummaryModal({ onClose, auth = {} }) {
   const [error, setError]           = React.useState('');
   const [exporting, setExporting]   = React.useState(false);
   const [uploadInfo, setUploadInfo] = React.useState(null);
+  const [isMobile, setIsMobile]     = React.useState(() => window.innerWidth < 768);
+
+  React.useEffect(() => {
+    const fn = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
+  }, []);
 
   const load = React.useCallback(async () => {
     setLoading(true); setError('');
@@ -1352,7 +1359,30 @@ function StockSummaryModal({ onClose, auth = {} }) {
             <div className="text-center py-10 text-red-500 text-sm px-6">{error}</div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-10 text-slate-400 text-sm">ไม่พบรายการ</div>
+          ) : isMobile ? (
+            /* ── Mobile card list ── */
+            <div className="divide-y divide-slate-100">
+              {filtered.map((r, i) => (
+                <div key={r.code || r.name || i} className="px-4 py-3 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-slate-800 text-sm leading-snug truncate">{r.name}</p>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      {r.code && r.code !== '-' && <span className="text-[10px] text-slate-400 font-mono">{r.code}</span>}
+                      <DrugTypeBadge type={r.type} />
+                      {r.hasMultipleUnits && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200">~หลายหน่วย</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-lg font-bold text-sky-700 leading-tight">{r.totalQty.toLocaleString()}</p>
+                    <p className="text-[10px] text-slate-400">{r.mainUnit} · {r.lotCount} Lot</p>
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : (
+            /* ── Desktop table ── */
             <table className="w-full text-sm min-w-[560px]">
               <thead className="sticky top-0 z-20">
                 <tr>
@@ -1370,9 +1400,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
                       <p className="font-medium text-slate-800 leading-snug">{r.name}</p>
                       {r.code && r.code !== '-' && <p className="text-[10px] text-slate-400">{r.code}</p>}
                     </td>
-                    <td className="px-4 py-2.5">
-                      <DrugTypeBadge type={r.type}/>
-                    </td>
+                    <td className="px-4 py-2.5"><DrugTypeBadge type={r.type}/></td>
                     <td className="px-4 py-2.5 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         {r.hasMultipleUnits && (
