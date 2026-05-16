@@ -44,9 +44,7 @@ function printReturnLog(r) {
   const printDate = isoToThai(r.return_date || new Date().toISOString().slice(0, 10))
   const today = isoToThai(new Date().toISOString().slice(0, 10))
 
-  const win = window.open('', '_blank', 'width=800,height=900')
-  if (!win) return
-  win.document.write(`<!DOCTYPE html><html lang="th"><head>
+  const html = `<!DOCTYPE html><html lang="th"><head>
 <meta charset="UTF-8"/>
 <title>ใบคืนยา ${printDate}</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap" rel="stylesheet"/>
@@ -139,8 +137,12 @@ ${r.note ? `<p class="section-title" style="margin-top:6px;">หมายเห�
 </div>
 
 <p style="font-size:10px;color:#94a3b8;text-align:right;margin-top:18px;">พิมพ์วันที่ ${today}</p>
-</body></html>`)
-  win.document.close()
+</body></html>`
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const url  = URL.createObjectURL(blob)
+  const win  = window.open(url, '_blank')
+  if (win) setTimeout(() => URL.revokeObjectURL(url), 30000)
+  else     URL.revokeObjectURL(url)
 }
 
 // ============================================================

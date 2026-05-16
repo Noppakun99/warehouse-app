@@ -1182,8 +1182,11 @@ function printReq(req) {
     <script>window.onload=()=>{window.print();}</script>
     </body></html>`;
 
-  const w = window.open('', '_blank', 'width=900,height=650');
-  if (w) { w.document.write(html); w.document.close(); }
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const w    = window.open(url, '_blank');
+  if (w) setTimeout(() => URL.revokeObjectURL(url), 30000);
+  else   URL.revokeObjectURL(url);
 }
 
 // ---- Requisition History ----
