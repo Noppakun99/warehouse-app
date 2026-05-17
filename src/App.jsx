@@ -573,23 +573,39 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
     URL.revokeObjectURL(url);
   }, [lowStockItems, orderedItems]);
 
-  // คำนวณรายการยารอตรวจรับ
+  // คำนวณรายการยารอตรวจรับ — เรียงจากวันที่รับเข้านานที่สุดก่อน
   const pendingReceiveItems = useMemo(() => {
     const pending = [];
     Object.entries(inventory).forEach(([loc, items]) => {
       items.forEach((item, idx) => {
         if (String(item.receiveStatus || '').includes('รอตรวจรับ')) {
+          const lookupCode    = item.code?.trim().toLowerCase()    || '-';
+          const lookupLot     = item.lot?.trim().toLowerCase()     || '-';
+          const lookupInvoice = item.invoice?.trim().toLowerCase() || '-';
+          const exactKey      = `${lookupCode}|${lookupLot}|${lookupInvoice}`;
+          const detail = (drugDetails || {})[exactKey]
+            || Object.values(drugDetails || {}).find(d =>
+                d._code?.toLowerCase() === lookupCode && d._lot?.toLowerCase() === lookupLot
+               );
           pending.push({
             ...item,
             location: loc,
             isPending: true,
-            originalIndex: idx
+            originalIndex: idx,
+            _receiveDate: detail?.receive_date || null,
           });
         }
       });
     });
+    // เรียงจากรับเข้านานสุดก่อน (ยังไม่ตรวจรับนานที่สุด)
+    pending.sort((a, b) => {
+      if (!a._receiveDate && !b._receiveDate) return 0;
+      if (!a._receiveDate) return 1;
+      if (!b._receiveDate) return -1;
+      return new Date(a._receiveDate) - new Date(b._receiveDate);
+    });
     return pending;
-  }, [inventory]);
+  }, [inventory, drugDetails]);
 
   // คำนวณโครงสร้างตู้ และหาจำนวน Unique Item / Unique Lot
   const { layout, otherZones, summary, overallStats } = useMemo(() => {
@@ -1151,6 +1167,22 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
 
     const isPendingStatus = String(item.receiveStatus || '').includes('รอตรวจรับ') || item.isPending;
 
+    // คำนวณระยะเวลารอตรวจรับ — ใช้วันที่รับยาจาก receive_log ที่ยังไม่มี inspect_date
+    let waitTimeStr = null;
+    if (isPendingStatus && allMatchedDetails.length > 0) {
+      const pendingDetail = allMatchedDetails.find(d => !d.inspect_date);
+      if (pendingDetail?.receive_date) {
+        const diffDays = Math.floor((new Date().setHours(0,0,0,0) - new Date(pendingDetail.receive_date).setHours(0,0,0,0)) / 86400000);
+        if (diffDays > 0) {
+          const months = Math.floor(diffDays / 30);
+          const days   = diffDays % 30;
+          waitTimeStr  = months > 0 && days > 0 ? `${months} เดือน ${days} วัน`
+                       : months > 0              ? `${months} เดือน`
+                       :                           `${days} วัน`;
+        }
+      }
+    }
+
     return (
       <div key={uniqueItemId} className={`bg-white border ${isPendingStatus ? 'border-sky-300 bg-sky-50/40 border-dashed' : 'border-slate-200'} shadow-sm rounded-xl p-5 hover:border-indigo-300 transition-colors`}>
         <div className="flex flex-col sm:flex-row items-start gap-5">
@@ -1175,6 +1207,11 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                   {isPendingStatus && (
                     <span className="inline-flex items-center gap-1.5 bg-sky-100 text-sky-800 px-3 py-1 rounded-full text-xs font-bold border border-sky-200">
                       <Package size={14} /> สถานะ: รอตรวจรับ
+                    </span>
+                  )}
+                  {isPendingStatus && waitTimeStr && (
+                    <span className="inline-flex items-center gap-1.5 bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-xs font-bold border border-orange-200">
+                      <Clock size={14} /> รอตรวจรับมา {waitTimeStr}
                     </span>
                   )}
                   {!isPendingStatus && item.receiveStatus && item.receiveStatus !== 'ไม่มีการดำเนินการ' && (

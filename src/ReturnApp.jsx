@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react'
 import {
   ArrowLeft, RotateCcw, Search, CheckCircle,
   AlertCircle, FileText, ChevronDown, ChevronUp, FileDown, Printer,
+  Pencil, Trash2, X,
 } from 'lucide-react'
-import { fetchReturnLogs, insertReturnLog } from './lib/db'
+import { fetchReturnLogs, insertReturnLog, deleteReturnLog, updateReturnLog } from './lib/db'
 import { exportToExcel } from './lib/exportExcel'
 import { supabase } from './lib/supabase'
 import SearchableSelect from './SearchableSelect'
@@ -459,6 +460,113 @@ const RETURN_EXCEL_COLS = [
 ]
 
 // ============================================================
+// EditReturnModal — admin แก้ไขรายการ (modal ลอย)
+// ============================================================
+function EditReturnModal({ log, auth, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    return_date:  log.return_date  || '',
+    return_type:  log.return_type  || 'ward_return',
+    drug_name:    log.drug_name    || '',
+    drug_code:    log.drug_code    || '-',
+    drug_type:    log.drug_type    || '-',
+    qty_returned: log.qty_returned ?? 0,
+    drug_unit:    log.drug_unit    || '-',
+    lot:          log.lot          || '-',
+    exp:          log.exp          || '-',
+    department:   log.department   || '-',
+    returned_by:  log.returned_by  || '-',
+    received_by:  log.received_by  || '-',
+    note:         log.note         || '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError]   = useState('')
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  const handleSave = async () => {
+    if (!form.drug_name.trim()) { setError('กรุณากรอกชื่อยา'); return }
+    setSaving(true); setError('')
+    try {
+      await updateReturnLog(log.id, form, auth)
+      onSaved()
+    } catch (e) { setError(e.message); setSaving(false) }
+  }
+
+  const field = (label, key, type = 'text') => (
+    <div key={key}>
+      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">{label}</label>
+      <input type={type} value={form[key]} onChange={e => set(key, e.target.value)}
+        className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-400" />
+    </div>
+  )
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 bg-violet-50 flex items-center gap-3 shrink-0">
+          <Pencil size={18} className="text-violet-600" />
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-violet-800">แก้ไขรายการ</p>
+            <p className="text-xs text-slate-500 truncate">{log.drug_name}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            {field('วันที่', 'return_date', 'date')}
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">ประเภท</label>
+              <select value={form.return_type} onChange={e => set('return_type', e.target.value)}
+                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-400 bg-white">
+                {RETURN_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+              </select>
+            </div>
+          </div>
+          {field('ชื่อยา', 'drug_name')}
+          <div className="grid grid-cols-2 gap-3">
+            {field('รหัสยา', 'drug_code')}
+            {field('ชนิดยา', 'drug_type')}
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {field('จำนวน', 'qty_returned', 'number')}
+            {field('หน่วย', 'drug_unit')}
+            {field('Lot', 'lot')}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {field('Exp', 'exp')}
+            {field('หน่วยงาน', 'department')}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {field('ผู้คืน', 'returned_by')}
+            {field('ผู้รับ', 'received_by')}
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">หมายเหตุ</label>
+            <textarea value={form.note} onChange={e => set('note', e.target.value)} rows={2}
+              className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none" />
+          </div>
+          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>}
+        </div>
+
+        <div className="px-4 pb-5 pt-3 border-t border-slate-100 flex gap-2 shrink-0">
+          <button onClick={onClose} disabled={saving}
+            className="flex-1 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl py-2.5 font-medium text-sm transition-colors">
+            ยกเลิก
+          </button>
+          <button onClick={handleSave} disabled={saving}
+            className="flex-1 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-2.5 font-semibold text-sm transition-colors">
+            {saving ? 'กำลังบันทึก...' : 'บันทึก'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
 // HistoryTab — ประวัติการคืนยา
 // ============================================================
 function HistoryTab({ auth = {} }) {
@@ -471,6 +579,9 @@ function HistoryTab({ auth = {} }) {
   const [expanded, setExpanded] = useState(null)
   const [isMobile, setIsMobile]     = useState(() => window.innerWidth < 768)
   const [mobileDetail, setMobileDetail] = useState(null)
+  const [editLog, setEditLog]       = useState(null)   // log object กำลัง edit
+  const [deletingId, setDeletingId] = useState(null)   // id รอ confirm ลบ
+  const isAdmin = auth?.role === 'admin'
 
   useEffect(() => {
     const fn = () => setIsMobile(window.innerWidth < 768)
@@ -498,6 +609,15 @@ function HistoryTab({ auth = {} }) {
   useEffect(() => { load() }, [filterType, dateFrom, dateTo])
 
   const countOf = (key) => key === 'all' ? logs.length : logs.filter(l => l.return_type === key).length
+
+  const handleDelete = async (id) => {
+    try {
+      await deleteReturnLog(id, auth)
+      setDeletingId(null)
+      setMobileDetail(null)
+      load()
+    } catch (e) { console.error(e) }
+  }
 
   return (
     <div className="space-y-4">
@@ -589,6 +709,18 @@ function HistoryTab({ auth = {} }) {
                 className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-colors">
                 <Printer size={15} /> พิมพ์
               </button>
+              {isAdmin && (
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={e => { e.stopPropagation(); setEditLog(mobileDetail); setMobileDetail(null) }}
+                    className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-amber-50 border border-amber-300 text-amber-700 rounded-xl text-sm font-semibold transition-colors">
+                    <Pencil size={15}/> แก้ไข
+                  </button>
+                  <button onClick={e => { e.stopPropagation(); handleDelete(mobileDetail.id) }}
+                    className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-red-50 border border-red-200 text-red-600 rounded-xl text-sm font-semibold transition-colors">
+                    <Trash2 size={15}/> ลบ
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -686,10 +818,35 @@ function HistoryTab({ auth = {} }) {
                                 <div><span className="font-semibold text-slate-500">Exp:</span> {l.exp || '-'}</div>
                                 <div><span className="font-semibold text-slate-500">หมายเหตุ:</span> {l.note || '-'}</div>
                               </div>
-                              <button onClick={e => { e.stopPropagation(); printReturnLog(l) }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-semibold transition-colors whitespace-nowrap flex-shrink-0">
-                                <Printer size={13} /> พิมพ์
-                              </button>
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <button onClick={e => { e.stopPropagation(); printReturnLog(l) }}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-semibold transition-colors whitespace-nowrap">
+                                  <Printer size={13} /> พิมพ์
+                                </button>
+                                {isAdmin && (<>
+                                  <button onClick={e => { e.stopPropagation(); setEditLog(l); setDeletingId(null) }}
+                                    className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap">
+                                    <Pencil size={12}/> แก้ไข
+                                  </button>
+                                  {deletingId === l.id ? (
+                                    <div className="flex items-center gap-1">
+                                      <button onClick={e => { e.stopPropagation(); handleDelete(l.id) }}
+                                        className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold transition-colors whitespace-nowrap">
+                                        ยืนยัน?
+                                      </button>
+                                      <button onClick={e => { e.stopPropagation(); setDeletingId(null) }}
+                                        className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors">
+                                        <X size={13}/>
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button onClick={e => { e.stopPropagation(); setDeletingId(l.id) }}
+                                      className="flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap">
+                                      <Trash2 size={12}/> ลบ
+                                    </button>
+                                  )}
+                                </>)}
+                              </div>
                             </div>
                           </td>
                         </tr>
@@ -704,6 +861,15 @@ function HistoryTab({ auth = {} }) {
             แสดง {logs.length} รายการ
           </div>
         </div>
+      )}
+
+      {editLog && (
+        <EditReturnModal
+          log={editLog}
+          auth={auth}
+          onClose={() => setEditLog(null)}
+          onSaved={() => { setEditLog(null); load() }}
+        />
       )}
     </div>
   )

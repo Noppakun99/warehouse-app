@@ -1987,7 +1987,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
     { key:'pending',  label:'รอดำเนินการ'   },
     { key:'approved', label:'รออนุมัติ/จัด' },
     { key:'picking',  label:'กำลังจัด/ตรวจ' },
-    { key:'all',      label:'ทั้งหมด'        },
+    { key:'all',      label:'ประวัติ'        },
   ];
 
   return (

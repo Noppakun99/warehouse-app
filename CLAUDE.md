@@ -389,6 +389,16 @@ changeAppUserPassword(id, newPassword)
 - **Dept chart**: แสดง Top 5 default, ปุ่ม "ดูทั้งหมด" toggle `showAllDepts`
 - **Forecast table**: sort by `p1`/`p6`/`p12` ตาม `forecastPeriod` toggle (1/6/12 เดือน)
 
+## ReturnApp — Admin Edit/Delete (HistoryTab)
+
+- **ปุ่มแก้ไข/ลบ** แสดงเฉพาะ `auth.role === 'admin'` — staff/requester ไม่เห็น
+- **Desktop**: ปุ่มอยู่ใน expanded row ต่อจากปุ่มพิมพ์ — ลบมี confirm 2 click (`deletingId` state)
+- **Mobile**: ปุ่มอยู่ใน bottom sheet ต่อจากปุ่มพิมพ์ — grid 2 คอลัมน์ (แก้ไข / ลบ)
+- **EditReturnModal**: แก้ไขได้ทุก field (return_date, return_type, drug_name, drug_code, drug_type, qty_returned, drug_unit, lot, exp, department, returned_by, received_by, note)
+- **db.js functions**:
+  - `deleteReturnLog(id, auth)` — ลบ + audit log `delete_return`
+  - `updateReturnLog(id, fields, auth)` — update + audit log `update_return`
+
 ## ReturnApp — Print View
 
 - `printReturnLog(record)` — สร้าง popup ด้วย `window.open()`, font Sarabun, Thai formatting
@@ -760,7 +770,7 @@ confirmReceivedRequisition(id, receivedBy, auth)         // dispensed → receiv
 | `pending` | รอดำเนินการ | status = pending |
 | `approved` | รออนุมัติ/จัด | status = approved หรือ partial |
 | `picking` | กำลังจัด/ตรวจ | status = picking หรือ ready |
-| `all` | ทั้งหมด | ทุก status + dateFilter |
+| `all` | ประวัติ | ทุก status + dateFilter |
 
 - 3 แท็บแรก (pending/approved/picking) ไม่กรองด้วย dateFilter — แสดงทุกรายการที่ค้างอยู่
 - Card footer buttons ตาม status:

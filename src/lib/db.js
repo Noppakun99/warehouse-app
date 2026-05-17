@@ -437,6 +437,20 @@ export async function fetchReturnLogs({ dateFrom, dateTo, returnType, drugName }
   return data || []
 }
 
+export async function deleteReturnLog(id, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error } = await supabase.from('return_logs').delete().eq('id', id)
+  if (error) throw error
+  await insertAuditLog({ action: 'delete_return', table_name: 'return_logs', user_name: resolveUserName(auth), department: auth?.department || '-', details: { return_log_id: id } })
+}
+
+export async function updateReturnLog(id, fields, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error } = await supabase.from('return_logs').update(fields).eq('id', id)
+  if (error) throw error
+  await insertAuditLog({ action: 'update_return', table_name: 'return_logs', user_name: resolveUserName(auth), department: auth?.department || '-', details: { return_log_id: id, drug_name: fields.drug_name } })
+}
+
 export async function insertReturnLog(log, auth = {}) {
   if (!supabase) throw new Error('Supabase not configured')
   const { data, error } = await supabase
