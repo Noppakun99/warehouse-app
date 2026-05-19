@@ -6,7 +6,7 @@ import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
 import {
   Search, Package, MapPin, X, UploadCloud, FileSpreadsheet,
   AlertCircle, BarChart3, Layers, Pill, FileText,
-  ChevronUp, ChevronDown, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw, FileDown,
+  ChevronUp, ChevronDown, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw, FileDown, ArrowLeft,
 } from 'lucide-react';
 
 const INVENTORY_EXCEL_COLS = [
