@@ -251,6 +251,32 @@ insertReceiveRows(rows, {})                            // auth ว่าง
 
 **To-do**: ย้าย logic ใน `ReceiveLogApp.handleImport()` เข้า `importReceiveLogs()` ใน db.js เพื่อให้ conform กับ convention — ยังไม่ได้ทำ
 
+## Department List — Pattern สำคัญ
+
+มี **2 ระบบ** ที่ใช้รายการหน่วยงานต่างกัน:
+
+### Hardcoded DEPARTMENTS (ใช้สำหรับ selection ตอนกรอกฟอร์ม)
+| ไฟล์ | ใช้ใน |
+|------|-------|
+| `AppRoot.jsx` | ฟอร์มสมัครใช้งาน |
+| `RequisitionApp.jsx` | ฟอร์มส่งใบเบิก (requester เลือกหน่วยงาน) |
+| `UserManagementApp.jsx` | admin สร้าง/แก้ไข user |
+| `ReturnApp.jsx` | ฟอร์มบันทึกคืนยา (DEPARTMENTS ชุดแผนกภายในเท่านั้น) |
+
+**แก้รายการ → ต้องแก้ทุกไฟล์ข้างต้นพร้อมกัน**
+
+### Dynamic (ดึงจากข้อมูลจริงใน DB)
+| ไฟล์ | วิธีดึง | ใช้ใน |
+|------|--------|-------|
+| `DispenseLogApp.jsx` | `fetchAllDepts(supabase)` ดึง unique dept จาก `dispense_logs` | filter ประวัติเบิก |
+| `RequisitionApp.jsx` StaffDashboard | `allDepts = [...new Set(list.map(r => r.department))]` | filter ใบเบิก |
+
+### Do Not (Department List)
+- **อย่าสับสนสองระบบ** — การลบออกจาก hardcoded list ไม่กระทบข้อมูลเก่าที่มีใน DB อยู่แล้ว
+- ข้อมูลเก่าที่มีชื่อหน่วยงานเก่า → **ยังแสดงได้** ใน history apps (dynamic dept list)
+- **CSV upload ไม่ validate ชื่อ dept** → upload ข้อมูลด้วยชื่อหน่วยงานใดก็ได้
+- `fetchAllDepts` อยู่ใน `DispenseLogApp.jsx` เท่านั้น (local function, ไม่ใช่ใน `db.js`)
+
 ## Auth & Roles
 
 ### ระบบ Login
