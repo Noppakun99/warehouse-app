@@ -1751,263 +1751,237 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
   }
 
   return (
-    <div className="min-h-screen bg-slate-200 p-4 md:p-6 font-sans text-slate-800 pb-20">
-      <div className="max-w-[1400px] mx-auto space-y-6">
-        
-        {/* Header & Controls */}
-        <div className="bg-gradient-to-r from-slate-900 to-slate-600 rounded-2xl shadow-md p-6 flex flex-col gap-6">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-20">
 
+      {/* ── Top header bar ── */}
+      <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between sticky top-0 z-30 shadow-sm">
+        <div className="flex items-center gap-3">
           {onBackToDashboard && (
-            <button
-              onClick={onBackToDashboard}
-              className="self-start flex items-center gap-1.5 text-indigo-200 hover:text-white text-sm font-medium transition-colors"
-            >
-              ← กลับหน้าหลัก
+            <button onClick={onBackToDashboard} className="flex items-center gap-1.5 text-slate-500 hover:text-slate-800 text-sm font-medium transition-colors">
+              <ArrowLeft size={16}/> กลับ
             </button>
           )}
-
-          <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
-
-            <div className="flex items-center gap-4">
-              <div className="p-4 bg-white/20 text-white rounded-xl shadow-inner relative overflow-hidden shrink-0">
-                <Database size={28} className="relative z-10" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-white flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity" onClick={onRefresh}>
-                  ระบบแผนผังและข้อมูลคลังยา
-                </h1>
-                {logUpdateDate && (
-                  <p className="text-xs text-indigo-200 mt-1 flex items-center gap-1.5">
-                    <CalendarDays size={12} /> อัปเดตข้อมูลล่าสุด: <span className="font-semibold text-white">{formatDateTime(logUpdateDate)}</span>
-                  </p>
-                )}
-                {isStaff && (
-                  <div className="text-sm text-indigo-100 mt-2 flex flex-col sm:flex-row gap-2">
-                    <div className="flex items-center gap-2 flex-wrap bg-white/15 px-3 py-1.5 rounded-lg border border-white/20">
-                      <span>📦 Log คลัง: <span className="text-white font-medium">{logFileName || 'ข้อมูลตั้งต้น (Mockup)'}</span></span>
-                      {logUpdateDate ? (
-                        <span className="flex items-center gap-1 text-[11px] bg-white/25 text-white px-2 py-0.5 rounded-md font-medium shadow-sm">
-                          <Clock size={12} /> อัปโหลดเมื่อ: {formatDateTime(logUpdateDate)}
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-[11px] bg-white/15 text-indigo-200 px-2 py-0.5 rounded-md font-medium shadow-sm">
-                          <Clock size={12} /> ข้อมูลระบบเริ่มต้น
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap bg-white/15 px-3 py-1.5 rounded-lg border border-white/20">
-                      <span>💊 ข้อมูลยา: <span className="text-white font-medium">ดึงจากประวัติรับยา</span></span>
-                    </div>
-                  </div>
-                )}
-              </div>
+          <div className="w-px h-5 bg-slate-200" />
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-sky-500 rounded-lg flex items-center justify-center shrink-0">
+              <Database size={16} className="text-white" />
             </div>
-
-            <div className="flex flex-col xl:items-end gap-2 bg-white/15 p-4 rounded-xl border border-white/25 w-full xl:w-auto shadow-sm">
-              <div className="text-xs text-indigo-100 font-medium flex items-center gap-1.5 mb-2 bg-white/20 px-3 py-1.5 rounded-full border border-white/20 shadow-sm w-fit">
-                <AlertCircle size={14} className="text-white" />
-                กระดานแจ้งเตือนสถานะ (คำนวณวันหมดอายุ 16 เดือน: {formatDateDisplay(todayForDisplay)} - {formatDateDisplay(targetDateForDisplay)})
-              </div>
-              <div className="flex flex-wrap gap-3 w-full xl:w-auto">
-                <div 
-                  onClick={() => expiredItems.length > 0 && setExpiryViewFilter('expired')}
-                  className={`flex-1 xl:flex-none flex items-center justify-between gap-4 px-4 py-2 rounded-lg border-2 transition-all min-w-[150px] ${expiredItems.length > 0 ? 'bg-rose-50 border-rose-300 hover:border-rose-500 cursor-pointer text-rose-700 shadow-sm' : 'bg-white border-slate-200 opacity-60 text-slate-400'}`}
-                >
-                  <div className="flex items-center gap-2 font-bold text-sm">
-                    <AlertTriangle size={16} /> หมดอายุ
-                  </div>
-                  <span className="text-xl font-black">{expiredItems.length}</span>
-                </div>
-
-                <div 
-                  onClick={() => nearExpiryItems.length > 0 && setExpiryViewFilter('near')}
-                  className={`flex-1 xl:flex-none flex items-center justify-between gap-4 px-4 py-2 rounded-lg border-2 transition-all min-w-[150px] ${nearExpiryItems.length > 0 ? 'bg-amber-50 border-amber-300 hover:border-amber-500 cursor-pointer text-amber-700 shadow-sm' : 'bg-white border-slate-200 opacity-60 text-slate-400'}`}
-                >
-                  <div className="flex items-center gap-2 font-bold text-sm">
-                    <Clock size={16} /> ใกล้หมดอายุ
-                  </div>
-                  <span className="text-xl font-black">{nearExpiryItems.length}</span>
-                </div>
-
-                <div
-                  onClick={() => pendingReceiveItems.length > 0 && setExpiryViewFilter('pending')}
-                  className={`flex-1 xl:flex-none flex items-center justify-between gap-4 px-4 py-2 rounded-lg border-2 transition-all min-w-[150px] ${pendingReceiveItems.length > 0 ? 'bg-sky-50 border-sky-300 hover:border-sky-500 cursor-pointer text-sky-700 shadow-sm' : 'bg-white border-slate-200 opacity-60 text-slate-400'}`}
-                >
-                  <div className="flex items-center gap-2 font-bold text-sm">
-                    <Package size={16} /> รอตรวจรับ
-                  </div>
-                  <span className="text-xl font-black">{pendingReceiveItems.length}</span>
-                </div>
-
-                {isStaff && (
-                  <div
-                    onClick={() => setView('order')}
-                    className={`flex-1 xl:flex-none flex items-center justify-between gap-4 px-4 py-2 rounded-lg border-2 transition-all min-w-[150px] cursor-pointer ${lowStockItems.length > 0 ? 'bg-orange-50 border-orange-400 hover:border-orange-600 text-orange-700 shadow-sm animate-pulse' : 'bg-white border-slate-200 hover:border-slate-400 text-slate-400'}`}
-                  >
-                    <div className="flex items-center gap-2 font-bold text-sm">
-                      <AlertTriangle size={16} /> ระบบสั่งยา
-                    </div>
-                    <span className="text-xl font-black">{lowStockItems.length}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-          </div>
-
-          {/* Command Center: Search + Manage dropdown */}
-          <div className="pt-4 border-t border-slate-100 space-y-3">
-            <div className="flex gap-2 items-stretch">
-              <DrugSearchBar
-                value={searchTerm}
-                onChange={setSearchTerm}
-                options={drugNamesList}
-                placeholder="ค้นหาชื่อยา, รหัส, ตำแหน่ง, Lot, บิล..."
-                ringClass="focus:ring-indigo-500"
-                hoverClass="hover:bg-indigo-50 hover:text-indigo-700"
-                className="flex-1"
-                inputClassName="py-2.5 shadow-sm"
-              />
-              <button onClick={() => setShowSummaryModal(true)} className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white px-3 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm shrink-0">
-                <BarChart3 size={16} /><span className="hidden sm:inline">สรุปข้อมูล</span>
-              </button>
-              {/* Manage dropdown */}
-              <div className="relative shrink-0">
-                <button
-                  onClick={() => setShowManageMenu(v => !v)}
-                  className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2.5 rounded-xl font-medium transition-colors shadow-sm text-sm"
-                >
-                  จัดการข้อมูล <ChevronDown size={14} className={`transition-transform ${showManageMenu ? 'rotate-180' : ''}`} />
-                </button>
-                {showManageMenu && (
-                  <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[200px]">
-                    <button
-                      onClick={() => { handleInventoryExport(); setShowManageMenu(false); }}
-                      disabled={exportLoading || Object.keys(inventory).length === 0}
-                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors disabled:opacity-40"
-                    >
-                      <FileDown size={15} /> {exportLoading ? 'กำลังส่งออก...' : 'Export Excel'}
-                    </button>
-                    {isStaff && <>
-                      <div className="border-t border-slate-100 my-1" />
-                      <button
-                        onClick={() => { logInputRef.current?.click(); setShowManageMenu(false); }}
-                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
-                      >
-                        <UploadCloud size={15} /> อัปโหลด Log คลัง
-                      </button>
-                      <button
-                        onClick={() => { setShowColumnGuide(showColumnGuide === 'log' ? null : 'log'); setShowManageMenu(false); }}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-xs text-slate-400 hover:text-slate-600 transition-colors"
-                      >
-                        ดูหัวคอลัมน์ที่รองรับ
-                      </button>
-                      <button
-                        onClick={() => { receiveInputRef.current?.click(); setShowManageMenu(false); }}
-                        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
-                      >
-                        <UploadCloud size={15} /> อัปโหลดประวัติรับยา
-                      </button>
-                    </>}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Hidden file inputs */}
-            {isStaff && <>
-                  <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={logInputRef} onChange={handleLogFileUpload} className="hidden" />
-                  <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={receiveInputRef} onChange={handleReceiveFileUpload} className="hidden" />
-
-                </>}
-
-              {isStaff && <p className="text-[11px] text-slate-400">*อัปโหลดได้เฉพาะไฟล์ .csv (หากบันทึกจาก Excel ในมือถือ ให้บันทึกเป็น CSV ก่อน)</p>}
-              {/* Column Guide Popup */}
-              {showColumnGuide && (
-                <div className="w-full bg-white border border-slate-200 rounded-2xl shadow-lg p-4 mt-1 space-y-3">
-                  <div className="flex justify-between items-center">
-                    <p className="text-sm font-semibold text-slate-700">
-                      {showColumnGuide === 'log' ? 'หัวคอลัมน์ที่รองรับ — ไฟล์ Log คลังยา' : 'หัวคอลัมน์ที่รองรับ — ไฟล์ข้อมูลยา'}
-                    </p>
-                    <button onClick={() => setShowColumnGuide(null)} className="text-slate-400 hover:text-slate-700"><X size={14}/></button>
-                  </div>
-                  <p className="text-xs text-slate-400">ชื่อหัวคอลัมน์ใน CSV ต้องตรงกับชื่อด้านล่าง (ไม่ต้องครบทุก column)</p>
-                  <div className="flex flex-wrap gap-2">
-                    {(showColumnGuide === 'log' ? [
-                      { label: 'ตำแหน่งจัดเก็บ',  req: true,  hints: ['DetailedLog', 'ตำแหน่ง', 'location'] },
-                      { label: 'ชื่อยา',            req: true,  hints: ['รายการยา', 'ชื่อยา'] },
-                      { label: 'คงเหลือ',           req: true,  hints: ['คงเหลือ', 'qty'] },
-                      { label: 'รหัสยา',            req: false, hints: ['รหัส', 'รหัสยา', 'code'] },
-                      { label: 'รูปแบบยา',          req: false, hints: ['ชนิด', 'type'] },
-                      { label: 'หน่วยนับ',          req: false, hints: ['หน่วย', 'unit_label'] },
-                      { label: 'Lot Number',        req: false, hints: ['Lot Number', 'lot', 'lot.'] },
-                      { label: 'Exp',               req: false, hints: ['Exp', 'exp.', 'วันหมดอายุ'] },
-                      { label: 'ราคา/หน่วย',        req: false, hints: ['ราคา/หน่วย', 'ราคาต่อหน่วย'] },
-                      { label: 'ชนิดรายการ',        req: false, hints: ['ชนิดรายการ', 'item_type'] },
-                      { label: 'บริษัท',            req: false, hints: ['บริษัทยา', 'บริษัท'] },
-                      { label: 'เลขบิล',            req: false, hints: ['เลขที่บิลซื้อ', 'เลขบิล'] },
-                      { label: 'Safety Stock',      req: false, hints: ['Safety Stock', 'safety_stock'] },
-                      { label: 'Lead Time',         req: false, hints: ['Lead Time', 'leadtime'] },
-                      { label: 'ผลการพิจารณา',      req: false, hints: ['ผลการพิจารณา'] },
-                      { label: 'สถานะตรวจรับ',      req: false, hints: ['สถานะตรวจรับ', 'สถานะ'] },
-                      { label: 'MainLog',           req: false, hints: ['MainLog', 'main_log'] },
-                    ] : [
-                      { label: 'รหัสยา',            req: true,  hints: ['รหัส', 'รหัสยา', 'code'] },
-                      { label: 'ชื่อยา',            req: false, hints: ['รายการยา', 'ชื่อยา'] },
-                      { label: 'Safety Stock',      req: false, hints: ['Safety Stock', 'safety_stock'] },
-                      { label: 'Lead Time',         req: false, hints: ['Sum of Lead Time (In days)', 'Lead Time (In days)', 'lead time'] },
-                      { label: 'Lot Number',        req: false, hints: ['Lot Number', 'lot'] },
-                      { label: 'เลขบิล',            req: false, hints: ['เลขที่บิลซื้อ', 'invoice'] },
-                      { label: 'Exp',               req: false, hints: ['Exp', 'exp date'] },
-                      { label: 'ผลการพิจารณา',      req: false, hints: ['ผลการพิจารณา'] },
-                    ]).map(({ label, req, hints }) => (
-                      <div key={label} className="bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
-                        <div className="flex items-center gap-1.5 mb-1">
-                          <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">{label}</span>
-                          {req && <span className="text-[10px] font-bold bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full">จำเป็น</span>}
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                          {hints.map(h => (
-                            <code key={h} className="text-[10px] bg-white border border-slate-200 text-slate-500 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">{h}</code>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  {showColumnGuide === 'drug' && <p className="text-xs text-slate-400">💡 สามารถใช้ไฟล์ Log คลังยาไฟล์เดียวกันได้</p>}
-                </div>
+            <div>
+              <h1 className="text-base font-bold text-slate-800 leading-tight cursor-pointer hover:text-sky-600 transition-colors" onClick={onRefresh}>
+                ระบบแผนผังและข้อมูลคลังยา
+              </h1>
+              {logUpdateDate && (
+                <p className="text-[11px] text-slate-400 flex items-center gap-1">
+                  <Clock size={10}/> อัพเดตล่าสุด: <span className="font-medium text-slate-500">{formatDateTime(logUpdateDate)}</span>
+                </p>
               )}
+            </div>
           </div>
+        </div>
+        {/* Manage dropdown in header */}
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowSummaryModal(true)} className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
+            <BarChart3 size={15}/><span className="hidden sm:inline">สรุปข้อมูล</span>
+          </button>
+          <div className="relative">
+            <button onClick={() => setShowManageMenu(v => !v)}
+              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
+              จัดการข้อมูล <ChevronDown size={14} className={`transition-transform ${showManageMenu ? 'rotate-180' : ''}`}/>
+            </button>
+            {showManageMenu && (
+              <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[200px]">
+                <button onClick={() => { handleInventoryExport(); setShowManageMenu(false); }}
+                  disabled={exportLoading || Object.keys(inventory).length === 0}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors disabled:opacity-40">
+                  <FileDown size={15}/> {exportLoading ? 'กำลังส่งออก...' : 'Export Excel'}
+                </button>
+                {isStaff && <>
+                  <div className="border-t border-slate-100 my-1"/>
+                  <button onClick={() => { logInputRef.current?.click(); setShowManageMenu(false); }}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors">
+                    <UploadCloud size={15}/> อัปโหลด Log คลัง
+                  </button>
+                  <button onClick={() => { setShowColumnGuide(showColumnGuide === 'log' ? null : 'log'); setShowManageMenu(false); }}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-xs text-slate-400 hover:text-slate-600 transition-colors">
+                    ดูหัวคอลัมน์ที่รองรับ
+                  </button>
+                  <button onClick={() => { receiveInputRef.current?.click(); setShowManageMenu(false); }}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors">
+                    <UploadCloud size={15}/> อัปโหลดประวัติรับยา
+                  </button>
+                </>}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-5 space-y-4">
+
+        {/* ── Alert stat cards ── */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div onClick={() => expiredItems.length > 0 && setExpiryViewFilter('expired')}
+            className={`bg-white rounded-2xl border-2 p-4 transition-all shadow-sm ${expiredItems.length > 0 ? 'border-red-200 hover:border-red-400 cursor-pointer hover:shadow-md' : 'border-slate-100 opacity-60'}`}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
+                <AlertTriangle size={16} className={expiredItems.length > 0 ? 'text-red-500' : 'text-slate-300'}/>
+              </div>
+              <span className={`text-2xl font-black ${expiredItems.length > 0 ? 'text-red-600' : 'text-slate-300'}`}>{expiredItems.length}</span>
+            </div>
+            <p className={`text-xs font-semibold ${expiredItems.length > 0 ? 'text-red-500' : 'text-slate-400'}`}>หมดอายุแล้ว</p>
+          </div>
+
+          <div onClick={() => nearExpiryItems.length > 0 && setExpiryViewFilter('near')}
+            className={`bg-white rounded-2xl border-2 p-4 transition-all shadow-sm ${nearExpiryItems.length > 0 ? 'border-amber-200 hover:border-amber-400 cursor-pointer hover:shadow-md' : 'border-slate-100 opacity-60'}`}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
+                <Clock size={16} className={nearExpiryItems.length > 0 ? 'text-amber-500' : 'text-slate-300'}/>
+              </div>
+              <span className={`text-2xl font-black ${nearExpiryItems.length > 0 ? 'text-amber-600' : 'text-slate-300'}`}>{nearExpiryItems.length}</span>
+            </div>
+            <p className={`text-xs font-semibold ${nearExpiryItems.length > 0 ? 'text-amber-500' : 'text-slate-400'}`}>ใกล้หมดอายุ (16 เดือน)</p>
+          </div>
+
+          <div onClick={() => pendingReceiveItems.length > 0 && setExpiryViewFilter('pending')}
+            className={`bg-white rounded-2xl border-2 p-4 transition-all shadow-sm ${pendingReceiveItems.length > 0 ? 'border-sky-200 hover:border-sky-400 cursor-pointer hover:shadow-md' : 'border-slate-100 opacity-60'}`}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-8 h-8 bg-sky-100 rounded-lg flex items-center justify-center">
+                <Package size={16} className={pendingReceiveItems.length > 0 ? 'text-sky-500' : 'text-slate-300'}/>
+              </div>
+              <span className={`text-2xl font-black ${pendingReceiveItems.length > 0 ? 'text-sky-600' : 'text-slate-300'}`}>{pendingReceiveItems.length}</span>
+            </div>
+            <p className={`text-xs font-semibold ${pendingReceiveItems.length > 0 ? 'text-sky-500' : 'text-slate-400'}`}>รอตรวจรับ</p>
+          </div>
+
+          {isStaff ? (
+            <div onClick={() => setView('order')}
+              className={`bg-white rounded-2xl border-2 p-4 transition-all shadow-sm cursor-pointer hover:shadow-md ${lowStockItems.length > 0 ? 'border-orange-200 hover:border-orange-400' : 'border-slate-100 hover:border-slate-200'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${lowStockItems.length > 0 ? 'bg-orange-100' : 'bg-slate-100'}`}>
+                  <AlertTriangle size={16} className={lowStockItems.length > 0 ? 'text-orange-500' : 'text-slate-300'}/>
+                </div>
+                <span className={`text-2xl font-black ${lowStockItems.length > 0 ? 'text-orange-600' : 'text-slate-300'}`}>{lowStockItems.length}</span>
+              </div>
+              <p className={`text-xs font-semibold ${lowStockItems.length > 0 ? 'text-orange-500' : 'text-slate-400'}`}>ระบบสั่งยา</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-2xl border-2 border-slate-100 p-4 shadow-sm opacity-40">
+              <div className="flex items-center justify-between mb-2">
+                <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center">
+                  <AlertCircle size={16} className="text-slate-300"/>
+                </div>
+                <span className="text-2xl font-black text-slate-300">—</span>
+              </div>
+              <p className="text-xs font-semibold text-slate-400">ระบบสั่งยา</p>
+            </div>
+          )}
+        </div>
+
+        {/* ── alert date note ── */}
+        <p className="text-[11px] text-slate-400 flex items-center gap-1.5 -mt-1">
+          <AlertCircle size={11}/> คำนวณวันหมดอายุ 16 เดือน: {formatDateDisplay(todayForDisplay)} – {formatDateDisplay(targetDateForDisplay)}
+        </p>
+
+        {/* ── Search + hidden file inputs ── */}
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
+          <div className="flex gap-2 items-stretch">
+            <DrugSearchBar
+              value={searchTerm}
+              onChange={setSearchTerm}
+              options={drugNamesList}
+              placeholder="ค้นหาชื่อยา, รหัส, ตำแหน่ง, Lot, บิล..."
+              ringClass="focus:ring-indigo-500"
+              hoverClass="hover:bg-indigo-50 hover:text-indigo-700"
+              className="flex-1"
+              inputClassName="py-2.5"
+            />
+          </div>
+
+          {/* Hidden file inputs */}
+          {isStaff && <>
+            <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={logInputRef} onChange={handleLogFileUpload} className="hidden"/>
+            <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={receiveInputRef} onChange={handleReceiveFileUpload} className="hidden"/>
+            <p className="text-[11px] text-slate-400">*อัปโหลดได้เฉพาะไฟล์ .csv (หากบันทึกจาก Excel ในมือถือ ให้บันทึกเป็น CSV ก่อน)</p>
+          </>}
+
+          {/* Column Guide Popup */}
+          {showColumnGuide && (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+              <div className="flex justify-between items-center">
+                <p className="text-sm font-semibold text-slate-700">
+                  {showColumnGuide === 'log' ? 'หัวคอลัมน์ที่รองรับ — ไฟล์ Log คลังยา' : 'หัวคอลัมน์ที่รองรับ — ไฟล์ข้อมูลยา'}
+                </p>
+                <button onClick={() => setShowColumnGuide(null)} className="text-slate-400 hover:text-slate-700"><X size={14}/></button>
+              </div>
+              <p className="text-xs text-slate-400">ชื่อหัวคอลัมน์ใน CSV ต้องตรงกับชื่อด้านล่าง (ไม่ต้องครบทุก column)</p>
+              <div className="flex flex-wrap gap-2">
+                {(showColumnGuide === 'log' ? [
+                  { label: 'ตำแหน่งจัดเก็บ',  req: true,  hints: ['DetailedLog', 'ตำแหน่ง', 'location'] },
+                  { label: 'ชื่อยา',            req: true,  hints: ['รายการยา', 'ชื่อยา'] },
+                  { label: 'คงเหลือ',           req: true,  hints: ['คงเหลือ', 'qty'] },
+                  { label: 'รหัสยา',            req: false, hints: ['รหัส', 'รหัสยา', 'code'] },
+                  { label: 'รูปแบบยา',          req: false, hints: ['ชนิด', 'type'] },
+                  { label: 'หน่วยนับ',          req: false, hints: ['หน่วย', 'unit_label'] },
+                  { label: 'Lot Number',        req: false, hints: ['Lot Number', 'lot', 'lot.'] },
+                  { label: 'Exp',               req: false, hints: ['Exp', 'exp.', 'วันหมดอายุ'] },
+                  { label: 'ราคา/หน่วย',        req: false, hints: ['ราคา/หน่วย', 'ราคาต่อหน่วย'] },
+                  { label: 'ชนิดรายการ',        req: false, hints: ['ชนิดรายการ', 'item_type'] },
+                  { label: 'บริษัท',            req: false, hints: ['บริษัทยา', 'บริษัท'] },
+                  { label: 'เลขบิล',            req: false, hints: ['เลขที่บิลซื้อ', 'เลขบิล'] },
+                  { label: 'Safety Stock',      req: false, hints: ['Safety Stock', 'safety_stock'] },
+                  { label: 'Lead Time',         req: false, hints: ['Lead Time', 'leadtime'] },
+                  { label: 'ผลการพิจารณา',      req: false, hints: ['ผลการพิจารณา'] },
+                  { label: 'สถานะตรวจรับ',      req: false, hints: ['สถานะตรวจรับ', 'สถานะ'] },
+                  { label: 'MainLog',           req: false, hints: ['MainLog', 'main_log'] },
+                ] : [
+                  { label: 'รหัสยา',            req: true,  hints: ['รหัส', 'รหัสยา', 'code'] },
+                  { label: 'ชื่อยา',            req: false, hints: ['รายการยา', 'ชื่อยา'] },
+                  { label: 'Safety Stock',      req: false, hints: ['Safety Stock', 'safety_stock'] },
+                  { label: 'Lead Time',         req: false, hints: ['Sum of Lead Time (In days)', 'Lead Time (In days)', 'lead time'] },
+                  { label: 'Lot Number',        req: false, hints: ['Lot Number', 'lot'] },
+                  { label: 'เลขบิล',            req: false, hints: ['เลขที่บิลซื้อ', 'invoice'] },
+                  { label: 'Exp',               req: false, hints: ['Exp', 'exp date'] },
+                  { label: 'ผลการพิจารณา',      req: false, hints: ['ผลการพิจารณา'] },
+                ]).map(({ label, req, hints }) => (
+                  <div key={label} className="bg-white rounded-xl px-3 py-2 border border-slate-200">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">{label}</span>
+                      {req && <span className="text-[10px] font-bold bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full">จำเป็น</span>}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {hints.map(h => (
+                        <code key={h} className="text-[10px] bg-slate-50 border border-slate-200 text-slate-500 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">{h}</code>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {showColumnGuide === 'drug' && <p className="text-xs text-slate-400">💡 สามารถใช้ไฟล์ Log คลังยาไฟล์เดียวกันได้</p>}
+            </div>
+          )}
         </div>
 
         {/* Zone Tabs + Hide Empty Toggle */}
         {(zoneKeys.length > 0 || Object.keys(filteredOtherZones).length > 0) && (
-          <div className="flex items-center gap-2 flex-wrap bg-white rounded-xl border border-slate-200 px-3 py-2 shadow-sm">
+          <div className="flex items-center gap-2 flex-wrap bg-white rounded-2xl border border-slate-200 px-4 py-3 shadow-sm">
             <div className="flex gap-1.5 flex-wrap flex-1 min-w-0">
               {zoneKeys.map(cab => (
-                <button
-                  key={cab}
-                  onClick={() => setActiveZone(cab)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && activeZoneKey === cab ? 'bg-slate-800 text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                >
+                <button key={cab} onClick={() => setActiveZone(cab)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && activeZoneKey === cab ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700'}`}>
                   Log {cab}
-                  <span className="ml-1.5 opacity-60">({summary[cab]?.names.size || 0})</span>
+                  <span className="ml-1.5 opacity-70">({summary[cab]?.names.size || 0})</span>
                 </button>
               ))}
               {Object.keys(filteredOtherZones).length > 0 && (
-                <button
-                  onClick={() => setActiveZone('__other__')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && activeZoneKey === '__other__' ? 'bg-slate-800 text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                >
+                <button onClick={() => setActiveZone('__other__')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && activeZoneKey === '__other__' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700'}`}>
                   โซนอื่นๆ
-                  <span className="ml-1.5 opacity-60">({Object.keys(filteredOtherZones).length})</span>
+                  <span className="ml-1.5 opacity-70">({Object.keys(filteredOtherZones).length})</span>
                 </button>
               )}
             </div>
-            <button
-              onClick={() => setHideEmptySlots(v => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all shrink-0 ${hideEmptySlots ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-300 hover:border-indigo-400'}`}
-            >
+            <button onClick={() => setHideEmptySlots(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all shrink-0 ${hideEmptySlots ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-400 hover:text-indigo-600'}`}>
               {hideEmptySlots ? '✓ ซ่อนช่องว่าง' : '○ ซ่อนช่องว่าง'}
             </button>
           </div>
@@ -2030,17 +2004,13 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
           const totalQty    = searchResults.reduce((s, r) => s + (parseFloat(String(r.qty || '0').replace(/,/g,'')) || 0), 0);
           return (
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-6">
-              <div className="bg-amber-500 text-white py-3 px-6 flex flex-wrap justify-between items-center gap-2">
-                <h2 className="text-lg font-bold flex items-center gap-2">
-                  <Search size={20} /> ผลการค้นหา: พบ {searchResults.length} Lot
+              <div className="bg-amber-500 text-white py-3 px-5 flex flex-wrap justify-between items-center gap-2">
+                <h2 className="text-sm font-bold flex items-center gap-2">
+                  <Search size={16}/> ผลการค้นหา: พบ {searchResults.length} Lot
                 </h2>
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="bg-white/20 rounded-xl px-3 py-1 font-semibold">
-                    {uniqueDrugs} ชนิดยา
-                  </span>
-                  <span className="bg-white/20 rounded-xl px-3 py-1 font-semibold">
-                    รวม {totalQty.toLocaleString()} หน่วย
-                  </span>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="bg-white/20 rounded-full px-2.5 py-1 font-semibold">{uniqueDrugs} ชนิดยา</span>
+                  <span className="bg-white/20 rounded-full px-2.5 py-1 font-semibold">รวม {totalQty.toLocaleString()} หน่วย</span>
                 </div>
               </div>
               <div className="p-6 bg-slate-50/50 max-h-[600px] overflow-y-auto">
@@ -2070,15 +2040,15 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                 : (activeZoneKey && activeZoneKey !== '__other__' ? [activeZoneKey] : zoneKeys)
               ).filter(cab => filteredLayout[cab]).map(cabinet => (
                 <div key={cabinet} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                  <div className="bg-gradient-to-r from-slate-900 to-slate-600 text-white py-3 px-5 flex justify-between items-center">
-                    <h2 className="text-lg font-bold flex items-center gap-2">
-                      <Layers size={20} /> Log {cabinet}
+                  <div className="bg-indigo-600 text-white py-3 px-5 flex justify-between items-center">
+                    <h2 className="text-sm font-bold flex items-center gap-2">
+                      <Layers size={16}/> Log {cabinet}
                     </h2>
                     <div className="flex gap-2">
-                      <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-medium">
+                      <span className="bg-white/20 px-2.5 py-1 rounded-full text-xs font-medium">
                         {summary[cabinet]?.names.size || 0} รายการยา
                       </span>
-                      <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-medium">
+                      <span className="bg-white/20 px-2.5 py-1 rounded-full text-xs font-medium">
                         {summary[cabinet]?.lots.size || 0} Lot
                       </span>
                     </div>
@@ -2127,9 +2097,9 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
 
             {(searchTerm || activeZoneKey === '__other__') && Object.keys(filteredOtherZones).length > 0 && (
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mt-6">
-                <div className="bg-slate-700 text-white py-3 px-5 flex justify-between items-center">
-                  <h2 className="text-lg font-bold flex items-center gap-2">
-                    <FileSpreadsheet size={20} /> โซนอื่นๆ หรือจัดเก็บแบบเหมาโซน
+                <div className="bg-indigo-600 text-white py-3 px-5 flex justify-between items-center">
+                  <h2 className="text-sm font-bold flex items-center gap-2">
+                    <FileSpreadsheet size={16}/> โซนอื่นๆ หรือจัดเก็บแบบเหมาโซน
                   </h2>
                 </div>
                 <div className="p-6 bg-slate-50 flex flex-wrap gap-4">
@@ -2208,10 +2178,10 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col animate-in fade-in zoom-in duration-200 mb-6">
 
               {/* Header */}
-              <div className="bg-gradient-to-r from-slate-800 to-indigo-900 p-5 flex justify-between items-center text-white shrink-0 rounded-t-2xl">
-                <h3 className="text-xl font-bold flex items-center gap-3">
-                  <BarChart3 size={24} className="text-indigo-300" />
-                  สรุปข้อมูลคลังยา — Summary Dashboard
+              <div className="bg-indigo-600 p-5 flex justify-between items-center text-white shrink-0 rounded-t-2xl">
+                <h3 className="text-base font-bold flex items-center gap-2.5">
+                  <BarChart3 size={20}/>
+                  สรุปข้อมูลคลังยา
                 </h3>
                 <button onClick={() => setShowSummaryModal(false)} className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-xl transition-colors">
                   <X size={20} />
