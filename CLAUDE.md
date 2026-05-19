@@ -182,6 +182,31 @@ Skills อยู่ใน `.claude/skills/` — อ่านไฟล์ที�
 - **สาเหตุ**: `searchResults` useMemo ไม่มี `qty === 0` guard และไม่ sort
 - **แก้**: เพิ่ม `if (qty === 0) return;` และ `.sort()` by `parseDateString(exp)` ใน useMemo
 
+### Inventory Summary Modal — Display Rules (CRITICAL)
+- **ตัวเลขทุกตัวใน modal ต้องสอดคล้องกัน** — `summary`, `overallStats`, `typeStats` ต้องกรอง `qty > 0 && !discontinued` เหมือน `expiredItems`/`nearExpiryItems`/`safeItems`
+- **อย่าใส่ "นับทุกแถวใน inventory"** ใน KPI cards — เคยมีบั๊ก: รายการยา/Lot นับรวม qty=0 แต่ donut นับเฉพาะ qty>0 → ตัวเลขไม่ตรงกัน
+- **มูลค่าคงคลัง** คำนวณจาก `Σ qty × price_per_unit` โดย lookup `drugDetails[code|lot|invoice].price_per_unit` (fallback: code+lot)
+- **Slot Utilization** = (slot ที่มียาคงเหลือ > 0 ÷ slot ทั้งหมดใน cab) — color: ≥85% rose, ≥60% amber, &lt;60% emerald
+- **Top 5 ใกล้หมดอายุ** คลิก → ปิด modal + เปิด `handleLocationClick(location)` ของ Lot นั้น
+- **Top 5 คงเหลือสูงสุด** group by `code` (fallback name), sum `qty`, แสดงจำนวนตำแหน่งจัดเก็บที่กระจายอยู่
+- **KPI "หมดอายุแล้ว"** ซ่อนเมื่อ `expiredItems.length === 0` — ลดความรกของ card
+- **Toggle view** "กราฟ / ตาราง" state `summaryStorageView` (`'chart' | 'table'`) — ตารางมี column มูลค่า + Slot Util
+- **Export Excel** ใน header modal — ใช้ `exportToExcel` พร้อม auth, ไฟล์ `inventory_summary_{date}.xlsx` — columns: รายการยา / Lot / Lot รวม / มูลค่า / Slot ใช้/ทั้งหมด / % การใช้พื้นที่
+- **Timestamp** ใน header — แสดง `logUpdateDate` ผ่าน `formatDateTime()` ใต้ title
+- **มูลค่ารวม** ใช้ `formatBaht`: ≥1M → "X.XXM", ≥1K → "X.XK", &lt;1K → integer
+- **หมายเหตุใต้ KPI**: "นับเฉพาะคงเหลือ > 0 · ไม่รวมยาตัดออกจากบัญชี · มูลค่าคำนวณจากราคา/หน่วยล่าสุดใน receive_logs"
+
+### Inventory Map — UI Polish Rules (หลัง redesign bc68585)
+- **ห้ามใช้ emoji** ใน UI ทุกที่ — ใช้ lucide-react เท่านั้น (เคยมี `✓ ○ ⚠️ ✕ 📍` ใน toggle/modal → แก้แล้ว)
+- **Header buttons** (สรุปข้อมูล + จัดการข้อมูล) ใช้ outline pattern เดียวกัน: `bg-white border border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50 text-indigo-600` — ไม่ให้ปุ่มใดเด่นกว่ากัน
+- **Card "ต่ำกว่าจุดสั่งซื้อ"** (เดิม "ระบบสั่งยา") — label สื่อความหมายตัวเลข (count ของ `lowStockItems`) ตรงกว่า; คลิกแล้วยังไปหน้า order view เหมือนเดิม
+- **หมายเหตุช่วง 16 เดือน** อยู่ภายใน card "ใกล้หมดอายุ" (text-[10px] text-slate-400) — ไม่ลอยข้างนอกอีก
+- **Toggle ซ่อนช่องว่าง** ใช้ `Eye` / `EyeOff` icon — EyeOff = ซ่อนอยู่ (active state indigo)
+- **Empty state**: เมื่อ `Object.keys(inventory).length === 0` (ยังไม่ upload เลย) → แสดง card dashed border พร้อมปุ่ม "อัปโหลด Log คลังยา" (staff) หรือ hint "ติดต่อเจ้าหน้าที่" (requester)
+- **Search result chip** ใช้ `bg-indigo-600` (theme เดียวกับแผนผัง) — สี amber สงวนสำหรับ alert (expiry) เท่านั้น
+- **Heatmap slot ว่าง** (`itemCount === 0`) ใช้ `bgOpacity = 0.15` + `border-dashed` เพื่อสื่อ "ไม่มีของ" ชัดเจน — slot ที่มีของใช้ solid border
+- **ปุ่ม "รายละเอียด"** ใน item card ใช้ `min-w-[140px]` + text คงที่ "รายละเอียด" + chevron toggle (ไม่เปลี่ยน label เป็น "ปิดรายละเอียด" / "ดูรายละเอียดเพิ่มเติม") — กัน width กระตุก
+
 ## Audit Log — Auth Rule (CRITICAL)
 
 ทุก action ที่บันทึก audit log **ต้องส่ง `auth` ให้ครบเสมอ** เพื่อให้ `user_name` และ `department` ไม่เป็น `-`

@@ -6,7 +6,7 @@ import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
 import {
   Search, Package, MapPin, X, UploadCloud, FileSpreadsheet,
   AlertCircle, BarChart3, Layers, Pill, FileText,
-  ChevronUp, ChevronDown, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw, FileDown, ArrowLeft,
+  ChevronUp, ChevronDown, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw, FileDown, ArrowLeft, Eye, EyeOff,
 } from 'lucide-react';
 
 const INVENTORY_EXCEL_COLS = [
@@ -204,6 +204,7 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
   const [successMsg, setSuccessMsg] = useState('');
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [summaryStorageView, setSummaryStorageView] = useState('chart'); // 'chart' | 'table'
   const [view, setView] = useState('map'); // 'map' | 'order'
   const [dispenseUsage, setDispenseUsage] = useState({});
   const [usageRates, setUsageRates] = useState({});
@@ -614,14 +615,15 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
     const sum = {};
     const allNames = new Set();
     const allLots = new Set();
+    let totalValue = 0;
 
     Object.entries(inventory).forEach(([loc, items]) => {
       if (!items || items.length === 0) return;
-      
+
       const match = loc.match(/^([A-Za-zก-ฮ0-9]+)-(\d+)(?:-(\d+))?$/);
       const cab = match ? match[1] : loc;
 
-      if (!sum[cab]) sum[cab] = { names: new Set(), lots: new Set(), total: 0 };
+      if (!sum[cab]) sum[cab] = { names: new Set(), lots: new Set(), total: 0, value: 0 };
 
       if (match) {
         const lev = match[2];
@@ -634,15 +636,34 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
       }
 
       items.forEach(item => {
+        const qty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
+        const isDiscontinued = item.receiveStatus && String(item.receiveStatus).includes('ตัดออก');
+        // ⛔ ข้าม qty=0 และยาตัดออก — ไม่ใช่ "ของในคลังจริง"
+        if (qty === 0 || isDiscontinued) return;
+
         const codeKey = (item.code && item.code !== '-') ? item.code.trim().toLowerCase() : item.name.trim().toLowerCase();
         const lotKey = `${codeKey}|${(item.lot || '').trim().toLowerCase()}`;
-        
+
+        // lookup ราคาจาก drugDetails — exact key ก่อน, fallback ที่ code+lot
+        const invKey = (item.invoice || '-').trim().toLowerCase();
+        const exactKey = `${codeKey}|${(item.lot || '-').trim().toLowerCase()}|${invKey}`;
+        let price = parseFloat(String(drugDetails[exactKey]?.price_per_unit || 0)) || 0;
+        if (!price) {
+          const fallback = Object.values(drugDetails).find(d =>
+            d._code?.toLowerCase() === codeKey && d._lot?.toLowerCase() === (item.lot || '').trim().toLowerCase()
+          );
+          if (fallback?.price_per_unit) price = parseFloat(fallback.price_per_unit) || 0;
+        }
+        const value = qty * price;
+
         sum[cab].names.add(codeKey);
         sum[cab].lots.add(lotKey);
         sum[cab].total += 1;
+        sum[cab].value += value;
 
         allNames.add(codeKey);
         allLots.add(lotKey);
+        totalValue += value;
       });
     });
 
@@ -656,8 +677,8 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
       });
     });
 
-    return { layout: lay, otherZones: other, summary: sum, overallStats: { names: allNames.size, lots: allLots.size } };
-  }, [inventory]);
+    return { layout: lay, otherZones: other, summary: sum, overallStats: { names: allNames.size, lots: allLots.size, value: totalValue } };
+  }, [inventory, drugDetails]);
 
   const totalCabinets = Object.keys(summary).length;
 
@@ -669,10 +690,13 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
 
     Object.values(inventory).forEach(items => {
       items.forEach(item => {
+        const qty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
+        const isDiscontinued = item.receiveStatus && String(item.receiveStatus).includes('ตัดออก');
+        if (qty === 0 || isDiscontinued) return;
+
         const typeStr = (item.type && item.type !== '-') ? item.type.toUpperCase() : 'ไม่ระบุ';
-        // นับเฉพาะรายการยาที่ไม่ซ้ำกัน (อิงตามรหัสหรือชื่อยา)
         const codeKey = (item.code && item.code !== '-') ? item.code.trim().toLowerCase() : item.name.trim().toLowerCase();
-        
+
         const uniqueId = `${typeStr}|${codeKey}`;
         if (!uniqueTracker.has(uniqueId)) {
           uniqueTracker.add(uniqueId);
@@ -1066,7 +1090,8 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
     }
 
     // Heatmap: items เยอะ = สีเข้ม (opacity ของ background layer เพิ่มขึ้น — ไม่กระทบสี hue หรือ text)
-    const bgOpacity = itemCount === 0 ? 0.35 : itemCount <= 2 ? 0.6 : itemCount <= 6 ? 0.78 : itemCount <= 12 ? 0.9 : 1;
+    const bgOpacity = itemCount === 0 ? 0.15 : itemCount <= 2 ? 0.6 : itemCount <= 6 ? 0.78 : itemCount <= 12 ? 0.9 : 1;
+    const isEmpty = itemCount === 0;
 
     return (
       <div
@@ -1075,7 +1100,7 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
           relative cursor-pointer transition-all duration-200 border-2 rounded-xl bg-white
           flex items-center justify-center text-xs font-bold px-3 min-w-[70px] flex-1
           min-h-[44px]
-          ${border} shadow-md ${shadow} ${ring}
+          ${border} ${isEmpty ? 'border-dashed' : ''} shadow-md ${shadow} ${ring}
           ${highlighted
             ? 'ring-4 ring-yellow-400 scale-110 z-10 shadow-xl'
             : 'hover:scale-105 hover:shadow-lg active:scale-95'}
@@ -1224,17 +1249,14 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
               
               <button
                 onClick={() => toggleDetails(uniqueItemId)}
-                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
+                className={`shrink-0 inline-flex items-center justify-center gap-1.5 min-w-[140px] px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
                   isExpanded
                     ? 'bg-slate-100 text-slate-700 border-slate-300'
                     : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50 cursor-pointer'
                 }`}
               >
-                {isExpanded ? (
-                  <span className="flex items-center gap-1.5"><ChevronUp size={16} /> ปิดรายละเอียด</span>
-                ) : (
-                  <span className="flex items-center gap-1.5"><FileText size={16} /> ดูรายละเอียดเพิ่มเติม</span>
-                )}
+                <FileText size={16} /> รายละเอียด
+                {isExpanded ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
               </button>
             </div>
             
@@ -1780,12 +1802,12 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
         </div>
         {/* Manage dropdown in header */}
         <div className="flex items-center gap-2">
-          <button onClick={() => setShowSummaryModal(true)} className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
+          <button onClick={() => setShowSummaryModal(true)} className="flex items-center gap-1.5 bg-white border border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
             <BarChart3 size={15}/><span className="hidden sm:inline">สรุปข้อมูล</span>
           </button>
           <div className="relative">
             <button onClick={() => setShowManageMenu(v => !v)}
-              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
+              className="flex items-center gap-1.5 bg-white border border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
               จัดการข้อมูล <ChevronDown size={14} className={`transition-transform ${showManageMenu ? 'rotate-180' : ''}`}/>
             </button>
             {showManageMenu && (
@@ -1840,6 +1862,7 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
               <span className={`text-2xl font-black ${nearExpiryItems.length > 0 ? 'text-amber-600' : 'text-slate-300'}`}>{nearExpiryItems.length}</span>
             </div>
             <p className={`text-xs font-semibold ${nearExpiryItems.length > 0 ? 'text-amber-500' : 'text-slate-400'}`}>ใกล้หมดอายุ (16 เดือน)</p>
+            <p className="text-[10px] text-slate-400 mt-1 leading-tight">{formatDateDisplay(todayForDisplay)} – {formatDateDisplay(targetDateForDisplay)}</p>
           </div>
 
           <div onClick={() => pendingReceiveItems.length > 0 && setExpiryViewFilter('pending')}
@@ -1862,7 +1885,7 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                 </div>
                 <span className={`text-2xl font-black ${lowStockItems.length > 0 ? 'text-orange-600' : 'text-slate-300'}`}>{lowStockItems.length}</span>
               </div>
-              <p className={`text-xs font-semibold ${lowStockItems.length > 0 ? 'text-orange-500' : 'text-slate-400'}`}>ระบบสั่งยา</p>
+              <p className={`text-xs font-semibold ${lowStockItems.length > 0 ? 'text-orange-500' : 'text-slate-400'}`}>ต่ำกว่าจุดสั่งซื้อ</p>
             </div>
           ) : (
             <div className="bg-white rounded-2xl border-2 border-slate-100 p-4 shadow-sm opacity-40">
@@ -1872,15 +1895,10 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                 </div>
                 <span className="text-2xl font-black text-slate-300">—</span>
               </div>
-              <p className="text-xs font-semibold text-slate-400">ระบบสั่งยา</p>
+              <p className="text-xs font-semibold text-slate-400">ต่ำกว่าจุดสั่งซื้อ</p>
             </div>
           )}
         </div>
-
-        {/* ── alert date note ── */}
-        <p className="text-[11px] text-slate-400 flex items-center gap-1.5 -mt-1">
-          <AlertCircle size={11}/> คำนวณวันหมดอายุ 16 เดือน: {formatDateDisplay(todayForDisplay)} – {formatDateDisplay(targetDateForDisplay)}
-        </p>
 
         {/* ── Search + hidden file inputs ── */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
@@ -1982,7 +2000,7 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
             </div>
             <button onClick={() => setHideEmptySlots(v => !v)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all shrink-0 ${hideEmptySlots ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-400 hover:text-indigo-600'}`}>
-              {hideEmptySlots ? '✓ ซ่อนช่องว่าง' : '○ ซ่อนช่องว่าง'}
+              {hideEmptySlots ? <EyeOff size={13}/> : <Eye size={13}/>} ซ่อนช่องว่าง
             </button>
           </div>
         )}
@@ -2004,7 +2022,7 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
           const totalQty    = searchResults.reduce((s, r) => s + (parseFloat(String(r.qty || '0').replace(/,/g,'')) || 0), 0);
           return (
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-6">
-              <div className="bg-amber-500 text-white py-3 px-5 flex flex-wrap justify-between items-center gap-2">
+              <div className="bg-indigo-600 text-white py-3 px-5 flex flex-wrap justify-between items-center gap-2">
                 <h2 className="text-sm font-bold flex items-center gap-2">
                   <Search size={16}/> ผลการค้นหา: พบ {searchResults.length} Lot
                 </h2>
@@ -2026,6 +2044,22 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-12 flex flex-col items-center justify-center text-slate-500">
             <Search size={48} className="text-slate-300 mb-4" />
             <h3 className="text-xl font-bold text-slate-700 mb-2">ไม่พบรายการที่ค้นหา</h3>
+          </div>
+        ) : Object.keys(inventory).length === 0 ? (
+          <div className="bg-white rounded-2xl shadow-sm border-2 border-dashed border-slate-200 p-12 flex flex-col items-center justify-center text-center">
+            <div className="w-16 h-16 rounded-2xl bg-indigo-50 flex items-center justify-center mb-4">
+              <Database size={32} className="text-indigo-400"/>
+            </div>
+            <h3 className="text-xl font-bold text-slate-700 mb-1.5">ยังไม่มีข้อมูลในคลัง</h3>
+            <p className="text-sm text-slate-500 mb-5 max-w-md">เริ่มต้นใช้งานด้วยการอัปโหลดไฟล์ Log คลังยา (CSV) เพื่อสร้างแผนผังตำแหน่งจัดเก็บอัตโนมัติ</p>
+            {isStaff ? (
+              <button onClick={() => logInputRef.current?.click()}
+                className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm">
+                <UploadCloud size={16}/> อัปโหลด Log คลังยา
+              </button>
+            ) : (
+              <p className="text-xs text-slate-400 inline-flex items-center gap-1.5"><AlertCircle size={12}/> ติดต่อเจ้าหน้าที่คลังยาเพื่ออัปโหลดข้อมูล</p>
+            )}
           </div>
         ) : (
           <>
@@ -2127,10 +2161,10 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
             <div className="bg-amber-500 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
               <div>
-                <p className="font-bold text-lg">⚠️ พบ Row ที่ไม่ผ่านเงื่อนไข</p>
+                <p className="font-bold text-lg flex items-center gap-2"><AlertTriangle size={20}/> พบ Row ที่ไม่ผ่านเงื่อนไข</p>
                 <p className="text-amber-100 text-sm">{uploadWarnings.type}: {uploadWarnings.fileName} — {uploadWarnings.rows.length} row มีปัญหา</p>
               </div>
-              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors">✕</button>
+              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={16}/></button>
             </div>
             <div className="overflow-y-auto flex-1 p-4 space-y-2">
               {uploadWarnings.rows.map((r, i) => (
@@ -2140,7 +2174,7 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                     <div className="flex-1">
                       <span className="font-semibold text-slate-800">{r.name}</span>
                       {r.code && r.code !== '-' && <span className="text-slate-400 ml-2 text-xs">[{r.code}]</span>}
-                      {r.location && <span className="text-slate-500 ml-2 text-xs">📍{r.location}</span>}
+                      {r.location && <span className="text-slate-500 ml-2 text-xs inline-flex items-center gap-0.5"><MapPin size={11}/>{r.location}</span>}
                       <div className="flex flex-wrap gap-1 mt-1">
                         {r.issues.map((issue, j) => (
                           <span key={j} className="bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full text-xs">{issue}</span>
@@ -2171,41 +2205,132 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
             #10b981 ${expPct + nearPct}% 100%
           )`
         };
+
+        // คำนวณ slot utilization ต่อ cabinet
+        const slotStats = {};
+        Object.entries(layout).forEach(([cab, levels]) => {
+          let totalSlots = 0, usedSlots = 0;
+          Object.values(levels).forEach(slots => {
+            slots.forEach(slot => {
+              totalSlots++;
+              const items = inventory[slot.id] || [];
+              const hasStock = items.some(it => (parseFloat(String(it.qty || '0').replace(/,/g, '')) || 0) > 0);
+              if (hasStock) usedSlots++;
+            });
+          });
+          slotStats[cab] = { totalSlots, usedSlots, utilPct: totalSlots > 0 ? (usedSlots / totalSlots) * 100 : 0 };
+        });
+
         const summaryRows = Object.entries(summary).sort((a, b) => b[1].names.size - a[1].names.size);
+
+        // Top 5 ใกล้หมดอายุ (รวม expired ที่ยังไม่ทิ้ง + near) เรียงตามวันหมดอายุ
+        const topNearExpiry = [...expiredItems, ...nearExpiryItems]
+          .filter(it => it.parsedExp)
+          .sort((a, b) => a.parsedExp - b.parsedExp)
+          .slice(0, 5);
+
+        // Top 5 รายการคงเหลือมากที่สุด (group by code, sum qty)
+        const stockByDrug = {};
+        Object.entries(inventory).forEach(([loc, items]) => {
+          items.forEach(it => {
+            const qty = parseFloat(String(it.qty || '0').replace(/,/g, '')) || 0;
+            const isDiscontinued = it.receiveStatus && String(it.receiveStatus).includes('ตัดออก');
+            if (qty === 0 || isDiscontinued) return;
+            const codeKey = (it.code && it.code !== '-') ? it.code.trim() : it.name.trim();
+            if (!stockByDrug[codeKey]) stockByDrug[codeKey] = { code: it.code, name: it.name, unit: it.unit, type: it.type, qty: 0, locations: new Set() };
+            stockByDrug[codeKey].qty += qty;
+            stockByDrug[codeKey].locations.add(loc);
+          });
+        });
+        const topStock = Object.values(stockByDrug).sort((a, b) => b.qty - a.qty).slice(0, 5);
+
+        // Total slot util
+        const totalUsed = Object.values(slotStats).reduce((s, v) => s + v.usedSlots, 0);
+        const totalAvail = Object.values(slotStats).reduce((s, v) => s + v.totalSlots, 0);
+        const totalUtilPct = totalAvail > 0 ? (totalUsed / totalAvail) * 100 : 0;
+
+        const formatBaht = v => v >= 1000000 ? `${(v / 1000000).toFixed(2)}M` : v >= 1000 ? `${(v / 1000).toFixed(1)}K` : Math.round(v).toLocaleString();
+
+        const handleExportSummary = () => {
+          const rows = summaryRows.map(([cab, data], i) => ({
+            no: i + 1,
+            location: `Log ${cab}`,
+            drugs: data.names.size,
+            lots: data.lots.size,
+            total: data.total,
+            value: Math.round(data.value || 0),
+            slots: `${slotStats[cab]?.usedSlots || 0}/${slotStats[cab]?.totalSlots || 0}`,
+            util: `${(slotStats[cab]?.utilPct || 0).toFixed(1)}%`,
+          }));
+          const cols = [
+            { header: '#', key: 'no' },
+            { header: 'พื้นที่จัดเก็บ', key: 'location' },
+            { header: 'รายการยา (Unique)', key: 'drugs' },
+            { header: 'จำนวน Lot', key: 'lots' },
+            { header: 'Lot รวม', key: 'total' },
+            { header: 'มูลค่า (บาท)', key: 'value' },
+            { header: 'Slot ใช้/ทั้งหมด', key: 'slots' },
+            { header: '% การใช้พื้นที่', key: 'util' },
+          ];
+          const dateStr = new Date().toISOString().split('T')[0];
+          exportToExcel(rows, cols, 'สรุปคลังยา', `inventory_summary_${dateStr}.xlsx`, auth);
+        };
+
+        const showExpired = expiredItems.length > 0;
+        const kpiCards = [
+          { label: 'พื้นที่จัดเก็บ', value: totalCabinets, unit: 'แห่ง', icon: <MapPin size={18}/>, bg: 'bg-indigo-50', border: 'border-indigo-200', text: 'text-indigo-700', val: 'text-indigo-900' },
+          { label: 'รายการยา (Unique)', value: overallStats?.names || 0, unit: 'รายการ', icon: <Pill size={18}/>, bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', val: 'text-emerald-900' },
+          { label: 'จำนวน Lot', value: overallStats?.lots || 0, unit: 'Lot', icon: <Layers size={18}/>, bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', val: 'text-sky-900' },
+          { label: 'มูลค่าคงคลัง', value: formatBaht(overallStats?.value || 0), unit: 'บาท', icon: <FileSpreadsheet size={18}/>, bg: 'bg-teal-50', border: 'border-teal-200', text: 'text-teal-700', val: 'text-teal-900', raw: true },
+          ...(showExpired ? [{ label: 'หมดอายุแล้ว', value: expiredItems.length, unit: 'รายการ', icon: <AlertTriangle size={18}/>, bg: 'bg-rose-50', border: 'border-rose-300', text: 'text-rose-700', val: 'text-rose-800' }] : []),
+          { label: 'ใกล้หมดอายุ', value: nearExpiryItems.length, unit: 'รายการ', icon: <Clock size={18}/>, bg: 'bg-amber-50', border: 'border-amber-300', text: 'text-amber-700', val: 'text-amber-800' },
+          { label: 'รอตรวจรับ', value: pendingReceiveItems.length, unit: 'รายการ', icon: <Package size={18}/>, bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-700', val: 'text-purple-900' },
+        ];
 
         return (
           <div className="fixed inset-0 bg-slate-900/70 flex items-start justify-center z-50 p-4 pt-6 backdrop-blur-sm overflow-y-auto">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col animate-in fade-in zoom-in duration-200 mb-6">
 
               {/* Header */}
-              <div className="bg-indigo-600 p-5 flex justify-between items-center text-white shrink-0 rounded-t-2xl">
-                <h3 className="text-base font-bold flex items-center gap-2.5">
+              <div className="bg-indigo-600 px-5 py-4 flex justify-between items-center text-white shrink-0 rounded-t-2xl gap-3 flex-wrap">
+                <div className="flex items-center gap-2.5">
                   <BarChart3 size={20}/>
-                  สรุปข้อมูลคลังยา
-                </h3>
-                <button onClick={() => setShowSummaryModal(false)} className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-xl transition-colors">
-                  <X size={20} />
-                </button>
+                  <div>
+                    <h3 className="text-base font-bold leading-tight">สรุปข้อมูลคลังยา</h3>
+                    {logUpdateDate && (
+                      <p className="text-[11px] text-indigo-100 flex items-center gap-1 mt-0.5">
+                        <Clock size={10}/> ข้อมูล ณ {formatDateTime(logUpdateDate)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={handleExportSummary}
+                    className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors">
+                    <FileDown size={14}/> <span className="hidden sm:inline">Export Excel</span>
+                  </button>
+                  <button onClick={() => setShowSummaryModal(false)} className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-xl transition-colors">
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
 
               <div className="p-6 space-y-6 bg-slate-50/30">
 
                 {/* KPI Cards */}
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                  {[
-                    { label: 'พื้นที่จัดเก็บ', value: totalCabinets, unit: 'แห่ง', icon: <MapPin size={18}/>, bg: 'bg-indigo-50', border: 'border-indigo-200', text: 'text-indigo-700', val: 'text-indigo-900' },
-                    { label: 'รายการยา (Unique)', value: overallStats?.names || 0, unit: 'รายการ', icon: <Pill size={18}/>, bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', val: 'text-emerald-900' },
-                    { label: 'จำนวน Lot', value: overallStats?.lots || 0, unit: 'Lot', icon: <Layers size={18}/>, bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', val: 'text-sky-900' },
-                    { label: 'หมดอายุแล้ว', value: expiredItems.length, unit: 'รายการ', icon: <AlertTriangle size={18}/>, bg: 'bg-rose-50', border: 'border-rose-300', text: 'text-rose-700', val: 'text-rose-800' },
-                    { label: 'ใกล้หมดอายุ', value: nearExpiryItems.length, unit: 'รายการ', icon: <Clock size={18}/>, bg: 'bg-amber-50', border: 'border-amber-300', text: 'text-amber-700', val: 'text-amber-800' },
-                    { label: 'รอตรวจรับ', value: pendingReceiveItems.length, unit: 'รายการ', icon: <Package size={18}/>, bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-700', val: 'text-purple-900' },
-                  ].map((k, i) => (
-                    <div key={i} className={`${k.bg} border ${k.border} rounded-xl p-4 shadow-sm flex flex-col gap-1`}>
-                      <div className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide ${k.text}`}>{k.icon}{k.label}</div>
-                      <div className={`text-2xl font-black ${k.val}`}>{k.value.toLocaleString()}</div>
-                      <div className="text-xs text-slate-500">{k.unit}</div>
-                    </div>
-                  ))}
+                <div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                    {kpiCards.map((k, i) => (
+                      <div key={i} className={`${k.bg} border ${k.border} rounded-xl p-3.5 shadow-sm flex flex-col gap-0.5`}>
+                        <div className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide ${k.text}`}>{k.icon}<span className="truncate">{k.label}</span></div>
+                        <div className={`text-2xl font-black ${k.val} leading-tight mt-1`}>{k.raw ? k.value : k.value.toLocaleString()}</div>
+                        <div className="text-[11px] text-slate-500">{k.unit}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-2 flex items-center gap-1">
+                    <AlertCircle size={11}/> นับเฉพาะคงเหลือ &gt; 0 · ไม่รวมยาตัดออกจากบัญชี · มูลค่าคำนวณจากราคา/หน่วยล่าสุดใน receive_logs
+                  </p>
                 </div>
 
                 {/* Donut + Drug Types */}
@@ -2276,66 +2401,159 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                   </div>
                 </div>
 
-                {/* Bar: Storage Areas */}
-                <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-                  <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
-                    <Layers size={18} className="text-indigo-500" /> จำนวนรายการยาแยกตามพื้นที่จัดเก็บ
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 max-h-[220px] overflow-y-auto pr-1">
-                    {summaryRows.map(([cab, data]) => (
-                      <div key={cab}>
-                        <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1">
-                          <span className="flex items-center gap-1"><MapPin size={11} className="opacity-40"/> Log {cab}</span>
-                          <span className="font-bold text-slate-700">{data.names.size} รายการ <span className="text-slate-400 font-normal">· {data.lots.size} Lot</span></span>
-                        </div>
-                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                          <div
-                            className="bg-indigo-500 h-2 rounded-full"
-                            style={{ width: `${maxLogCount > 0 ? (data.names.size / maxLogCount) * 100 : 0}%` }}
-                          />
-                        </div>
+                {/* Top 5 Panels */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                  {/* Top 5 Near-Expiry */}
+                  <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                    <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
+                      <Clock size={18} className="text-amber-500" /> Top 5 Lot ใกล้/หมดอายุที่สุด
+                    </h4>
+                    {topNearExpiry.length > 0 ? (
+                      <div className="space-y-2">
+                        {topNearExpiry.map((it, i) => {
+                          const isExpired = it.parsedExp < todayForDisplay;
+                          return (
+                            <div key={i} onClick={() => { setShowSummaryModal(false); handleLocationClick(it.location); }}
+                              className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors border ${isExpired ? 'bg-rose-50 border-rose-200 hover:bg-rose-100' : 'bg-amber-50 border-amber-200 hover:bg-amber-100'}`}>
+                              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${isExpired ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white'}`}>{i + 1}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-semibold text-slate-800 truncate">{it.name}</div>
+                                <div className="text-[11px] text-slate-500 flex items-center gap-1.5 flex-wrap">
+                                  <span className="inline-flex items-center gap-0.5"><MapPin size={9}/>{it.location}</span>
+                                  <span>· Lot {it.lot}</span>
+                                  <span>· คงเหลือ {it.qty}</span>
+                                </div>
+                              </div>
+                              <span className={`text-xs font-bold shrink-0 ${isExpired ? 'text-rose-700' : 'text-amber-700'}`}>{formatDateDisplay(it.parsedExp)}</span>
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
+                    ) : (
+                      <div className="text-sm text-slate-400 text-center py-6"><Check size={20} className="mx-auto mb-2 text-emerald-400"/> ไม่มียาใกล้หมดอายุ</div>
+                    )}
+                  </div>
+
+                  {/* Top 5 High Stock */}
+                  <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                    <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
+                      <Package size={18} className="text-sky-500" /> Top 5 รายการคงเหลือสูงสุด
+                    </h4>
+                    {topStock.length > 0 ? (
+                      <div className="space-y-2">
+                        {topStock.map((s, i) => (
+                          <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-sky-50 border border-sky-100">
+                            <span className="w-6 h-6 rounded-full bg-sky-500 text-white flex items-center justify-center text-xs font-black shrink-0">{i + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-semibold text-slate-800 truncate">{s.name}</div>
+                              <div className="text-[11px] text-slate-500">{s.code && s.code !== '-' ? `[${s.code}] · ` : ''}{s.type || '-'} · {s.locations.size} ตำแหน่ง</div>
+                            </div>
+                            <span className="text-sm font-black text-sky-700 shrink-0">{s.qty.toLocaleString()} <span className="text-[10px] font-normal text-slate-400">{s.unit || ''}</span></span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-slate-400 text-center py-6"><AlertCircle size={20} className="mx-auto mb-2 opacity-40"/> ยังไม่มีข้อมูล</div>
+                    )}
                   </div>
                 </div>
 
-                {/* Table */}
-                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                  <div className="bg-slate-700 text-white px-5 py-3 flex items-center gap-2 text-sm font-bold">
-                    <Database size={16} className="text-slate-300" /> ตารางสรุปรายละเอียด
+                {/* Storage Areas — Toggle view */}
+                <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3 flex-wrap gap-2">
+                    <h4 className="font-bold text-slate-700 flex items-center gap-2">
+                      <Layers size={18} className="text-indigo-500" /> รายละเอียดตามพื้นที่จัดเก็บ
+                      {totalAvail > 0 && (
+                        <span className="text-[11px] font-normal text-slate-500 ml-2">
+                          (ใช้งาน {totalUsed}/{totalAvail} ช่อง · {totalUtilPct.toFixed(0)}%)
+                        </span>
+                      )}
+                    </h4>
+                    <div className="inline-flex gap-1 bg-slate-100 p-0.5 rounded-lg">
+                      <button onClick={() => setSummaryStorageView('chart')}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${summaryStorageView === 'chart' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                        <BarChart3 size={12}/> กราฟ
+                      </button>
+                      <button onClick={() => setSummaryStorageView('table')}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${summaryStorageView === 'table' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                        <Database size={12}/> ตาราง
+                      </button>
+                    </div>
                   </div>
-                  <div className="overflow-x-auto max-h-[260px] overflow-y-auto">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-slate-100 text-slate-600 text-xs uppercase tracking-wide">
-                        <tr>
-                          <th className="px-4 py-3 text-left font-bold">#</th>
-                          <th className="px-4 py-3 text-left font-bold">พื้นที่จัดเก็บ</th>
-                          <th className="px-4 py-3 text-right font-bold">รายการยา (Unique)</th>
-                          <th className="px-4 py-3 text-right font-bold">จำนวน Lot</th>
-                          <th className="px-4 py-3 text-right font-bold">Lot รวม</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {summaryRows.map(([cab, data], i) => (
-                          <tr key={cab} className={`hover:bg-indigo-50/50 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
-                            <td className="px-4 py-3 text-slate-400 text-xs font-medium">{i + 1}</td>
-                            <td className="px-4 py-3 font-semibold text-slate-800 flex items-center gap-1.5">
-                              <MapPin size={13} className="text-indigo-400 shrink-0"/> Log {cab}
-                            </td>
-                            <td className="px-4 py-3 text-right font-bold text-indigo-700">{data.names.size.toLocaleString()}</td>
-                            <td className="px-4 py-3 text-right font-bold text-slate-700">{data.lots.size.toLocaleString()}</td>
-                            <td className="px-4 py-3 text-right text-slate-500">{data.total.toLocaleString()}</td>
+
+                  {summaryStorageView === 'chart' ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 max-h-[260px] overflow-y-auto pr-1">
+                      {summaryRows.map(([cab, data]) => {
+                        const util = slotStats[cab]?.utilPct || 0;
+                        return (
+                          <div key={cab}>
+                            <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1">
+                              <span className="flex items-center gap-1"><MapPin size={11} className="opacity-40"/> Log {cab}</span>
+                              <span className="font-bold text-slate-700">{data.names.size} รายการ <span className="text-slate-400 font-normal">· {data.lots.size} Lot</span></span>
+                            </div>
+                            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                              <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${maxLogCount > 0 ? (data.names.size / maxLogCount) * 100 : 0}%` }}/>
+                            </div>
+                            {slotStats[cab] && slotStats[cab].totalSlots > 0 && (
+                              <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-400">
+                                <span>Slot ใช้งาน {slotStats[cab].usedSlots}/{slotStats[cab].totalSlots}</span>
+                                <div className="flex-1 bg-slate-100 rounded-full h-1 overflow-hidden">
+                                  <div className={`h-1 rounded-full ${util >= 85 ? 'bg-rose-400' : util >= 60 ? 'bg-amber-400' : 'bg-emerald-400'}`} style={{ width: `${util}%` }}/>
+                                </div>
+                                <span className="font-bold">{util.toFixed(0)}%</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto max-h-[300px] overflow-y-auto -mx-5 -mb-5">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 bg-slate-100 text-slate-600 text-xs uppercase tracking-wide">
+                          <tr>
+                            <th className="px-4 py-3 text-left font-bold">#</th>
+                            <th className="px-4 py-3 text-left font-bold">พื้นที่</th>
+                            <th className="px-4 py-3 text-right font-bold">รายการยา</th>
+                            <th className="px-4 py-3 text-right font-bold">Lot</th>
+                            <th className="px-4 py-3 text-right font-bold">มูลค่า</th>
+                            <th className="px-4 py-3 text-right font-bold">Slot</th>
                           </tr>
-                        ))}
-                        <tr className="bg-slate-800 text-white font-bold text-sm">
-                          <td className="px-4 py-3" colSpan={2}>รวมทั้งหมด</td>
-                          <td className="px-4 py-3 text-right">{(overallStats?.names || 0).toLocaleString()}</td>
-                          <td className="px-4 py-3 text-right">{(overallStats?.lots || 0).toLocaleString()}</td>
-                          <td className="px-4 py-3 text-right">{summaryRows.reduce((s, [, d]) => s + d.total, 0).toLocaleString()}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {summaryRows.map(([cab, data], i) => {
+                            const util = slotStats[cab]?.utilPct || 0;
+                            return (
+                              <tr key={cab} className={`hover:bg-indigo-50/50 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
+                                <td className="px-4 py-3 text-slate-400 text-xs font-medium">{i + 1}</td>
+                                <td className="px-4 py-3 font-semibold text-slate-800 flex items-center gap-1.5">
+                                  <MapPin size={13} className="text-indigo-400 shrink-0"/> Log {cab}
+                                </td>
+                                <td className="px-4 py-3 text-right font-bold text-indigo-700">{data.names.size.toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right font-bold text-slate-700">{data.lots.size.toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right text-teal-700 font-medium">{formatBaht(data.value || 0)}</td>
+                                <td className="px-4 py-3 text-right text-xs">
+                                  {slotStats[cab]?.totalSlots > 0 ? (
+                                    <span className={`font-bold ${util >= 85 ? 'text-rose-600' : util >= 60 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                      {slotStats[cab].usedSlots}/{slotStats[cab].totalSlots} ({util.toFixed(0)}%)
+                                    </span>
+                                  ) : <span className="text-slate-400">—</span>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          <tr className="bg-slate-800 text-white font-bold text-sm">
+                            <td className="px-4 py-3" colSpan={2}>รวมทั้งหมด</td>
+                            <td className="px-4 py-3 text-right">{(overallStats?.names || 0).toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right">{(overallStats?.lots || 0).toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right">{formatBaht(overallStats?.value || 0)}</td>
+                            <td className="px-4 py-3 text-right">{totalAvail > 0 ? `${totalUsed}/${totalAvail} (${totalUtilPct.toFixed(0)}%)` : '—'}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
 
               </div>
