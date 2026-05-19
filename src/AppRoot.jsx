@@ -671,6 +671,28 @@ function Dashboard({ auth, onNavigate, onLogout }) {
   const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock' | 'stock'
   const [pendingCount, setPendingCount] = useState(0);
 
+  // Online presence
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  useEffect(() => {
+    if (!supabase || !auth?.id) return;
+    const ch = supabase.channel('user-presence', { config: { presence: { key: String(auth.id) } } });
+    ch.on('presence', { event: 'sync' }, () => {
+      const state = ch.presenceState();
+      setOnlineUsers(Object.values(state).flat());
+    }).subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await ch.track({
+          user_id:    auth.id,
+          user_name:  (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username,
+          role:       auth.role,
+          department: auth.department || '-',
+          joined_at:  new Date().toISOString(),
+        });
+      }
+    });
+    return () => { supabase.removeChannel(ch); };
+  }, [auth?.id]);
+
   // Notification bell
   const LAST_READ_KEY = `notif_last_read_${auth.id}`;
   const [notifs, setNotifs]       = useState([]);
@@ -797,10 +819,41 @@ function Dashboard({ auth, onNavigate, onLogout }) {
                       </button>
                     </div>
 
-                    <div className="max-h-96 overflow-y-auto divide-y divide-slate-100">
+                    {/* ── ผู้ใช้งานออนไลน์ขณะนี้ ── */}
+                    <div className="px-4 py-3 border-b border-slate-100 bg-emerald-50/60">
+                      <p className="text-xs font-bold text-emerald-700 flex items-center gap-1.5 mb-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                        ออนไลน์ขณะนี้
+                        <span className="ml-auto font-semibold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full">
+                          {onlineUsers.length} คน
+                        </span>
+                      </p>
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                        {onlineUsers.length === 0
+                          ? <p className="text-xs text-slate-400">ไม่มีผู้ใช้งาน</p>
+                          : onlineUsers.map((u, i) => {
+                            const isMe = String(u.user_id) === String(auth.id);
+                            const roleLabel = u.role === 'admin' ? 'ผู้ดูแล' : u.role === 'staff' ? 'เจ้าหน้าที่' : 'ผู้ใช้';
+                            const roleColor = u.role === 'admin' ? 'text-violet-700 bg-violet-100' : u.role === 'staff' ? 'text-indigo-700 bg-indigo-100' : 'text-slate-600 bg-slate-100';
+                            return (
+                              <div key={i} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg ${isMe ? 'bg-emerald-100/80' : 'bg-white'}`}>
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                                <span className="text-xs font-semibold text-slate-700 truncate flex-1">
+                                  {u.user_name || '-'}
+                                  {isMe && <span className="ml-1 text-emerald-600 font-normal">(คุณ)</span>}
+                                </span>
+                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${roleColor}`}>{roleLabel}</span>
+                              </div>
+                            );
+                          })
+                        }
+                      </div>
+                    </div>
+
+                    <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
                       {notifs.length === 0
                         ? (
-                          <div className="py-12 text-center">
+                          <div className="py-8 text-center">
                             <Bell size={28} className="text-slate-300 mx-auto mb-2" />
                             <p className="text-slate-400 text-sm">ไม่มีการแจ้งเตือน</p>
                           </div>
