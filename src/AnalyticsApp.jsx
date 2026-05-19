@@ -17,6 +17,16 @@ import DrugSearchBar from './DrugSearchBar';
 const BLUE        = '#1E90FF';
 const YEAR_COLORS = ['#1E90FF','#F59E0B','#10B981','#EF4444','#8B5CF6'];
 
+function IsoDateInput({ value, onChange, className = '' }) {
+  const display = iso => { if (!iso) return null; const [y,m,d] = iso.split('-'); return `${d}/${m}/${Number(y)+543}`; }
+  return (
+    <div className={`relative flex items-center bg-white/10 border border-white/30 rounded-lg focus-within:bg-white/20 ${className}`}>
+      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-white' : 'text-white/50'}`}>{display(value) || 'dd/mm/yyyy'}</span>
+      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)} className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+    </div>
+  )
+}
+
 // ============================================================
 // Excel column definitions (module-level — no re-create per render)
 // ============================================================
@@ -513,9 +523,9 @@ export default function AnalyticsApp({ onBack, onRefresh, auth = {} }) {
         </div>
         <div className="flex items-center gap-2 pb-2 flex-wrap">
           <span className="text-white/70 text-sm">ตั้งแต่</span>
-          <ISODateInput value={dateFrom} onChange={setDateFrom} />
+          <IsoDateInput value={dateFrom} onChange={setDateFrom} />
           <span className="text-white/70 text-sm">ถึง</span>
-          <ISODateInput value={dateTo} onChange={setDateTo} />
+          <IsoDateInput value={dateTo} onChange={setDateTo} />
         </div>
         {/* Drug filter */}
         <div className="pb-4">

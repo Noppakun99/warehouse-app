@@ -12,13 +12,65 @@ import SearchableSelect from './SearchableSelect'
 // ============================================================
 // Constants
 // ============================================================
-const RETURN_TYPES = [
+
+// ── ข้อมูลเก่า (legacy) — ใช้แสดง label เมื่อ return_source = null ──
+const LEGACY_TYPES = [
   { key: 'ward_return',     label: 'คืนยาจาก Ward',    short: 'คืน Ward',   badgeBg: 'bg-blue-100',   badgeText: 'text-blue-800',   border: 'border-blue-200' },
   { key: 'damaged',         label: 'ยาเสียหาย/แตกหัก', short: 'ยาเสียหาย', badgeBg: 'bg-orange-100', badgeText: 'text-orange-800', border: 'border-orange-200' },
   { key: 'expired_removal', label: 'ตัดยาหมดอายุออก',  short: 'ยาหมดอายุ', badgeBg: 'bg-red-100',    badgeText: 'text-red-800',    border: 'border-red-200' },
   { key: 'vendor_return',   label: 'ส่งคืนบริษัทยา',   short: 'คืนบริษัท', badgeBg: 'bg-purple-100', badgeText: 'text-purple-800', border: 'border-purple-200' },
 ]
-const TYPE_MAP = Object.fromEntries(RETURN_TYPES.map(t => [t.key, t]))
+const LEGACY_MAP = Object.fromEntries(LEGACY_TYPES.map(t => [t.key, t]))
+
+// ── ระบบใหม่ 2 ระดับ ──
+const RETURN_SOURCES = [
+  { key: 'ward',   label: 'หน่วยงาน / Ward',   short: 'Ward',   badgeBg: 'bg-blue-100',   badgeText: 'text-blue-800',   border: 'border-blue-200',   needsDept: true },
+  { key: 'or',     label: 'ห้องผ่าตัด',         short: 'ห้องผ่าตัด', badgeBg: 'bg-purple-100', badgeText: 'text-purple-800', border: 'border-purple-200', needsDept: false },
+  { key: 'er',     label: 'ห้องฉุกเฉิน',        short: 'ER',     badgeBg: 'bg-red-100',    badgeText: 'text-red-800',    border: 'border-red-200',    needsDept: false },
+  { key: 'opd',    label: 'OPD คลินิก',          short: 'OPD',    badgeBg: 'bg-sky-100',    badgeText: 'text-sky-800',    border: 'border-sky-200',    needsDept: false },
+  { key: 'vendor', label: 'บริษัทยา / Supplier', short: 'บริษัทยา', badgeBg: 'bg-orange-100', badgeText: 'text-orange-800', border: 'border-orange-200', needsDept: false },
+]
+const SOURCE_MAP = Object.fromEntries(RETURN_SOURCES.map(s => [s.key, s]))
+
+const RETURN_REASONS = [
+  { key: 'leftover',      label: 'ยาเหลือจากการใช้',       short: 'เหลือใช้',   sources: ['ward', 'or', 'er', 'opd'], badgeBg: 'bg-teal-100',   badgeText: 'text-teal-800'   },
+  { key: 'over_req',      label: 'เบิกเกินจำนวน',           short: 'เบิกเกิน',   sources: ['ward', 'opd'],             badgeBg: 'bg-cyan-100',   badgeText: 'text-cyan-800'   },
+  { key: 'wrong_drug',    label: 'ยาผิดชนิด / ขนาด',       short: 'ผิดชนิด',   sources: ['ward', 'or', 'er', 'opd', 'vendor'], badgeBg: 'bg-amber-100',  badgeText: 'text-amber-800'  },
+  { key: 'damaged',       label: 'ยาเสียหาย / แตกหัก',     short: 'ยาเสียหาย', sources: ['ward', 'or', 'er', 'opd', 'vendor'], badgeBg: 'bg-orange-100', badgeText: 'text-orange-800' },
+  { key: 'expired',       label: 'ยาหมดอายุ',               short: 'ยาหมดอายุ', sources: ['ward', 'or', 'er', 'opd', 'vendor'], badgeBg: 'bg-red-100',    badgeText: 'text-red-800'    },
+  { key: 'recall',        label: 'Lot เรียกคืน (Recall)',   short: 'Recall',     sources: ['vendor'],                  badgeBg: 'bg-rose-100',   badgeText: 'text-rose-800'   },
+  { key: 'vendor_return', label: 'ส่งคืนตามสัญญา',         short: 'คืนบริษัท', sources: ['vendor'],                  badgeBg: 'bg-purple-100', badgeText: 'text-purple-800' },
+]
+const REASON_MAP = Object.fromEntries(RETURN_REASONS.map(r => [r.key, r]))
+
+// ── helper: คืน badge info สำหรับแสดงผล ──
+function getReturnBadge(log) {
+  if (!log.return_source) return LEGACY_MAP[log.return_type] || { label: log.return_type || '-', badgeBg: 'bg-slate-100', badgeText: 'text-slate-600', border: 'border-slate-200' }
+  const src = SOURCE_MAP[log.return_source]
+  return src || { label: log.return_source, badgeBg: 'bg-slate-100', badgeText: 'text-slate-600', border: 'border-slate-200' }
+}
+function getReturnLabel(log) {
+  if (!log.return_source) {
+    const t = LEGACY_MAP[log.return_type]
+    return t ? t.label : (log.return_type || '-')
+  }
+  const src = SOURCE_MAP[log.return_source]
+  const rsn = REASON_MAP[log.return_type]
+  const parts = [src?.label, rsn?.label].filter(Boolean)
+  return parts.join(' · ') || '-'
+}
+function getReturnShort(log) {
+  if (!log.return_source) {
+    const t = LEGACY_MAP[log.return_type]
+    return t ? t.short : (log.return_type || '-')
+  }
+  const src = SOURCE_MAP[log.return_source]
+  return src?.short || log.return_source || '-'
+}
+
+// ── ยังคง RETURN_TYPES ไว้ให้ backward compat (EditReturnModal legacy) ──
+const RETURN_TYPES = LEGACY_TYPES
+const TYPE_MAP = LEGACY_MAP
 
 const DEPARTMENTS = [
   'ห้องยา G','ห้องยา 1','ER (ฉุกเฉิน)','IPD (ผู้ป่วยใน)','OPD (ผู้ป่วยนอก)','LR (ห้องคลอด)',
@@ -26,6 +78,8 @@ const DEPARTMENTS = [
   'กลุ่มงานจิตเวชและยาเสพติด','IPD-หน่วยวัง','IPD-โดม',
   'รพสต.คูคต','รพสต.วัดประยูร',
 ]
+const VENDOR_LABEL = 'บริษัทยา / Supplier'
+const SOURCE_DEPARTMENTS = [...DEPARTMENTS, VENDOR_LABEL]
 
 function isoToThai(iso) {
   if (!iso) return '-'
@@ -33,15 +87,37 @@ function isoToThai(iso) {
   return `${d}/${m}/${Number(y) + 543}`
 }
 
+function IsoDateInput({ value, onChange, className = '', ring = 'focus-within:ring-violet-400' }) {
+  const display = iso => { if (!iso) return null; const [y,m,d] = iso.split('-'); return `${d}/${m}/${Number(y)+543}`; }
+  return (
+    <div className={`relative flex items-center bg-white border border-slate-300 rounded-xl focus-within:ring-2 ${ring} ${className}`}>
+      <span className={`px-3 py-2 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
+      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)} className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+    </div>
+  )
+}
+
 function printReturnLog(r) {
-  const typeInfo = TYPE_MAP[r.return_type] || { label: r.return_type || '-' }
-  const typeColors = {
+  // รองรับทั้งข้อมูลใหม่ (2 ระดับ) และเก่า (legacy)
+  const srcInfo    = r.return_source ? SOURCE_MAP[r.return_source] : null
+  const reasonInfo = r.return_source ? REASON_MAP[r.return_type]   : null
+  const legacyInfo = !r.return_source ? (LEGACY_MAP[r.return_type] || { label: r.return_type || '-' }) : null
+  const badgeLabel = srcInfo ? srcInfo.label : (legacyInfo?.label || r.return_type || '-')
+  const subLabel   = reasonInfo ? reasonInfo.label : null
+
+  const sourceColors = {
+    ward:   { bg: '#DBEAFE', text: '#1E40AF', border: '#93C5FD' },
+    or:     { bg: '#EDE9FE', text: '#5B21B6', border: '#C4B5FD' },
+    er:     { bg: '#FEE2E2', text: '#991B1B', border: '#FCA5A5' },
+    opd:    { bg: '#E0F2FE', text: '#075985', border: '#7DD3FC' },
+    vendor: { bg: '#FED7AA', text: '#9A3412', border: '#FDBA74' },
+    // legacy
     ward_return:     { bg: '#DBEAFE', text: '#1E40AF', border: '#93C5FD' },
     damaged:         { bg: '#FED7AA', text: '#9A3412', border: '#FDBA74' },
     expired_removal: { bg: '#FEE2E2', text: '#991B1B', border: '#FCA5A5' },
     vendor_return:   { bg: '#EDE9FE', text: '#5B21B6', border: '#C4B5FD' },
   }
-  const tc = typeColors[r.return_type] || { bg: '#F1F5F9', text: '#475569', border: '#CBD5E1' }
+  const tc = sourceColors[r.return_source || r.return_type] || { bg: '#F1F5F9', text: '#475569', border: '#CBD5E1' }
   const printDate = isoToThai(r.return_date || new Date().toISOString().slice(0, 10))
   const today = isoToThai(new Date().toISOString().slice(0, 10))
 
@@ -89,7 +165,7 @@ function printReturnLog(r) {
 
 <h1>ใบคืนยา / บันทึกยาเสียหาย</h1>
 <p class="sub">Return &amp; Write-off Record</p>
-<div class="badge">${typeInfo.label}</div>
+<div class="badge">${badgeLabel}</div>${subLabel ? `<div style="font-size:11px;color:#64748b;margin-bottom:14px;margin-top:-10px;">สาเหตุ: ${subLabel}</div>` : ''}
 
 <hr class="divider"/>
 
@@ -115,7 +191,7 @@ function printReturnLog(r) {
 <div class="grid3" style="margin-bottom:10px;">
   <div class="field"><label>หน่วยงานที่คืน</label><span>${r.department && r.department !== '-' ? r.department : '-'}</span></div>
   <div class="field"><label>ผู้คืน / ผู้แจ้ง</label><span>${r.returned_by && r.returned_by !== '-' ? r.returned_by : '-'}</span></div>
-  <div class="field"><label>เภสัชกรผู้รับ / บันทึก</label><span>${r.received_by && r.received_by !== '-' ? r.received_by : '-'}</span></div>
+  <div class="field"><label>เจ้าหน้าที่ผู้รับคืน / บันทึก</label><span>${r.received_by && r.received_by !== '-' ? r.received_by : '-'}</span></div>
 </div>
 ${r.note ? `<p class="section-title" style="margin-top:6px;">หมายเหตุ</p><div class="note-box">${r.note}</div>` : ''}
 
@@ -194,19 +270,20 @@ function RecordTab({ auth }) {
   const today = new Date().toISOString().split('T')[0]
 
   const emptyForm = () => ({
-    return_date:  today,
-    return_type:  'ward_return',
-    drug_name:    '',
-    drug_code:    '-',
-    drug_type:    '-',
-    lot:          '-',
-    exp:          '-',
-    qty_returned: '',
-    drug_unit:    '-',
-    department:   '',
-    returned_by:  '',
-    received_by:  auth?.name || '',
-    note:         '',
+    return_date:   today,
+    return_source: 'ward',
+    return_type:   'leftover',
+    drug_name:     '',
+    drug_code:     '-',
+    drug_type:     '-',
+    lot:           '-',
+    exp:           '-',
+    qty_returned:  '',
+    drug_unit:     '-',
+    department:    '',
+    returned_by:   '',
+    received_by:   auth?.name || '',
+    note:          '',
   })
 
   const [form, setForm]           = useState(emptyForm())
@@ -257,26 +334,27 @@ function RecordTab({ auth }) {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
-    if (!form.drug_name.trim())                        { setError('กรุณากรอกชื่อยา'); return }
+    if (!form.department)                                         { setError('กรุณาเลือกหน่วยงาน / แหล่งที่คืน'); return }
+    if (!form.drug_name.trim())                                   { setError('กรุณากรอกชื่อยา'); return }
     if (!form.qty_returned || parseFloat(form.qty_returned) <= 0) { setError('กรุณากรอกจำนวนที่ถูกต้อง'); return }
-    if (form.return_type === 'ward_return' && !form.department)   { setError('กรุณาเลือกหน่วยงานที่คืน'); return }
 
     setSubmitting(true)
     try {
       await insertReturnLog({
-        return_date:  form.return_date,
-        drug_name:    form.drug_name.trim(),
-        drug_code:    form.drug_code   || '-',
-        drug_type:    form.drug_type   || '-',
-        lot:          form.lot         || '-',
-        exp:          form.exp         || '-',
-        qty_returned: parseFloat(form.qty_returned),
-        drug_unit:    form.drug_unit   || '-',
-        return_type:  form.return_type,
-        department:   form.return_type === 'ward_return' ? (form.department || '-') : '-',
-        returned_by:  form.returned_by || '-',
-        received_by:  form.received_by || '-',
-        note:         form.note        || null,
+        return_date:   form.return_date,
+        return_source: form.return_source,
+        drug_name:     form.drug_name.trim(),
+        drug_code:     form.drug_code   || '-',
+        drug_type:     form.drug_type   || '-',
+        lot:           form.lot         || '-',
+        exp:           form.exp         || '-',
+        qty_returned:  parseFloat(form.qty_returned),
+        drug_unit:     form.drug_unit   || '-',
+        return_type:   form.return_type,
+        department:    form.department || '-',
+        returned_by:   form.returned_by || '-',
+        received_by:   form.received_by || '-',
+        note:          form.note        || null,
       })
       setLastSubmitted({ ...form })
       setSuccess(true)
@@ -311,21 +389,40 @@ function RecordTab({ auth }) {
         </div>
       )}
 
-      {/* ประเภทการคืน */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-        <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">ประเภทการคืน / บันทึก</p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {RETURN_TYPES.map(t => (
-            <button key={t.key} type="button" onClick={() => set('return_type', t.key)}
-              className={`px-3 py-2.5 rounded-xl text-xs font-semibold border-2 transition-all text-center ${
-                form.return_type === t.key
-                  ? `${t.badgeBg} ${t.badgeText} ${t.border} shadow-sm scale-[1.02]`
-                  : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-300'
-              }`}>
-              {t.label}
-            </button>
-          ))}
+      {/* ประเภทการคืน — 2 ระดับ */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+        {/* ระดับ 1: คืนจากไหน — dropdown หน่วยงาน */}
+        <div>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2.5">คืนจากไหน *</p>
+          <SearchableSelect
+            value={form.department}
+            onChange={v => {
+              const isVendor = v === VENDOR_LABEL
+              const newSource = isVendor ? 'vendor' : 'ward'
+              const validReasons = RETURN_REASONS.filter(r => r.sources.includes(newSource))
+              set('department', v)
+              set('return_source', newSource)
+              set('return_type', validReasons[0]?.key || '')
+            }}
+            options={SOURCE_DEPARTMENTS}
+            placeholder="-- เลือกหน่วยงาน / แหล่งที่คืน --"
+          />
         </div>
+        {/* ระดับ 2: สาเหตุ */}
+        {form.department && (() => {
+          const validReasons = RETURN_REASONS.filter(r => r.sources.includes(form.return_source))
+          return validReasons.length > 0 ? (
+            <div>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2.5">สาเหตุการคืน *</p>
+              <select value={form.return_type} onChange={e => set('return_type', e.target.value)}
+                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-violet-400 appearance-none">
+                {validReasons.map(r => (
+                  <option key={r.key} value={r.key}>{r.label}</option>
+                ))}
+              </select>
+            </div>
+          ) : null
+        })()}
       </div>
 
       {/* ข้อมูลยา */}
@@ -335,8 +432,7 @@ function RecordTab({ auth }) {
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">วันที่คืน / บันทึก *</label>
-            <input type="date" value={form.return_date} onChange={e => set('return_date', e.target.value)} required
-              className="w-full border border-slate-300 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-violet-400" />
+            <IsoDateInput value={form.return_date} onChange={v => set('return_date', v)} className="w-full" />
           </div>
 
           <div ref={drugRef} className="relative">
@@ -407,13 +503,6 @@ function RecordTab({ auth }) {
       <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
         <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">ข้อมูลผู้คืน / ผู้รับ</p>
         <div className="grid sm:grid-cols-2 gap-4">
-          {form.return_type === 'ward_return' && (
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">หน่วยงานที่คืน *</label>
-              <SearchableSelect value={form.department} onChange={v => set('department', v)}
-                options={DEPARTMENTS} placeholder="-- เลือกหน่วยงาน --" />
-            </div>
-          )}
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">ชื่อผู้คืน / ผู้แจ้ง</label>
             <input type="text" value={form.returned_by} onChange={e => set('returned_by', e.target.value)}
@@ -421,7 +510,7 @@ function RecordTab({ auth }) {
               className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">เภสัชกรผู้รับ / บันทึก</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">เจ้าหน้าที่ผู้รับคืน / บันทึก</label>
             <input type="text" value={form.received_by} onChange={e => set('received_by', e.target.value)}
               placeholder="ชื่อ-สกุล"
               className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
@@ -445,7 +534,8 @@ function RecordTab({ auth }) {
 
 const RETURN_EXCEL_COLS = [
   { header: 'วันที่',          key: 'return_date' },
-  { header: 'ประเภท',          value: r => ({ ward_return: 'คืนยาจาก Ward', damaged: 'ยาเสียหาย', expired_removal: 'ตัดยาหมดอายุ', vendor_return: 'ส่งคืนบริษัท' })[r.return_type] || r.return_type },
+  { header: 'แหล่งที่คืน',    value: r => r.return_source ? (SOURCE_MAP[r.return_source]?.label || r.return_source) : (LEGACY_MAP[r.return_type]?.label || r.return_type) },
+  { header: 'สาเหตุ',          value: r => r.return_source ? (REASON_MAP[r.return_type]?.label || r.return_type || '-') : '-' },
   { header: 'ชื่อยา',          key: 'drug_name' },
   { header: 'รหัสยา',          key: 'drug_code' },
   { header: 'ชนิด',            key: 'drug_type' },
@@ -607,11 +697,14 @@ function HistoryTab({ auth = {} }) {
   const load = async () => {
     setLoading(true)
     try {
+      // แยก filter: key ใน RETURN_SOURCES → returnSource, อื่น → returnType (legacy)
+      const srcKeys = new Set(RETURN_SOURCES.map(s => s.key))
       const data = await fetchReturnLogs({
-        dateFrom:   dateFrom   || undefined,
-        dateTo:     dateTo     || undefined,
-        returnType: filterType !== 'all' ? filterType : undefined,
-        drugName:   search.trim() || undefined,
+        dateFrom:     dateFrom   || undefined,
+        dateTo:       dateTo     || undefined,
+        returnSource: filterType !== 'all' && srcKeys.has(filterType) ? filterType : undefined,
+        returnType:   filterType !== 'all' && !srcKeys.has(filterType) ? filterType : undefined,
+        drugName:     search.trim() || undefined,
       })
       setLogs(data)
     } catch (err) {
@@ -623,7 +716,18 @@ function HistoryTab({ auth = {} }) {
 
   useEffect(() => { load() }, [filterType, dateFrom, dateTo])
 
-  const countOf = (key) => key === 'all' ? logs.length : logs.filter(l => l.return_type === key).length
+  const countOf = (key) => {
+    if (key === 'all') return logs.length
+    const srcKeys = new Set(RETURN_SOURCES.map(s => s.key))
+    if (srcKeys.has(key)) {
+      // แท็บ source: นับทั้งข้อมูลใหม่ (return_source) และ legacy mapping
+      if (key === 'ward')   return logs.filter(l => l.return_source === 'ward' || (!l.return_source && l.return_type === 'ward_return')).length
+      if (key === 'vendor') return logs.filter(l => l.return_source === 'vendor' || (!l.return_source && l.return_type === 'vendor_return')).length
+      return logs.filter(l => l.return_source === key).length
+    }
+    // legacy key
+    return logs.filter(l => l.return_type === key).length
+  }
 
   const handleDelete = async (id) => {
     try {
@@ -639,9 +743,9 @@ function HistoryTab({ auth = {} }) {
       {/* Filters */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
         <div className="flex gap-2 flex-wrap">
-          <ISODateInput value={dateFrom} onChange={setDateFrom} />
+          <IsoDateInput value={dateFrom} onChange={setDateFrom} />
           <span className="self-center text-slate-400 text-sm">–</span>
-          <ISODateInput value={dateTo} onChange={setDateTo} />
+          <IsoDateInput value={dateTo} onChange={setDateTo} />
           <div className="flex-1 min-w-[160px] relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}
@@ -666,12 +770,12 @@ function HistoryTab({ auth = {} }) {
             className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${filterType === 'all' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
             ทั้งหมด ({countOf('all')})
           </button>
-          {RETURN_TYPES.map(t => (
-            <button key={t.key} onClick={() => setFilterType(t.key)}
+          {RETURN_SOURCES.map(s => (
+            <button key={s.key} onClick={() => setFilterType(s.key)}
               className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
-                filterType === t.key ? `${t.badgeBg} ${t.badgeText} ${t.border}` : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                filterType === s.key ? `${s.badgeBg} ${s.badgeText} ${s.border}` : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
               }`}>
-              {t.short} ({countOf(t.key)})
+              {s.short} ({countOf(s.key)})
             </button>
           ))}
         </div>
@@ -689,15 +793,18 @@ function HistoryTab({ auth = {} }) {
             </div>
             <div className="p-4 space-y-3">
               {(() => {
-                const t = TYPE_MAP[mobileDetail.return_type] || { badgeBg: 'bg-slate-100', badgeText: 'text-slate-600', label: mobileDetail.return_type }
+                const b = getReturnBadge(mobileDetail)
                 return (
                   <div className="grid grid-cols-2 gap-2">
                     <div className="bg-violet-50 rounded-xl p-2.5 text-center col-span-1">
                       <p className="text-lg font-bold text-violet-700">{Number(mobileDetail.qty_returned).toLocaleString()}</p>
                       <p className="text-[10px] text-violet-500">{mobileDetail.drug_unit && mobileDetail.drug_unit !== '-' ? mobileDetail.drug_unit : 'หน่วย'}</p>
                     </div>
-                    <div className="flex items-center justify-center">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${t.badgeBg} ${t.badgeText}`}>{t.label}</span>
+                    <div className="flex flex-col items-center justify-center gap-1">
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${b.badgeBg} ${b.badgeText}`}>{b.label}</span>
+                      {mobileDetail.return_source && REASON_MAP[mobileDetail.return_type] && (
+                        <span className="text-[10px] text-slate-500">{REASON_MAP[mobileDetail.return_type].label}</span>
+                      )}
                     </div>
                   </div>
                 )
@@ -750,7 +857,7 @@ function HistoryTab({ auth = {} }) {
       ) : isMobile ? (
         <div className="space-y-2">
           {logs.map((l, i) => {
-            const t = TYPE_MAP[l.return_type] || { badgeBg: 'bg-slate-100', badgeText: 'text-slate-600', short: l.return_type }
+            const b = getReturnBadge(l)
             return (
               <div key={l.id} onClick={() => setMobileDetail(l)}
                 className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm active:bg-violet-50 transition-colors cursor-pointer">
@@ -765,8 +872,13 @@ function HistoryTab({ auth = {} }) {
                   </div>
                 </div>
                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${t.badgeBg} ${t.badgeText}`}>{t.short}</span>
-                  <span className="text-xs text-slate-500 truncate ml-2">{l.department !== '-' ? l.department : ''}</span>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold shrink-0 ${b.badgeBg} ${b.badgeText}`}>{b.label}</span>
+                    {l.return_source && REASON_MAP[l.return_type] && (
+                      <span className="text-[10px] text-slate-400 truncate">{REASON_MAP[l.return_type].short}</span>
+                    )}
+                  </div>
+                  <span className="text-xs text-slate-500 truncate ml-2 shrink-0">{l.department !== '-' ? l.department : ''}</span>
                 </div>
               </div>
             )
@@ -790,7 +902,7 @@ function HistoryTab({ auth = {} }) {
               </thead>
               <tbody>
                 {logs.map((l, i) => {
-                  const t = TYPE_MAP[l.return_type] || { badgeBg: 'bg-slate-100', badgeText: 'text-slate-600', label: l.return_type, short: l.return_type }
+                  const b = getReturnBadge(l)
                   const isOpen = expanded === l.id
                   return (
                     <React.Fragment key={l.id}>
@@ -802,7 +914,10 @@ function HistoryTab({ auth = {} }) {
                           {l.drug_code && l.drug_code !== '-' && <span className="text-xs text-slate-400 font-normal">{l.drug_code}</span>}
                         </td>
                         <td className="px-4 py-2.5">
-                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${t.badgeBg} ${t.badgeText}`}>{t.short}</span>
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${b.badgeBg} ${b.badgeText}`}>{b.label}</span>
+                          {l.return_source && REASON_MAP[l.return_type] && (
+                            <div className="text-[10px] text-slate-400 mt-0.5">{REASON_MAP[l.return_type].label}</div>
+                          )}
                         </td>
                         <td className="px-4 py-2.5 text-right font-bold text-violet-700">
                           {Number(l.qty_returned).toLocaleString()}

@@ -17,6 +17,16 @@ import DrugSearchBar from './DrugSearchBar';
 // ============================================================
 // Drug type badge colors
 // normalize code สำหรับ match — ตัด leading zeros, lowercase, แก้ scientific notation
+function IsoDateInput({ value, onChange, className = '', ring = 'focus-within:ring-[#1E90FF]' }) {
+  const display = iso => { if (!iso) return null; const [y,m,d] = iso.split('-'); return `${d}/${m}/${Number(y)+543}`; }
+  return (
+    <div className={`relative flex items-center bg-white border border-slate-300 rounded-xl focus-within:ring-2 ${ring} ${className}`}>
+      <span className={`px-3 py-2 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
+      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)} className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+    </div>
+  )
+}
+
 const codeKey = (val) => {
   if (!val || val === '-') return '';
   let s = String(val).trim().toLowerCase();
@@ -1348,9 +1358,9 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
       <div className="flex-1 p-4 space-y-3">
         {/* Date range filter */}
         <div className="flex flex-wrap items-center gap-2">
-          <ISODateInput value={dateFrom} onChange={v => { setDateFrom(v); setLoading(true); }} className="flex-1 min-w-[130px]" />
+          <IsoDateInput value={dateFrom} onChange={v => { setDateFrom(v); setLoading(true); }} className="flex-1 min-w-[130px]" />
           <span className="text-slate-400 text-sm">–</span>
-          <ISODateInput value={dateTo} onChange={v => { setDateTo(v); setLoading(true); }} className="flex-1 min-w-[130px]" />
+          <IsoDateInput value={dateTo} onChange={v => { setDateTo(v); setLoading(true); }} className="flex-1 min-w-[130px]" />
           {(dateFrom || dateTo) && (
             <button onClick={() => { setDateFrom(''); setDateTo(''); }}
               className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-100">

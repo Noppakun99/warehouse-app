@@ -420,7 +420,7 @@ export async function fetchDashboardAlerts() {
 
 // --- Return Logs ---
 
-export async function fetchReturnLogs({ dateFrom, dateTo, returnType, drugName } = {}) {
+export async function fetchReturnLogs({ dateFrom, dateTo, returnSource, returnType, drugName } = {}) {
   if (!supabase) return []
 
   let q = supabase
@@ -429,10 +429,20 @@ export async function fetchReturnLogs({ dateFrom, dateTo, returnType, drugName }
     .order('return_date', { ascending: false })
     .order('created_at',  { ascending: false })
 
-  if (dateFrom)                      q = q.gte('return_date', dateFrom)
-  if (dateTo)                        q = q.lte('return_date', dateTo)
-  if (returnType && returnType !== 'all') q = q.eq('return_type', returnType)
-  if (drugName)                      q = q.ilike('drug_name', `%${drugName}%`)
+  if (dateFrom) q = q.gte('return_date', dateFrom)
+  if (dateTo)   q = q.lte('return_date', dateTo)
+  if (returnSource && returnSource !== 'all') {
+    // ward และ vendor รองรับข้อมูลเก่าด้วย OR filter
+    if (returnSource === 'ward')
+      q = q.or('return_source.eq.ward,and(return_source.is.null,return_type.eq.ward_return)')
+    else if (returnSource === 'vendor')
+      q = q.or('return_source.eq.vendor,and(return_source.is.null,return_type.eq.vendor_return)')
+    else
+      q = q.eq('return_source', returnSource)
+  } else if (returnType && returnType !== 'all') {
+    q = q.eq('return_type', returnType)
+  }
+  if (drugName) q = q.ilike('drug_name', `%${drugName}%`)
 
   const { data, error } = await q.limit(500)
   if (error) throw error
@@ -518,6 +528,12 @@ export async function updateAuditLog(id, { user_name, department, record_count, 
 export async function deleteAuditLog(id) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
   const { error } = await supabase.from('audit_logs').delete().eq('id', id)
+  if (error) throw error
+}
+
+export async function bulkDeleteAuditLogs(ids) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error } = await supabase.from('audit_logs').delete().in('id', ids)
   if (error) throw error
 }
 

@@ -415,6 +415,87 @@ changeAppUserPassword(id, newPassword)
 - **Dept chart**: แสดง Top 5 default, ปุ่ม "ดูทั้งหมด" toggle `showAllDepts`
 - **Forecast table**: sort by `p1`/`p6`/`p12` ตาม `forecastPeriod` toggle (1/6/12 เดือน)
 
+## ReturnApp — Return Type 2-Level Selection
+
+### โครงสร้างประเภทการคืนยา (ระบบใหม่)
+- **ระดับ 1 (return_source)**: derive อัตโนมัติจาก `department` — `'vendor'` ถ้าเลือก "บริษัทยา / Supplier", `'ward'` สำหรับหน่วยงานอื่น
+- **ระดับ 2 (return_type → reason)**: สาเหตุ — `leftover`, `over_req`, `wrong_drug`, `damaged`, `expired`, `recall`, `vendor_return`
+- สาเหตุที่แสดงในระดับ 2 กรองตาม source ที่ derive ได้ (เช่น `recall` ใช้ได้เฉพาะ `vendor`)
+- `SOURCE_MAP` / `REASON_MAP` — lookup ชื่อ, badge color
+- **ข้อมูลเก่า (Legacy)**: `return_source = null` → ใช้ `LEGACY_MAP` แสดง label เดิม (ward_return, damaged, expired_removal, vendor_return)
+
+### UI — RecordTab Form (ปัจจุบัน)
+- **ระดับ 1**: `SearchableSelect` dropdown จาก `SOURCE_DEPARTMENTS` = `[...DEPARTMENTS, 'บริษัทยา / Supplier']`
+  - เลือกแล้ว → set `form.department` + derive `form.return_source` + auto-select reason แรก
+  - `VENDOR_LABEL = 'บริษัทยา / Supplier'` — ตรวจด้วย `v === VENDOR_LABEL`
+- **ระดับ 2**: `<select>` dropdown กรองตาม `form.return_source` — แสดงเฉพาะหลังเลือกหน่วยงานแล้ว
+- Validation: `department` required เสมอ (ไม่ใช้ needsDept อีกต่อไป)
+- field `department` ใน DB = ชื่อหน่วยงานที่เลือกโดยตรง (เช่น "ER (ฉุกเฉิน)")
+
+### DB Column
+- `return_logs.return_source TEXT` — เพิ่มด้วย `return_source_migration.sql` (รันแล้ว)
+- `return_logs.return_type` — เดิมเก็บ legacy key, ใหม่เก็บ reason key
+- `return_logs.department` — เดิมเก็บชื่อแผนก (ward เท่านั้น), ใหม่เก็บชื่อหน่วยงานทุกประเภท
+
+### Helper Functions
+- `getReturnBadge(log)` — คืน `{ badgeBg, badgeText, label }` รองรับทั้งใหม่/เก่า
+- `getReturnLabel(log)` — แสดง "source · reason" (ใหม่) หรือ legacy label
+- `getReturnShort(log)` — short label สำหรับ mobile card
+
+### Filter Tabs (HistoryTab)
+- Filter tabs ใช้ RETURN_SOURCES keys: ward, or, er, opd, vendor
+- `countOf('ward')` นับทั้ง `return_source='ward'` และ legacy `return_type='ward_return'`
+- `fetchReturnLogs` รับ `returnSource` (ใหม่) หรือ `returnType` (legacy)
+
+### Label
+- "เจ้าหน้าที่ผู้รับคืน / บันทึก" (ไม่ใช้คำว่า "เภสัชกร") — ทั้ง form และ print view
+
+### Do Not (Return Type)
+- อย่าใช้ `SOURCE_MAP[source].needsDept` เพื่อตรวจว่าต้องแสดงช่องแผนก — ถูกลบออกแล้ว ใช้ `form.department` required แทน
+- อย่า hardcode `return_source = 'ward'` สำหรับหน่วยงานเฉพาะ — ใช้ `v === VENDOR_LABEL` เท่านั้น
+
+## IsoDateInput — วันที่แสดง DD/MM/YYYY (พ.ศ.)
+
+### ปัญหา
+`<input type="date">` บน browser ที่ locale เป็น US แสดง MM/DD/YYYY แทน DD/MM/YYYY
+
+### Pattern ที่ถูกต้อง (ISO state)
+เพิ่ม `IsoDateInput` component inline ในแต่ละ file ที่ต้องการ:
+```jsx
+function IsoDateInput({ value, onChange, className = '' }) {
+  const display = iso => { if (!iso) return null; const [y,m,d] = iso.split('-'); return `${d}/${m}/${Number(y)+543}`; }
+  return (
+    <div className={`relative flex items-center bg-white border border-slate-300 rounded-lg focus-within:ring-2 ... ${className}`}>
+      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
+      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)} className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+    </div>
+  )
+}
+```
+- state เก็บ ISO (YYYY-MM-DD) — ไม่ต้องแปลงก่อนส่ง Supabase
+- ต่างจาก `ThaiDateInput` ใน DispenseLog/ReceiveLog ที่เก็บ DD/MM/YYYY
+
+### Files ที่ใช้ IsoDateInput
+| App | จุดที่ใช้ |
+|-----|---------|
+| AuditLogApp | filter dateFrom / dateTo |
+| ReturnApp | RecordTab form date + HistoryTab filter |
+| AnalyticsApp | filter (dark bg: `bg-white/10 text-white`) |
+| RequisitionApp | StaffDashboard history filter |
+
+### Do Not
+- อย่าใช้ plain `<input type="date">` โดยตรงในที่ที่แสดงผลให้ user เห็น — ใช้ IsoDateInput แทนเสมอ
+- ThaiDateInput (Dispense/ReceiveLog) เก็บ DD/MM/YYYY — **ห้ามสลับกับ IsoDateInput**
+
+## AuditLogApp — Bulk Select (Admin)
+
+- **Checkbox** ซ้ายทุก row (desktop + mobile card) แสดงเฉพาะ `auth.role === 'admin'`
+- **Select All** — checkbox ใน header ตาราง มี indeterminate state ถ้าเลือกบางส่วน
+- **Bulk Action Bar** ใน header ของ table: "เลือก N รายการ · ยกเลิก · ลบที่เลือก"
+- **Confirm 2 ขั้น**: กดครั้งแรก → "ยืนยันลบ N รายการ", กดอีก → ลบจริง
+- `bulkDeleteAuditLogs(ids)` ใน db.js — ลบหลาย row ด้วย `.in('id', ids)`
+- Reset selection อัตโนมัติเมื่อค้นหาใหม่ (useEffect load)
+
 ## ReturnApp — Admin Edit/Delete (HistoryTab)
 
 - **ปุ่มแก้ไข/ลบ** แสดงเฉพาะ `auth.role === 'admin'` — staff/requester ไม่เห็น

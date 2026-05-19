@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Search, ClipboardList, Pencil, Trash2, X, Save } from 'lucide-react';
-import { fetchAuditLogs, updateAuditLog, deleteAuditLog } from './lib/db';
+import { ArrowLeft, Search, ClipboardList, Pencil, Trash2, X, Save, CheckSquare } from 'lucide-react';
+import { fetchAuditLogs, updateAuditLog, deleteAuditLog, bulkDeleteAuditLogs } from './lib/db';
 
 const ACTION_LABELS = {
   import_inventory:             { label: 'นำเข้า Inventory',       color: 'bg-blue-100 text-blue-700'      },
@@ -91,19 +91,15 @@ function monthAgoStr() {
   return d.toISOString().slice(0, 10);
 }
 
-function ISODateInput({ value, onChange, ring = 'focus-within:ring-slate-400', className = 'w-28' }) {
-  const display = value ? value.split('-').reverse().join('/') : '';
+function IsoDateInput({ value, onChange, className = '' }) {
+  const display = iso => { if (!iso) return null; const [y,m,d] = iso.split('-'); return `${d}/${m}/${Number(y)+543}`; }
   return (
-    <div className={`relative ${className} min-h-[36px] border border-slate-300 rounded-lg bg-white flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:outline-none ${ring}`}>
-      <span className={`px-2 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
-        {display || 'dd/mm/yyyy'}
-      </span>
-      <input type="date"
-        className="absolute inset-0 opacity-0 w-full cursor-pointer text-base"
-        value={value || ''}
-        onChange={e => onChange(e.target.value)} />
+    <div className={`relative flex items-center bg-white border border-slate-300 rounded-lg focus-within:ring-2 focus-within:ring-slate-400 ${className}`}>
+      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
+      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)} className="absolute inset-0 opacity-0 w-full cursor-pointer" />
     </div>
-  );
+  )
+}
 }
 
 export default function AuditLogApp({ onBack, onRefresh, auth }) {
@@ -127,6 +123,36 @@ export default function AuditLogApp({ onBack, onRefresh, auth }) {
   const [deleteId, setDeleteId] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+
+  // bulk select state (admin only)
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkConfirm, setBulkConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  const isAdmin = auth?.role === 'admin';
+  const allSelected = logs.length > 0 && selectedIds.size === logs.length;
+  const someSelected = selectedIds.size > 0 && selectedIds.size < logs.length;
+
+  const toggleSelect = (id) => setSelectedIds(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  const toggleSelectAll = () => {
+    if (allSelected) setSelectedIds(new Set());
+    else setSelectedIds(new Set(logs.map(r => r.id)));
+  };
+
+  const handleBulkDelete = async () => {
+    setBulkDeleting(true);
+    try {
+      await bulkDeleteAuditLogs([...selectedIds]);
+      setLogs(prev => prev.filter(r => !selectedIds.has(r.id)));
+      setSelectedIds(new Set());
+      setBulkConfirm(false);
+    } catch (e) { alert('ลบไม่สำเร็จ: ' + e.message); }
+    setBulkDeleting(false);
+  };
 
   useEffect(() => {
     const fn = () => setIsMobile(window.innerWidth < 768);
@@ -196,7 +222,7 @@ export default function AuditLogApp({ onBack, onRefresh, auth }) {
     setDeleting(false);
   };
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); setSelectedIds(new Set()); setBulkConfirm(false); }, [load]);
 
   const actionTabs = [
     { key: 'all',                          label: 'ทั้งหมด' },
@@ -231,11 +257,11 @@ export default function AuditLogApp({ onBack, onRefresh, auth }) {
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex flex-wrap gap-3 items-end">
           <div className="flex flex-col gap-1">
             <label className="text-xs text-slate-500 font-medium">วันที่เริ่ม</label>
-            <ISODateInput value={dateFrom} onChange={setDateFrom} />
+            <IsoDateInput value={dateFrom} onChange={setDateFrom} />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-slate-500 font-medium">วันที่สิ้นสุด</label>
-            <ISODateInput value={dateTo} onChange={setDateTo} />
+            <IsoDateInput value={dateTo} onChange={setDateTo} />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-slate-500 font-medium">ค้นหาผู้ใช้</label>
@@ -315,10 +341,36 @@ export default function AuditLogApp({ onBack, onRefresh, auth }) {
 
         {/* Table */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 gap-3 flex-wrap">
             <span className="text-sm font-semibold text-slate-700">
               {loading ? 'กำลังโหลด...' : `${logs.length} รายการ`}
             </span>
+            {isAdmin && selectedIds.size > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">เลือก <span className="font-semibold text-slate-700">{selectedIds.size}</span> รายการ</span>
+                <button onClick={() => { setSelectedIds(new Set()); setBulkConfirm(false); }}
+                  className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
+                  ยกเลิก
+                </button>
+                {bulkConfirm ? (
+                  <>
+                    <button onClick={handleBulkDelete} disabled={bulkDeleting}
+                      className="text-xs px-3 py-1 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 transition-colors disabled:opacity-50">
+                      {bulkDeleting ? 'กำลังลบ...' : `ยืนยันลบ ${selectedIds.size} รายการ`}
+                    </button>
+                    <button onClick={() => setBulkConfirm(false)}
+                      className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
+                      <X size={12}/>
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => setBulkConfirm(true)}
+                    className="text-xs px-3 py-1 rounded-lg bg-red-50 text-red-600 border border-red-200 font-semibold hover:bg-red-100 transition-colors flex items-center gap-1">
+                    <Trash2 size={12}/> ลบที่เลือก
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {logs.length === 0 && !loading ? (
@@ -329,9 +381,15 @@ export default function AuditLogApp({ onBack, onRefresh, auth }) {
                 const meta = ACTION_LABELS[r.action] || { label: r.action, color: 'bg-slate-100 text-slate-600' };
                 const isDeletePending = deleteId === r.id;
                 return (
-                  <div key={r.id} className="p-4 space-y-2">
+                  <div key={r.id} className={`p-4 space-y-2 ${selectedIds.has(r.id) ? 'bg-slate-100/70' : ''}`}>
                     <div className="flex items-start justify-between gap-2">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${meta.color}`}>{meta.label}</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        {isAdmin && (
+                          <input type="checkbox" checked={selectedIds.has(r.id)} onChange={() => toggleSelect(r.id)}
+                            className="w-4 h-4 accent-slate-700 cursor-pointer shrink-0 mt-0.5" />
+                        )}
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${meta.color}`}>{meta.label}</span>
+                      </div>
                       <span className="text-[10px] text-slate-400 shrink-0">{fmtDatetime(r.created_at)}</span>
                     </div>
                     <div className="flex items-center gap-2 text-xs text-slate-600">
@@ -372,6 +430,13 @@ export default function AuditLogApp({ onBack, onRefresh, auth }) {
               <table className="w-full text-xs min-w-[800px]">
                 <thead className="sticky top-0 z-20">
                   <tr className="text-slate-500 font-semibold border-b border-slate-100 bg-slate-50">
+                    {isAdmin && (
+                      <th className="pl-4 pr-2 py-2.5 bg-slate-50 w-8">
+                        <input type="checkbox" checked={allSelected} ref={el => { if (el) el.indeterminate = someSelected; }}
+                          onChange={toggleSelectAll}
+                          className="w-3.5 h-3.5 accent-slate-700 cursor-pointer" />
+                      </th>
+                    )}
                     <th className="px-4 py-2.5 text-left bg-slate-50">วันที่/เวลา</th>
                     <th className="px-4 py-2.5 text-left bg-slate-50">การดำเนินการ</th>
                     <th className="px-4 py-2.5 text-left bg-slate-50">ผู้ดำเนินการ</th>
@@ -387,7 +452,13 @@ export default function AuditLogApp({ onBack, onRefresh, auth }) {
                     const isEditing = editId === r.id;
                     const isDeletePending = deleteId === r.id;
                     return (
-                      <tr key={r.id} className={`border-b border-slate-100 ${isEditing ? 'bg-amber-50' : i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
+                      <tr key={r.id} className={`border-b border-slate-100 ${isEditing ? 'bg-amber-50' : selectedIds.has(r.id) ? 'bg-slate-100/70' : i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
+                        {isAdmin && (
+                          <td className="pl-4 pr-2 py-2.5 w-8">
+                            <input type="checkbox" checked={selectedIds.has(r.id)} onChange={() => toggleSelect(r.id)}
+                              className="w-3.5 h-3.5 accent-slate-700 cursor-pointer" />
+                          </td>
+                        )}
                         <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{fmtDatetime(r.created_at)}</td>
                         <td className="px-4 py-2.5">
                           <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${meta.color}`}>
