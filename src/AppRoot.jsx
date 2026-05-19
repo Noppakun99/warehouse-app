@@ -6,7 +6,7 @@ import {
   User, Shield, LogOut, ShieldCheck, Users,
   ChevronRight, Activity, Database, Clock,
   AlertTriangle, ChevronDown, ChevronUp, RotateCcw, ClipboardList,
-  Eye, EyeOff, X, Bell, Search, RefreshCcw,
+  Eye, EyeOff, X, Bell, Search, RefreshCcw, FileDown,
 } from 'lucide-react';
 import App                from './App';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
@@ -721,12 +721,13 @@ function Dashboard({ auth, onNavigate, onLogout }) {
         setUploadMeta(m);
       }
     });
+    fetchDashboardAlerts().then(setAlerts);
+
     if (isStaff) {
       supabase.from('receive_logs').select('created_at').order('created_at', { ascending: false }).limit(1)
         .then(({ data }) => { if (data?.[0]) setLastReceive(data[0].created_at); });
       supabase.from('dispense_logs').select('created_at').order('created_at', { ascending: false }).limit(1)
         .then(({ data }) => { if (data?.[0]) setLastDispense(data[0].created_at); });
-      fetchDashboardAlerts().then(setAlerts);
       loadNotifs();
 
       const sub = supabase
@@ -1000,7 +1001,7 @@ function Dashboard({ auth, onNavigate, onLogout }) {
 
       {/* Alert modals */}
       {alertModal === 'expiry' && (
-        <ExpiryAlertSection expiring={alerts.expiring} onClose={() => setAlertModal(null)} />
+        <ExpiryAlertSection expiring={alerts.expiring} onClose={() => setAlertModal(null)} auth={auth} />
       )}
       {alertModal === 'lowStock' && (
         <LowStockAlertSection lowStock={alerts.lowStock} onClose={() => setAlertModal(null)} />
@@ -1013,9 +1014,22 @@ function Dashboard({ auth, onNavigate, onLogout }) {
 }
 
 // ---- Expiry Alert Section ----
-function ExpiryAlertSection({ expiring = [], onClose }) {
-  const [filter, setFilter]   = React.useState('all'); // all | expired | soon30 | soon90 | soon180 | soon16m
+const EXPIRY_EXCEL_COLS = [
+  { header: 'ชื่อยา',      key: 'name' },
+  { header: 'รหัสยา',      key: 'code' },
+  { header: 'ชนิด',        key: 'type' },
+  { header: 'ตำแหน่ง',    key: 'location' },
+  { header: 'Lot',          key: 'lot' },
+  { header: 'วันหมดอายุ', key: 'exp' },
+  { header: 'สถานะ',       value: r => r.daysLeft < 0 ? `หมดอายุแล้ว ${Math.abs(r.daysLeft)} วัน` : r.daysLeft === 0 ? 'หมดอายุวันนี้' : `อีก ${r.daysLeft} วัน` },
+  { header: 'คงเหลือ',     key: 'qty' },
+  { header: 'หน่วย',       key: 'unit' },
+];
+
+function ExpiryAlertSection({ expiring = [], onClose, auth }) {
+  const [filter, setFilter]     = React.useState('all'); // all | expired | soon30 | soon90 | soon180 | soon16m
   const [expanded, setExpanded] = React.useState(false);
+  const [exporting, setExporting] = React.useState(false);
 
   if (expiring.length === 0) return null;
 
@@ -1063,6 +1077,14 @@ function ExpiryAlertSection({ expiring = [], onClose }) {
 
   const displayed = expanded ? filtered : filtered.slice(0, 8);
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const tabLabel = filter === 'all' ? 'ทั้งหมด' : filter === 'expired' ? 'หมดอายุแล้ว' : filter === 'soon30' ? '30วัน' : filter === 'soon90' ? '1-3เดือน' : filter === 'soon180' ? '3-6เดือน' : '6-16เดือน';
+      await exportToExcel(filtered, EXPIRY_EXCEL_COLS, 'ยาใกล้หมดอายุ', `expiry_alert_${tabLabel}_${new Date().toISOString().slice(0,10)}.xlsx`, auth);
+    } finally { setExporting(false); }
+  };
+
   const inner = (
     <div className={`bg-white border border-red-200 rounded-2xl shadow-sm overflow-hidden flex flex-col ${onClose ? 'max-h-[90vh]' : 'mt-5'}`}>
       {/* Header */}
@@ -1074,11 +1096,14 @@ function ExpiryAlertSection({ expiring = [], onClose }) {
             {expiring.length} รายการ
           </span>
         </div>
-        {onClose && (
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-red-100 rounded-lg transition-colors">
-            <X size={18} />
+        <div className="flex items-center gap-1.5">
+          <button onClick={handleExport} disabled={exporting || filtered.length === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition-colors">
+            {exporting ? <RefreshCcw size={12} className="animate-spin"/> : <FileDown size={12}/>}
+            {exporting ? 'กำลังส่งออก...' : 'Excel'}
           </button>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Filter tabs */}
@@ -1297,6 +1322,13 @@ function StockSummaryModal({ onClose, auth = {} }) {
   const [exporting, setExporting]   = React.useState(false);
   const [uploadInfo, setUploadInfo] = React.useState(null);
   const [isMobile, setIsMobile]     = React.useState(() => window.innerWidth < 768);
+  const [sortBy, setSortBy]         = React.useState(null); // null | { key: 'name'|'lot'|'qty', dir: 'asc'|'desc' }
+
+  const cycleSort = (key) => setSortBy(prev => {
+    if (!prev || prev.key !== key) return { key, dir: 'asc' };
+    if (prev.dir === 'asc') return { key, dir: 'desc' };
+    return null;
+  });
 
   React.useEffect(() => {
     const fn = () => setIsMobile(window.innerWidth < 768);
@@ -1345,6 +1377,25 @@ function StockSummaryModal({ onClose, auth = {} }) {
     !search || (r.name || '').toLowerCase().includes(search.toLowerCase()) ||
     (r.code || '').toLowerCase().includes(search.toLowerCase())
   );
+
+  const sortedFiltered = React.useMemo(() => {
+    if (!sortBy) return filtered;
+    return [...filtered].sort((a, b) => {
+      if (sortBy.key === 'name') {
+        const cmp = (a.name || '').localeCompare(b.name || '', 'th');
+        return sortBy.dir === 'asc' ? cmp : -cmp;
+      }
+      if (sortBy.key === 'lot') {
+        const cmp = (a.lotCount || 0) - (b.lotCount || 0);
+        return sortBy.dir === 'asc' ? cmp : -cmp;
+      }
+      if (sortBy.key === 'qty') {
+        const cmp = (a.totalQty || 0) - (b.totalQty || 0);
+        return sortBy.dir === 'asc' ? cmp : -cmp;
+      }
+      return 0;
+    });
+  }, [filtered, sortBy]);
 
   const handleExport = async () => {
     setExporting(true);
@@ -1414,7 +1465,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
           ) : isMobile ? (
             /* ── Mobile card list ── */
             <div className="divide-y divide-slate-100">
-              {filtered.map((r, i) => (
+              {sortedFiltered.map((r, i) => (
                 <div key={r.code || r.name || i} className="px-4 py-3 flex items-center gap-3">
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-slate-800 text-sm leading-snug truncate">{r.name}</p>
@@ -1438,15 +1489,39 @@ function StockSummaryModal({ onClose, auth = {} }) {
             <table className="w-full text-sm min-w-[560px]">
               <thead className="sticky top-0 z-20">
                 <tr>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 bg-slate-50 sticky left-0 z-30 shadow-[2px_0_4px_rgba(0,0,0,0.06)] whitespace-nowrap">ชื่อยา</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 bg-slate-50 sticky left-0 z-30 shadow-[2px_0_4px_rgba(0,0,0,0.06)] whitespace-nowrap">
+                    <button onClick={() => cycleSort('name')} className="flex items-center gap-1 hover:text-sky-600 transition-colors">
+                      ชื่อยา
+                      <span className="flex flex-col leading-none">
+                        <ChevronUp  size={9} className={sortBy?.key==='name' && sortBy.dir==='asc'  ? 'text-sky-600' : 'text-slate-300'}/>
+                        <ChevronDown size={9} className={sortBy?.key==='name' && sortBy.dir==='desc' ? 'text-sky-600' : 'text-slate-300'}/>
+                      </span>
+                    </button>
+                  </th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 bg-slate-50 whitespace-nowrap">ประเภท</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500 bg-slate-50 whitespace-nowrap">คงเหลือ</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500 bg-slate-50 whitespace-nowrap">
+                    <button onClick={() => cycleSort('qty')} className="flex items-center gap-1 ml-auto hover:text-sky-600 transition-colors">
+                      คงเหลือ
+                      <span className="flex flex-col leading-none">
+                        <ChevronUp  size={9} className={sortBy?.key==='qty' && sortBy.dir==='asc'  ? 'text-sky-600' : 'text-slate-300'}/>
+                        <ChevronDown size={9} className={sortBy?.key==='qty' && sortBy.dir==='desc' ? 'text-sky-600' : 'text-slate-300'}/>
+                      </span>
+                    </button>
+                  </th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 bg-slate-50 whitespace-nowrap">หน่วย</th>
-                  <th className="px-4 py-2.5 text-center text-xs font-semibold text-slate-500 bg-slate-50 whitespace-nowrap">LOT</th>
+                  <th className="px-4 py-2.5 text-center text-xs font-semibold text-slate-500 bg-slate-50 whitespace-nowrap">
+                    <button onClick={() => cycleSort('lot')} className="flex items-center gap-1 mx-auto hover:text-sky-600 transition-colors">
+                      LOT
+                      <span className="flex flex-col leading-none">
+                        <ChevronUp  size={9} className={sortBy?.key==='lot' && sortBy.dir==='asc'  ? 'text-sky-600' : 'text-slate-300'}/>
+                        <ChevronDown size={9} className={sortBy?.key==='lot' && sortBy.dir==='desc' ? 'text-sky-600' : 'text-slate-300'}/>
+                      </span>
+                    </button>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r, i) => (
+                {sortedFiltered.map((r, i) => (
                   <tr key={r.code || r.name || i} className={`border-b border-slate-100 hover:bg-sky-50 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
                     <td className="px-4 py-2.5 sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.04)]">
                       <p className="font-medium text-slate-800 leading-snug">{r.name}</p>
@@ -1529,9 +1604,6 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [] }, isStaff = false, 
       labelColor:  stats.pending > 0 ? 'text-amber-600'   : 'text-slate-500',
       onClick: stats.pending > 0 ? onOpenRequisition : undefined,
     },
-  ];
-
-  const staffItems = [
     {
       label: expiredCount > 0 ? `ยาหมดอายุแล้ว ${expiredCount} + ใกล้หมด` : 'ยาใกล้หมดอายุ (16 เดือน)',
       value: expiryCount,
@@ -1541,6 +1613,9 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [] }, isStaff = false, 
       labelColor:  expiryCount > 0 ? (expiredCount > 0 ? 'text-red-500' : 'text-orange-500')   : 'text-slate-500',
       onClick: expiryCount > 0 ? onOpenExpiry : undefined,
     },
+  ];
+
+  const staffItems = [
     {
       label: 'Stock ต่ำกว่ากำหนด',
       value: lowStockCount,
@@ -1553,7 +1628,8 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [] }, isStaff = false, 
   ];
 
   const items = isStaff ? [...baseItems, ...staffItems] : baseItems;
-  const cols = items.length === 4 ? 'sm:grid-cols-4' : 'sm:grid-cols-2';
+  const colsMap = { 3: 'sm:grid-cols-3', 4: 'sm:grid-cols-4' };
+  const cols = colsMap[items.length] || 'sm:grid-cols-2';
 
   return (
     <div className={`mt-6 grid grid-cols-2 ${cols} gap-3`}>
