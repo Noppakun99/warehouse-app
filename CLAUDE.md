@@ -318,8 +318,9 @@ const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-')
 
 ### StatsStrip (Dashboard)
 - แสดงให้ **ทุก role** เห็น (ไม่จำกัดแค่ staff อีกต่อไป)
-- requester เห็น 2 card: รายการยาในคลัง + ใบเบิกรอดำเนินการ
-- staff/admin เห็น 4 card: เพิ่ม ยาใกล้หมดอายุ + Stock ต่ำกว่ากำหนด
+- requester เห็น 3 card: รายการยาในคลัง + ใบเบิกรอดำเนินการ + ยาใกล้หมดอายุ
+- staff/admin เห็น 4 card: เพิ่ม Stock ต่ำกว่ากำหนด
+- `fetchDashboardAlerts()` ถูกเรียกสำหรับ **ทุก role** (ไม่ใช่แค่ staff อีกต่อไป)
 - คลิก "ใบเบิกรอดำเนินการ":
   - staff/admin → `page='requisition'` → StaffDashboard (filter=pending)
   - requester → `page='requisition-history'` → RequesterRoot initialStep='history' (ประวัติตัวเอง)
@@ -573,7 +574,15 @@ TEST_STAFF_USER=test2 TEST_STAFF_PASS=555555 npx playwright test
 - ตาราง: sticky header + frozen column "ชื่อยา" (ซ้าย) + scroll แนวนอน บน mobile
 - Realtime: subscribe `postgres_changes` บน `inventory` table → อัพเดตอัตโนมัติ
 - DrugSearchBar ใน modal รองรับ keyboard navigation (↑↓ Enter Esc) แล้ว
+- **Sort**: คลิก header ชื่อยา / คงเหลือ / LOT เพื่อ sort — cycle asc → desc → default (`sortBy` state `{ key, dir } | null`)
 - **Do not**: อย่าใส่ `style={{ maxHeight }}` ซ้อนทับ `flex-1` ใน table area — ใช้ `95vh` บน modal wrapper แทน
+
+## ExpiryAlertSection — Export Excel
+
+- ปุ่ม Export Excel อยู่ใน header ของ modal (ข้างปุ่มปิด) — ใช้ `EXPIRY_EXCEL_COLS` (module-level constant)
+- Export ข้อมูลตาม **tab filter ที่เลือกอยู่** (`filtered`) ไม่ใช่ทั้งหมด
+- ชื่อไฟล์: `expiry_alert_{tabLabel}_{date}.xlsx`
+- ต้องส่ง `auth` prop ไปที่ `<ExpiryAlertSection auth={auth} />` เสมอ
 
 ## Invoice Scanner (AI Vision) — ระบบสแกนบิลยา
 
