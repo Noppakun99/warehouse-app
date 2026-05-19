@@ -149,6 +149,22 @@ Skills อยู่ใน `.claude/skills/` — อ่านไฟล์ที�
 - **Expiry alert**: ไม่แสดงถ้า `qty = 0` หรือยาตัดออกจากบัญชี — window ปัจจุบัน = **16 เดือน**
 - **Low stock alert**: ไม่แสดงถ้ายาตัดออกจากบัญชี (qty = 0 ยังแสดง เพราะถือว่า critical)
 
+## App.jsx — UI Layout (ระบบแผนผังคลังยา)
+
+### โครงสร้าง Header ใหม่ (ปรับแล้ว)
+- **Top header bar**: white sticky bar `bg-white border-b border-slate-200` — มีปุ่มกลับ + icon + ชื่อระบบ + "จัดการข้อมูล" dropdown ฝั่งขวา
+- ย้าย `สรุปข้อมูล` และ `จัดการข้อมูล` dropdown ออกจาก search area → ไปอยู่ที่ header แทน
+- **Alert stat cards**: `grid grid-cols-2 sm:grid-cols-4` — 4 card (หมดอายุ / ใกล้หมดอายุ / รอตรวจรับ / ระบบสั่งยา) ใช้สีตาม semantic (red/amber/sky/orange)
+- **Search card**: `bg-white rounded-2xl border` แยกออกจาก header
+- **Zone tabs**: active = `bg-indigo-600 text-white` (เปลี่ยนจาก slate-800)
+- **Cabinet headers**: `bg-indigo-600` (เปลี่ยนจาก dark gradient)
+- **Summary modal header**: `bg-indigo-600` (เปลี่ยนจาก dark gradient)
+- ต้อง import `ArrowLeft` จาก `lucide-react` ใน App.jsx — ขาดแล้วหน้าขาว
+
+### Do Not (App.jsx Header)
+- อย่าใช้ dark gradient `from-slate-900 to-slate-600` ใน header หรือ cabinet อีก — ใช้ `bg-indigo-600` แทน
+- อย่าวาง search bar + dropdown ไว้ใน header block เดิม — แยกเป็น card ของตัวเอง
+
 ## Inventory Map — Display Rules (App.jsx)
 
 - **qty = 0 ซ่อนทุกที่**: แสดงเฉพาะ `qty > 0` ใน Slot, modal (`handleLocationClick`), **และผลการค้นหา (`searchResults` useMemo)**
