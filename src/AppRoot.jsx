@@ -1102,6 +1102,10 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
             {exporting ? <RefreshCcw size={12} className="animate-spin"/> : <FileDown size={12}/>}
             {exporting ? 'กำลังส่งออก...' : 'Excel'}
           </button>
+          {onClose && (
+            <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-red-100 rounded-lg transition-colors">
+              <X size={18} />
+            </button>
           )}
         </div>
       </div>
