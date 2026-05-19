@@ -174,6 +174,12 @@ const getPrice = (r) => {
   return null;
 };
 
+// แสดงจำนวนเบิกออก: > 0 → "-N", = 0 → "0" (กัน "-0")
+const fmtQtyOut = (q) => {
+  const n = Number(q) || 0;
+  return n > 0 ? `-${n.toLocaleString()}` : '0';
+};
+
 // ดึงข้อมูลทั้งหมดโดยใช้ pagination เพื่อข้าม Supabase default 1,000-row limit
 // buildQuery = ฟังก์ชันที่คืน query builder ใหม่ทุกครั้ง (ต้องสร้างใหม่เพราะ builder ใช้ครั้งเดียว)
 async function fetchAllRows(buildQuery) {
@@ -827,6 +833,8 @@ function DispenseView({ isAdmin = false, auth = {} }) {
       else if (isoFrom)       { q = q.gte('dispense_date', isoFrom); }
       else if (isoTo)         { q = q.lte('dispense_date', isoTo); }
       if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%`); }
+      // กรอง qty_out=0 — รายการ void ไม่นับใน "ปริมาณรวมออก/มูลค่ารวม"
+      q = q.gt('qty_out', 0);
       return q;
     };
     const [countResult, data, minResult, maxResult] = await Promise.all([
@@ -1077,7 +1085,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                         className={`border-b border-slate-200 cursor-pointer transition-colors ${expandedDrug === r.id ? 'bg-rose-100' : i % 2 === 0 ? 'hover:bg-rose-50' : 'bg-slate-50 hover:bg-rose-50'}`}
                       >
                         <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(r.dispense_date)}</td>
-                        <td className="px-4 py-2.5 text-rose-700 font-bold text-right whitespace-nowrap">-{(r.qty_out || 0).toLocaleString()}</td>
+                        <td className="px-4 py-2.5 text-rose-700 font-bold text-right whitespace-nowrap">{fmtQtyOut(r.qty_out)}</td>
                         <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{getUnit(r) !== '-' ? getUnit(r) : drugUnit}</td>
                         <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{r.lot || '-'}</td>
                         <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
@@ -1187,7 +1195,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
             <div className="p-4 space-y-3">
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-rose-50 rounded-xl p-2.5 text-center">
-                  <p className="text-lg font-bold text-rose-700">-{(mobileDetail.qty_out||0).toLocaleString()}</p>
+                  <p className="text-lg font-bold text-rose-700">{fmtQtyOut(mobileDetail.qty_out)}</p>
                   <p className="text-[10px] text-rose-600">{getUnit(mobileDetail)}</p>
                 </div>
                 <div className="bg-amber-50 rounded-xl p-2.5 text-center">
@@ -1245,7 +1253,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                   <p className="text-xs text-slate-400 mt-0.5">{row.drug_code} · {fmtDate(row.dispense_date)}</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-sm font-bold text-rose-700">-{(row.qty_out||0).toLocaleString()}</p>
+                  <p className="text-sm font-bold text-rose-700">{fmtQtyOut(row.qty_out)}</p>
                   <p className="text-[10px] text-slate-400">{getUnit(row)}</p>
                 </div>
               </div>
@@ -1290,7 +1298,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                         <span className="block truncate">{row.drug_name}</span>
                         <span className="text-xs text-slate-600 font-normal">{row.drug_code}</span>
                       </td>
-                      <td className="px-4 py-2.5 text-rose-700 font-bold text-right whitespace-nowrap">-{(row.qty_out || 0).toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-rose-700 font-bold text-right whitespace-nowrap">{fmtQtyOut(row.qty_out)}</td>
                       <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{getUnit(row)}</td>
                       <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{row.lot || '-'}</td>
                       <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>

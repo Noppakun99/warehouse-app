@@ -1145,18 +1145,30 @@ function ReceiveView({ isAdmin = false }) {
       if (supplierFilter) q = q.eq('supplier_current', supplierFilter);
       return q;
     };
-    const [countResult, data, minResult, maxResult] = await Promise.all([
-      applyFilters(supabase.from('receive_logs').select('*', { count: 'exact', head: true })),
-      fetchAllRows(() => applyFilters(supabase.from('receive_logs').select('qty_received, total_price_vat'))),
+    // ดึงทุก field ที่ต้องใช้กรอง blank+dedup เพื่อให้ stat card ตรงกับ displayRows ในตาราง
+    const [data, minResult, maxResult] = await Promise.all([
+      fetchAllRows(() => applyFilters(supabase.from('receive_logs').select('drug_name, drug_code, lot, exp, bill_number, receive_date, qty_received, total_price_vat'))),
       applyFilters(supabase.from('receive_logs').select('receive_date').not('receive_date', 'is', null).order('receive_date', { ascending: true }).limit(1)),
       applyFilters(supabase.from('receive_logs').select('receive_date').not('receive_date', 'is', null).order('receive_date', { ascending: false }).limit(1)),
     ]);
-    const { count } = countResult;
-    const totalQty   = data.reduce((s, r) => s + (r.qty_received    || 0), 0);
-    const totalValue = data.reduce((s, r) => s + (r.total_price_vat || 0), 0);
+    // กรอง blank rows + dedup เหมือน displayRows ในตาราง
+    const seen = new Set();
+    const filtered = data.filter(r => {
+      const name = (r.drug_name || '').trim().toLowerCase();
+      const code = (r.drug_code || '').trim();
+      const hasName = name && name !== '-' && name !== '(blank)' && name !== 'blank';
+      const hasCode = code && code !== '-';
+      if (!hasName && !hasCode) return false;
+      const key = dedupKey(r);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const totalQty   = filtered.reduce((s, r) => s + (r.qty_received    || 0), 0);
+    const totalValue = filtered.reduce((s, r) => s + (r.total_price_vat || 0), 0);
     const minDate = minResult.data?.[0]?.receive_date || null;
     const maxDate = maxResult.data?.[0]?.receive_date || null;
-    setAggStats({ count: count ?? data.length, totalQty, totalValue, minDate, maxDate });
+    setAggStats({ count: filtered.length, totalQty, totalValue, minDate, maxDate });
   }, [search, supplierFilter, dateFrom, dateTo]);
 
   useEffect(() => { const t = setTimeout(loadAgg, 300); return () => clearTimeout(t); }, [loadAgg]);
@@ -1178,7 +1190,20 @@ function ReceiveView({ isAdmin = false }) {
         else if (isoTo)        q = q.lte('receive_date', isoTo);
         return q;
       });
-      exportToExcel(allRows, RECEIVE_EXCEL_COLS, 'ประวัติรับยา', `receive_logs_${new Date().toISOString().slice(0,10)}.xlsx`, auth);
+      // กรอง blank rows + dedup ให้ตรงกับที่แสดงในตาราง — user คาดหวังให้ตรงกัน
+      const seen = new Set();
+      const exportRows = allRows.filter(r => {
+        const name = (r.drug_name || '').trim().toLowerCase();
+        const code = (r.drug_code || '').trim();
+        const hasName = name && name !== '-' && name !== '(blank)' && name !== 'blank';
+        const hasCode = code && code !== '-';
+        if (!hasName && !hasCode) return false;
+        const key = dedupKey(r);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      exportToExcel(exportRows, RECEIVE_EXCEL_COLS, 'ประวัติรับยา', `receive_logs_${new Date().toISOString().slice(0,10)}.xlsx`, auth);
     } finally {
       setExportLoading(false);
     }

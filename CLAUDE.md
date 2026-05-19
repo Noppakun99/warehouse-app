@@ -258,6 +258,40 @@ insertReceiveRows(rows, {})                            // auth ว่าง
 - มูลค่ารับเข้ารวมต่อยา: `total_price_vat > 0 ? total_price_vat : qty_received × price_per_unit` (สะสมทุก row)
 - ตัวอย่าง: รับยาวันที่ 1 มูลค่า 200 บาท + วันที่ 2 มูลค่า 300 บาท = แสดง 500 บาท
 
+## ReceiveLog/DispenseLog — Stat/Export Consistency Rule (CRITICAL)
+
+**กฎเหล็ก: ตัวเลขใน stat card + Excel export ต้องตรงกับที่ user เห็นในตาราง**
+
+### ReceiveLog
+- `loadAgg` ต้อง select field ที่จำเป็นทั้งหมด (`drug_name, drug_code, lot, exp, bill_number, receive_date, qty_received, total_price_vat`) แล้วกรอง blank+dedup เหมือน `displayRows` ก่อนคำนวณ count/qty/value
+- `handleExport` ต้องกรอง blank+dedup ด้วย — export ไม่ตรงกับตารางจะทำให้ user งง
+- **อย่าใช้ `count: 'exact'` แบบ server-side** สำหรับ ReceiveLog เพราะมัน count รวม blank+duplicate rows ที่ client filter ออก
+
+### DispenseLog
+- `loadAgg` ต้องกรอง `.gt('qty_out', 0)` — row `qty_out=0` ถือเป็น void ไม่นับใน stats
+- **อย่าแสดง `-0`** ใน UI — ใช้ helper `fmtQtyOut(q)` ที่คืน `'-N'` ถ้า > 0, `'0'` ถ้า = 0
+- ใช้ `fmtQtyOut` ทั้งใน desktop table, drug-detail panel, mobile card, mobile bottom sheet
+
+### Pattern dedupKey (ReceiveLog)
+```js
+const dedupKey = (r) => [
+  r.receive_date || '',
+  (r.drug_name   || '').trim().toLowerCase(),
+  (r.lot         || '').trim().toLowerCase().replace(/^-$/, ''),
+  (r.exp         || '').trim().toLowerCase().replace(/^-$/, ''),
+  (r.bill_number || '').trim().toLowerCase().replace(/^-$/, ''),
+].join('|');
+```
+
+### Blank-row filter (ReceiveLog)
+```js
+const name = (r.drug_name || '').trim().toLowerCase();
+const code = (r.drug_code || '').trim();
+const hasName = name && name !== '-' && name !== '(blank)' && name !== 'blank';
+const hasCode = code && code !== '-';
+if (!hasName && !hasCode) return false; // skip
+```
+
 ## Date Filter — Default dateTo = วันนี้ (ReceiveLogApp & DispenseLogApp)
 
 - เมื่อ `dateFrom` มีค่าแต่ `dateTo` ว่าง → query ใช้วันนี้เป็น upper bound อัตโนมัติ
