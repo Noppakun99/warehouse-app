@@ -1776,6 +1776,11 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                 <h1 className="text-2xl font-bold text-white flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity" onClick={onRefresh}>
                   ระบบแผนผังและข้อมูลคลังยา
                 </h1>
+                {logUpdateDate && (
+                  <p className="text-xs text-indigo-200 mt-1 flex items-center gap-1.5">
+                    <CalendarDays size={12} /> อัปเดตข้อมูลล่าสุด: <span className="font-semibold text-white">{formatDateTime(logUpdateDate)}</span>
+                  </p>
+                )}
                 {isStaff && (
                   <div className="text-sm text-indigo-100 mt-2 flex flex-col sm:flex-row gap-2">
                     <div className="flex items-center gap-2 flex-wrap bg-white/15 px-3 py-1.5 rounded-lg border border-white/20">

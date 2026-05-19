@@ -91,6 +91,21 @@ function monthAgoStr() {
   return d.toISOString().slice(0, 10);
 }
 
+function ISODateInput({ value, onChange, ring = 'focus-within:ring-slate-400', className = 'w-28' }) {
+  const display = value ? value.split('-').reverse().join('/') : '';
+  return (
+    <div className={`relative ${className} min-h-[36px] border border-slate-300 rounded-lg bg-white flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:outline-none ${ring}`}>
+      <span className={`px-2 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
+        {display || 'dd/mm/yyyy'}
+      </span>
+      <input type="date"
+        className="absolute inset-0 opacity-0 w-full cursor-pointer text-base"
+        value={value || ''}
+        onChange={e => onChange(e.target.value)} />
+    </div>
+  );
+}
+
 export default function AuditLogApp({ onBack, onRefresh, auth }) {
   const [logs, setLogs]           = useState([]);
   const [loading, setLoading]     = useState(false);
@@ -216,13 +231,11 @@ export default function AuditLogApp({ onBack, onRefresh, auth }) {
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex flex-wrap gap-3 items-end">
           <div className="flex flex-col gap-1">
             <label className="text-xs text-slate-500 font-medium">วันที่เริ่ม</label>
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+            <ISODateInput value={dateFrom} onChange={setDateFrom} />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-slate-500 font-medium">วันที่สิ้นสุด</label>
-            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+            <ISODateInput value={dateTo} onChange={setDateTo} />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs text-slate-500 font-medium">ค้นหาผู้ใช้</label>

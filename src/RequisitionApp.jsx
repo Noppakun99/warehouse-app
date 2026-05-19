@@ -215,6 +215,21 @@ function PageHeader({ onBack, title, subtitle, children }) {
 
 // ============================================================
 // Root
+function ISODateInput({ value, onChange, ring = 'focus-within:ring-[#1E90FF]', className = 'w-28' }) {
+  const display = value ? value.split('-').reverse().join('/') : '';
+  return (
+    <div className={`relative ${className} min-h-[36px] border border-slate-300 rounded-xl bg-white flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:outline-none ${ring}`}>
+      <span className={`px-2 py-2 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
+        {display || 'dd/mm/yyyy'}
+      </span>
+      <input type="date"
+        className="absolute inset-0 opacity-0 w-full cursor-pointer text-base"
+        value={value || ''}
+        onChange={e => onChange(e.target.value)} />
+    </div>
+  );
+}
+
 // prefilledUser: { name, department } → skip requester login
 // startAsStaff: true → skip staff login (AppRoot already authed)
 // ============================================================
@@ -1333,11 +1348,9 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
       <div className="flex-1 p-4 space-y-3">
         {/* Date range filter */}
         <div className="flex flex-wrap items-center gap-2">
-          <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setLoading(true); }}
-            className="flex-1 min-w-[130px] border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+          <ISODateInput value={dateFrom} onChange={v => { setDateFrom(v); setLoading(true); }} className="flex-1 min-w-[130px]" />
           <span className="text-slate-400 text-sm">–</span>
-          <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setLoading(true); }}
-            className="flex-1 min-w-[130px] border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+          <ISODateInput value={dateTo} onChange={v => { setDateTo(v); setLoading(true); }} className="flex-1 min-w-[130px]" />
           {(dateFrom || dateTo) && (
             <button onClick={() => { setDateFrom(''); setDateTo(''); }}
               className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-100">
@@ -2046,12 +2059,12 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
           </button>
           {/* Desktop: always visible */}
           <div className="hidden sm:flex items-center gap-2">
-            <div className="relative border border-slate-300 rounded-xl bg-white focus-within:ring-2 focus-within:ring-[#1E90FF]">
-              <span className="px-2 py-1.5 text-sm text-slate-700 pointer-events-none block w-28">
-                {dateFilter ? dateFilter.split('-').reverse().join('/') : <span className="text-slate-400">dd/mm/yyyy</span>}
+            <div className="relative w-28 min-h-[36px] border border-slate-300 rounded-xl bg-white flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:ring-[#1E90FF]">
+              <span className={`px-2 py-1.5 text-sm pointer-events-none block w-full ${dateFilter ? 'text-slate-700' : 'text-slate-400'}`}>
+                {dateFilter ? dateFilter.split('-').reverse().join('/') : 'dd/mm/yyyy'}
               </span>
               <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
-                className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+                className="absolute inset-0 opacity-0 w-full cursor-pointer text-base" />
             </div>
             <button onClick={() => setDateFilter('')}
               className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] text-[#1E90FF] border-[#1E90FF]' : 'text-slate-500 border-slate-300 hover:bg-slate-100'}`}>
@@ -2075,12 +2088,12 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
         {showFilters && (
           <div className="sm:hidden mt-2 space-y-2">
             <div className="flex gap-2">
-              <div className="relative flex-1 border border-slate-300 rounded-xl bg-white focus-within:ring-2 focus-within:ring-[#1E90FF]">
-                <span className="px-2 py-1.5 text-sm text-slate-700 pointer-events-none block">
-                  {dateFilter ? dateFilter.split('-').reverse().join('/') : <span className="text-slate-400">dd/mm/yyyy</span>}
+              <div className="relative flex-1 min-h-[36px] border border-slate-300 rounded-xl bg-white flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:ring-[#1E90FF]">
+                <span className={`px-2 py-1.5 text-sm pointer-events-none block w-full ${dateFilter ? 'text-slate-700' : 'text-slate-400'}`}>
+                  {dateFilter ? dateFilter.split('-').reverse().join('/') : 'dd/mm/yyyy'}
                 </span>
                 <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
-                  className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+                  className="absolute inset-0 opacity-0 w-full cursor-pointer text-base" />
               </div>
               <button onClick={() => setDateFilter('')}
                 className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] text-[#1E90FF] border-[#1E90FF]' : 'text-slate-500 border-slate-300 hover:bg-slate-100'}`}>

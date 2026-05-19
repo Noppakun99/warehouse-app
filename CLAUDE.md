@@ -652,9 +652,29 @@ touch event โดน native input โดยตรง → date picker เปิ�
 </div>
 ```
 
-### ขอบเขต
-- `ThaiDateInput` ใน **DispenseLogApp** และ **ReceiveLogApp** — แก้แล้ว ✅
-- ReturnApp, AuditLogApp ใช้ `<input type="date">` ตรงอยู่แล้ว → ไม่มีปัญหา
+### ขอบเขต (อัพเดต)
+- `ThaiDateInput` (stores Thai format) — **ReceiveLogApp**, **DispenseLogApp** ✅
+- `ISODateInput` (stores ISO format, shows DD/MM/YYYY) — **AuditLogApp**, **ReturnApp** filter, **AnalyticsApp**, **RequisitionApp** RequesterHistory ✅
+- ทุก date input มี `text-base` (16px) กัน iOS auto-zoom, `cursor-pointer` + `hover:border-slate-400` บน wrapper ✅
+- RequisitionApp StaffDashboard ใช้ overlay pattern อยู่แล้ว (dateFilter เก็บ ISO) + ได้ `text-base` แล้ว ✅
+
+### Do Not (Date Input)
+- **อย่าใช้ `font-size < 16px`** บน hidden `<input type="date">` — iOS Safari auto-zoom เมื่อ focus
+- **อย่าใช้ `showPicker()`** — iOS block; ใช้ `absolute inset-0 opacity-0` แทน
+- `ISODateInput` vs `ThaiDateInput`: ต่างกันที่ค่า state — ISO เก็บ `YYYY-MM-DD`, Thai เก็บ `DD/MM/YYYY`
+
+## Date Range Display — ReceiveLogApp & DispenseLogApp
+
+- แสดง chip "ข้อมูลตั้งแต่ DD/MM/YYYY – DD/MM/YYYY · X ปี Y เดือน Z วัน" เหนือ stat cards
+- ดึง `minDate` / `maxDate` ใน `loadAgg` ด้วย 2 parallel queries เพิ่มใน `Promise.all`
+- **สำคัญ**: ต้องใช้ `.not('receive_date', 'is', null)` ก่อน `.order()` เสมอ — PostgreSQL sort `NULL DESC` ขึ้นก่อน ทำให้ max query ได้ null แทนวันล่าสุด
+- `aggStats` มี: `{ count, totalQty, totalValue, minDate, maxDate }` (ISO format)
+- แสดงเมื่อ `aggStats?.minDate && aggStats?.maxDate` เท่านั้น
+- `dateDiff(isoFrom, isoTo)` → คืน string เช่น "1 ปี 9 เดือน 18 วัน" หรือ "วันเดียวกัน"
+
+### Do Not (Date Range)
+- **อย่าลืม `.not('...date', 'is', null)`** ใน min/max query — NULL ใน DESC order ขึ้นก่อนเสมอ
+- อย่าเช็ค condition แค่ `aggStats?.minDate` — ต้องเช็คทั้ง `minDate && maxDate` ก่อนแสดง
 
 ## DrugSearchBar — Keyboard Navigation
 

@@ -5,7 +5,7 @@ import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
 import {
   ArrowLeft, UploadCloud, RefreshCcw, Search, X,
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
-  TrendingDown, TrendingUp, BarChart3, Pencil, Trash2, Save, FileDown,
+  TrendingDown, TrendingUp, BarChart3, Pencil, Trash2, Save, FileDown, CalendarDays,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
@@ -139,14 +139,28 @@ const thaiToIso = (thai) => {
   return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
 };
 
+function dateDiff(isoFrom, isoTo) {
+  if (!isoFrom || !isoTo) return '';
+  let y1 = +isoFrom.slice(0,4), m1 = +isoFrom.slice(5,7)-1, d1 = +isoFrom.slice(8,10);
+  let y2 = +isoTo.slice(0,4),   m2 = +isoTo.slice(5,7)-1,   d2 = +isoTo.slice(8,10);
+  let years = y2 - y1, months = m2 - m1, days = d2 - d1;
+  if (days < 0)   { months--; days += new Date(y2, m2, 0).getDate(); }
+  if (months < 0) { years--;  months += 12; }
+  const parts = [];
+  if (years  > 0) parts.push(`${years} ปี`);
+  if (months > 0) parts.push(`${months} เดือน`);
+  if (days   > 0) parts.push(`${days} วัน`);
+  return parts.length ? parts.join(' ') : 'วันเดียวกัน';
+}
+
 function ThaiDateInput({ value, onChange, ring = 'focus-within:ring-rose-400', size = 'w-28', placeholder }) {
   return (
-    <div className={`relative ${size} border border-slate-300 rounded-lg bg-white flex items-center focus-within:ring-2 focus-within:outline-none ${ring}`}>
+    <div className={`relative ${size} min-h-[36px] border border-slate-300 rounded-lg bg-white flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:outline-none ${ring}`}>
       <span className={`px-2 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
         {value || placeholder || 'dd/mm/yyyy'}
       </span>
       <input type="date"
-        className="absolute inset-0 opacity-0 w-full cursor-pointer"
+        className="absolute inset-0 opacity-0 w-full cursor-pointer text-base"
         value={thaiToIso(value) || ''}
         onChange={e => onChange(isoToThai(e.target.value))} />
     </div>
@@ -815,15 +829,18 @@ function DispenseView({ isAdmin = false, auth = {} }) {
       if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%`); }
       return q;
     };
-    // count แยก (เร็วกว่า)
-    const { count } = await applyFilters(supabase.from('dispense_logs').select('*', { count: 'exact', head: true }));
-    // ดึง qty + price สำหรับคำนวณ qty รวม และมูลค่ารวม
-    const data = await fetchAllRows(() =>
-      applyFilters(supabase.from('dispense_logs').select('qty_out, price_per_unit, drug_unit'))
-    );
+    const [countResult, data, minResult, maxResult] = await Promise.all([
+      applyFilters(supabase.from('dispense_logs').select('*', { count: 'exact', head: true })),
+      fetchAllRows(() => applyFilters(supabase.from('dispense_logs').select('qty_out, price_per_unit, drug_unit'))),
+      applyFilters(supabase.from('dispense_logs').select('dispense_date').not('dispense_date', 'is', null).order('dispense_date', { ascending: true }).limit(1)),
+      applyFilters(supabase.from('dispense_logs').select('dispense_date').not('dispense_date', 'is', null).order('dispense_date', { ascending: false }).limit(1)),
+    ]);
+    const { count } = countResult;
     const totalQty   = data.reduce((s, r) => s + (r.qty_out || 0), 0);
     const totalValue = data.reduce((s, r) => s + ((r.qty_out || 0) * (getPrice(r) || 0)), 0);
-    setAggStats({ count: count ?? data.length, totalQty, totalValue });
+    const minDate = minResult.data?.[0]?.dispense_date || null;
+    const maxDate = maxResult.data?.[0]?.dispense_date || null;
+    setAggStats({ count: count ?? data.length, totalQty, totalValue, minDate, maxDate });
   }, [search, deptFilter, dateFrom, dateTo]);
 
   useEffect(() => { const t = setTimeout(loadAgg, 300); return () => clearTimeout(t); }, [loadAgg]);
@@ -1123,18 +1140,28 @@ function DispenseView({ isAdmin = false, auth = {} }) {
 
       {/* Summary strip + main table — ซ่อนเมื่อดู drug detail panel */}
       {!selectedDrug && rows.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
-          <div className="bg-slate-700 border border-slate-600 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-white">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
-            <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
-          </div>
-          <div className="bg-rose-700 border border-rose-600 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-white">{aggStats ? aggStats.totalQty.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
-            <p className="text-xs text-rose-200 mt-0.5">ปริมาณรวมออก{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
-          </div>
-          <div className="bg-amber-600 border border-amber-500 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-white">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
-            <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวม (บาท){deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
+        <div className="space-y-2">
+          {aggStats?.minDate && aggStats?.maxDate && (
+            <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 flex-wrap">
+              <CalendarDays size={13} className="text-slate-400 shrink-0" />
+              <span>ข้อมูลตั้งแต่ <span className="font-semibold text-slate-700">{isoToThai(aggStats.minDate)}</span> – <span className="font-semibold text-slate-700">{isoToThai(aggStats.maxDate)}</span></span>
+              <span className="text-slate-400">·</span>
+              <span className="text-slate-600">{dateDiff(aggStats.minDate, aggStats.maxDate)}</span>
+            </div>
+          )}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-slate-700 border border-slate-600 rounded-xl p-3 text-center shadow-sm">
+              <p className="text-2xl font-bold text-white">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
+              <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
+            </div>
+            <div className="bg-rose-700 border border-rose-600 rounded-xl p-3 text-center shadow-sm">
+              <p className="text-2xl font-bold text-white">{aggStats ? aggStats.totalQty.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
+              <p className="text-xs text-rose-200 mt-0.5">ปริมาณรวมออก{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
+            </div>
+            <div className="bg-amber-600 border border-amber-500 rounded-xl p-3 text-center shadow-sm">
+              <p className="text-2xl font-bold text-white">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
+              <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวม (บาท){deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
+            </div>
           </div>
         </div>
       )}

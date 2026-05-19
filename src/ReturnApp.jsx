@@ -336,7 +336,7 @@ function RecordTab({ auth }) {
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">วันที่คืน / บันทึก *</label>
             <input type="date" value={form.return_date} onChange={e => set('return_date', e.target.value)} required
-              className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
+              className="w-full border border-slate-300 rounded-xl px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-violet-400" />
           </div>
 
           <div ref={drugRef} className="relative">
@@ -566,6 +566,21 @@ function EditReturnModal({ log, auth, onClose, onSaved }) {
   )
 }
 
+function ISODateInput({ value, onChange, ring = 'focus-within:ring-violet-400', className = 'w-28' }) {
+  const display = value ? value.split('-').reverse().join('/') : '';
+  return (
+    <div className={`relative ${className} min-h-[36px] border border-slate-300 rounded-xl bg-white flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:outline-none ${ring}`}>
+      <span className={`px-2 py-2 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
+        {display || 'dd/mm/yyyy'}
+      </span>
+      <input type="date"
+        className="absolute inset-0 opacity-0 w-full cursor-pointer text-base"
+        value={value || ''}
+        onChange={e => onChange(e.target.value)} />
+    </div>
+  );
+}
+
 // ============================================================
 // HistoryTab — ประวัติการคืนยา
 // ============================================================
@@ -624,11 +639,9 @@ function HistoryTab({ auth = {} }) {
       {/* Filters */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
         <div className="flex gap-2 flex-wrap">
-          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-            className="border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
+          <ISODateInput value={dateFrom} onChange={setDateFrom} />
           <span className="self-center text-slate-400 text-sm">–</span>
-          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-            className="border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
+          <ISODateInput value={dateTo} onChange={setDateTo} />
           <div className="flex-1 min-w-[160px] relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}

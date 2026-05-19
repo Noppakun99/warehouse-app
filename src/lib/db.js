@@ -377,7 +377,9 @@ export async function fetchDashboardAlerts() {
 
     // --- ตรวจสอบวันหมดอายุ ---
     const expDate = _parseExpDate(row.exp)
-    if (expDate && !isNaN(expDate) && expDate <= inLimit && qtyNum > 0 && !isDiscontinued) {
+    // qty="-"/null/ว่าง → parseFloat=NaN → ไม่ถือว่า 0 (ไม่ทราบจำนวน ยังควร alert)
+    const isExplicitlyZero = !isNaN(parseFloat(row.qty)) && qtyNum === 0
+    if (expDate && !isNaN(expDate) && expDate <= inLimit && !isExplicitlyZero && !isDiscontinued) {
       const daysLeft = Math.floor((expDate - today) / 86400000)
       expiring.push({
         name:     row.name,
