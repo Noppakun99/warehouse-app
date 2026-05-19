@@ -225,20 +225,6 @@ function PageHeader({ onBack, title, subtitle, children }) {
 
 // ============================================================
 // Root
-function ISODateInput({ value, onChange, ring = 'focus-within:ring-[#1E90FF]', className = 'w-28' }) {
-  const display = value ? value.split('-').reverse().join('/') : '';
-  return (
-    <div className={`relative ${className} min-h-[36px] border border-slate-300 rounded-xl bg-white flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:outline-none ${ring}`}>
-      <span className={`px-2 py-2 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
-        {display || 'dd/mm/yyyy'}
-      </span>
-      <input type="date"
-        className="absolute inset-0 opacity-0 w-full cursor-pointer text-base"
-        value={value || ''}
-        onChange={e => onChange(e.target.value)} />
-    </div>
-  );
-}
 
 // prefilledUser: { name, department } → skip requester login
 // startAsStaff: true → skip staff login (AppRoot already authed)

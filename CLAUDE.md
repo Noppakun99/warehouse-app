@@ -486,6 +486,7 @@ function IsoDateInput({ value, onChange, className = '' }) {
 ### Do Not
 - อย่าใช้ plain `<input type="date">` โดยตรงในที่ที่แสดงผลให้ user เห็น — ใช้ IsoDateInput แทนเสมอ
 - ThaiDateInput (Dispense/ReceiveLog) เก็บ DD/MM/YYYY — **ห้ามสลับกับ IsoDateInput**
+- **ห้ามสร้าง `ISODateInput` (ตัวพิมพ์ใหญ่ทั้งหมด)** — ชื่อที่ถูกต้องคือ `IsoDateInput` (camelCase) ที่แสดงปีเป็น พ.ศ. (+543) เท่านั้น เคยมี duplicate เกิดขึ้นจาก git merge แล้วถูกลบออกแล้ว
 
 ## AuditLogApp — Bulk Select (Admin)
 

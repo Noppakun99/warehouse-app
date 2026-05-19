@@ -191,21 +191,6 @@ function MultiLineTooltip({ active, payload, label }) {
   );
 }
 
-function ISODateInput({ value, onChange }) {
-  const display = value ? value.split('-').reverse().join('/') : '';
-  return (
-    <div className="relative w-32 min-h-[36px] bg-white/10 border border-white/30 rounded-lg flex items-center cursor-pointer hover:bg-white/20 transition-colors focus-within:ring-2 focus-within:outline-none focus-within:ring-white/50">
-      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-white' : 'text-white/50'}`}>
-        {display || 'dd/mm/yyyy'}
-      </span>
-      <input type="date"
-        className="absolute inset-0 opacity-0 w-full cursor-pointer text-base"
-        value={value || ''}
-        onChange={e => onChange(e.target.value)} />
-    </div>
-  );
-}
-
 // ============================================================
 // Main Component
 // ============================================================
