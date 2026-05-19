@@ -100,7 +100,6 @@ function IsoDateInput({ value, onChange, className = '' }) {
     </div>
   )
 }
-}
 
 export default function AuditLogApp({ onBack, onRefresh, auth }) {
   const [logs, setLogs]           = useState([]);
