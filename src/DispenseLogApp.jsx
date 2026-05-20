@@ -6,6 +6,7 @@ import {
   ArrowLeft, UploadCloud, RefreshCcw, Search, X,
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
   TrendingDown, TrendingUp, BarChart3, Pencil, Trash2, Save, FileDown, CalendarDays,
+  CheckCircle2, HelpCircle,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
@@ -415,10 +416,10 @@ function DispenseImport({ onDone }) {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
             <div className="bg-amber-500 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
               <div>
-                <p className="font-bold text-lg">⚠️ พบ Row ที่ไม่ผ่านเงื่อนไข</p>
+                <p className="font-bold text-lg flex items-center gap-2"><AlertCircle size={20}/>พบ Row ที่ไม่ผ่านเงื่อนไข</p>
                 <p className="text-amber-100 text-sm">{uploadWarnings.type}: {uploadWarnings.fileName} — {uploadWarnings.rows.length} row มีปัญหา</p>
               </div>
-              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors">✕</button>
+              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={18}/></button>
             </div>
             <div className="overflow-y-auto flex-1 p-4 space-y-2">
               {uploadWarnings.rows.map((r, i) => (
@@ -515,14 +516,14 @@ function DispenseImport({ onDone }) {
                   <span key={i} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium border ${
                     matchedField ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-400 border-slate-200'
                   }`}>
-                    {matchedField ? '✓' : '?'} {h}
+                    {matchedField ? <CheckCircle2 size={12}/> : <HelpCircle size={12}/>} {h}
                     {matchedField && <span className="text-[10px] text-emerald-500 ml-0.5">→ {FIELD_LABELS[matchedField] || matchedField}</span>}
                   </span>
                 );
               })}
             </div>
             {rawHeaders.some((_, i) => !Object.values(mapping).includes(i)) && (
-              <p className="text-xs text-amber-600 mt-1.5">⚠ คอลัมน์ที่มี ? ไม่ถูกนำเข้า — ตรวจสอบชื่อหัวตาราง CSV ให้ตรงกับที่ระบบรู้จัก</p>
+              <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1"><AlertCircle size={12}/>คอลัมน์ที่ขึ้น <HelpCircle size={11} className="inline"/> ไม่ถูกนำเข้า — ตรวจสอบชื่อหัวตาราง CSV ให้ตรงกับที่ระบบรู้จัก</p>
             )}
           </div>
 
@@ -908,11 +909,12 @@ function DispenseView({ isAdmin = false, auth = {} }) {
       .then(({ data }) => { setDrugRows(data || []); setDrugLoading(false); });
   }, [selectedDrug]);
 
-  const filteredDrugRows = drugRows.filter(r => {
+  const filteredDrugRows = useMemo(() => drugRows.filter(r => {
+    if ((r.qty_out || 0) <= 0) return false;
     if (drugDateFrom && r.dispense_date < (thaiToIso(drugDateFrom) || drugDateFrom)) return false;
     if (drugDateTo   && r.dispense_date > (thaiToIso(drugDateTo)   || drugDateTo))   return false;
     return true;
-  });
+  }), [drugRows, drugDateFrom, drugDateTo]);
   const drugCode      = drugRows.find(r => r.drug_code && r.drug_code !== '-')?.drug_code || '-';
   const drugUnit      = drugRows.map(r => getUnit(r)).find(u => u !== '-') || '-';
   const drugTotalQty  = filteredDrugRows.reduce((s, r) => s + (r.qty_out || 0), 0);
@@ -1257,6 +1259,12 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                   <p className="text-[10px] text-slate-400">{getUnit(row)}</p>
                 </div>
               </div>
+              {(row.lot || row.exp) && (
+                <div className="flex items-center gap-2 mt-1.5 text-[11px] text-slate-500">
+                  {row.lot && row.lot !== '-' && <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded">Lot {row.lot}</span>}
+                  {row.exp && row.exp !== '-' && <span>Exp {fmtAnyDate(row.exp)}</span>}
+                </div>
+              )}
               <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
                 <span className="text-xs text-slate-500 truncate">{row.department || '-'}</span>
                 {getPrice(row) != null && (
@@ -1916,7 +1924,7 @@ function DispenseSummaryModal({ onClose }) {
                   </h4>
                   <p className="text-xs text-slate-400 mb-2">เส้นน้ำเงิน = ข้อมูลจริง | เส้นประส้ม = คาดการณ์ (Linear Regression)</p>
                   <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mb-3 flex items-start gap-2">
-                    <span className="shrink-0">⚠️</span>
+                    <AlertCircle size={14} className="shrink-0 mt-0.5"/>
                     <span>คาดการณ์จากแนวโน้มในอดีต ใช้เพื่อประเมินทิศทางเท่านั้น</span>
                   </div>
                   <ResponsiveContainer width="100%" height={260}>

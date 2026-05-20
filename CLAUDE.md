@@ -112,6 +112,43 @@ Skills อยู่ใน `.claude/skills/` — อ่านไฟล์ที�
 - ถ้า supabase return null → เช็ค `.env` และ RLS policy ก่อน
 - ถ้า CSV import ผิดพลาด → เช็ค `_matchHeader()` และ `getVal()` ใน `db.js`
 
+### Verify ก่อนสรุป (CRITICAL)
+
+**กฎเหล็ก: อย่าเชื่อสมมติฐานแรก — ตรวจสอบทุกครั้งก่อนสรุป/แก้โค้ด**
+
+- **ก่อนแก้บั๊ก**: ต้อง reproduce ปัญหาได้ก่อน — อ่านโค้ดจริง (Read tool) ไม่ใช่เดาจากชื่อไฟล์/ฟังก์ชัน
+- **ก่อนรายงานว่าเสร็จ**: ต้อง verify ว่าการแก้ทำงานจริง — รัน `npm run lint` หรือ `npm run build` เป็นอย่างน้อย
+- **ก่อนอ้างว่าฟีเจอร์ใช้ได้**: ถ้าเป็น UI → ต้องทดสอบใน browser; ถ้าทดสอบไม่ได้ → บอกชัดเจนว่ายังไม่ได้ทดสอบ
+- **ก่อนเชื่อ memory/CLAUDE.md**: ถ้า memory ระบุว่ามี function/file ใด → grep หรือ Read ยืนยันว่ายังมีอยู่จริง (อาจถูก rename/ลบไปแล้ว)
+- **เจอข้อมูลขัดแย้ง** (memory vs โค้ดจริง) → เชื่อโค้ดจริง แล้วอัพเดต memory/CLAUDE.md
+- **อย่าสรุปจากข้อมูลแค่ส่วนเดียว** — ถ้า query Supabase แล้วได้ ≤ 1000 rows ต้องใช้ `fetchAllRows` ก่อนสรุป (ดู Known Bug Pattern)
+
+### Commit & PR Convention
+
+**Commit message** (ภาษาไทยได้ — ตามสไตล์ repo เดิม):
+- `แก้บั๊ก: <สรุปสั้น>` — bug fix
+- `เพิ่ม: <feature>` — new feature
+- `ปรับ: <สิ่งที่ปรับ>` — enhancement / UI tweak
+- `refactor: <ส่วนที่จัด>` — refactor ไม่เปลี่ยนพฤติกรรม
+- `docs: <ไฟล์/หัวข้อ>` — เอกสาร (เช่น `docs: อัพเดต CLAUDE.md`)
+- เน้น **"ทำไม"** มากกว่า "ทำอะไร" (diff บอก what อยู่แล้ว)
+- 1 commit = 1 logical change — ไม่รวมหลาย feature ใน commit เดียว
+
+**ก่อน commit ทุกครั้ง**:
+1. `npm run lint` ผ่าน
+2. ตรวจ `git diff` ดูว่าไม่มีไฟล์/secret ที่ไม่ตั้งใจ commit (โดยเฉพาะ `.env`, `node`, `npm`, `test-results/`)
+3. ไม่ commit ไฟล์ใน `supabase/.temp/` หรือ `test-results/`
+4. ห้าม `--no-verify` หรือ skip pre-commit hook
+
+**PR convention**:
+- title สั้น (< 70 ตัวอักษร) — ใช้รูปแบบเดียวกับ commit
+- body มี Summary (1-3 bullet) + Test plan (checklist สิ่งที่ทดสอบ)
+- ไฟล์ migration SQL (`*.sql`) ต้องระบุใน PR ว่าต้องรันใน Supabase Dashboard ก่อน deploy
+
+**ไม่ทำเอง — ต้องรอ user สั่ง**:
+- `git commit`, `git push`, `gh pr create` — ห้ามทำโดยไม่ได้รับคำสั่ง
+- `git reset --hard`, `git push --force`, ลบ branch — ห้ามเด็ดขาด
+
 ### Skills vs Subagents — เลือกแบบนี้
 
 | สถานการณ์ | ใช้อะไร |
@@ -271,6 +308,8 @@ insertReceiveRows(rows, {})                            // auth ว่าง
 - `loadAgg` ต้องกรอง `.gt('qty_out', 0)` — row `qty_out=0` ถือเป็น void ไม่นับใน stats
 - **อย่าแสดง `-0`** ใน UI — ใช้ helper `fmtQtyOut(q)` ที่คืน `'-N'` ถ้า > 0, `'0'` ถ้า = 0
 - ใช้ `fmtQtyOut` ทั้งใน desktop table, drug-detail panel, mobile card, mobile bottom sheet
+- `filteredDrugRows` (drug-detail panel) ต้องกรอง `qty_out > 0` เหมือน `loadAgg` — ไม่งั้น `drugTotalQty`/`drugTotalVal` จะ overcount จาก row qty_out=0
+- **Mobile card** ต้องแสดง Lot/Exp — critical สำหรับเภสัชกรตรวจสอบประวัติเบิก
 
 ### Pattern dedupKey (ReceiveLog)
 ```js
@@ -311,20 +350,20 @@ if (!hasName && !hasCode) return false; // skip
 
 ## receive_logs — Upload สองที่ (Known Duplication)
 
-มี 2 path ที่ upload ข้อมูลเข้า `receive_logs`:
+มี 2 path ที่ upload ข้อมูลเข้า `receive_logs` — **ทั้งสอง path ผ่าน db.js แล้ว ไม่มีการเรียก supabase ตรง**:
 
-| ที่ | ไฟล์ | ฟังก์ชัน | เรียก supabase |
-|----|------|---------|--------------|
-| 1 | `App.jsx` | `handleReceiveFileUpload` → `importReceiveLogs()` ใน db.js | ผ่าน db.js ✓ |
-| 2 | `ReceiveLogApp.jsx` | `handleImport()` | **โดยตรง ✗** (ละเมิด convention) |
+| ที่ | ไฟล์ | Flow |
+|----|------|------|
+| 1 | `App.jsx` | `handleReceiveFileUpload` → `importReceiveLogs(csvText, auth)` ใน db.js — csvText → parse + insert (ไม่มี preview) |
+| 2 | `ReceiveLogApp.jsx` | `handleImport()` parse CSV เป็น preview rows + warnRows + ให้ user แก้ mapping → `insertReceiveRows(rows, auth)` |
+
+**ความต่าง**: ReceiveLogApp มี preview + warnRows + mapping editor; App.jsx flow ตรงไป insert เลย — ทั้งคู่ใช้ `insertReceiveRows` ใน db.js เป็น insert layer ร่วมกัน
 
 **โครงสร้าง COL_MAP**: ฟิลด์เหมือนกัน แต่ alias ต่างกันเล็กน้อย:
 - `total_price_vat`: db.js ใช้ "มูลค่ารวมภาษี" / ReceiveLogApp ใช้ "ราคารวมภาษี (บาท)"
 - `total_price_formula`: db.js ใช้ "มูลค่า/สูตร" / ReceiveLogApp ใช้ "ราคารวมภาษี (บาท)/สูตร"
 
-**ReceiveLogApp.jsx มีฟีเจอร์เพิ่มที่ db.js ไม่มี**: preview rows, warnRows, drug_swap_policy backfill จาก drugDetails
-
-**To-do**: ย้าย logic ใน `ReceiveLogApp.handleImport()` เข้า `importReceiveLogs()` ใน db.js เพื่อให้ conform กับ convention — ยังไม่ได้ทำ
+**Optional refactor (ยังไม่ทำ)**: extract `csvRowsToReceiveDbRows(rawRows, mapping)` ใน db.js เพื่อใช้ร่วม 2 paths — benefit ต่ำ เพราะ flow ต่างกันชัด
 
 ## Department List — Pattern สำคัญ
 
@@ -737,6 +776,9 @@ fetchAllRows(() => supabase.from('dispense_logs').select('drug_name, drug_type')
 
 ### Do Not
 อย่าลบ client-side filter ใน `displayRows` — ยังต้องไว้เพราะใช้ `getDetailSupplier()` ที่ละเอียดกว่า `supplier_current`
+
+### Empty State
+- เมื่อ `rows.length > 0 && displayRows.length === 0 && supplierFilter` (client-side filter กรองหมด) → แสดง empty state พร้อมปุ่ม "ล้างตัวกรองบริษัท" — กันผู้ใช้งงว่าตารางหายไปไหน
 
 ## Mobile Layout — ทุก Sub-app
 

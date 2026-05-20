@@ -5,7 +5,7 @@ import DrugSearchBar from './DrugSearchBar';
 import {
   ArrowLeft, UploadCloud, RefreshCcw, Search, X,
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
-  TrendingUp, BarChart3, FileDown, ScanLine, CheckCircle2,
+  TrendingUp, BarChart3, FileDown, ScanLine, CheckCircle2, HelpCircle,
   ImagePlus, Pencil, Trash2, Info, CalendarDays,
 } from 'lucide-react';
 import { exportToExcel } from './lib/exportExcel';
@@ -854,10 +854,10 @@ function ReceiveImport({ onDone }) {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
             <div className="bg-amber-500 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
               <div>
-                <p className="font-bold text-lg">⚠️ พบ Row ที่ไม่ผ่านเงื่อนไข</p>
+                <p className="font-bold text-lg flex items-center gap-2"><AlertCircle size={20}/>พบ Row ที่ไม่ผ่านเงื่อนไข</p>
                 <p className="text-amber-100 text-sm">{uploadWarnings.type}: {uploadWarnings.fileName} — {uploadWarnings.rows.length} row มีปัญหา</p>
               </div>
-              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors">✕</button>
+              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={18}/></button>
             </div>
             <div className="overflow-y-auto flex-1 p-4 space-y-2">
               {uploadWarnings.rows.map((r, i) => (
@@ -956,14 +956,14 @@ function ReceiveImport({ onDone }) {
                   <span key={i} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium border ${
                     matchedField ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-400 border-slate-200'
                   }`}>
-                    {matchedField ? '✓' : '?'} {h}
+                    {matchedField ? <CheckCircle2 size={12}/> : <HelpCircle size={12}/>} {h}
                     {matchedField && <span className="text-[10px] text-emerald-500 ml-0.5">→ {FIELD_LABELS[matchedField] || matchedField}</span>}
                   </span>
                 );
               })}
             </div>
             {rawHeaders.some((_, i) => !Object.values(mapping).includes(i)) && (
-              <p className="text-xs text-amber-600 mt-1.5">⚠ คอลัมน์ที่มี ? ไม่ถูกนำเข้า — ตรวจสอบชื่อหัวตาราง CSV ให้ตรงกับที่ระบบรู้จัก</p>
+              <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1"><AlertCircle size={12}/>คอลัมน์ที่ขึ้น <HelpCircle size={11} className="inline"/> ไม่ถูกนำเข้า — ตรวจสอบชื่อหัวตาราง CSV ให้ตรงกับที่ระบบรู้จัก</p>
             )}
           </div>
 
@@ -1624,6 +1624,13 @@ function ReceiveView({ isAdmin = false }) {
         <div className="text-center text-slate-400 py-20">
           <TrendingUp size={48} className="mx-auto mb-3 opacity-30" />
           <p>ไม่พบข้อมูล{hasFilter ? ' — ลองเปลี่ยนตัวกรอง' : ' — กด Import CSV เพื่อนำเข้าข้อมูล'}</p>
+        </div>
+      )}
+      {!selectedDrug && !loading && rows.length > 0 && displayRows.length === 0 && supplierFilter && (
+        <div className="text-center text-slate-400 py-16 bg-white border border-slate-200 rounded-2xl">
+          <Search size={40} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">ไม่พบรายการของบริษัท <span className="font-semibold text-slate-600">"{supplierFilter}"</span> ในช่วงนี้</p>
+          <button onClick={() => setSupplier('')} className="mt-3 text-xs text-indigo-600 hover:text-indigo-800 underline">ล้างตัวกรองบริษัท</button>
         </div>
       )}
 
