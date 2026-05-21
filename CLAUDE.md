@@ -697,6 +697,18 @@ TEST_STAFF_USER=test2 TEST_STAFF_PASS=555555 npx playwright test
 - Export ข้อมูลตาม **tab filter ที่เลือกอยู่** (`filtered`) ไม่ใช่ทั้งหมด
 - ชื่อไฟล์: `expiry_alert_{tabLabel}_{date}.xlsx`
 - ต้องส่ง `auth` prop ไปที่ `<ExpiryAlertSection auth={auth} />` เสมอ
+- **Mobile responsive**: < 768px ใช้ card list (ตรวจด้วย `isMobile` state + resize listener) — ตารางเดิมแสดงเฉพาะ desktop ≥ 768px
+- Card mobile แสดง: ชื่อ + code + status badge บนหัว, grid 2 col ด้านล่าง (ชนิด/ตำแหน่ง/Lot/Exp/คงเหลือ) — ไม่มี horizontal scroll
+
+## App.jsx — Tracking Modal (image-2 style)
+
+- Modal เปิดจาก Alert stat cards (หมดอายุแล้ว / ใกล้หมดอายุ / รอตรวจรับ) → set `expiryViewFilter` เป็น `'expired' | 'near' | 'pending'`
+- **Layout เดียวกับ ExpiryAlertSection**: header + DrugSearchBar + sub-tabs + table (desktop) / card list (mobile)
+- **Sub-tabs by daysLeft** แสดงเฉพาะ `near` หรือ `expired` (ตัวแปร `isExpiryMode`) — ไม่แสดงสำหรับ `pending`
+- State: `modalTimeFilter` (all/expired/soon30/soon90/soon180/soon16m), `modalExporting`, `isMobileExpiry`
+- **Excel button** ใน header — export `timeFiltered` ตาม sub-tab ปัจจุบัน ใช้ cols 9 ฟิลด์ (name/code/type/location/lot/exp/qty/unit/receiveStatus)
+- `daysLeft` คำนวณ inline จาก `parseDateString(item.exp) - todayForDisplay` (ms → days)
+- **อย่าใช้ `renderItemCard` ในตารางหลัก** — renderItemCard สงวนไว้สำหรับ searchResults บนหน้าแผนผังหลัก (รายละเอียดเชิงลึก) ไม่ใช่ใน modal นี้
 
 ## Invoice Scanner (AI Vision) — ระบบสแกนบิลยา
 
