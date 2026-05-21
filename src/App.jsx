@@ -201,6 +201,7 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
   const [expiryViewFilter, setExpiryViewFilter] = useState(null);
   const [modalSearch, setModalSearch] = useState('');
   const [modalTimeFilter, setModalTimeFilter] = useState('all'); // all | expired | soon30 | soon90 | soon180 | soon16m
+  const [modalLogFilter, setModalLogFilter] = useState('all');   // 'all' | <invoice>
   const [modalExporting, setModalExporting] = useState(false);
   const [isMobileExpiry, setIsMobileExpiry] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
   useEffect(() => {
@@ -2619,7 +2620,20 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
           d.setHours(0,0,0,0);
           return Math.floor((d - todayForDisplay) / 86400000);
         };
-        const enriched = trackingModal.list.map(item => ({ ...item, daysLeft: computeDays(item) }));
+        const computeWaitDays = (item) => {
+          if (!item._receiveDate) return null;
+          const d = new Date(item._receiveDate);
+          if (isNaN(d)) return null;
+          d.setHours(0,0,0,0);
+          return Math.max(0, Math.floor((todayForDisplay - d) / 86400000));
+        };
+        const fmtQty = (r) => {
+          const n = Number(r.qty);
+          const qStr = Number.isFinite(n) ? n.toLocaleString('th-TH') : (r.qty || '-');
+          const u = (r.unit && String(r.unit).trim()) || 'หน่วย';
+          return `${qStr} × ${u}`;
+        };
+        const enriched = trackingModal.list.map(item => ({ ...item, daysLeft: computeDays(item), waitDays: computeWaitDays(item) }));
         const q = modalSearch.trim().toLowerCase();
         const searched = q
           ? enriched.filter(item =>
@@ -2627,7 +2641,26 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
               (item.invoice || '').toLowerCase().includes(q)
             )
           : enriched;
-        const timeFiltered = isExpiryMode ? searched.filter(r => {
+        const zoneOf = (r) => {
+          const loc = (r.location || '').trim().toUpperCase();
+          const m = loc.match(/^([A-Z]+)/);
+          return m ? m[1] : '-';
+        };
+        const logGroups = (() => {
+          const map = new Map();
+          searched.forEach(r => {
+            const z = zoneOf(r);
+            map.set(z, (map.get(z) || 0) + 1);
+          });
+          return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'en', { numeric: true }));
+        })();
+        const sortByLoc = (arr) => [...arr].sort((a, b) =>
+          (a.location || '￿').localeCompare(b.location || '￿', 'en', { numeric: true })
+        );
+        const zoneFiltered = modalLogFilter !== 'all'
+          ? searched.filter(r => zoneOf(r) === modalLogFilter)
+          : searched;
+        const timeFiltered = isExpiryMode ? zoneFiltered.filter(r => {
           if (modalTimeFilter === 'all') return true;
           if (r.daysLeft == null) return false;
           if (modalTimeFilter === 'expired') return r.daysLeft < 0;
@@ -2636,14 +2669,14 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
           if (modalTimeFilter === 'soon180') return r.daysLeft >= 90 && r.daysLeft < 180;
           if (modalTimeFilter === 'soon16m') return r.daysLeft >= 180;
           return true;
-        }) : searched;
+        }) : sortByLoc(zoneFiltered);
         const counts = {
-          all:     searched.length,
-          expired: searched.filter(r => r.daysLeft != null && r.daysLeft < 0).length,
-          soon30:  searched.filter(r => r.daysLeft != null && r.daysLeft >= 0 && r.daysLeft < 30).length,
-          soon90:  searched.filter(r => r.daysLeft != null && r.daysLeft >= 30 && r.daysLeft < 90).length,
-          soon180: searched.filter(r => r.daysLeft != null && r.daysLeft >= 90 && r.daysLeft < 180).length,
-          soon16m: searched.filter(r => r.daysLeft != null && r.daysLeft >= 180).length,
+          all:     zoneFiltered.length,
+          expired: zoneFiltered.filter(r => r.daysLeft != null && r.daysLeft < 0).length,
+          soon30:  zoneFiltered.filter(r => r.daysLeft != null && r.daysLeft >= 0 && r.daysLeft < 30).length,
+          soon90:  zoneFiltered.filter(r => r.daysLeft != null && r.daysLeft >= 30 && r.daysLeft < 90).length,
+          soon180: zoneFiltered.filter(r => r.daysLeft != null && r.daysLeft >= 90 && r.daysLeft < 180).length,
+          soon16m: zoneFiltered.filter(r => r.daysLeft != null && r.daysLeft >= 180).length,
         };
         const rowColor = (d) => {
           if (d == null) return 'bg-white border-slate-100';
@@ -2702,7 +2735,7 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                   {modalExporting ? <RefreshCcw size={12} className="animate-spin"/> : <FileDown size={12}/>}
                   <span className="hidden sm:inline">{modalExporting ? 'กำลังส่งออก...' : 'Excel'}</span>
                 </button>
-                <button onClick={() => { setExpiryViewFilter(null); setModalSearch(''); setModalTimeFilter('all'); }} className="text-white/70 hover:text-white transition-colors bg-black/10 p-2 rounded-xl hover:bg-black/20">
+                <button onClick={() => { setExpiryViewFilter(null); setModalSearch(''); setModalTimeFilter('all'); setModalLogFilter('all'); }} className="text-white/70 hover:text-white transition-colors bg-black/10 p-2 rounded-xl hover:bg-black/20">
                   <X size={18} />
                 </button>
               </div>
@@ -2745,6 +2778,26 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                   ))}
                 </div>
               )}
+              {logGroups.length > 0 && (
+                <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+                  <button onClick={() => setModalLogFilter('all')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
+                      modalLogFilter === 'all' ? 'bg-sky-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                    }`}>
+                    ทั้งหมด
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${modalLogFilter === 'all' ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{searched.length}</span>
+                  </button>
+                  {logGroups.map(([zone, n]) => (
+                    <button key={zone} onClick={() => setModalLogFilter(zone)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
+                        modalLogFilter === zone ? 'bg-sky-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                      }`}>
+                      {zone}
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${modalLogFilter === zone ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{n}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               <p className="text-xs text-slate-500">
                 {q ? `ผลการค้นหา: ${timeFiltered.length} รายการ` : `พบ ${timeFiltered.length} รายการ`}
                 {expiryViewFilter !== 'pending' && ' · เรียงตามวันหมดอายุก่อน'}
@@ -2770,11 +2823,14 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                         )}
                       </div>
                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] mt-2 pt-2 border-t border-slate-200/60">
-                        <div><span className="text-slate-400">ชนิด:</span> <span className="text-slate-700 font-medium">{r.type || '-'}</span></div>
+                        <div><span className="text-slate-400">ชนิด:</span> {r.type ? <DrugTypeBadge type={r.type} /> : <span className="text-slate-700 font-medium">-</span>}</div>
                         <div><span className="text-slate-400">ตำแหน่ง:</span> <span className="text-slate-700 font-medium">{r.location || '-'}</span></div>
                         <div><span className="text-slate-400">Lot:</span> <span className="text-slate-700">{r.lot || '-'}</span></div>
                         <div><span className="text-slate-400">Exp:</span> <span className="text-slate-700">{r.exp || '-'}</span></div>
-                        <div className="col-span-2"><span className="text-slate-400">คงเหลือ:</span> <span className="text-slate-800 font-bold">{r.qty || '-'}</span> <span className="text-slate-500">{r.unit || ''}</span></div>
+                        <div className="col-span-2"><span className="text-slate-400">คงเหลือ:</span> <span className="text-slate-800 font-bold">{fmtQty(r)}</span></div>
+                        {!isExpiryMode && r.waitDays != null && (
+                          <div className="col-span-2"><span className="text-slate-400">รอตรวจรับมา:</span> <span className="text-sky-700 font-semibold">{r.waitDays} วัน</span></div>
+                        )}
                         {!isExpiryMode && r.receiveStatus && (
                           <div className="col-span-2"><span className="text-slate-400">สถานะ:</span> <span className="text-slate-700">{r.receiveStatus}</span></div>
                         )}
@@ -2792,9 +2848,9 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                       <th className="px-4 py-2 text-left bg-slate-50">Lot</th>
                       <th className="px-4 py-2 text-center bg-slate-50">วันหมดอายุ</th>
                       {isExpiryMode && <th className="px-4 py-2 text-center bg-slate-50">สถานะ</th>}
+                      {!isExpiryMode && <th className="px-4 py-2 text-center bg-slate-50">รอตรวจรับมา</th>}
                       {!isExpiryMode && <th className="px-4 py-2 text-left bg-slate-50">สถานะรับ</th>}
                       <th className="px-4 py-2 text-right bg-slate-50">คงเหลือ</th>
-                      <th className="px-4 py-2 text-left bg-slate-50">หน่วย</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2804,7 +2860,7 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                           <span className="block truncate">{r.name || '-'}</span>
                           {r.code && r.code !== '-' && <span className="text-slate-400 font-normal">{r.code}</span>}
                         </td>
-                        <td className="px-4 py-2.5 text-slate-500">{r.type || '-'}</td>
+                        <td className="px-4 py-2.5">{r.type ? <DrugTypeBadge type={r.type} /> : <span className="text-slate-500">-</span>}</td>
                         <td className="px-4 py-2.5 text-slate-600 font-medium">{r.location || '-'}</td>
                         <td className="px-4 py-2.5 text-slate-500">{r.lot || '-'}</td>
                         <td className="px-4 py-2.5 text-center font-medium text-slate-700">{r.exp || '-'}</td>
@@ -2816,10 +2872,18 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                           </td>
                         )}
                         {!isExpiryMode && (
+                          <td className="px-4 py-2.5 text-center">
+                            {r.waitDays != null ? (
+                              <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border bg-sky-100 text-sky-700 border-sky-200">
+                                {r.waitDays} วัน
+                              </span>
+                            ) : <span className="text-slate-400">-</span>}
+                          </td>
+                        )}
+                        {!isExpiryMode && (
                           <td className="px-4 py-2.5 text-slate-600 text-xs max-w-[160px] truncate">{r.receiveStatus || '-'}</td>
                         )}
-                        <td className="px-4 py-2.5 text-right font-bold text-slate-700">{r.qty || '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-500">{r.unit || '-'}</td>
+                        <td className="px-4 py-2.5 text-right font-bold text-slate-700">{fmtQty(r)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2828,7 +2892,7 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
             </div>
 
             <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0 rounded-b-2xl">
-              <button onClick={() => { setExpiryViewFilter(null); setModalSearch(''); setModalTimeFilter('all'); }} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-medium transition-colors shadow-sm">
+              <button onClick={() => { setExpiryViewFilter(null); setModalSearch(''); setModalTimeFilter('all'); setModalLogFilter('all'); }} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-medium transition-colors shadow-sm">
                 ปิดหน้าต่าง
               </button>
             </div>

@@ -705,10 +705,18 @@ TEST_STAFF_USER=test2 TEST_STAFF_PASS=555555 npx playwright test
 - Modal เปิดจาก Alert stat cards (หมดอายุแล้ว / ใกล้หมดอายุ / รอตรวจรับ) → set `expiryViewFilter` เป็น `'expired' | 'near' | 'pending'`
 - **Layout เดียวกับ ExpiryAlertSection**: header + DrugSearchBar + sub-tabs + table (desktop) / card list (mobile)
 - **Sub-tabs by daysLeft** แสดงเฉพาะ `near` หรือ `expired` (ตัวแปร `isExpiryMode`) — ไม่แสดงสำหรับ `pending`
-- State: `modalTimeFilter` (all/expired/soon30/soon90/soon180/soon16m), `modalExporting`, `isMobileExpiry`
-- **Excel button** ใน header — export `timeFiltered` ตาม sub-tab ปัจจุบัน ใช้ cols 9 ฟิลด์ (name/code/type/location/lot/exp/qty/unit/receiveStatus)
+- **Zone tabs (A/B/C/D...)** แสดงทุกโหมด — group ตามตัวอักษรนำหน้าของ `location` (regex `^([A-Z]+)`) เรียง A→Z natural order
+  - คลิก zone → กรอง list เฉพาะรายการในโซนนั้น + ตัวเลขใน time tabs (counts) อัพเดตตาม
+  - row zone อยู่ **ใต้** time-filter row ในโหมด expiry; ในโหมด pending อยู่ใต้ search bar เลย
+- State: `modalTimeFilter` (all/expired/soon30/soon90/soon180/soon16m), `modalLogFilter` (`'all' | <zone letter>`), `modalExporting`, `isMobileExpiry`
+- **Sort items**: `!isExpiryMode` → sort by `location` natural order (A-1-1 → A-1-2 → A-2-4 → B-1-1); `isExpiryMode` → เรียงตาม exp/daysLeft เดิม
+- **คงเหลือ format**: helper `fmtQty(r)` → `${qty.toLocaleString('th-TH')} × ${unit || 'หน่วย'}` — ใช้ × คั่นเพราะ `qty` = จำนวนกล่อง, `unit` = หน่วยต่อกล่อง (เช่น "500เม็ด")
+- **รอตรวจรับมา X วัน (pending only)**: helper `computeWaitDays(item)` = `todayForDisplay - _receiveDate` ปัดเศษเป็นวัน (Math.max 0) — แสดงทั้ง mobile card และ desktop table (column "รอตรวจรับมา" badge สีฟ้า `bg-sky-100`)
+- **ชนิดยา**: ใช้ `<DrugTypeBadge type={r.type} />` จาก DrugSearchBar — สี Tablet (ฟ้าน้ำเงิน), Syrup (เขียว), Injection (แดงชมพู), Apply (เหลือง), Inhale (ม่วง), Saline (ฟ้าครามอ่อน)
+- **Excel button** ใน header — export `timeFiltered` ตาม sub-tab + zone ปัจจุบัน ใช้ cols 9 ฟิลด์ (name/code/type/location/lot/exp/qty/unit/receiveStatus)
 - `daysLeft` คำนวณ inline จาก `parseDateString(item.exp) - todayForDisplay` (ms → days)
 - **อย่าใช้ `renderItemCard` ในตารางหลัก** — renderItemCard สงวนไว้สำหรับ searchResults บนหน้าแผนผังหลัก (รายละเอียดเชิงลึก) ไม่ใช่ใน modal นี้
+- **Reset filter** ตอนปิด modal: ต้อง reset `modalSearch`, `modalTimeFilter`, `modalLogFilter` พร้อมกัน (2 จุด: ปุ่ม X header + ปุ่ม "ปิดหน้าต่าง" footer)
 
 ## Invoice Scanner (AI Vision) — ระบบสแกนบิลยา
 
