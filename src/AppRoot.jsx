@@ -1030,6 +1030,13 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
   const [filter, setFilter]     = React.useState('all'); // all | expired | soon30 | soon90 | soon180 | soon16m
   const [expanded, setExpanded] = React.useState(false);
   const [exporting, setExporting] = React.useState(false);
+  const [isMobile, setIsMobile] = React.useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
+
+  React.useEffect(() => {
+    const fn = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
+  }, []);
 
   if (expiring.length === 0) return null;
 
@@ -1137,9 +1144,32 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
         ))}
       </div>
 
-      {/* Table */}
+      {/* Table (desktop) / Card list (mobile) */}
       {filtered.length === 0 ? (
         <p className="text-center text-slate-400 text-sm py-6">ไม่มีรายการในหมวดนี้</p>
+      ) : isMobile ? (
+        <div className="overflow-y-auto p-3 space-y-2" style={{ maxHeight: onClose ? 'calc(90vh - 200px)' : 'calc(100vh - 420px)' }}>
+          {displayed.map((r, i) => (
+            <div key={i} className={`border rounded-xl p-3 ${rowColor(r.daysLeft)}`}>
+              <div className="flex items-start justify-between gap-2 mb-1.5">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-slate-800 text-sm leading-tight">{r.name || '-'}</p>
+                  {r.code && r.code !== '-' && <p className="text-[11px] text-slate-400 mt-0.5">{r.code}</p>}
+                </div>
+                <span className={`shrink-0 inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeColor(r.daysLeft)}`}>
+                  {daysLabel(r.daysLeft)}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] mt-2 pt-2 border-t border-slate-200/60">
+                <div><span className="text-slate-400">ชนิด:</span> <span className="text-slate-700 font-medium">{r.type || '-'}</span></div>
+                <div><span className="text-slate-400">ตำแหน่ง:</span> <span className="text-slate-700 font-medium">{r.location || '-'}</span></div>
+                <div><span className="text-slate-400">Lot:</span> <span className="text-slate-700">{r.lot || '-'}</span></div>
+                <div><span className="text-slate-400">Exp:</span> <span className="text-slate-700">{fmtExp(r.exp)}</span></div>
+                <div className="col-span-2"><span className="text-slate-400">คงเหลือ:</span> <span className="text-slate-800 font-bold">{r.qty || '-'}</span> <span className="text-slate-500">{r.unit || ''}</span></div>
+              </div>
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="overflow-auto" style={{ maxHeight: onClose ? 'calc(90vh - 200px)' : 'calc(100vh - 420px)' }}>
           <table className="w-full text-xs min-w-[600px]">

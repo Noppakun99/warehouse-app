@@ -200,6 +200,15 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
   const [expandedDetailsId, setExpandedDetailsId] = useState(null);
   const [expiryViewFilter, setExpiryViewFilter] = useState(null);
   const [modalSearch, setModalSearch] = useState('');
+  const [modalTimeFilter, setModalTimeFilter] = useState('all'); // all | expired | soon30 | soon90 | soon180 | soon16m
+  const [modalLogFilter, setModalLogFilter] = useState('all');   // 'all' | <invoice>
+  const [modalExporting, setModalExporting] = useState(false);
+  const [isMobileExpiry, setIsMobileExpiry] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
+  useEffect(() => {
+    const fn = () => setIsMobileExpiry(window.innerWidth < 768);
+    window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
+  }, []);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -2603,20 +2612,136 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
         </div>
       )}
 
-      {expiryViewFilter && (
+      {expiryViewFilter && (() => {
+        const isExpiryMode = expiryViewFilter === 'near' || expiryViewFilter === 'expired';
+        const computeDays = (item) => {
+          const d = parseDateString(item.exp);
+          if (!d) return null;
+          d.setHours(0,0,0,0);
+          return Math.floor((d - todayForDisplay) / 86400000);
+        };
+        const computeWaitDays = (item) => {
+          if (!item._receiveDate) return null;
+          const d = new Date(item._receiveDate);
+          if (isNaN(d)) return null;
+          d.setHours(0,0,0,0);
+          return Math.max(0, Math.floor((todayForDisplay - d) / 86400000));
+        };
+        const fmtQty = (r) => {
+          const n = Number(r.qty);
+          const qStr = Number.isFinite(n) ? n.toLocaleString('th-TH') : (r.qty || '-');
+          const u = (r.unit && String(r.unit).trim()) || 'หน่วย';
+          return `${qStr} × ${u}`;
+        };
+        const enriched = trackingModal.list.map(item => ({ ...item, daysLeft: computeDays(item), waitDays: computeWaitDays(item) }));
+        const q = modalSearch.trim().toLowerCase();
+        const searched = q
+          ? enriched.filter(item =>
+              (item.name || '').toLowerCase().includes(q) ||
+              (item.invoice || '').toLowerCase().includes(q)
+            )
+          : enriched;
+        const zoneOf = (r) => {
+          const loc = (r.location || '').trim().toUpperCase();
+          const m = loc.match(/^([A-Z]+)/);
+          return m ? m[1] : '-';
+        };
+        const logGroups = (() => {
+          const map = new Map();
+          searched.forEach(r => {
+            const z = zoneOf(r);
+            map.set(z, (map.get(z) || 0) + 1);
+          });
+          return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'en', { numeric: true }));
+        })();
+        const sortByLoc = (arr) => [...arr].sort((a, b) =>
+          (a.location || '￿').localeCompare(b.location || '￿', 'en', { numeric: true })
+        );
+        const zoneFiltered = modalLogFilter !== 'all'
+          ? searched.filter(r => zoneOf(r) === modalLogFilter)
+          : searched;
+        const timeFiltered = isExpiryMode ? zoneFiltered.filter(r => {
+          if (modalTimeFilter === 'all') return true;
+          if (r.daysLeft == null) return false;
+          if (modalTimeFilter === 'expired') return r.daysLeft < 0;
+          if (modalTimeFilter === 'soon30')  return r.daysLeft >= 0 && r.daysLeft < 30;
+          if (modalTimeFilter === 'soon90')  return r.daysLeft >= 30 && r.daysLeft < 90;
+          if (modalTimeFilter === 'soon180') return r.daysLeft >= 90 && r.daysLeft < 180;
+          if (modalTimeFilter === 'soon16m') return r.daysLeft >= 180;
+          return true;
+        }) : sortByLoc(zoneFiltered);
+        const counts = {
+          all:     zoneFiltered.length,
+          expired: zoneFiltered.filter(r => r.daysLeft != null && r.daysLeft < 0).length,
+          soon30:  zoneFiltered.filter(r => r.daysLeft != null && r.daysLeft >= 0 && r.daysLeft < 30).length,
+          soon90:  zoneFiltered.filter(r => r.daysLeft != null && r.daysLeft >= 30 && r.daysLeft < 90).length,
+          soon180: zoneFiltered.filter(r => r.daysLeft != null && r.daysLeft >= 90 && r.daysLeft < 180).length,
+          soon16m: zoneFiltered.filter(r => r.daysLeft != null && r.daysLeft >= 180).length,
+        };
+        const rowColor = (d) => {
+          if (d == null) return 'bg-white border-slate-100';
+          if (d < 0)   return 'bg-red-50 border-red-100';
+          if (d < 30)  return 'bg-orange-50 border-orange-100';
+          if (d < 90)  return 'bg-yellow-50 border-yellow-100';
+          if (d < 180) return 'bg-lime-50 border-lime-100';
+          return 'bg-blue-50 border-blue-100';
+        };
+        const badgeColor = (d) => {
+          if (d == null) return 'bg-slate-100 text-slate-600 border-slate-200';
+          if (d < 0)   return 'bg-red-100 text-red-700 border-red-200';
+          if (d < 30)  return 'bg-orange-100 text-orange-700 border-orange-200';
+          if (d < 90)  return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+          if (d < 180) return 'bg-lime-100 text-lime-700 border-lime-200';
+          return 'bg-blue-100 text-blue-700 border-blue-200';
+        };
+        const daysLabel = (d) => {
+          if (d == null) return '-';
+          if (d < 0)  return `หมดอายุแล้ว ${Math.abs(d)} วัน`;
+          if (d === 0) return 'หมดอายุวันนี้';
+          return `อีก ${d} วัน`;
+        };
+        const handleModalExport = async () => {
+          setModalExporting(true);
+          try {
+            const cols = [
+              { header: 'ชื่อยา', key: 'name' },
+              { header: 'รหัสยา', key: 'code' },
+              { header: 'ชนิด', key: 'type' },
+              { header: 'ตำแหน่ง', key: 'location' },
+              { header: 'Lot', key: 'lot' },
+              { header: 'วันหมดอายุ', key: 'exp' },
+              { header: 'คงเหลือ', key: 'qty' },
+              { header: 'หน่วย', key: 'unit' },
+              { header: 'สถานะตรวจรับ', key: 'receiveStatus' },
+            ];
+            const tabLabel = expiryViewFilter === 'expired' ? 'หมดอายุแล้ว'
+              : expiryViewFilter === 'near' ? 'ใกล้หมดอายุ'
+              : 'รอตรวจรับ';
+            await exportToExcel(timeFiltered, cols, tabLabel, `${tabLabel}_${new Date().toISOString().slice(0,10)}.xlsx`, auth);
+          } finally { setModalExporting(false); }
+        };
+        return (
         <div className="fixed inset-0 bg-slate-900/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in duration-200">
             <div className={`p-5 flex justify-between items-center text-white shrink-0 rounded-t-2xl ${trackingModal.bg}`}>
-              <h3 className="text-xl font-bold flex items-center gap-2">
-                {TrackingModalIcon && <TrackingModalIcon size={24} className={trackingModal.text} />}
-                {trackingModal.title}
+              <h3 className="text-base sm:text-xl font-bold flex items-center gap-2 min-w-0">
+                {TrackingModalIcon && <TrackingModalIcon size={20} className={`${trackingModal.text} shrink-0`} />}
+                <span className="truncate">{trackingModal.title}</span>
+                <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full shrink-0">{trackingModal.list.length}</span>
               </h3>
-              <button onClick={() => { setExpiryViewFilter(null); setModalSearch(''); }} className="text-white/70 hover:text-white transition-colors bg-black/10 p-2 rounded-xl hover:bg-black/20">
-                <X size={20} />
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button onClick={handleModalExport} disabled={modalExporting || timeFiltered.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition-colors">
+                  {modalExporting ? <RefreshCcw size={12} className="animate-spin"/> : <FileDown size={12}/>}
+                  <span className="hidden sm:inline">{modalExporting ? 'กำลังส่งออก...' : 'Excel'}</span>
+                </button>
+                <button onClick={() => { setExpiryViewFilter(null); setModalSearch(''); setModalTimeFilter('all'); setModalLogFilter('all'); }} className="text-white/70 hover:text-white transition-colors bg-black/10 p-2 rounded-xl hover:bg-black/20">
+                  <X size={18} />
+                </button>
+              </div>
             </div>
-            
-            <div className="px-6 pt-4 pb-2 bg-white border-b border-slate-200 shrink-0">
+
+            <div className="px-4 sm:px-6 pt-4 pb-2 bg-white border-b border-slate-200 shrink-0 space-y-3">
               <DrugSearchBar
                 value={modalSearch}
                 onChange={setModalSearch}
@@ -2633,42 +2758,148 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                 maxResults={20}
                 inputClassName="py-2.5 bg-slate-50"
               />
+              {isExpiryMode && (
+                <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+                  {[
+                    { key: 'all',     label: 'ทั้งหมด',      active: 'bg-slate-700 text-white' },
+                    { key: 'expired', label: 'หมดอายุแล้ว',   active: 'bg-red-600 text-white' },
+                    { key: 'soon30',  label: 'ภายใน 30 วัน',  active: 'bg-orange-500 text-white' },
+                    { key: 'soon90',  label: '1–3 เดือน',     active: 'bg-yellow-500 text-white' },
+                    { key: 'soon180', label: '3–6 เดือน',     active: 'bg-lime-500 text-white' },
+                    { key: 'soon16m', label: '6–16 เดือน',    active: 'bg-blue-500 text-white' },
+                  ].map(tab => (
+                    <button key={tab.key} onClick={() => setModalTimeFilter(tab.key)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
+                        modalTimeFilter === tab.key ? tab.active + ' border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                      }`}>
+                      {tab.label}
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${modalTimeFilter === tab.key ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{counts[tab.key]}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {logGroups.length > 0 && (
+                <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+                  <button onClick={() => setModalLogFilter('all')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
+                      modalLogFilter === 'all' ? 'bg-sky-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                    }`}>
+                    ทั้งหมด
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${modalLogFilter === 'all' ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{searched.length}</span>
+                  </button>
+                  {logGroups.map(([zone, n]) => (
+                    <button key={zone} onClick={() => setModalLogFilter(zone)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
+                        modalLogFilter === zone ? 'bg-sky-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                      }`}>
+                      {zone}
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${modalLogFilter === zone ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{n}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-slate-500">
+                {q ? `ผลการค้นหา: ${timeFiltered.length} รายการ` : `พบ ${timeFiltered.length} รายการ`}
+                {expiryViewFilter !== 'pending' && ' · เรียงตามวันหมดอายุก่อน'}
+              </p>
             </div>
 
-            <div className="p-6 overflow-y-auto bg-slate-50">
-              {(() => {
-                const q = modalSearch.trim().toLowerCase();
-                const displayList = q
-                  ? trackingModal.list.filter(item =>
-                      (item.name || '').toLowerCase().includes(q) ||
-                      (item.invoice || '').toLowerCase().includes(q)
-                    )
-                  : trackingModal.list;
-                return (
-                  <div className="space-y-4">
-                    <div className="text-slate-500 mb-2 border-b border-slate-200 pb-3 flex justify-between items-end">
-                      <span className="font-medium text-slate-700">
-                        {q ? `ผลการค้นหา: ${displayList.length} รายการ` : `พบทั้งหมด ${trackingModal.list.length} รายการ`}
-                        {expiryViewFilter !== 'pending' && !q && ' (เรียงตามวันที่หมดอายุก่อน)'}
-                      </span>
+            <div className="overflow-auto bg-slate-50 flex-1">
+              {timeFiltered.length === 0 ? (
+                <p className="text-center text-slate-400 py-10 text-sm">ไม่พบรายการ</p>
+              ) : isMobileExpiry ? (
+                <div className="p-3 space-y-2">
+                  {timeFiltered.map((r, i) => (
+                    <div key={i} className={`border rounded-xl p-3 ${rowColor(r.daysLeft)}`}>
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-slate-800 text-sm leading-tight">{r.name || '-'}</p>
+                          {r.code && r.code !== '-' && <p className="text-[11px] text-slate-400 mt-0.5">{r.code}</p>}
+                        </div>
+                        {isExpiryMode && (
+                          <span className={`shrink-0 inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeColor(r.daysLeft)}`}>
+                            {daysLabel(r.daysLeft)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] mt-2 pt-2 border-t border-slate-200/60">
+                        <div><span className="text-slate-400">ชนิด:</span> {r.type ? <DrugTypeBadge type={r.type} /> : <span className="text-slate-700 font-medium">-</span>}</div>
+                        <div><span className="text-slate-400">ตำแหน่ง:</span> <span className="text-slate-700 font-medium">{r.location || '-'}</span></div>
+                        <div><span className="text-slate-400">Lot:</span> <span className="text-slate-700">{r.lot || '-'}</span></div>
+                        <div><span className="text-slate-400">Exp:</span> <span className="text-slate-700">{r.exp || '-'}</span></div>
+                        <div className="col-span-2"><span className="text-slate-400">คงเหลือ:</span> <span className="text-slate-800 font-bold">{fmtQty(r)}</span></div>
+                        {!isExpiryMode && r.waitDays != null && (
+                          <div className="col-span-2"><span className="text-slate-400">รอตรวจรับมา:</span> <span className="text-sky-700 font-semibold">{r.waitDays} วัน</span></div>
+                        )}
+                        {!isExpiryMode && r.receiveStatus && (
+                          <div className="col-span-2"><span className="text-slate-400">สถานะ:</span> <span className="text-slate-700">{r.receiveStatus}</span></div>
+                        )}
+                      </div>
                     </div>
-                    <div className="grid grid-cols-1 gap-4">
-                      {displayList.map((item, idx) => renderItemCard(item, idx, item.location))}
-                    </div>
-                    {q && displayList.length === 0 && <p className="text-center text-slate-400 py-10">ไม่พบรายการที่ค้นหา</p>}
-                  </div>
-                );
-              })()}
+                  ))}
+                </div>
+              ) : (
+                <table className="w-full text-xs min-w-[600px]">
+                  <thead className="sticky top-0 z-20">
+                    <tr className="text-slate-500 font-semibold border-b border-slate-100 bg-slate-50">
+                      <th className="px-4 py-2 text-left bg-slate-50">ชื่อยา</th>
+                      <th className="px-4 py-2 text-left bg-slate-50">ชนิด</th>
+                      <th className="px-4 py-2 text-left bg-slate-50">ตำแหน่ง</th>
+                      <th className="px-4 py-2 text-left bg-slate-50">Lot</th>
+                      <th className="px-4 py-2 text-center bg-slate-50">วันหมดอายุ</th>
+                      {isExpiryMode && <th className="px-4 py-2 text-center bg-slate-50">สถานะ</th>}
+                      {!isExpiryMode && <th className="px-4 py-2 text-center bg-slate-50">รอตรวจรับมา</th>}
+                      {!isExpiryMode && <th className="px-4 py-2 text-left bg-slate-50">สถานะรับ</th>}
+                      <th className="px-4 py-2 text-right bg-slate-50">คงเหลือ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {timeFiltered.map((r, i) => (
+                      <tr key={i} className={`border-b ${rowColor(r.daysLeft)}`}>
+                        <td className="px-4 py-2.5 font-semibold text-slate-800 max-w-[200px]">
+                          <span className="block truncate">{r.name || '-'}</span>
+                          {r.code && r.code !== '-' && <span className="text-slate-400 font-normal">{r.code}</span>}
+                        </td>
+                        <td className="px-4 py-2.5">{r.type ? <DrugTypeBadge type={r.type} /> : <span className="text-slate-500">-</span>}</td>
+                        <td className="px-4 py-2.5 text-slate-600 font-medium">{r.location || '-'}</td>
+                        <td className="px-4 py-2.5 text-slate-500">{r.lot || '-'}</td>
+                        <td className="px-4 py-2.5 text-center font-medium text-slate-700">{r.exp || '-'}</td>
+                        {isExpiryMode && (
+                          <td className="px-4 py-2.5 text-center">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${badgeColor(r.daysLeft)}`}>
+                              {daysLabel(r.daysLeft)}
+                            </span>
+                          </td>
+                        )}
+                        {!isExpiryMode && (
+                          <td className="px-4 py-2.5 text-center">
+                            {r.waitDays != null ? (
+                              <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border bg-sky-100 text-sky-700 border-sky-200">
+                                {r.waitDays} วัน
+                              </span>
+                            ) : <span className="text-slate-400">-</span>}
+                          </td>
+                        )}
+                        {!isExpiryMode && (
+                          <td className="px-4 py-2.5 text-slate-600 text-xs max-w-[160px] truncate">{r.receiveStatus || '-'}</td>
+                        )}
+                        <td className="px-4 py-2.5 text-right font-bold text-slate-700">{fmtQty(r)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
-            
+
             <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0 rounded-b-2xl">
-              <button onClick={() => { setExpiryViewFilter(null); setModalSearch(''); }} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-medium transition-colors shadow-sm">
+              <button onClick={() => { setExpiryViewFilter(null); setModalSearch(''); setModalTimeFilter('all'); setModalLogFilter('all'); }} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-medium transition-colors shadow-sm">
                 ปิดหน้าต่าง
               </button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {showResetConfirm && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
