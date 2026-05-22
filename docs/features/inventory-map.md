@@ -1,0 +1,83 @@
+# Inventory Map (App.jsx) — ระบบแผนผังคลังยา
+
+## โครงสร้าง Header
+
+- **Top header bar**: white sticky bar `bg-white border-b border-slate-200` — ปุ่มกลับ + icon + ชื่อระบบ + "จัดการข้อมูล" dropdown ฝั่งขวา
+- ย้าย `สรุปข้อมูล` และ `จัดการข้อมูล` dropdown ออกจาก search area → header
+- **Alert stat cards**: `grid grid-cols-2 sm:grid-cols-4` — 4 card (หมดอายุ / ใกล้หมดอายุ / รอตรวจรับ / ระบบสั่งยา) ใช้สี semantic (red/amber/sky/orange)
+- **Search card**: `bg-white rounded-2xl border` แยกออกจาก header
+- **Zone tabs**: active = `bg-indigo-600 text-white`
+- **Cabinet headers**: `bg-indigo-600`
+- **Summary modal header**: `bg-indigo-600`
+- ต้อง import `ArrowLeft` จาก `lucide-react` ใน App.jsx — ขาดแล้วหน้าขาว
+
+## Inventory Alert Rules
+
+- `fetchDashboardAlerts()` ต้องดึง `receive_status` ใน `.select()` เสมอ — ใช้ตรวจยาตัดออกจากบัญชี
+- ยาตัดออกจากบัญชี: `String(receive_status || '').includes('ตัดออก')` → ไม่แสดงใน alert ทุกประเภท
+- **Expiry alert**: ไม่แสดงถ้า `qty = 0` หรือยาตัดออกจากบัญชี — window ปัจจุบัน = **16 เดือน**
+- **Low stock alert**: ไม่แสดงถ้ายาตัดออกจากบัญชี (qty = 0 ยังแสดง เพราะถือว่า critical)
+
+## Display Rules — qty=0 ซ่อนทุกที่
+
+- แสดงเฉพาะ `qty > 0` ใน Slot, modal (`handleLocationClick`), **และผลการค้นหา (`searchResults` useMemo)**
+- ข้อมูล qty=0 **ยังอยู่ใน `inventory` state** — ใช้คำนวณ low-stock alert และ order calculation ต่อได้
+- ไม่กรองออกตอน import CSV — กรองเฉพาะตอน render เท่านั้น
+- **ยาตัดออก (discontinued)**: ซ่อนถ้า qty=0 ด้วย (เข้าเงื่อนไขเดียวกัน)
+- **เรียงลำดับ exp ascending** ทุกที่ — ใกล้หมดอายุก่อนอยู่บนสุด รายการที่ไม่มี exp อยู่ล่างสุด
+  - `handleLocationClick` (popup ตำแหน่ง) ✓
+  - `searchResults` useMemo ✓
+- slot color (hasExpired/hasNearExpiry) คำนวณจาก `visibleItems` — qty=0 ถูก skip ใน loop อยู่แล้ว
+
+## Inventory Summary Modal — Display Rules
+
+**ตัวเลขทุกตัวใน modal ต้องสอดคล้องกัน** — `summary`, `overallStats`, `typeStats` ต้องกรอง `qty > 0 && !discontinued` เหมือน `expiredItems`/`nearExpiryItems`/`safeItems`
+
+- **มูลค่าคงคลัง** คำนวณจาก `Σ qty × price_per_unit` โดย lookup `drugDetails[code|lot|invoice].price_per_unit` (fallback: code+lot)
+- **Slot Utilization** = (slot ที่มียาคงเหลือ > 0 ÷ slot ทั้งหมดใน cab)
+  - color: ≥85% rose, ≥60% amber, <60% emerald
+- **Top 5 ใกล้หมดอายุ** คลิก → ปิด modal + เปิด `handleLocationClick(location)` ของ Lot นั้น
+- **Top 5 คงเหลือสูงสุด** group by `code` (fallback name), sum `qty`, แสดงจำนวนตำแหน่งจัดเก็บที่กระจายอยู่
+- **KPI "หมดอายุแล้ว"** ซ่อนเมื่อ `expiredItems.length === 0`
+- **Toggle view** "กราฟ / ตาราง" state `summaryStorageView` (`'chart' | 'table'`) — ตารางมี column มูลค่า + Slot Util
+- **Export Excel** ใน header modal — `exportToExcel` พร้อม auth, ไฟล์ `inventory_summary_{date}.xlsx`
+  - columns: รายการยา / Lot / Lot รวม / มูลค่า / Slot ใช้/ทั้งหมด / % การใช้พื้นที่
+- **Timestamp** ใน header — แสดง `logUpdateDate` ผ่าน `formatDateTime()` ใต้ title
+- **มูลค่ารวม** ใช้ `formatBaht`: ≥1M → "X.XXM", ≥1K → "X.XK", <1K → integer
+- **หมายเหตุใต้ KPI**: "นับเฉพาะคงเหลือ > 0 · ไม่รวมยาตัดออกจากบัญชี · มูลค่าคำนวณจากราคา/หน่วยล่าสุดใน receive_logs"
+
+## UI Polish Rules
+
+- **ห้ามใช้ emoji** ใน UI ทุกที่ — ใช้ lucide-react เท่านั้น
+- **Header buttons** (สรุปข้อมูล + จัดการข้อมูล) ใช้ outline pattern เดียวกัน: `bg-white border border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50 text-indigo-600`
+- **Card "ต่ำกว่าจุดสั่งซื้อ"** (เดิม "ระบบสั่งยา") — label สื่อความหมายตัวเลข (count ของ `lowStockItems`); คลิกแล้วยังไปหน้า order view เหมือนเดิม
+- **หมายเหตุช่วง 16 เดือน** อยู่ภายใน card "ใกล้หมดอายุ" (text-[10px] text-slate-400)
+- **Toggle ซ่อนช่องว่าง** ใช้ `Eye` / `EyeOff` icon — EyeOff = ซ่อนอยู่ (active state indigo)
+- **Empty state**: เมื่อ `Object.keys(inventory).length === 0` → card dashed border + ปุ่ม "อัปโหลด Log คลังยา" (staff) หรือ hint "ติดต่อเจ้าหน้าที่" (requester)
+- **Search result chip** ใช้ `bg-indigo-600` — สี amber สงวนสำหรับ alert (expiry) เท่านั้น
+- **Heatmap slot ว่าง** (`itemCount === 0`) ใช้ `bgOpacity = 0.15` + `border-dashed` — slot ที่มีของใช้ solid border
+- **ปุ่ม "รายละเอียด"** ใน item card ใช้ `min-w-[140px]` + text คงที่ "รายละเอียด" + chevron toggle (ไม่เปลี่ยน label) — กัน width กระตุก
+
+## StockSummaryModal — จำนวนคงเหลือในคลัง
+
+- เปิดจาก Dashboard card "รายการยาในคลัง" (StatsStrip)
+- **Layout**: Desktop → modal กว้าง `max-w-5xl` กลางหน้าจอ / Mobile → bottom sheet (`rounded-t-2xl`)
+- ตาราง: sticky header + frozen column "ชื่อยา" (ซ้าย) + scroll แนวนอน บน mobile
+- Realtime: subscribe `postgres_changes` บน `inventory` table → อัพเดตอัตโนมัติ
+- DrugSearchBar ใน modal รองรับ keyboard navigation (↑↓ Enter Esc)
+- **Sort**: คลิก header ชื่อยา / คงเหลือ / LOT เพื่อ sort — cycle asc → desc → default (`sortBy` state `{ key, dir } | null`)
+
+## ExpiryAlertSection — Export Excel
+
+- ปุ่ม Export Excel อยู่ใน header ของ modal — ใช้ `EXPIRY_EXCEL_COLS` (module-level constant)
+- Export ตาม **tab filter ที่เลือกอยู่** (`filtered`) ไม่ใช่ทั้งหมด
+- ชื่อไฟล์: `expiry_alert_{tabLabel}_{date}.xlsx`
+- ต้องส่ง `auth` prop ไปที่ `<ExpiryAlertSection auth={auth} />` เสมอ
+
+## Do Not (Inventory Map)
+
+- อย่าใช้ dark gradient `from-slate-900 to-slate-600` ใน header หรือ cabinet — ใช้ `bg-indigo-600`
+- อย่าวาง search bar + dropdown ไว้ใน header block เดิม — แยกเป็น card ของตัวเอง
+- อย่าเปลี่ยน filter logic เป็น `!(isDiscontinued && qty === 0)` — qty=0 ต้องซ่อนเสมอ
+- อย่าใส่ "นับทุกแถวใน inventory" ใน KPI cards — เคยมีบั๊กตัวเลขไม่ตรงกันระหว่างนับรวม qty=0 กับ donut ที่นับเฉพาะ qty>0
+- อย่าใส่ `style={{ maxHeight }}` ซ้อนทับ `flex-1` ใน table area ของ StockSummaryModal — ใช้ `95vh` บน modal wrapper แทน
