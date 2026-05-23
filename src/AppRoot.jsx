@@ -90,6 +90,9 @@ export default function AppRoot() {
       case 'receive':
         content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
         break;
+      case 'receive-ap':
+        content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} initialTab="ap" />;
+        break;
       case 'return':
         content = <ReturnApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
         break;
@@ -926,6 +929,7 @@ function Dashboard({ auth, onNavigate, onLogout }) {
           onOpenLowStock={() => setAlertModal('lowStock')}
           onOpenRequisition={() => onNavigate(isStaff ? 'requisition' : 'requisition-history')}
           onOpenStock={() => setAlertModal('stock')}
+          onOpenAp={() => onNavigate('receive-ap')}
           onStatsReady={({ pending }) => setPendingCount(pending || 0)}
         />
       </div>
@@ -1591,20 +1595,37 @@ function StockSummaryModal({ onClose, auth = {} }) {
 }
 
 // ---- Quick stats (staff view only) ----
-function StatsStrip({ alerts = { expiring: [], lowStock: [] }, isStaff = false, onOpenExpiry, onOpenLowStock, onOpenRequisition, onOpenStock, onStatsReady }) {
-  const [stats, setStats] = React.useState({ inventory: '-', pending: '-' });
+function StatsStrip({ alerts = { expiring: [], lowStock: [] }, isStaff = false, onOpenExpiry, onOpenLowStock, onOpenRequisition, onOpenStock, onOpenAp, onStatsReady }) {
+  const [stats, setStats] = React.useState({ inventory: '-', pending: '-', apUnposted: 0, apOverdue: 0 });
 
   const loadStats = React.useCallback(async () => {
     if (!supabase) return;
-    const [inv, pend] = await Promise.all([
+    const [inv, pend, apRows] = await Promise.all([
       supabase.from('inventory').select('code'),
       supabase.from('requisitions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+      isStaff
+        ? supabase.from('receive_logs').select('bill_number, ap_stage, inspected_at, receive_date').in('ap_stage', ['inspected', 'sent_batch'])
+        : Promise.resolve({ data: [] }),
     ]);
     const uniqueDrugs = new Set((inv.data || []).map(r => r.code).filter(Boolean)).size;
     const pending = pend.count ?? 0;
-    setStats({ inventory: uniqueDrugs || '-', pending: pending || '-' });
+
+    // count distinct bill_number ที่ยังไม่ posted + count overdue > 7 วัน
+    const bills = new Map();
+    const today = Date.now();
+    (apRows.data || []).forEach(r => {
+      if (!r.bill_number) return;
+      const baseIso = r.inspected_at || r.receive_date;
+      const ageDays = baseIso ? Math.floor((today - new Date(baseIso).getTime()) / 86400000) : 0;
+      const cur = bills.get(r.bill_number);
+      if (!cur || ageDays > cur) bills.set(r.bill_number, ageDays);
+    });
+    const apUnposted = bills.size;
+    const apOverdue = Array.from(bills.values()).filter(d => d > 7).length;
+
+    setStats({ inventory: uniqueDrugs || '-', pending: pending || '-', apUnposted, apOverdue });
     if (onStatsReady) onStatsReady({ inventory: uniqueDrugs || 0, pending });
-  }, [onStatsReady]);
+  }, [onStatsReady, isStaff]);
 
   React.useEffect(() => {
     loadStats();
@@ -1659,10 +1680,21 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [] }, isStaff = false, 
       labelColor:  lowStockCount > 0 ? 'text-amber-600'   : 'text-slate-500',
       onClick: lowStockCount > 0 ? onOpenLowStock : undefined,
     },
+    {
+      label: stats.apOverdue > 0
+        ? `รอตั้งหนี้ · ค้าง > 7 วัน ${stats.apOverdue} บิล`
+        : 'รอตั้งหนี้ (บิล)',
+      value: stats.apUnposted,
+      color:       stats.apOverdue > 0 ? 'text-red-700'   : (stats.apUnposted > 0 ? 'text-orange-700'   : 'text-slate-700'),
+      cardBg:      stats.apOverdue > 0 ? 'bg-red-50'      : (stats.apUnposted > 0 ? 'bg-orange-50'      : 'bg-slate-50'),
+      borderColor: stats.apOverdue > 0 ? 'border-red-200' : (stats.apUnposted > 0 ? 'border-orange-200' : 'border-slate-200'),
+      labelColor:  stats.apOverdue > 0 ? 'text-red-500'   : (stats.apUnposted > 0 ? 'text-orange-500'   : 'text-slate-500'),
+      onClick: stats.apUnposted > 0 ? onOpenAp : undefined,
+    },
   ];
 
   const items = isStaff ? [...baseItems, ...staffItems] : baseItems;
-  const colsMap = { 3: 'sm:grid-cols-3', 4: 'sm:grid-cols-4' };
+  const colsMap = { 3: 'sm:grid-cols-3', 4: 'sm:grid-cols-4', 5: 'sm:grid-cols-5' };
   const cols = colsMap[items.length] || 'sm:grid-cols-2';
 
   return (

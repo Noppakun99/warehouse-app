@@ -12,6 +12,8 @@
 | `picking_workflow_migration.sql` | +columns สำหรับ picking workflow | ใช้งาน |
 | `return_source_migration.sql` | +return_source ใน return_logs | ใช้งาน |
 | `suspend_user_migration.sql` | +suspend_until ใน app_users | ใช้งาน |
+| `ap_workflow_migration.sql` | +8 columns ใน receive_logs สำหรับ AP tracking (ap_stage, inspected_at/by, ap_batch_id, ap_sent/posted_at/by) | ใช้งาน |
+| `ap_acknowledge_migration.sql` | +2 columns (acknowledged_at, acknowledged_by) สำหรับจัดซื้อกด "รับบิลแล้ว" | ใช้งาน |
 | `audit_retention_policy.sql` | pg_cron job ลบ audit log เก่า | ใช้งาน |
 
 RLS enabled with public read/write policies (internal app)

@@ -1,14 +1,18 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from './lib/supabase';
-import { fetchDrugDetails, RECEIVE_COL_MAP, insertReceiveRows, normalizeLotSearch, scanInvoiceImage, insertScannedBillRows, uploadInvoiceImage, lookupDrugCodes } from './lib/db';
+import { fetchDrugDetails, RECEIVE_COL_MAP, insertReceiveRows, normalizeLotSearch, scanInvoiceImage, insertScannedBillRows, uploadInvoiceImage, lookupDrugCodes,
+  fetchApBills, groupRowsByBill, markBillsInspected, markBillsSentBatch, markBillsPosted, unmarkBillsPosted, unmarkBillsInspected, unmarkBillsSentBatch, resetApBatch, fetchApBatches,
+  markBillsAcknowledged, unmarkBillsAcknowledged } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 import {
   ArrowLeft, UploadCloud, RefreshCcw, Search, X,
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
   TrendingUp, BarChart3, FileDown, ScanLine, CheckCircle2, HelpCircle,
   ImagePlus, Pencil, Trash2, Info, CalendarDays,
+  ClipboardList, Send, FileCheck2, History, Undo2, Printer,
 } from 'lucide-react';
 import { exportToExcel } from './lib/exportExcel';
+import { insertAuditLog, resolveAuditUserName } from './lib/db';
 
 function DrugTypeBadge({ type }) {
   if (!type || type === '-') return null;
@@ -45,7 +49,8 @@ function ThaiDateInput({ value, onChange, placeholder = 'dd/mm/yyyy', ring = 'fo
       <input type="date"
         className="absolute inset-0 opacity-0 w-full cursor-pointer text-base"
         value={thaiToIso(value) || ''}
-        onChange={e => onChange(isoToThai(e.target.value))} />
+        onChange={e => onChange(isoToThai(e.target.value))}
+        onClick={e => { try { e.currentTarget.showPicker?.(); } catch { /* noop */ } }} />
     </div>
   );
 }
@@ -227,8 +232,8 @@ const RECEIVE_EXCEL_COLS = [
 // ============================================================
 // Root
 // ============================================================
-export default function ReceiveLogApp({ onBack, onRefresh, auth = {} }) {
-  const [tab, setTab]                 = useState('view');
+export default function ReceiveLogApp({ onBack, onRefresh, auth = {}, initialTab = 'view' }) {
+  const [tab, setTab]                 = useState(initialTab);
   const [showSummary, setShowSummary] = useState(false);
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
   const isAdmin = auth.role === 'admin';
@@ -248,6 +253,9 @@ export default function ReceiveLogApp({ onBack, onRefresh, auth = {} }) {
           </button>
           {isStaff && (
             <>
+              <button onClick={() => setTab('ap')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'ap' ? 'bg-white text-emerald-700 font-bold' : 'text-emerald-100 hover:text-white hover:bg-white/20'}`}
+              ><Send size={15}/>ส่งบัญชี</button>
               <button onClick={() => setTab('scan')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'scan' ? 'bg-white text-emerald-700 font-bold' : 'text-emerald-100 hover:text-white hover:bg-white/20'}`}
               ><ScanLine size={15}/>สแกนบิล</button>
@@ -260,6 +268,7 @@ export default function ReceiveLogApp({ onBack, onRefresh, auth = {} }) {
       </div>
       {tab === 'scan'   && isStaff && <ScanInvoice onDone={() => setTab('view')} auth={auth} />}
       {tab === 'import' && isStaff && <ReceiveImport onDone={() => setTab('view')} />}
+      {tab === 'ap'     && isStaff && <ApWorkflow auth={auth} onBack={() => setTab('view')} />}
       {tab === 'view'   && <ReceiveView isAdmin={isAdmin} />}
       {showSummary      && <ReceiveSummaryModal onClose={() => setShowSummary(false)} />}
     </div>
@@ -2159,6 +2168,1179 @@ function BarSection({ title, items, barColor, unit, shareMode = false }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+// AP Workflow — ติดตาม + ส่งบัญชี (Weekly Batch)
+// ============================================================
+const AP_STAGE_LABEL = {
+  null:           { label: 'รอจัดซื้อรับ',  bg: 'bg-amber-100',  text: 'text-amber-700',  dot: 'bg-amber-500' },
+  acked:          { label: 'จัดซื้อรับแล้ว', bg: 'bg-sky-100',    text: 'text-sky-700',    dot: 'bg-sky-500' },
+  inspected:      { label: 'รอส่งบัญชี',   bg: 'bg-orange-100', text: 'text-orange-700', dot: 'bg-orange-500' },
+  sent_batch:     { label: 'ส่งแล้ว รอ post', bg: 'bg-indigo-100', text: 'text-indigo-700', dot: 'bg-indigo-500' },
+  posted:         { label: 'ตั้งหนี้แล้ว',  bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500' },
+};
+
+function daysSince(iso) {
+  if (!iso) return 0;
+  const d = new Date(iso); if (isNaN(d)) return 0;
+  return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
+}
+
+function fmtDateThaiShort(iso) {
+  if (!iso) return '-';
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso;
+  return `${m[3]}/${m[2]}/${Number(m[1]) + 543}`;
+}
+
+function fmtBahtDisplay(n) {
+  if (n == null || isNaN(n)) return '0';
+  return Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function todayIsoLocal() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+const HOSPITAL_NAME = 'โรงพยาบาลประชาธิปัตย์';
+
+function printApBatch(rows, batchId, meta = {}) {
+  if (!rows || rows.length === 0) return;
+  const bills = (function group(){
+    const m = new Map();
+    for (const r of rows) {
+      const b = r.bill_number || '-';
+      if (!m.has(b)) m.set(b, { bill_number: b, supplier: r.supplier_current || '-', receive_date: r.receive_date, items: [], total_value: 0 });
+      const g = m.get(b);
+      g.items.push(r);
+      const qty = parseFloat(r.qty_received) || 0;
+      const price = parseFloat(r.price_per_unit) || 0;
+      const v = (r.total_price_vat != null && r.total_price_vat > 0) ? parseFloat(r.total_price_vat) : qty * price;
+      g.total_value += v;
+      if (!g.receive_date || (r.receive_date && r.receive_date > g.receive_date)) g.receive_date = r.receive_date;
+    }
+    return Array.from(m.values()).sort((a,b) => (a.receive_date||'').localeCompare(b.receive_date||''));
+  })();
+
+  const totalValue = bills.reduce((s,b) => s + b.total_value, 0);
+  const totalLots  = bills.reduce((s,b) => s + b.items.length, 0);
+  const dates = rows.map(r => r.receive_date).filter(Boolean).sort();
+  const fromIso = meta.periodFrom || dates[0];
+  const toIso   = meta.periodTo   || dates[dates.length - 1];
+
+  const fmtDate = (iso) => {
+    if (!iso) return '-';
+    const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return iso;
+    return `${m[3]}/${m[2]}/${Number(m[1]) + 543}`;
+  };
+  const fmtBaht = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtQty  = (n) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
+  const today   = fmtDate(todayIsoLocal());
+
+  const billRows = bills.map((b,i) => `
+    <tr>
+      <td class="c">${i+1}</td>
+      <td>${b.bill_number}</td>
+      <td>${b.supplier}</td>
+      <td class="c">${fmtDate(b.receive_date)}</td>
+      <td class="c">${b.items.length}</td>
+      <td class="r">${fmtBaht(b.total_value)}</td>
+    </tr>`).join('');
+
+  let runIdx = 0;
+  const detailRows = bills.flatMap(b => b.items.map(r => {
+    runIdx += 1;
+    const qty = parseFloat(r.qty_received) || 0;
+    const price = parseFloat(r.price_per_unit) || 0;
+    const v = (r.total_price_vat != null && r.total_price_vat > 0) ? parseFloat(r.total_price_vat) : qty * price;
+    return `<tr>
+      <td class="c">${runIdx}</td>
+      <td>${b.bill_number}</td>
+      <td>${r.drug_code || '-'}</td>
+      <td>${r.drug_name || '-'}</td>
+      <td>${r.lot || '-'}</td>
+      <td class="c">${r.exp || '-'}</td>
+      <td class="r">${fmtQty(qty)}</td>
+      <td>${r.drug_unit || '-'}</td>
+      <td class="r">${fmtBaht(price)}</td>
+      <td class="r">${fmtBaht(v)}</td>
+    </tr>`;
+  })).join('');
+
+  const html = `<!DOCTYPE html><html lang="th"><head>
+<meta charset="UTF-8"/>
+<title>ใบนำส่งบิลตั้งหนี้ ${batchId}</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #1e293b; background: #fff; padding: 20px 28px 28px; }
+  .h-row { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 2px solid #1e293b; padding-bottom: 8px; margin-bottom: 14px; }
+  h1 { font-size: 20px; font-weight: 700; color: #1e293b; }
+  .sub { font-size: 11px; color: #64748b; }
+  .meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 16px; margin-bottom: 16px;
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; }
+  .meta-grid .field label { display:block; font-size: 10px; color: #94a3b8; font-weight: 600; margin-bottom: 2px; }
+  .meta-grid .field span { font-size: 13px; font-weight: 700; color: #1e293b; }
+  .meta-grid .field.total span { color: #047857; }
+  .section-title { font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase;
+    letter-spacing: .05em; margin: 12px 0 6px; border-left: 3px solid #047857; padding-left: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 14px; }
+  th { background: #f1f5f9; color: #1e293b; font-weight: 700; padding: 6px 8px; text-align: left;
+    border-bottom: 2px solid #000; border-right: 1px solid #cbd5e1; }
+  th:last-child { border-right: none; }
+  td { padding: 5px 8px; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #f1f5f9; }
+  td:last-child { border-right: none; }
+  td.c { text-align: center; }
+  td.r { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:nth-child(even) td { background: #fafbfc; }
+  tfoot td { font-weight: 700; background: #ecfdf5 !important; border-top: 2px solid #047857; }
+  .sig-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 28px;
+    page-break-inside: avoid; }
+  .sig-box { border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px 16px; }
+  .sig-box .sig-title { font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase;
+    letter-spacing: .05em; margin-bottom: 6px; text-align: center; }
+  .sig-name { font-size: 13px; color: #1e293b; text-align: center;
+    border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; min-height: 22px; font-weight: 600; }
+  .sig-line { margin-top: 36px; border-bottom: 1px solid #94a3b8; }
+  .sig-label { font-size: 11px; color: #64748b; text-align: center; margin-top: 4px; }
+  .sig-date { font-size: 11px; color: #64748b; margin-top: 8px; }
+  .sig-date span { display: inline-block; border-bottom: 1px solid #94a3b8; min-width: 110px; margin-left: 6px; }
+  .foot { font-size: 10px; color: #94a3b8; text-align: right; margin-top: 14px; }
+  @media print {
+    body { padding: 10mm 12mm; }
+    button { display: none !important; }
+    thead { display: table-header-group; }
+  }
+</style>
+</head><body>
+<button onclick="window.print()" style="position:fixed;top:14px;right:14px;background:#047857;color:#fff;border:none;
+  padding:8px 18px;border-radius:8px;font-family:Sarabun,sans-serif;font-size:13px;cursor:pointer;font-weight:600;z-index:9999;">
+  พิมพ์
+</button>
+
+<div class="h-row">
+  <div>
+    <h1>${HOSPITAL_NAME}</h1>
+    <p class="sub">ใบนำส่งบิลตั้งหนี้ / Weekly AP Batch Submission</p>
+  </div>
+  <div style="text-align:right;">
+    <div style="font-size:14px;font-weight:700;color:#047857;">รหัสรอบส่ง: ${batchId}</div>
+    <div class="sub">วันที่ส่ง: ${fmtDate(batchId)}</div>
+  </div>
+</div>
+
+<div class="meta-grid">
+  <div class="field"><label>${fromIso === toIso ? 'วันที่รับของ' : 'ช่วงวันรับของ'}</label><span>${fromIso === toIso ? fmtDate(fromIso) : `${fmtDate(fromIso)} – ${fmtDate(toIso)}`}</span></div>
+  <div class="field"><label>จำนวนบิล</label><span>${bills.length} บิล</span></div>
+  <div class="field"><label>จำนวนรายการ (lot)</label><span>${totalLots} รายการ</span></div>
+  <div class="field total"><label>มูลค่ารวม</label><span>${fmtBaht(totalValue)} บาท</span></div>
+</div>
+
+<p class="section-title">รายการบิล (Bills Summary)</p>
+<table>
+  <thead><tr>
+    <th style="width:6%;" class="c">ลำดับ</th>
+    <th style="width:18%;">เลขบิล</th>
+    <th>บริษัท</th>
+    <th style="width:12%;" class="c">วันรับ</th>
+    <th style="width:8%;" class="c">Lot</th>
+    <th style="width:16%;" class="r">มูลค่า (บาท)</th>
+  </tr></thead>
+  <tbody>${billRows}</tbody>
+  <tfoot><tr>
+    <td colspan="4" class="r">รวม</td>
+    <td class="c">${totalLots}</td>
+    <td class="r">${fmtBaht(totalValue)}</td>
+  </tr></tfoot>
+</table>
+
+<p class="section-title">รายการละเอียด (Item Detail)</p>
+<table>
+  <thead><tr>
+    <th style="width:5%;" class="c">#</th>
+    <th style="width:13%;">เลขบิล</th>
+    <th style="width:9%;">รหัสยา</th>
+    <th>ชื่อยา</th>
+    <th style="width:10%;">Lot</th>
+    <th style="width:8%;" class="c">Exp</th>
+    <th style="width:7%;" class="r">จำนวน</th>
+    <th style="width:7%;">หน่วย</th>
+    <th style="width:9%;" class="r">ราคา/หน่วย</th>
+    <th style="width:11%;" class="r">มูลค่า</th>
+  </tr></thead>
+  <tbody>${detailRows}</tbody>
+  <tfoot><tr>
+    <td colspan="9" class="r">รวมทั้งสิ้น</td>
+    <td class="r">${fmtBaht(totalValue)}</td>
+  </tr></tfoot>
+</table>
+
+<div class="sig-row">
+  <div class="sig-box">
+    <p class="sig-title">กรรมการตรวจรับ</p>
+    <div class="sig-name">${(meta.inspectorNames && meta.inspectorNames.length > 0) ? meta.inspectorNames.join(', ') : ''}</div>
+    <div class="sig-line"></div>
+    <p class="sig-label">ลายมือชื่อ ผู้ตรวจรับ</p>
+    <p class="sig-date">วันที่ <span></span></p>
+  </div>
+  <div class="sig-box">
+    <p class="sig-title">เจ้าหน้าที่จัดซื้อ</p>
+    <div class="sig-name">${meta.senderName || ''}</div>
+    <div class="sig-line"></div>
+    <p class="sig-label">ลายมือชื่อ ผู้ส่ง</p>
+    <p class="sig-date">วันที่ <span></span></p>
+  </div>
+</div>
+
+<p class="foot">พิมพ์เมื่อ ${today}</p>
+</body></html>`;
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const win  = window.open(url, '_blank');
+  if (win) setTimeout(() => URL.revokeObjectURL(url), 30000);
+  else     URL.revokeObjectURL(url);
+}
+
+function ApWorkflow({ auth, onBack }) {
+  const [subTab, setSubTab]   = useState('pending'); // 'pending' | 'sent' | 'history'
+  const [loading, setLoading] = useState(true);
+  const [pendingBills, setPendingBills] = useState([]); // ap_stage IN (null, inspected)
+  const [sentBills, setSentBills]       = useState([]); // ap_stage = sent_batch
+  const [batches, setBatches]           = useState([]); // distinct ap_batch_id
+  const [selected, setSelected]         = useState(new Set()); // bill_numbers
+  // ไม่ persist ชื่อ — ทุกครั้งเปิดหน้าให้กรอกใหม่ (ตามที่ผู้ใช้ต้องการ)
+  // ล้าง localStorage เก่าครั้งเดียว (จะถูกล้างเมื่อ component mount)
+  const [inspector, setInspector]       = useState('');
+  const [purchaser, setPurchaser]       = useState('');
+  const [accountant, setAccountant]     = useState('');
+  useEffect(() => {
+    localStorage.removeItem('ap_inspector');
+    localStorage.removeItem('ap_purchaser');
+    localStorage.removeItem('ap_accountant');
+  }, []);
+  const [busy, setBusy]                 = useState(false);
+  const [msg, setMsg]                   = useState('');
+  const [error, setError]               = useState('');
+  const [search, setSearch]             = useState('');
+  const [dateFrom, setDateFrom]         = useState('');
+  const [dateTo, setDateTo]             = useState('');
+  const [sortKey, setSortKey]           = useState('receive_date'); // 'receive_date' | 'days' | 'bill_number' | 'value' | 'drug_count'
+  const [sortDir, setSortDir]           = useState('desc');         // 'asc' | 'desc'
+  const [stageFilter, setStageFilter]   = useState('all');          // 'all' | 'null' | 'inspected'
+  const [expandedBill, setExpandedBill] = useState(null);
+  const toggleExpand = (bn) => setExpandedBill(cur => cur === bn ? null : bn);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const [pendingRows, sentRows, batchList] = await Promise.all([
+        fetchApBills({ stage: 'pending_all' }),
+        fetchApBills({ stage: 'sent_batch' }),
+        fetchApBatches(),
+      ]);
+      // กรอง: บิลที่ ap_stage=NULL ต้องมี receive_status = 'รอตรวจรับ' เท่านั้น
+      // (บิลที่ inspected/sent_batch แล้ว ไม่ต้องเช็ค receive_status — อยู่ใน flow แล้ว)
+      const pendingFiltered = pendingRows.filter(r => {
+        if (!r.bill_number || r.bill_number === '-') return false;
+        if (r.ap_stage) return true; // inspected / sent_batch ผ่านได้เลย
+        const status = String(r.receive_status || '').trim();
+        return status === 'รอตรวจรับ';
+      });
+      setPendingBills(groupRowsByBill(pendingFiltered));
+      setSentBills(groupRowsByBill(sentRows.filter(r => r.bill_number && r.bill_number !== '-')));
+      setBatches(batchList);
+    } catch (e) {
+      const msg = e.message || 'โหลดข้อมูลไม่สำเร็จ';
+      if (msg.includes('acknowledged_at') && msg.includes('does not exist')) {
+        setError('⚠️ ยังไม่ได้รัน migration!\nไป Supabase Dashboard → SQL Editor\nrun ไฟล์: ap_acknowledge_migration.sql\nแล้ว refresh หน้านี้');
+      } else {
+        setError(msg);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { setSelected(new Set()); }, [subTab]);
+  // auto-dismiss แจ้งเตือน — success 3 วินาที / error 5 วินาที / migration alert 15 วินาที
+  useEffect(() => {
+    if (!msg && !error) return;
+    const longMigrate = error && error.includes('migration');
+    const delay = longMigrate ? 15000 : (error ? 5000 : 3000);
+    const t = setTimeout(() => { setMsg(''); setError(''); }, delay);
+    return () => clearTimeout(t);
+  }, [msg, error]);
+
+  const applyFilters = (list, baseDateKey, applyStage = false) => {
+    const q = search.trim().toLowerCase();
+    const from = dateFrom || null;
+    const to   = dateTo   || null;
+    let arr = list.filter(b => {
+      if (q && !((b.bill_number || '').toLowerCase().includes(q) || (b.supplier || '').toLowerCase().includes(q))) return false;
+      const d = b.receive_date || '';
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      if (applyStage && stageFilter !== 'all') {
+        const s = b.ap_stage;
+        if (stageFilter === 'unack')         { if (s || b.acknowledged_at) return false; }
+        else if (stageFilter === 'acked')    { if (s || !b.acknowledged_at) return false; }
+        else if (stageFilter === 'inspected'){ if (s !== 'inspected') return false; }
+      }
+      return true;
+    });
+    const dir = sortDir === 'asc' ? 1 : -1;
+    arr = [...arr].sort((a, b) => {
+      let av, bv;
+      switch (sortKey) {
+        case 'bill_number': av = a.bill_number || ''; bv = b.bill_number || ''; return av.localeCompare(bv) * dir;
+        case 'value':       av = a.total_value || 0;  bv = b.total_value || 0;  return (av - bv) * dir;
+        case 'drug_count':  av = a.drug_count || 0;   bv = b.drug_count || 0;   return (av - bv) * dir;
+        case 'item_count':  av = a.item_count || 0;   bv = b.item_count || 0;   return (av - bv) * dir;
+        case 'days': {
+          const baseA = (baseDateKey === 'sent' ? a.ap_sent_at : a.receive_date) || '';
+          const baseB = (baseDateKey === 'sent' ? b.ap_sent_at : b.receive_date) || '';
+          return baseA.localeCompare(baseB) * -dir; // เก่ากว่า = ค้างนานกว่า → invert
+        }
+        default: av = a.receive_date || ''; bv = b.receive_date || ''; return av.localeCompare(bv) * dir;
+      }
+    });
+    return arr;
+  };
+  const filteredPending = applyFilters(pendingBills, 'receive', true);
+  const filteredSent    = applyFilters(sentBills, 'sent');
+  // กรอง batch ด้วย dateFrom/dateTo (batch_id = YYYY-MM-DD = วันที่ส่ง)
+  const filteredBatches = batches.filter(b => {
+    if (dateFrom && b.batch_id < dateFrom) return false;
+    if (dateTo   && b.batch_id > dateTo)   return false;
+    return true;
+  });
+
+  // นับจำนวนตามแต่ละ stage (ก่อน apply stageFilter เพื่อให้ปุ่มแสดงเลขถูก)
+  const stageCount = pendingBills.reduce((acc, b) => {
+    acc.all += 1;
+    if (b.ap_stage === 'inspected') acc.inspected += 1;
+    else if (!b.ap_stage && !b.acknowledged_at) acc.unack += 1;
+    else if (!b.ap_stage && b.acknowledged_at)  acc.acked += 1;
+    return acc;
+  }, { all: 0, unack: 0, acked: 0, inspected: 0 });
+
+  const toggleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('desc'); }
+  };
+  const sortIndicator = (key) => sortKey !== key ? '' : (sortDir === 'asc' ? ' ▲' : ' ▼');
+
+  const toggleBill = (bill) => {
+    const next = new Set(selected);
+    if (next.has(bill)) next.delete(bill); else next.add(bill);
+    setSelected(next);
+  };
+  const toggleAll = (list) => {
+    if (selected.size === list.length) setSelected(new Set());
+    else setSelected(new Set(list.map(b => b.bill_number)));
+  };
+
+  // ---- Actions ----
+  async function handleMarkInspected() {
+    if (selected.size === 0) { setError('เลือกบิลที่ตรวจรับเสร็จก่อน'); return; }
+    // ต้องเป็นบิลที่ "จัดซื้อรับแล้ว" (ap_stage=NULL + acknowledged_at NOT NULL) เท่านั้น
+    const ackedSelected = filteredPending.filter(b => !b.ap_stage && b.acknowledged_at && selected.has(b.bill_number));
+    const unackSelected = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number));
+    if (ackedSelected.length === 0) {
+      if (unackSelected.length > 0) {
+        setError(`บิลที่เลือก ${unackSelected.length} บิลยังเป็น "รอจัดซื้อรับ"\nต้องกด "Mark รับบิล" ก่อน → แล้วค่อย Mark ตรวจรับแล้ว`);
+      } else {
+        setError('ไม่มีบิลที่จัดซื้อรับแล้วในการเลือก');
+      }
+      return;
+    }
+    const name = inspector.trim();
+    setBusy(true); setError(''); setMsg('');
+    try {
+      const billNumbers = ackedSelected.map(b => b.bill_number);
+      const n = await markBillsInspected(billNumbers, name, auth);
+      setMsg(`บันทึก "ตรวจรับแล้ว" ${billNumbers.length} บิล (${n} รายการ)`);
+      setSelected(new Set());
+      await load();
+    } catch (e) { setError(e.message || 'บันทึกไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  }
+
+  async function handleExportAndSend() {
+    const inspectedBills = filteredPending.filter(b => b.ap_stage === 'inspected' && selected.has(b.bill_number));
+    if (inspectedBills.length === 0) { setError('เลือกเฉพาะบิลที่ตรวจรับแล้ว (สถานะ "รอส่งบัญชี") ก่อน'); return; }
+    setBusy(true); setError(''); setMsg('');
+    try {
+      const batchId = todayIsoLocal();
+      const billNumbers = inspectedBills.map(b => b.bill_number);
+      const rowsToExport = inspectedBills.flatMap(b => b.items);
+      const dates = rowsToExport.map(r => r.receive_date).filter(Boolean).sort();
+      const inspectorNames = Array.from(new Set(inspectedBills.map(b => b.inspected_by).filter(Boolean)));
+      const purchaserName = purchaser.trim();
+      printApBatch(rowsToExport, batchId, {
+        periodFrom: dates[0], periodTo: dates[dates.length - 1],
+        senderName: purchaserName,   // ว่างก็ได้ → ช่องเซ็นในใบนำส่งจะเว้นว่าง
+        inspectorNames,              // [] ถ้าไม่มีใครกรอก → ช่องกรรมการจะเว้นว่าง
+      });
+      await markBillsSentBatch(billNumbers, batchId, auth, purchaserName || null);
+      await insertAuditLog({
+        action: 'print_ap_batch', table_name: 'receive_logs',
+        user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+        record_count: rowsToExport.length,
+        details: { batch_id: batchId, bill_count: billNumbers.length, purchaser: purchaser.trim() },
+      });
+      setMsg(`พิมพ์ใบนำส่ง + บันทึก ${billNumbers.length} บิล · batch ${batchId}`);
+      setSelected(new Set());
+      await load();
+    } catch (e) { setError(e.message || 'พิมพ์ไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  }
+
+  async function handleMarkPosted(billsToPost) {
+    const list = billsToPost && billsToPost.length > 0 ? billsToPost : Array.from(selected);
+    if (list.length === 0) { setError('เลือกบิลก่อน'); return; }
+    const name = accountant.trim();
+    const label = name ? `บัญชี (${name})` : 'บัญชี';
+    if (!confirm(`ยืนยันว่า${label} post แล้ว ${list.length} บิล?`)) return;
+    setBusy(true); setError(''); setMsg('');
+    try {
+      // ถ้าไม่กรอกชื่อ → ส่ง null → ap_posted_by จะเป็น null (เว้นช่องเซ็นเอง)
+      const n = await markBillsPosted(list, auth, name || null);
+      setMsg(`ยืนยันบัญชี post แล้ว ${list.length} บิล (${n} รายการ)`);
+      setSelected(new Set());
+      await load();
+    } catch (e) { setError(e.message || 'บันทึกไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  }
+
+  async function handleUnpost(bills) {
+    if (!confirm(`ยกเลิกการ post กลับเป็น "รอ post" ${bills.length} บิล?`)) return;
+    setBusy(true); setError('');
+    try { await unmarkBillsPosted(bills, auth); await load(); setMsg(`ยกเลิก post ${bills.length} บิล`); }
+    catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  }
+
+  // จัดซื้อกด "รับบิลแล้ว" — รับ single bill หรือ bulk จาก selected
+  async function handleAcknowledge(billNumber) {
+    let bills;
+    if (billNumber) {
+      bills = [billNumber];
+    } else {
+      const unackBills = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number));
+      if (unackBills.length === 0) { setError('เลือกบิลที่ยังไม่ ack (สถานะ "รอจัดซื้อรับ") ก่อน'); return; }
+      bills = unackBills.map(b => b.bill_number);
+    }
+    setBusy(true); setError(''); setMsg('');
+    try {
+      const n = await markBillsAcknowledged(bills, purchaser.trim() || null, auth);
+      setMsg(`บันทึก "จัดซื้อรับบิลแล้ว" ${bills.length} บิล (${n} รายการ)`);
+      if (!billNumber) setSelected(new Set());
+      await load();
+    } catch (e) {
+      const msg = e.message || 'บันทึกไม่สำเร็จ';
+      if (msg.includes('acknowledged_at') && msg.includes('does not exist')) {
+        setError('⚠️ ยังไม่ได้รัน migration!\nไป Supabase Dashboard → SQL Editor\nrun ไฟล์: ap_acknowledge_migration.sql');
+      } else {
+        setError(msg);
+      }
+    }
+    finally { setBusy(false); }
+  }
+
+  // ย้อน acknowledge
+  async function handleUnacknowledge(billNumber) {
+    if (!confirm(`ย้อนบิล ${billNumber} กลับเป็น "รอจัดซื้อรับ"?`)) return;
+    setBusy(true); setError('');
+    try { await unmarkBillsAcknowledged([billNumber], auth); await load(); setMsg(`ย้อน ack ${billNumber}`); }
+    catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  }
+
+  // ย้อนกลับหลายบิลพร้อมกัน — group ตาม stage แล้วเรียก unmark ที่เหมาะสม
+  async function handleBulkUndo() {
+    const selectedBills = filteredPending.filter(b => selected.has(b.bill_number));
+    if (selectedBills.length === 0) { setError('เลือกบิลก่อน'); return; }
+
+    const toUnack    = selectedBills.filter(b => !b.ap_stage && b.acknowledged_at).map(b => b.bill_number);
+    const toUninspect = selectedBills.filter(b => b.ap_stage === 'inspected').map(b => b.bill_number);
+
+    if (toUnack.length === 0 && toUninspect.length === 0) {
+      setError('ไม่มีบิลที่ย้อนได้ในการเลือก');
+      return;
+    }
+    const lines = [];
+    if (toUninspect.length) lines.push(`• ย้อน "ตรวจรับแล้ว" → "จัดซื้อรับแล้ว": ${toUninspect.length} บิล`);
+    if (toUnack.length)     lines.push(`• ย้อน "จัดซื้อรับแล้ว" → "รอจัดซื้อรับ": ${toUnack.length} บิล`);
+    if (!confirm(`ย้อนกลับ ${toUnack.length + toUninspect.length} บิล?\n${lines.join('\n')}`)) return;
+
+    setBusy(true); setError(''); setMsg('');
+    try {
+      let n = 0;
+      // เรียงลำดับสำคัญ — inspect ย้อนก่อน (กรณีบิลเดียวกันถูกเลือกซ้ำสาย)
+      if (toUninspect.length > 0) n += await unmarkBillsInspected(toUninspect, auth);
+      if (toUnack.length > 0)    n += await unmarkBillsAcknowledged(toUnack, auth);
+      setMsg(`ย้อนกลับ ${selectedBills.length} บิล สำเร็จ (${n} รายการ)`);
+      setSelected(new Set());
+      await load();
+    } catch (e) { setError(e.message || 'ย้อนไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  }
+
+  // ย้อน inspected → null (กลับเป็น "รอตรวจรับ")
+  async function handleUninspect(billNumber) {
+    if (!confirm(`ย้อนบิล ${billNumber} กลับเป็น "รอตรวจรับ"?`)) return;
+    setBusy(true); setError('');
+    try { await unmarkBillsInspected([billNumber], auth); await load(); setMsg(`ย้อน ${billNumber} → รอตรวจรับ`); }
+    catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  }
+
+  // ย้อน sent_batch → inspected (ออกจาก batch)
+  async function handleUnsendBatch(billNumber) {
+    if (!confirm(`ย้อนบิล ${billNumber} ออกจาก batch กลับเป็น "รอส่งบัญชี"?`)) return;
+    setBusy(true); setError('');
+    try { await unmarkBillsSentBatch([billNumber], auth); await load(); setMsg(`ย้อน ${billNumber} → รอส่งบัญชี`); }
+    catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  }
+
+  // Reset ทั้ง batch — ทุกบิลกลับเป็น inspected, batch หาย
+  async function handleResetBatch(batch) {
+    if (!confirm(`Reset batch ${batch.batch_id}?\nทุกบิล (${batch.bill_count} บิล) จะกลับเป็น "รอส่งบัญชี"\nbatch นี้จะหายจากประวัติ`)) return;
+    setBusy(true); setError('');
+    try {
+      const n = await resetApBatch(batch.batch_id, auth);
+      await load();
+      setMsg(`Reset batch ${batch.batch_id} เรียบร้อย (${n} รายการกลับสู่ "รอส่งบัญชี")`);
+    } catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  }
+
+  async function handleReExport(batch) {
+    setBusy(true); setError(''); setMsg('');
+    try {
+      const all = await fetchApBills({ batchId: batch.batch_id });
+      if (all.length === 0) { setError('ไม่พบรายการใน batch'); return; }
+      const dates = all.map(r => r.receive_date).filter(Boolean).sort();
+      const inspectorNames = Array.from(new Set(all.map(r => r.inspected_by).filter(Boolean)));
+      printApBatch(all, batch.batch_id, {
+        periodFrom: dates[0], periodTo: dates[dates.length - 1],
+        senderName: batch.sent_by || purchaser || auth?.name || '',
+        inspectorNames,
+      });
+      setMsg(`พิมพ์ใบนำส่งซ้ำ batch ${batch.batch_id}`);
+    } catch (e) { setError(e.message || 'พิมพ์ไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  }
+
+  // ---- UI ----
+  const tabBtn = (key, label, count, icon) => (
+    <button key={key} onClick={() => setSubTab(key)}
+      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab === key ? 'bg-emerald-600 text-white shadow' : 'bg-white text-slate-600 hover:bg-emerald-50 border border-slate-200'}`}>
+      {icon}{label} <span className={`ml-1 px-1.5 py-0.5 rounded text-xs ${subTab === key ? 'bg-white/20' : 'bg-slate-100'}`}>{count}</span>
+    </button>
+  );
+
+  return (
+    <div className="p-4 max-w-7xl mx-auto">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-4">
+        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-2">
+          <Send size={20} className="text-emerald-600" /> ส่งบัญชีรายอาทิตย์ (AP Workflow)
+        </h2>
+        <p className="text-xs text-slate-500">ตรวจรับ → ส่งบัญชี (export Excel batch) → ยืนยันบัญชี post แล้ว — track ทุก stage มี audit trail</p>
+      </div>
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        {tabBtn('pending', 'รอส่งบัญชี', filteredPending.length, <ClipboardList size={16}/>)}
+        {tabBtn('sent',    'ส่งแล้ว รอ post', filteredSent.length, <FileCheck2 size={16}/>)}
+        {tabBtn('history', 'ประวัติ Batch',  batches.length,   <History size={16}/>)}
+      </div>
+
+      {(msg || error) && (
+        <ToastPopup type={error ? 'error' : 'success'} message={error || msg}
+          onClose={() => { setMsg(''); setError(''); }}/>
+      )}
+
+      <div className="bg-white rounded-xl border border-slate-200 p-3 mb-3 space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+            <Search size={16} className="text-slate-400"/>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาเลขบิล / บริษัท"
+              className="flex-1 outline-none text-sm" />
+            {search && <button onClick={() => setSearch('')}><X size={14} className="text-slate-400"/></button>}
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-600">
+            <CalendarDays size={14} className="text-slate-400"/>
+            <span>{subTab === 'history' ? 'วันที่ส่ง:' : 'วันรับ:'}</span>
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+              className="px-2 py-1 border border-slate-300 rounded text-xs"/>
+            <span>ถึง</span>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+              className="px-2 py-1 border border-slate-300 rounded text-xs"/>
+            {(dateFrom || dateTo) && (
+              <button onClick={() => { setDateFrom(''); setDateTo(''); }}
+                className="text-slate-400 hover:text-slate-600"><X size={14}/></button>
+            )}
+          </div>
+        </div>
+        {subTab === 'pending' && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
+              <span className="text-xs text-slate-500">สถานะ:</span>
+              {[
+                { key: 'all',       label: 'ทั้งหมด',         color: 'bg-slate-600' },
+                { key: 'unack',     label: 'รอจัดซื้อรับ',   color: 'bg-amber-500' },
+                { key: 'acked',     label: 'จัดซื้อรับแล้ว', color: 'bg-sky-500' },
+                { key: 'inspected', label: 'รอส่งบัญชี',     color: 'bg-orange-500' },
+              ].map(opt => (
+                <button key={opt.key} onClick={() => setStageFilter(opt.key)}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${stageFilter === opt.key ? `${opt.color} text-white shadow` : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${stageFilter === opt.key ? 'bg-white' : opt.color}`}/>
+                  {opt.label}
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${stageFilter === opt.key ? 'bg-white/20' : 'bg-slate-200 text-slate-600'}`}>{stageCount[opt.key] || 0}</span>
+                </button>
+              ))}
+            </div>
+          )}
+      </div>
+
+      {loading ? <div className="text-center text-slate-500 py-8">กำลังโหลด...</div> : (
+        <>
+          {subTab === 'pending' && (
+            <PendingTab bills={filteredPending} selected={selected} toggleBill={toggleBill} toggleAll={toggleAll}
+              inspector={inspector} setInspector={setInspector}
+              purchaser={purchaser} setPurchaser={setPurchaser}
+              busy={busy}
+              onMarkInspected={handleMarkInspected} onExportSend={handleExportAndSend}
+              onUninspect={handleUninspect}
+              onAcknowledge={handleAcknowledge} onUnacknowledge={handleUnacknowledge}
+              onBulkUndo={handleBulkUndo}
+              toggleSort={toggleSort} sortKey={sortKey} sortDir={sortDir}
+              expandedBill={expandedBill} toggleExpand={toggleExpand} />
+          )}
+          {subTab === 'sent' && (
+            <SentTab bills={filteredSent} selected={selected} toggleBill={toggleBill} toggleAll={toggleAll}
+              accountant={accountant} setAccountant={setAccountant}
+              busy={busy} onMarkPosted={handleMarkPosted} onUnsendBatch={handleUnsendBatch}
+              toggleSort={toggleSort} sortKey={sortKey} sortDir={sortDir}
+              expandedBill={expandedBill} toggleExpand={toggleExpand} />
+          )}
+          {subTab === 'history' && (
+            <HistoryTab batches={filteredBatches} busy={busy} search={search}
+              onReExport={handleReExport} onUnpost={handleUnpost} onResetBatch={handleResetBatch} />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// แสดงรายละเอียด lot ทั้งหมดในบิล — ใช้ทั้ง PendingTab + SentTab + HistoryTab
+function BillItemsDetail({ bill }) {
+  const items = bill.items || [];
+  const totalQty = items.reduce((s, r) => s + (parseFloat(r.qty_received) || 0), 0);
+  return (
+    <div className="bg-slate-50/70 border-t-2 border-emerald-200 p-3">
+      <div className="mb-2 text-xs text-slate-600 flex items-center gap-3 flex-wrap">
+        <span><span className="text-slate-400">บิล:</span> <span className="font-semibold text-slate-800">{bill.bill_number}</span></span>
+        <span><span className="text-slate-400">บริษัท:</span> <span className="font-medium">{bill.supplier}</span></span>
+        <span><span className="text-slate-400">วันรับ:</span> {fmtDateThaiShort(bill.receive_date)}</span>
+        <span><span className="text-slate-400">รายการยา:</span> <span className="font-semibold">{bill.drug_count}</span></span>
+        <span><span className="text-slate-400">Lot รวม:</span> <span className="font-semibold">{bill.item_count}</span></span>
+        <span className="ml-auto"><span className="text-slate-400">มูลค่ารวม:</span> <span className="font-bold text-emerald-700">{fmtBahtDisplay(bill.total_value)} บาท</span></span>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+        <table className="w-full text-xs">
+          <thead className="bg-slate-100 text-slate-600">
+            <tr>
+              <th className="p-2 text-center w-8">#</th>
+              <th className="p-2 text-left">รหัสยา</th>
+              <th className="p-2 text-left">ชื่อยา</th>
+              <th className="p-2 text-center">ชนิด</th>
+              <th className="p-2 text-left">Lot</th>
+              <th className="p-2 text-center">Exp</th>
+              <th className="p-2 text-right">จำนวน</th>
+              <th className="p-2 text-center">หน่วย</th>
+              <th className="p-2 text-right">ราคา/หน่วย</th>
+              <th className="p-2 text-right">มูลค่า</th>
+              <th className="p-2 text-center">สถานะตรวจรับ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((r, i) => {
+              const qty = parseFloat(r.qty_received) || 0;
+              const price = parseFloat(r.price_per_unit) || 0;
+              const v = (r.total_price_vat != null && r.total_price_vat > 0) ? parseFloat(r.total_price_vat) : qty * price;
+              return (
+                <tr key={r.id || i} className="border-t border-slate-100 hover:bg-slate-50">
+                  <td className="p-2 text-center text-slate-400">{i+1}</td>
+                  <td className="p-2 font-mono text-slate-700">{r.drug_code || '-'}</td>
+                  <td className="p-2 font-medium text-slate-800">{r.drug_name || '-'}</td>
+                  <td className="p-2 text-center"><DrugTypeBadge type={r.drug_type}/></td>
+                  <td className="p-2 font-mono">{r.lot || '-'}</td>
+                  <td className="p-2 text-center text-slate-600">{r.exp || '-'}</td>
+                  <td className="p-2 text-right font-mono">{fmtBahtDisplay(qty)}</td>
+                  <td className="p-2 text-center text-slate-500">{r.drug_unit || '-'}</td>
+                  <td className="p-2 text-right font-mono text-slate-600">{fmtBahtDisplay(price)}</td>
+                  <td className="p-2 text-right font-mono font-semibold text-emerald-700">{fmtBahtDisplay(v)}</td>
+                  <td className="p-2 text-center text-slate-500 text-[11px]">{r.receive_status || '-'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-slate-300 bg-emerald-50">
+              <td colSpan={6} className="p-2 text-right font-semibold text-slate-700">รวม</td>
+              <td className="p-2 text-right font-mono font-bold">{fmtBahtDisplay(totalQty)}</td>
+              <td/><td/>
+              <td className="p-2 text-right font-mono font-bold text-emerald-700">{fmtBahtDisplay(bill.total_value)}</td>
+              <td/>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Card สำหรับบิล 1 ใบ (ใช้ใน PendingTab/SentTab/BatchBillsList)
+function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, busy, onUndo, undoTitle, sentTimestamp = false, onAcknowledge, onUnacknowledge }) {
+  const stage = bill.ap_stage || null;
+  const baseTimestamp = sentTimestamp ? bill.ap_sent_at : bill.receive_date;
+  const days = daysSince(baseTimestamp);
+  const overdue = days > 7;
+  const isAcked = !stage && !!bill.acknowledged_at;
+  return (
+    <div className={`border-b border-slate-100 last:border-b-0 ${isExpanded ? 'bg-emerald-50/40' : ''}`}>
+      <div className={`p-3 cursor-pointer hover:bg-slate-50 transition-colors ${selected ? 'bg-emerald-50/60' : ''}`}
+           onClick={() => onToggleExpand(bill.bill_number)}>
+        <div className="flex items-start gap-2.5">
+          {onToggleSelect && (
+            <input type="checkbox" className="mt-1.5 shrink-0" onClick={e => e.stopPropagation()}
+              checked={selected} onChange={() => onToggleSelect(bill.bill_number)}/>
+          )}
+          <div className="mt-0.5 shrink-0 text-slate-400">
+            {isExpanded ? <ChevronDown size={16} className="text-emerald-600"/> : <ChevronUp size={16} className="rotate-180"/>}
+          </div>
+          <div className="flex-1 min-w-0">
+            {/* row 1: เลขบิล + รายการยา */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                <span className="font-bold text-slate-800 text-sm">{bill.bill_number}</span>
+                <StageBadge stage={stage} acknowledged={bill.acknowledged_at}/>
+              </div>
+              <span className="text-emerald-600 font-bold text-sm whitespace-nowrap">
+                <span className="text-slate-400 font-normal">จำนวนรายการยา </span>{bill.drug_count} รายการ
+              </span>
+            </div>
+            {/* row 2: บริษัท · วันรับ + lot */}
+            <div className="flex items-center justify-between text-xs text-slate-500 mt-0.5 gap-2">
+              <span className="truncate">{bill.supplier} · {fmtDateThaiShort(bill.receive_date)}</span>
+              <span className="text-slate-400 whitespace-nowrap">{bill.item_count} lot</span>
+            </div>
+            {/* row 3: meta + มูลค่า + action */}
+            <div className="flex items-center justify-between mt-1.5 gap-2">
+              <div className="flex items-center gap-2 text-xs flex-wrap">
+                {bill.acknowledged_at && (
+                  <span className="text-sky-600">
+                    <span className="text-slate-400">จัดซื้อรับ:</span> {fmtDateThaiShort(bill.acknowledged_at.slice(0,10))}
+                    {bill.acknowledged_by && ` · ${bill.acknowledged_by}`}
+                  </span>
+                )}
+                {bill.inspected_by && <span className="text-slate-500"><span className="text-slate-400">กรรมการ:</span> {bill.inspected_by}</span>}
+                <span className={`font-semibold ${overdue ? 'text-red-600' : 'text-slate-500'}`}>
+                  <span className="text-slate-400 font-normal">{sentTimestamp ? 'ค้างที่บัญชี ' : 'ระยะเวลารอ '}</span>{days} วัน
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-orange-600 font-mono text-sm">
+                  <span className="text-slate-400 font-normal font-sans">มูลค่ารวม </span>
+                  {Number(bill.total_value || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })} บาท
+                </span>
+                {/* ปุ่มรับบิล (เฉพาะ unack) */}
+                {onAcknowledge && !stage && !bill.acknowledged_at && (
+                  <button onClick={(e) => { e.stopPropagation(); onAcknowledge(bill.bill_number); }}
+                    disabled={busy} title="จัดซื้อรับบิลแล้ว"
+                    className="text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2 py-0.5 rounded inline-flex items-center gap-1 text-xs disabled:opacity-50 font-medium">
+                    <CheckCircle2 size={12}/> รับบิล
+                  </button>
+                )}
+                {/* ปุ่มย้อน ack */}
+                {onUnacknowledge && isAcked && (
+                  <button onClick={(e) => { e.stopPropagation(); onUnacknowledge(bill.bill_number); }}
+                    disabled={busy} title="ย้อนเป็นรอจัดซื้อรับ"
+                    className="text-sky-600 hover:bg-sky-50 p-1 rounded inline-flex items-center text-xs disabled:opacity-50">
+                    <Undo2 size={13}/>
+                  </button>
+                )}
+                {/* ปุ่ม undo (inspected/sent) */}
+                {onUndo && (stage === 'inspected' || stage === 'sent_batch') && (
+                  <button onClick={(e) => { e.stopPropagation(); onUndo(bill.bill_number); }}
+                    disabled={busy} title={undoTitle || 'ย้อนกลับ'}
+                    className="text-amber-600 hover:bg-amber-50 p-1 rounded inline-flex items-center text-xs disabled:opacity-50">
+                    <Undo2 size={13}/>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {isExpanded && <BillItemsDetail bill={bill}/>}
+    </div>
+  );
+}
+
+// Sort toolbar — ใช้แทน header sortable
+function SortToolbar({ sortKey, sortDir, toggleSort, allSelected, onToggleAll, totalSelected, totalBills, hideSelectAll }) {
+  const options = [
+    { key: 'receive_date', label: 'วันรับ' },
+    { key: 'bill_number',  label: 'เลขบิล' },
+    { key: 'drug_count',   label: 'รายการ' },
+    { key: 'item_count',   label: 'Lot' },
+    { key: 'value',        label: 'มูลค่า' },
+    { key: 'days',         label: 'วันค้าง' },
+  ];
+  const arrow = sortDir === 'asc' ? '▲' : '▼';
+  return (
+    <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/60 flex items-center flex-wrap gap-1.5 text-xs">
+      <span className="text-slate-500 mr-1">เรียง:</span>
+      {options.map(opt => (
+        <button key={opt.key} onClick={() => toggleSort(opt.key)}
+          className={`px-2 py-0.5 rounded font-medium transition-colors ${sortKey === opt.key ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}>
+          {opt.label}{sortKey === opt.key && <span className="ml-1">{arrow}</span>}
+        </button>
+      ))}
+      {!hideSelectAll && onToggleAll && (
+        <label className="ml-auto flex items-center gap-1.5 text-slate-600 cursor-pointer">
+          <input type="checkbox" checked={allSelected} onChange={onToggleAll}/>
+          เลือกทั้งหมด ({totalSelected}/{totalBills})
+        </label>
+      )}
+    </div>
+  );
+}
+
+function ToastPopup({ type = 'success', message, onClose }) {
+  const isError = type === 'error';
+  const Icon = isError ? AlertCircle : CheckCircle2;
+  return (
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-top duration-200">
+      <div className={`flex items-start gap-3 px-4 py-3 rounded-xl shadow-2xl border-2 max-w-md min-w-[280px] ${isError ? 'bg-red-50 border-red-300 text-red-800' : 'bg-emerald-50 border-emerald-300 text-emerald-800'}`}>
+        <Icon size={20} className={`shrink-0 mt-0.5 ${isError ? 'text-red-600' : 'text-emerald-600'}`}/>
+        <div className="flex-1 text-sm font-medium leading-relaxed whitespace-pre-line">{message}</div>
+        <button onClick={onClose} className={`shrink-0 -mr-1 -mt-1 p-1 rounded hover:bg-white/40 ${isError ? 'text-red-600' : 'text-emerald-600'}`}>
+          <X size={16}/>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StageBadge({ stage, acknowledged }) {
+  // ถ้า stage = NULL + ack แล้ว → ใช้ derived 'acked'
+  const key = (!stage && acknowledged) ? 'acked' : (stage ?? 'null');
+  const cfg = AP_STAGE_LABEL[key] || AP_STAGE_LABEL.null;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.bg} ${cfg.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`}/>{cfg.label}
+    </span>
+  );
+}
+
+function PendingTab({ bills, selected, toggleBill, toggleAll, inspector, setInspector, purchaser, setPurchaser, busy, onMarkInspected, onExportSend, onUninspect, onAcknowledge, onUnacknowledge, onBulkUndo, toggleSort, sortKey, sortDir, expandedBill, toggleExpand }) {
+  const allSelected = bills.length > 0 && selected.size === bills.length;
+  const someInspectedSelected = bills.some(b => b.ap_stage === 'inspected' && selected.has(b.bill_number));
+  const someAckedSelected    = bills.some(b => !b.ap_stage && b.acknowledged_at && selected.has(b.bill_number));   // ack แล้ว (พร้อมตรวจรับ)
+  const someUnackSelected    = bills.some(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number)); // ยังไม่ ack (พร้อมรับบิล)
+  const undoableCount = bills.filter(b => selected.has(b.bill_number) && ((b.ap_stage === 'inspected') || (!b.ap_stage && b.acknowledged_at))).length;
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="p-3 border-b border-slate-100 bg-slate-50 space-y-3">
+        {/* Input row — ชื่อผู้รับผิดชอบ 2 ช่อง */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
+            <span className="text-xs text-slate-500 whitespace-nowrap w-24 shrink-0">จนท.จัดซื้อ:</span>
+            <input value={purchaser} onChange={e => setPurchaser(e.target.value)}
+              placeholder="ไม่กรอกก็ได้ — เซ็นเอง"
+              className="flex-1 min-w-0 outline-none text-sm"/>
+          </div>
+          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
+            <span className="text-xs text-slate-500 whitespace-nowrap w-28 shrink-0">กรรมการตรวจรับ:</span>
+            <input value={inspector} onChange={e => setInspector(e.target.value)}
+              placeholder="ไม่กรอกก็ได้ — เซ็นเอง"
+              className="flex-1 min-w-0 outline-none text-sm"/>
+          </div>
+        </div>
+
+        {/* Action row — flow ตามลำดับซ้าย→ขวา, ปุ่ม undo อยู่สุดทางขวา */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={() => onAcknowledge()}
+            disabled={busy || !someUnackSelected}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-sky-500 text-white hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+            <CheckCircle2 size={15}/> Mark รับบิล ({Array.from(selected).filter(bn => bills.find(b => b.bill_number === bn && !b.ap_stage && !b.acknowledged_at)).length})
+          </button>
+          <ChevronUp size={14} className="text-slate-300 rotate-90"/>
+          <button onClick={onMarkInspected}
+            disabled={busy || !someAckedSelected}
+            title={!someAckedSelected ? 'ต้อง Mark รับบิล ก่อน (กรุณาเลือกบิลที่ "จัดซื้อรับแล้ว")' : ''}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+            <CheckCircle2 size={15}/> Mark ตรวจรับแล้ว ({Array.from(selected).filter(bn => bills.find(b => b.bill_number === bn && !b.ap_stage && b.acknowledged_at)).length})
+          </button>
+          <ChevronUp size={14} className="text-slate-300 rotate-90"/>
+          <button onClick={onExportSend}
+            disabled={busy || !someInspectedSelected}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+            <Printer size={15}/> Print & ส่งบัญชี ({Array.from(selected).filter(bn => bills.find(b => b.bill_number === bn && b.ap_stage === 'inspected')).length})
+          </button>
+          {onBulkUndo && (
+            <button onClick={onBulkUndo}
+              disabled={busy || undoableCount === 0}
+              title={undoableCount === 0 ? 'เลือกบิลที่ ack แล้ว หรือ ตรวจรับแล้ว ก่อน' : ''}
+              className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-white text-amber-700 border border-amber-300 hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+              <Undo2 size={12}/> ย้อนกลับ ({undoableCount})
+            </button>
+          )}
+        </div>
+      </div>
+      {bills.length === 0 ? (
+        <div className="text-center text-slate-400 py-12 text-sm">ไม่มีบิลรอตรวจรับ/ส่งบัญชี</div>
+      ) : (
+        <>
+          <SortToolbar sortKey={sortKey} sortDir={sortDir} toggleSort={toggleSort}
+            allSelected={allSelected} onToggleAll={() => toggleAll(bills)}
+            totalSelected={selected.size} totalBills={bills.length}/>
+          <div>
+            {bills.map(b => (
+              <BillCard key={b.bill_number} bill={b}
+                selected={selected.has(b.bill_number)} onToggleSelect={toggleBill}
+                isExpanded={expandedBill === b.bill_number} onToggleExpand={toggleExpand}
+                busy={busy} onUndo={onUninspect} undoTitle="ย้อนกลับเป็นรอตรวจรับ"
+                onAcknowledge={onAcknowledge} onUnacknowledge={onUnacknowledge}/>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SentTab({ bills, selected, toggleBill, toggleAll, accountant, setAccountant, busy, onMarkPosted, onUnsendBatch, toggleSort, sortKey, sortDir, expandedBill, toggleExpand }) {
+  const allSelected = bills.length > 0 && selected.size === bills.length;
+  // group by batch_id for display
+  const byBatch = bills.reduce((acc, b) => {
+    const k = b.ap_batch_id || '-';
+    if (!acc[k]) acc[k] = [];
+    acc[k].push(b);
+    return acc;
+  }, {});
+  const batchKeys = Object.keys(byBatch).sort().reverse();
+
+  return (
+    <div>
+      <div className="bg-white rounded-xl border border-slate-200 p-3 mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-slate-500 whitespace-nowrap">จนท.บัญชี:</span>
+          <input value={accountant} onChange={e => setAccountant(e.target.value)}
+            placeholder="ไม่กรอกก็ได้ — เซ็นเอง"
+            className="px-2 py-1 border border-slate-300 rounded text-sm w-52"/>
+        </div>
+        <button onClick={() => toggleAll(bills)} disabled={bills.length === 0}
+          className="px-3 py-1.5 rounded-lg text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-40">
+          {allSelected ? 'ยกเลิกเลือกทั้งหมด' : 'เลือกทั้งหมด'} ({selected.size}/{bills.length})
+        </button>
+        <button onClick={() => onMarkPosted()} disabled={busy || selected.size === 0}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all">
+          <CheckCircle2 size={15}/> Mark ตั้งหนี้แล้ว ({selected.size})
+        </button>
+      </div>
+
+      {batchKeys.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200 text-center text-slate-400 py-12 text-sm">ไม่มีบิลรอ post</div>
+      ) : (
+        <>
+          <div className="bg-white rounded-xl border border-slate-200 mb-3">
+            <SortToolbar sortKey={sortKey} sortDir={sortDir} toggleSort={toggleSort} hideSelectAll/>
+          </div>
+          {batchKeys.map(bk => (
+            <div key={bk} className="bg-white rounded-xl border border-slate-200 overflow-hidden mb-3">
+              <div className="p-2 bg-sky-50 border-b border-sky-100 flex items-center justify-between">
+                <div className="text-sm font-medium text-sky-800">Batch: {bk}  <span className="text-xs text-slate-500">({byBatch[bk].length} บิล)</span></div>
+                <button onClick={() => onMarkPosted(byBatch[bk].map(b => b.bill_number))}
+                  disabled={busy}
+                  className="text-xs px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
+                  Mark all posted in batch
+                </button>
+              </div>
+              <div>
+                {byBatch[bk].map(b => (
+                  <BillCard key={b.bill_number} bill={b}
+                    selected={selected.has(b.bill_number)} onToggleSelect={toggleBill}
+                    isExpanded={expandedBill === b.bill_number} onToggleExpand={toggleExpand}
+                    busy={busy} onUndo={onUnsendBatch} undoTitle="ย้อนกลับเป็นรอส่งบัญชี (ออกจาก batch)"
+                    sentTimestamp/>
+                ))}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+function HistoryTab({ batches, busy, search = '', onReExport, onUnpost, onResetBatch }) {
+  const [expandedBatch, setExpandedBatch] = useState(null);
+  const [batchBills, setBatchBills]       = useState({}); // { batchId: [billGroup[]] }
+  const [loadingBatch, setLoadingBatch]   = useState(null);
+
+  // เมื่อ search active → pre-fetch บิลทุก batch ที่ยังไม่ cache
+  const q = search.trim().toLowerCase();
+  useEffect(() => {
+    if (!q || batches.length === 0) return;
+    const missing = batches.filter(b => !batchBills[b.batch_id]).map(b => b.batch_id);
+    if (missing.length === 0) return;
+    (async () => {
+      try {
+        const results = await Promise.all(missing.map(bid => fetchApBills({ batchId: bid }).catch(() => [])));
+        setBatchBills(prev => {
+          const next = { ...prev };
+          missing.forEach((bid, i) => { next[bid] = groupRowsByBill(results[i]); });
+          return next;
+        });
+      } catch (_) { /* swallow */ }
+    })();
+  }, [q, batches, batchBills]);
+
+  // กรอง batches: ถ้า search active → เฉพาะ batch ที่มี bill match (ถ้ายังไม่ load ยังแสดงไว้ก่อน)
+  const visibleBatches = !q ? batches : batches.filter(b => {
+    const bills = batchBills[b.batch_id];
+    if (!bills) return true; // ยังโหลดไม่เสร็จ — แสดงไว้ก่อน
+    return bills.some(bill =>
+      (bill.bill_number || '').toLowerCase().includes(q) ||
+      (bill.supplier || '').toLowerCase().includes(q)
+    );
+  });
+
+  if (batches.length === 0) return <div className="bg-white rounded-xl border border-slate-200 text-center text-slate-400 py-12 text-sm">ไม่มี batch ตรงเงื่อนไข — ลองล้างตัวกรองวันที่ส่ง หรือไปแท็บ "รอส่งบัญชี" เพื่อสร้าง batch แรก</div>;
+  if (visibleBatches.length === 0) return <div className="bg-white rounded-xl border border-slate-200 text-center text-slate-400 py-12 text-sm">ไม่พบบิล/บริษัท ที่ตรงกับคำค้น "{q}"</div>;
+
+  async function toggleExpand(batchId) {
+    if (expandedBatch === batchId) { setExpandedBatch(null); return; }
+    setExpandedBatch(batchId);
+    if (batchBills[batchId]) return; // cached
+    setLoadingBatch(batchId);
+    try {
+      const rows = await fetchApBills({ batchId });
+      setBatchBills(prev => ({ ...prev, [batchId]: groupRowsByBill(rows) }));
+    } catch (e) { /* swallow — bill list just won't load */ }
+    finally { setLoadingBatch(null); }
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
+          <tr>
+            <th className="p-2 text-left">Batch ID</th>
+            <th className="p-2 text-left">ส่งโดย</th>
+            <th className="p-2 text-center">วันที่ส่ง</th>
+            <th className="p-2 text-center">บิล</th>
+            <th className="p-2 text-center">post แล้ว</th>
+            <th className="p-2 text-right">มูลค่ารวม</th>
+            <th className="p-2 text-center">การจัดการ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {visibleBatches.map(b => {
+            const done = b.posted_count === b.bill_count;
+            const isExpanded = expandedBatch === b.batch_id || (!!q && !!batchBills[b.batch_id]); // auto-expand เมื่อ search
+            return (
+              <React.Fragment key={b.batch_id}>
+                <tr className={`border-t border-slate-100 hover:bg-slate-50 cursor-pointer ${isExpanded ? 'bg-emerald-50/60' : ''}`}
+                    onClick={() => toggleExpand(b.batch_id)}>
+                  <td className="p-2 font-mono font-medium text-slate-800">
+                    <span className="inline-flex items-center gap-1">
+                      {isExpanded ? <ChevronDown size={14} className="text-emerald-600"/> : <ChevronUp size={14} className="text-slate-400 rotate-180"/>}
+                      {b.batch_id}
+                    </span>
+                  </td>
+                  <td className="p-2 text-slate-600">{b.sent_by || '-'}</td>
+                  <td className="p-2 text-center text-slate-600">{fmtDateThaiShort(b.sent_at?.slice(0,10))}</td>
+                  <td className="p-2 text-center">{b.bill_count}</td>
+                  <td className="p-2 text-center">
+                    <span className={done ? 'text-emerald-600 font-semibold' : 'text-sky-600'}>{b.posted_count}/{b.bill_count}</span>
+                  </td>
+                  <td className="p-2 text-right font-mono">{fmtBahtDisplay(b.total_value)}</td>
+                  <td className="p-2 text-center" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center justify-center gap-1 flex-wrap">
+                      <button onClick={() => onReExport(b)} disabled={busy}
+                        className="px-2 py-1 rounded text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1 disabled:opacity-50">
+                        <Printer size={12}/> พิมพ์ซ้ำ
+                      </button>
+                      <button onClick={() => onResetBatch(b)} disabled={busy}
+                        title={`Reset batch — ทุกบิล (${b.bill_count} บิล) จะกลับเป็น "รอส่งบัญชี"`}
+                        className="px-2 py-1 rounded text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 flex items-center gap-1 disabled:opacity-50">
+                        <Undo2 size={12}/> Reset
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                {isExpanded && (
+                  <tr className="bg-slate-50/70 border-t-2 border-emerald-200">
+                    <td colSpan={7} className="p-3">
+                      <div className="mb-2 text-xs text-slate-600 flex items-center gap-3 flex-wrap">
+                        <span><span className="text-slate-400">Batch:</span> <span className="font-semibold">{b.batch_id}</span></span>
+                        <span><span className="text-slate-400">บิลทั้งหมด:</span> <span className="font-semibold">{b.bill_count}</span></span>
+                        <span><span className="text-slate-400">Post แล้ว:</span> <span className={done ? 'text-emerald-600 font-semibold' : 'text-sky-600 font-semibold'}>{b.posted_count}/{b.bill_count}</span></span>
+                        <span className="ml-auto"><span className="text-slate-400">มูลค่ารวม:</span> <span className="font-bold text-emerald-700">{fmtBahtDisplay(b.total_value)} บาท</span></span>
+                      </div>
+                      {loadingBatch === b.batch_id ? (
+                        <div className="text-center text-slate-400 py-4 text-sm">กำลังโหลด...</div>
+                      ) : !batchBills[b.batch_id] || batchBills[b.batch_id].length === 0 ? (
+                        <div className="text-center text-slate-400 py-4 text-sm">ไม่พบรายการ</div>
+                      ) : (
+                        <BatchBillsList bills={batchBills[b.batch_id]} search={q} />
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function BatchBillsList({ bills, search = '' }) {
+  const [expandedBill, setExpandedBill] = useState(null);
+  const q = search.trim().toLowerCase();
+  const filteredBills = !q ? bills : bills.filter(b =>
+    (b.bill_number || '').toLowerCase().includes(q) ||
+    (b.supplier || '').toLowerCase().includes(q)
+  );
+  if (filteredBills.length === 0) {
+    return <div className="text-center text-slate-400 py-3 text-xs italic">— ไม่มีบิลที่ตรงกับคำค้น "{q}" ใน batch นี้ —</div>;
+  }
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white">
+      {filteredBills.map(b => (
+        <BillCard key={b.bill_number} bill={b}
+          isExpanded={expandedBill === b.bill_number}
+          onToggleExpand={(bn) => setExpandedBill(cur => cur === bn ? null : bn)}/>
+      ))}
     </div>
   );
 }

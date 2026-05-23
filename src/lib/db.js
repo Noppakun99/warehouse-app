@@ -1004,6 +1004,309 @@ export async function confirmReceivedRequisition(id, receivedBy, auth = {}) {
   await insertAuditLog({ action: 'received_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id, received_by: receivedBy } })
 }
 
+// --- AP Workflow (ตั้งหนี้รายอาทิตย์) ---
+// ทุกฟังก์ชันทำงานระดับ bill_number — 1 บิล update พร้อมกันทุก lot ในบิลนั้น
+// Stage flow: NULL/inspected → sent_batch → posted
+
+const AP_DEFAULT_LIMIT = 5000
+
+// ดึงบิลตาม stage filter — group by bill_number, return summary per bill
+export async function fetchApBills({ stage = null, dateFrom, dateTo, batchId } = {}) {
+  if (!supabase) return []
+  let q = supabase
+    .from('receive_logs')
+    .select('id, bill_number, supplier_current, receive_date, drug_code, drug_name, drug_type, drug_unit, lot, exp, qty_received, price_per_unit, total_price_vat, receive_status, ap_stage, ap_batch_id, acknowledged_at, acknowledged_by, inspected_at, inspected_by, ap_sent_at, ap_sent_by, ap_posted_at, ap_posted_by')
+    .order('receive_date', { ascending: false })
+    .limit(AP_DEFAULT_LIMIT)
+
+  // ถ้าไม่ระบุ stage → ไม่กรอง (เช่นใช้ดูทั้ง batch รวม posted)
+  if (stage === 'pending_inspect') q = q.is('ap_stage', null)
+  else if (stage === 'unack')      q = q.is('ap_stage', null).is('acknowledged_at', null)
+  else if (stage === 'acked')      q = q.is('ap_stage', null).not('acknowledged_at', 'is', null)
+  else if (stage === 'inspected')  q = q.eq('ap_stage', 'inspected')
+  else if (stage === 'sent_batch') q = q.eq('ap_stage', 'sent_batch')
+  else if (stage === 'posted')     q = q.eq('ap_stage', 'posted')
+  else if (stage === 'unposted')   q = q.in('ap_stage', ['inspected', 'sent_batch'])
+  else if (stage === 'pending_all') q = q.or('ap_stage.is.null,ap_stage.eq.inspected')
+
+  if (batchId)  q = q.eq('ap_batch_id', batchId)
+  if (dateFrom) q = q.gte('receive_date', dateFrom)
+  if (dateTo)   q = q.lte('receive_date', dateTo)
+
+  const { data, error } = await q
+  if (error) throw error
+  return data || []
+}
+
+// Group rows by bill_number — ใช้ใน UI tabs
+export function groupRowsByBill(rows) {
+  const map = new Map()
+  for (const r of rows) {
+    const bill = r.bill_number || '-'
+    if (!map.has(bill)) {
+      map.set(bill, {
+        bill_number: bill,
+        supplier: r.supplier_current || '-',
+        receive_date: r.receive_date,
+        ap_stage: r.ap_stage,
+        ap_batch_id: r.ap_batch_id,
+        acknowledged_at: r.acknowledged_at,
+        acknowledged_by: r.acknowledged_by,
+        inspected_at: r.inspected_at,
+        inspected_by: r.inspected_by,
+        ap_sent_at: r.ap_sent_at,
+        ap_sent_by: r.ap_sent_by,
+        ap_posted_at: r.ap_posted_at,
+        ap_posted_by: r.ap_posted_by,
+        items: [],
+        item_count: 0,
+        drug_codes: new Set(),
+        drug_count: 0,
+        total_value: 0,
+      })
+    }
+    const g = map.get(bill)
+    g.items.push(r)
+    g.item_count += 1
+    const code = (r.drug_code && r.drug_code !== '-') ? r.drug_code : (r.drug_name || '').toLowerCase()
+    if (code) g.drug_codes.add(code)
+    const qty = parseFloat(r.qty_received) || 0
+    const price = parseFloat(r.price_per_unit) || 0
+    const lineValue = (r.total_price_vat != null && r.total_price_vat > 0)
+      ? parseFloat(r.total_price_vat) : qty * price
+    g.total_value += lineValue
+    if (g.receive_date == null || (r.receive_date && r.receive_date > g.receive_date)) g.receive_date = r.receive_date
+  }
+  // finalize drug_count + remove Set
+  for (const g of map.values()) { g.drug_count = g.drug_codes.size; delete g.drug_codes; }
+  return Array.from(map.values()).sort((a, b) => (b.receive_date || '').localeCompare(a.receive_date || ''))
+}
+
+// จัดซื้อกด "รับบิลแล้ว" — ไม่เปลี่ยน ap_stage (ยังเป็น NULL) แค่ตั้ง acknowledged_at/by
+// ไม่บล็อก flow → Mark ตรวจรับได้แม้ยังไม่ ack
+export async function markBillsAcknowledged(billNumbers, purchaserName, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!billNumbers || billNumbers.length === 0) return 0
+  const now = new Date().toISOString()
+  const ackBy = (purchaserName && purchaserName.trim()) ? purchaserName.trim() : null
+  const { error, count } = await supabase
+    .from('receive_logs')
+    .update({ acknowledged_at: now, acknowledged_by: ackBy }, { count: 'exact' })
+    .in('bill_number', billNumbers)
+    .is('ap_stage', null)        // ack ได้เฉพาะบิลที่ยังไม่ inspected
+    .is('acknowledged_at', null) // กัน double-ack
+  if (error) throw error
+  await insertAuditLog({
+    action: 'ap_acknowledge', table_name: 'receive_logs',
+    user_name: resolveUserName(auth), department: auth?.department || '-',
+    record_count: count || billNumbers.length,
+    details: { bills: billNumbers, purchaser: ackBy || '(ไม่กรอก)' },
+  })
+  return count || 0
+}
+
+// ย้อน acknowledge (กดผิด)
+export async function unmarkBillsAcknowledged(billNumbers, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!billNumbers || billNumbers.length === 0) return 0
+  const { error, count } = await supabase
+    .from('receive_logs')
+    .update({ acknowledged_at: null, acknowledged_by: null }, { count: 'exact' })
+    .in('bill_number', billNumbers)
+    .is('ap_stage', null)
+    .not('acknowledged_at', 'is', null)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'ap_unacknowledge', table_name: 'receive_logs',
+    user_name: resolveUserName(auth), department: auth?.department || '-',
+    record_count: count || billNumbers.length,
+    details: { bills: billNumbers },
+  })
+  return count || 0
+}
+
+// Mark บิล (1 ใบ หรือหลายใบ) → inspected
+// บังคับ flow: ต้อง acknowledged_at NOT NULL (จัดซื้อรับบิลก่อน) — กัน skip stage
+export async function markBillsInspected(billNumbers, inspectorName, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!billNumbers || billNumbers.length === 0) return 0
+  const now = new Date().toISOString()
+  const { error, count } = await supabase
+    .from('receive_logs')
+    .update({ ap_stage: 'inspected', inspected_at: now, inspected_by: (inspectorName || '').trim() || null }, { count: 'exact' })
+    .in('bill_number', billNumbers)
+    .is('ap_stage', null)
+    .not('acknowledged_at', 'is', null)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'ap_mark_inspected', table_name: 'receive_logs',
+    user_name: resolveUserName(auth), department: auth?.department || '-',
+    record_count: count || billNumbers.length,
+    details: { bills: billNumbers, inspector: inspectorName },
+  })
+  return count || 0
+}
+
+// Mark บิลที่เลือก → sent_batch + set batch_id
+// senderName = ชื่อ จนท.จัดซื้อ — ถ้าว่าง/null → ap_sent_by = null (เว้นช่องเซ็นเอง)
+export async function markBillsSentBatch(billNumbers, batchId, auth = {}, senderName = null) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!billNumbers || billNumbers.length === 0) return 0
+  const now = new Date().toISOString()
+  const apSentBy = (senderName && senderName.trim()) ? senderName.trim() : null
+  const { error, count } = await supabase
+    .from('receive_logs')
+    .update({ ap_stage: 'sent_batch', ap_batch_id: batchId, ap_sent_at: now, ap_sent_by: apSentBy }, { count: 'exact' })
+    .in('bill_number', billNumbers)
+    .eq('ap_stage', 'inspected')
+  if (error) throw error
+  await insertAuditLog({
+    action: 'ap_send_batch', table_name: 'receive_logs',
+    user_name: resolveUserName(auth), department: auth?.department || '-',
+    record_count: count || billNumbers.length,
+    details: { batch_id: batchId, bill_count: billNumbers.length, bills: billNumbers, purchaser: apSentBy || '(ไม่กรอก)' },
+  })
+  return count || 0
+}
+
+// Mark บิลที่เลือก → posted (บัญชี post แล้ว)
+// posterName = ชื่อ จนท.บัญชี — ถ้าว่าง/null → ap_posted_by = null (เว้นว่างให้เซ็นเอง)
+export async function markBillsPosted(billNumbers, auth = {}, posterName = null) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!billNumbers || billNumbers.length === 0) return 0
+  const now = new Date().toISOString()
+  const apPostedBy = (posterName && posterName.trim()) ? posterName.trim() : null
+  const { error, count } = await supabase
+    .from('receive_logs')
+    .update({ ap_stage: 'posted', ap_posted_at: now, ap_posted_by: apPostedBy }, { count: 'exact' })
+    .in('bill_number', billNumbers)
+    .eq('ap_stage', 'sent_batch')
+  if (error) throw error
+  await insertAuditLog({
+    action: 'ap_mark_posted', table_name: 'receive_logs',
+    user_name: resolveUserName(auth), department: auth?.department || '-',
+    record_count: count || billNumbers.length,
+    details: { bills: billNumbers, accountant: apPostedBy || '(ไม่กรอก)' },
+  })
+  return count || 0
+}
+
+// Rollback: undo inspected กลับเป็น NULL (รอตรวจรับ)
+export async function unmarkBillsInspected(billNumbers, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!billNumbers || billNumbers.length === 0) return 0
+  const { error, count } = await supabase
+    .from('receive_logs')
+    .update({ ap_stage: null, inspected_at: null, inspected_by: null }, { count: 'exact' })
+    .in('bill_number', billNumbers)
+    .eq('ap_stage', 'inspected')
+  if (error) throw error
+  await insertAuditLog({
+    action: 'ap_uninspect', table_name: 'receive_logs',
+    user_name: resolveUserName(auth), department: auth?.department || '-',
+    record_count: count || billNumbers.length,
+    details: { bills: billNumbers },
+  })
+  return count || 0
+}
+
+// Rollback: undo sent_batch กลับเป็น inspected (ออกจาก batch)
+export async function unmarkBillsSentBatch(billNumbers, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!billNumbers || billNumbers.length === 0) return 0
+  const { error, count } = await supabase
+    .from('receive_logs')
+    .update({ ap_stage: 'inspected', ap_batch_id: null, ap_sent_at: null, ap_sent_by: null }, { count: 'exact' })
+    .in('bill_number', billNumbers)
+    .eq('ap_stage', 'sent_batch')
+  if (error) throw error
+  await insertAuditLog({
+    action: 'ap_unsend_batch', table_name: 'receive_logs',
+    user_name: resolveUserName(auth), department: auth?.department || '-',
+    record_count: count || billNumbers.length,
+    details: { bills: billNumbers },
+  })
+  return count || 0
+}
+
+// Reset ทั้ง batch — ทุกบิลใน batch กลับเป็น inspected, batch หาย (รวม posted ด้วย)
+export async function resetApBatch(batchId, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!batchId) throw new Error('batchId required')
+  const { error, count } = await supabase
+    .from('receive_logs')
+    .update({
+      ap_stage: 'inspected', ap_batch_id: null,
+      ap_sent_at: null, ap_sent_by: null,
+      ap_posted_at: null, ap_posted_by: null,
+    }, { count: 'exact' })
+    .eq('ap_batch_id', batchId)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'ap_reset_batch', table_name: 'receive_logs',
+    user_name: resolveUserName(auth), department: auth?.department || '-',
+    record_count: count || 0,
+    details: { batch_id: batchId },
+  })
+  return count || 0
+}
+
+// Rollback: undo posted กลับเป็น sent_batch (กรณีกดผิด)
+export async function unmarkBillsPosted(billNumbers, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!billNumbers || billNumbers.length === 0) return 0
+  const { error, count } = await supabase
+    .from('receive_logs')
+    .update({ ap_stage: 'sent_batch', ap_posted_at: null, ap_posted_by: null }, { count: 'exact' })
+    .in('bill_number', billNumbers)
+    .eq('ap_stage', 'posted')
+  if (error) throw error
+  await insertAuditLog({
+    action: 'ap_unpost', table_name: 'receive_logs',
+    user_name: resolveUserName(auth), department: auth?.department || '-',
+    record_count: count || billNumbers.length,
+    details: { bills: billNumbers },
+  })
+  return count || 0
+}
+
+// ดึงประวัติ batch ทั้งหมด — group by ap_batch_id
+export async function fetchApBatches() {
+  if (!supabase) return []
+  const { data, error } = await supabase
+    .from('receive_logs')
+    .select('ap_batch_id, ap_stage, bill_number, ap_sent_at, ap_sent_by, qty_received, price_per_unit, total_price_vat')
+    .not('ap_batch_id', 'is', null)
+    .order('ap_batch_id', { ascending: false })
+    .limit(AP_DEFAULT_LIMIT)
+  if (error) throw error
+  const map = new Map()
+  for (const r of data || []) {
+    const bid = r.ap_batch_id
+    if (!map.has(bid)) {
+      map.set(bid, {
+        batch_id: bid, sent_at: r.ap_sent_at, sent_by: r.ap_sent_by,
+        bills: new Set(), rows: 0, posted_bills: new Set(), total_value: 0,
+      })
+    }
+    const b = map.get(bid)
+    b.bills.add(r.bill_number)
+    if (r.ap_stage === 'posted') b.posted_bills.add(r.bill_number)
+    b.rows += 1
+    const qty = parseFloat(r.qty_received) || 0
+    const price = parseFloat(r.price_per_unit) || 0
+    const lineValue = (r.total_price_vat != null && r.total_price_vat > 0)
+      ? parseFloat(r.total_price_vat) : qty * price
+    b.total_value += lineValue
+    if (r.ap_sent_at && (!b.sent_at || r.ap_sent_at > b.sent_at)) b.sent_at = r.ap_sent_at
+  }
+  return Array.from(map.values()).map(b => ({
+    batch_id: b.batch_id, sent_at: b.sent_at, sent_by: b.sent_by,
+    bill_count: b.bills.size, posted_count: b.posted_bills.size,
+    row_count: b.rows, total_value: b.total_value,
+  }))
+}
+
 // --- Analytics ---
 
 export async function fetchDispenseAnalytics(dateFrom, dateTo) {
