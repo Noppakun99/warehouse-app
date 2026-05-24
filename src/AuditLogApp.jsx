@@ -35,8 +35,18 @@ const ACTION_LABELS = {
   ap_unpost:                    { label: 'ยกเลิกตั้งหนี้',           color: 'bg-slate-100 text-slate-600'   },
   ap_reset_batch:               { label: 'รีเซ็ตรอบส่งบัญชี',        color: 'bg-red-100 text-red-700'       },
   print_ap_batch:               { label: 'พิมพ์รอบส่งบัญชี',         color: 'bg-blue-100 text-blue-700'     },
+  print_ack_batch:              { label: 'พิมพ์ใบส่งจัดซื้อ',        color: 'bg-cyan-100 text-cyan-700'     },
   export_ap_batch:              { label: 'Export Excel รอบส่งบัญชี', color: 'bg-emerald-100 text-emerald-700'},
   login:                        { label: 'เข้าสู่ระบบ',              color: 'bg-slate-100 text-slate-600'   },
+  // ── Reorder Analysis ──
+  analysis_run:                 { label: 'บันทึก Snapshot สั่งซื้อ',  color: 'bg-orange-100 text-orange-700' },
+  analysis_view:                { label: 'รันวิเคราะห์สั่งซื้อ',       color: 'bg-orange-50 text-orange-600'  },
+  delete_analysis_run:          { label: 'ลบ Snapshot สั่งซื้อ',     color: 'bg-red-100 text-red-700'       },
+  update_reorder_config:        { label: 'แก้ Master ยา',           color: 'bg-violet-100 text-violet-700' },
+  import_reorder_config:        { label: 'Import Master ยา',        color: 'bg-indigo-100 text-indigo-700' },
+  mark_ordered:                 { label: 'ทำเครื่องหมายสั่งแล้ว',     color: 'bg-emerald-100 text-emerald-700'},
+  unmark_ordered:               { label: 'ยกเลิกสั่งแล้ว',           color: 'bg-slate-100 text-slate-600'   },
+  print_po:                     { label: 'พิมพ์ใบสั่งซื้อ',           color: 'bg-blue-100 text-blue-700'     },
 };
 
 const RETURN_TYPE_LABELS = {

@@ -34,6 +34,7 @@ const SYSTEM_ACCESS = {
     { name: 'ประวัติรับเข้าคลัง', color: 'bg-emerald-100 text-emerald-700' },
     { name: 'ประวัติเบิกยา',   color: 'bg-rose-100 text-rose-700' },
     { name: 'คืนยา',            color: 'bg-violet-100 text-violet-700' },
+    { name: 'วิเคราะห์การสั่งซื้อ', color: 'bg-orange-100 text-orange-700' },
     { name: 'Audit Log',        color: 'bg-slate-100 text-slate-600' },
   ],
   admin: [
@@ -42,6 +43,7 @@ const SYSTEM_ACCESS = {
     { name: 'ประวัติรับเข้าคลัง', color: 'bg-emerald-100 text-emerald-700' },
     { name: 'ประวัติเบิกยา',   color: 'bg-rose-100 text-rose-700' },
     { name: 'คืนยา',            color: 'bg-violet-100 text-violet-700' },
+    { name: 'วิเคราะห์การสั่งซื้อ', color: 'bg-orange-100 text-orange-700' },
     { name: 'Audit Log',        color: 'bg-slate-100 text-slate-600' },
     { name: 'จัดการผู้ใช้',    color: 'bg-violet-200 text-violet-800' },
   ],
@@ -56,6 +58,7 @@ const GRANTABLE_SYSTEMS = [
   { key: 'return',     label: 'คืนยา',               color: 'bg-violet-100 text-violet-700', defaultRoles: ['requester','staff','admin'] },
   { key: 'audit',      label: 'Audit Log',            color: 'bg-slate-100 text-slate-600',  defaultRoles: ['staff','admin'] },
   { key: 'analytics',  label: 'วิเคราะห์การเบิกยา', color: 'bg-cyan-100 text-cyan-700',    defaultRoles: ['requester','staff','admin'] },
+  { key: 'reorder',    label: 'วิเคราะห์การสั่งซื้อ', color: 'bg-orange-100 text-orange-700', defaultRoles: ['staff','admin'] },
 ];
 
 const DEPARTMENTS = [
