@@ -579,22 +579,36 @@ export async function fetchAuditLogs({ dateFrom, dateTo, action, userName } = {}
 export async function fetchNotifications() {
   if (!supabase) return []
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  // ต้องตรงกับ NOTIF_LABELS ใน AppRoot.jsx
   const NOTIFY_ACTIONS = [
     'submit_requisition',
     'requester_edit_requisition',
     'requester_delete_requisition',
-    'insert_return',
     'delete_requisition',
     'update_requisition',
+    'picking_requisition',
+    'verify_requisition',
+    'dispense_requisition',
+    'received_requisition',
+    'insert_return',
+    'update_return',
+    'delete_return',
     'delete_dispense',
     'update_dispense',
+    'import_dispense',
     'delete_receive',
     'update_receive',
+    'import_receive',
+    'scan_invoice',
+    'ap_acknowledge',
+    'ap_mark_inspected',
+    'ap_send_batch',
+    'ap_mark_posted',
     'export_excel',
   ]
   const { data, error } = await supabase
     .from('audit_logs')
-    .select('id, action, table_name, user_name, department, details, created_at')
+    .select('id, action, table_name, user_name, department, record_count, details, created_at')
     .in('action', NOTIFY_ACTIONS)
     .gte('created_at', since)
     .order('created_at', { ascending: false })
@@ -717,16 +731,22 @@ export async function loginUser(username, password) {
   }
   const hash = await hashPassword(password)
   if (hash !== data.password_hash) return { error: 'รหัสผ่านไม่ถูกต้อง' }
-  return {
-    user: {
-      id: data.id,
-      username: data.username,
-      name: data.full_name,
-      department: data.department || '',
-      role: data.role,
-      permissions: data.permissions || [],
-    },
+  const user = {
+    id: data.id,
+    username: data.username,
+    name: data.full_name,
+    department: data.department || '',
+    role: data.role,
+    permissions: data.permissions || [],
   }
+  // Audit log — fire-and-forget, อย่าให้ฟ้องผู้ใช้ถ้า audit fail
+  insertAuditLog({
+    action: 'login', table_name: 'app_users',
+    user_name: resolveAuditUserName({ name: user.name, username: user.username }),
+    department: user.department || '-',
+    details: { role: user.role, user_id: user.id },
+  }).catch(() => {})
+  return { user }
 }
 
 export async function registerUser({ username, password, full_name, department }) {
@@ -1127,13 +1147,16 @@ export async function unmarkBillsAcknowledged(billNumbers, auth = {}) {
 
 // Mark บิล (1 ใบ หรือหลายใบ) → inspected
 // บังคับ flow: ต้อง acknowledged_at NOT NULL (จัดซื้อรับบิลก่อน) — กัน skip stage
-export async function markBillsInspected(billNumbers, inspectorName, auth = {}) {
+// returnDate = วันที่ส่งคืนบิลให้จัดซื้อ (default = วันนี้) — ใช้แทน NOW() เก็บใน inspected_at
+export async function markBillsInspected(billNumbers, inspectorName, auth = {}, returnDate = null) {
   if (!supabase) throw new Error('Supabase not configured')
   if (!billNumbers || billNumbers.length === 0) return 0
-  const now = new Date().toISOString()
+  // ถ้ามี returnDate (YYYY-MM-DD) → ใช้เที่ยงวันของวันนั้นเป็น timestamp (กัน timezone offset)
+  // ถ้าไม่มี → ใช้ NOW()
+  const inspectedAt = returnDate ? new Date(`${returnDate}T12:00:00`).toISOString() : new Date().toISOString()
   const { error, count } = await supabase
     .from('receive_logs')
-    .update({ ap_stage: 'inspected', inspected_at: now, inspected_by: (inspectorName || '').trim() || null }, { count: 'exact' })
+    .update({ ap_stage: 'inspected', inspected_at: inspectedAt, inspected_by: (inspectorName || '').trim() || null }, { count: 'exact' })
     .in('bill_number', billNumbers)
     .is('ap_stage', null)
     .not('acknowledged_at', 'is', null)

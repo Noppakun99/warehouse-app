@@ -267,9 +267,9 @@ export default function ReceiveLogApp({ onBack, onRefresh, auth = {}, initialTab
         </div>
       </div>
       {tab === 'scan'   && isStaff && <ScanInvoice onDone={() => setTab('view')} auth={auth} />}
-      {tab === 'import' && isStaff && <ReceiveImport onDone={() => setTab('view')} />}
+      {tab === 'import' && isStaff && <ReceiveImport onDone={() => setTab('view')} auth={auth} />}
       {tab === 'ap'     && isStaff && <ApWorkflow auth={auth} onBack={() => setTab('view')} />}
-      {tab === 'view'   && <ReceiveView isAdmin={isAdmin} />}
+      {tab === 'view'   && <ReceiveView isAdmin={isAdmin} auth={auth} />}
       {showSummary      && <ReceiveSummaryModal onClose={() => setShowSummary(false)} />}
     </div>
   );
@@ -738,7 +738,7 @@ function ScanInvoice({ onDone, auth }) {
 // ============================================================
 // CSV Import
 // ============================================================
-function ReceiveImport({ onDone }) {
+function ReceiveImport({ onDone, auth = {} }) {
   const [status, setStatus]         = useState('');
   const [error, setError]           = useState('');
   const [preview, setPreview]       = useState(null);
@@ -1044,7 +1044,7 @@ function ReceiveImport({ onDone }) {
 // ============================================================
 // View
 // ============================================================
-function ReceiveView({ isAdmin = false }) {
+function ReceiveView({ isAdmin = false, auth = {} }) {
   const [rows, setRows]               = useState([]);
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState('');
@@ -1358,11 +1358,17 @@ function ReceiveView({ isAdmin = false }) {
   const deleteBlankRows = async () => {
     if (!supabase) return;
     if (!window.confirm('ลบ row ที่ชื่อยาเป็น (blank) หรือ - ออกจากฐานข้อมูล?')) return;
-    const { error } = await supabase
+    const { error, count } = await supabase
       .from('receive_logs')
-      .delete()
+      .delete({ count: 'exact' })
       .or('drug_name.ilike.(blank),drug_name.eq.-,drug_name.is.null');
     if (error) { alert('เกิดข้อผิดพลาด: ' + error.message); return; }
+    await insertAuditLog({
+      action: 'delete_receive', table_name: 'receive_logs',
+      user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+      record_count: count ?? null,
+      details: { reason: 'cleanup_blank_rows' },
+    });
     alert('ลบเรียบร้อย');
     load();
   };
@@ -2421,6 +2427,7 @@ function ApWorkflow({ auth, onBack }) {
   const [inspector, setInspector]       = useState('');
   const [purchaser, setPurchaser]       = useState('');
   const [accountant, setAccountant]     = useState('');
+  const [returnDate, setReturnDate]     = useState(() => todayIsoLocal()); // วันที่ส่งคืนจัดซื้อ (default = วันนี้)
   useEffect(() => {
     localStorage.removeItem('ap_inspector');
     localStorage.removeItem('ap_purchaser');
@@ -2567,8 +2574,8 @@ function ApWorkflow({ auth, onBack }) {
     setBusy(true); setError(''); setMsg('');
     try {
       const billNumbers = ackedSelected.map(b => b.bill_number);
-      const n = await markBillsInspected(billNumbers, name, auth);
-      setMsg(`บันทึก "ตรวจรับแล้ว" ${billNumbers.length} บิล (${n} รายการ)`);
+      const n = await markBillsInspected(billNumbers, name, auth, returnDate);
+      setMsg(`บันทึก "ตรวจรับแล้ว" ${billNumbers.length} บิล (${n} รายการ) · ส่งคืนวันที่ ${returnDate}`);
       setSelected(new Set());
       await load();
     } catch (e) { setError(e.message || 'บันทึกไม่สำเร็จ'); }
@@ -2819,6 +2826,7 @@ function ApWorkflow({ auth, onBack }) {
             <PendingTab bills={filteredPending} selected={selected} toggleBill={toggleBill} toggleAll={toggleAll}
               inspector={inspector} setInspector={setInspector}
               purchaser={purchaser} setPurchaser={setPurchaser}
+              returnDate={returnDate} setReturnDate={setReturnDate}
               busy={busy}
               onMarkInspected={handleMarkInspected} onExportSend={handleExportAndSend}
               onUninspect={handleUninspect}
@@ -2944,7 +2952,10 @@ function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, 
             </div>
             {/* row 2: บริษัท · วันรับ + lot */}
             <div className="flex items-center justify-between text-xs text-slate-500 mt-0.5 gap-2">
-              <span className="truncate">{bill.supplier} · {fmtDateThaiShort(bill.receive_date)}</span>
+              <span className="truncate">
+                {bill.supplier}
+                <span className="text-slate-400"> · วันที่รับ: </span>{fmtDateThaiShort(bill.receive_date)}
+              </span>
               <span className="text-slate-400 whitespace-nowrap">{bill.item_count} lot</span>
             </div>
             {/* row 3: meta + มูลค่า + action */}
@@ -2954,6 +2965,11 @@ function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, 
                   <span className="text-sky-600">
                     <span className="text-slate-400">จัดซื้อรับ:</span> {fmtDateThaiShort(bill.acknowledged_at.slice(0,10))}
                     {bill.acknowledged_by && ` · ${bill.acknowledged_by}`}
+                  </span>
+                )}
+                {bill.inspected_at && (
+                  <span className="text-orange-700">
+                    <span className="text-slate-400">ส่งคืนจัดซื้อ:</span> {fmtDateThaiShort(bill.inspected_at.slice(0,10))}
                   </span>
                 )}
                 {bill.inspected_by && <span className="text-slate-500"><span className="text-slate-400">กรรมการ:</span> {bill.inspected_by}</span>}
@@ -3057,7 +3073,7 @@ function StageBadge({ stage, acknowledged }) {
   );
 }
 
-function PendingTab({ bills, selected, toggleBill, toggleAll, inspector, setInspector, purchaser, setPurchaser, busy, onMarkInspected, onExportSend, onUninspect, onAcknowledge, onUnacknowledge, onBulkUndo, toggleSort, sortKey, sortDir, expandedBill, toggleExpand }) {
+function PendingTab({ bills, selected, toggleBill, toggleAll, inspector, setInspector, purchaser, setPurchaser, returnDate, setReturnDate, busy, onMarkInspected, onExportSend, onUninspect, onAcknowledge, onUnacknowledge, onBulkUndo, toggleSort, sortKey, sortDir, expandedBill, toggleExpand }) {
   const allSelected = bills.length > 0 && selected.size === bills.length;
   const someInspectedSelected = bills.some(b => b.ap_stage === 'inspected' && selected.has(b.bill_number));
   const someAckedSelected    = bills.some(b => !b.ap_stage && b.acknowledged_at && selected.has(b.bill_number));   // ack แล้ว (พร้อมตรวจรับ)
@@ -3067,8 +3083,8 @@ function PendingTab({ bills, selected, toggleBill, toggleAll, inspector, setInsp
   return (
     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
       <div className="p-3 border-b border-slate-100 bg-slate-50 space-y-3">
-        {/* Input row — ชื่อผู้รับผิดชอบ 2 ช่อง */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        {/* Input row — ชื่อผู้รับผิดชอบ + วันที่ส่งคืน */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
           <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
             <span className="text-xs text-slate-500 whitespace-nowrap w-24 shrink-0">จนท.จัดซื้อ:</span>
             <input value={purchaser} onChange={e => setPurchaser(e.target.value)}
@@ -3080,6 +3096,14 @@ function PendingTab({ bills, selected, toggleBill, toggleAll, inspector, setInsp
             <input value={inspector} onChange={e => setInspector(e.target.value)}
               placeholder="ไม่กรอกก็ได้ — เซ็นเอง"
               className="flex-1 min-w-0 outline-none text-sm"/>
+          </div>
+          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
+            <span className="text-xs text-slate-500 whitespace-nowrap w-28 shrink-0">ส่งคืนจัดซื้อ:</span>
+            <ThaiDateInput
+              value={isoToThai(returnDate)}
+              onChange={v => setReturnDate(thaiToIso(v) || '')}
+              size="flex-1 min-w-0"
+            />
           </div>
         </div>
 

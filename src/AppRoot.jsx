@@ -616,16 +616,32 @@ const GROUPS = [
 
 // ---- Notification helpers ----
 const NOTIF_LABELS = {
+  // ── Requisition lifecycle ──
   submit_requisition:           { label: 'ส่งใบเบิกใหม่',        color: 'text-[#1E90FF]',  dot: 'bg-[#1E90FF]' },
   requester_edit_requisition:   { label: 'แก้ไขใบเบิก',          color: 'text-amber-600',  dot: 'bg-amber-400' },
   requester_delete_requisition: { label: 'ลบใบเบิก',             color: 'text-red-600',    dot: 'bg-red-400'   },
   delete_requisition:           { label: 'ลบใบเบิก',             color: 'text-red-600',    dot: 'bg-red-400'   },
   update_requisition:           { label: 'แก้ไขใบเบิก',          color: 'text-amber-600',  dot: 'bg-amber-400' },
+  picking_requisition:          { label: 'จัดยา',                color: 'text-blue-600',   dot: 'bg-blue-400'  },
+  verify_requisition:           { label: 'ตรวจสอบใบเบิก',       color: 'text-indigo-600', dot: 'bg-indigo-400'},
+  dispense_requisition:         { label: 'จ่ายยา',                color: 'text-emerald-600',dot: 'bg-emerald-400'},
+  received_requisition:         { label: 'หน่วยงานรับยา',        color: 'text-teal-600',   dot: 'bg-teal-400'  },
+  // ── Receive / Dispense / Return ──
   insert_return:                { label: 'คืนยา',                color: 'text-blue-600',   dot: 'bg-blue-400'  },
+  update_return:                { label: 'แก้ไขรายการคืนยา',     color: 'text-amber-600',  dot: 'bg-amber-400' },
+  delete_return:                { label: 'ลบรายการคืนยา',        color: 'text-red-600',    dot: 'bg-red-400'   },
   delete_dispense:              { label: 'ลบรายการจ่ายยา',       color: 'text-red-600',    dot: 'bg-red-400'   },
   update_dispense:              { label: 'แก้ไขรายการจ่ายยา',    color: 'text-amber-600',  dot: 'bg-amber-400' },
+  import_dispense:              { label: 'นำเข้าประวัติเบิกจ่าย', color: 'text-rose-600',  dot: 'bg-rose-400'  },
   delete_receive:               { label: 'ลบรายการรับยา',        color: 'text-red-600',    dot: 'bg-red-400'   },
   update_receive:               { label: 'แก้ไขรายการรับยา',     color: 'text-amber-600',  dot: 'bg-amber-400' },
+  import_receive:               { label: 'นำเข้าประวัติรับยา',    color: 'text-indigo-600', dot: 'bg-indigo-400'},
+  scan_invoice:                 { label: 'สแกนบิลรับยา',         color: 'text-cyan-600',   dot: 'bg-cyan-400'  },
+  // ── AP Workflow (ส่งบัญชี) ──
+  ap_acknowledge:               { label: 'จัดซื้อรับบิล',        color: 'text-sky-600',    dot: 'bg-sky-400'   },
+  ap_mark_inspected:            { label: 'ตรวจรับบิล',           color: 'text-emerald-600',dot: 'bg-emerald-400'},
+  ap_send_batch:                { label: 'ส่งบัญชี',             color: 'text-orange-600', dot: 'bg-orange-400'},
+  ap_mark_posted:               { label: 'ตั้งหนี้แล้ว',          color: 'text-violet-600', dot: 'bg-violet-400'},
   export_excel:                 { label: 'Export Excel',         color: 'text-emerald-600', dot: 'bg-emerald-400' },
 };
 
@@ -634,19 +650,54 @@ const NOTIFY_ACTIONS = Object.keys(NOTIF_LABELS);
 function notifMessage(n) {
   const who = n.user_name && n.user_name !== '-' ? n.user_name : (n.department || 'ผู้ใช้');
   const d = n.details || {};
+  const reqRef = d.req_number || (d.requisition_id ? `#${d.requisition_id}` : '');
   switch (n.action) {
     case 'submit_requisition':
-      return `${who} ส่งใบเบิก${d.req_number ? ` ${d.req_number}` : ''} ${n.record_count ? `(${n.record_count} รายการ)` : ''} · ${n.department}`;
+      return `${who} ส่งใบเบิก${reqRef ? ` ${reqRef}` : ''} ${n.record_count ? `(${n.record_count} รายการ)` : ''} · ${n.department}`;
+    case 'picking_requisition':
+      return `${who} จัดยาใบเบิก${reqRef ? ` ${reqRef}` : ''}${d.picker_name ? ` (${d.picker_name})` : ''}`;
+    case 'verify_requisition':
+      return `${who} ตรวจสอบใบเบิก${reqRef ? ` ${reqRef}` : ''}${d.verifier_name ? ` (${d.verifier_name})` : ''}`;
+    case 'dispense_requisition':
+      return `${who} จ่ายยาตามใบเบิก${reqRef ? ` ${reqRef}` : ''}`;
+    case 'received_requisition':
+      return `${n.department} รับยาแล้ว${reqRef ? ` (${reqRef})` : ''}${d.received_by ? ` · ${d.received_by}` : ''}`;
     case 'insert_return':
       return `${who} คืนยา "${d.drug_name || ''}" ${d.qty ? `${d.qty} หน่วย` : ''} · ${n.department}`;
+    case 'update_return':
+      return `${who} แก้ไขรายการคืนยา${d.drug_name ? ` "${d.drug_name}"` : ''}`;
+    case 'delete_return':
+      return `${who} ลบรายการคืนยา · ${n.department}`;
+    case 'update_dispense':
+      return `${who} แก้ไขรายการจ่ายยา${d.drug_name ? ` "${d.drug_name}"` : ''}`;
+    case 'delete_dispense':
+      return `${who} ลบรายการจ่ายยา${d.drug_name ? ` "${d.drug_name}"` : ''}${d.qty ? ` (${d.qty} หน่วย)` : ''}`;
+    case 'import_dispense':
+      return `${who} นำเข้าประวัติเบิกจ่าย ${n.record_count ? `${n.record_count.toLocaleString()} รายการ` : ''}`;
+    case 'delete_receive':
+      return `${who} ลบรายการรับยา${n.record_count ? ` ${n.record_count} แถว` : ''}`;
+    case 'update_receive':
+      return `${who} แก้ไขรายการรับยา${d.drug_name ? ` "${d.drug_name}"` : ''}`;
+    case 'import_receive':
+      return `${who} นำเข้าประวัติรับยา ${n.record_count ? `${n.record_count.toLocaleString()} รายการ` : ''}`;
+    case 'scan_invoice':
+      return `${who} สแกนบิลรับยา${d.bill_number ? ` (${d.bill_number})` : ''}${n.record_count ? ` · ${n.record_count} รายการ` : ''}`;
+    case 'ap_acknowledge':
+      return `${who} จัดซื้อรับบิล${d.bill_count ? ` ${d.bill_count} บิล` : ''}`;
+    case 'ap_mark_inspected':
+      return `${who} ตรวจรับบิล${d.bill_count ? ` ${d.bill_count} บิล` : ''}${d.inspector_name ? ` (${d.inspector_name})` : ''}`;
+    case 'ap_send_batch':
+      return `${who} ส่งบัญชี${d.batch_id ? ` ${d.batch_id}` : ''}${d.bill_count ? ` (${d.bill_count} บิล)` : ''}`;
+    case 'ap_mark_posted':
+      return `${who} ตั้งหนี้แล้ว${d.batch_id ? ` ${d.batch_id}` : ''}${d.accountant_name ? ` (${d.accountant_name})` : ''}`;
     case 'export_excel':
       return `${who} Export Excel · ${n.department}`;
     case 'requester_edit_requisition':
     case 'update_requisition':
-      return `${who} แก้ไขใบเบิก · ${n.department}`;
+      return `${who} แก้ไขใบเบิก${reqRef ? ` ${reqRef}` : ''} · ${n.department}`;
     case 'requester_delete_requisition':
     case 'delete_requisition':
-      return `${who} ลบใบเบิก · ${n.department}`;
+      return `${who} ลบใบเบิก${reqRef ? ` ${reqRef}` : ''} · ${n.department}`;
     default:
       return `${who} · ${n.department}`;
   }
