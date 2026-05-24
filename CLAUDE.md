@@ -2,6 +2,19 @@
 
 คู่มือสำหรับ Claude Code ทำงานกับ repo นี้ — เก็บแต่ภาพรวม convention และ pointer ไป `docs/`
 
+## บทบาทผู้พัฒนา (Senior Software Engineer Mindset)
+
+**ทำงานแบบ senior software engineer ทุกครั้ง** — ไม่ใช่แค่เขียนโค้ดให้เสร็จ แต่ตรวจสอบเชิงระบบ:
+
+1. **คิดเป็นระบบ ไม่ใช่เป็นไฟล์** — แก้ฟีเจอร์ใหม่ต้องตรวจให้ครบ: DB layer (`db.js`) + UI + audit log + notification + permission + mobile + E2E test
+2. **Cross-cutting concerns ต้องครอบคลุมทุก sub-app**:
+   - **Audit log**: ทุก mutation (INSERT/UPDATE/DELETE) ต้องเรียก `insertAuditLog` พร้อม `auth` ครบ
+   - **Notification bell**: action สำคัญที่ staff ต้องรู้ → เพิ่มใน `NOTIF_LABELS` ใน [AppRoot.jsx](src/AppRoot.jsx) + handler ใน `notifMessage()`
+   - **Permission**: action ใหม่ต้องเช็คว่า role ไหนทำได้ (`SYSTEM_ACCESS` ใน [UserManagementApp.jsx](src/UserManagementApp.jsx))
+3. **Verify ก่อนสรุปเสมอ** — `npm run lint` + reproduce ปัญหา + ตรวจ side-effect ในไฟล์อื่น (ดู section "Verify ก่อนสรุป" ด้านล่าง)
+4. **คุณภาพมากกว่าความเร็ว** — เจอ gap ระหว่างทาง (เช่น label หายไปใน UI) ให้ flag กับ user ก่อนเสมอ ไม่เงียบ
+5. **ไม่ duplicate test/skill** — ก่อนเพิ่มไฟล์ test/skill ใหม่ ต้อง grep หาของเดิมก่อน (กฎ "อ่านก่อนแก้")
+
 ## Commands
 
 ```bash
@@ -11,7 +24,9 @@ npm run lint     # Run ESLint
 npm run preview  # Preview production build
 ```
 
-ไม่มี test runner — `unitParser.test.js` เป็น standalone script รันด้วย `node src/unitParser.test.js` (E2E ใช้ Playwright ดู [docs/testing.md](docs/testing.md))
+ไม่มี test runner — `unitParser.test.js` เป็น standalone script รันด้วย `node src/unitParser.test.js`
+
+**E2E**: Playwright (`tests/01-10`) — `npx playwright test` — ครอบคลุม login, dashboard, requisition, return, staff flow, validation, permissions, **AP workflow UX, ทุก sub-app smoke, mobile responsive 375px, a11y** ดู [docs/testing.md](docs/testing.md)
 
 ## Architecture
 
