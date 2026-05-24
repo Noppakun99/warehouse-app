@@ -2185,7 +2185,7 @@ const AP_STAGE_LABEL = {
   null:           { label: 'รอจัดซื้อรับ',  bg: 'bg-amber-100',  text: 'text-amber-700',  dot: 'bg-amber-500' },
   acked:          { label: 'จัดซื้อรับแล้ว', bg: 'bg-sky-100',    text: 'text-sky-700',    dot: 'bg-sky-500' },
   inspected:      { label: 'รอส่งบัญชี',   bg: 'bg-orange-100', text: 'text-orange-700', dot: 'bg-orange-500' },
-  sent_batch:     { label: 'ส่งแล้ว รอ post', bg: 'bg-indigo-100', text: 'text-indigo-700', dot: 'bg-indigo-500' },
+  sent_batch:     { label: 'ส่งบัญชีแล้ว(รอตั้งหนี้)', bg: 'bg-indigo-100', text: 'text-indigo-700', dot: 'bg-indigo-500' },
   posted:         { label: 'ตั้งหนี้แล้ว',  bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500' },
 };
 
@@ -2219,6 +2219,16 @@ const HOSPITAL_NAME = 'โรงพยาบาลประชาธิปัต
 
 function printApBatch(rows, batchId, meta = {}) {
   if (!rows || rows.length === 0) return;
+  // kind: 'ap' = ใบนำส่งบิลตั้งหนี้ (คลัง → บัญชี) | 'ack' = ใบส่งจัดซื้อรับบิล (คลัง → จัดซื้อ)
+  const kind = meta.kind || 'ap';
+  const isAck = kind === 'ack';
+  const docTitle    = isAck ? 'ใบส่งจัดซื้อรับบิล'            : 'ใบนำส่งบิลตั้งหนี้';
+  const docSubtitle = isAck ? 'Bills for Procurement Acknowledgement' : 'Weekly AP Batch Submission';
+  const batchLabel  = isAck ? 'วันที่ส่งจัดซื้อ'                : 'รหัสรอบส่ง';
+  const sigLeftTitle  = isAck ? 'เจ้าหน้าที่คลัง'   : 'กรรมการตรวจรับ';
+  const sigLeftLabel  = isAck ? 'ลายมือชื่อ ผู้ส่ง' : 'ลายมือชื่อ ผู้ตรวจรับ';
+  const sigRightTitle = isAck ? 'เจ้าหน้าที่จัดซื้อ' : 'เจ้าหน้าที่จัดซื้อ';
+  const sigRightLabel = isAck ? 'ลายมือชื่อ ผู้รับบิล' : 'ลายมือชื่อ ผู้ส่ง';
   const bills = (function group(){
     const m = new Map();
     for (const r of rows) {
@@ -2283,7 +2293,7 @@ function printApBatch(rows, batchId, meta = {}) {
 
   const html = `<!DOCTYPE html><html lang="th"><head>
 <meta charset="UTF-8"/>
-<title>ใบนำส่งบิลตั้งหนี้ ${batchId}</title>
+<title>${docTitle} ${batchId}</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2335,11 +2345,11 @@ function printApBatch(rows, batchId, meta = {}) {
 <div class="h-row">
   <div>
     <h1>${HOSPITAL_NAME}</h1>
-    <p class="sub">ใบนำส่งบิลตั้งหนี้ / Weekly AP Batch Submission</p>
+    <p class="sub">${docTitle} / ${docSubtitle}</p>
   </div>
   <div style="text-align:right;">
-    <div style="font-size:14px;font-weight:700;color:#047857;">รหัสรอบส่ง: ${batchId}</div>
-    <div class="sub">วันที่ส่ง: ${fmtDate(batchId)}</div>
+    <div style="font-size:14px;font-weight:700;color:#047857;">${batchLabel}: ${fmtDate(batchId)}</div>
+    ${isAck ? '' : `<div class="sub">รหัสรอบ: ${batchId}</div>`}
   </div>
 </div>
 
@@ -2391,17 +2401,17 @@ function printApBatch(rows, batchId, meta = {}) {
 
 <div class="sig-row">
   <div class="sig-box">
-    <p class="sig-title">กรรมการตรวจรับ</p>
-    <div class="sig-name">${(meta.inspectorNames && meta.inspectorNames.length > 0) ? meta.inspectorNames.join(', ') : ''}</div>
+    <p class="sig-title">${sigLeftTitle}</p>
+    <div class="sig-name">${isAck ? (meta.senderName || '') : ((meta.inspectorNames && meta.inspectorNames.length > 0) ? meta.inspectorNames.join(', ') : '')}</div>
     <div class="sig-line"></div>
-    <p class="sig-label">ลายมือชื่อ ผู้ตรวจรับ</p>
+    <p class="sig-label">${sigLeftLabel}</p>
     <p class="sig-date">วันที่ <span></span></p>
   </div>
   <div class="sig-box">
-    <p class="sig-title">เจ้าหน้าที่จัดซื้อ</p>
-    <div class="sig-name">${meta.senderName || ''}</div>
+    <p class="sig-title">${sigRightTitle}</p>
+    <div class="sig-name">${isAck ? '' : (meta.senderName || '')}</div>
     <div class="sig-line"></div>
-    <p class="sig-label">ลายมือชื่อ ผู้ส่ง</p>
+    <p class="sig-label">${sigRightLabel}</p>
     <p class="sig-date">วันที่ <span></span></p>
   </div>
 </div>
@@ -2564,7 +2574,7 @@ function ApWorkflow({ auth, onBack }) {
     const unackSelected = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number));
     if (ackedSelected.length === 0) {
       if (unackSelected.length > 0) {
-        setError(`บิลที่เลือก ${unackSelected.length} บิลยังเป็น "รอจัดซื้อรับ"\nต้องกด "Mark รับบิล" ก่อน → แล้วค่อย Mark ตรวจรับแล้ว`);
+        setError(`บิลที่เลือก ${unackSelected.length} บิลยังเป็น "รอจัดซื้อรับ"\nต้องกด "จัดซื้อรับบิล" ก่อน → แล้วค่อย Mark ตรวจรับแล้ว`);
       } else {
         setError('ไม่มีบิลที่จัดซื้อรับแล้วในการเลือก');
       }
@@ -2579,6 +2589,33 @@ function ApWorkflow({ auth, onBack }) {
       setSelected(new Set());
       await load();
     } catch (e) { setError(e.message || 'บันทึกไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  }
+
+  // คลังพิมพ์ใบส่งจัดซื้อ — เลือกบิลรอจัดซื้อรับ (ap_stage=NULL + acknowledged_at=NULL) แล้วปริ้นใบให้จัดซื้อเซ็น
+  // ไม่เปลี่ยน stage — เป็นแค่ paperwork helper
+  async function handleExportAck() {
+    const unackBills = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number));
+    if (unackBills.length === 0) { setError('เลือกบิล "รอจัดซื้อรับ" ก่อน'); return; }
+    setBusy(true); setError(''); setMsg('');
+    try {
+      const billNumbers = unackBills.map(b => b.bill_number);
+      const rowsToPrint = unackBills.flatMap(b => b.items);
+      const dates = rowsToPrint.map(r => r.receive_date).filter(Boolean).sort();
+      const today = todayIsoLocal();
+      printApBatch(rowsToPrint, today, {
+        kind: 'ack',
+        periodFrom: dates[0], periodTo: dates[dates.length - 1],
+        senderName: resolveAuditUserName(auth) !== '-' ? resolveAuditUserName(auth) : '',
+      });
+      await insertAuditLog({
+        action: 'print_ack_batch', table_name: 'receive_logs',
+        user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+        record_count: rowsToPrint.length,
+        details: { date: today, bill_count: billNumbers.length },
+      });
+      setMsg(`พิมพ์ใบส่งจัดซื้อ ${billNumbers.length} บิล (${rowsToPrint.length} รายการ)`);
+    } catch (e) { setError(e.message || 'พิมพ์ไม่สำเร็จ'); }
     finally { setBusy(false); }
   }
 
@@ -2769,8 +2806,8 @@ function ApWorkflow({ auth, onBack }) {
 
       <div className="flex flex-wrap gap-2 mb-4">
         {tabBtn('pending', 'รอส่งบัญชี', filteredPending.length, <ClipboardList size={16}/>)}
-        {tabBtn('sent',    'ส่งแล้ว รอ post', filteredSent.length, <FileCheck2 size={16}/>)}
-        {tabBtn('history', 'ประวัติ Batch',  batches.length,   <History size={16}/>)}
+        {tabBtn('sent',    'ส่งบัญชีแล้ว(รอตั้งหนี้)', filteredSent.length, <FileCheck2 size={16}/>)}
+        {tabBtn('history', 'ประวัติตั้งหนี้',  batches.length,   <History size={16}/>)}
       </div>
 
       {(msg || error) && (
@@ -2829,6 +2866,7 @@ function ApWorkflow({ auth, onBack }) {
               returnDate={returnDate} setReturnDate={setReturnDate}
               busy={busy}
               onMarkInspected={handleMarkInspected} onExportSend={handleExportAndSend}
+              onExportAck={handleExportAck}
               onUninspect={handleUninspect}
               onAcknowledge={handleAcknowledge} onUnacknowledge={handleUnacknowledge}
               onBulkUndo={handleBulkUndo}
@@ -2958,23 +2996,38 @@ function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, 
               </span>
               <span className="text-slate-400 whitespace-nowrap">{bill.item_count} lot</span>
             </div>
-            {/* row 3: meta + มูลค่า + action */}
+            {/* row 3: timeline (วันที่แต่ละขั้น + ผู้รับผิดชอบ) + มูลค่า + action */}
             <div className="flex items-center justify-between mt-1.5 gap-2">
-              <div className="flex items-center gap-2 text-xs flex-wrap">
+              <div className="flex items-center gap-x-3 gap-y-1 text-xs flex-wrap">
+                <span className="text-emerald-700">
+                  <span className="text-slate-400">คลังรับ:</span> {fmtDateThaiShort(bill.receive_date)}
+                </span>
                 {bill.acknowledged_at && (
                   <span className="text-sky-600">
-                    <span className="text-slate-400">จัดซื้อรับ:</span> {fmtDateThaiShort(bill.acknowledged_at.slice(0,10))}
+                    <span className="text-slate-400">→ จัดซื้อรับ:</span> {fmtDateThaiShort(bill.acknowledged_at.slice(0,10))}
                     {bill.acknowledged_by && ` · ${bill.acknowledged_by}`}
                   </span>
                 )}
                 {bill.inspected_at && (
                   <span className="text-orange-700">
-                    <span className="text-slate-400">ส่งคืนจัดซื้อ:</span> {fmtDateThaiShort(bill.inspected_at.slice(0,10))}
+                    <span className="text-slate-400">→ ตรวจรับ:</span> {fmtDateThaiShort(bill.inspected_at.slice(0,10))}
+                    {bill.inspected_by && ` · ${bill.inspected_by}`}
                   </span>
                 )}
-                {bill.inspected_by && <span className="text-slate-500"><span className="text-slate-400">กรรมการ:</span> {bill.inspected_by}</span>}
+                {bill.ap_sent_at && (
+                  <span className="text-indigo-700">
+                    <span className="text-slate-400">→ ส่งบัญชี:</span> {fmtDateThaiShort(bill.ap_sent_at.slice(0,10))}
+                    {bill.ap_sent_by && ` · ${bill.ap_sent_by}`}
+                  </span>
+                )}
+                {bill.ap_posted_at && (
+                  <span className="text-violet-700">
+                    <span className="text-slate-400">→ ตั้งหนี้:</span> {fmtDateThaiShort(bill.ap_posted_at.slice(0,10))}
+                    {bill.ap_posted_by && ` · ${bill.ap_posted_by}`}
+                  </span>
+                )}
                 <span className={`font-semibold ${overdue ? 'text-red-600' : 'text-slate-500'}`}>
-                  <span className="text-slate-400 font-normal">{sentTimestamp ? 'ค้างที่บัญชี ' : 'ระยะเวลารอ '}</span>{days} วัน
+                  <span className="text-slate-400 font-normal">{sentTimestamp ? '· ค้างที่บัญชี ' : '· รวม '}</span>{days} วัน
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -3073,7 +3126,7 @@ function StageBadge({ stage, acknowledged }) {
   );
 }
 
-function PendingTab({ bills, selected, toggleBill, toggleAll, inspector, setInspector, purchaser, setPurchaser, returnDate, setReturnDate, busy, onMarkInspected, onExportSend, onUninspect, onAcknowledge, onUnacknowledge, onBulkUndo, toggleSort, sortKey, sortDir, expandedBill, toggleExpand }) {
+function PendingTab({ bills, selected, toggleBill, toggleAll, inspector, setInspector, purchaser, setPurchaser, returnDate, setReturnDate, busy, onMarkInspected, onExportSend, onExportAck, onUninspect, onAcknowledge, onUnacknowledge, onBulkUndo, toggleSort, sortKey, sortDir, expandedBill, toggleExpand }) {
   const allSelected = bills.length > 0 && selected.size === bills.length;
   const someInspectedSelected = bills.some(b => b.ap_stage === 'inspected' && selected.has(b.bill_number));
   const someAckedSelected    = bills.some(b => !b.ap_stage && b.acknowledged_at && selected.has(b.bill_number));   // ack แล้ว (พร้อมตรวจรับ)
@@ -3088,13 +3141,13 @@ function PendingTab({ bills, selected, toggleBill, toggleAll, inspector, setInsp
           <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
             <span className="text-xs text-slate-500 whitespace-nowrap w-24 shrink-0">จนท.จัดซื้อ:</span>
             <input value={purchaser} onChange={e => setPurchaser(e.target.value)}
-              placeholder="ไม่กรอกก็ได้ — เซ็นเอง"
+              placeholder=""
               className="flex-1 min-w-0 outline-none text-sm"/>
           </div>
           <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
             <span className="text-xs text-slate-500 whitespace-nowrap w-28 shrink-0">กรรมการตรวจรับ:</span>
             <input value={inspector} onChange={e => setInspector(e.target.value)}
-              placeholder="ไม่กรอกก็ได้ — เซ็นเอง"
+              placeholder=""
               className="flex-1 min-w-0 outline-none text-sm"/>
           </div>
           <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
@@ -3109,15 +3162,22 @@ function PendingTab({ bills, selected, toggleBill, toggleAll, inspector, setInsp
 
         {/* Action row — flow ตามลำดับซ้าย→ขวา, ปุ่ม undo อยู่สุดทางขวา */}
         <div className="flex flex-wrap items-center gap-2">
+          <button onClick={onExportAck}
+            disabled={busy || !someUnackSelected}
+            title={!someUnackSelected ? 'เลือกบิล "รอจัดซื้อรับ" ก่อน' : 'พิมพ์ใบส่งจัดซื้อให้เซ็น'}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+            <Printer size={15}/> Print ส่งจัดซื้อ ({Array.from(selected).filter(bn => bills.find(b => b.bill_number === bn && !b.ap_stage && !b.acknowledged_at)).length})
+          </button>
+          <ChevronUp size={14} className="text-slate-300 rotate-90"/>
           <button onClick={() => onAcknowledge()}
             disabled={busy || !someUnackSelected}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-sky-500 text-white hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
-            <CheckCircle2 size={15}/> Mark รับบิล ({Array.from(selected).filter(bn => bills.find(b => b.bill_number === bn && !b.ap_stage && !b.acknowledged_at)).length})
+            <CheckCircle2 size={15}/> จัดซื้อรับบิล ({Array.from(selected).filter(bn => bills.find(b => b.bill_number === bn && !b.ap_stage && !b.acknowledged_at)).length})
           </button>
           <ChevronUp size={14} className="text-slate-300 rotate-90"/>
           <button onClick={onMarkInspected}
             disabled={busy || !someAckedSelected}
-            title={!someAckedSelected ? 'ต้อง Mark รับบิล ก่อน (กรุณาเลือกบิลที่ "จัดซื้อรับแล้ว")' : ''}
+            title={!someAckedSelected ? 'ต้อง จัดซื้อรับบิล ก่อน (กรุณาเลือกบิลที่ "จัดซื้อรับแล้ว")' : ''}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
             <CheckCircle2 size={15}/> Mark ตรวจรับแล้ว ({Array.from(selected).filter(bn => bills.find(b => b.bill_number === bn && !b.ap_stage && b.acknowledged_at)).length})
           </button>
@@ -3176,7 +3236,7 @@ function SentTab({ bills, selected, toggleBill, toggleAll, accountant, setAccoun
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-slate-500 whitespace-nowrap">จนท.บัญชี:</span>
           <input value={accountant} onChange={e => setAccountant(e.target.value)}
-            placeholder="ไม่กรอกก็ได้ — เซ็นเอง"
+            placeholder=""
             className="px-2 py-1 border border-slate-300 rounded text-sm w-52"/>
         </div>
         <button onClick={() => toggleAll(bills)} disabled={bills.length === 0}

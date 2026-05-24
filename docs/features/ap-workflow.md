@@ -53,9 +53,18 @@ posted                              → "ตั้งหนี้แล้ว"  
 - ถ้ากรอกชื่อ → แสดงในใบนำส่ง + audit log บันทึก
 - placeholder ทั้ง 3 ช่อง: `"ไม่กรอกก็ได้ — เซ็นเอง"`
 
-### แจ้งเตือน auto-dismiss
-- success (เขียว) → 3 วินาที
+### แจ้งเตือน — Toast Popup
+- ใช้ `<ToastPopup>` component — `fixed top-4 left-1/2 -translate-x-1/2 z-[100]`
+- success (เขียว) → 3 วินาที auto-dismiss
 - error (แดง) → 5 วินาที
+- error ที่มีคำว่า `'migration'` → 15 วินาที (ให้เวลาอ่าน + copy SQL)
+- รองรับ `whitespace-pre-line` (ใช้ `\n` ขึ้นบรรทัดใหม่ในข้อความ)
+- ปุ่ม X ปิดเองได้
+
+### Auto-detect Missing Migration
+- ใน `load()` + `handleAcknowledge` ตรวจ error message ที่มี `'acknowledged_at'` + `'does not exist'`
+- ถ้าเจอ → แสดงข้อความช่วยเหลือ: `"⚠️ ยังไม่ได้รัน migration! ไป Supabase Dashboard → SQL Editor run ไฟล์: ap_acknowledge_migration.sql"`
+- ป้องกัน user งงเมื่อยังไม่ได้รัน migration ใหม่
 
 ## Migration
 
@@ -99,21 +108,46 @@ posted                              → "ตั้งหนี้แล้ว"  
 
 ทุกการ undo มี `confirm()` dialog ก่อน execute
 
-### Pending Tab — UX
-- กรอกชื่อกรรมการตรวจรับ (text input — ไม่มี role แยก)
-- เลือกบิลด้วย checkbox (multi-select)
-- 2 ปุ่ม: "Mark ตรวจรับแล้ว" (ใช้กับ `null` rows) / "Export & ส่งบัญชี" (ใช้กับ `inspected` rows)
-- ปุ่มเปิด/ปิดเองตาม selection (ปุ่ม disabled ถ้า selected ไม่มี state ตรง)
+### Pending Tab — UX (ใหม่: BillCard layout, ไม่ใช่ table แล้ว)
+- **Toolbar input row** — 3 ช่อง side-by-side (responsive 1/2/3 col):
+  - `จนท.จัดซื้อ:` (text — placeholder "ไม่กรอกก็ได้ — เซ็นเอง")
+  - `กรรมการตรวจรับ:` (text — placeholder เดียวกัน)
+  - `ส่งคืนจัดซื้อ:` (date input — default = `todayIsoLocal()`)
+- **Toolbar action row** — flow ซ้าย→ขวา + chevron คั่นกลาง:
+  - 🔵 `Mark รับบิล (N)` — enabled เมื่อมี unack ใน selection
+  - › 🟠 `Mark ตรวจรับแล้ว (N)` — enabled เฉพาะ acked ใน selection (บังคับ flow)
+  - › 🟢 `Print & ส่งบัญชี (N)` — enabled เฉพาะ inspected
+  - ขวาสุด: `↶ ย้อนกลับ (N)` (สีอ่อน white+amber, ขนาด text-xs) — bulk undo
+- **SortToolbar** — pill buttons เรียง 6 columns (วันรับ/เลขบิล/รายการ/Lot/มูลค่า/วันค้าง) + "เลือกทั้งหมด" checkbox ขวาสุด
+- **BillCard** — 3-row card แทน table (ดู BillCard section ด้านล่าง)
 
 ### Sent Tab — UX
-- Group by `ap_batch_id` → 1 batch = 1 ตาราง
-- ปุ่ม "Mark all posted in batch" (กดทีเดียวทั้ง batch) + checkbox ทีละบิล (กด selection แล้วกด Mark posted)
-- แสดง "วันค้าง (จาก sent)" — แดงถ้า > 7 วัน
+- Group by `ap_batch_id` → 1 batch = card section
+- ปุ่ม "Mark all posted in batch" (กดทีเดียวทั้ง batch) + ช่อง "จนท.บัญชี:" สำหรับใส่ชื่อ (optional)
+- BillCard มี `sentTimestamp` prop → label "ค้างที่บัญชี X วัน" แทน "ระยะเวลารอ X วัน"
 
 ### History Tab — UX
-- รายการ batch ทั้งหมด เรียง batch_id desc (ใหม่สุดอยู่บน)
+- รายการ batch ทั้งหมด (table) เรียง batch_id desc
 - แสดง `posted_count/bill_count` — เขียวถ้าครบ
-- ปุ่ม "ดาวน์โหลดซ้ำ" → re-generate Excel เดิม
+- ปุ่ม "พิมพ์ซ้ำ" → re-generate print preview
+- ปุ่ม "Reset" → `resetApBatch` (ทุกบิลกลับเป็น inspected)
+- คลิกแถว batch → expand `BatchBillsList` (BillCard ของบิลใน batch — readonly, ไม่มี checkbox/undo)
+- คลิกแถวบิลใน BatchBillsList → expand `BillItemsDetail` (รายการ lot)
+- Filter: date range "วันที่ส่ง" (กรอง `batch_id`) + search "เลขบิล/บริษัท" (pre-fetch bills ของทุก batch + auto-expand เมื่อ match)
+
+### BillCard — Layout (ใช้ทั้ง 3 tabs)
+3 แถว visual:
+```
+[☐] [▼] เลขบิล [stage badge]                  จำนวนรายการยา N รายการ
+        บริษัท · วันที่รับ: DD/MM/YYYY                          N lot
+        [จัดซื้อรับ: DD/MM · ชื่อ] [ส่งคืนจัดซื้อ: DD/MM] [กรรมการ: ชื่อ] [วันค้าง]    มูลค่ารวม N,NNN บาท [↶]
+```
+- คลิก card → expand `BillItemsDetail`
+- Checkbox + ปุ่ม action ต้องมี `onClick={e => e.stopPropagation()}` กัน expand toggle
+- มูลค่า: integer (ไม่มีทศนิยม) — `toLocaleString('th-TH', { maximumFractionDigits: 0 })`
+- วันค้าง: PendingTab = `today - receive_date`, SentTab = `today - ap_sent_at`
+- inline ปุ่ม Acknowledge "รับบิล" (ฟ้า) เฉพาะ stage=NULL+unack
+- inline ปุ่ม ↶ undo เฉพาะ stage=acked/inspected/sent_batch
 
 ## Filter ที่กรอง stage ตาม receive_status
 
@@ -137,7 +171,8 @@ posted                              → "ตั้งหนี้แล้ว"  
   - **Meta grid**: วันที่/ช่วงวันรับ (label เปลี่ยนเป็น "วันที่รับของ" ถ้าวันเดียว), จำนวนบิล (หน่วย "บิล"), รายการ (lot), มูลค่ารวม
   - **Bills Summary table**: 1 row per bill — เลขบิล, บริษัท, วันรับ, lot, มูลค่า + SUM footer
   - **Item Detail table**: 1 row per lot — บิล, รหัส, ชื่อ, Lot, Exp, qty, ราคา, มูลค่า + SUM
-  - **Signature row (3 ช่อง)**: กรรมการตรวจรับ / ผู้ส่ง (จัดซื้อ) / ผู้รับ (บัญชี)
+  - **Signature row (2 ช่อง)**: กรรมการตรวจรับ / เจ้าหน้าที่จัดซื้อ
+    - ไม่มีช่อง "ผู้รับ (บัญชี)" แล้ว — บัญชี post ในระบบของเขาเอง (HOSxP/SAP) ไม่ต้องเซ็นบนใบนี้
 - **กรรมการตรวจรับ** ใช้ `meta.inspectorNames` (array — distinct จาก `inspected_by` ของบิลใน batch) แสดงรวมกันด้วย `,`
 - มูลค่า: `total_price_vat > 0 ? total_price_vat : qty × price_per_unit`
 - วันที่: DD/MM/YYYY (พ.ศ.) ทั่วหน้า
@@ -153,7 +188,7 @@ fetchApBills({ stage, dateFrom, dateTo, batchId })   // stage: null|'unack'|'ack
 groupRowsByBill(rows)                                 // → [{ bill_number, supplier, receive_date, items, item_count, drug_count, total_value, ap_stage, acknowledged_at, acknowledged_by, ... }]
 markBillsAcknowledged(billNumbers, purchaserName, auth) // จัดซื้อกด "รับบิล" — ไม่เปลี่ยน ap_stage, ตั้ง acknowledged_at/by
 unmarkBillsAcknowledged(billNumbers, auth)            // rollback ack → null
-markBillsInspected(billNumbers, inspectorName, auth)
+markBillsInspected(billNumbers, inspectorName, auth, returnDate?)  // returnDate (YYYY-MM-DD) = วันที่ส่งคืนจัดซื้อ → ใช้แทน NOW() เก็บใน inspected_at (เที่ยงวันของวันนั้น)
 markBillsSentBatch(billNumbers, batchId, auth, senderName?)   // senderName = ชื่อ จนท.จัดซื้อ (override → ap_sent_by)
 markBillsPosted(billNumbers, auth, posterName?)               // posterName = ชื่อ จนท.บัญชี (override → ap_posted_by)
 unmarkBillsInspected(billNumbers, auth)               // rollback inspected → null
@@ -194,11 +229,28 @@ fetchApBatches()                                       // → [{ batch_id, sent_
 - **อย่าให้ requester เข้า ap tab** — guard ด้วย `isStaff` ทั้งในปุ่ม header และ render check
 - **อย่าใช้ `exportApBatchExcel` แทน `printApBatch`** — print preview ตรงกับ workflow ส่งบัญชีกระดาษมากกว่า
 - **อย่าใช้ `<input type="date">` ตรงๆ ใน date filter** — ใน ApWorkflow ตอนนี้ใช้ native input ได้เพราะเป็น state ISO format; ถ้าจะแสดงเป็น พ.ศ. ต้องใช้ `IsoDateInput` (จาก docs/patterns.md)
+- **อย่าใช้ `onClick={onHandler}` กับ handler ที่รับ optional arg** — React ส่ง click event เป็น arg แรก → handler คิดว่า event = billNumber → JSON.stringify เกิด "Converting circular structure" error เพราะ DOM element มี circular ref. ใช้ `onClick={() => onHandler()}` แทน
+- **อย่าตั้ง default stage = `'inspected'` ใน fetchApBills** — เคยทำให้ batch ที่ posted แล้วหายจาก history. Default = `null` (ไม่กรอง)
+- **อย่า persist ชื่อใน localStorage** — ทั้ง inspector/purchaser/accountant ต้องเริ่มว่างทุก session
+- **อย่า skip ack** — markBillsInspected บังคับ filter `.not('acknowledged_at', 'is', null)` กัน UI bypass
+
+## Stage Badge Colors
+
+| Stage | Key | Badge bg | Badge text | Dot |
+|-------|-----|----------|-----------|-----|
+| `null` (รอจัดซื้อรับ) | `null` | bg-amber-100 | text-amber-700 | bg-amber-500 |
+| `null` + ack (จัดซื้อรับแล้ว) | `acked` (derived) | bg-sky-100 | text-sky-700 | bg-sky-500 |
+| `inspected` (รอส่งบัญชี) | `inspected` | bg-orange-100 | text-orange-700 | bg-orange-500 |
+| `sent_batch` (ส่งแล้ว รอ post) | `sent_batch` | bg-indigo-100 | text-indigo-700 | bg-indigo-500 |
+| `posted` (ตั้งหนี้แล้ว) | `posted` | bg-emerald-100 | text-emerald-700 | bg-emerald-500 |
+
+`<StageBadge stage={stage} acknowledged={bill.acknowledged_at}/>` — รับ 2 props เพื่อ derive 'acked' state
 
 ## Roadmap (Phase 1.5+)
 
-- Mobile card layout สำหรับ 3 sub-tabs (ตอนนี้ใช้ overflow-x table)
+- Mobile card layout สำหรับ 3 sub-tabs (ตอนนี้ใช้ BillCard เป็น list — responsive ได้ แต่ยังไม่มี bottom sheet)
 - Audit checklist ก่อน export: ตรวจ qty < 0, duplicate lot+bill, total tie
 - Month-end "ยอดคงคลัง" Excel (15 columns) — แยก Phase 1B ใหญ่
 - Role `purchasing` / `accounting` แยก (Phase 2)
 - Email notification ผู้บริหารเมื่อ "ค้าง > 7 วัน"
+- Dashboard sub-counter: "ค้างกับจัดซื้อ > 2 วัน" (เน้น stage NULL + unack)

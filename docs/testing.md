@@ -32,6 +32,9 @@ TEST_STAFF_USER=test2 TEST_STAFF_PASS=555555 npx playwright test
 | `05-staff-flow.spec.js` | Staff approve/reject (ต้องมี staff account) |
 | `06-validation.spec.js` | Form validation, HTML5 + JS |
 | `07-permissions.spec.js` | Role-based visibility (requester vs staff) |
+| `08-ap-workflow.spec.js` | AP Workflow UX — flow disabled state, tooltip, badge, sub-tab nav (staff only) |
+| `09-ux-smoke.spec.js` | UX Smoke — ทุก sub-app เปิดได้ไม่ crash + no JS error + mobile 375px + consistency (no emoji, Thai text, no ISO date visible) |
+| `10-a11y-quality.spec.js` | A11y/quality — login form autoComplete, keyboard nav, icon button aria-label |
 
 ## Notes
 

@@ -10,7 +10,30 @@
       "Bash(npx playwright:*)",
       "Bash(git fetch *)",
       "Bash(node -e \"const fs=require\\('fs'\\); const c=fs.readFileSync\\('src/App.jsx','utf8'\\).split\\('\\\\n'\\); let d=0; c.forEach\\(\\(l,i\\)=>{ const op=\\(l.match\\(/<[a-zA-Z][^/]*>/g\\)||[]\\).length; const cl=\\(l.match\\(/<\\\\/[a-zA-Z]|\\\\/>/g\\)||[]\\).length; d+=op-cl; if\\(Math.abs\\(d\\)>15||i>2440\\) console.log\\(i+1, d, l.trim\\(\\).slice\\(0,60\\)\\) }\\);\")",
-      "Bash(npx supabase *)"
+      "Bash(npx supabase *)",
+      "Bash(git checkout *)",
+      "Bash(git stash *)",
+      "Bash(rm -rf .git/rebase-merge 2>&1 && git status 2>&1)",
+      "Bash(git push *)",
+      "Bash(grep -v \"//\")",
+      "Bash(npx eslint *)",
+      "Bash(node --input-type=module)",
+      "Bash(node -e ' *)",
+      "Bash(grep -B 1 -A 1 \"App\\\\.jsx$\\\\|AppRoot\\\\.jsx$\")",
+      "Bash(git pull *)",
+      "Bash(ls supabase/)",
+      "Bash(ls *.sql)",
+      "Bash(awk '/AppRoot.jsx$/,/^$/')",
+      "Bash(awk '/AuditLogApp.jsx$/,/^$/')",
+      "Bash(awk '/DispenseLogApp.jsx$/,/^$/')",
+      "Bash(awk '/ReceiveLogApp.jsx$/,/^$/')",
+      "Bash(awk 'NR>=1371 && NR<=1782 {print}' src/App.jsx)",
+      "Bash(awk 'NR==1371 || NR==1782 {print NR\": \"$0}' src/App.jsx)",
+      "Bash(awk 'NR<1371 || NR>1782' src/App.jsx)",
+      "Bash(grep -n \"setView\\\\|view ===\\\\|\\\\\\\\bview\\\\\\\\b\" src/App.jsx)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\Admin\\OneDrive\\Desktop\\warehouse-app\\.git\\rebase-merge"
     ]
   }
 }
