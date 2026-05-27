@@ -17,4 +17,5 @@ CLAUDE.md เป็นเอกสารหลัก — ดูภาพรว�
 | [features/picking-workflow.md](./features/picking-workflow.md) | RequisitionApp — picking → verify → dispense → received | แก้ Requisition workflow |
 | [features/return.md](./features/return.md) | ReturnApp — return type 2-level, admin edit, print | แก้ ReturnApp |
 | [features/invoice-scanner.md](./features/invoice-scanner.md) | ReceiveLogApp — AI Vision สแกนบิล | แก้ ScanInvoice component |
+| [features/ap-workflow.md](./features/ap-workflow.md) | ReceiveLogApp — ติดตามตั้งหนี้รายอาทิตย์ (Weekly Batch) | แก้ AP tracking / Excel batch export |
 | [features/analytics.md](./features/analytics.md) | AnalyticsApp — 3 tab, ABC, forecast, momentum | แก้ AnalyticsApp |

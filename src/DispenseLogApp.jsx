@@ -13,7 +13,7 @@ import {
   LineChart, Line, Legend,
 } from 'recharts';
 import { exportToExcel } from './lib/exportExcel';
-import { normalizeLotSearch } from './lib/db';
+import { normalizeLotSearch, insertAuditLog, resolveAuditUserName } from './lib/db';
 
 // ============================================================
 // Column aliases
@@ -287,7 +287,7 @@ export default function DispenseLogApp({ onBack, onRefresh, auth = {} }) {
         </div>
       </div>
 
-      {tab === 'import' && isStaff && <DispenseImport onDone={() => setTab('view')} />}
+      {tab === 'import' && isStaff && <DispenseImport onDone={() => setTab('view')} auth={auth} />}
       {tab === 'view'   && <DispenseView isAdmin={isAdmin} auth={auth} />}
       {showSummary      && <DispenseSummaryModal onClose={() => setShowSummary(false)} />}
     </div>
@@ -297,7 +297,7 @@ export default function DispenseLogApp({ onBack, onRefresh, auth = {} }) {
 // ============================================================
 // CSV Import
 // ============================================================
-function DispenseImport({ onDone }) {
+function DispenseImport({ onDone, auth = {} }) {
   const [status, setStatus]         = useState('');
   const [error, setError]           = useState('');
   const [preview, setPreview]       = useState(null);
@@ -398,6 +398,12 @@ function DispenseImport({ onDone }) {
         const { error: e } = await supabase.from('dispense_logs').insert(rows.slice(i, i + CHUNK));
         if (e) throw e;
       }
+      await insertAuditLog({
+        action: 'import_dispense', table_name: 'dispense_logs',
+        user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+        record_count: rows.length,
+        details: { file: preview?.fileName || '-' },
+      });
       setStatus(`นำเข้าสำเร็จ ${rows.length.toLocaleString()} รายการ`);
       setPreview(null); setRawRows([]); setRawHeaders([]);
       if (warnRows.length > 0) setUploadWarnings({ fileName: preview?.fileName || '', type: 'CSV คลังเบิก', rows: warnRows });
@@ -623,7 +629,7 @@ async function adjustInventory(code, lot, delta) {
 // ============================================================
 // Edit Modal
 // ============================================================
-function EditModal({ row, onClose, onSaved }) {
+function EditModal({ row, onClose, onSaved, auth = {} }) {
   const [form, setForm] = useState({
     dispense_date:  row.dispense_date  || '',
     drug_name:      row.drug_name      || '',
@@ -669,6 +675,11 @@ function EditModal({ row, onClose, onSaved }) {
     };
     const { error: e } = await supabase.from('dispense_logs').update(payload).eq('id', row.id);
     if (e) { setError(e.message); setSaving(false); return; }
+    await insertAuditLog({
+      action: 'update_dispense', table_name: 'dispense_logs',
+      user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+      details: { dispense_log_id: row.id, drug_name: form.drug_name, drug_code: form.drug_code, lot: form.lot },
+    });
 
     // --- อัปเดต inventory ---
     const oldCode = (row.drug_code || '').trim();
@@ -890,6 +901,11 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     if (!window.confirm(`ลบรายการ "${row.drug_name}" วันที่ ${fmtDate(row.dispense_date)} ใช่หรือไม่?\nระบบจะคืนยอดคงเหลือ ${row.qty_out || 0} หน่วยกลับ inventory`)) return;
     if (!supabase) return;
     await supabase.from('dispense_logs').delete().eq('id', row.id);
+    await insertAuditLog({
+      action: 'delete_dispense', table_name: 'dispense_logs',
+      user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+      details: { dispense_log_id: row.id, drug_name: row.drug_name, drug_code: row.drug_code, lot: row.lot, qty: row.qty_out },
+    });
     // คืน qty กลับ inventory
     if (row.drug_code && row.lot && row.qty_out) {
       await adjustInventory(row.drug_code, row.lot, row.qty_out);
@@ -946,6 +962,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
       {editingRow && (
         <EditModal
           row={editingRow}
+          auth={auth}
           onClose={() => setEditingRow(null)}
           onSaved={() => { setEditingRow(null); load(); }}
         />

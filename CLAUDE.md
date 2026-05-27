@@ -2,16 +2,32 @@
 
 คู่มือสำหรับ Claude Code ทำงานกับ repo นี้ — เก็บแต่ภาพรวม convention และ pointer ไป `docs/`
 
+## บทบาทผู้พัฒนา (Senior Software Engineer Mindset)
+
+**ทำงานแบบ senior software engineer ทุกครั้ง** — ไม่ใช่แค่เขียนโค้ดให้เสร็จ แต่ตรวจสอบเชิงระบบ:
+
+1. **คิดเป็นระบบ ไม่ใช่เป็นไฟล์** — แก้ฟีเจอร์ใหม่ต้องตรวจให้ครบ: DB layer (`db.js`) + UI + audit log + notification + permission + mobile + E2E test
+2. **Cross-cutting concerns ต้องครอบคลุมทุก sub-app**:
+   - **Audit log**: ทุก mutation (INSERT/UPDATE/DELETE) ต้องเรียก `insertAuditLog` พร้อม `auth` ครบ
+   - **Notification bell**: action สำคัญที่ staff ต้องรู้ → เพิ่มใน `NOTIF_LABELS` ใน [AppRoot.jsx](src/AppRoot.jsx) + handler ใน `notifMessage()`
+   - **Permission**: action ใหม่ต้องเช็คว่า role ไหนทำได้ (`SYSTEM_ACCESS` ใน [UserManagementApp.jsx](src/UserManagementApp.jsx))
+3. **Verify ก่อนสรุปเสมอ** — `npm run lint` + reproduce ปัญหา + ตรวจ side-effect ในไฟล์อื่น (ดู section "Verify ก่อนสรุป" ด้านล่าง)
+4. **คุณภาพมากกว่าความเร็ว** — เจอ gap ระหว่างทาง (เช่น label หายไปใน UI) ให้ flag กับ user ก่อนเสมอ ไม่เงียบ
+5. **ไม่ duplicate test/skill** — ก่อนเพิ่มไฟล์ test/skill ใหม่ ต้อง grep หาของเดิมก่อน (กฎ "อ่านก่อนแก้")
+
 ## Commands
 
 ```bash
-npm run dev      # Start development server
-npm run build    # Production build
-npm run lint     # Run ESLint
-npm run preview  # Preview production build
+npm run dev          # Start development server
+npm run build        # Production build
+npm run lint         # Run ESLint
+npm run preview      # Preview production build
+npm run test:reorder # Golden tests สำหรับ src/lib/reorder.js (33 assertions)
 ```
 
-ไม่มี test runner — `unitParser.test.js` เป็น standalone script รันด้วย `node src/unitParser.test.js` (E2E ใช้ Playwright ดู [docs/testing.md](docs/testing.md))
+ไม่มี test runner ทั่วไป — `unitParser.test.js` standalone (`node src/unitParser.test.js`); `reorder.test.js` มี script ให้รัน `npm run test:reorder`
+
+**E2E**: Playwright (`tests/01-11`) — `npx playwright test` — ครอบคลุม login, dashboard, requisition, return, staff flow, validation, permissions, **AP workflow UX, ทุก sub-app smoke, mobile responsive 375px, a11y, ระบบวิเคราะห์การสั่งซื้อยา** ดู [docs/testing.md](docs/testing.md)
 
 ## Architecture
 
@@ -32,6 +48,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 - `AnalyticsApp.jsx` — วิเคราะห์เบิกยา (ดู [docs/features/analytics.md](docs/features/analytics.md))
 - `AuditLogApp.jsx` — ดู audit log
 - `UserManagementApp.jsx` — admin จัดการ user
+- `ReorderApp.jsx` — วิเคราะห์การสั่งซื้อยา (ROP/SS/Refill mode/แยกบริษัท) (ดู [docs/features/reorder.md](docs/features/reorder.md))
 
 **Data layer:**
 - ทุก Supabase query ผ่าน `src/lib/db.js` — component ห้ามเรียก `supabase` ตรงๆ
@@ -161,21 +178,45 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 - **Tailwind**: 3.x — เลี่ยง arbitrary values (`w-[123px]`) ถ้าทำได้
 - **React**: 19.x — functional components + hooks เท่านั้น
 
+### Key shared functions
+
+- **`fetchDashboardAlerts()`** (db.js) — return `{ expiring, lowStock, pendingReceive }` — ดึง inventory + receive_logs (paginated) เพื่อคำนวณ `waitDays` ของบิลรอตรวจรับ — ใช้ใน StatsStrip ของ Dashboard
+- **`printApBatch(rows, batchId, { kind, senderName, inspectorNames })`** (ReceiveLogApp.jsx) — รับ `kind: 'ap'|'ack'`:
+  - `'ap'` = ใบนำส่งบิลตั้งหนี้ (คลัง → บัญชี) — signature: กรรมการตรวจรับ + เจ้าหน้าที่จัดซื้อ
+  - `'ack'` = ใบส่งจัดซื้อรับบิล (คลัง → จัดซื้อ) — signature: เจ้าหน้าที่คลัง + เจ้าหน้าที่จัดซื้อ
+- **`resolveAuditUserName(auth)`** (db.js) — fallback chain: `auth.name || auth.username || '-'`
+
+### AP Workflow stages (`receive_logs.ap_stage`)
+
+```
+null + acknowledged_at=null  →  null + acknowledged_at!=null  →  'inspected'  →  'sent_batch'  →  'posted'
+       รอจัดซื้อรับ                      จัดซื้อรับแล้ว                ตรวจรับแล้ว         ส่งบัญชี              ตั้งหนี้
+```
+
+11 AP actions logged: `ap_acknowledge, ap_unacknowledge, ap_mark_inspected, ap_uninspect, ap_send_batch, ap_unsend_batch, ap_mark_posted, ap_unpost, ap_reset_batch, print_ap_batch, print_ack_batch` — รายละเอียดใน [docs/features/ap-workflow.md](docs/features/ap-workflow.md)
+
+### Picking workflow actions
+
+`picking_requisition, verify_requisition, dispense_requisition, received_requisition` — ทั้ง 4 surface ใน notification bell แล้ว
+
 ## Critical Rules (ต้องอ่าน)
 
 รายละเอียดทุก rule อยู่ใน [docs/patterns.md](docs/patterns.md) — สรุปเฉพาะหัวข้อที่ต้องระวัง:
 
-1. **Audit Log Auth**: ทุก `exportToExcel`, `insertReceiveRows`, `insertAuditLog` ต้องส่ง `auth` ครบ — ไม่งั้น user_name = `-`
+1. **Audit Log Auth**: ทุก `exportToExcel`, `insertReceiveRows`, `insertAuditLog` ต้องส่ง `auth` ครบ — ไม่งั้น user_name = `-`. **ทุก mutation** (CRUD ใน DispenseLog/ReceiveLog/AP/Picking/Return) ต้องเรียก `insertAuditLog` — action ที่ unlogged จะหายไปจาก notification bell + audit history
 2. **Supabase 1000-row limit**: dropdown ชื่อยา + aggregate stats ต้องใช้ `fetchAllRows` เสมอ
 3. **Date Input**: ใช้ `ThaiDateInput` (เก็บ DD/MM/YYYY) หรือ `IsoDateInput` (เก็บ ISO) — **ห้ามใช้ `showPicker()`** (mobile pick ไม่ได้)
 4. **Print view**: ใช้ **Blob URL** เสมอ — `document.write()` พังบน iOS Safari
 5. **Mobile layout**: ทุก sub-app ที่มีตาราง → card list + bottom sheet ที่ `width < 768px`
-6. **Stat consistency**: ตัวเลข stat card + Excel export ต้องตรงกับตารางที่ user เห็น (filter+dedup เหมือนกัน)
+6. **Stat consistency**: ตัวเลข stat card + Excel export ต้องตรงกับตารางที่ user เห็น (filter+dedup เหมือนกัน) — ถ้า stat อ้างอิงสถานะจากตารางอื่น (เช่น Dashboard "รอตรวจรับ" ใช้ `inventory.receive_status`) ต้องใช้ filter/query ตัวเดียวกับหน้านั้น
 7. **Department list 2 ระบบ**: hardcoded (form) vs dynamic (history filter) — อย่าสับสน
 8. **ReceiveLog scan**: ใช้ `insertScannedBillRows` (APPEND) — **ห้ามใช้ `insertReceiveRows`** (DELETE ALL)
 9. **Debugging data issues**: เช็ค SQL ใน DB ก่อนแก้ code — output ขาด ≠ bug เสมอไป (CSV ต้นทางอาจไม่ครบ) ดู [docs/patterns.md → Debugging Data Issues]
 10. **Edge Function email UTF-8**: ใช้ `npm:nodemailer` (ไม่ใช่ `denomailer` — มี bug ภาษาไทย) ดู [docs/expiry-alert-edge-function.md]
 11. **drug_swap_policy เป็น merged column**: build จาก CSV `swap_condition + swap_items` ตอน import — DB ไม่มี 2 col นั้นแยก ดู [docs/schema.md]
+12. **Notification & AuditLog sync**: ถ้าเพิ่ม action ใหม่ใน `insertAuditLog` ต้องเพิ่ม label ใน **3 ที่พร้อมกัน**: `NOTIF_LABELS` ([AppRoot.jsx](src/AppRoot.jsx)), `NOTIFY_ACTIONS` ใน `fetchNotifications` ([db.js](src/lib/db.js)), `ACTION_LABELS` ([AuditLogApp.jsx](src/AuditLogApp.jsx)) — ไม่งั้นปุ่ม bell ไม่ขึ้น หรือ UI แสดง raw key
+13. **Reorder single source of truth**: ทุกหน้าที่นับ "ต่ำกว่า Safety Stock" / "ต้องสั่ง" ต้องอ้างอิง logic เดียวกับ [ReorderApp](src/ReorderApp.jsx) — รวม qty **per drug code** (ไม่ใช่ per-lot) + filter `drug_reorder_config.exclude_status` (`ตัดออก`/`สั่งเมื่อขอ`) ออก — `fetchDashboardAlerts.lowStock` ใน [db.js](src/lib/db.js) ใช้ pattern นี้แล้ว ห้ามนับ per-row ของ inventory ตรงๆ
+14. **Date input อ่าน [docs/patterns.md](docs/patterns.md) ก่อนเสมอ**: ใช้ `ThaiDateInput` / `IsoDateInput` ที่ overlay `<span>` แสดง `DD/MM/YYYY` (พ.ศ.) ทับ hidden `<input type="date">` — ห้ามใช้ plain `<input type="date">` เพราะ browser US locale แสดง `MM/DD/YYYY`
 
 ## Do Not (Hard Rules)
 

@@ -20,6 +20,7 @@ import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
 import AnalyticsApp       from './AnalyticsApp';
+import ReorderApp         from './ReorderApp';
 
 
 // ============================================================
@@ -68,7 +69,7 @@ export default function AppRoot() {
   } else {
     switch (page) {
       case 'inventory':
-        content = <App key={subKey} onBackToDashboard={() => setPage('dashboard')} onRefresh={refreshPage} role={auth.role} auth={auth} />;
+        content = <App key={subKey} onBackToDashboard={() => setPage('dashboard')} onRefresh={refreshPage} onNavigate={setPage} role={auth.role} auth={auth} />;
         break;
       case 'requisition':
       case 'requisition-history':
@@ -90,6 +91,9 @@ export default function AppRoot() {
       case 'receive':
         content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
         break;
+      case 'receive-ap':
+        content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} initialTab="ap" />;
+        break;
       case 'return':
         content = <ReturnApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
         break;
@@ -101,6 +105,9 @@ export default function AppRoot() {
         break;
       case 'analytics':
         content = <AnalyticsApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
+        break;
+      case 'reorder':
+        content = <ReorderApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
         break;
       default:
         content = <Dashboard auth={auth} onNavigate={setPage} onLogout={logout} />;
@@ -613,17 +620,39 @@ const GROUPS = [
 
 // ---- Notification helpers ----
 const NOTIF_LABELS = {
+  // ── Requisition lifecycle ──
   submit_requisition:           { label: 'ส่งใบเบิกใหม่',        color: 'text-[#1E90FF]',  dot: 'bg-[#1E90FF]' },
   requester_edit_requisition:   { label: 'แก้ไขใบเบิก',          color: 'text-amber-600',  dot: 'bg-amber-400' },
   requester_delete_requisition: { label: 'ลบใบเบิก',             color: 'text-red-600',    dot: 'bg-red-400'   },
   delete_requisition:           { label: 'ลบใบเบิก',             color: 'text-red-600',    dot: 'bg-red-400'   },
   update_requisition:           { label: 'แก้ไขใบเบิก',          color: 'text-amber-600',  dot: 'bg-amber-400' },
+  picking_requisition:          { label: 'จัดยา',                color: 'text-blue-600',   dot: 'bg-blue-400'  },
+  verify_requisition:           { label: 'ตรวจสอบใบเบิก',       color: 'text-indigo-600', dot: 'bg-indigo-400'},
+  dispense_requisition:         { label: 'จ่ายยา',                color: 'text-emerald-600',dot: 'bg-emerald-400'},
+  received_requisition:         { label: 'หน่วยงานรับยา',        color: 'text-teal-600',   dot: 'bg-teal-400'  },
+  // ── Receive / Dispense / Return ──
   insert_return:                { label: 'คืนยา',                color: 'text-blue-600',   dot: 'bg-blue-400'  },
+  update_return:                { label: 'แก้ไขรายการคืนยา',     color: 'text-amber-600',  dot: 'bg-amber-400' },
+  delete_return:                { label: 'ลบรายการคืนยา',        color: 'text-red-600',    dot: 'bg-red-400'   },
   delete_dispense:              { label: 'ลบรายการจ่ายยา',       color: 'text-red-600',    dot: 'bg-red-400'   },
   update_dispense:              { label: 'แก้ไขรายการจ่ายยา',    color: 'text-amber-600',  dot: 'bg-amber-400' },
+  import_dispense:              { label: 'นำเข้าประวัติเบิกจ่าย', color: 'text-rose-600',  dot: 'bg-rose-400'  },
   delete_receive:               { label: 'ลบรายการรับยา',        color: 'text-red-600',    dot: 'bg-red-400'   },
   update_receive:               { label: 'แก้ไขรายการรับยา',     color: 'text-amber-600',  dot: 'bg-amber-400' },
+  import_receive:               { label: 'นำเข้าประวัติรับยา',    color: 'text-indigo-600', dot: 'bg-indigo-400'},
+  scan_invoice:                 { label: 'สแกนบิลรับยา',         color: 'text-cyan-600',   dot: 'bg-cyan-400'  },
+  // ── AP Workflow (ส่งบัญชี) ──
+  ap_acknowledge:               { label: 'จัดซื้อรับบิล',        color: 'text-sky-600',    dot: 'bg-sky-400'   },
+  ap_mark_inspected:            { label: 'ตรวจรับบิล',           color: 'text-emerald-600',dot: 'bg-emerald-400'},
+  ap_send_batch:                { label: 'ส่งบัญชี',             color: 'text-orange-600', dot: 'bg-orange-400'},
+  ap_mark_posted:               { label: 'ตั้งหนี้แล้ว',          color: 'text-violet-600', dot: 'bg-violet-400'},
   export_excel:                 { label: 'Export Excel',         color: 'text-emerald-600', dot: 'bg-emerald-400' },
+  // ── Reorder Analysis ──
+  analysis_run:                 { label: 'บันทึก Snapshot สั่งซื้อ', color: 'text-orange-600', dot: 'bg-orange-400' },
+  update_reorder_config:        { label: 'แก้ Master ยา',         color: 'text-violet-600',  dot: 'bg-violet-400' },
+  import_reorder_config:        { label: 'Import Master ยา',      color: 'text-indigo-600',  dot: 'bg-indigo-400' },
+  mark_ordered:                 { label: 'ทำเครื่องหมายสั่งแล้ว',  color: 'text-emerald-600', dot: 'bg-emerald-400' },
+  print_po:                     { label: 'พิมพ์ใบสั่งซื้อ',        color: 'text-slate-700',   dot: 'bg-slate-500'  },
 };
 
 const NOTIFY_ACTIONS = Object.keys(NOTIF_LABELS);
@@ -631,19 +660,54 @@ const NOTIFY_ACTIONS = Object.keys(NOTIF_LABELS);
 function notifMessage(n) {
   const who = n.user_name && n.user_name !== '-' ? n.user_name : (n.department || 'ผู้ใช้');
   const d = n.details || {};
+  const reqRef = d.req_number || (d.requisition_id ? `#${d.requisition_id}` : '');
   switch (n.action) {
     case 'submit_requisition':
-      return `${who} ส่งใบเบิก${d.req_number ? ` ${d.req_number}` : ''} ${n.record_count ? `(${n.record_count} รายการ)` : ''} · ${n.department}`;
+      return `${who} ส่งใบเบิก${reqRef ? ` ${reqRef}` : ''} ${n.record_count ? `(${n.record_count} รายการ)` : ''} · ${n.department}`;
+    case 'picking_requisition':
+      return `${who} จัดยาใบเบิก${reqRef ? ` ${reqRef}` : ''}${d.picker_name ? ` (${d.picker_name})` : ''}`;
+    case 'verify_requisition':
+      return `${who} ตรวจสอบใบเบิก${reqRef ? ` ${reqRef}` : ''}${d.verifier_name ? ` (${d.verifier_name})` : ''}`;
+    case 'dispense_requisition':
+      return `${who} จ่ายยาตามใบเบิก${reqRef ? ` ${reqRef}` : ''}`;
+    case 'received_requisition':
+      return `${n.department} รับยาแล้ว${reqRef ? ` (${reqRef})` : ''}${d.received_by ? ` · ${d.received_by}` : ''}`;
     case 'insert_return':
       return `${who} คืนยา "${d.drug_name || ''}" ${d.qty ? `${d.qty} หน่วย` : ''} · ${n.department}`;
+    case 'update_return':
+      return `${who} แก้ไขรายการคืนยา${d.drug_name ? ` "${d.drug_name}"` : ''}`;
+    case 'delete_return':
+      return `${who} ลบรายการคืนยา · ${n.department}`;
+    case 'update_dispense':
+      return `${who} แก้ไขรายการจ่ายยา${d.drug_name ? ` "${d.drug_name}"` : ''}`;
+    case 'delete_dispense':
+      return `${who} ลบรายการจ่ายยา${d.drug_name ? ` "${d.drug_name}"` : ''}${d.qty ? ` (${d.qty} หน่วย)` : ''}`;
+    case 'import_dispense':
+      return `${who} นำเข้าประวัติเบิกจ่าย ${n.record_count ? `${n.record_count.toLocaleString()} รายการ` : ''}`;
+    case 'delete_receive':
+      return `${who} ลบรายการรับยา${n.record_count ? ` ${n.record_count} แถว` : ''}`;
+    case 'update_receive':
+      return `${who} แก้ไขรายการรับยา${d.drug_name ? ` "${d.drug_name}"` : ''}`;
+    case 'import_receive':
+      return `${who} นำเข้าประวัติรับยา ${n.record_count ? `${n.record_count.toLocaleString()} รายการ` : ''}`;
+    case 'scan_invoice':
+      return `${who} สแกนบิลรับยา${d.bill_number ? ` (${d.bill_number})` : ''}${n.record_count ? ` · ${n.record_count} รายการ` : ''}`;
+    case 'ap_acknowledge':
+      return `${who} จัดซื้อรับบิล${d.bill_count ? ` ${d.bill_count} บิล` : ''}`;
+    case 'ap_mark_inspected':
+      return `${who} ตรวจรับบิล${d.bill_count ? ` ${d.bill_count} บิล` : ''}${d.inspector_name ? ` (${d.inspector_name})` : ''}`;
+    case 'ap_send_batch':
+      return `${who} ส่งบัญชี${d.batch_id ? ` ${d.batch_id}` : ''}${d.bill_count ? ` (${d.bill_count} บิล)` : ''}`;
+    case 'ap_mark_posted':
+      return `${who} ตั้งหนี้แล้ว${d.batch_id ? ` ${d.batch_id}` : ''}${d.accountant_name ? ` (${d.accountant_name})` : ''}`;
     case 'export_excel':
       return `${who} Export Excel · ${n.department}`;
     case 'requester_edit_requisition':
     case 'update_requisition':
-      return `${who} แก้ไขใบเบิก · ${n.department}`;
+      return `${who} แก้ไขใบเบิก${reqRef ? ` ${reqRef}` : ''} · ${n.department}`;
     case 'requester_delete_requisition':
     case 'delete_requisition':
-      return `${who} ลบใบเบิก · ${n.department}`;
+      return `${who} ลบใบเบิก${reqRef ? ` ${reqRef}` : ''} · ${n.department}`;
     default:
       return `${who} · ${n.department}`;
   }
@@ -667,8 +731,8 @@ function Dashboard({ auth, onNavigate, onLogout }) {
   const [uploadMeta, setUploadMeta] = useState({ inventory: null, drug_details: null });
   const [lastReceive, setLastReceive] = useState(null);
   const [lastDispense, setLastDispense] = useState(null);
-  const [alerts, setAlerts] = useState({ expiring: [], lowStock: [] });
-  const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock' | 'stock'
+  const [alerts, setAlerts] = useState({ expiring: [], lowStock: [], pendingReceive: [] });
+  const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock' | 'stock' | 'pendingReceive'
   const [pendingCount, setPendingCount] = useState(0);
 
   // Online presence
@@ -926,6 +990,8 @@ function Dashboard({ auth, onNavigate, onLogout }) {
           onOpenLowStock={() => setAlertModal('lowStock')}
           onOpenRequisition={() => onNavigate(isStaff ? 'requisition' : 'requisition-history')}
           onOpenStock={() => setAlertModal('stock')}
+          onOpenAp={() => onNavigate('receive-ap')}
+          onOpenPendingReceive={() => setAlertModal('pendingReceive')}
           onStatsReady={({ pending }) => setPendingCount(pending || 0)}
         />
       </div>
@@ -1004,10 +1070,14 @@ function Dashboard({ auth, onNavigate, onLogout }) {
         <ExpiryAlertSection expiring={alerts.expiring} onClose={() => setAlertModal(null)} auth={auth} />
       )}
       {alertModal === 'lowStock' && (
-        <LowStockAlertSection lowStock={alerts.lowStock} onClose={() => setAlertModal(null)} />
+        <LowStockAlertSection lowStock={alerts.lowStock} onClose={() => setAlertModal(null)}
+          onOpenReorder={() => { setAlertModal(null); onNavigate('reorder'); }} />
       )}
       {alertModal === 'stock' && (
         <StockSummaryModal onClose={() => setAlertModal(null)} auth={auth} />
+      )}
+      {alertModal === 'pendingReceive' && (
+        <PendingReceiveAlertSection pending={alerts.pendingReceive} onClose={() => setAlertModal(null)} />
       )}
     </div>
   );
@@ -1241,26 +1311,35 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
 }
 
 // ---- Low Stock Alert Section ----
-function LowStockAlertSection({ lowStock = [], onClose }) {
+function LowStockAlertSection({ lowStock = [], onClose, onOpenReorder }) {
   const [expanded, setExpanded] = React.useState(false);
   if (lowStock.length === 0) return null;
   const displayed = expanded ? lowStock : lowStock.slice(0, 8);
 
   const inner = (
     <div className={`bg-white border border-amber-200 rounded-2xl shadow-sm overflow-hidden flex flex-col ${onClose ? 'max-h-[90vh]' : 'mt-4'}`}>
-      <div className="flex items-center justify-between px-5 py-3.5 bg-amber-50 border-b border-amber-200 shrink-0">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-5 py-3.5 bg-amber-50 border-b border-amber-200 shrink-0 gap-3">
+        <div className="flex items-center gap-2 min-w-0">
           <AlertTriangle size={18} className="text-amber-500" />
-          <span className="font-bold text-amber-800 text-sm">แจ้งเตือน Stock ต่ำกว่ากำหนด</span>
-          <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+          <span className="font-bold text-amber-800 text-sm truncate">แจ้งเตือน Stock ต่ำกว่ากำหนด</span>
+          <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap">
             {lowStock.length} รายการ
           </span>
         </div>
-        {onClose && (
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-amber-100 rounded-lg transition-colors">
-            <X size={18} />
-          </button>
-        )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {onOpenReorder && (
+            <button onClick={onOpenReorder} title="เปิดระบบวิเคราะห์การสั่งซื้อ"
+              className="hidden sm:flex items-center gap-1.5 text-xs font-medium bg-orange-600 hover:bg-orange-700 text-white px-2.5 py-1.5 rounded-lg">
+              เปิดระบบวิเคราะห์การสั่งซื้อ
+              <ChevronRight size={12}/>
+            </button>
+          )}
+          {onClose && (
+            <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-amber-100 rounded-lg transition-colors">
+              <X size={18} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="overflow-auto" style={{ maxHeight: onClose ? 'calc(90vh - 160px)' : 'calc(100vh - 420px)' }}>
@@ -1330,6 +1409,122 @@ function LowStockAlertSection({ lowStock = [], onClose }) {
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
         onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
         <div className="w-full max-w-4xl">{inner}</div>
+      </div>
+    );
+  }
+  return inner;
+}
+
+// ---- Pending Receive (รอตรวจรับ) — อ้างอิงสถานะจาก inventory.receive_status (logic เดียวกับระบบแผนผัง) ----
+function PendingReceiveAlertSection({ pending = [], onClose }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const [search, setSearch]     = React.useState('');
+
+  const filtered = React.useMemo(() => {
+    if (!search.trim()) return pending;
+    const s = search.toLowerCase().trim();
+    return pending.filter(r =>
+      String(r.name || '').toLowerCase().includes(s) ||
+      String(r.code || '').toLowerCase().includes(s) ||
+      String(r.lot  || '').toLowerCase().includes(s)
+    );
+  }, [pending, search]);
+
+  if (pending.length === 0) return null;
+  const displayed = expanded ? filtered : filtered.slice(0, 8);
+
+  const inner = (
+    <div className={`bg-white border border-sky-200 rounded-2xl shadow-sm overflow-hidden flex flex-col ${onClose ? 'max-h-[90vh]' : 'mt-4'}`}>
+      <div className="flex items-center justify-between px-5 py-3.5 bg-sky-50 border-b border-sky-200 shrink-0">
+        <div className="flex items-center gap-2">
+          <Package size={18} className="text-sky-600" />
+          <span className="font-bold text-sky-800 text-sm">รายการยารอตรวจรับ (อ้างอิงสถานะจาก inventory)</span>
+          <span className="bg-sky-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+            {pending.length} รายการ
+          </span>
+        </div>
+        {onClose && (
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-sky-100 rounded-lg transition-colors">
+            <X size={18} />
+          </button>
+        )}
+      </div>
+
+      <div className="px-5 py-2.5 border-b border-slate-100 bg-white shrink-0">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="ค้นหาชื่อยา รหัส หรือ Lot..."
+            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-400"
+          />
+        </div>
+        {search && <p className="text-xs text-slate-500 mt-1.5">พบ {filtered.length} รายการ</p>}
+      </div>
+
+      <div className="overflow-auto" style={{ maxHeight: onClose ? 'calc(90vh - 220px)' : 'calc(100vh - 420px)' }}>
+        <table className="w-full text-xs min-w-[640px]">
+          <thead className="sticky top-0 z-20">
+            <tr className="text-slate-500 font-semibold border-b border-slate-100 bg-slate-50">
+              <th className="px-4 py-2 text-left bg-slate-50">ชื่อยา</th>
+              <th className="px-4 py-2 text-left bg-slate-50">ชนิด</th>
+              <th className="px-4 py-2 text-left bg-slate-50">ตำแหน่ง</th>
+              <th className="px-4 py-2 text-left bg-slate-50">Lot</th>
+              <th className="px-4 py-2 text-center bg-slate-50">Exp</th>
+              <th className="px-4 py-2 text-right bg-slate-50">คงเหลือ</th>
+              <th className="px-4 py-2 text-center bg-slate-50">รอตรวจรับมา</th>
+              <th className="px-4 py-2 text-left bg-slate-50">สถานะ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayed.map((r, i) => {
+              const overdue = r.waitDays != null && r.waitDays > 7;
+              return (
+                <tr key={i} className="border-b border-slate-100 hover:bg-sky-50/40">
+                  <td className="px-4 py-2.5 font-semibold text-slate-800 max-w-[220px]">
+                    <span className="block truncate">{r.name || '-'}</span>
+                    {r.code && r.code !== '-' && <span className="text-slate-400 font-normal">{r.code}</span>}
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-500">{r.type || '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-600 font-medium">{r.location || '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-500">{r.lot || '-'}</td>
+                  <td className="px-4 py-2.5 text-center text-slate-700">{r.exp || '-'}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-700 font-medium">
+                    {r.qty != null && r.qty !== '' && r.qty !== '-' ? String(r.qty) : '-'}
+                    {r.unit && r.unit !== '-' && <span className="text-slate-400 font-normal"> {r.unit}</span>}
+                  </td>
+                  <td className={`px-4 py-2.5 text-center font-semibold ${overdue ? 'text-red-600' : 'text-sky-700'}`}>
+                    {r.waitDays != null ? `${r.waitDays} วัน` : '-'}
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-600 text-[11px]">{r.receive_status || '-'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {filtered.length > 8 && (
+        <div className="px-5 py-3 border-t border-slate-100 flex justify-center shrink-0">
+          <button onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors">
+            {expanded
+              ? <><ChevronUp size={14}/> ย่อรายการ</>
+              : <><ChevronDown size={14}/> ดูทั้งหมด {filtered.length} รายการ</>
+            }
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  if (onClose) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+        <div className="w-full max-w-5xl">{inner}</div>
       </div>
     );
   }
@@ -1591,20 +1786,37 @@ function StockSummaryModal({ onClose, auth = {} }) {
 }
 
 // ---- Quick stats (staff view only) ----
-function StatsStrip({ alerts = { expiring: [], lowStock: [] }, isStaff = false, onOpenExpiry, onOpenLowStock, onOpenRequisition, onOpenStock, onStatsReady }) {
-  const [stats, setStats] = React.useState({ inventory: '-', pending: '-' });
+function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] }, isStaff = false, onOpenExpiry, onOpenLowStock, onOpenRequisition, onOpenStock, onOpenAp, onOpenPendingReceive, onStatsReady }) {
+  const [stats, setStats] = React.useState({ inventory: '-', pending: 0, apUnposted: 0, apOverdue: 0 });
 
   const loadStats = React.useCallback(async () => {
     if (!supabase) return;
-    const [inv, pend] = await Promise.all([
+    const [inv, pend, apRows] = await Promise.all([
       supabase.from('inventory').select('code'),
       supabase.from('requisitions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+      isStaff
+        ? supabase.from('receive_logs').select('bill_number, ap_stage, inspected_at, receive_date').in('ap_stage', ['inspected', 'sent_batch'])
+        : Promise.resolve({ data: [] }),
     ]);
     const uniqueDrugs = new Set((inv.data || []).map(r => r.code).filter(Boolean)).size;
     const pending = pend.count ?? 0;
-    setStats({ inventory: uniqueDrugs || '-', pending: pending || '-' });
+
+    // count distinct bill_number ที่ยังไม่ posted + count overdue > 7 วัน
+    const bills = new Map();
+    const today = Date.now();
+    (apRows.data || []).forEach(r => {
+      if (!r.bill_number) return;
+      const baseIso = r.inspected_at || r.receive_date;
+      const ageDays = baseIso ? Math.floor((today - new Date(baseIso).getTime()) / 86400000) : 0;
+      const cur = bills.get(r.bill_number);
+      if (!cur || ageDays > cur) bills.set(r.bill_number, ageDays);
+    });
+    const apUnposted = bills.size;
+    const apOverdue = Array.from(bills.values()).filter(d => d > 7).length;
+
+    setStats({ inventory: uniqueDrugs || '-', pending, apUnposted, apOverdue });
     if (onStatsReady) onStatsReady({ inventory: uniqueDrugs || 0, pending });
-  }, [onStatsReady]);
+  }, [onStatsReady, isStaff]);
 
   React.useEffect(() => {
     loadStats();
@@ -1631,7 +1843,7 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [] }, isStaff = false, 
     },
     {
       label: 'ใบเบิกรอดำเนินการ',
-      value: stats.pending,
+      value: typeof stats.pending === 'number' ? stats.pending : 0,
       color:       stats.pending > 0 ? 'text-amber-700'   : 'text-slate-700',
       cardBg:      stats.pending > 0 ? 'bg-amber-50'      : 'bg-slate-50',
       borderColor: stats.pending > 0 ? 'border-amber-200' : 'border-slate-200',
@@ -1659,10 +1871,30 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [] }, isStaff = false, 
       labelColor:  lowStockCount > 0 ? 'text-amber-600'   : 'text-slate-500',
       onClick: lowStockCount > 0 ? onOpenLowStock : undefined,
     },
+    {
+      label: 'รอตรวจรับ (รายการ)',
+      value: alerts.pendingReceive.length,
+      color:       alerts.pendingReceive.length > 0 ? 'text-sky-700'   : 'text-slate-700',
+      cardBg:      alerts.pendingReceive.length > 0 ? 'bg-sky-50'      : 'bg-slate-50',
+      borderColor: alerts.pendingReceive.length > 0 ? 'border-sky-200' : 'border-slate-200',
+      labelColor:  alerts.pendingReceive.length > 0 ? 'text-sky-600'   : 'text-slate-500',
+      onClick: alerts.pendingReceive.length > 0 ? onOpenPendingReceive : undefined,
+    },
+    {
+      label: stats.apOverdue > 0
+        ? `รอตั้งหนี้ · ค้าง > 7 วัน ${stats.apOverdue} บิล`
+        : 'รอตั้งหนี้ (บิล)',
+      value: stats.apUnposted,
+      color:       stats.apOverdue > 0 ? 'text-red-700'   : (stats.apUnposted > 0 ? 'text-orange-700'   : 'text-slate-700'),
+      cardBg:      stats.apOverdue > 0 ? 'bg-red-50'      : (stats.apUnposted > 0 ? 'bg-orange-50'      : 'bg-slate-50'),
+      borderColor: stats.apOverdue > 0 ? 'border-red-200' : (stats.apUnposted > 0 ? 'border-orange-200' : 'border-slate-200'),
+      labelColor:  stats.apOverdue > 0 ? 'text-red-500'   : (stats.apUnposted > 0 ? 'text-orange-500'   : 'text-slate-500'),
+      onClick: stats.apUnposted > 0 ? onOpenAp : undefined,
+    },
   ];
 
   const items = isStaff ? [...baseItems, ...staffItems] : baseItems;
-  const colsMap = { 3: 'sm:grid-cols-3', 4: 'sm:grid-cols-4' };
+  const colsMap = { 3: 'sm:grid-cols-3', 4: 'sm:grid-cols-4', 5: 'sm:grid-cols-5', 6: 'sm:grid-cols-3 lg:grid-cols-6' };
   const cols = colsMap[items.length] || 'sm:grid-cols-2';
 
   return (
