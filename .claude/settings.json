@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(start \"\" \"c:/Users/PRH0000484/warehouse-app/warehouse-app-qrcode-labeled.svg\")",
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(git ls-tree *)",
+      "Bash(findstr /B \"docs\")",
+      "Bash(findstr docs *)",
+      "Bash(dir docs *)",
+      "Bash(ls \"C:\\\\Users\\\\PRH0000484\\\\.claude\\\\projects\\\\c--Users-PRH0000484-warehouse-app\\\\memory\\\\\" 2>nul; echo ---; cat \"C:\\\\Users\\\\PRH0000484\\\\.claude\\\\projects\\\\c--Users-PRH0000484-warehouse-app\\\\memory\\\\MEMORY.md\" 2>nul)",
+      "Read(//c/Users/PRH0000484/.claude/projects/c--Users-PRH0000484-warehouse-app/**)",
+      "PowerShell(npm run lint 2>&1)",
+      "PowerShell(git add -A)"
+    ]
+  }
+}

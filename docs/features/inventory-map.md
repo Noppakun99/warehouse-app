@@ -58,6 +58,39 @@
 - **Heatmap slot ว่าง** (`itemCount === 0`) ใช้ `bgOpacity = 0.15` + `border-dashed` — slot ที่มีของใช้ solid border
 - **ปุ่ม "รายละเอียด"** ใน item card ใช้ `min-w-[140px]` + text คงที่ "รายละเอียด" + chevron toggle (ไม่เปลี่ยน label) — กัน width กระตุก
 
+## Tracking Modal (Expiry / Pending)
+
+Modal เปิดจาก Alert stat cards (หมดอายุแล้ว / ใกล้หมดอายุ / รอตรวจรับ) → `expiryViewFilter` เป็น `'expired' | 'near' | 'pending'`
+
+**Layout**: Desktop table / Mobile card list (toggle ที่ `isMobileExpiry` = `width < 768px`)
+
+**State**:
+- `modalTimeFilter` (all/expired/soon30/soon90/soon180/soon16m) — แสดงเฉพาะ `near`/`expired` (`isExpiryMode`)
+- `modalLogFilter` (`'all'` หรือ zone letter A/B/C/D/...) — group ตาม prefix ของ `location`
+- `modalExporting`, `modalSearch`, `isMobileExpiry`
+
+**Sort**:
+- `isExpiryMode` → เรียงตาม exp/daysLeft (ใกล้สุดก่อน)
+- `!isExpiryMode` (pending) → เรียง `location` natural order (A-1-1 → A-1-2 → B-1-1)
+
+**คอลัมน์ที่แสดง**: ชื่อยา · ชนิด · ตำแหน่ง · Lot · วันหมดอายุ · สถานะ/รอตรวจรับมา · บริษัท · นโยบายเปลี่ยนยา · คงเหลือ
+
+**บริษัท + นโยบายเปลี่ยนยา** — lookup จาก `drugDetails` (receive_logs) ด้วย `code|lot|invoice` ก่อน → fallback `code|lot`:
+- `supplier` = `_company` (= `supplier_current`) จาก receive_logs
+- `swapPolicy` = `_drug_swap_policy + supplier_changed` join ด้วย ` | ` (กรอง `'-'`/ว่างทิ้ง)
+- ค่าใน `drug_swap_policy` เป็น merged column อยู่แล้ว — ดู [docs/schema.md](../schema.md)
+
+**Helpers สำคัญ**:
+- `fmtQty(r)` → `${qty.toLocaleString('th-TH')} × ${unit||'หน่วย'}` (× คั่นเพราะ qty=กล่อง, unit=หน่วยต่อกล่อง เช่น "5 × 500เม็ด")
+- `computeWaitDays(item)` (pending only) = `todayForDisplay - _receiveDate` (Math.max 0) — badge สีฟ้า `bg-sky-100`
+- `<DrugTypeBadge type={r.type} />` จาก DrugSearchBar — สีตามชนิดยา
+
+**Excel button** ใน header — export `timeFiltered` ตาม sub-tab + zone ปัจจุบัน 11 cols (name/code/type/location/lot/exp/qty/unit/receiveStatus/**supplier/swapPolicy**)
+
+**Reset filter ตอนปิด modal** ทั้ง 2 จุด (X header + ปุ่ม "ปิดหน้าต่าง") — reset `modalSearch`, `modalTimeFilter`, `modalLogFilter` พร้อมกัน
+
+**Do Not**: อย่าใช้ `renderItemCard` ในตารางหลัก — สงวนไว้สำหรับ `searchResults` หน้าแผนผังหลัก
+
 ## StockSummaryModal — จำนวนคงเหลือในคลัง
 
 - เปิดจาก Dashboard card "รายการยาในคลัง" (StatsStrip)

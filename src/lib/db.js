@@ -91,7 +91,7 @@ export async function fetchDrugDetails() {
   while (true) {
     const { data, error } = await supabase
       .from('receive_logs')
-      .select('drug_code, drug_name, lot, bill_number, exp, supplier_current, supplier_prev, drug_swap_policy, drug_type, safety_stock, leadtime, sum_of_lead_time, price_per_unit, receive_date, inspect_date, qty_received, receive_status, purchase_type')
+      .select('drug_code, drug_name, lot, bill_number, exp, supplier_current, supplier_prev, supplier_changed, drug_swap_policy, drug_type, safety_stock, leadtime, sum_of_lead_time, price_per_unit, receive_date, inspect_date, qty_received, receive_status, purchase_type')
       .range(offset, offset + BATCH - 1)
 
     if (error) throw error
@@ -115,6 +115,7 @@ export async function fetchDrugDetails() {
           price_per_unit: row.price_per_unit,
           supplier_current: row.supplier_current,
           supplier_prev: row.supplier_prev,
+          supplier_changed: row.supplier_changed,
           receive_date: row.receive_date,
           inspect_date: row.inspect_date,
           qty_received: row.qty_received,
@@ -346,7 +347,7 @@ function _parseExpDate(raw) {
     return isNaN(dt) ? null : dt
   }
   // MM/YYYY หรือ MM-YYYY (ไม่มีวัน → ใช้วันสุดท้ายของเดือน)
-  const m3 = s.match(/^(\d{1,2})[\/\-](\d{4})$/)
+  const m3 = s.match(/^(\d{1,2})[/-](\d{4})$/)
   if (m3) {
     let [, mo, y] = m3.map(Number)
     if (y > 2500) y -= 543
@@ -653,7 +654,7 @@ export async function fetchUsageRates(months = 6) {
   const toKey = (val) => {
     if (!val || val === '-') return ''
     let s = String(val).trim().toLowerCase()
-    if (/^[\d.]+[eE][+\-]?\d+$/.test(s)) {
+    if (/^[\d.]+[eE][+-]?\d+$/.test(s)) {
       const n = parseFloat(s)
       if (isFinite(n)) s = BigInt(Math.round(n)).toString()
     }

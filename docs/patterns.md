@@ -234,6 +234,24 @@ if (!hasName && !hasCode) return false;
 - dropdown `max-h-56 overflow-y-auto` + active item `scrollIntoView({ block: 'nearest' })`
 - **Do not**: อย่า set `pointer-events-none` บน input — keyboard event จะไม่ทำงาน
 
+## External Integration / Edge Function (สำคัญเมื่อทำ integration นอก React)
+
+- **Email UTF-8 ภาษาไทย**: ใน Supabase Edge Function ใช้ `npm:nodemailer@6.9.16` (ผ่าน npm: protocol ของ Deno) — **อย่าใช้ `denomailer`** มี bug encoding ภาษาไทย → subject แสดง `=?utf-8?Q?...?=` ดิบ
+- **Service role key**: Edge Function ที่ดึงข้อมูลทุก row ต้องใช้ `SUPABASE_SERVICE_ROLE_KEY` (bypass RLS) ไม่ใช่ anon key
+- **Pagination ครบทุก row**: ใช้ HTTP `Range: 0-999`, `Range-Unit: items` loop จนกว่า `data.length < BATCH` (ดู `fetchTable` ใน [expiry-alert/index.ts](../supabase/functions/expiry-alert/index.ts))
+- **pg_cron schedule**: ใช้ UTC time — `0 1 * * *` = 08:00 Asia/Bangkok
+- **Trigger จากแอป**: `supabase.functions.invoke('<name>')` (admin button) — ไม่ต้องใช้ curl/Web App
+
+## Debugging Data Issues (กฎเหล็ก)
+
+**เช็คข้อมูลใน DB ก่อนสรุปว่า code bug** — เมื่อ output แสดงข้อมูลไม่ครบ มีโอกาสสูงที่ data ต้นทางไม่ครบ ไม่ใช่ code
+
+Workflow:
+1. รัน SQL query ตรงๆ ใน Supabase Dashboard เพื่อดูค่าจริงใน DB
+2. ถ้า DB มีข้อมูลครบ → debug code path
+3. ถ้า DB ขาด → ตามสาย import (CSV ต้นทาง? `_matchHeader()` map ผิด?)
+4. **อย่าแก้ code ถ้ายังไม่ verify data** — เคยเสียเวลาแก้ Edge Function เพราะคิดว่า join ผิด แต่จริงๆ CSV col 2-3 ว่างใน DB
+
 ## AuditLogApp — Bulk Select (Admin)
 
 - **Checkbox** ซ้ายทุก row (desktop + mobile) แสดงเฉพาะ `auth.role === 'admin'`

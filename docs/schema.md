@@ -43,6 +43,28 @@ RLS enabled with public read/write policies (internal app)
 
 **Optional refactor (ยังไม่ทำ)**: extract `csvRowsToReceiveDbRows(rawRows, mapping)` ใน db.js เพื่อใช้ร่วม 2 paths — benefit ต่ำ เพราะ flow ต่างกันชัด
 
+### `drug_swap_policy` เป็น merged column (สำคัญ)
+
+`drug_swap_policy` ใน DB **ไม่ใช่** column ที่ map 1:1 จาก CSV — เป็นค่าที่ build ตอน import โดย:
+```js
+// db.js:286 และ ReceiveLogApp.jsx:800
+const swapFromCsv = [getVal(row,'swap_condition'), getVal(row,'swap_items')].filter(Boolean).join(' | ') || null
+```
+
+**ผลที่ตามมา**:
+- DB ไม่มี column `swap_condition` หรือ `swap_items` แยก — query ได้แค่ `drug_swap_policy`
+- ค่าใน DB อยู่ format `"<swap_condition> | <swap_items>"` (อันไหนว่างจะถูก filter ออก)
+- ถ้า user กรอก CSV col เดียว → DB ก็มีค่าเดียว (ไม่มี ` | `)
+- การ debug: ถ้าค่าใน DB ขาด → กรอก CSV ต้นทางให้ครบ + re-import (ไม่ใช่ bug code)
+
+### `_matchHeader()` fuzzy match — ระวัง false positive
+
+[db.js:184-193](../src/lib/db.js#L184) ใช้ 2-pass: (1) exact match (2) `includes()` ถ้า alias ยาว ≥ 7 ตัวอักษร
+
+ผลข้างเคียง: header ที่มีคำว่า "เปลี่ยน" อาจถูก map เป็น `supplier_changed` ทั้งที่ตั้งใจให้ไปคอลัมน์อื่น (เพราะ alias `'เปลี่ยน'` ยาว 7 ตัวพอดี + iteration order ของ COL_MAP เจอ supplier_changed ก่อน swap_condition/swap_items)
+
+**กฎ**: เพิ่ม alias ใหม่ → ตรวจ overlap กับ alias อื่นที่อาจ contain คำเดียวกัน
+
 ## Excel Export — Column Order
 
 ### DispenseLogApp (`DISPENSE_EXCEL_COLS`)

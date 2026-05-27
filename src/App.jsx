@@ -90,7 +90,7 @@ const normalizeCode = (val) => {
   let s = String(val).trim();
   if (!s) return '-';
   // แก้ scientific notation เช่น 1.5E+6 → "1500000"
-  if (/^[\d.]+[eE][+\-]?\d+$/.test(s)) {
+  if (/^[\d.]+[eE][+-]?\d+$/.test(s)) {
     const n = parseFloat(s);
     s = isFinite(n) ? BigInt(Math.round(n)).toString() : s;
   }
@@ -101,7 +101,7 @@ const normalizeCode = (val) => {
 const codeKey = (val) => {
   if (!val || val === '-') return '';
   let s = String(val).trim().toLowerCase();
-  if (/^[\d.]+[eE][+\-]?\d+$/.test(s)) {
+  if (/^[\d.]+[eE][+-]?\d+$/.test(s)) {
     const n = parseFloat(s);
     s = isFinite(n) ? BigInt(Math.round(n)).toString() : s;
   }
@@ -120,7 +120,7 @@ const nameKey = (val) => {
 const normalizeNumericText = (val) => {
   if (!val) return '-';
   const v = String(val).trim();
-  if (/^[\d.]+[eE][+\-]?\d+$/.test(v)) {
+  if (/^[\d.]+[eE][+-]?\d+$/.test(v)) {
     const n = parseFloat(v);
     return isFinite(n) ? BigInt(Math.round(n)).toString() : v;
   }
@@ -188,7 +188,7 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
   const [inventory, setInventory] = useState(initialInventory);
   const [exportLoading, setExportLoading] = useState(false);
   const [drugDetails, setDrugDetails] = useState(initialDrugDetails);
-  const [logFileName, setLogFileName] = useState('');
+  const [_logFileName, setLogFileName] = useState('');
   const [logUpdateDate, setLogUpdateDate] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -369,7 +369,6 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
       } catch (err) {
         setErrorMsg('ไม่สามารถเชื่อมต่อ Supabase: ' + err.message + ' (ใช้ข้อมูลท้องถิ่นแทน)');
         setTimeout(() => setErrorMsg(''), 8000);
-      } finally {
       }
     }
     loadFromSupabase();
@@ -521,15 +520,11 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
   const lowStockDebug = useMemo(() => {
     const totalDrugs = Object.keys(drugDetails).length;
     // นับจาก inventory (log CSV)
-    let withSSFromLog = 0;
     let ssExamples = [];
     Object.values(inventory).forEach(items => {
       items.forEach(item => {
         const ss = item.safetyStock || 0;
-        if (ss > 0) {
-          withSSFromLog++;
-          if (ssExamples.length < 3) ssExamples.push(`${item.name?.slice(0,20)}: SS=${ss}`);
-        }
+        if (ss > 0 && ssExamples.length < 3) ssExamples.push(`${item.name?.slice(0,20)}: SS=${ss}`);
       });
     });
     return { totalDrugs, withSSFromLog: new Set(Object.values(inventory).flat().filter(i => (i.safetyStock||0) > 0).map(i => i.code)).size, ssExamples };
@@ -737,10 +732,6 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
     }));
     return Object.entries(map).map(([name, type]) => ({ name, type })).sort((a, b) => a.name.localeCompare(b.name));
   }, [inventory]);
-
-  const filteredSearchSuggestions = searchTerm.trim()
-    ? drugNamesList.filter(d => d.name.toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 10)
-    : [];
 
   const searchResults = useMemo(() => {
     if (!searchTerm) return [];
@@ -1074,7 +1065,6 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
 
     let gradient = 'bg-gradient-to-br from-emerald-100 via-teal-50 to-emerald-100';
     let border   = 'border-emerald-300';
-    let textMain = 'text-slate-900';
     let textSub  = 'text-slate-700';
     let shadow   = 'shadow-emerald-100';
     let ring     = 'hover:ring-2 hover:ring-emerald-300';
@@ -1083,7 +1073,6 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
     if (hasExpired) {
       gradient = 'bg-gradient-to-br from-rose-100 via-red-50 to-rose-100';
       border   = 'border-rose-300';
-      textMain = 'text-slate-900';
       textSub  = 'text-slate-700';
       shadow   = 'shadow-rose-100';
       ring     = 'hover:ring-2 hover:ring-rose-300';
@@ -1091,7 +1080,6 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
     } else if (hasNearExpiry) {
       gradient = 'bg-gradient-to-br from-amber-100 via-yellow-50 to-amber-100';
       border   = 'border-amber-300';
-      textMain = 'text-slate-900';
       textSub  = 'text-slate-700';
       shadow   = 'shadow-amber-100';
       ring     = 'hover:ring-2 hover:ring-amber-300';
@@ -2633,7 +2621,34 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
           const u = (r.unit && String(r.unit).trim()) || 'หน่วย';
           return `${qStr} × ${u}`;
         };
-        const enriched = trackingModal.list.map(item => ({ ...item, daysLeft: computeDays(item), waitDays: computeWaitDays(item) }));
+        const lookupDetail = (item) => {
+          const code = (item.code || '-').trim().toLowerCase();
+          const lot  = (item.lot  || '-').trim().toLowerCase();
+          const inv  = (item.invoice || '-').trim().toLowerCase();
+          const exact = drugDetails[`${code}|${lot}|${inv}`];
+          if (exact) return exact;
+          return Object.values(drugDetails || {}).find(d =>
+            (d._code || '').toLowerCase() === code &&
+            (d._lot  || '').toLowerCase() === lot
+          ) || null;
+        };
+        const buildSwapPolicy = (d) => {
+          if (!d) return '';
+          const parts = [];
+          if (d._drug_swap_policy && d._drug_swap_policy !== '-') parts.push(d._drug_swap_policy);
+          if (d.supplier_changed && d.supplier_changed !== '-')   parts.push(d.supplier_changed);
+          return parts.join(' | ');
+        };
+        const enriched = trackingModal.list.map(item => {
+          const d = lookupDetail(item);
+          return {
+            ...item,
+            daysLeft: computeDays(item),
+            waitDays: computeWaitDays(item),
+            supplier: d?.supplier_current || d?._company || '',
+            swapPolicy: buildSwapPolicy(d),
+          };
+        });
         const q = modalSearch.trim().toLowerCase();
         const searched = q
           ? enriched.filter(item =>
@@ -2713,6 +2728,8 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
               { header: 'คงเหลือ', key: 'qty' },
               { header: 'หน่วย', key: 'unit' },
               { header: 'สถานะตรวจรับ', key: 'receiveStatus' },
+              { header: 'บริษัท', key: 'supplier' },
+              { header: 'นโยบายเปลี่ยนยา', key: 'swapPolicy' },
             ];
             const tabLabel = expiryViewFilter === 'expired' ? 'หมดอายุแล้ว'
               : expiryViewFilter === 'near' ? 'ใกล้หมดอายุ'
@@ -2834,12 +2851,18 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                         {!isExpiryMode && r.receiveStatus && (
                           <div className="col-span-2"><span className="text-slate-400">สถานะ:</span> <span className="text-slate-700">{r.receiveStatus}</span></div>
                         )}
+                        {r.supplier && (
+                          <div className="col-span-2"><span className="text-slate-400">บริษัท:</span> <span className="text-slate-700">{r.supplier}</span></div>
+                        )}
+                        {r.swapPolicy && (
+                          <div className="col-span-2"><span className="text-slate-400">นโยบายเปลี่ยนยา:</span> <span className="text-slate-700">{r.swapPolicy}</span></div>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <table className="w-full text-xs min-w-[600px]">
+                <table className="w-full text-xs min-w-[900px]">
                   <thead className="sticky top-0 z-20">
                     <tr className="text-slate-500 font-semibold border-b border-slate-100 bg-slate-50">
                       <th className="px-4 py-2 text-left bg-slate-50">ชื่อยา</th>
@@ -2850,6 +2873,8 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                       {isExpiryMode && <th className="px-4 py-2 text-center bg-slate-50">สถานะ</th>}
                       {!isExpiryMode && <th className="px-4 py-2 text-center bg-slate-50">รอตรวจรับมา</th>}
                       {!isExpiryMode && <th className="px-4 py-2 text-left bg-slate-50">สถานะรับ</th>}
+                      <th className="px-4 py-2 text-left bg-slate-50">บริษัท</th>
+                      <th className="px-4 py-2 text-left bg-slate-50">นโยบายเปลี่ยนยา</th>
                       <th className="px-4 py-2 text-right bg-slate-50">คงเหลือ</th>
                     </tr>
                   </thead>
@@ -2883,6 +2908,10 @@ export default function App({ onBackToDashboard, onRefresh, role = 'staff', auth
                         {!isExpiryMode && (
                           <td className="px-4 py-2.5 text-slate-600 text-xs max-w-[160px] truncate">{r.receiveStatus || '-'}</td>
                         )}
+                        <td className="px-4 py-2.5 text-slate-700 text-xs max-w-[160px] truncate" title={r.supplier || '-'}>{r.supplier || '-'}</td>
+                        <td className="px-4 py-2.5 text-slate-600 text-xs max-w-[220px]" title={r.swapPolicy || '-'}>
+                          <span className="line-clamp-2 leading-snug">{r.swapPolicy || '-'}</span>
+                        </td>
                         <td className="px-4 py-2.5 text-right font-bold text-slate-700">{fmtQty(r)}</td>
                       </tr>
                     ))}

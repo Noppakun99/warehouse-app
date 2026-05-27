@@ -51,6 +51,8 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | DB schema, migrations, Excel cols | [docs/schema.md](docs/schema.md) | แก้ DB schema / Excel export |
 | Roadmap | [docs/roadmap.md](docs/roadmap.md) | วางแผน feature ใหม่ |
 | Testing | [docs/testing.md](docs/testing.md) | รัน/แก้ test |
+| Expiry Alert Edge Function (แทน Apps Script) | [docs/expiry-alert-edge-function.md](docs/expiry-alert-edge-function.md) | แก้/deploy expiry alert |
+| External: Apps Script แจ้งเตือนยาใกล้หมดอายุ (backup) | [docs/apps-script-expiry-alert.md](docs/apps-script-expiry-alert.md) | reference สคริปต์เดิม |
 
 ## Skills (`.claude/skills/`)
 
@@ -171,6 +173,9 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 6. **Stat consistency**: ตัวเลข stat card + Excel export ต้องตรงกับตารางที่ user เห็น (filter+dedup เหมือนกัน)
 7. **Department list 2 ระบบ**: hardcoded (form) vs dynamic (history filter) — อย่าสับสน
 8. **ReceiveLog scan**: ใช้ `insertScannedBillRows` (APPEND) — **ห้ามใช้ `insertReceiveRows`** (DELETE ALL)
+9. **Debugging data issues**: เช็ค SQL ใน DB ก่อนแก้ code — output ขาด ≠ bug เสมอไป (CSV ต้นทางอาจไม่ครบ) ดู [docs/patterns.md → Debugging Data Issues]
+10. **Edge Function email UTF-8**: ใช้ `npm:nodemailer` (ไม่ใช่ `denomailer` — มี bug ภาษาไทย) ดู [docs/expiry-alert-edge-function.md]
+11. **drug_swap_policy เป็น merged column**: build จาก CSV `swap_condition + swap_items` ตอน import — DB ไม่มี 2 col นั้นแยก ดู [docs/schema.md]
 
 ## Do Not (Hard Rules)
 
