@@ -374,68 +374,6 @@ export default function App({ onBackToDashboard, onRefresh, onNavigate, role = '
       .sort((a, b) => a.pct - b.pct);
   }, [drugDetails, inventory, usageRates]);
 
-  // Debug: ตรวจสอบว่ามีข้อมูล Safety Stock จากทั้ง drugDetails และ inventory
-  const lowStockDebug = useMemo(() => {
-    const totalDrugs = Object.keys(drugDetails).length;
-    // นับจาก inventory (log CSV)
-    let ssExamples = [];
-    Object.values(inventory).forEach(items => {
-      items.forEach(item => {
-        const ss = item.safetyStock || 0;
-        if (ss > 0 && ssExamples.length < 3) ssExamples.push(`${item.name?.slice(0,20)}: SS=${ss}`);
-      });
-    });
-    return { totalDrugs, withSSFromLog: new Set(Object.values(inventory).flat().filter(i => (i.safetyStock||0) > 0).map(i => i.code)).size, ssExamples };
-  }, [drugDetails, inventory]);
-
-  const exportLowStockCSV = useCallback(() => {
-    const headers = [
-      'รายการยา', 'รหัส', 'ชนิดยา', 'หน่วย', 'คงเหลือ',
-      'Safety Stock (ปัจจุบัน)', 'แนะนำ SS (แพ็ค)', 'แนะนำ SS (หน่วย)',
-      'Reorder Point', 'ต้องซื้อ (แพ็ค)', 'ต้องซื้อ (หน่วย)',
-      'Lead Time (วัน)',
-      'รวมการใช้ 4 เดือน', 'สูงสุด/เดือน', 'เฉลี่ย/เดือน', 'หน่วยเรท',
-      'สถานะ', 'สั่งแล้ว', 'วันที่สั่ง',
-    ];
-    const rows = lowStockItems.map(item => {
-      const u = dispenseUsage[codeKey(item.code)] || dispenseUsage[nameKey(item.name)] || {};
-      const { packSize, label: unitLabel } = parsePackUnit(item.unit);
-      const recSS = u.maxMonth > 0 ? Math.ceil(u.maxMonth * 2) : null;
-      const recSSPacks = recSS != null ? Math.ceil(recSS / packSize) : '';
-      const ltMonths = (item.leadTime || 20) / 30;
-      const orderQty = recSS != null && u.avg > 0
-        ? Math.max(0, Math.ceil(recSS + (u.avg * ltMonths) - item.currentQty))
-        : null;
-      const orderPacks = orderQty != null && orderQty > 0 ? Math.ceil(orderQty / packSize) : (orderQty === 0 ? 'เพียงพอ' : '');
-      return [
-        item.name,
-        item.code,
-        item.type,
-        item.unit,
-        item.currentQty,
-        item.safetyStock,
-        recSSPacks,
-        unitLabel || '',
-        item.reorderPoint,
-        orderPacks,
-        unitLabel || '',
-        item.leadTime,
-        u.total != null ? u.total : '',
-        u.maxMonth != null ? u.maxMonth : '',
-        u.avg != null ? u.avg : '',
-        u.baseUnit || '',
-        item.belowSafety ? 'วิกฤต' : 'สั่งได้เลย',
-        orderedItems[item.code] ? 'สั่งแล้ว' : '',
-        orderedItems[item.code] || '',
-      ];
-    });
-    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'รายการต้องสั่งยา.csv'; a.click();
-    URL.revokeObjectURL(url);
-  }, [lowStockItems, orderedItems]);
-
   // คำนวณรายการยารอตรวจรับ — เรียงจากวันที่รับเข้านานที่สุดก่อน
   const pendingReceiveItems = useMemo(() => {
     const pending = [];

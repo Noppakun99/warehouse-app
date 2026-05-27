@@ -1,35 +1,98 @@
 Add a new explicit column to the warehouse-app database and wire it end-to-end.
 
-## Steps
+> **Karpathy: Think Before Coding** — ถามก่อน implement เสมอ
 
-1. **Ask the user** for:
-   - Column name (English, snake_case) e.g. `company`
-   - Thai label e.g. `บริษัท`
+---
+
+## Step 0: Surface Assumptions ก่อนเขียนโค้ด
+
+ก่อนทำอะไรเลย ต้องถามและยืนยัน:
+
+1. **Column นี้จำเป็นต้องอยู่ใน DB จริงไหม?**
+   - ถ้าใช้แค่ "อ่านจาก CSV + แสดง UI" → ใช้ `add-csv-column` skill แทน (ไม่ต้อง SQL)
+   - ถ้าต้องการ filter/query ใน Supabase → ถึงจะต้องเพิ่มใน DB
+
+2. **ถามเพื่อรับข้อมูล:**
+   - Column name (English, snake_case) เช่น `company`
+   - Thai label เช่น `บริษัท`
    - Data type: `text` | `integer` | `numeric` | `boolean`
-   - Which table: `drug_details` | `inventory`
-   - Which CSV column header it maps from (Thai or English)
-   - Whether to combine multiple CSV columns (Option B) or use one column directly
+   - ตาราง: `drug_details` | `inventory`
+   - CSV column header ที่ map มา (Thai หรือ English)
+   - รวม multiple CSV columns ไหม? (Option B: join ด้วย ` | `)
 
-2. **Generate SQL** for Supabase SQL Editor:
+3. **Scope ที่ไม่ทำ** (บอก user ชัดๆ ก่อน):
+   - ไม่แก้ component อื่นนอกจากที่ระบุ
+   - ไม่ migrate ข้อมูลเก่า (ต้อง re-import CSV ใหม่)
+   - ไม่แก้ RLS policy (ต้องทำใน Supabase Dashboard แยก)
+
+---
+
+## Step 1: แสดงแผนให้ confirm
+
+```
+## แผน: เพิ่ม column `{column_name}` ใน `{table}`
+
+**SQL ที่จะรัน (Supabase Dashboard):**
+ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column_name} {type};
+
+**ไฟล์ที่แก้:**
+- `src/lib/db.js` — เพิ่ม {column_name} ใน save{Table}()
+- `src/App.jsx` — detect CSV header + extract value
+
+**ไม่รวม:** ไม่แก้ UI display (ถ้าต้องการแสดงผล → task แยก)
+
+รอ confirm ก่อนลงมือ
+```
+
+---
+
+## Step 2: Generate SQL
+
 ```sql
 ALTER TABLE {table}
   ADD COLUMN IF NOT EXISTS {column_name} {type};
 ```
 
-3. **Update `src/lib/db.js`**:
-   - In `save{Table}` function: add `_{column_name}` to destructure from value
-   - Add `{column_name}: _{column_name} || null` to the return row object
+> ⚠️ ต้องรันใน Supabase Dashboard → SQL Editor ก่อน deploy
 
-4. **Update `src/App.jsx`** in `handleDrugFileUpload` (or `handleLogFileUpload`):
-   - Detect CSV header index: `const {column_name}Idx = headers.findIndex(h => h.includes('{thai_label}'));`
-   - Extract value from row and store as `_{column_name}` in the details object
-   - If combining multiple columns: join with ` | ` separator, skip empty values
+---
 
-5. **Confirm** by showing all 3 code changes together before editing any file.
+## Step 3: Update `src/lib/db.js`
+
+ใน `save{Table}()`:
+- Destructure `_{column_name}` จาก value object
+- เพิ่ม `{column_name}: _{column_name} || null` ใน row ที่ insert
+
+---
+
+## Step 4: Update `src/App.jsx`
+
+ใน `handleDrugFileUpload` (หรือ `handleLogFileUpload`):
+```js
+const {column_name}Idx = headers.findIndex(h => h.includes('{thai_label}'));
+// ใน loop:
+const _{column_name} = getVal(row, {column_name}Idx);
+```
+
+**Option B — รวม 2 columns:**
+```js
+const parts = [getVal(row, col1Idx), getVal(row, col2Idx)].filter(Boolean);
+const _{column_name} = parts.join(' | ') || null;
+```
+
+---
+
+## Step 5: Confirm ก่อน Edit
+
+แสดง code changes ทั้ง 3 จุดพร้อมกันก่อน — แล้วรอ confirm ก่อน edit จริง
+
+**verify:** หลัง edit → รัน `npm run lint` ผ่าน
+
+---
 
 ## Notes
-- Always use `normalizeCode` for code/id columns
-- Always use `normalizeNumericText` for lot, invoice, bill number columns
-- Always use `normalizeDateStr` for date columns
-- Store combined text columns as plain string
-- Prefix internal detail keys with `_` (e.g. `_company`) to distinguish from JSONB `data` keys
+- `normalizeCode` → code/id columns
+- `normalizeNumericText` → lot, invoice, bill number
+- `normalizeDateStr` → date columns
+- Prefix internal keys ด้วย `_` เสมอ (เช่น `_company`)
+- Combined text → plain string (ไม่ต้อง normalize)

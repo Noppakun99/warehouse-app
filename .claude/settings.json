@@ -12,7 +12,12 @@
       "Bash(ls \"C:\\\\Users\\\\PRH0000484\\\\.claude\\\\projects\\\\c--Users-PRH0000484-warehouse-app\\\\memory\\\\\" 2>nul; echo ---; cat \"C:\\\\Users\\\\PRH0000484\\\\.claude\\\\projects\\\\c--Users-PRH0000484-warehouse-app\\\\memory\\\\MEMORY.md\" 2>nul)",
       "Read(//c/Users/PRH0000484/.claude/projects/c--Users-PRH0000484-warehouse-app/**)",
       "PowerShell(npm run lint 2>&1)",
-      "PowerShell(git add -A)"
+      "PowerShell(git add -A)",
+      "PowerShell(git pull --no-rebase origin main 2>&1)",
+      "PowerShell(git add CLAUDE.md src/App.jsx)",
+      "PowerShell(git push origin main)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

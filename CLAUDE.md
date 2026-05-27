@@ -85,10 +85,37 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | `/monthly-stats-table` | ตาราง drug × month + sticky header |
 | `/excel-export` | ปุ่ม Export Excel (.xlsx) + audit log |
 | `/ui-style-guide` | Tailwind: สี, layout, buttons, inputs |
+| `/karpathy-checklist` | Quick-check 4 ข้อก่อนลงมือ (Think / Simple / Surgical / Goal-Driven) |
 
 **เมื่อสร้าง UI ใหม่ → อ่าน `.claude/skills/ui-style-guide.md` ก่อนเสมอ**
 
 ## Workflow
+
+### Karpathy Principles (ใช้ทุก task ที่ไม่ trivial)
+
+> ที่มา: [Karpathy-Inspired Claude Code Guidelines](https://github.com/multica-ai/andrej-karpathy-skills)
+
+1. **Think Before Coding** — surface assumptions ก่อน อย่า assume แบบเงียบๆ
+   - ถ้า request interpret ได้ 2 แบบ → ถาม user ก่อนเสมอ
+   - ถ้า assume แล้ว → บอก assumption ชัดๆ ใน response
+
+2. **Simplicity First** — minimal code ที่ตอบ requirement จริง
+   - ถ้า 50 บรรทัดพอ → ไม่เขียน 200
+   - ถ้า pattern มีใน skill แล้ว → ใช้ skill ไม่เขียนใหม่
+   - ถ้าไม่ต้อง DB → ใช้ `add-csv-column` แทน `add-db-column`
+
+3. **Surgical Changes** — แตะเฉพาะที่ถูกขอ
+   - ไม่ refactor โค้ดที่ไม่เกี่ยว
+   - ลบเฉพาะ dead code ที่ตัวเองสร้าง (dead code เก่า → mention ไม่ลบ)
+   - ทุก line ที่เปลี่ยนต้อง trace กลับหา request ได้
+
+4. **Goal-Driven Execution** — ทุก step มี verify criteria
+   - "แก้บั๊ก" → reproduce ก่อน → แก้ → ยืนยันว่าไม่เกิดแล้ว
+   - "เพิ่ม feature" → lint ผ่าน + build ผ่าน + แสดงใน browser
+
+ใช้ `/karpathy-checklist` เมื่อต้องการ quick-reference ทั้ง 4 ข้อพร้อม project-specific traps
+
+---
 
 1. **อ่าน CLAUDE.md ก่อนเสมอ** — และ point ไปยัง doc ที่เกี่ยวข้อง
 2. **อ่านไฟล์ที่จะแก้ก่อน** — ห้าม assume โครงสร้าง
