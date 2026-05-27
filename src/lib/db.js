@@ -678,6 +678,12 @@ export async function fetchNotifications() {
     'ap_send_batch',
     'ap_mark_posted',
     'export_excel',
+    // ── Reorder Analysis ──
+    'analysis_run',
+    'update_reorder_config',
+    'import_reorder_config',
+    'mark_ordered',
+    'print_po',
   ]
   const { data, error } = await supabase
     .from('audit_logs')

@@ -55,6 +55,26 @@ function ThaiDateInput({ value, onChange, placeholder = 'dd/mm/yyyy', ring = 'fo
   );
 }
 
+// ISO date input — เก็บค่าเป็น YYYY-MM-DD แสดง DD/MM/YYYY (พ.ศ.) ตาม docs/patterns.md
+// ห้ามใช้ plain <input type="date"> เพราะ browser US locale แสดง MM/DD/YYYY
+function IsoDateInput({ value, onChange, className = '' }) {
+  const display = (iso) => {
+    if (!iso) return '';
+    const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return iso;
+    return `${m[3]}/${m[2]}/${Number(m[1]) + 543}`;
+  };
+  return (
+    <div className={`relative flex items-center bg-white border border-slate-300 rounded ${className}`}>
+      <span className={`px-2 py-1 text-xs w-full select-none pointer-events-none ${value ? 'text-slate-700' : 'text-slate-400'}`}>
+        {display(value) || 'dd/mm/yyyy'}
+      </span>
+      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
+        className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+    </div>
+  );
+}
+
 function dateDiff(isoFrom, isoTo) {
   if (!isoFrom || !isoTo) return '';
   let y1 = +isoFrom.slice(0,4), m1 = +isoFrom.slice(5,7)-1, d1 = +isoFrom.slice(8,10);
@@ -2826,11 +2846,9 @@ function ApWorkflow({ auth, onBack }) {
           <div className="flex items-center gap-2 text-xs text-slate-600">
             <CalendarDays size={14} className="text-slate-400"/>
             <span>{subTab === 'history' ? 'วันที่ส่ง:' : 'วันรับ:'}</span>
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-              className="px-2 py-1 border border-slate-300 rounded text-xs"/>
+            <IsoDateInput value={dateFrom} onChange={setDateFrom} className="w-28" />
             <span>ถึง</span>
-            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-              className="px-2 py-1 border border-slate-300 rounded text-xs"/>
+            <IsoDateInput value={dateTo} onChange={setDateTo} className="w-28" />
             {(dateFrom || dateTo) && (
               <button onClick={() => { setDateFrom(''); setDateTo(''); }}
                 className="text-slate-400 hover:text-slate-600"><X size={14}/></button>
