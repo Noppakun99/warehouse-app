@@ -9,7 +9,7 @@ import {
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
   TrendingUp, BarChart3, FileDown, ScanLine, CheckCircle2, HelpCircle,
   ImagePlus, Pencil, Trash2, Info, CalendarDays,
-  ClipboardList, Send, FileCheck2, History, Undo2, Printer,
+  ClipboardList, Send, FileCheck2, History, Undo2, Printer, ArrowRight,
 } from 'lucide-react';
 import { exportToExcel } from './lib/exportExcel';
 import { insertAuditLog, resolveAuditUserName } from './lib/db';
@@ -70,6 +70,7 @@ function IsoDateInput({ value, onChange, className = '' }) {
         {display(value) || 'dd/mm/yyyy'}
       </span>
       <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
+        onClick={e => { try { e.currentTarget.showPicker?.(); } catch { /* noop */ } }}
         className="absolute inset-0 opacity-0 w-full cursor-pointer" />
     </div>
   );
@@ -1890,6 +1891,7 @@ function ReceiveSummaryModal({ onClose }) {
   const [allTimeTotal, setAllTimeTotal]           = useState(null);
   const [allTimeValue, setAllTimeValue]           = useState(null);
   const [allTimeUniqueDays, setAllTimeUniqueDays] = useState(null);
+  const [dataRange, setDataRange]                 = useState({ from: '', to: '' }); // ช่วงข้อมูลจริง (วันแรก–วันล่าสุด)
 
   useEffect(() => {
     if (!supabase) return;
@@ -1904,11 +1906,11 @@ function ReceiveSummaryModal({ onClose }) {
       setAllTimeValue(data.reduce((s, r) => s + (r.total_price_vat || 0), 0));
       setAllTimeUniqueDays(new Set(data.map(r => r.receive_date).filter(Boolean)).size);
     });
-    // วันแรก–วันล่าสุด → set dateFrom/dateTo อัตโนมัติ
+    // วันแรก–วันล่าสุด → set dateFrom/dateTo อัตโนมัติ + เก็บช่วงข้อมูลจริงไว้แสดง
     supabase.from('receive_logs').select('receive_date').order('receive_date', { ascending: true  }).limit(1)
-      .then(({ data }) => { if (data?.[0]?.receive_date) setDateFrom(isoToThai(data[0].receive_date)); });
+      .then(({ data }) => { if (data?.[0]?.receive_date) { const t = isoToThai(data[0].receive_date); setDateFrom(t); setDataRange(r => ({ ...r, from: t })); } });
     supabase.from('receive_logs').select('receive_date').order('receive_date', { ascending: false }).limit(1)
-      .then(({ data }) => { if (data?.[0]?.receive_date) setDateTo(isoToThai(data[0].receive_date)); });
+      .then(({ data }) => { if (data?.[0]?.receive_date) { const t = isoToThai(data[0].receive_date); setDateTo(t); setDataRange(r => ({ ...r, to: t })); } });
   }, []);
 
   useEffect(() => {
@@ -1954,6 +1956,21 @@ function ReceiveSummaryModal({ onClose }) {
       return Object.entries(map).sort((a, b) => b[1] - a[1]);
     };
 
+    // --- map "เต็ม" ต่อยา (ทุกตัว ไม่ slice) ใช้ lookup ในกราฟยารับเข้าบ่อย+มูลค่า ---
+    // กันบั๊กแถบมูลค่า = 0 เมื่อยาติดอันดับเพราะ "ความถี่" แต่ไม่ติด top-10 "มูลค่า"
+    const freqSet = {};   // ยา → set ของ receive_date (1 วัน = 1 ครั้ง)
+    const valFull = {};   // ยา → มูลค่ารับเข้ารวม
+    rows.forEach(r => {
+      const k = r.drug_name || 'ไม่ระบุ';
+      (freqSet[k] || (freqSet[k] = new Set())).add(r.receive_date || `id_${r.id}`);
+      const rowVal = (r.total_price_vat && r.total_price_vat > 0)
+        ? r.total_price_vat
+        : (r.qty_received || 0) * (r.price_per_unit || 0);
+      valFull[k] = (valFull[k] || 0) + rowVal;
+    });
+    const drugFreqMap  = Object.fromEntries(Object.entries(freqSet).map(([n, s]) => [n, s.size]));
+    const drugValueMap = Object.fromEntries(Object.entries(valFull).map(([n, t]) => [n, Math.round(t)]));
+
     setStats({
       total: rows.length,
       totalQty,
@@ -1973,28 +1990,12 @@ function ReceiveSummaryModal({ onClose }) {
           .map(([name, val]) => [name, parseFloat((val / grand * 100).toFixed(1)), isGPO(name)])
           .sort((a, b) => b[1] - a[1]).slice(0, 10);
       })(),
-      topDrugsByFreq:        (() => {
-        // นับ unique receive_date ต่อยา (1 วัน = 1 ครั้ง)
-        const dateSet = {};
-        rows.forEach(r => {
-          const k = r.drug_name || 'ไม่ระบุ';
-          if (!dateSet[k]) dateSet[k] = new Set();
-          dateSet[k].add(r.receive_date || `id_${r.id}`);
-        });
-        return Object.entries(dateSet).map(([name, s]) => [name, s.size]).sort((a, b) => b[1] - a[1]).slice(0, 10);
-      })(),
-      topDrugsByValuePerTx:  (() => {
-        // มูลค่ารับเข้ารวม = qty_received × price_per_unit (ใช้ total_price_vat ถ้ามี)
-        const val = {};
-        rows.forEach(r => {
-          const k = r.drug_name || 'ไม่ระบุ';
-          const rowVal = (r.total_price_vat && r.total_price_vat > 0)
-            ? r.total_price_vat
-            : (r.qty_received || 0) * (r.price_per_unit || 0);
-          val[k] = (val[k] || 0) + rowVal;
-        });
-        return Object.entries(val).map(([name, total]) => [name, Math.round(total)]).sort((a, b) => b[1] - a[1]).slice(0, 10);
-      })(),
+      // top-10 ตามความถี่ / ตามมูลค่า — ใช้เลือกว่าจะโชว์ยาตัวไหน
+      topDrugsByFreq:       Object.entries(drugFreqMap).sort((a, b) => b[1] - a[1]).slice(0, 10),
+      topDrugsByValuePerTx: Object.entries(drugValueMap).sort((a, b) => b[1] - a[1]).slice(0, 10),
+      // map เต็ม — ใช้ lookup ค่าจริงของยาทุกตัวที่ถูกโชว์ (กันแถบมูลค่า = 0)
+      drugFreqMap,
+      drugValueMap,
     });
     setLoading(false);
   }, [dateFrom, dateTo, supplierFilter, drugFilter]);
@@ -2044,6 +2045,15 @@ function ReceiveSummaryModal({ onClose }) {
             )}
           </div>
 
+          {/* ช่วงข้อมูลจริง — ระบุว่า "ทุกช่วงเวลา" คือวันไหนถึงวันไหน */}
+          {dataRange.from && dataRange.to && (
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 -mt-2 px-1 flex-wrap">
+              <CalendarDays size={13} className="text-slate-400" />
+              ช่วงข้อมูลทั้งหมดในระบบ: <span className="font-semibold text-slate-700">{dataRange.from}</span> ถึง <span className="font-semibold text-slate-700">{dataRange.to}</span>
+              <span className="text-slate-400">(ค่าในการ์ดสรุปนับจากข้อมูลทั้งหมดนี้ เว้นแต่จะกรองบริษัท/ยา)</span>
+            </div>
+          )}
+
           {loading ? (
             <p className="text-center text-slate-400 py-16">กำลังโหลด...</p>
           ) : !stats ? (
@@ -2051,43 +2061,82 @@ function ReceiveSummaryModal({ onClose }) {
           ) : (
             (() => {
               const isFiltered  = !!(supplierFilter || drugFilter);
+              const rangeLabel  = (dataRange.from && dataRange.to) ? `${dataRange.from} – ${dataRange.to}` : 'ทุกช่วงเวลา';
               const filterLabel = supplierFilter || (drugFilter ? `ยา: ${drugFilter}` : 'ทุกช่วงเวลา');
+              const periodLabel = isFiltered ? filterLabel : rangeLabel; // ช่วงที่ใช้สรุป — โชว์วันที่จริงเมื่อดูทั้งหมด
               const cardTotal   = isFiltered ? stats.total      : (allTimeTotal      ?? null);
               const cardDays    = isFiltered ? stats.uniqueDays : (allTimeUniqueDays ?? null);
               const cardValue   = isFiltered ? stats.totalValue : (allTimeValue      ?? null);
+              // --- สรุปอัตโนมัติ (insight) จากข้อมูลที่กรอง ---
+              const topSup      = stats.topSuppliers[0];
+              const topSupShare = stats.topSuppliersShare[0];
+              const topShPct    = topSupShare?.[1] || 0;
+              const topShGpo    = topSupShare?.[2];
+              const avgPerDay   = stats.uniqueDays > 0 ? Math.round(stats.totalValue / stats.uniqueDays) : 0;
+              const concentRisk = !topShGpo && topShPct >= 40;
+              const topFreqDrug = stats.topDrugsByFreq[0];
+              const topValDrug  = stats.topDrugsByValuePerTx[0];
               return (<>
               {/* KPI */}
               <div className="grid grid-cols-3 gap-3">
                 {[
-                  { label:'รายการรับทั้งหมด',   value: cardTotal != null ? cardTotal.toLocaleString() : '...', unit:`รายการ (${filterLabel})`, bg:'bg-indigo-50',  bd:'border-indigo-200',  lbl:'text-indigo-600',  val:'text-indigo-900'  },
-                  { label:'จำนวนวันที่มีการรับ', value: cardDays  != null ? cardDays.toLocaleString()  : '...', unit:`วัน (${filterLabel})`,    bg:'bg-emerald-50', bd:'border-emerald-200', lbl:'text-emerald-600', val:'text-emerald-900' },
-                  { label:'มูลค่ารับรวม (บาท)',  value: cardValue != null ? cardValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:`บาท (${filterLabel})`, bg:'bg-amber-50', bd:'border-amber-200', lbl:'text-amber-600', val:'text-amber-900' },
+                  { label:'รายการรับทั้งหมด',   value: cardTotal != null ? cardTotal.toLocaleString() : '...', unit:`รายการ (${filterLabel})`, Icon: ClipboardList, bg:'bg-indigo-50',  bd:'border-indigo-200',  lbl:'text-indigo-600',  val:'text-indigo-900'  },
+                  { label:'จำนวนวันที่มีการรับ', value: cardDays  != null ? cardDays.toLocaleString()  : '...', unit:`วัน (${filterLabel})`,    Icon: CalendarDays,  bg:'bg-emerald-50', bd:'border-emerald-200', lbl:'text-emerald-600', val:'text-emerald-900' },
+                  { label:'มูลค่ารับรวม (บาท)',  value: cardValue != null ? cardValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:`บาท (${filterLabel})`, Icon: TrendingUp, bg:'bg-amber-50', bd:'border-amber-200', lbl:'text-amber-600', val:'text-amber-900' },
                 ].map((k,i) => (
-                  <div key={i} className={`${k.bg} border ${k.bd} rounded-xl p-4 shadow-sm`}>
-                    <div className={`text-xs font-bold uppercase tracking-wide ${k.lbl} mb-1`}>{k.label}</div>
-                    <div className={`text-2xl font-black ${k.val}`}>{k.value}</div>
+                  <div key={i} className={`${k.bg} border ${k.bd} rounded-xl p-4 shadow-sm relative overflow-hidden`}>
+                    <k.Icon size={44} className={`absolute -right-2 -bottom-2 opacity-10 ${k.lbl}`} />
+                    <div className={`text-xs font-bold uppercase tracking-wide ${k.lbl} mb-1 flex items-center gap-1.5`}><k.Icon size={13}/>{k.label}</div>
+                    <div className={`text-2xl font-black ${k.val} relative z-10`}>{k.value}</div>
                     <div className="text-xs text-slate-500">{k.unit}</div>
                   </div>
                 ))}
               </div>
 
+              {/* สรุปอัตโนมัติ — อ่านประเด็นสำคัญได้ทันที */}
+              <div className="bg-gradient-to-r from-slate-50 to-emerald-50/50 border border-slate-200 rounded-xl p-4">
+                <div className="flex items-start gap-2.5">
+                  <Info size={18} className="text-emerald-600 shrink-0 mt-0.5" />
+                  <div className="text-sm text-slate-700 leading-relaxed">
+                    <span className="font-semibold text-slate-800">สรุป:</span>{' '}
+                    ในช่วง <span className="font-semibold">{periodLabel}</span> รับเข้า{' '}
+                    <span className="font-bold text-indigo-700">{stats.total.toLocaleString()}</span> รายการ มูลค่ารวม{' '}
+                    <span className="font-bold text-amber-700">{stats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</span> บาท
+                    {stats.uniqueDays > 0 && <> (เฉลี่ย <span className="font-semibold">{avgPerDay.toLocaleString()}</span> บาท/วันที่มีการรับ)</>}
+                    {topSup && <> · บริษัทที่ซื้อมากสุดคือ <span className="font-semibold text-emerald-800">{topSup[0]}</span> คิดเป็น <span className="font-bold">{topShPct}%</span> ของมูลค่า</>}
+                    {topValDrug && <> · ยาที่ใช้งบรับเข้าสูงสุดคือ <span className="font-semibold">{topValDrug[0]}</span></>}
+                    {concentRisk && (
+                      <span className="inline-flex items-center gap-1 ml-1 text-xs font-bold text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full align-middle">
+                        <AlertCircle size={12}/> พึ่งพาบริษัทเดียวเกิน 40% ควรกระจายแหล่งซื้อ
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Bar charts */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <BarSection title="บริษัทที่มูลค่าสูงสุด (บาท)"       items={stats.topSuppliers}      barColor="bg-emerald-500" unit="บาท" />
-                <BarSection title="สัดส่วนมูลค่าต่อบริษัท (%)"        items={stats.topSuppliersShare} shareMode />
+                <BarSection title="บริษัทที่มูลค่าสูงสุด (บาท)" items={stats.topSuppliers} barColor="bg-emerald-500" unit="บาท"
+                  caption="เรียงบริษัทตามมูลค่าการรับซื้อรวม — ดูว่างบจัดซื้อกระจุกอยู่ที่บริษัทใด แท่งยาวสุด = ซื้อมากสุด" />
+                <BarSection title="สัดส่วนมูลค่าต่อบริษัท (%)" items={stats.topSuppliersShare} shareMode
+                  caption="% ของมูลค่ารวมที่ซื้อจากแต่ละบริษัท — เตือนความเสี่ยงพึ่งพาแหล่งเดียว (single-source) สีแดง ≥40% = เสี่ยงสูง" />
               </div>
               {/* Drug comparison — frequency vs value/tx */}
               <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
                 <h4 className="font-bold text-slate-700 mb-1 flex items-center gap-2">
                   <BarChart3 size={16} className="text-emerald-500"/> ยาที่รับเข้าบ่อยและมูลค่าต่อครั้ง
                 </h4>
+                <p className="text-[11px] text-slate-400 mb-2 leading-snug">
+                  เทียบ "ความถี่การรับเข้า" (แท่งม่วง = จำนวนวันที่รับ) กับ "มูลค่ารวม" (แท่งเหลือง) ของยาแต่ละตัว —
+                  รับบ่อยแต่มูลค่าต่ำ = ของใช้ประจำ · รับน้อยแต่มูลค่าสูง = ยาราคาแพง ควรคุมสต็อกใกล้ชิด
+                </p>
                 <div className="flex gap-5 mb-4 pt-2 border-b border-slate-100 pb-3">
                   <span className="flex items-center gap-1.5 text-xs text-slate-500"><span className="inline-block w-3 h-3 rounded-full bg-indigo-400"/>&nbsp;จำนวนครั้งที่รับ (วัน)</span>
                   <span className="flex items-center gap-1.5 text-xs text-slate-500"><span className="inline-block w-3 h-3 rounded-full bg-amber-400"/>&nbsp;มูลค่ารับเข้ารวม (บาท)</span>
                 </div>
                 {(() => {
-                  const freqMap  = Object.fromEntries(stats.topDrugsByFreq);
-                  const valTxMap = Object.fromEntries(stats.topDrugsByValuePerTx);
+                  const freqMap  = stats.drugFreqMap;   // map เต็ม — ค่าจริงของยาทุกตัว
+                  const valTxMap = stats.drugValueMap;   // map เต็ม — กันแถบมูลค่า = 0
                   const maxFreq  = stats.topDrugsByFreq[0]?.[1] || 1;
                   const maxValTx = stats.topDrugsByValuePerTx[0]?.[1] || 1;
                   // merge: union ของทั้งสองลิสต์ เรียงตามความถี่
@@ -2142,7 +2191,7 @@ function ReceiveSummaryModal({ onClose }) {
 // ============================================================
 // Shared bar chart section
 // ============================================================
-function BarSection({ title, items, barColor, unit, shareMode = false }) {
+function BarSection({ title, items, barColor, unit, shareMode = false, caption }) {
   if (!items || items.length === 0) return null;
   const max = items[0][1] || 1;
 
@@ -2162,9 +2211,11 @@ function BarSection({ title, items, barColor, unit, shareMode = false }) {
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-      <h4 className="font-bold text-slate-700 mb-1 flex items-center gap-2 border-b border-slate-100 pb-3">
+      <h4 className="font-bold text-slate-700 flex items-center gap-2">
         <BarChart3 size={16} className="text-slate-400"/> {title}
       </h4>
+      {caption && <p className="text-[11px] text-slate-400 mt-0.5 mb-2 leading-snug">{caption}</p>}
+      <div className={caption ? 'border-b border-slate-100 mb-3' : 'border-b border-slate-100 mb-3 mt-3'} />
       {shareMode && (
         <p className="text-[11px] text-slate-400 mb-3">
           <span className="inline-block w-2 h-2 rounded-full bg-blue-400 mr-1"/>รัฐ (ยกเว้นประเมิน) &nbsp;
@@ -2445,6 +2496,19 @@ function printApBatch(rows, batchId, meta = {}) {
   else     URL.revokeObjectURL(url);
 }
 
+// match บิลกับคำค้น — เลขบิล / บริษัท / ชื่อยา / รหัสยา / lot (ค้นในรายการยาของบิลด้วย)
+// ใช้ร่วมกันทุกแท็บ (รอตรวจรับ/ส่งบัญชี + ประวัติ batch) เพื่อให้ค้นได้เหมือนกันทุกขั้น
+function billMatchesQuery(bill, q) {
+  if (!q) return true;
+  if ((bill.bill_number || '').toLowerCase().includes(q)) return true;
+  if ((bill.supplier || '').toLowerCase().includes(q)) return true;
+  return (bill.items || []).some(it =>
+    (it.drug_name || '').toLowerCase().includes(q) ||
+    (it.drug_code || '').toLowerCase().includes(q) ||
+    (it.lot || '').toLowerCase().includes(q)
+  );
+}
+
 function ApWorkflow({ auth, onBack }) {
   const [subTab, setSubTab]   = useState('pending'); // 'pending' | 'sent' | 'history'
   const [loading, setLoading] = useState(true);
@@ -2452,12 +2516,11 @@ function ApWorkflow({ auth, onBack }) {
   const [sentBills, setSentBills]       = useState([]); // ap_stage = sent_batch
   const [batches, setBatches]           = useState([]); // distinct ap_batch_id
   const [selected, setSelected]         = useState(new Set()); // bill_numbers
-  // ไม่ persist ชื่อ — ทุกครั้งเปิดหน้าให้กรอกใหม่ (ตามที่ผู้ใช้ต้องการ)
-  // ล้าง localStorage เก่าครั้งเดียว (จะถูกล้างเมื่อ component mount)
-  const [inspector, setInspector]       = useState('');
-  const [purchaser, setPurchaser]       = useState('');
+  // ไม่กรอกชื่อ จนท.จัดซื้อ/กรรมการ ในระบบแล้ว — เซ็นด้วยมือบนใบที่พิมพ์แทน (ค่าว่าง = ช่องเซ็นเว้นว่าง)
+  const inspector = '';
+  const purchaser = '';
   const [accountant, setAccountant]     = useState('');
-  const [returnDate, setReturnDate]     = useState(() => todayIsoLocal()); // วันที่ส่งคืนจัดซื้อ (default = วันนี้)
+  const [returnDate]                    = useState(() => todayIsoLocal()); // วันที่ส่งคืนจัดซื้อ = วันนี้ (เก็บใน inspected_at ตอน Mark ตรวจรับ)
   useEffect(() => {
     localStorage.removeItem('ap_inspector');
     localStorage.removeItem('ap_purchaser');
@@ -2522,7 +2585,7 @@ function ApWorkflow({ auth, onBack }) {
     const from = dateFrom || null;
     const to   = dateTo   || null;
     let arr = list.filter(b => {
-      if (q && !((b.bill_number || '').toLowerCase().includes(q) || (b.supplier || '').toLowerCase().includes(q))) return false;
+      if (!billMatchesQuery(b, q)) return false;
       const d = b.receive_date || '';
       if (from && d < from) return false;
       if (to && d > to) return false;
@@ -2839,7 +2902,7 @@ function ApWorkflow({ auth, onBack }) {
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2 flex-1 min-w-[200px]">
             <Search size={16} className="text-slate-400"/>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาเลขบิล / บริษัท"
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาเลขบิล / ชื่อยา / บริษัท"
               className="flex-1 outline-none text-sm" />
             {search && <button onClick={() => setSearch('')}><X size={14} className="text-slate-400"/></button>}
           </div>
@@ -2855,33 +2918,13 @@ function ApWorkflow({ auth, onBack }) {
             )}
           </div>
         </div>
-        {subTab === 'pending' && (
-            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
-              <span className="text-xs text-slate-500">สถานะ:</span>
-              {[
-                { key: 'all',       label: 'ทั้งหมด',         color: 'bg-slate-600' },
-                { key: 'unack',     label: 'รอจัดซื้อรับ',   color: 'bg-amber-500' },
-                { key: 'acked',     label: 'จัดซื้อรับแล้ว', color: 'bg-sky-500' },
-                { key: 'inspected', label: 'รอส่งบัญชี',     color: 'bg-orange-500' },
-              ].map(opt => (
-                <button key={opt.key} onClick={() => setStageFilter(opt.key)}
-                  className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${stageFilter === opt.key ? `${opt.color} text-white shadow` : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${stageFilter === opt.key ? 'bg-white' : opt.color}`}/>
-                  {opt.label}
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${stageFilter === opt.key ? 'bg-white/20' : 'bg-slate-200 text-slate-600'}`}>{stageCount[opt.key] || 0}</span>
-                </button>
-              ))}
-            </div>
-          )}
       </div>
 
       {loading ? <div className="text-center text-slate-500 py-8">กำลังโหลด...</div> : (
         <>
           {subTab === 'pending' && (
             <PendingTab bills={filteredPending} selected={selected} toggleBill={toggleBill} toggleAll={toggleAll}
-              inspector={inspector} setInspector={setInspector}
-              purchaser={purchaser} setPurchaser={setPurchaser}
-              returnDate={returnDate} setReturnDate={setReturnDate}
+              stageFilter={stageFilter} setStageFilter={setStageFilter} stageCount={stageCount}
               busy={busy}
               onMarkInspected={handleMarkInspected} onExportSend={handleExportAndSend}
               onExportAck={handleExportAck}
@@ -3144,76 +3187,140 @@ function StageBadge({ stage, acknowledged }) {
   );
 }
 
-function PendingTab({ bills, selected, toggleBill, toggleAll, inspector, setInspector, purchaser, setPurchaser, returnDate, setReturnDate, busy, onMarkInspected, onExportSend, onExportAck, onUninspect, onAcknowledge, onUnacknowledge, onBulkUndo, toggleSort, sortKey, sortDir, expandedBill, toggleExpand }) {
-  const allSelected = bills.length > 0 && selected.size === bills.length;
-  const someInspectedSelected = bills.some(b => b.ap_stage === 'inspected' && selected.has(b.bill_number));
-  const someAckedSelected    = bills.some(b => !b.ap_stage && b.acknowledged_at && selected.has(b.bill_number));   // ack แล้ว (พร้อมตรวจรับ)
-  const someUnackSelected    = bills.some(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number)); // ยังไม่ ack (พร้อมรับบิล)
-  const undoableCount = bills.filter(b => selected.has(b.bill_number) && ((b.ap_stage === 'inspected') || (!b.ap_stage && b.acknowledged_at))).length;
+// Pipeline ขั้นตอนงาน AP — รวม "สถานะ (กรองได้) + จำนวน + ปุ่ม action" ของแต่ละขั้นเป็นการ์ดเดียว
+// คลิกหัวการ์ด = กรองบิลตามสถานะนั้น, ปุ่มในการ์ด = ดำเนินการขั้นนั้นกับบิลที่เลือก
+function StagePipeline({
+  stageFilter, setStageFilter, stageCount,
+  selUnack, selAcked, selInspected,
+  busy, someUnackSelected, someAckedSelected, someInspectedSelected,
+  onExportAck, onAcknowledge, onMarkInspected, onExportSend,
+  onBulkUndo, undoableCount,
+}) {
+  const toggleStage = (key) => setStageFilter(stageFilter === key ? 'all' : key);
+  const cardBase = 'flex flex-col min-w-[200px] flex-1 rounded-xl border-2 bg-white transition-all overflow-hidden';
+  const arrow = <ArrowRight size={18} className="text-slate-300 shrink-0 self-center"/>;
+
+  // หัวการ์ด (คลิกเพื่อกรอง) — แสดงเลขขั้น, สถานะ, จำนวนบิลในสถานะนั้น
+  const renderHead = (no, title, count, dot, active) => (
+    <button onClick={() => toggleStage(active.key)}
+      className={`text-left px-3 pt-2.5 pb-2 cursor-pointer transition-colors ${stageFilter === active.key ? active.head : 'hover:bg-slate-50'}`}>
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-bold text-slate-400">ขั้น {no}</span>
+        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${active.pill}`}>{count} บิล</span>
+      </div>
+      <div className="flex items-center gap-1.5 mt-1">
+        <span className={`w-2 h-2 rounded-full ${dot}`}/>
+        <span className="font-semibold text-sm text-slate-700">{title}</span>
+      </div>
+    </button>
+  );
+
+  const cfg = {
+    unack:     { key: 'unack',     border: stageFilter === 'unack'     ? 'border-amber-400'  : 'border-slate-200', head: 'bg-amber-50',  pill: 'bg-amber-100 text-amber-700' },
+    acked:     { key: 'acked',     border: stageFilter === 'acked'     ? 'border-sky-400'    : 'border-slate-200', head: 'bg-sky-50',    pill: 'bg-sky-100 text-sky-700' },
+    inspected: { key: 'inspected', border: stageFilter === 'inspected' ? 'border-orange-400' : 'border-slate-200', head: 'bg-orange-50', pill: 'bg-orange-100 text-orange-700' },
+  };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <div className="p-3 border-b border-slate-100 bg-slate-50 space-y-3">
-        {/* Input row — ชื่อผู้รับผิดชอบ + วันที่ส่งคืน */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
-            <span className="text-xs text-slate-500 whitespace-nowrap w-24 shrink-0">จนท.จัดซื้อ:</span>
-            <input value={purchaser} onChange={e => setPurchaser(e.target.value)}
-              placeholder=""
-              className="flex-1 min-w-0 outline-none text-sm"/>
-          </div>
-          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
-            <span className="text-xs text-slate-500 whitespace-nowrap w-28 shrink-0">กรรมการตรวจรับ:</span>
-            <input value={inspector} onChange={e => setInspector(e.target.value)}
-              placeholder=""
-              className="flex-1 min-w-0 outline-none text-sm"/>
-          </div>
-          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
-            <span className="text-xs text-slate-500 whitespace-nowrap w-28 shrink-0">ส่งคืนจัดซื้อ:</span>
-            <ThaiDateInput
-              value={isoToThai(returnDate)}
-              onChange={v => setReturnDate(thaiToIso(v) || '')}
-              size="flex-1 min-w-0"
-            />
-          </div>
-        </div>
-
-        {/* Action row — flow ตามลำดับซ้าย→ขวา, ปุ่ม undo อยู่สุดทางขวา */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button onClick={onExportAck}
-            disabled={busy || !someUnackSelected}
-            title={!someUnackSelected ? 'เลือกบิล "รอจัดซื้อรับ" ก่อน' : 'พิมพ์ใบส่งจัดซื้อให้เซ็น'}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
-            <Printer size={15}/> Print ส่งจัดซื้อ ({Array.from(selected).filter(bn => bills.find(b => b.bill_number === bn && !b.ap_stage && !b.acknowledged_at)).length})
-          </button>
-          <ChevronUp size={14} className="text-slate-300 rotate-90"/>
-          <button onClick={() => onAcknowledge()}
-            disabled={busy || !someUnackSelected}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-sky-500 text-white hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
-            <CheckCircle2 size={15}/> จัดซื้อรับบิล ({Array.from(selected).filter(bn => bills.find(b => b.bill_number === bn && !b.ap_stage && !b.acknowledged_at)).length})
-          </button>
-          <ChevronUp size={14} className="text-slate-300 rotate-90"/>
-          <button onClick={onMarkInspected}
-            disabled={busy || !someAckedSelected}
-            title={!someAckedSelected ? 'ต้อง จัดซื้อรับบิล ก่อน (กรุณาเลือกบิลที่ "จัดซื้อรับแล้ว")' : ''}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
-            <CheckCircle2 size={15}/> Mark ตรวจรับแล้ว ({Array.from(selected).filter(bn => bills.find(b => b.bill_number === bn && !b.ap_stage && b.acknowledged_at)).length})
-          </button>
-          <ChevronUp size={14} className="text-slate-300 rotate-90"/>
-          <button onClick={onExportSend}
-            disabled={busy || !someInspectedSelected}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
-            <Printer size={15}/> Print & ส่งบัญชี ({Array.from(selected).filter(bn => bills.find(b => b.bill_number === bn && b.ap_stage === 'inspected')).length})
+    <div className="space-y-2">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <span className="text-xs text-slate-500">ลำดับงาน — คลิกการ์ดเพื่อกรองบิลตามสถานะ แล้วเลือกบิลเพื่อกดปุ่มในขั้นนั้น</span>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setStageFilter('all')}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${stageFilter === 'all' ? 'bg-slate-700 text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+            ดูทั้งหมด ({stageCount.all || 0})
           </button>
           {onBulkUndo && (
             <button onClick={onBulkUndo}
               disabled={busy || undoableCount === 0}
               title={undoableCount === 0 ? 'เลือกบิลที่ ack แล้ว หรือ ตรวจรับแล้ว ก่อน' : ''}
-              className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-white text-amber-700 border border-amber-300 hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-white text-amber-700 border border-amber-300 hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
               <Undo2 size={12}/> ย้อนกลับ ({undoableCount})
             </button>
           )}
         </div>
+      </div>
+
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {/* ขั้น 1 — รอจัดซื้อรับ: พิมพ์ใบส่งจัดซื้อ + จัดซื้อรับบิล */}
+        <div className={`${cardBase} ${cfg.unack.border}`}>
+          {renderHead(1, 'รอจัดซื้อรับ', stageCount.unack || 0, 'bg-amber-500', cfg.unack)}
+          <div className="border-t border-slate-100 p-2 space-y-1.5">
+            <button onClick={onExportAck} disabled={busy || !someUnackSelected}
+              title={!someUnackSelected ? 'เลือกบิล "รอจัดซื้อรับ" ก่อน' : 'พิมพ์ใบส่งจัดซื้อให้เซ็น'}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+              <Printer size={15}/> Print ส่งจัดซื้อ ({selUnack})
+            </button>
+            <button onClick={() => onAcknowledge()} disabled={busy || !someUnackSelected}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-sky-500 text-white hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+              <CheckCircle2 size={15}/> จัดซื้อรับบิล ({selUnack})
+            </button>
+          </div>
+        </div>
+
+        {arrow}
+
+        {/* ขั้น 2 — จัดซื้อรับแล้ว: Mark ตรวจรับ */}
+        <div className={`${cardBase} ${cfg.acked.border}`}>
+          {renderHead(2, 'จัดซื้อรับแล้ว', stageCount.acked || 0, 'bg-sky-500', cfg.acked)}
+          <div className="border-t border-slate-100 p-2 space-y-1.5">
+            <button onClick={onMarkInspected} disabled={busy || !someAckedSelected}
+              title={!someAckedSelected ? 'ต้อง จัดซื้อรับบิล ก่อน (กรุณาเลือกบิลที่ "จัดซื้อรับแล้ว")' : ''}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+              <CheckCircle2 size={15}/> Mark ตรวจรับแล้ว ({selAcked})
+            </button>
+          </div>
+        </div>
+
+        {arrow}
+
+        {/* ขั้น 3 — รอส่งบัญชี: พิมพ์ใบนำส่ง + ส่งบัญชี */}
+        <div className={`${cardBase} ${cfg.inspected.border}`}>
+          {renderHead(3, 'รอส่งบัญชี', stageCount.inspected || 0, 'bg-orange-500', cfg.inspected)}
+          <div className="border-t border-slate-100 p-2 space-y-1.5">
+            <button onClick={onExportSend} disabled={busy || !someInspectedSelected}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+              <Printer size={15}/> Print & ส่งบัญชี ({selInspected})
+            </button>
+          </div>
+        </div>
+
+        {arrow}
+
+        {/* ปลายทาง — ส่งบัญชีแล้ว (ดูที่แท็บถัดไป) */}
+        <div className="flex flex-col items-center justify-center min-w-[140px] flex-1 rounded-xl border-2 border-dashed border-slate-200 p-3 text-center bg-slate-50/50">
+          <FileCheck2 size={20} className="text-slate-300 mb-1"/>
+          <span className="font-semibold text-sm text-slate-400">ส่งบัญชีแล้ว</span>
+          <span className="text-[11px] text-slate-400 mt-0.5">ดูที่แท็บ “ส่งบัญชีแล้ว”</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PendingTab({ bills, selected, toggleBill, toggleAll, stageFilter, setStageFilter, stageCount, busy, onMarkInspected, onExportSend, onExportAck, onUninspect, onAcknowledge, onUnacknowledge, onBulkUndo, toggleSort, sortKey, sortDir, expandedBill, toggleExpand }) {
+  const allSelected = bills.length > 0 && selected.size === bills.length;
+  const someInspectedSelected = bills.some(b => b.ap_stage === 'inspected' && selected.has(b.bill_number));
+  const someAckedSelected    = bills.some(b => !b.ap_stage && b.acknowledged_at && selected.has(b.bill_number));   // ack แล้ว (พร้อมตรวจรับ)
+  const someUnackSelected    = bills.some(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number)); // ยังไม่ ack (พร้อมรับบิล)
+  const undoableCount = bills.filter(b => selected.has(b.bill_number) && ((b.ap_stage === 'inspected') || (!b.ap_stage && b.acknowledged_at))).length;
+  // จำนวนบิลที่เลือกในแต่ละขั้น — โชว์บนปุ่ม action ของขั้นนั้น
+  const selUnack     = bills.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number)).length;
+  const selAcked     = bills.filter(b => !b.ap_stage && b.acknowledged_at && selected.has(b.bill_number)).length;
+  const selInspected = bills.filter(b => b.ap_stage === 'inspected' && selected.has(b.bill_number)).length;
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="p-3 border-b border-slate-100 bg-slate-50 space-y-3">
+        {/* Pipeline ขั้นตอนงาน — สถานะ + จำนวน + ปุ่ม action ของแต่ละขั้นรวมเป็นการ์ดเดียว */}
+        <StagePipeline
+          stageFilter={stageFilter} setStageFilter={setStageFilter} stageCount={stageCount}
+          selUnack={selUnack} selAcked={selAcked} selInspected={selInspected}
+          busy={busy}
+          someUnackSelected={someUnackSelected} someAckedSelected={someAckedSelected} someInspectedSelected={someInspectedSelected}
+          onExportAck={onExportAck} onAcknowledge={onAcknowledge}
+          onMarkInspected={onMarkInspected} onExportSend={onExportSend}
+          onBulkUndo={onBulkUndo} undoableCount={undoableCount} />
       </div>
       {bills.length === 0 ? (
         <div className="text-center text-slate-400 py-12 text-sm">ไม่มีบิลรอตรวจรับ/ส่งบัญชี</div>
@@ -3328,10 +3435,7 @@ function HistoryTab({ batches, busy, search = '', onReExport, onUnpost, onResetB
   const visibleBatches = !q ? batches : batches.filter(b => {
     const bills = batchBills[b.batch_id];
     if (!bills) return true; // ยังโหลดไม่เสร็จ — แสดงไว้ก่อน
-    return bills.some(bill =>
-      (bill.bill_number || '').toLowerCase().includes(q) ||
-      (bill.supplier || '').toLowerCase().includes(q)
-    );
+    return bills.some(bill => billMatchesQuery(bill, q));
   });
 
   if (batches.length === 0) return <div className="bg-white rounded-xl border border-slate-200 text-center text-slate-400 py-12 text-sm">ไม่มี batch ตรงเงื่อนไข — ลองล้างตัวกรองวันที่ส่ง หรือไปแท็บ "รอส่งบัญชี" เพื่อสร้าง batch แรก</div>;
@@ -3429,10 +3533,7 @@ function HistoryTab({ batches, busy, search = '', onReExport, onUnpost, onResetB
 function BatchBillsList({ bills, search = '' }) {
   const [expandedBill, setExpandedBill] = useState(null);
   const q = search.trim().toLowerCase();
-  const filteredBills = !q ? bills : bills.filter(b =>
-    (b.bill_number || '').toLowerCase().includes(q) ||
-    (b.supplier || '').toLowerCase().includes(q)
-  );
+  const filteredBills = !q ? bills : bills.filter(b => billMatchesQuery(b, q));
   if (filteredBills.length === 0) {
     return <div className="text-center text-slate-400 py-3 text-xs italic">— ไม่มีบิลที่ตรงกับคำค้น "{q}" ใน batch นี้ —</div>;
   }

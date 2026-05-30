@@ -212,6 +212,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
   - `'ap'` = ใบนำส่งบิลตั้งหนี้ (คลัง → บัญชี) — signature: กรรมการตรวจรับ + เจ้าหน้าที่จัดซื้อ
   - `'ack'` = ใบส่งจัดซื้อรับบิล (คลัง → จัดซื้อ) — signature: เจ้าหน้าที่คลัง + เจ้าหน้าที่จัดซื้อ
 - **`resolveAuditUserName(auth)`** (db.js) — fallback chain: `auth.name || auth.username || '-'`
+- **`billMatchesQuery(bill, q)`** (ReceiveLogApp.jsx) — match บิลกับคำค้น ค้นได้ทั้ง เลขบิล / บริษัท / ชื่อยา / รหัสยา / lot — ใช้ทุก tab ของ AP workflow เพื่อผลลัพธ์สอดคล้องกัน
 
 ### AP Workflow stages (`receive_logs.ap_stage`)
 
@@ -244,6 +245,10 @@ null + acknowledged_at=null  →  null + acknowledged_at!=null  →  'inspected'
 12. **Notification & AuditLog sync**: ถ้าเพิ่ม action ใหม่ใน `insertAuditLog` ต้องเพิ่ม label ใน **3 ที่พร้อมกัน**: `NOTIF_LABELS` ([AppRoot.jsx](src/AppRoot.jsx)), `NOTIFY_ACTIONS` ใน `fetchNotifications` ([db.js](src/lib/db.js)), `ACTION_LABELS` ([AuditLogApp.jsx](src/AuditLogApp.jsx)) — ไม่งั้นปุ่ม bell ไม่ขึ้น หรือ UI แสดง raw key
 13. **Reorder single source of truth**: ทุกหน้าที่นับ "ต่ำกว่า Safety Stock" / "ต้องสั่ง" ต้องอ้างอิง logic เดียวกับ [ReorderApp](src/ReorderApp.jsx) — รวม qty **per drug code** (ไม่ใช่ per-lot) + filter `drug_reorder_config.exclude_status` (`ตัดออก`/`สั่งเมื่อขอ`) ออก — `fetchDashboardAlerts.lowStock` ใน [db.js](src/lib/db.js) ใช้ pattern นี้แล้ว ห้ามนับ per-row ของ inventory ตรงๆ
 14. **Date input อ่าน [docs/patterns.md](docs/patterns.md) ก่อนเสมอ**: ใช้ `ThaiDateInput` / `IsoDateInput` ที่ overlay `<span>` แสดง `DD/MM/YYYY` (พ.ศ.) ทับ hidden `<input type="date">` — ห้ามใช้ plain `<input type="date">` เพราะ browser US locale แสดง `MM/DD/YYYY`
+15. **Summary chart lookup ต้องใช้ map เต็ม ไม่ใช่ sliced top-N**: กราฟที่ union 2 ranking (เช่น ความถี่ + มูลค่า) แล้ว lookup ค่าจาก sliced array จะได้ 0 สำหรับรายการที่ติดอันดับจากด้านหนึ่งแต่ไม่ติดอีกด้าน — ต้องสร้าง `fullMap` ก่อน slice แล้วใช้ map เต็มสำหรับ lookup ดู `drugFreqMap`/`drugValueMap` ใน [ReceiveLogApp.jsx](src/ReceiveLogApp.jsx)
+16. **NON_DEPARTMENTS ใน DispenseLogApp**: ค่า department ที่ไม่ใช่หน่วยงานจริง (`เบิกเพิ่มจากความผิดพลาด`, `คืนยา`) ถูกตัดออกจาก dropdown + กราฟระดับหน่วยงาน แต่ยังแสดงในตารางและยอดรวม — ถ้าพบค่าใหม่ที่ไม่ใช่หน่วยงานจริง เพิ่มเข้า `NON_DEPARTMENTS` (Set) บรรทัดต้นไฟล์ [DispenseLogApp.jsx](src/DispenseLogApp.jsx) — **ต้อง query DB จริงก่อนเสมอ** เพื่อยืนยันชื่อเป๊ะๆ
+17. **AP Workflow search ค้นชื่อยาได้**: helper `billMatchesQuery(bill, q)` ใน [ReceiveLogApp.jsx](src/ReceiveLogApp.jsx) ค้นได้ทั้ง เลขบิล / บริษัท / ชื่อยา / รหัสยา / lot โดย iterate `bill.items` — ใช้ร่วมกันทุก tab (รอตรวจรับ / ส่งบัญชี / ประวัติ batch) เพื่อผลลัพธ์สอดคล้องกัน
+18. **dataRange state ใน summary modal**: ทั้ง [ReceiveLogApp.jsx](src/ReceiveLogApp.jsx) และ [DispenseLogApp.jsx](src/DispenseLogApp.jsx) เก็บ `{ from, to }` (วันแรก–วันล่าสุดในระบบ) แยกต่างหากจาก date filter input — ใช้แสดง caption ช่วงข้อมูลจริงและ `periodLabel` ใน insight banner แทนคำว่า "ทุกช่วงเวลา"
 
 ## Do Not (Hard Rules)
 
@@ -256,3 +261,7 @@ null + acknowledged_at=null  →  null + acknowledged_at!=null  →  'inspected'
 - **อย่าเปลี่ยน UI text เป็นภาษาอังกฤษ** — ทุก label, placeholder, alert ต้องเป็นภาษาไทย
 - **อย่าเพิ่ม comment อธิบายโค้ดที่ self-evident** — เพิ่ม comment เฉพาะ logic ซับซ้อน
 - **อย่า push หรือ commit โดยไม่ได้รับคำสั่ง** — ถามก่อนเสมอ
+- **อย่าให้โมดอลส้ม (ใกล้หมดอายุ) ใช้แค่ `nearExpiryItems`** — ต้องใช้ `[...expiredItems, ...nearExpiryItems]` เสมอ เพราะ `expiredItems` และ `nearExpiryItems` เป็น mutually exclusive set (item ที่หมดอายุแล้วถูก filter ออกไปก่อนถึง near-expiry bucket) ถ้าใช้แค่ `nearExpiryItems` tab "หมดอายุแล้ว" ในโมดอลจะแสดง 0 เสมอ ทั้งที่ระบบมียาหมดอายุอยู่ ดู `getModalConfig()` ใน [App.jsx](src/App.jsx)
+- **อย่า slice top-N ก่อน lookup ค่าในกราฟ**: ถ้ากราฟแสดงรายการจาก union ของ 2 ranking ให้ใช้ full map (ทุก key) สำหรับ lookup — sliced top-N จะ return `undefined` สำหรับรายการที่ไม่ติดอันดับ → chart แสดง 0 ผิด
+- **อย่าตัด "เบิกเพิ่มจากความผิดพลาด" / "คืนยา" ออกจากตารางเบิก** — ค่าเหล่านี้ยังต้องแสดงในตาราง เพราะเป็น record จริงที่ต้องตรวจสอบได้ ตัดออกเฉพาะจาก dropdown หน่วยงาน + กราฟ aggregate เท่านั้น
+- **อย่าลบ returnDate state ทิ้งทั้งหมด**: `returnDate` ใน [ReceiveLogApp.jsx](src/ReceiveLogApp.jsx) ยังใช้ใน `markBillsInspected()` (เป็น `inspected_at` timestamp) — ลบได้เฉพาะ setter/prop ที่ไม่มี consumer แต่ state ต้องคงไว้

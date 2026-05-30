@@ -871,7 +871,7 @@ function Dashboard({ auth, onNavigate, onLogout }) {
                 </button>
 
                 {showBell && (
-                  <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden">
+                  <div className="fixed left-2 right-2 top-16 w-auto sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden">
                     <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
                       <span className="font-bold text-slate-800 text-sm flex items-center gap-2">
                         <Bell size={14} className="text-slate-500" /> การแจ้งเตือน
@@ -971,7 +971,7 @@ function Dashboard({ auth, onNavigate, onLogout }) {
       {/* Welcome */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 pb-4">
         <h2 className="text-2xl font-bold text-slate-800">
-          สวัสดี, {displayName} 👋
+          สวัสดี, {displayName}
         </h2>
         <p className="text-slate-500 mt-1 text-sm">
           {isStaff

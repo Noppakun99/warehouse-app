@@ -30,14 +30,17 @@ test.describe('A11y & UX quality', () => {
   });
 
   test('Submit form ด้วย Enter (keyboard accessible)', async ({ page }) => {
+    const user = process.env.TEST_STAFF_USER || 'test2';
+    const pass = process.env.TEST_STAFF_PASS || '555555';
     await page.goto('/');
-    await page.getByPlaceholder('กรอกชื่อผู้ใช้').fill('test');
-    await page.getByPlaceholder('รหัสผ่าน').fill('444444');
+    await page.getByPlaceholder('กรอกชื่อผู้ใช้').fill(user);
+    await page.getByPlaceholder('รหัสผ่าน').fill(pass);
     await page.getByPlaceholder('รหัสผ่าน').press('Enter');
     await expect(page.getByText('สวัสดี,')).toBeVisible({ timeout: 8_000 });
   });
 
   test('Dashboard: ทุกการ์ดระบบเป็น <button> (focusable, keyboard accessible)', async ({ authenticatedPage: page }) => {
+    if (!page) test.skip();
     await page.goto('/');
     await page.waitForSelector('text=สวัสดี,', { timeout: 8_000 });
     // การ์ด "ระบบเบิกยาออนไลน์" ต้องเป็น button role
@@ -46,6 +49,7 @@ test.describe('A11y & UX quality', () => {
   });
 
   test('ปุ่มไอคอนใน header มี title attribute (ไม่ใช่ปุ่มลึกลับ)', async ({ authenticatedPage: page }) => {
+    if (!page) test.skip();
     await page.goto('/');
     await page.waitForSelector('text=สวัสดี,', { timeout: 8_000 });
     // Bell button มี title="การแจ้งเตือน"

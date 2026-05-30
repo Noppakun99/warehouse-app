@@ -1144,7 +1144,7 @@ export default function App({ onBackToDashboard, onRefresh, onNavigate, role = '
 
   const getModalConfig = () => {
     if (expiryViewFilter === 'expired') return { bg: 'bg-rose-700', text: 'text-rose-200', icon: AlertTriangle, title: 'รายการยาหมดอายุแล้ว', list: expiredItems };
-    if (expiryViewFilter === 'near') return { bg: 'bg-amber-600', text: 'text-amber-200', icon: Clock, title: 'รายการยาใกล้หมดอายุ (ภายใน 1 ปี 4 เดือน)', list: nearExpiryItems };
+    if (expiryViewFilter === 'near') return { bg: 'bg-amber-600', text: 'text-amber-200', icon: Clock, title: 'รายการยาใกล้หมดอายุ (ภายใน 1 ปี 4 เดือน)', list: [...expiredItems, ...nearExpiryItems] };
     if (expiryViewFilter === 'pending') return { bg: 'bg-sky-600', text: 'text-sky-200', icon: Package, title: 'รายการยารอตรวจรับ (อ้างอิงสถานะจาก Log คลัง)', list: pendingReceiveItems };
     return { bg: '', text: '', icon: null, title: '', list: [] };
   };

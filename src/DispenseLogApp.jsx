@@ -40,6 +40,11 @@ const COL_MAP = {
 
 const CHUNK = 300;
 
+// ค่า department ที่ "ไม่ใช่หน่วยงานจริง" — เป็นการปรับปรุงระบบ/ความเคลื่อนไหวพิเศษ
+// ตัดออกจาก dropdown กรองหน่วยงาน + กราฟสรุประดับหน่วยงาน แต่ยังคงแสดงเป็นแถวในตารางเบิกตามปกติ
+const NON_DEPARTMENTS = new Set(['เบิกเพิ่มจากความผิดพลาด', 'คืนยา']);
+const isExcludedDept = (d) => NON_DEPARTMENTS.has(String(d || '').trim());
+
 // ดึง unique departments ทั้งหมด (pagination รอบ 1000)
 async function fetchAllDepts(supabaseClient) {
   const PAGE = 1000;
@@ -53,7 +58,7 @@ async function fetchAllDepts(supabaseClient) {
       .neq('department', '-')
       .range(from, from + PAGE - 1);
     if (!data || data.length === 0) break;
-    data.forEach(r => { if (r.department && r.department !== '-') found.add(r.department); });
+    data.forEach(r => { if (r.department && r.department !== '-' && !isExcludedDept(r.department)) found.add(r.department); });
     if (data.length < PAGE) break;
     from += PAGE;
   }
@@ -1496,6 +1501,7 @@ function DispenseSummaryModal({ onClose }) {
   const [allTimeValue, setAllTimeValue] = useState(null);
   const [allTimeUniqueDays, setAllTimeUniqueDays] = useState(null);
   const [allTimeTopDrugsByValue, setAllTimeTopDrugsByValue] = useState([]);
+  const [dataRange, setDataRange] = useState({ from: '', to: '' }); // ช่วงข้อมูลจริง (วันแรก–วันล่าสุดในระบบ)
 
   // Monthly stats
   const [numMonths, setNumMonths]         = useState(4);
@@ -1525,11 +1531,11 @@ function DispenseSummaryModal({ onClose }) {
       });
       setAllTimeTopDrugsByValue(Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 10));
     });
-    // ดึงวันแรก-วันล่าสุด → แปลงเป็น dd/mm/yyyy
+    // ดึงวันแรก-วันล่าสุด → แปลงเป็น dd/mm/yyyy (ใช้ทั้งตั้งค่า date input และแสดงช่วงข้อมูลจริง)
     supabase.from('dispense_logs').select('dispense_date').order('dispense_date', { ascending: true  }).limit(1)
-      .then(({ data }) => { if (data?.[0]?.dispense_date) setDateFrom(isoToThai(data[0].dispense_date)); });
+      .then(({ data }) => { if (data?.[0]?.dispense_date) { const t = isoToThai(data[0].dispense_date); setDateFrom(t); setDataRange(r => ({ ...r, from: t })); } });
     supabase.from('dispense_logs').select('dispense_date').order('dispense_date', { ascending: false }).limit(1)
-      .then(({ data }) => { if (data?.[0]?.dispense_date) setDateTo(isoToThai(data[0].dispense_date)); });
+      .then(({ data }) => { if (data?.[0]?.dispense_date) { const t = isoToThai(data[0].dispense_date); setDateTo(t); setDataRange(r => ({ ...r, to: t })); } });
   }, []);
 
   useEffect(() => {
@@ -1572,15 +1578,19 @@ function DispenseSummaryModal({ onClose }) {
     const totalValue = rows.reduce((s, r) => s + ((r.qty_out || 0) * (getPrice(r) || 0)), 0);
     const uniqueDays = new Set(rows.map(r => r.dispense_date).filter(Boolean)).size;
 
-    const aggBy = (key, valFn) => {
+    const aggBy = (key, valFn, src = rows) => {
       const map = {};
-      rows.forEach(r => { const k = r[key] || 'ไม่ระบุ'; map[k] = (map[k] || 0) + valFn(r); });
+      src.forEach(r => { const k = r[key] || 'ไม่ระบุ'; map[k] = (map[k] || 0) + valFn(r); });
       return Object.entries(map).sort((a, b) => b[1] - a[1]);
     };
 
+    // กราฟ "ระดับหน่วยงาน" ตัดค่าที่ไม่ใช่หน่วยงานจริง (เช่น เบิกเพิ่มจากความผิดพลาด) ออก
+    // — แต่ยอดรวม/กราฟยา ยังนับครบจาก rows ทั้งหมด
+    const deptRows = rows.filter(r => !isExcludedDept(r.department));
+
     // นับจำนวนวันที่แต่ละหน่วยงานมีการเบิก (unique days)
     const deptDaysMap = {};
-    rows.forEach(r => {
+    deptRows.forEach(r => {
       const dept = r.department || 'ไม่ระบุ';
       const date = r.dispense_date;
       if (!date) return;
@@ -1598,8 +1608,8 @@ function DispenseSummaryModal({ onClose }) {
       totalValue,
       uniqueDays,
       topDeptsByDays,
-      topDepts:       aggBy('department', r => r.qty_out || 0).slice(0, 10),
-      topDeptsValue:  aggBy('department', r => (r.qty_out || 0) * (getPrice(r) || 0)).slice(0, 10),
+      topDepts:       aggBy('department', r => r.qty_out || 0, deptRows).slice(0, 10),
+      topDeptsValue:  aggBy('department', r => (r.qty_out || 0) * (getPrice(r) || 0), deptRows).slice(0, 10),
       topDrugs:         aggBy('drug_name', r => r.qty_out || 0).slice(0, 10),
       topDrugsByValue:  aggBy('drug_name', r => (r.qty_out || 0) * (getPrice(r) || 0)).slice(0, 10),
     });
@@ -1794,6 +1804,15 @@ function DispenseSummaryModal({ onClose }) {
               )}
             </div>
 
+            {/* ช่วงข้อมูลจริง — ระบุว่า "ทุกช่วงเวลา" คือวันไหนถึงวันไหน */}
+            {dataRange.from && dataRange.to && (
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 -mt-2 px-1">
+                <CalendarDays size={13} className="text-slate-400" />
+                ช่วงข้อมูลทั้งหมดในระบบ: <span className="font-semibold text-slate-700">{dataRange.from}</span> ถึง <span className="font-semibold text-slate-700">{dataRange.to}</span>
+                <span className="text-slate-400">(ค่าในการ์ดสรุปนับจากข้อมูลทั้งหมดนี้ เว้นแต่จะกรองหน่วยงาน/ยา)</span>
+              </div>
+            )}
+
             {loading ? (
               <p className="text-center text-slate-400 py-16">กำลังโหลด...</p>
             ) : !stats ? (
@@ -1801,31 +1820,61 @@ function DispenseSummaryModal({ onClose }) {
             ) : (
               (() => {
                 const isFiltered = !!(deptFilter || drugFilter);
+                const rangeLabel = (dataRange.from && dataRange.to) ? `${dataRange.from} – ${dataRange.to}` : 'ทุกช่วงเวลา';
                 const filterLabel = deptFilter || (drugFilter ? `ยา: ${drugFilter}` : 'ทุกช่วงเวลา');
+                const periodLabel = isFiltered ? filterLabel : rangeLabel; // ช่วงที่ใช้สรุป — โชว์วันที่จริงเมื่อดูทั้งหมด
                 const cardTotal = isFiltered ? stats.total : (allTimeTotal ?? null);
                 const cardDays  = isFiltered ? stats.uniqueDays : (allTimeUniqueDays ?? null);
                 const cardValue = isFiltered ? stats.totalValue : (allTimeValue ?? null);
                 const topDrugsItems = isFiltered ? stats.topDrugsByValue : allTimeTopDrugsByValue;
                 const topDrugsTitle = `ยาที่มีมูลค่าเบิกสูงสุด (${filterLabel})`;
+                // --- สรุปอัตโนมัติ (insight) ---
+                const topDeptDays = stats.topDeptsByDays[0];
+                const topDeptVal  = stats.topDeptsValue[0];
+                const topDrugVal  = topDrugsItems?.[0];
+                const deptValPct  = (topDeptVal && stats.totalValue > 0) ? Math.round(topDeptVal[1] / stats.totalValue * 100) : 0;
+                const avgPerDay   = stats.uniqueDays > 0 ? Math.round(stats.totalValue / stats.uniqueDays) : 0;
                 return (<>
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label:'รายการเบิกทั้งหมด', value: cardTotal != null ? cardTotal.toLocaleString() : '...', unit:`รายการ (${filterLabel})`, bg:'bg-indigo-50', bd:'border-indigo-200', lbl:'text-indigo-600', val:'text-indigo-900' },
-                    { label:'จำนวนวันที่มีการเบิก', value: cardDays != null ? cardDays.toLocaleString() : '...', unit:`วัน (${filterLabel})`, bg:'bg-rose-50', bd:'border-rose-200', lbl:'text-rose-600', val:'text-rose-900' },
-                    { label:'มูลค่าเบิกทั้งหมด (บาท)', value: cardValue != null ? cardValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:`บาท (${filterLabel})`, bg:'bg-amber-50', bd:'border-amber-200', lbl:'text-amber-600', val:'text-amber-900' },
+                    { label:'รายการเบิกทั้งหมด', value: cardTotal != null ? cardTotal.toLocaleString() : '...', unit:`รายการ (${filterLabel})`, Icon: FileSpreadsheet, bg:'bg-indigo-50', bd:'border-indigo-200', lbl:'text-indigo-600', val:'text-indigo-900' },
+                    { label:'จำนวนวันที่มีการเบิก', value: cardDays != null ? cardDays.toLocaleString() : '...', unit:`วัน (${filterLabel})`, Icon: CalendarDays, bg:'bg-rose-50', bd:'border-rose-200', lbl:'text-rose-600', val:'text-rose-900' },
+                    { label:'มูลค่าเบิกทั้งหมด (บาท)', value: cardValue != null ? cardValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:`บาท (${filterLabel})`, Icon: TrendingDown, bg:'bg-amber-50', bd:'border-amber-200', lbl:'text-amber-600', val:'text-amber-900' },
                   ].map((k,i) => (
-                    <div key={i} className={`${k.bg} border ${k.bd} rounded-xl p-4 shadow-sm`}>
-                      <div className={`text-xs font-bold uppercase tracking-wide ${k.lbl} mb-1`}>{k.label}</div>
-                      <div className={`text-2xl font-black ${k.val}`}>{k.value}</div>
+                    <div key={i} className={`${k.bg} border ${k.bd} rounded-xl p-4 shadow-sm relative overflow-hidden`}>
+                      <k.Icon size={44} className={`absolute -right-2 -bottom-2 opacity-10 ${k.lbl}`} />
+                      <div className={`text-xs font-bold uppercase tracking-wide ${k.lbl} mb-1 flex items-center gap-1.5`}><k.Icon size={13}/>{k.label}</div>
+                      <div className={`text-2xl font-black ${k.val} relative z-10`}>{k.value}</div>
                       <div className="text-xs text-slate-500">{k.unit}</div>
                     </div>
                   ))}
                 </div>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <BarSection title="หน่วยงานที่เบิกบ่อย (จำนวนวัน)" items={stats.topDeptsByDays} barColor="bg-rose-400"  unit="วัน" />
-                  <BarSection title="หน่วยงาน — มูลค่าสูงสุด"        items={stats.topDeptsValue} barColor="bg-amber-400" unit="บาท"   />
+
+                {/* สรุปอัตโนมัติ — อ่านประเด็นสำคัญได้ทันที */}
+                <div className="bg-gradient-to-r from-slate-50 to-rose-50/50 border border-slate-200 rounded-xl p-4">
+                  <div className="flex items-start gap-2.5">
+                    <HelpCircle size={18} className="text-rose-500 shrink-0 mt-0.5" />
+                    <div className="text-sm text-slate-700 leading-relaxed">
+                      <span className="font-semibold text-slate-800">สรุป:</span>{' '}
+                      ในช่วง <span className="font-semibold">{periodLabel}</span> เบิกจ่าย{' '}
+                      <span className="font-bold text-indigo-700">{stats.total.toLocaleString()}</span> รายการ มูลค่ารวม{' '}
+                      <span className="font-bold text-amber-700">{stats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</span> บาท
+                      {stats.uniqueDays > 0 && <> (เฉลี่ย <span className="font-semibold">{avgPerDay.toLocaleString()}</span> บาท/วันที่มีการเบิก)</>}
+                      {topDeptVal && <> · หน่วยงานที่ใช้งบยามากสุดคือ <span className="font-semibold text-amber-800">{topDeptVal[0]}</span> ({deptValPct}% ของมูลค่า)</>}
+                      {topDeptDays && <> · เบิกบ่อยสุดคือ <span className="font-semibold text-rose-700">{topDeptDays[0]}</span> ({topDeptDays[1].toLocaleString()} วัน)</>}
+                      {topDrugVal && <> · ยาที่ดึงงบมากสุดคือ <span className="font-semibold">{topDrugVal[0]}</span></>}
+                    </div>
+                  </div>
                 </div>
-                <BarSection title={topDrugsTitle} items={topDrugsItems} barColor="bg-indigo-400" unit="บาท" />
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <BarSection title="หน่วยงานที่เบิกบ่อย (จำนวนวัน)" items={stats.topDeptsByDays} barColor="bg-rose-400" unit="วัน"
+                    caption="นับจำนวนวันที่หน่วยงานมีการเบิก — สะท้อนความถี่และภาระงานจ่ายยาของแต่ละหน่วย ยิ่งหลายวัน = เบิกถี่" />
+                  <BarSection title="หน่วยงาน — มูลค่าสูงสุด" items={stats.topDeptsValue} barColor="bg-amber-400" unit="บาท"
+                    caption="มูลค่ายารวมที่แต่ละหน่วยงานเบิก — ดูว่าหน่วยใดใช้งบประมาณยามากสุด ใช้วางแผน/จัดสรรงบรายหน่วย" />
+                </div>
+                <BarSection title={topDrugsTitle} items={topDrugsItems} barColor="bg-indigo-400" unit="บาท"
+                  caption="ยาที่ดึงงบประมาณการเบิกจ่ายมากสุด — โฟกัสควบคุมการใช้และต่อรองราคารายการเหล่านี้เพื่อประหยัดงบ" />
                 </>);
               })()
             )}
@@ -2040,14 +2089,16 @@ function DispenseSummaryModal({ onClose }) {
 // ============================================================
 // Shared bar chart section
 // ============================================================
-function BarSection({ title, items, barColor, unit }) {
+function BarSection({ title, items, barColor, unit, caption }) {
   if (!items || items.length === 0) return null;
   const max = items[0][1] || 1;
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-      <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
+      <h4 className="font-bold text-slate-700 flex items-center gap-2">
         <BarChart3 size={16} className="text-slate-400" /> {title}
       </h4>
+      {caption && <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">{caption}</p>}
+      <div className="border-b border-slate-100 mb-4 mt-3" />
       <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
         {items.map(([name, val], i) => (
           <div key={i}>

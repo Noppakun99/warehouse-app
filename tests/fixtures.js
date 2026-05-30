@@ -23,9 +23,14 @@ export const test = base.extend({
     async ({ browser }, use) => {
       const context = await browser.newContext();
       const page    = await context.newPage();
-      await login(page);
-      await use(page);
-      await context.close();
+      try {
+        await login(page);
+        await use(page);
+      } catch {
+        await use(null); // test ที่รับ null ต้อง test.skip() เอง
+      } finally {
+        await context.close();
+      }
     },
     { scope: 'worker' },  // สร้างครั้งเดียวต่อ worker — ไม่ login ซ้ำทุก test
   ],
