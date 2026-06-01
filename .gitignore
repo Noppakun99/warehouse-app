@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Test artifacts
+test-results/
+playwright-report/
+
 # Environment variables
 .env
 .env.local
