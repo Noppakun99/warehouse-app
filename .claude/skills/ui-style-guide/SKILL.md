@@ -1,3 +1,8 @@
+---
+name: ui-style-guide
+description: Tailwind style guide for warehouse-app: colors, layout, buttons, inputs. Read before building any new UI.
+---
+
 # Skill: ui-style-guide
 
 คู่มือ Tailwind pattern สำหรับ warehouse-app — ใช้เป็น reference ทุกครั้งที่สร้าง UI ใหม่

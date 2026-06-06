@@ -1,3 +1,8 @@
+---
+name: pipeline
+description: Run the warehouse-app verification pipeline: lint then build then test, in order. Use before deploy or when the user asks to run the pipeline.
+---
+
 # Skill: pipeline
 
 รัน lint → build → test ตามลำดับ เพื่อตรวจว่าโค้ดพร้อม deploy

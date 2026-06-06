@@ -1,3 +1,8 @@
+---
+name: drug-search-bar
+description: Add a DrugSearchBar autocomplete with badge to a warehouse-app component. Use when a drug-name search or filter input is needed.
+---
+
 # Skill: drug-search-bar
 
 เพิ่ม DrugSearchBar (input ค้นหายา พร้อม dropdown autocomplete + badge ชนิดยา) เข้าใน component ใดก็ได้

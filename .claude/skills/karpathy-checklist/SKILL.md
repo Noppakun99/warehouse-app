@@ -1,8 +1,16 @@
+---
+name: karpathy-checklist
+description: Quick-check 4 ข้อก่อนลงมือเขียน/รีวิว/refactor โค้ด — Think / Simple / Surgical / Goal-Driven ปรับเฉพาะ warehouse-app เพื่อเลี่ยงกับดัก LLM ที่พบบ่อย (overcomplicate, assume เงียบๆ, แก้เกิน, ไม่ verify)
+license: MIT
+---
+
 # Skill: karpathy-checklist
 
-Quick-reference checklist ก่อนลงมือเขียนโค้ด — ปรับจาก Karpathy Guidelines ให้เหมาะกับ warehouse-app
+Quick-reference checklist ก่อนลงมือเขียนโค้ด — ปรับจาก [Karpathy Guidelines](https://x.com/karpathy/status/2015883857489522876) ให้เหมาะกับ warehouse-app
 
 > ใช้ก่อนทุก task ที่ไม่ trivial (กระทบ 2+ ไฟล์ หรือ user request ไม่ชัด)
+>
+> **Tradeoff:** guideline ชุดนี้เน้น "รอบคอบ" มากกว่า "เร็ว" — task ที่ trivial จริงๆ ใช้วิจารณญาณข้ามได้ (ดู Fast-path)
 
 ---
 
@@ -10,19 +18,28 @@ Quick-reference checklist ก่อนลงมือเขียนโค้ด
 
 ### 1. Think Before Coding — หยุดคิดก่อน
 
-- [ ] **Assumptions ที่ยังไม่ชัด** — มีส่วนไหนที่ interpret ได้ 2 แบบ?
-  - มี → ถาม user ก่อน: "คำนี้หมายถึง A หรือ B?"
-  - ไม่มี → state assumption ชัดๆ ใน response
+**อย่า assume เงียบๆ อย่าซ่อนความไม่แน่ใจ surface tradeoff ออกมา**
 
+- [ ] **Assumptions ที่ยังไม่ชัด** — มีส่วนไหนที่ interpret ได้ 2 แบบ?
+  - มี → ถาม user ก่อน: "คำนี้หมายถึง A หรือ B?" (อย่าเลือกเองเงียบๆ)
+  - ไม่มี → state assumption ชัดๆ ใน response
+- [ ] **มีวิธีที่ง่ายกว่าไหม?** → ถ้ามี พูดออกมา push back ได้ถ้าสมควร
 - [ ] **อ่านโค้ดจริงก่อน** — ไม่ assume จากชื่อไฟล์/function (CLAUDE.md rule)
   - ใช้ `Read` ดู file จริง ก่อนบอกว่า "มี/ไม่มี"
+- [ ] **งงตรงไหน → หยุด** — บอกว่างงอะไร แล้วถาม อย่าเดาต่อ
 
 ### 2. Simplicity First — วิธีที่ง่ายที่สุดคืออะไร?
 
+**Minimum code ที่ตอบโจทย์จริง — ไม่มีอะไร speculative**
+
 - [ ] **ทำได้ใน 1 ไฟล์ไหม?** → ถ้าใช่ ไม่สร้างไฟล์ใหม่
 - [ ] **ต้องการ DB column จริงไหม?** → ถ้าแค่ CSV → ใช้ `add-csv-column` แทน
-- [ ] **50 บรรทัดพอไหม?** → ถ้าใช่ ไม่สร้าง abstraction/helper ใหม่
+- [ ] **50 บรรทัดพอไหม?** → ถ้าเขียน 200 แล้วย่อเหลือ 50 ได้ → เขียนใหม่
+- [ ] **ไม่ทำเกินที่ขอ** — ไม่เพิ่ม feature, ไม่สร้าง abstraction สำหรับโค้ดที่ใช้ครั้งเดียว, ไม่ใส่ "flexibility/configurability" ที่ไม่มีใครขอ
+- [ ] **ไม่ใส่ error handling สำหรับ case ที่เป็นไปไม่ได้**
 - [ ] **มี pattern ใน `.claude/skills/` แล้วไหม?** → ถ้าใช่ ใช้ skill แทนเขียนใหม่
+
+> เช็คตัวเอง: "senior engineer จะบอกว่าอันนี้ over-complicate ไหม?" ถ้าใช่ → ย่อ
 
 **Project-specific simplicity rules:**
 - ต้องการ table → ใช้ pattern จาก `monthly-stats-table` skill
@@ -32,15 +49,17 @@ Quick-reference checklist ก่อนลงมือเขียนโค้ด
 
 ### 3. Surgical Changes — แตะเฉพาะที่ถูกขอ
 
+**แตะเฉพาะที่จำเป็น เก็บกวาดเฉพาะที่ตัวเองทำเลอะ**
+
 - [ ] **บอก scope ที่ไม่ทำ** — ระบุใน response ก่อนลงมือ:
   ```
   ไม่รวมใน task นี้:
   - ไม่แก้ [X] (ทำแยกถ้าต้องการ)
   - ไม่ refactor [Y] ที่ไม่เกี่ยวข้อง
   ```
-
-- [ ] **Match style เดิม** — ดูโค้ดรอบข้างก่อนตัดสินใจ style
-- [ ] **ลบเฉพาะ dead code ที่ตัวเองสร้าง** — dead code เก่า → mention แต่ไม่ลบ
+- [ ] **ไม่ "ปรับปรุง" โค้ด/comment/format รอบข้างที่ไม่ได้พัง**
+- [ ] **Match style เดิม** — แม้จะมีสไตล์ที่ตัวเองชอบกว่า ก็ทำตามของเดิม
+- [ ] **ลบเฉพาะ orphan ที่ตัวเองสร้าง** — import/var/function ที่กลายเป็น unused เพราะ change ของตัวเอง → ลบได้; dead code เก่า → mention แต่ไม่ลบ
 - [ ] **ทุก line ที่เปลี่ยน trace กลับหา request ได้**
 
 **Project-specific surgical rules (จาก CLAUDE.md):**
@@ -48,7 +67,13 @@ Quick-reference checklist ก่อนลงมือเขียนโค้ด
 - ไม่เพิ่ม feature ที่ไม่ได้ร้องขอ
 - ไม่เปลี่ยน UI text เป็นภาษาอังกฤษ
 
-### 4. Goal-Driven Execution — กำหนด success criteria
+### 4. Goal-Driven Execution — กำหนด success criteria แล้ว loop จนผ่าน
+
+**แปลง task ให้เป็นเป้าหมายที่ verify ได้ แล้ว loop จนยืนยันได้**
+
+- "Add validation" → เขียน test สำหรับ input ที่ผิด แล้วทำให้ผ่าน
+- "Fix the bug" → เขียน test ที่ reproduce บั๊กก่อน แล้วทำให้ผ่าน
+- "Refactor X" → ยืนยัน test ผ่านทั้งก่อนและหลัง
 
 ทุก task ต้องมี verify step ชัดๆ:
 
@@ -66,6 +91,8 @@ Quick-reference checklist ก่อนลงมือเขียนโค้ด
 2. [Step] → verify: [วัดผล]
 3. [Step] → verify: lint ผ่าน
 ```
+
+> success criteria แข็งแรง → loop เองได้; criteria อ่อน ("ทำให้มันใช้ได้") → ต้องกลับมาถาม user เรื่อยๆ
 
 ---
 

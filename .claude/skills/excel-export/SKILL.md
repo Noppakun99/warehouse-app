@@ -1,3 +1,8 @@
+---
+name: excel-export
+description: Add an Export Excel (.xlsx) button with audit logging to a warehouse-app view. Use when the user wants to export a table to Excel.
+---
+
 # Skill: excel-export
 
 เพิ่มปุ่ม Export Excel (.xlsx) ให้ component ใดๆ โดยใช้ `exportToExcel` จาก `src/lib/exportExcel.js`

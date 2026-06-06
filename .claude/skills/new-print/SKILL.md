@@ -1,3 +1,8 @@
+---
+name: new-print
+description: Create a print view via window.open + Blob URL (iOS-safe) in warehouse-app. Use when adding a printable document or report.
+---
+
 Create a new print function for a warehouse-app page using window.open popup with Thai formatting.
 
 ## Steps

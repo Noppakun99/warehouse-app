@@ -1,3 +1,8 @@
+---
+name: monthly-stats-table
+description: Render the drug x month dispense stats table (Max/Avg/Total + tfoot). Builds on /sticky-table for sticky mechanics. Use for the monthly stats table in DispenseSummary.
+---
+
 # Skill: monthly-stats-table
 
 Pattern ตาราง สถิติการเบิกรายเดือน (drug × month) ใน `DispenseSummary` component
@@ -98,39 +103,13 @@ Pattern ตาราง สถิติการเบิกรายเดื�
 
 ---
 
-## กฎ z-index (สำคัญมาก)
+## กฎ sticky (z-index / background / container)
 
-| element | z-index | เหตุผล |
-|---|---|---|
-| container | — | สร้าง scroll context ด้วย `overflow-auto` + `maxHeight` |
-| `<thead>` | `z-20` | ติดบนสุดเมื่อ scroll แนวตั้ง |
-| header col แรก `<th>` | `z-30` | อยู่เหนือ `thead z-20` เพื่อไม่ถูก cell อื่นทับมุม |
-| body col แรก `<td>` | `z-10` | ติดซ้ายเมื่อ scroll แนวนอน แต่อยู่ใต้ header |
-| tfoot col แรก `<td>` | `z-10` | เหมือน body |
+mechanics ของ sticky header + frozen column ทั้งหมด (ตาราง z-index, กฎ bg บน sticky cell, `overflow-auto` vs `overflow-x-auto`, การคำนวณ `maxHeight`) ใช้ร่วมกับ skill **`/sticky-table`** — ดูที่นั่นเป็น source of truth
 
----
-
-## กฎ background บน sticky cells
-
-- **`<thead> <th>`** → `bg-slate-700` (ระบุตรงๆ ป้องกัน cell ด้านหลังโปร่งแสงผ่านมา)
-- **body `<td>` col แรก** → `bg-inherit` (รับสีจาก `<tr>` เพื่อ alternating row ทำงานได้)
-- **`<tfoot> <td>` col แรก** → `bg-slate-100` (ระบุตรงๆ เพราะ tfoot มีพื้นหลังเดียว)
-
----
-
-## กฎ container (critical)
-
-```
-❌ overflow-x-auto   → sticky thead พังเมื่อ scroll แนวตั้ง (ไม่มี scroll context)
-✅ overflow-auto     → ทั้งสองแกนอยู่ใน container เดียวกัน sticky ทำงานถูกต้อง
-```
-
-ต้องมี `maxHeight` ด้วย ไม่งั้น container ไม่มีความสูงจำกัด → scroll แนวตั้งไม่เกิด
-
-```js
-// offset คำนวณจาก: modal header + tabs + padding + controls row
-style={{ maxHeight: 'calc(100vh - 340px)' }}
-```
+**เฉพาะที่ต่างใน monthly-stats-table:**
+- มี `<tfoot>` col แรก → ใช้ `sticky left-0 z-10 bg-slate-100` (bg ระบุตรงๆ เพราะ tfoot พื้นหลังเดียว ไม่ใช้ `bg-inherit`)
+- offset โมดอลนี้: `style={{ maxHeight: 'calc(100vh - 340px)' }}` (modal header + tabs + padding + controls row)
 
 ---
 

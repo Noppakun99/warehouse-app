@@ -1,3 +1,8 @@
+---
+name: plan
+description: Plan a warehouse-app feature before coding: surface assumptions, scope, and affected files. Use for any change touching 2+ files or with unclear requirements.
+---
+
 # Skill: plan
 
 วางแผน feature ก่อนลงมือเขียนโค้ด — ลด back-and-forth และป้องกัน over-engineering

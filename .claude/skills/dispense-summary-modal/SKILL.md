@@ -1,3 +1,8 @@
+---
+name: dispense-summary-modal
+description: Build a dispense summary modal (totals, period, breakdown) following the warehouse-app pattern. Use when adding or editing a summary modal in DispenseLog or ReceiveLog.
+---
+
 # Skill: dispense-summary-modal
 
 เอกสาร pattern ของ modal สรุปการเบิกจ่าย (`DispenseSummary` component) ใน `DispenseLogApp.jsx`

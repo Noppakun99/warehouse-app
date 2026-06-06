@@ -1,3 +1,8 @@
+---
+name: sticky-table
+description: Build a data table with sticky header and optional frozen first column (z-index, background, and overflow mechanics). Central source of truth for sticky tables in warehouse-app.
+---
+
 # Skill: sticky-table
 
 Create a data table with sticky header and optional frozen first column for any page in warehouse-app.

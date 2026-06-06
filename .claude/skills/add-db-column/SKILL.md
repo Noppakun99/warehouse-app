@@ -1,3 +1,8 @@
+---
+name: add-db-column
+description: Add a new explicit column to the warehouse-app Supabase DB and wire it end-to-end (SQL + db.js + CSV import). Use when the value must be filtered or queried in the DB, not just read from CSV.
+---
+
 Add a new explicit column to the warehouse-app database and wire it end-to-end.
 
 > **Karpathy: Think Before Coding** — ถามก่อน implement เสมอ

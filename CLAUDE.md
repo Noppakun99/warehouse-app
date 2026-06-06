@@ -82,10 +82,13 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | `/new-print` | สร้าง print view (`window.open` + Blob URL) |
 | `/drug-search-bar` | เพิ่ม DrugSearchBar autocomplete + badge |
 | `/dispense-summary-modal` | Dispense summary modal pattern |
-| `/monthly-stats-table` | ตาราง drug × month + sticky header |
+| `/monthly-stats-table` | ตาราง drug × month (ใช้ mechanics จาก `/sticky-table`) |
+| `/sticky-table` | ตารางทั่วไป sticky header + frozen column (mechanics กลาง) |
 | `/excel-export` | ปุ่ม Export Excel (.xlsx) + audit log |
 | `/ui-style-guide` | Tailwind: สี, layout, buttons, inputs |
 | `/karpathy-checklist` | Quick-check 4 ข้อก่อนลงมือ (Think / Simple / Surgical / Goal-Driven) |
+| `/grill-with-docs` | ซักค้านแผนทีละข้อกับ domain model + อัพเดต CONTEXT.md/ADR inline |
+| `/scrutinize` | รีวิว plan/PR/diff แบบ outsider — ตั้งคำถาม intent + trace code path จริง |
 
 **เมื่อสร้าง UI ใหม่ → อ่าน `.claude/skills/ui-style-guide.md` ก่อนเสมอ**
 

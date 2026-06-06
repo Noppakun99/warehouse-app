@@ -1,3 +1,8 @@
+---
+name: add-csv-column
+description: Map a new column from a source CSV into warehouse-app state without adding a DB column. Use when a value only needs to be read from CSV and displayed, not queried or filtered in Supabase.
+---
+
 Add a new column mapping from a CSV file to the warehouse-app state (without adding a DB column).
 
 ## Steps
