@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import SearchableSelect from './SearchableSelect';
 import {
   Pill, Package, TrendingUp, TrendingDown,
@@ -154,7 +154,6 @@ export default function AppRoot() {
 // ============================================================
 function ReqToast({ toast, onDismiss, onNavigate }) {
   const { req } = toast;
-  const itemCount = (req.requisition_items || []).length;
   return (
     <div className="bg-white border border-amber-200 rounded-2xl shadow-2xl p-4 flex items-start gap-3 w-80 max-w-[calc(100vw-2rem)]">
       <div className="shrink-0 w-9 h-9 bg-amber-100 rounded-xl flex items-center justify-center">
@@ -732,7 +731,7 @@ function Dashboard({ auth, onNavigate, onLogout }) {
   const [lastReceive, setLastReceive] = useState(null);
   const [lastDispense, setLastDispense] = useState(null);
   const [alerts, setAlerts] = useState({ expiring: [], lowStock: [], pendingReceive: [] });
-  const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock' | 'stock' | 'pendingReceive'
+  const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock' | 'stock'
   const [pendingCount, setPendingCount] = useState(0);
 
   // Online presence
@@ -990,8 +989,6 @@ function Dashboard({ auth, onNavigate, onLogout }) {
           onOpenLowStock={() => setAlertModal('lowStock')}
           onOpenRequisition={() => onNavigate(isStaff ? 'requisition' : 'requisition-history')}
           onOpenStock={() => setAlertModal('stock')}
-          onOpenAp={() => onNavigate('receive-ap')}
-          onOpenPendingReceive={() => setAlertModal('pendingReceive')}
           onStatsReady={({ pending }) => setPendingCount(pending || 0)}
         />
       </div>
@@ -1075,9 +1072,6 @@ function Dashboard({ auth, onNavigate, onLogout }) {
       )}
       {alertModal === 'stock' && (
         <StockSummaryModal onClose={() => setAlertModal(null)} auth={auth} />
-      )}
-      {alertModal === 'pendingReceive' && (
-        <PendingReceiveAlertSection pending={alerts.pendingReceive} onClose={() => setAlertModal(null)} />
       )}
     </div>
   );
@@ -1415,122 +1409,6 @@ function LowStockAlertSection({ lowStock = [], onClose, onOpenReorder }) {
   return inner;
 }
 
-// ---- Pending Receive (รอตรวจรับ) — อ้างอิงสถานะจาก inventory.receive_status (logic เดียวกับระบบแผนผัง) ----
-function PendingReceiveAlertSection({ pending = [], onClose }) {
-  const [expanded, setExpanded] = React.useState(false);
-  const [search, setSearch]     = React.useState('');
-
-  const filtered = React.useMemo(() => {
-    if (!search.trim()) return pending;
-    const s = search.toLowerCase().trim();
-    return pending.filter(r =>
-      String(r.name || '').toLowerCase().includes(s) ||
-      String(r.code || '').toLowerCase().includes(s) ||
-      String(r.lot  || '').toLowerCase().includes(s)
-    );
-  }, [pending, search]);
-
-  if (pending.length === 0) return null;
-  const displayed = expanded ? filtered : filtered.slice(0, 8);
-
-  const inner = (
-    <div className={`bg-white border border-sky-200 rounded-2xl shadow-sm overflow-hidden flex flex-col ${onClose ? 'max-h-[90vh]' : 'mt-4'}`}>
-      <div className="flex items-center justify-between px-5 py-3.5 bg-sky-50 border-b border-sky-200 shrink-0">
-        <div className="flex items-center gap-2">
-          <Package size={18} className="text-sky-600" />
-          <span className="font-bold text-sky-800 text-sm">รายการยารอตรวจรับ (อ้างอิงสถานะจาก inventory)</span>
-          <span className="bg-sky-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-            {pending.length} รายการ
-          </span>
-        </div>
-        {onClose && (
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-sky-100 rounded-lg transition-colors">
-            <X size={18} />
-          </button>
-        )}
-      </div>
-
-      <div className="px-5 py-2.5 border-b border-slate-100 bg-white shrink-0">
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="ค้นหาชื่อยา รหัส หรือ Lot..."
-            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-400"
-          />
-        </div>
-        {search && <p className="text-xs text-slate-500 mt-1.5">พบ {filtered.length} รายการ</p>}
-      </div>
-
-      <div className="overflow-auto" style={{ maxHeight: onClose ? 'calc(90vh - 220px)' : 'calc(100vh - 420px)' }}>
-        <table className="w-full text-xs min-w-[640px]">
-          <thead className="sticky top-0 z-20">
-            <tr className="text-slate-500 font-semibold border-b border-slate-100 bg-slate-50">
-              <th className="px-4 py-2 text-left bg-slate-50">ชื่อยา</th>
-              <th className="px-4 py-2 text-left bg-slate-50">ชนิด</th>
-              <th className="px-4 py-2 text-left bg-slate-50">ตำแหน่ง</th>
-              <th className="px-4 py-2 text-left bg-slate-50">Lot</th>
-              <th className="px-4 py-2 text-center bg-slate-50">Exp</th>
-              <th className="px-4 py-2 text-right bg-slate-50">คงเหลือ</th>
-              <th className="px-4 py-2 text-center bg-slate-50">รอตรวจรับมา</th>
-              <th className="px-4 py-2 text-left bg-slate-50">สถานะ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {displayed.map((r, i) => {
-              const overdue = r.waitDays != null && r.waitDays > 7;
-              return (
-                <tr key={i} className="border-b border-slate-100 hover:bg-sky-50/40">
-                  <td className="px-4 py-2.5 font-semibold text-slate-800 max-w-[220px]">
-                    <span className="block truncate">{r.name || '-'}</span>
-                    {r.code && r.code !== '-' && <span className="text-slate-400 font-normal">{r.code}</span>}
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-500">{r.type || '-'}</td>
-                  <td className="px-4 py-2.5 text-slate-600 font-medium">{r.location || '-'}</td>
-                  <td className="px-4 py-2.5 text-slate-500">{r.lot || '-'}</td>
-                  <td className="px-4 py-2.5 text-center text-slate-700">{r.exp || '-'}</td>
-                  <td className="px-4 py-2.5 text-right text-slate-700 font-medium">
-                    {r.qty != null && r.qty !== '' && r.qty !== '-' ? String(r.qty) : '-'}
-                    {r.unit && r.unit !== '-' && <span className="text-slate-400 font-normal"> {r.unit}</span>}
-                  </td>
-                  <td className={`px-4 py-2.5 text-center font-semibold ${overdue ? 'text-red-600' : 'text-sky-700'}`}>
-                    {r.waitDays != null ? `${r.waitDays} วัน` : '-'}
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-600 text-[11px]">{r.receive_status || '-'}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {filtered.length > 8 && (
-        <div className="px-5 py-3 border-t border-slate-100 flex justify-center shrink-0">
-          <button onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors">
-            {expanded
-              ? <><ChevronUp size={14}/> ย่อรายการ</>
-              : <><ChevronDown size={14}/> ดูทั้งหมด {filtered.length} รายการ</>
-            }
-          </button>
-        </div>
-      )}
-    </div>
-  );
-
-  if (onClose) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-        onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-        <div className="w-full max-w-5xl">{inner}</div>
-      </div>
-    );
-  }
-  return inner;
-}
-
 const STOCK_EXCEL_COLS = [
   { header: 'รหัสยา',      key: 'code' },
   { header: 'ชื่อยา',      key: 'name' },
@@ -1786,37 +1664,21 @@ function StockSummaryModal({ onClose, auth = {} }) {
 }
 
 // ---- Quick stats (staff view only) ----
-function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] }, isStaff = false, onOpenExpiry, onOpenLowStock, onOpenRequisition, onOpenStock, onOpenAp, onOpenPendingReceive, onStatsReady }) {
-  const [stats, setStats] = React.useState({ inventory: '-', pending: 0, apUnposted: 0, apOverdue: 0 });
+function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] }, isStaff = false, onOpenExpiry, onOpenLowStock, onOpenRequisition, onOpenStock, onStatsReady }) {
+  const [stats, setStats] = React.useState({ inventory: '-', pending: 0 });
 
   const loadStats = React.useCallback(async () => {
     if (!supabase) return;
-    const [inv, pend, apRows] = await Promise.all([
+    const [inv, pend] = await Promise.all([
       supabase.from('inventory').select('code'),
       supabase.from('requisitions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-      isStaff
-        ? supabase.from('receive_logs').select('bill_number, ap_stage, inspected_at, receive_date').in('ap_stage', ['inspected', 'sent_batch'])
-        : Promise.resolve({ data: [] }),
     ]);
     const uniqueDrugs = new Set((inv.data || []).map(r => r.code).filter(Boolean)).size;
     const pending = pend.count ?? 0;
 
-    // count distinct bill_number ที่ยังไม่ posted + count overdue > 7 วัน
-    const bills = new Map();
-    const today = Date.now();
-    (apRows.data || []).forEach(r => {
-      if (!r.bill_number) return;
-      const baseIso = r.inspected_at || r.receive_date;
-      const ageDays = baseIso ? Math.floor((today - new Date(baseIso).getTime()) / 86400000) : 0;
-      const cur = bills.get(r.bill_number);
-      if (!cur || ageDays > cur) bills.set(r.bill_number, ageDays);
-    });
-    const apUnposted = bills.size;
-    const apOverdue = Array.from(bills.values()).filter(d => d > 7).length;
-
-    setStats({ inventory: uniqueDrugs || '-', pending, apUnposted, apOverdue });
+    setStats({ inventory: uniqueDrugs || '-', pending });
     if (onStatsReady) onStatsReady({ inventory: uniqueDrugs || 0, pending });
-  }, [onStatsReady, isStaff]);
+  }, [onStatsReady]);
 
   React.useEffect(() => {
     loadStats();
@@ -1870,26 +1732,6 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] 
       borderColor: lowStockCount > 0 ? 'border-amber-200' : 'border-slate-200',
       labelColor:  lowStockCount > 0 ? 'text-amber-600'   : 'text-slate-500',
       onClick: lowStockCount > 0 ? onOpenLowStock : undefined,
-    },
-    {
-      label: 'รอตรวจรับ (รายการ)',
-      value: alerts.pendingReceive.length,
-      color:       alerts.pendingReceive.length > 0 ? 'text-sky-700'   : 'text-slate-700',
-      cardBg:      alerts.pendingReceive.length > 0 ? 'bg-sky-50'      : 'bg-slate-50',
-      borderColor: alerts.pendingReceive.length > 0 ? 'border-sky-200' : 'border-slate-200',
-      labelColor:  alerts.pendingReceive.length > 0 ? 'text-sky-600'   : 'text-slate-500',
-      onClick: alerts.pendingReceive.length > 0 ? onOpenPendingReceive : undefined,
-    },
-    {
-      label: stats.apOverdue > 0
-        ? `รอตั้งหนี้ · ค้าง > 7 วัน ${stats.apOverdue} บิล`
-        : 'รอตั้งหนี้ (บิล)',
-      value: stats.apUnposted,
-      color:       stats.apOverdue > 0 ? 'text-red-700'   : (stats.apUnposted > 0 ? 'text-orange-700'   : 'text-slate-700'),
-      cardBg:      stats.apOverdue > 0 ? 'bg-red-50'      : (stats.apUnposted > 0 ? 'bg-orange-50'      : 'bg-slate-50'),
-      borderColor: stats.apOverdue > 0 ? 'border-red-200' : (stats.apUnposted > 0 ? 'border-orange-200' : 'border-slate-200'),
-      labelColor:  stats.apOverdue > 0 ? 'text-red-500'   : (stats.apUnposted > 0 ? 'text-orange-500'   : 'text-slate-500'),
-      onClick: stats.apUnposted > 0 ? onOpenAp : undefined,
     },
   ];
 
