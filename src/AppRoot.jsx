@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-// eslint-disable-next-line no-unused-vars -- motion ใช้ใน JSX (<motion.div>); eslint config ไม่มี react/jsx-uses-vars จึง false-flag
 import { AnimatePresence, motion } from 'framer-motion';
 import SearchableSelect from './SearchableSelect';
 import {
