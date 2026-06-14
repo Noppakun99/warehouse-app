@@ -22,10 +22,11 @@ npm run dev          # Start development server
 npm run build        # Production build
 npm run lint         # Run ESLint
 npm run preview      # Preview production build
-npm run test:reorder # Golden tests สำหรับ src/lib/reorder.js (33 assertions)
+npm run test:reorder   # Golden tests สำหรับ src/lib/reorder.js (35 assertions)
+npm run test:billgroup # Golden tests สำหรับ src/lib/billGroup.js — AP bill grouping (24 assertions)
 ```
 
-ไม่มี test runner ทั่วไป — `unitParser.test.js` standalone (`node src/unitParser.test.js`); `reorder.test.js` มี script ให้รัน `npm run test:reorder`
+ไม่มี test runner ทั่วไป — golden tests เป็น standalone `node` (ไม่มี framework): `unitParser.test.js` (`node src/unitParser.test.js`), `reorder.test.js` (`npm run test:reorder`), `billGroup.test.js` (`npm run test:billgroup`). **กฎ**: logic ที่ test แบบนี้ได้ต้องเป็น pure module ไม่ import `supabase` (เพราะ `supabase.js` ใช้ `import.meta.env` ที่ node รันไม่ได้) — ดู `billGroup.js` แยกจาก `db.js` ด้วยเหตุนี้
 
 **E2E**: Playwright (`tests/01-11`) — `npx playwright test` — ครอบคลุม login, dashboard, requisition, return, staff flow, validation, permissions, **AP workflow UX, ทุก sub-app smoke, mobile responsive 375px, a11y, ระบบวิเคราะห์การสั่งซื้อยา** ดู [docs/testing.md](docs/testing.md)
 
@@ -34,10 +35,15 @@ npm run test:reorder # Golden tests สำหรับ src/lib/reorder.js (33 as
 Single-page React app (no React Router) สำหรับระบบคลังยาโรงพยาบาล — routing ทำผ่าน `page` state string ใน `AppRoot.jsx`
 
 **App flow:**
-1. `AppRoot.jsx` handle login + render sub-app ตาม `page` state
+1. `AppRoot.jsx` handle login + render sub-app ตาม `page` state — เมื่อ login แล้ว content ทุกหน้าถูกครอบด้วย `<AppShell>` (sidebar)
 2. Auth = username + SHA-256 password (Web Crypto), เก็บใน `app_users` table
 3. First-run: ถ้า `app_users` ว่าง → แสดง admin setup
 4. 3 roles: `requester`, `staff`, `admin` (ดู [docs/auth.md](docs/auth.md))
+
+**Navigation shell (`AppShell.jsx` + `navConfig.js`):**
+- `AppShell.jsx` — sidebar ถาวร (desktop `lg:pl-60` fixed; mobile = drawer + hamburger) ครอบ content ทุกหน้า. มีปุ่ม refresh (เรียก `refreshPage`/subKey remount) + logout ที่ footer — sub-app **ไม่มีปุ่ม back/logout เอง** แล้ว (sidebar คุม navigation)
+- `navConfig.js` — `NAV_GROUPS` (เมนูจัดกลุ่มตาม workflow), `COLOR` (สีประจำระบบ — **เขียน class เต็ม ห้าม `bg-${c}-50`** Tailwind purge ตัด), `roles` filter ต่อเมนู (ตรงกับ `SYSTEMS.roles`). shared กับ `DashboardV2Preview.jsx` (prototype เปิดด้วย `?v2`)
+- sub-app ใช้ **title bar ขาวบาง + ไอคอนสีประจำระบบ** (คลิกชื่อ = refresh) แทน header เต็มจอเดิม — **ยกเว้น `RequisitionApp.jsx`** ที่เก็บ header/back ไว้โดยเจตนา (`PageHeader` ใช้ `onBack` ปนกับ wizard-internal nav กลับ step→home view ที่ sidebar แทนไม่ได้ — แยก back-to-dashboard ออกก่อนจึงจะทำได้)
 
 **Sub-apps (component แยกอิสระ):**
 - `App.jsx` — Inventory map, CSV upload, drug grid (ดู [docs/features/inventory-map.md](docs/features/inventory-map.md))
@@ -48,7 +54,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 - `AnalyticsApp.jsx` — วิเคราะห์เบิกยา (ดู [docs/features/analytics.md](docs/features/analytics.md))
 - `AuditLogApp.jsx` — ดู audit log
 - `UserManagementApp.jsx` — admin จัดการ user
-- `ReorderApp.jsx` — วิเคราะห์การสั่งซื้อยา (ROP/SS/Refill mode/แยกบริษัท) (ดู [docs/features/reorder.md](docs/features/reorder.md))
+- `ReorderApp.jsx` — วิเคราะห์การสั่งซื้อยา (ROP/SS ตามสูตร Excel/VEN/แยกบริษัท) (ดู [docs/features/reorder.md](docs/features/reorder.md))
 
 **Data layer:**
 - ทุก Supabase query ผ่าน `src/lib/db.js` — component ห้ามเรียก `supabase` ตรงๆ
@@ -63,6 +69,8 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 
 | Topic | File | อ่านเมื่อ |
 |-------|------|----------|
+| Domain glossary (ภาษากลาง: หน่วยซื้อ/เบิก, packsize, เรท, Refill mode ฯลฯ) | [CONTEXT.md](CONTEXT.md) | **ก่อนคุย/แก้ domain logic** — คำศัพท์ต้องตรง glossary |
+| Architecture Decision Records (เหตุผลของ decision ที่กลับยาก) | [docs/adr/](docs/adr/) | ก่อนเปลี่ยน architecture / หาเหตุผลของ decision เดิม |
 | Auth & Roles, permissions | [docs/auth.md](docs/auth.md) | แก้ login/role/permission |
 | Common patterns (date, mobile, print, dept, audit auth, stats) | [docs/patterns.md](docs/patterns.md) | **อ่านทุกครั้ง** ก่อนแก้ component |
 | DB schema, migrations, Excel cols | [docs/schema.md](docs/schema.md) | แก้ DB schema / Excel export |
@@ -89,8 +97,9 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | `/karpathy-checklist` | Quick-check 4 ข้อก่อนลงมือ (Think / Simple / Surgical / Goal-Driven) |
 | `/grill-with-docs` | ซักค้านแผนทีละข้อกับ domain model + อัพเดต CONTEXT.md/ADR inline |
 | `/scrutinize` | รีวิว plan/PR/diff แบบ outsider — ตั้งคำถาม intent + trace code path จริง |
+| `/handoff` | ย่อบทสนทนาเป็นเอกสารส่งต่อ (เซฟใน temp dir) ให้ agent ใหม่ทำงานต่อ |
 
-**เมื่อสร้าง UI ใหม่ → อ่าน `.claude/skills/ui-style-guide.md` ก่อนเสมอ**
+**เมื่อสร้าง UI ใหม่ → อ่าน `.claude/skills/ui-style-guide/SKILL.md` ก่อนเสมอ**
 
 ## Workflow
 
@@ -151,7 +160,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 - 1 commit = 1 logical change
 
 **ก่อน commit ทุกครั้ง**:
-1. `npm run lint` ผ่าน
+1. lint **เฉพาะไฟล์ที่คุณแก้** ผ่าน (`npx eslint <ไฟล์>`) — ⚠️ `npm run lint` ทั้ง repo **ไม่ใช่ 0**: มี error ค้างเดิม ~48 ตัว (55 problems รวม warning) ในไฟล์ committed (ReceiveLog/Requisition/Dispense/Return/Analytics + tests จาก `use()` ใน try/catch และ `process` undefined ใน test) ที่ไม่เกี่ยวกับงานคุณ — ห้ามไป "แก้" error เหล่านั้นเว้นแต่ถูกขอ และอย่าตกใจว่าตัวเองทำพัง
 2. ตรวจ `git diff` — ไม่มีไฟล์/secret ที่ไม่ตั้งใจ commit (`.env`, `test-results/`, `supabase/.temp/`)
 3. ห้าม `--no-verify` หรือ skip pre-commit hook
 
@@ -181,6 +190,8 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 - เพิ่ม DB schema หรือ SQL → บันทึกใน `docs/schema.md`
 - แก้ bug ที่มี root cause ซับซ้อน → บันทึก "Do Not" rule (ไม่ต้องเขียน postmortem)
 - รายละเอียดเฉพาะ feature → เพิ่มใน `docs/features/{feature}.md`
+- domain term ใหม่/นิยามที่ขัดแย้ง → `CONTEXT.md` (glossary เท่านั้น ไม่ใส่ implementation)
+- decision ที่กลับยาก → `docs/adr/` (เกณฑ์ + format ดู `/grill-with-docs`)
 
 ### Skills vs Subagents
 
@@ -211,6 +222,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 ### Key shared functions
 
 - **`fetchDashboardAlerts()`** (db.js) — return `{ expiring, lowStock, pendingReceive }` — ดึง inventory + receive_logs (paginated) เพื่อคำนวณ `waitDays` ของบิลรอตรวจรับ — ใช้ใน StatsStrip ของ Dashboard
+- **`fetchDashboardCharts(months = 6)`** (db.js) — return `{ dispense: [{ ym, label, count }], receive: [...], trend: { dispensePct, receivePct } }` — นับ **จำนวนครั้ง** (record count) เบิก/รับ รายเดือน ย้อนหลัง `months` เดือน (ไม่รวม qty เพราะหน่วยปนข้ามแถว) — ใช้ใน `DashboardCharts` (กราฟ line เบิก / bar รับ + ตาราง Top 5 ยาต้องสั่งซื้อ จาก `alerts.lowStock`) ใน [AppRoot.jsx](src/AppRoot.jsx) — staff/admin เท่านั้น
 - **`printApBatch(rows, batchId, { kind, senderName, inspectorNames })`** (ReceiveLogApp.jsx) — รับ `kind: 'ap'|'ack'`:
   - `'ap'` = ใบนำส่งบิลตั้งหนี้ (คลัง → บัญชี) — signature: กรรมการตรวจรับ + เจ้าหน้าที่จัดซื้อ
   - `'ack'` = ใบส่งจัดซื้อรับบิล (คลัง → จัดซื้อ) — signature: เจ้าหน้าที่คลัง + เจ้าหน้าที่จัดซื้อ
@@ -236,7 +248,7 @@ null + acknowledged_at=null  →  null + acknowledged_at!=null  →  'inspected'
 
 1. **Audit Log Auth**: ทุก `exportToExcel`, `insertReceiveRows`, `insertAuditLog` ต้องส่ง `auth` ครบ — ไม่งั้น user_name = `-`. **ทุก mutation** (CRUD ใน DispenseLog/ReceiveLog/AP/Picking/Return) ต้องเรียก `insertAuditLog` — action ที่ unlogged จะหายไปจาก notification bell + audit history
 2. **Supabase 1000-row limit**: dropdown ชื่อยา + aggregate stats ต้องใช้ `fetchAllRows` เสมอ
-3. **Date Input**: ใช้ `ThaiDateInput` (เก็บ DD/MM/YYYY) หรือ `IsoDateInput` (เก็บ ISO) — **ห้ามใช้ `showPicker()`** (mobile pick ไม่ได้)
+3. **Date Input**: ใช้ `ThaiDateInput` (เก็บ DD/MM/YYYY) หรือ `IsoDateInput` (เก็บ ISO) — `showPicker()` ใช้ได้เฉพาะแบบ **guarded** (`onClick` + `try { e.currentTarget.showPicker?.() } catch {}`) เสริม desktop click-to-open; **ห้าม bare `showPicker()` เป็นกลไกเดียว** (mobile block) ดู [docs/patterns.md](docs/patterns.md)
 4. **Print view**: ใช้ **Blob URL** เสมอ — `document.write()` พังบน iOS Safari
 5. **Mobile layout**: ทุก sub-app ที่มีตาราง → card list + bottom sheet ที่ `width < 768px`
 6. **Stat consistency**: ตัวเลข stat card + Excel export ต้องตรงกับตารางที่ user เห็น (filter+dedup เหมือนกัน) — ถ้า stat อ้างอิงสถานะจากตารางอื่น (เช่น Dashboard "รอตรวจรับ" ใช้ `inventory.receive_status`) ต้องใช้ filter/query ตัวเดียวกับหน้านั้น
@@ -246,12 +258,13 @@ null + acknowledged_at=null  →  null + acknowledged_at!=null  →  'inspected'
 10. **Edge Function email UTF-8**: ใช้ `npm:nodemailer` (ไม่ใช่ `denomailer` — มี bug ภาษาไทย) ดู [docs/expiry-alert-edge-function.md]
 11. **drug_swap_policy เป็น merged column**: build จาก CSV `swap_condition + swap_items` ตอน import — DB ไม่มี 2 col นั้นแยก ดู [docs/schema.md]
 12. **Notification & AuditLog sync**: ถ้าเพิ่ม action ใหม่ใน `insertAuditLog` ต้องเพิ่ม label ใน **3 ที่พร้อมกัน**: `NOTIF_LABELS` ([AppRoot.jsx](src/AppRoot.jsx)), `NOTIFY_ACTIONS` ใน `fetchNotifications` ([db.js](src/lib/db.js)), `ACTION_LABELS` ([AuditLogApp.jsx](src/AuditLogApp.jsx)) — ไม่งั้นปุ่ม bell ไม่ขึ้น หรือ UI แสดง raw key
-13. **Reorder single source of truth**: ทุกหน้าที่นับ "ต่ำกว่า Safety Stock" / "ต้องสั่ง" ต้องอ้างอิง logic เดียวกับ [ReorderApp](src/ReorderApp.jsx) — รวม qty **per drug code** (ไม่ใช่ per-lot) + filter `drug_reorder_config.exclude_status` (`ตัดออก`/`สั่งเมื่อขอ`) ออก — `fetchDashboardAlerts.lowStock` ใน [db.js](src/lib/db.js) ใช้ pattern นี้แล้ว ห้ามนับ per-row ของ inventory ตรงๆ
+13. **Reorder single source of truth**: ทุกหน้าที่นับ "ต่ำกว่า Safety Stock" / "ต้องสั่ง" ต้องอ้างอิง logic เดียวกับ [ReorderApp](src/ReorderApp.jsx) — รวม qty **per drug code** (ไม่ใช่ per-lot) + filter `drug_reorder_config.exclude_status` (`ตัดออก`/`สั่งเมื่อขอ`) ออก — `fetchDashboardAlerts.lowStock` ใน [db.js](src/lib/db.js) ใช้ pattern นี้แล้ว ห้ามนับ per-row ของ inventory ตรงๆ. **หมายเหตุค่า SS**: Dashboard เทียบ qty กับ `inventory.safety_stock` (ค่าตั้งใน HosXP/CSV — สัญญาณเตือนรายวัน) ส่วน ReorderApp คำนวณ SS สดด้วย `computeSafetyStock` (`Avg/วัน × 30 × ตัวคูณ VEN` ตรง Excel — สำหรับสั่งซื้อรายเดือน) — **คนละค่าโดยตั้งใจ ห้ามเผลอให้ Dashboard เรียก `computeSafetyStock`** (กฎ #13 พูดถึง "นับ per-code + filter exclude" ไม่ใช่สูตร SS เดียวกัน)
 14. **Date input อ่าน [docs/patterns.md](docs/patterns.md) ก่อนเสมอ**: ใช้ `ThaiDateInput` / `IsoDateInput` ที่ overlay `<span>` แสดง `DD/MM/YYYY` (พ.ศ.) ทับ hidden `<input type="date">` — ห้ามใช้ plain `<input type="date">` เพราะ browser US locale แสดง `MM/DD/YYYY`
 15. **Summary chart lookup ต้องใช้ map เต็ม ไม่ใช่ sliced top-N**: กราฟที่ union 2 ranking (เช่น ความถี่ + มูลค่า) แล้ว lookup ค่าจาก sliced array จะได้ 0 สำหรับรายการที่ติดอันดับจากด้านหนึ่งแต่ไม่ติดอีกด้าน — ต้องสร้าง `fullMap` ก่อน slice แล้วใช้ map เต็มสำหรับ lookup ดู `drugFreqMap`/`drugValueMap` ใน [ReceiveLogApp.jsx](src/ReceiveLogApp.jsx)
 16. **NON_DEPARTMENTS ใน DispenseLogApp**: ค่า department ที่ไม่ใช่หน่วยงานจริง (`เบิกเพิ่มจากความผิดพลาด`, `คืนยา`) ถูกตัดออกจาก dropdown + กราฟระดับหน่วยงาน แต่ยังแสดงในตารางและยอดรวม — ถ้าพบค่าใหม่ที่ไม่ใช่หน่วยงานจริง เพิ่มเข้า `NON_DEPARTMENTS` (Set) บรรทัดต้นไฟล์ [DispenseLogApp.jsx](src/DispenseLogApp.jsx) — **ต้อง query DB จริงก่อนเสมอ** เพื่อยืนยันชื่อเป๊ะๆ
 17. **AP Workflow search ค้นชื่อยาได้**: helper `billMatchesQuery(bill, q)` ใน [ReceiveLogApp.jsx](src/ReceiveLogApp.jsx) ค้นได้ทั้ง เลขบิล / บริษัท / ชื่อยา / รหัสยา / lot โดย iterate `bill.items` — ใช้ร่วมกันทุก tab (รอตรวจรับ / ส่งบัญชี / ประวัติ batch) เพื่อผลลัพธ์สอดคล้องกัน
 18. **dataRange state ใน summary modal**: ทั้ง [ReceiveLogApp.jsx](src/ReceiveLogApp.jsx) และ [DispenseLogApp.jsx](src/DispenseLogApp.jsx) เก็บ `{ from, to }` (วันแรก–วันล่าสุดในระบบ) แยกต่างหากจาก date filter input — ใช้แสดง caption ช่วงข้อมูลจริงและ `periodLabel` ใน insight banner แทนคำว่า "ทุกช่วงเวลา"
+19. **AP bill identity = composite key ไม่ใช่ bill_number**: `receive_logs.bill_number` **ไม่ unique** (เลขซ้ำได้ทั้งคนละบริษัทและบริษัทเดียวคนละวันรับ). `groupRowsByBill` key ด้วย `billGroupKey(r)` = `bill_number\|supplier_current\|receive_date` ([db.js](src/lib/db.js)); group object มี `_key` (React key + selection Set) + `item_ids` (row id). ทุก AP action (8 ตัว: mark/unmark Acknowledged/Inspected/SentBatch/Posted) ระบุบิลด้วย **`.in('id', rowIds)`** ไม่ใช่ `bill_number` — ส่ง `(rowIds, billNumbers, …)` โดย `billNumbers` ใช้แค่ audit log. `printApBatch` group ด้วย `billGroupKey` เดียวกัน. **ห้าม match `bill_number` ตรงๆ** เพราะจะ update บิลที่เลขชนกันพร้อมกัน ดู [docs/features/ap-workflow.md](docs/features/ap-workflow.md)
 
 ## Do Not (Hard Rules)
 
