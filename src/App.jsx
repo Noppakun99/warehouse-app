@@ -6,7 +6,7 @@ import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
 import {
   Search, Package, MapPin, X, UploadCloud, FileSpreadsheet,
   AlertCircle, BarChart3, Layers, Pill, FileText,
-  ChevronUp, ChevronDown, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw, FileDown, ArrowLeft, Eye, EyeOff,
+  ChevronUp, ChevronDown, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw, FileDown, Eye, EyeOff,
 } from 'lucide-react';
 
 const INVENTORY_EXCEL_COLS = [
@@ -166,7 +166,7 @@ const parseCSVRow = (str) => {
   return arr;
 };
 
-export default function App({ onBackToDashboard, onRefresh, onNavigate, role = 'staff', auth = {} }) {
+export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }) {
   const isStaff = role === 'staff' || role === 'admin';
   const [inventory, setInventory] = useState(initialInventory);
   const [exportLoading, setExportLoading] = useState(false);
@@ -1159,12 +1159,7 @@ export default function App({ onBackToDashboard, onRefresh, onNavigate, role = '
       {/* ── Top header bar ── */}
       <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between sticky top-0 z-30 shadow-sm">
         <div className="flex items-center gap-3">
-          {onBackToDashboard && (
-            <button onClick={onBackToDashboard} className="flex items-center gap-1.5 text-slate-500 hover:text-slate-800 text-sm font-medium transition-colors">
-              <ArrowLeft size={16}/> กลับ
-            </button>
-          )}
-          <div className="w-px h-5 bg-slate-200" />
+          {/* ปุ่มกลับเดิมเอาออก — sidebar (AppShell) คุม navigation */}
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 bg-sky-500 rounded-lg flex items-center justify-center shrink-0">
               <Database size={16} className="text-white" />

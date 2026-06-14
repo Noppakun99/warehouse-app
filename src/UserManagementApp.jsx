@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  ArrowLeft, Search, Plus, Pencil, Trash2, X,
+  Search, Plus, Pencil, Trash2, X,
   User, Shield, ShieldCheck, Eye, EyeOff, RefreshCcw,
   CheckCircle, XCircle, KeyRound, Users, ShieldPlus,
 } from 'lucide-react';
@@ -107,7 +107,7 @@ function PasswordInput({ value, onChange, placeholder = 'รหัสผ่า�
 // ============================================================
 // UserManagementApp
 // ============================================================
-export default function UserManagementApp({ onBack, onRefresh, auth }) {
+export default function UserManagementApp({ auth }) {
   const [users, setUsers]     = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch]   = useState('');
@@ -245,16 +245,14 @@ export default function UserManagementApp({ onBack, onRefresh, auth }) {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans">
-      {/* Header */}
-      <div className="sticky top-0 z-10 shadow-md px-4 py-3 flex items-center gap-3 bg-gradient-to-r from-violet-700 to-violet-800">
-        <button onClick={onBack} className="p-1 text-white/80 hover:text-white transition-colors">
-          <ArrowLeft size={20}/>
-        </button>
-        <button onClick={onRefresh} className="flex-1 border-l-4 border-white/40 pl-3 py-0.5 text-left hover:opacity-80 transition-opacity">
-          <p className="font-bold text-white text-xl drop-shadow">จัดการผู้ใช้งาน</p>
-          <p className="text-violet-200 text-sm">สร้าง แก้ไข และลบบัญชีผู้ใช้</p>
-        </button>
-        <button onClick={load} className="p-2 text-white/70 hover:text-white transition-colors" title="รีเฟรช">
+      {/* Title bar — sidebar (AppShell) คุม navigation แล้ว header เดิมเหลือแค่ title + refresh */}
+      <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center gap-3">
+        <div className="p-1.5 rounded-lg bg-violet-100 text-violet-700 shrink-0"><Users size={18}/></div>
+        <div className="flex-1 min-w-0">
+          <h1 className="font-bold text-base leading-tight text-slate-800">จัดการผู้ใช้งาน</h1>
+          <p className="text-slate-400 text-xs">สร้าง แก้ไข และลบบัญชีผู้ใช้</p>
+        </div>
+        <button onClick={load} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors" title="รีเฟรช">
           <RefreshCcw size={16}/>
         </button>
       </div>

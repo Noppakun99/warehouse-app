@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
-  ArrowLeft, RotateCcw, Search, CheckCircle,
+  RotateCcw, Search, CheckCircle,
   AlertCircle, FileText, ChevronDown, ChevronUp, FileDown, Printer,
-  Pencil, Trash2, X,
+  Pencil, Trash2, X, MapPin, Pill, UserCheck,
 } from 'lucide-react'
 import { fetchReturnLogs, insertReturnLog, deleteReturnLog, updateReturnLog } from './lib/db'
 import { exportToExcel } from './lib/exportExcel'
@@ -225,29 +225,25 @@ ${r.note ? `<p class="section-title" style="margin-top:6px;">หมายเห�
 // ============================================================
 // Root
 // ============================================================
-export default function ReturnApp({ onBack, onRefresh, auth }) {
+export default function ReturnApp({ onRefresh, auth }) {
   const [tab, setTab] = useState('record')
 
   return (
-    <div className="min-h-screen bg-slate-100 font-sans">
-      <header className="bg-gradient-to-r from-violet-600 to-purple-700 text-white shadow-md sticky top-0 z-10">
+    <div className="min-h-screen bg-slate-50 font-sans">
+      <header className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-10">
+        {/* sidebar (AppShell) คุม navigation; ปุ่ม back เดิมเอาออก */}
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
-          <button onClick={onBack} className="p-1.5 rounded-xl hover:bg-white/20 transition-colors">
-            <ArrowLeft size={20} />
-          </button>
-          <button onClick={onRefresh} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-            <div className="p-2 bg-white/20 rounded-xl"><RotateCcw size={20} /></div>
-            <div>
-              <p className="font-bold text-sm leading-tight">ระบบคืนยา / บันทึกยาเสียหาย</p>
-              <p className="text-violet-200 text-xs">Return &amp; Write-off Management</p>
-            </div>
+          <div className="p-2 bg-violet-100 text-violet-600 rounded-xl shrink-0"><RotateCcw size={20} /></div>
+          <button onClick={onRefresh} className="text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
+            <p className="font-bold text-sm leading-tight text-slate-800">ระบบคืนยา / บันทึกยาเสียหาย</p>
+            <p className="text-slate-400 text-xs">Return &amp; Write-off Management</p>
           </button>
         </div>
-        <div className="max-w-4xl mx-auto px-4 flex gap-1 pb-2">
+        <div className="max-w-4xl mx-auto px-4 flex gap-2 pb-2.5">
           {[{ key: 'record', label: 'บันทึกรายการ' }, { key: 'history', label: 'ประวัติ' }].map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
-                tab === t.key ? 'bg-white text-violet-700 shadow-sm' : 'text-violet-200 hover:text-white hover:bg-white/15'
+              className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+                tab === t.key ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-500 bg-slate-100 hover:bg-slate-200'
               }`}>
               {t.label}
             </button>
@@ -391,6 +387,11 @@ function RecordTab({ auth }) {
 
       {/* ประเภทการคืน — 2 ระดับ */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+        <div className="flex items-center gap-2.5">
+          <div className="p-1.5 rounded-lg bg-violet-100 text-violet-600 shrink-0"><MapPin size={15} /></div>
+          <p className="text-sm font-bold text-slate-700">ประเภทการคืน</p>
+          <span className="ml-auto text-[10px] font-bold text-violet-400 bg-violet-50 rounded-full w-5 h-5 flex items-center justify-center">1</span>
+        </div>
         {/* ระดับ 1: คืนจากไหน — dropdown หน่วยงาน */}
         <div>
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2.5">คืนจากไหน *</p>
@@ -427,7 +428,11 @@ function RecordTab({ auth }) {
 
       {/* ข้อมูลยา */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
-        <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">ข้อมูลยา</p>
+        <div className="flex items-center gap-2.5">
+          <div className="p-1.5 rounded-lg bg-sky-100 text-sky-600 shrink-0"><Pill size={15} /></div>
+          <p className="text-sm font-bold text-slate-700">ข้อมูลยา</p>
+          <span className="ml-auto text-[10px] font-bold text-sky-400 bg-sky-50 rounded-full w-5 h-5 flex items-center justify-center">2</span>
+        </div>
 
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
@@ -501,7 +506,11 @@ function RecordTab({ auth }) {
 
       {/* ข้อมูลผู้คืน */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
-        <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">ข้อมูลผู้คืน / ผู้รับ</p>
+        <div className="flex items-center gap-2.5">
+          <div className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 shrink-0"><UserCheck size={15} /></div>
+          <p className="text-sm font-bold text-slate-700">ข้อมูลผู้คืน / ผู้รับ</p>
+          <span className="ml-auto text-[10px] font-bold text-emerald-400 bg-emerald-50 rounded-full w-5 h-5 flex items-center justify-center">3</span>
+        </div>
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1.5">ชื่อผู้คืน / ผู้แจ้ง</label>
@@ -525,8 +534,8 @@ function RecordTab({ auth }) {
       </div>
 
       <button type="submit" disabled={submitting}
-        className="w-full bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm transition-colors shadow-sm">
-        {submitting ? 'กำลังบันทึก...' : 'บันทึกรายการ'}
+        className="w-full flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm transition-colors shadow-sm">
+        <CheckCircle size={16} /> {submitting ? 'กำลังบันทึก...' : 'บันทึกรายการ'}
       </button>
     </form>
   )
@@ -841,7 +850,7 @@ function HistoryTab({ auth = {} }) {
         </div>
       ) : isMobile ? (
         <div className="space-y-2">
-          {logs.map((l, i) => {
+          {logs.map((l) => {
             const b = getReturnBadge(l)
             return (
               <div key={l.id} onClick={() => setMobileDetail(l)}
@@ -874,25 +883,25 @@ function HistoryTab({ auth = {} }) {
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[700px]">
               <thead>
-                <tr className="text-xs text-white font-bold bg-slate-700 border-b border-slate-600">
-                  <th className="px-4 py-2.5 text-left">วันที่</th>
-                  <th className="px-4 py-2.5 text-left">ชื่อยา</th>
-                  <th className="px-4 py-2.5 text-left">ประเภท</th>
-                  <th className="px-4 py-2.5 text-right">จำนวน</th>
-                  <th className="px-4 py-2.5 text-left">Lot / Exp</th>
-                  <th className="px-4 py-2.5 text-left">หน่วยงาน</th>
-                  <th className="px-4 py-2.5 text-left">ผู้คืน / รับ</th>
-                  <th className="px-4 py-2.5 text-left w-8"></th>
+                <tr className="text-xs text-slate-500 font-semibold bg-slate-50 border-b border-slate-200 uppercase tracking-wide">
+                  <th className="px-4 py-3 text-left">วันที่</th>
+                  <th className="px-4 py-3 text-left">ชื่อยา</th>
+                  <th className="px-4 py-3 text-left">ประเภท</th>
+                  <th className="px-4 py-3 text-right">จำนวน</th>
+                  <th className="px-4 py-3 text-left">Lot / Exp</th>
+                  <th className="px-4 py-3 text-left">หน่วยงาน</th>
+                  <th className="px-4 py-3 text-left">ผู้คืน / รับ</th>
+                  <th className="px-4 py-3 text-left w-8"></th>
                 </tr>
               </thead>
-              <tbody>
-                {logs.map((l, i) => {
+              <tbody className="divide-y divide-slate-100">
+                {logs.map((l) => {
                   const b = getReturnBadge(l)
                   const isOpen = expanded === l.id
                   return (
                     <React.Fragment key={l.id}>
                       <tr onClick={() => setExpanded(isOpen ? null : l.id)}
-                        className={`border-b border-slate-100 cursor-pointer transition-colors ${isOpen ? 'bg-violet-50' : i % 2 === 0 ? 'hover:bg-violet-50' : 'bg-slate-50 hover:bg-violet-50'}`}>
+                        className={`cursor-pointer transition-colors ${isOpen ? 'bg-violet-50' : 'hover:bg-slate-50'}`}>
                         <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap font-medium">{isoToThai(l.return_date)}</td>
                         <td className="px-4 py-2.5 font-semibold text-slate-800 max-w-[200px]">
                           <span className="block truncate">{l.drug_name}</span>

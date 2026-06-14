@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Search, ClipboardList, Pencil, Trash2, X, Save, CheckSquare } from 'lucide-react';
+import { RefreshCcw, Search, ClipboardList, Pencil, Trash2, X, Save, CheckSquare } from 'lucide-react';
 import { fetchAuditLogs, updateAuditLog, deleteAuditLog, bulkDeleteAuditLogs } from './lib/db';
 
 const ACTION_LABELS = {
@@ -131,7 +131,7 @@ function IsoDateInput({ value, onChange, className = '' }) {
   )
 }
 
-export default function AuditLogApp({ onBack, onRefresh, auth }) {
+export default function AuditLogApp({ onRefresh, auth }) {
   const [logs, setLogs]           = useState([]);
   const [loading, setLoading]     = useState(false);
   const [dateFrom, setDateFrom]   = useState(monthAgoStr());
@@ -266,17 +266,15 @@ export default function AuditLogApp({ onBack, onRefresh, auth }) {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-slate-700 to-slate-800 text-white px-6 py-4 flex items-center gap-3 shadow-md">
-        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-white/20 transition-colors">
-          <ArrowLeft size={20} />
+      {/* Title bar — sidebar (AppShell) คุม navigation แล้ว header เดิมเหลือแค่ title + refresh */}
+      <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center gap-3">
+        <div className="p-1.5 rounded-lg bg-amber-100 text-amber-600 shrink-0"><ClipboardList size={18} /></div>
+        <button onClick={onRefresh} className="flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
+          <h1 className="font-bold text-base leading-tight text-slate-800">Audit Log</h1>
+          <p className="text-slate-400 text-xs">ประวัติการดำเนินการในระบบ</p>
         </button>
-        <button onClick={onRefresh} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-          <ClipboardList size={22} />
-          <div>
-            <h1 className="font-bold text-lg leading-tight">Audit Log</h1>
-            <p className="text-slate-300 text-xs">ประวัติการดำเนินการในระบบ</p>
-          </div>
+        <button onClick={onRefresh} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors" title="โหลดใหม่">
+          <RefreshCcw size={16} />
         </button>
       </div>
 

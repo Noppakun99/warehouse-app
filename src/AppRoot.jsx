@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import {
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+} from 'recharts';
 import SearchableSelect from './SearchableSelect';
 import {
   Pill, Package, TrendingUp, TrendingDown,
-  User, Shield, LogOut, ShieldCheck, Users,
+  User, Shield, ShieldCheck, Users,
   ChevronRight, Activity, Database, Clock,
   AlertTriangle, ChevronDown, ChevronUp, RotateCcw, ClipboardList,
   Eye, EyeOff, X, Bell, Search, RefreshCcw, FileDown,
+  Boxes, ShoppingCart, ArrowRight,
 } from 'lucide-react';
 import App                from './App';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
@@ -15,12 +19,14 @@ import RequisitionApp     from './RequisitionApp';
 import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
-import { fetchDashboardAlerts, fetchNotifications, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary } from './lib/db';
+import { fetchDashboardAlerts, fetchDashboardCharts, fetchNotifications, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary } from './lib/db';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
 import AnalyticsApp       from './AnalyticsApp';
 import ReorderApp         from './ReorderApp';
+import DashboardV2Preview from './DashboardV2Preview'; // prototype ชั่วคราว — เปิดด้วย ?v2 (ลบได้ทั้งบรรทัด)
+import AppShell           from './AppShell';
 
 
 // ============================================================
@@ -35,6 +41,9 @@ const PAGE_VARIANTS = {
 };
 
 export default function AppRoot() {
+  // ── PROTOTYPE: เปิดหน้า Dashboard V2 (sidebar) ด้วย ?v2 — ดูดีไซน์เท่านั้น ไม่กระทบ flow จริง ──
+  const [showV2, setShowV2] = useState(() => new URLSearchParams(window.location.search).has('v2'));
+
   const [auth, setAuth]   = useState(() => {
     try { return JSON.parse(sessionStorage.getItem(AUTH_KEY)) || null; } catch { return null; }
   });
@@ -62,6 +71,9 @@ export default function AppRoot() {
   const handleLogin = (user) => { sessionStorage.setItem(AUTH_KEY, JSON.stringify(user)); setAuth(user); };
   const logout = () => { sessionStorage.removeItem(AUTH_KEY); setAuth(null); setPage('dashboard'); setToasts([]); };
   const refreshPage = () => setSubKey(k => k + 1);
+
+  // early-return หลัง hooks ทั้งหมด (Rules of Hooks) — prototype ?v2
+  if (showV2) return <DashboardV2Preview onExit={() => setShowV2(false)} />;
 
   let content;
   if (!auth) {
@@ -110,11 +122,21 @@ export default function AppRoot() {
         content = <ReorderApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
         break;
       default:
-        content = <Dashboard auth={auth} onNavigate={setPage} onLogout={logout} />;
+        content = <Dashboard key={subKey} auth={auth} onNavigate={setPage} />;
     }
   }
 
   const pageKey = auth ? page : '__login__';
+
+  // ครอบทุกหน้าด้วย sidebar shell เมื่อ login แล้ว (รวม Dashboard) — navigation สม่ำเสมอทั้งแอป
+  if (auth) {
+    const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username;
+    content = (
+      <AppShell page={page} onNavigate={setPage} onRefresh={refreshPage} displayName={displayName} role={auth.role} onLogout={logout}>
+        {content}
+      </AppShell>
+    );
+  }
 
   return (
     <>
@@ -723,7 +745,7 @@ function timeAgo(iso) {
   return `${days} วันที่แล้ว`;
 }
 
-function Dashboard({ auth, onNavigate, onLogout }) {
+function Dashboard({ auth, onNavigate }) {
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
   const extraPerms = auth.permissions || [];
   const visible = SYSTEMS.filter(s => s.roles.includes(auth.role) || extraPerms.includes(s.key));
@@ -731,6 +753,7 @@ function Dashboard({ auth, onNavigate, onLogout }) {
   const [lastReceive, setLastReceive] = useState(null);
   const [lastDispense, setLastDispense] = useState(null);
   const [alerts, setAlerts] = useState({ expiring: [], lowStock: [], pendingReceive: [] });
+  const [charts, setCharts] = useState(null);
   const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock' | 'stock'
   const [pendingCount, setPendingCount] = useState(0);
 
@@ -791,6 +814,7 @@ function Dashboard({ auth, onNavigate, onLogout }) {
         .then(({ data }) => { if (data?.[0]) setLastReceive(data[0].created_at); });
       supabase.from('dispense_logs').select('created_at').order('created_at', { ascending: false }).limit(1)
         .then(({ data }) => { if (data?.[0]) setLastDispense(data[0].created_at); });
+      fetchDashboardCharts(6).then(setCharts).catch(() => {});
       loadNotifs();
 
       const sub = supabase
@@ -957,12 +981,7 @@ function Dashboard({ auth, onNavigate, onLogout }) {
               </div>
             )}
 
-            <button
-              onClick={onLogout}
-              className="flex items-center gap-1.5 text-indigo-100 hover:text-white text-sm font-medium transition-colors px-3 py-1.5 rounded-xl hover:bg-white/10"
-            >
-              <LogOut size={15} /> ออกจากระบบ
-            </button>
+            {/* ปุ่มออกจากระบบย้ายไป sidebar (AppShell) แล้ว */}
           </div>
         </div>
       </header>
@@ -991,6 +1010,15 @@ function Dashboard({ auth, onNavigate, onLogout }) {
           onOpenStock={() => setAlertModal('stock')}
           onStatsReady={({ pending }) => setPendingCount(pending || 0)}
         />
+
+        {/* Charts + ยาต้องสั่งซื้อ — staff/admin เท่านั้น */}
+        {isStaff && (
+          <DashboardCharts
+            charts={charts}
+            lowStock={alerts.lowStock}
+            onOpenReorder={() => onNavigate('reorder')}
+          />
+        )}
       </div>
 
       {/* System cards — Workflow-Based Groups */}
@@ -1663,6 +1691,136 @@ function StockSummaryModal({ onClose, auth = {} }) {
   );
 }
 
+// ---- Dashboard charts: เบิก/รับ รายเดือน + ยาต้องสั่งซื้อ (staff view only) ----
+function TrendBadge({ pct }) {
+  if (pct == null) return null;
+  const up = pct >= 0;
+  const Icon = up ? TrendingUp : TrendingDown;
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-full ${up ? 'text-emerald-700 bg-emerald-50' : 'text-red-700 bg-red-50'}`}>
+      <Icon size={12} /> {Math.abs(pct)}%
+    </span>
+  );
+}
+
+function DashboardCharts({ charts, lowStock = [], onOpenReorder }) {
+  const { dispense = [], receive = [], trend = {} } = charts || {};
+  const hasData = dispense.some(d => d.count > 0) || receive.some(r => r.count > 0);
+  const top5 = lowStock.slice(0, 5);
+
+  return (
+    <div className="mt-4 space-y-4">
+      {/* กราฟ 2 คอลัมน์ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* เบิกจ่ายรายเดือน (line) */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-indigo-100 text-indigo-600"><Activity size={15} /></div>
+              <span className="text-sm font-bold text-slate-700">การเบิกจ่ายรายเดือน</span>
+            </div>
+            <TrendBadge pct={trend.dispensePct} />
+          </div>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={dispense} margin={{ top: 5, right: 12, left: -18, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip formatter={(v) => [`${v} ครั้ง`, 'เบิกจ่าย']} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              <Line type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2.5} dot={{ r: 3, fill: '#6366f1' }} activeDot={{ r: 5 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* รับเข้ารายเดือน (bar) */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-sky-100 text-sky-600"><Package size={15} /></div>
+              <span className="text-sm font-bold text-slate-700">การรับเข้ารายเดือน</span>
+            </div>
+            <TrendBadge pct={trend.receivePct} />
+          </div>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={receive} margin={{ top: 5, right: 12, left: -18, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip formatter={(v) => [`${v} ครั้ง`, 'รับเข้า']} cursor={{ fill: '#f8fafc' }} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              <Bar dataKey="count" fill="#38bdf8" radius={[6, 6, 0, 0]} maxBarSize={40} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* ตารางยาต้องสั่งซื้อ (Top 5) */}
+      {top5.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-amber-100 text-amber-600"><ShoppingCart size={15} /></div>
+              <span className="text-sm font-bold text-slate-700">ยาต้องสั่งซื้อ</span>
+              <span className="text-xs text-slate-400">ต่ำกว่า Safety Stock</span>
+            </div>
+            <button onClick={onOpenReorder} className="text-xs text-[#1E90FF] hover:underline font-semibold inline-flex items-center gap-0.5">
+              ดูทั้งหมด <ArrowRight size={13} />
+            </button>
+          </div>
+
+          {/* Desktop: ตาราง */}
+          <table className="hidden sm:table w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
+                <th className="px-4 py-2 font-semibold">ชื่อยา</th>
+                <th className="px-4 py-2 font-semibold text-right">คงเหลือ</th>
+                <th className="px-4 py-2 font-semibold text-right">Safety Stock</th>
+                <th className="px-4 py-2 font-semibold text-right">% ของ SS</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {top5.map((r, i) => (
+                <tr key={r.code || i} className="hover:bg-slate-50/60">
+                  <td className="px-4 py-2.5">
+                    <p className="font-semibold text-slate-700 leading-tight">{r.name || r.code}</p>
+                    <p className="text-xs text-slate-400">{r.code}</p>
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-bold text-red-600">{Number(r.qty).toLocaleString()} <span className="font-normal text-slate-400 text-xs">{r.unit}</span></td>
+                  <td className="px-4 py-2.5 text-right text-slate-600">{Number(r.safety_stock).toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-right">
+                    <span className="inline-block w-12 text-right font-semibold text-amber-600">{Math.round(r.ratio * 100)}%</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {/* Mobile: card list */}
+          <div className="sm:hidden divide-y divide-slate-50">
+            {top5.map((r, i) => (
+              <div key={r.code || i} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-700 leading-tight truncate">{r.name || r.code}</p>
+                    <p className="text-xs text-slate-400">{r.code}</p>
+                  </div>
+                  <span className="text-xs font-semibold text-amber-600 shrink-0">{Math.round(r.ratio * 100)}% ของ SS</span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  คงเหลือ <span className="font-bold text-red-600">{Number(r.qty).toLocaleString()} {r.unit}</span> / SS {Number(r.safety_stock).toLocaleString()}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!hasData && top5.length === 0 && (
+        <p className="text-center text-sm text-slate-400 py-4">ยังไม่มีข้อมูลสำหรับแสดงกราฟ</p>
+      )}
+    </div>
+  );
+}
+
 // ---- Quick stats (staff view only) ----
 function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] }, isStaff = false, onOpenExpiry, onOpenLowStock, onOpenRequisition, onOpenStock, onStatsReady }) {
   const [stats, setStats] = React.useState({ inventory: '-', pending: 0 });
@@ -1700,25 +1858,31 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] 
       label: 'รายการยาในคลัง',
       subLabel: 'ดูจำนวนคงเหลือ',
       value: stats.inventory,
-      color: 'text-sky-700', cardBg: 'bg-sky-50', borderColor: 'border-sky-200', labelColor: 'text-sky-500',
+      icon: Boxes,
+      color: 'text-sky-700', cardBg: 'bg-white', borderColor: 'border-slate-200', labelColor: 'text-slate-500',
+      iconBg: 'bg-sky-100 text-sky-600',
       onClick: onOpenStock,
     },
     {
       label: 'ใบเบิกรอดำเนินการ',
       value: typeof stats.pending === 'number' ? stats.pending : 0,
+      icon: ClipboardList,
       color:       stats.pending > 0 ? 'text-amber-700'   : 'text-slate-700',
-      cardBg:      stats.pending > 0 ? 'bg-amber-50'      : 'bg-slate-50',
+      cardBg:      'bg-white',
       borderColor: stats.pending > 0 ? 'border-amber-200' : 'border-slate-200',
-      labelColor:  stats.pending > 0 ? 'text-amber-600'   : 'text-slate-500',
+      labelColor:  'text-slate-500',
+      iconBg:      stats.pending > 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500',
       onClick: stats.pending > 0 ? onOpenRequisition : undefined,
     },
     {
       label: expiredCount > 0 ? `ยาหมดอายุแล้ว ${expiredCount} + ใกล้หมด` : 'ยาใกล้หมดอายุ (16 เดือน)',
       value: expiryCount,
+      icon: AlertTriangle,
       color:       expiryCount > 0 ? (expiredCount > 0 ? 'text-red-700' : 'text-orange-700')   : 'text-slate-700',
-      cardBg:      expiryCount > 0 ? (expiredCount > 0 ? 'bg-red-50'    : 'bg-orange-50')      : 'bg-slate-50',
+      cardBg:      'bg-white',
       borderColor: expiryCount > 0 ? (expiredCount > 0 ? 'border-red-200' : 'border-orange-200') : 'border-slate-200',
-      labelColor:  expiryCount > 0 ? (expiredCount > 0 ? 'text-red-500' : 'text-orange-500')   : 'text-slate-500',
+      labelColor:  'text-slate-500',
+      iconBg:      expiryCount > 0 ? (expiredCount > 0 ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600') : 'bg-slate-100 text-slate-500',
       onClick: expiryCount > 0 ? onOpenExpiry : undefined,
     },
   ];
@@ -1727,10 +1891,12 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] 
     {
       label: 'Stock ต่ำกว่ากำหนด',
       value: lowStockCount,
+      icon: ShoppingCart,
       color:       lowStockCount > 0 ? 'text-amber-700'   : 'text-slate-700',
-      cardBg:      lowStockCount > 0 ? 'bg-amber-50'      : 'bg-slate-50',
+      cardBg:      'bg-white',
       borderColor: lowStockCount > 0 ? 'border-amber-200' : 'border-slate-200',
-      labelColor:  lowStockCount > 0 ? 'text-amber-600'   : 'text-slate-500',
+      labelColor:  'text-slate-500',
+      iconBg:      lowStockCount > 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500',
       onClick: lowStockCount > 0 ? onOpenLowStock : undefined,
     },
   ];
@@ -1742,17 +1908,23 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] 
   return (
     <div className={`mt-6 grid grid-cols-2 ${cols} gap-3`}>
       {items.map(item => {
-        const cls = `${item.cardBg} border ${item.borderColor} rounded-xl p-4 text-center shadow-sm ${item.onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`;
+        const Icon = item.icon;
+        const cls = `${item.cardBg} border ${item.borderColor} rounded-2xl p-4 shadow-sm ${item.onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`;
         const content = (
           <>
-            <p className={`text-2xl font-bold ${item.color}`}>{typeof item.value === 'number' ? item.value.toLocaleString() : item.value}</p>
-            <p className={`text-xs mt-1 leading-tight ${item.labelColor}`}>{item.label}</p>
-            {item.subLabel && <p className="text-xs mt-1.5 font-bold text-sky-600 underline underline-offset-2">{item.subLabel}</p>}
-            {item.onClick && !item.subLabel && <p className="text-[10px] mt-1.5 text-slate-400">กดเพื่อดูรายละเอียด</p>}
+            <div className="flex items-center gap-2 mb-2.5">
+              <div className={`p-1.5 rounded-lg shrink-0 ${item.iconBg}`}>
+                <Icon size={15} />
+              </div>
+              <p className={`text-xs leading-tight ${item.labelColor} text-left flex-1`}>{item.label}</p>
+            </div>
+            <p className={`text-2xl font-bold ${item.color} text-left`}>{typeof item.value === 'number' ? item.value.toLocaleString() : item.value}</p>
+            {item.subLabel && <p className="text-xs mt-1.5 font-bold text-sky-600 underline underline-offset-2 text-left">{item.subLabel}</p>}
+            {item.onClick && !item.subLabel && <p className="text-[10px] mt-1.5 text-slate-400 text-left">กดเพื่อดูรายละเอียด</p>}
           </>
         );
         return item.onClick
-          ? <button key={item.label} onClick={item.onClick} className={cls}>{content}</button>
+          ? <button key={item.label} onClick={item.onClick} className={`${cls} text-left`}>{content}</button>
           : <div key={item.label} className={cls}>{content}</div>;
       })}
     </div>

@@ -265,7 +265,7 @@ const DISPENSE_EXCEL_COLS = [
 // ============================================================
 // Root
 // ============================================================
-export default function DispenseLogApp({ onBack, onRefresh, auth = {} }) {
+export default function DispenseLogApp({ onRefresh, auth = {} }) {
   const [tab, setTab]             = useState('view');
   const [showSummary, setShowSummary] = useState(false);
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
@@ -273,20 +273,18 @@ export default function DispenseLogApp({ onBack, onRefresh, auth = {} }) {
 
   return (
     <div className="min-h-screen bg-slate-200 text-slate-800 font-sans">
-      <div className="sticky top-0 z-10 bg-rose-700 shadow-md px-4 py-3 flex items-center gap-2">
-        <button onClick={onBack} className="text-rose-100 hover:text-white p-1 transition-colors shrink-0"><ArrowLeft size={20} /></button>
-        <button onClick={onRefresh} className="flex items-center gap-2 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity">
-          <TrendingDown size={20} className="text-white shrink-0" />
-          <span className="font-semibold text-white truncate">บันทึกการเบิกจ่าย (คลังเบิก)</span>
-        </button>
-        <div className="flex items-center gap-1 shrink-0">
+      {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + action */}
+      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center gap-2">
+        <div className="p-1.5 rounded-lg bg-rose-100 text-rose-600 shrink-0"><TrendingDown size={18} /></div>
+        <button onClick={onRefresh} className="font-bold text-base text-slate-800 truncate flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">บันทึกการเบิกจ่าย (คลังเบิก)</button>
+        <div className="flex items-center gap-1.5 shrink-0">
           <button onClick={() => setShowSummary(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white/20 text-white hover:bg-white/30 border border-white/30 transition-all">
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors">
             <BarChart3 size={15} /> สรุปผล
           </button>
           {isStaff && (
             <button onClick={() => setTab('import')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'import' ? 'bg-white text-rose-700 font-bold' : 'text-rose-100 hover:text-white hover:bg-white/20'}`}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'import' ? 'bg-rose-600 text-white' : 'bg-white border border-slate-300 text-slate-600 hover:bg-slate-50'}`}
             >Import CSV</button>
           )}
         </div>

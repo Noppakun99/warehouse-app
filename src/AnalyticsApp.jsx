@@ -4,7 +4,7 @@ import {
   LineChart, Line, Legend,
 } from 'recharts';
 import {
-  ArrowLeft, TrendingUp, Package, Building2, Banknote, RefreshCcw,
+  Activity, TrendingUp, Package, Building2, Banknote, RefreshCcw,
   BarChart2, CalendarDays, FileText, Layers, AlertTriangle, ChevronDown, ChevronUp, FileDown,
 } from 'lucide-react';
 import { fetchDispenseAnalytics } from './lib/db';
@@ -20,8 +20,8 @@ const YEAR_COLORS = ['#1E90FF','#F59E0B','#10B981','#EF4444','#8B5CF6'];
 function IsoDateInput({ value, onChange, className = '' }) {
   const display = iso => { if (!iso) return null; const [y,m,d] = iso.split('-'); return `${d}/${m}/${Number(y)+543}`; }
   return (
-    <div className={`relative flex items-center bg-white/10 border border-white/30 rounded-lg focus-within:bg-white/20 ${className}`}>
-      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-white' : 'text-white/50'}`}>{display(value) || 'dd/mm/yyyy'}</span>
+    <div className={`relative flex items-center bg-white border border-slate-300 rounded-lg focus-within:ring-2 focus-within:ring-blue-400 ${className}`}>
+      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
       <input type="date" value={value || ''} onChange={e => onChange(e.target.value)} className="absolute inset-0 opacity-0 w-full cursor-pointer" />
     </div>
   )
@@ -194,7 +194,7 @@ function MultiLineTooltip({ active, payload, label }) {
 // ============================================================
 // Main Component
 // ============================================================
-export default function AnalyticsApp({ onBack, onRefresh, auth = {} }) {
+export default function AnalyticsApp({ onRefresh, auth = {} }) {
   const [dateFrom,       setDateFrom]       = useState('');
   const [dateTo,         setDateTo]         = useState('');
   const [rows,           setRows]           = useState([]);
@@ -488,32 +488,30 @@ export default function AnalyticsApp({ onBack, onRefresh, auth = {} }) {
   // ============================================================
   return (
     <div className="min-h-screen bg-slate-100">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-[#1E90FF] to-[#0055cc] text-white px-4 pt-safe">
-        <div className="flex items-center gap-3 py-4">
-          <button onClick={onBack} className="p-2 rounded-xl bg-white/10 hover:bg-white/25 transition-colors">
-            <ArrowLeft size={20} />
-          </button>
-          <button onClick={onRefresh} className="flex-1 text-left hover:opacity-80 transition-opacity">
-            <h1 className="text-lg font-black">วิเคราะห์การเบิกยา</h1>
-            <p className="text-white/70 text-xs">
+      {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + refresh + filter */}
+      <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3">
+        <div className="flex items-center gap-3">
+          <div className="p-1.5 rounded-lg bg-cyan-100 text-cyan-600 shrink-0"><Activity size={18} /></div>
+          <button onClick={onRefresh} className="flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
+            <h1 className="font-bold text-base leading-tight text-slate-800">วิเคราะห์การเบิกยา</h1>
+            <p className="text-slate-400 text-xs">
               {actualDateMin && actualDateMax
                 ? `ข้อมูล ${actualDateMin} – ${actualDateMax}`
                 : 'ข้อมูลจาก Dispense Log'}
             </p>
           </button>
-          <button onClick={load} className="p-2 rounded-xl bg-white/10 hover:bg-white/25 transition-colors" title="รีเฟรช">
+          <button onClick={onRefresh} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors" title="รีเฟรช">
             <RefreshCcw size={18} />
           </button>
         </div>
-        <div className="flex items-center gap-2 pb-2 flex-wrap">
-          <span className="text-white/70 text-sm">ตั้งแต่</span>
+        <div className="flex items-center gap-2 mt-3 flex-wrap">
+          <span className="text-slate-500 text-sm">ตั้งแต่</span>
           <IsoDateInput value={dateFrom} onChange={setDateFrom} />
-          <span className="text-white/70 text-sm">ถึง</span>
+          <span className="text-slate-500 text-sm">ถึง</span>
           <IsoDateInput value={dateTo} onChange={setDateTo} />
         </div>
         {/* Drug filter */}
-        <div className="pb-4">
+        <div className="mt-3">
           <DrugSearchBar
             value={drugSearch}
             onChange={setDrugSearch}
