@@ -2,13 +2,14 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  AreaChart, Area,
 } from 'recharts';
 import SearchableSelect from './SearchableSelect';
 import {
   Pill, Package, TrendingUp, TrendingDown,
-  User, Shield, ShieldCheck, Users,
+  User, Shield, ShieldCheck,
   ChevronRight, Activity, Database, Clock,
-  AlertTriangle, ChevronDown, ChevronUp, RotateCcw, ClipboardList,
+  AlertTriangle, ChevronDown, ChevronUp, ClipboardList,
   Eye, EyeOff, X, Bell, Search, RefreshCcw, FileDown,
   Boxes, ShoppingCart, ArrowRight,
 } from 'lucide-react';
@@ -482,162 +483,6 @@ function CheckCircle({ size, className }) {
 // ============================================================
 // Dashboard — system selection
 // ============================================================
-const SYSTEMS = [
-  {
-    key:         'inventory',
-    icon:        Database,
-    title:       'ระบบแผนผังคลังยา',
-    desc:        'ดูแผนผังตำแหน่งยา ค้นหาสต็อก ตรวจสอบวันหมดอายุ',
-    bg:          'bg-indigo-50 hover:bg-indigo-100',
-    border:      'border-indigo-300 hover:border-indigo-500',
-    iconBg:      'bg-sky-500 text-white',
-    badge:       'bg-sky-500 text-white',
-    badgeText:   'แผนผัง',
-    accentText:  'text-sky-600',
-    hoverLink:   'group-hover:text-sky-700',
-    clockColor:  'text-sky-600',
-    roles:       ['requester', 'staff', 'admin'],
-  },
-  {
-    key:         'requisition',
-    icon:        Package,
-    title:       'ระบบเบิกยาออนไลน์',
-    desc:        'ส่งใบเบิก ตรวจสอบสถานะ อนุมัติและจ่ายยา',
-    bg:          'bg-blue-50 hover:bg-blue-100',
-    border:      'border-blue-300 hover:border-blue-500',
-    iconBg:      'bg-blue-600 text-white',
-    badge:       'bg-blue-600 text-white',
-    badgeText:   'เบิกยา',
-    accentText:  'text-blue-600',
-    hoverLink:   'group-hover:text-blue-700',
-    clockColor:  'text-blue-600',
-    roles:       ['requester', 'staff', 'admin'],
-  },
-  {
-    key:         'receive',
-    icon:        TrendingUp,
-    title:       'ประวัติการรับยาเข้าคลัง',
-    desc:        'ค้นหาประวัติการรับเวชภัณฑ์เข้าคลัง ดูสรุปยอดและมูลค่า',
-    bg:          'bg-emerald-50 hover:bg-emerald-100',
-    border:      'border-emerald-300 hover:border-emerald-500',
-    iconBg:      'bg-emerald-600 text-white',
-    badge:       'bg-emerald-600 text-white',
-    badgeText:   'คลังรับ',
-    accentText:  'text-emerald-600',
-    hoverLink:   'group-hover:text-emerald-700',
-    clockColor:  'text-emerald-600',
-    roles:       ['requester', 'staff', 'admin'],
-  },
-  {
-    key:         'dispense',
-    icon:        TrendingDown,
-    title:       'ประวัติการเบิกจ่ายยา',
-    desc:        'ค้นหาและวิเคราะห์ประวัติการเบิกจ่ายตามหน่วยงาน',
-    bg:          'bg-rose-50 hover:bg-rose-100',
-    border:      'border-rose-300 hover:border-rose-500',
-    iconBg:      'bg-rose-600 text-white',
-    badge:       'bg-rose-600 text-white',
-    badgeText:   'คลังเบิก',
-    accentText:  'text-rose-600',
-    hoverLink:   'group-hover:text-rose-700',
-    clockColor:  'text-rose-600',
-    roles:       ['requester', 'staff', 'admin'],
-  },
-  {
-    key:         'return',
-    icon:        RotateCcw,
-    title:       'ระบบคืนยา / ยาเสียหาย',
-    desc:        'บันทึกการคืนยาจาก ward ยาเสียหาย ตัดยาหมดอายุ และส่งคืนบริษัท',
-    bg:          'bg-violet-50 hover:bg-violet-100',
-    border:      'border-violet-300 hover:border-violet-500',
-    iconBg:      'bg-violet-600 text-white',
-    badge:       'bg-violet-600 text-white',
-    badgeText:   'คืนยา',
-    accentText:  'text-violet-600',
-    hoverLink:   'group-hover:text-violet-700',
-    clockColor:  'text-violet-600',
-    roles:       ['requester', 'staff', 'admin'],
-  },
-  {
-    key:         'audit',
-    icon:        ClipboardList,
-    title:       'Audit Log',
-    desc:        'ประวัติการดำเนินการในระบบ — นำเข้า ส่งออก บันทึกคืนยา และเข้าสู่ระบบ',
-    bg:          'bg-slate-50 hover:bg-slate-100',
-    border:      'border-slate-300 hover:border-slate-500',
-    iconBg:      'bg-slate-600 text-white',
-    badge:       'bg-slate-600 text-white',
-    badgeText:   'Audit',
-    accentText:  'text-slate-600',
-    hoverLink:   'group-hover:text-slate-700',
-    clockColor:  'text-slate-600',
-    roles:       ['staff', 'admin'],
-  },
-  {
-    key:         'analytics',
-    icon:        Activity,
-    title:       'วิเคราะห์การเบิกยา',
-    desc:        'กราฟแนวโน้มการเบิก ยา Top 10 หน่วยงาน และมูลค่ารวม',
-    bg:          'bg-cyan-50 hover:bg-cyan-100',
-    border:      'border-cyan-400 hover:border-cyan-600',
-    iconBg:      'bg-cyan-600 text-white',
-    badge:       'bg-cyan-600 text-white',
-    badgeText:   'วิเคราะห์',
-    accentText:  'text-cyan-600',
-    hoverLink:   'group-hover:text-cyan-700',
-    clockColor:  'text-cyan-600',
-    roles:       ['requester', 'staff', 'admin'],
-  },
-  {
-    key:         'users',
-    icon:        Users,
-    title:       'จัดการผู้ใช้งาน',
-    desc:        'สร้าง แก้ไข ลบบัญชีผู้ใช้ กำหนด role และระงับการใช้งาน',
-    bg:          'bg-violet-50 hover:bg-violet-100',
-    border:      'border-violet-400 hover:border-violet-600',
-    iconBg:      'bg-violet-700 text-white',
-    badge:       'bg-violet-700 text-white',
-    badgeText:   'Admin',
-    accentText:  'text-violet-700',
-    hoverLink:   'group-hover:text-violet-800',
-    clockColor:  'text-violet-700',
-    roles:       ['admin'],
-  },
-];
-
-// ---- System groups (Workflow-Based Dashboard) ----
-const GROUPS = [
-  {
-    id: 'daily',
-    label: 'Daily Operations',
-    sublabel: 'งานประจำวัน',
-    textColor: 'text-emerald-700',
-    bg: 'bg-emerald-50',
-    border: 'border-emerald-200',
-    dot: 'bg-emerald-500',
-    keys: ['requisition', 'inventory', 'return'],
-  },
-  {
-    id: 'reports',
-    label: 'History & Reports',
-    sublabel: 'สรุปและรายงาน',
-    textColor: 'text-blue-700',
-    bg: 'bg-blue-50',
-    border: 'border-blue-200',
-    dot: 'bg-blue-500',
-    keys: ['receive', 'dispense', 'analytics'],
-  },
-  {
-    id: 'security',
-    label: 'Security & Control',
-    sublabel: 'ควบคุมระบบ',
-    textColor: 'text-slate-700',
-    bg: 'bg-slate-100',
-    border: 'border-slate-300',
-    dot: 'bg-slate-500',
-    keys: ['audit', 'users'],
-  },
-];
 
 // ---- Notification helpers ----
 const NOTIF_LABELS = {
@@ -747,15 +592,9 @@ function timeAgo(iso) {
 
 function Dashboard({ auth, onNavigate }) {
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
-  const extraPerms = auth.permissions || [];
-  const visible = SYSTEMS.filter(s => s.roles.includes(auth.role) || extraPerms.includes(s.key));
-  const [uploadMeta, setUploadMeta] = useState({ inventory: null, drug_details: null });
-  const [lastReceive, setLastReceive] = useState(null);
-  const [lastDispense, setLastDispense] = useState(null);
   const [alerts, setAlerts] = useState({ expiring: [], lowStock: [], pendingReceive: [] });
   const [charts, setCharts] = useState(null);
   const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock' | 'stock'
-  const [pendingCount, setPendingCount] = useState(0);
 
   // Online presence
   const [onlineUsers, setOnlineUsers] = useState([]);
@@ -800,21 +639,11 @@ function Dashboard({ auth, onNavigate }) {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from('upload_meta').select('*').then(({ data }) => {
-      if (data) {
-        const m = {};
-        data.forEach(r => { m[r.type] = r; });
-        setUploadMeta(m);
-      }
-    });
     fetchDashboardAlerts().then(setAlerts);
+    // กราฟเบิก/รับ + ยาต้องสั่งซื้อ — แสดงทุก role
+    fetchDashboardCharts(6).then(setCharts).catch(() => {});
 
     if (isStaff) {
-      supabase.from('receive_logs').select('created_at').order('created_at', { ascending: false }).limit(1)
-        .then(({ data }) => { if (data?.[0]) setLastReceive(data[0].created_at); });
-      supabase.from('dispense_logs').select('created_at').order('created_at', { ascending: false }).limit(1)
-        .then(({ data }) => { if (data?.[0]) setLastDispense(data[0].created_at); });
-      fetchDashboardCharts(6).then(setCharts).catch(() => {});
       loadNotifs();
 
       const sub = supabase
@@ -839,12 +668,6 @@ function Dashboard({ auth, onNavigate }) {
   }, [showBell]);
 
   const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username;
-
-  const fmtDate = (iso) => {
-    if (!iso) return null;
-    const d = new Date(iso);
-    return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-200 via-slate-100 to-indigo-100 font-sans">
@@ -1003,92 +826,19 @@ function Dashboard({ auth, onNavigate }) {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-4">
         <StatsStrip
           alerts={alerts}
-          isStaff={isStaff}
           onOpenExpiry={() => setAlertModal('expiry')}
           onOpenLowStock={() => setAlertModal('lowStock')}
           onOpenRequisition={() => onNavigate(isStaff ? 'requisition' : 'requisition-history')}
           onOpenStock={() => setAlertModal('stock')}
-          onStatsReady={({ pending }) => setPendingCount(pending || 0)}
         />
 
-        {/* Charts + ยาต้องสั่งซื้อ — staff/admin เท่านั้น */}
-        {isStaff && (
-          <DashboardCharts
-            charts={charts}
-            lowStock={alerts.lowStock}
-            onOpenReorder={() => onNavigate('reorder')}
-          />
-        )}
+        {/* Charts + ยาต้องสั่งซื้อ — แสดงทุก role */}
+        <DashboardCharts
+          charts={charts}
+          lowStock={alerts.lowStock}
+          onOpenReorder={() => onNavigate('reorder')}
+        />
       </div>
-
-      {/* System cards — Workflow-Based Groups */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-12 space-y-6">
-        {GROUPS.map(group => {
-          const groupSystems = visible.filter(s => group.keys.includes(s.key));
-          if (groupSystems.length === 0) return null;
-          return (
-            <div key={group.id}>
-              {/* Group header */}
-              <div className="flex items-center gap-2.5 mb-3">
-                <span className={`w-2 h-2 rounded-full shrink-0 ${group.dot}`} />
-                <span className={`text-xs font-black uppercase tracking-widest ${group.textColor}`}>{group.label}</span>
-                <span className="text-xs text-slate-400">{group.sublabel}</span>
-                <div className="flex-1 h-px bg-slate-200" />
-              </div>
-
-              {/* Cards grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {groupSystems.map(sys => {
-                  const Icon = sys.icon;
-                  const lastUpdateIso =
-                    sys.key === 'inventory' ? uploadMeta.inventory?.updated_at
-                    : sys.key === 'receive'  ? lastReceive
-                    : sys.key === 'dispense' ? lastDispense
-                    : sys.key === 'analytics' ? lastDispense
-                    : null;
-                  return (
-                    <button
-                      key={sys.key}
-                      onClick={() => onNavigate(sys.key)}
-                      className={`group ${sys.bg} ${sys.border} border-2 rounded-xl p-4 text-left shadow-sm hover:shadow-lg transition-all duration-200 relative`}
-                    >
-                      {/* Pending badge — requisition เท่านั้น */}
-                      {sys.key === 'requisition' && pendingCount > 0 && (
-                        <span className="absolute top-2.5 right-2.5 bg-red-500 text-white text-[10px] font-black rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 leading-none shadow">
-                          {pendingCount > 99 ? '99+' : pendingCount}
-                        </span>
-                      )}
-
-                      <div className="flex items-center gap-2.5 mb-3">
-                        <div className={`p-2 ${sys.iconBg} rounded-lg shrink-0 shadow-sm`}>
-                          <Icon size={18} />
-                        </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${sys.badge} shrink-0`}>
-                          {sys.badgeText}
-                        </span>
-                      </div>
-
-                      <h3 className="font-bold text-slate-800 text-sm leading-tight">{sys.title}</h3>
-                      <p className="text-slate-400 text-xs mt-1 leading-relaxed line-clamp-2">{sys.desc}</p>
-
-                      {fmtDate(lastUpdateIso) && (
-                        <p className={`flex items-center gap-1 text-[10px] mt-2 font-medium ${sys.clockColor}`}>
-                          <Clock size={10} /> {fmtDate(lastUpdateIso)}
-                        </p>
-                      )}
-
-                      <div className={`flex items-center gap-0.5 mt-3 text-xs font-semibold text-slate-400 ${sys.hoverLink} transition-colors`}>
-                        เข้าสู่ระบบ <ChevronRight size={13} className="group-hover:translate-x-0.5 transition-transform" />
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
 
       {/* Alert modals */}
       {alertModal === 'expiry' && (
@@ -1707,50 +1457,70 @@ function DashboardCharts({ charts, lowStock = [], onOpenReorder }) {
   const { dispense = [], receive = [], trend = {} } = charts || {};
   const hasData = dispense.some(d => d.count > 0) || receive.some(r => r.count > 0);
   const top5 = lowStock.slice(0, 5);
+  const dispenseTotal = dispense.reduce((s, d) => s + (d.count || 0), 0);
+  const lastLabel = dispense.length ? dispense[dispense.length - 1].label : '';
 
   return (
     <div className="mt-4 space-y-4">
-      {/* กราฟ 2 คอลัมน์ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* เบิกจ่ายรายเดือน (line) */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-indigo-100 text-indigo-600"><Activity size={15} /></div>
-              <span className="text-sm font-bold text-slate-700">การเบิกจ่ายรายเดือน</span>
-            </div>
-            <TrendBadge pct={trend.dispensePct} />
+      {/* Hero panel — การเบิกจ่ายรายเดือน (เลขรวม + area chart) */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-indigo-100 text-indigo-600"><Activity size={15} /></div>
+            <span className="text-sm font-bold text-slate-700">การเบิกจ่ายรายเดือน</span>
           </div>
-          <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={dispense} margin={{ top: 5, right: 12, left: -18, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip formatter={(v) => [`${v} ครั้ง`, 'เบิกจ่าย']} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-              <Line type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2.5} dot={{ r: 3, fill: '#6366f1' }} activeDot={{ r: 5 }} />
-            </LineChart>
-          </ResponsiveContainer>
+          <span className="text-xs text-slate-400">ย้อนหลัง {dispense.length} เดือน</span>
         </div>
 
-        {/* รับเข้ารายเดือน (bar) */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-sky-100 text-sky-600"><Package size={15} /></div>
-              <span className="text-sm font-bold text-slate-700">การรับเข้ารายเดือน</span>
+        <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-5 items-center">
+          {/* เลขเด่นซ้าย */}
+          <div className="lg:pr-6 lg:border-r lg:border-slate-100">
+            <p className="text-4xl font-black text-slate-800 leading-none">{dispenseTotal.toLocaleString()}</p>
+            <p className="text-xs text-slate-400 mt-1.5">ครั้งที่เบิกจ่ายรวม</p>
+            <div className="flex items-center gap-2 mt-3">
+              <TrendBadge pct={trend.dispensePct} />
+              <span className="text-xs text-slate-400">เทียบเดือนก่อน</span>
             </div>
-            <TrendBadge pct={trend.receivePct} />
           </div>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={receive} margin={{ top: 5, right: 12, left: -18, bottom: 0 }}>
+
+          {/* กราฟ area ขวา */}
+          <ResponsiveContainer width="100%" height={170}>
+            <AreaChart data={dispense} margin={{ top: 5, right: 12, left: -18, bottom: 0 }}>
+              <defs>
+                <linearGradient id="dispenseFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip formatter={(v) => [`${v} ครั้ง`, 'รับเข้า']} cursor={{ fill: '#f8fafc' }} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-              <Bar dataKey="count" fill="#38bdf8" radius={[6, 6, 0, 0]} maxBarSize={40} />
-            </BarChart>
+              <Tooltip formatter={(v) => [`${v} ครั้ง`, 'เบิกจ่าย']} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }} />
+              <Area type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2.5} fill="url(#dispenseFill)" dot={{ r: 3, fill: '#6366f1' }} activeDot={{ r: 5 }} />
+            </AreaChart>
           </ResponsiveContainer>
         </div>
+      </div>
+
+      {/* Panel รอง — รับเข้ารายเดือน (bar) */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-sky-100 text-sky-600"><Package size={15} /></div>
+            <span className="text-sm font-bold text-slate-700">การรับเข้ารายเดือน</span>
+            {lastLabel && <span className="text-xs text-slate-400">ล่าสุด {lastLabel}</span>}
+          </div>
+          <TrendBadge pct={trend.receivePct} />
+        </div>
+        <ResponsiveContainer width="100%" height={170}>
+          <BarChart data={receive} margin={{ top: 5, right: 12, left: -18, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
+            <Tooltip formatter={(v) => [`${v} ครั้ง`, 'รับเข้า']} cursor={{ fill: '#f8fafc' }} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+            <Bar dataKey="count" fill="#38bdf8" radius={[6, 6, 0, 0]} maxBarSize={40} />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
 
       {/* ตารางยาต้องสั่งซื้อ (Top 5) */}
@@ -1822,7 +1592,7 @@ function DashboardCharts({ charts, lowStock = [], onOpenReorder }) {
 }
 
 // ---- Quick stats (staff view only) ----
-function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] }, isStaff = false, onOpenExpiry, onOpenLowStock, onOpenRequisition, onOpenStock, onStatsReady }) {
+function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] }, onOpenExpiry, onOpenLowStock, onOpenRequisition, onOpenStock, onStatsReady }) {
   const [stats, setStats] = React.useState({ inventory: '-', pending: 0 });
 
   const loadStats = React.useCallback(async () => {
@@ -1901,7 +1671,7 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] 
     },
   ];
 
-  const items = isStaff ? [...baseItems, ...staffItems] : baseItems;
+  const items = [...baseItems, ...staffItems];   // การ์ด "Stock ต่ำกว่ากำหนด" แสดงทุก role
   const colsMap = { 3: 'sm:grid-cols-3', 4: 'sm:grid-cols-4', 5: 'sm:grid-cols-5', 6: 'sm:grid-cols-3 lg:grid-cols-6' };
   const cols = colsMap[items.length] || 'sm:grid-cols-2';
 
