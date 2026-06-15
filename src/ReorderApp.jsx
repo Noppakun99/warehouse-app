@@ -2,9 +2,9 @@
 // อ้างอิง spec §3 — logic อยู่ใน src/lib/reorder.js (pure functions + tests)
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  ArrowLeft, AlertTriangle, Package, Building2, CheckCircle2, XCircle, Clock,
+  ShoppingCart, AlertTriangle, Package, Building2, CheckCircle2, XCircle, Clock,
   ChevronDown, FileSpreadsheet, Printer, Save, History, Search, Upload,
-  Pencil, ListChecks, AlertCircle, Loader2, RefreshCw, X, ClipboardList,
+  Pencil, ListChecks, AlertCircle, Loader2, RefreshCw, X,
   Database, Calendar, ShieldAlert, TrendingDown, Trash2,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -14,10 +14,11 @@ import {
   fetchInventory, fetchDrugReorderConfig, upsertDrugReorderConfig,
   bulkUpsertDrugReorderConfig, fetchMonthlyDispenseUsage, saveAnalysisRun,
   fetchAnalysisRuns, deleteAnalysisRun, logReorderAction,
+  fetchLatestReceiptInfo, parseUnitFactor,
 } from './lib/db';
 import { exportToExcel } from './lib/exportExcel';
 import {
-  analyzeBatch, analyzeDrug, STATUS, REFILL_FACTOR, DEFAULT_LEAD_TIME,
+  analyzeBatch, analyzeDrug, STATUS, DEFAULT_LEAD_TIME,
   computeSafetyStock,
 } from './lib/reorder';
 
@@ -47,11 +48,17 @@ const TONE_CLASSES = {
   slate:   { chip: 'bg-slate-100 text-slate-600 border-slate-200', bar: 'bg-slate-400',   text: 'text-slate-600' },
 };
 
+// VEN (Excel) ↔ risk_group (schema เดิม): V=Vital=Critical, E=Essential, N=Non-essential=Normal
 const RISK_OPTIONS = [
-  { value: 'Normal',    label: 'Normal (1.0×)',    color: 'text-slate-600' },
-  { value: 'Essential', label: 'Essential (1.5×)', color: 'text-amber-700' },
-  { value: 'Critical',  label: 'Critical (2.0×)',  color: 'text-rose-700'  },
+  { value: 'Critical',  label: 'V — Vital (2.0×)',         color: 'text-rose-700'  },
+  { value: 'Essential', label: 'E — Essential (1.5×)',     color: 'text-amber-700' },
+  { value: 'Normal',    label: 'N — Non-essential (1.0×)', color: 'text-slate-600' },
 ];
+
+// risk_group → ตัวอักษร VEN (สำหรับ badge)
+// ว่าง/null = ยังไม่จัดกลุ่ม → "E?" (คำนวณด้วย default 1.5 = Essential, ? = ค่า default ไม่ใช่จัดกลุ่มจริง — ดู docs/adr/0002)
+const venLetter = (risk) =>
+  risk === 'Critical' ? 'V' : risk === 'Essential' ? 'E' : risk === 'Normal' ? 'N' : 'E?';
 
 const EXCLUDE_OPTIONS = [
   { value: '',                label: 'คำนวณตามปกติ' },
@@ -88,10 +95,37 @@ const fmtBaht = (n) => new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2
 const fmtNum  = (n) => new Intl.NumberFormat('th-TH').format(Math.round(n || 0));
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+// ISO → DD/MM/YY (พ.ศ.) สั้น
+const fmtThaiDate = (iso) => {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${(Number(m[1]) + 543) % 100}` : '-';
+};
+
+// คงอยู่ได้อีก (Coverage): คงเหลือ ÷ Avg/วัน → "X ปี Y ด. Z วัน" (หน่วยเดียวกันทั้งคู่)
+const fmtCoverage = (stock, avgDay) => {
+  if (!avgDay || avgDay <= 0) return stock > 0 ? '∞' : '—';
+  let days = Math.floor(stock / avgDay);
+  if (days <= 0) return '0 วัน';
+  const y = Math.floor(days / 365); days -= y * 365;
+  const mo = Math.floor(days / 30); days -= mo * 30;
+  const parts = [];
+  if (y) parts.push(`${y} ปี`);
+  if (mo) parts.push(`${mo} ด.`);
+  if (days) parts.push(`${days} วัน`);
+  return parts.join(' ') || '0 วัน';
+};
+
 function isoMonthsAgo(months) {
   const d = new Date();
   d.setDate(1);
   d.setMonth(d.getMonth() - months);
+  return d.toISOString().slice(0, 10);
+}
+
+// วันสุดท้ายของเดือนก่อนหน้า (ปิดงวดเดือนปัจจุบันที่ยังไม่ครบออก)
+function isoPrevMonthEnd() {
+  const d = new Date();
+  d.setDate(0);
   return d.toISOString().slice(0, 10);
 }
 
@@ -135,10 +169,13 @@ function IsoDateInput({ value, onChange, className = '' }) {
   };
   return (
     <div className={`relative flex items-center bg-white border border-slate-300 rounded-lg focus-within:ring-2 focus-within:ring-orange-400 ${className}`}>
-      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
+      <span className={`pl-3 pr-8 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
         {display(value) || 'dd/mm/yyyy'}
       </span>
+      <Calendar size={15} className="absolute right-2.5 text-slate-400 pointer-events-none"/>
+      {/* type=date: คลิก = showPicker (desktop) guarded ด้วย try/catch + ?. → mobile แตะเปิด native ได้ตามปกติ */}
       <input type="date" value={value || ''} onChange={(e) => onChange(e.target.value)}
+        onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch { /* noop */ } }}
         className="absolute inset-0 opacity-0 w-full cursor-pointer"/>
     </div>
   );
@@ -280,8 +317,10 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
       const parsed = arr.map(r => {
         const code = String(r['รหัส'] ?? r['code'] ?? r['Code'] ?? '').trim();
         if (!code) return null;
-        const risk = String(r['risk'] ?? r['risk_group'] ?? r['Risk'] ?? 'Normal').trim();
-        const riskNorm = ['Normal','Essential','Critical'].includes(risk) ? risk : 'Normal';
+        // รับได้ทั้ง risk_group เดิม (Normal/Essential/Critical) และ VEN (V/E/N) → map เป็น enum
+        const risk = String(r['VEN'] ?? r['ven'] ?? r['กลุ่ม VEN'] ?? r['risk'] ?? r['risk_group'] ?? r['Risk'] ?? 'Normal').trim();
+        const VEN_MAP = { V: 'Critical', E: 'Essential', N: 'Normal' };
+        const riskNorm = VEN_MAP[risk.toUpperCase()] ?? (['Normal','Essential','Critical'].includes(risk) ? risk : 'Normal');
         return {
           code,
           name: String(r['ชื่อยา'] ?? r['name'] ?? r['Name'] ?? '').trim() || null,
@@ -368,11 +407,10 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
 // ────────────────────────────────────────────────────────────
 // Main App
 // ────────────────────────────────────────────────────────────
-export default function ReorderApp({ onBack, auth = {} }) {
+export default function ReorderApp({ onRefresh, auth = {} }) {
   // ── Filters / control state ──
   const [statsFrom, setStatsFrom] = useState(isoMonthsAgo(4));
-  const [statsTo,   setStatsTo]   = useState(todayIso());
-  const [mode,      setMode]      = useState('normal');
+  const [statsTo,   setStatsTo]   = useState(isoPrevMonthEnd());
   const [excludedMonth, setExcludedMonth] = useState('');
   const [leadDefault,   setLeadDefault]   = useState(DEFAULT_LEAD_TIME);
   const [search, setSearch] = useState('');
@@ -395,6 +433,7 @@ export default function ReorderApp({ onBack, auth = {} }) {
   // ── Data ──
   const [inventory, setInventory] = useState({});
   const [configMap, setConfigMap] = useState({}); // code -> config
+  const [receiptInfo, setReceiptInfo] = useState({}); // codeLower -> { unit, factor, supplier, pricePerUnit, receiveDate, leadTimeAvg }
   const [, setUsage] = useState({});              // raw usage cache (set for debugging)
   const [loadingData, setLoadingData] = useState(true);
   const [running, setRunning] = useState(false);
@@ -417,9 +456,10 @@ export default function ReorderApp({ onBack, auth = {} }) {
     (async () => {
       setLoadingData(true);
       try {
-        const [inv, cfg] = await Promise.all([fetchInventory(), fetchDrugReorderConfig()]);
+        const [inv, cfg, receipt] = await Promise.all([fetchInventory(), fetchDrugReorderConfig(), fetchLatestReceiptInfo()]);
         setInventory(inv || {});
         setConfigMap(Object.fromEntries((cfg || []).map(c => [codeKey(c.code), c])));
+        setReceiptInfo(receipt || {});
       } catch (e) { setRunError(e.message || 'โหลดข้อมูลไม่สำเร็จ'); }
       finally { setLoadingData(false); }
     })();
@@ -432,7 +472,7 @@ export default function ReorderApp({ onBack, auth = {} }) {
     Object.values(inventory).forEach(items => items.forEach(item => {
       const ck = codeKey(item.code);
       if (!ck) return;
-      const qty = parseFloat(String(item.qty ?? '0').replace(/,/g, '')) || 0;
+      const qty = (parseFloat(String(item.qty ?? '0').replace(/,/g, '')) || 0) * parseUnitFactor(item.unit).factor; // → เม็ด
       if (!out[ck]) out[ck] = { stock: 0, nearestExpiryDays: null, name: item.name || '', unit: item.unit || '', type: item.type || '', rawCode: item.code };
       out[ck].stock += qty;
       if (qty > 0) {
@@ -460,42 +500,54 @@ export default function ReorderApp({ onBack, auth = {} }) {
       setUsage(u);
       // Build payload again with fresh usage
       const allCodes = new Set([...Object.keys(stockInfo), ...Object.keys(u)]);
+      // re-key receipt info ด้วย codeKey ให้ตรงกับ stockInfo (กัน sci-notation / leading zero)
+      const receiptByCk = {};
+      for (const [k, v] of Object.entries(receiptInfo)) receiptByCk[codeKey(k)] = v;
       const arr = [];
       for (const ck of allCodes) {
         const info = stockInfo[ck] || {};
         const ur = u[ck];
         const cfg = configMap[ck] || {};
+        const rc = receiptByCk[ck] || {};
+        // stock + usage เก็บเป็นเม็ด → แปลงเป็นหน่วยซื้อล่าสุด (pack) ก่อนคำนวณ
+        // ตัวหาร = factor หน่วยซื้อล่าสุด (fallback: หน่วย inventory → pack_size → 1)
+        const packFactor = rc.factor || parseUnitFactor(info.unit).factor || parseFloat(cfg.pack_size) || 1;
+        const toPack = (qtyBase) => packFactor > 0 ? qtyBase / packFactor : qtyBase;
         const monthlyUsage = monthsInRange
           .filter(mm => mm !== excludedMonth)
-          .map(mm => ur?.months?.[mm] || 0);
+          .map(mm => toPack(ur?.months?.[mm] || 0));
         arr.push({
           code: info.rawCode || ck,
           name: cfg.name || info.name || ur?.name || '',
           monthlyUsage,
-          stock: info.stock || 0,
-          leadTimeDays: cfg.lead_time_days ?? leadDefault,
-          riskGroup: cfg.risk_group || 'Normal',
+          stock: toPack(info.stock || 0),
+          leadTimeDays: cfg.lead_time_days ?? (rc.leadTimeAvg > 0 ? rc.leadTimeAvg : leadDefault),
+          riskGroup: cfg.risk_group || null,   // ว่าง → null เพื่อให้ถึง default 1.5 (ดู docs/adr/0002)
           excludeStatus: cfg.exclude_status || null,
-          pricePerUnit: parseFloat(cfg.price_per_unit) || 0,
-          supplier: cfg.supplier || '',
+          pricePerUnit: rc.pricePerUnit || parseFloat(cfg.price_per_unit) || 0,
+          supplier: rc.supplier || cfg.supplier || '',
           nearestExpiryDays: info.nearestExpiryDays,
-          unit: info.unit, type: info.type, _ck: ck,
+          unit: rc.unit || info.unit, type: info.type, _ck: ck,
+          packFactor, receiveDate: rc.receiveDate || null,
         });
       }
-      const out = analyzeBatch(arr, { mode });
-      // attach unit/type back
-      const ckUnit = Object.fromEntries(arr.map(d => [d._ck, d]));
-      out.rows = out.rows.map(r => ({ ...r, unit: ckUnit[codeKey(r.code)]?.unit, type: ckUnit[codeKey(r.code)]?.type, nearestExpiryDays: ckUnit[codeKey(r.code)]?.nearestExpiryDays }));
+      const out = analyzeBatch(arr);
+      // attach unit/type/packFactor/receiveDate back
+      const ckMeta = Object.fromEntries(arr.map(d => [d._ck, d]));
+      out.rows = out.rows.map(r => {
+        const m = ckMeta[codeKey(r.code)] || {};
+        return { ...r, unit: m.unit, type: m.type, nearestExpiryDays: m.nearestExpiryDays, packFactor: m.packFactor || 1, receiveDate: m.receiveDate || null };
+      });
       out.reorderRows = out.rows.filter(r => r.orderQty > 0).length;
       setResult(out);
       await logReorderAction('analysis_view', {
-        mode, stats_from: statsFrom, stats_to: statsTo,
+        mode: 'normal', stats_from: statsFrom, stats_to: statsTo,
         total_rows: out.rows.length, reorder_rows: out.reorderRows,
         total_amount: out.totals.totalAmount,
       }, auth);
     } catch (e) { setRunError(e.message || 'รันวิเคราะห์ไม่สำเร็จ'); }
     finally { setRunning(false); }
-  }, [statsFrom, statsTo, mode, excludedMonth, leadDefault, stockInfo, configMap, monthsInRange, auth]);
+  }, [statsFrom, statsTo, excludedMonth, leadDefault, stockInfo, configMap, receiptInfo, monthsInRange, auth]);
 
   // Auto-run when initial data loaded
   useEffect(() => {
@@ -529,7 +581,7 @@ export default function ReorderApp({ onBack, auth = {} }) {
     if (!result) return;
     try {
       const id = await saveAnalysisRun({
-        mode, stats_from: statsFrom, stats_to: statsTo,
+        mode: 'normal', stats_from: statsFrom, stats_to: statsTo,
         excluded_month: excludedMonth || null,
         lead_time_default: leadDefault,
         snapshot_date: todayIso(),
@@ -541,7 +593,7 @@ export default function ReorderApp({ onBack, auth = {} }) {
       }, auth);
       alert(`บันทึก Snapshot สำเร็จ (ID #${id})`);
     } catch (e) { alert('บันทึก Snapshot ไม่สำเร็จ: ' + (e.message || e)); }
-  }, [result, mode, statsFrom, statsTo, excludedMonth, leadDefault, auth]);
+  }, [result, statsFrom, statsTo, excludedMonth, leadDefault, auth]);
 
   // Filtered rows based on search + status filter
   const filteredRows = useMemo(() => {
@@ -566,25 +618,21 @@ export default function ReorderApp({ onBack, auth = {} }) {
   // ────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-800 pb-20">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-orange-700 to-rose-700 text-white px-4 sm:px-6 py-4 sticky top-0 z-30 shadow-md">
+      {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + action */}
+      <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 sticky top-0 z-30">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">
-            <button onClick={onBack} className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-xl text-sm font-medium">
-              <ArrowLeft size={14}/> กลับ
+            <div className="p-1.5 rounded-lg bg-orange-100 text-orange-600 shrink-0"><ShoppingCart size={18}/></div>
+            <button onClick={onRefresh} className="text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
+              <h1 className="text-base sm:text-lg font-bold leading-tight text-slate-800">ระบบวิเคราะห์การสั่งซื้อยา</h1>
+              <p className="text-xs text-slate-400">คำนวณ ROP · Safety Stock · ใบสั่งซื้อแยกบริษัท · ตามสูตรจาก Excel "วิเคราะห์สั่งซื้อ"</p>
             </button>
-            <div>
-              <h1 className="text-lg sm:text-xl font-bold flex items-center gap-2">
-                <ClipboardList size={18}/> ระบบวิเคราะห์การสั่งซื้อยา
-              </h1>
-              <p className="text-xs text-orange-100">คำนวณ ROP · Safety Stock · ใบสั่งซื้อแยกบริษัท · ตามสูตรจาก Excel "วิเคราะห์สั่งซื้อ"</p>
-            </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={() => setImportOpen(true)} className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium">
+            <button onClick={() => setImportOpen(true)} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
               <Upload size={14}/> Import Master
             </button>
-            <button onClick={saveSnapshot} disabled={!result || running} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium">
+            <button onClick={saveSnapshot} disabled={!result || running} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
               <Save size={14}/> บันทึก Snapshot
             </button>
           </div>
@@ -594,7 +642,7 @@ export default function ReorderApp({ onBack, auth = {} }) {
       <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-4 space-y-4">
         {/* Control Bar */}
         <ControlBar
-          {...{ statsFrom, setStatsFrom, statsTo, setStatsTo, mode, setMode, excludedMonth, setExcludedMonth, leadDefault, setLeadDefault, search, setSearch, drugNames, monthsInRange, running, onRun: runAnalysis }}
+          {...{ statsFrom, setStatsFrom, statsTo, setStatsTo, excludedMonth, setExcludedMonth, leadDefault, setLeadDefault, search, setSearch, drugNames, monthsInRange, running, onRun: runAnalysis }}
         />
 
         {runError && (
@@ -636,7 +684,6 @@ export default function ReorderApp({ onBack, auth = {} }) {
                 rows={filteredRows}
                 orderedMap={orderedMap} toggleOrdered={toggleOrdered}
                 onEdit={setEditingDrug} auth={auth}
-                mode={mode}
               />
             ) : tab === 'supplier' ? (
               <SupplierTab suppliers={result.suppliers} totalAmount={result.totals.totalAmount} auth={auth}/>
@@ -658,10 +705,10 @@ export default function ReorderApp({ onBack, auth = {} }) {
 // ────────────────────────────────────────────────────────────
 // Sub-components
 // ────────────────────────────────────────────────────────────
-function ControlBar({ statsFrom, setStatsFrom, statsTo, setStatsTo, mode, setMode, excludedMonth, setExcludedMonth, leadDefault, setLeadDefault, search, setSearch, drugNames, monthsInRange, running, onRun }) {
+function ControlBar({ statsFrom, setStatsFrom, statsTo, setStatsTo, excludedMonth, setExcludedMonth, leadDefault, setLeadDefault, search, setSearch, drugNames, monthsInRange, running, onRun }) {
   return (
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-3 sm:p-4 space-y-3">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         <div>
           <label className="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Calendar size={11}/> ช่วงสถิติ (จาก)</label>
           <IsoDateInput value={statsFrom} onChange={setStatsFrom} className="w-full"/>
@@ -669,13 +716,6 @@ function ControlBar({ statsFrom, setStatsFrom, statsTo, setStatsTo, mode, setMod
         <div>
           <label className="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Calendar size={11}/> ถึง</label>
           <IsoDateInput value={statsTo} onChange={setStatsTo} className="w-full"/>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">โหมด</label>
-          <div className="flex bg-slate-100 rounded-lg p-1 gap-1">
-            <button onClick={() => setMode('normal')} className={`flex-1 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors ${mode === 'normal' ? 'bg-white shadow-sm text-orange-700' : 'text-slate-600 hover:text-slate-800'}`}>Normal ({REFILL_FACTOR.normal}×)</button>
-            <button onClick={() => setMode('refill')} className={`flex-1 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors ${mode === 'refill' ? 'bg-white shadow-sm text-rose-700' : 'text-slate-600 hover:text-slate-800'}`}>Refill ({REFILL_FACTOR.refill}×)</button>
-          </div>
         </div>
         <div>
           <label className="block text-xs font-semibold text-slate-500 mb-1">Lead Time default (วัน)</label>
@@ -697,7 +737,7 @@ function ControlBar({ statsFrom, setStatsFrom, statsTo, setStatsTo, mode, setMod
           />
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">เดือนตัดออก (Refill)</label>
+          <label className="block text-xs font-semibold text-slate-500 mb-1">เดือนตัดออก (ช่วง Refill)</label>
           <select value={excludedMonth} onChange={(e) => setExcludedMonth(e.target.value)}
             className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white">
             <option value="">— ไม่ตัด —</option>
@@ -759,7 +799,7 @@ function EmptyState({ text }) {
 // ────────────────────────────────────────────────────────────
 // Analysis tab — table (desktop) + cards (mobile)
 // ────────────────────────────────────────────────────────────
-function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, mode }) {
+function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth }) {
   const [sortBy, setSortBy] = useState('status'); // status | amount | gap
   const [exporting, setExporting] = useState(false);
 
@@ -777,22 +817,26 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, mode }) {
       await exportToExcel(sorted, [
         { header: 'รหัส',  key: 'code' },
         { header: 'ชื่อยา', key: 'name' },
-        { header: 'Risk',  key: 'riskGroup' },
-        { header: 'หน่วย', key: 'unit' },
-        { header: 'บริษัท', key: 'supplier' },
+        { header: 'VEN',  value: r => venLetter(r.riskGroup) },
+        { header: 'หน่วยซื้อ', key: 'unit' },
+        { header: 'บริษัทล่าสุด', key: 'supplier' },
+        { header: 'วันรับล่าสุด', value: r => fmtThaiDate(r.receiveDate) },
         { header: 'Max',   value: r => Math.round(r.max) },
         { header: 'Avg/mo', value: r => Math.round(r.avgMonth) },
         { header: 'Avg/d',  value: r => Math.round(r.avgDay * 100) / 100 },
-        { header: 'คงเหลือ', key: 'stock' },
+        { header: 'คงเหลือ', value: r => Math.round(r.stock) },
+        { header: 'คงอยู่ได้อีก', value: r => fmtCoverage(r.stock, r.avgDay) },
         { header: 'SS',    key: 'ss' },
         { header: 'ROP',   key: 'rop' },
-        { header: 'Lead Time', key: 'leadTimeDays' },
-        { header: 'ต้องซื้อ',  key: 'orderQty' },
-        { header: 'ราคา/หน่วย', key: 'pricePerUnit' },
+        { header: 'คงเหลือ−ROP', value: r => Math.round(r.stock - r.rop) },
+        { header: 'Lead Time', value: r => Math.round((r.leadTimeDays || 0) * 100) / 100 },
+        { header: 'ต้องซื้อ(หน่วยซื้อ)',  value: r => Math.round(r.orderQty) },
+        { header: 'ต้องซื้อ(เม็ด)', value: r => Math.round(r.orderQty * (r.packFactor || 1)) },
+        { header: 'ราคา/หน่วยซื้อ', key: 'pricePerUnit' },
         { header: 'มูลค่า',     key: 'amount' },
         { header: 'สถานะ',     key: 'status' },
         { header: 'หมดอายุ (วัน)', key: 'nearestExpiryDays' },
-      ], 'reorder', `วิเคราะห์สั่งซื้อ_${todayIso()}_${mode}.xlsx`, auth);
+      ], 'reorder', `วิเคราะห์สั่งซื้อ_${todayIso()}.xlsx`, auth);
     } finally { setExporting(false); }
   };
 
@@ -827,6 +871,7 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, mode }) {
               <th className="px-3 py-2.5 text-right font-semibold">คงเหลือ</th>
               <th className="px-3 py-2.5 text-right font-semibold bg-rose-800">SS</th>
               <th className="px-3 py-2.5 text-right font-semibold bg-orange-800">ROP</th>
+              <th className="px-3 py-2.5 text-right font-semibold">คงเหลือ−ROP</th>
               <th className="px-3 py-2.5 text-right font-semibold bg-cyan-800">ต้องซื้อ</th>
               <th className="px-3 py-2.5 text-right font-semibold bg-emerald-800">มูลค่า</th>
               <th className="px-3 py-2.5 text-center font-semibold">สถานะ</th>
@@ -859,15 +904,16 @@ function AnalysisRow({ r, ordered, toggleOrdered, onEdit }) {
           {ordered && <CheckCircle2 size={13} className="text-emerald-600"/>}
           <span className={ordered ? 'line-through text-slate-400' : ''}>{r.name || '-'}</span>
         </div>
-        <div className="text-xs text-slate-400 font-mono">{r.code}{r.supplier ? ` · ${r.supplier}` : ''}</div>
+        <div className="text-xs text-slate-400 font-mono">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}{r.receiveDate ? ` · รับ ${fmtThaiDate(r.receiveDate)}` : ''}</div>
       </td>
       <td className="px-3 py-2.5 text-center">
-        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.riskGroup === 'Critical' ? 'bg-rose-50 border-rose-200 text-rose-700' : r.riskGroup === 'Essential' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>{r.riskGroup?.[0] || 'N'}</span>
+        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.riskGroup === 'Critical' ? 'bg-rose-50 border-rose-200 text-rose-700' : r.riskGroup === 'Normal' ? 'bg-slate-100 border-slate-200 text-slate-600' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>{venLetter(r.riskGroup)}</span>
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums">{fmtNum(r.max)}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{fmtNum(r.avgMonth)}</td>
       <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
         <div>{fmtNum(r.stock)}</div>
+        <div className="text-[10px] font-normal text-slate-400">อยู่ได้ {fmtCoverage(r.stock, r.avgDay)}</div>
         {r.rop > 0 && (
           <div className="w-20 bg-slate-200 rounded-full h-1 mt-1 ml-auto">
             <div className={`h-1 rounded-full ${tone.bar}`} style={{ width: `${Math.min(100, (r.stock / r.rop) * 100)}%` }}/>
@@ -876,8 +922,14 @@ function AnalysisRow({ r, ordered, toggleOrdered, onEdit }) {
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums text-rose-700 font-semibold">{fmtNum(r.ss)}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-orange-700 font-semibold">{fmtNum(r.rop)}</td>
+      <td className={`px-3 py-2.5 text-right tabular-nums font-semibold ${gap < 0 ? 'text-rose-600' : 'text-slate-500'}`}>{fmtNum(gap)}</td>
       <td className="px-3 py-2.5 text-right tabular-nums font-bold">
-        {r.orderQty > 0 ? <span className="text-cyan-700">{fmtNum(r.orderQty)}</span> : <span className="text-slate-300">—</span>}
+        {r.orderQty > 0 ? (
+          <>
+            <span className="text-cyan-700">{fmtNum(r.orderQty)}</span>
+            {(r.packFactor || 1) > 1 && <div className="text-[10px] font-normal text-slate-400">{fmtNum(r.orderQty * r.packFactor)} {parseUnitFactor(r.unit).base}</div>}
+          </>
+        ) : <span className="text-slate-300">—</span>}
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums">
         {r.amount > 0 ? <span className="font-bold text-emerald-700">฿{fmtBaht(r.amount)}</span> : <span className="text-slate-300">—</span>}
@@ -912,7 +964,7 @@ function AnalysisCard({ r, ordered, toggleOrdered, onEdit }) {
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex-1 min-w-0">
           <div className={`font-bold text-sm leading-tight ${ordered ? 'line-through text-slate-400' : 'text-slate-800'}`}>{r.name || '-'}</div>
-          <div className="text-[11px] text-slate-400 font-mono">{r.code}{r.supplier ? ` · ${r.supplier}` : ''}</div>
+          <div className="text-[11px] text-slate-400 font-mono">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}</div>
         </div>
         <span className={`inline-flex items-center gap-1 ${tone.chip} px-2 py-0.5 rounded-full text-[10px] font-semibold border whitespace-nowrap`}>
           <Icon size={10}/> {r.status}
@@ -923,6 +975,11 @@ function AnalysisCard({ r, ordered, toggleOrdered, onEdit }) {
         <Stat label="SS"      value={fmtNum(r.ss)}    tone="rose"/>
         <Stat label="ROP"     value={fmtNum(r.rop)}   tone="orange"/>
         <Stat label="ต้องซื้อ" value={r.orderQty > 0 ? fmtNum(r.orderQty) : '—'} tone="cyan"/>
+      </div>
+      <div className="text-[10px] text-slate-400 mb-2">
+        อยู่ได้ {fmtCoverage(r.stock, r.avgDay)}
+        {(r.packFactor || 1) > 1 && r.orderQty > 0 ? ` · สั่ง ${fmtNum(r.orderQty * r.packFactor)} ${parseUnitFactor(r.unit).base}` : ''}
+        {r.receiveDate ? ` · รับ ${fmtThaiDate(r.receiveDate)}` : ''}
       </div>
       <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
         <div className="text-sm">
@@ -973,11 +1030,13 @@ function SupplierCard({ group, auth }) {
     await exportToExcel(group.items, [
       { header: 'รหัส', key: 'code' },
       { header: 'ชื่อยา', key: 'name' },
-      { header: 'หน่วย', key: 'unit' },
-      { header: 'คงเหลือ', key: 'stock' },
+      { header: 'หน่วยซื้อ', key: 'unit' },
+      { header: 'บริษัทล่าสุด', key: 'supplier' },
+      { header: 'คงเหลือ', value: r => Math.round(r.stock) },
       { header: 'ROP', key: 'rop' },
-      { header: 'ต้องซื้อ', key: 'orderQty' },
-      { header: 'ราคา/หน่วย', key: 'pricePerUnit' },
+      { header: 'ต้องซื้อ(หน่วยซื้อ)', value: r => Math.round(r.orderQty) },
+      { header: 'ต้องซื้อ(เม็ด)', value: r => Math.round(r.orderQty * (r.packFactor || 1)) },
+      { header: 'ราคา/หน่วยซื้อ', key: 'pricePerUnit' },
       { header: 'มูลค่า', key: 'amount' },
     ], group.supplier, `PO_${group.supplier.replace(/\s+/g, '_')}_${todayIso()}.xlsx`, auth);
   };
@@ -1104,18 +1163,18 @@ function VerifyTab() {
       cases.push({ label, actual, expected, ok });
     };
 
-    // Test 1: Atorvastatin Refill
+    // Test 1: Atorvastatin (สูตร Excel — SS ฐาน 30, factor 2.3)
     const r1 = analyzeDrug({
       code: 'ATOR40', name: 'Atorvastatin 40mg',
       monthlyUsage: [2833, 1477, 1960, 2603], stock: 4400,
       leadTimeDays: 15.5, riskGroup: 'Essential', pricePerUnit: 33.30,
-    }, { mode: 'refill' });
+    });
     assert('Atorvastatin · Max', r1.max, 2833);
     assert('Atorvastatin · Avg/mo', r1.avgMonth, 2218.25);
-    assert('Atorvastatin · SS', r1.ss, 6655);
-    assert('Atorvastatin · ROP', r1.rop, 7801);
-    assert('Atorvastatin · V', r1.orderQty, 3401);
-    assert('Atorvastatin · Amount', r1.amount, 113253.30);
+    assert('Atorvastatin · SS', r1.ss, 3327);
+    assert('Atorvastatin · ROP', r1.rop, 4473);
+    assert('Atorvastatin · V', r1.orderQty, 1266);
+    assert('Atorvastatin · Amount', r1.amount, 42157.80);
     assert('Atorvastatin · Status', r1.status, STATUS.REORDER);
 
     // Test 2: Excluded
@@ -1126,19 +1185,37 @@ function VerifyTab() {
     const r3 = analyzeDrug({ code: 'X', monthlyUsage: [100,100,100,100], stock: 0 });
     assert('หมดสต็อค · status', r3.status, STATUS.OUT_OF_STOCK);
 
-    // Test 4: Refill > Normal
-    const drug4 = { code: 'X', monthlyUsage: [100,100,100,100], stock: 0, leadTimeDays: 5 };
-    const normal = analyzeDrug(drug4, { mode: 'normal' });
-    const refill = analyzeDrug(drug4, { mode: 'refill' });
-    assert('Refill V > Normal V', refill.orderQty > normal.orderQty, true);
+    // Test 4: Acetaminophen syrup — Excel reference (SS=506, ROP=686)
+    const r4 = analyzeDrug({
+      code: 'PARA-SYR', name: 'Acetaminophen 120mg/5ml',
+      monthlyUsage: [337.5, 337.5, 337.5, 337.5], stock: 900,
+      leadTimeDays: 16, riskGroup: 'Essential',
+    });
+    assert('Para syrup · SS = 506', r4.ss, 506);
+    assert('Para syrup · ROP = 686', r4.rop, 686);
+    assert('Para syrup · status = เพียงพอ', r4.status, STATUS.SUFFICIENT);
 
     // Test 5: Edge case (no usage)
     const r5 = analyzeDrug({ code: 'X', monthlyUsage: [0,0,0,0], stock: 0 });
     assert('ไม่เคยเบิก · V = 1 (fallback)', r5.orderQty, 1);
     assert('ไม่เคยเบิก · SS = 1', r5.ss, 1);
 
-    // SS cap
-    assert('SS cap Critical (avg/d=10) = 900', computeSafetyStock(10, 2.0), 900);
+    // Test 6: Lidocaine (แถวจริง Excel) — round avgDay 4 ตำแหน่ง
+    const r6 = analyzeDrug({
+      code: 'LIDO', name: 'Lidocaine',
+      monthlyUsage: [100, 0, 0, 0], stock: 0, leadTimeDays: 20, riskGroup: 'Essential',
+    });
+    assert('Lidocaine · SS = 37 (ไม่ใช่ 38)', r6.ss, 37);
+    assert('Lidocaine · ROP = 54 (ไม่ใช่ 55)', r6.rop, 54);
+    assert('Lidocaine · V = 200', r6.orderQty, 200);
+
+    // Test 7: VEN ว่าง → default 1.5 = Essential (ADR-0002)
+    const rBlank = analyzeDrug({ code: 'B', monthlyUsage: [300,300,300,300], stock: 0, leadTimeDays: 15 });
+    const rEss   = analyzeDrug({ code: 'E', monthlyUsage: [300,300,300,300], stock: 0, leadTimeDays: 15, riskGroup: 'Essential' });
+    assert('VEN ว่าง · SS = Essential (×1.5)', rBlank.ss, rEss.ss);
+
+    // SS ฐาน 30 ไม่ cap
+    assert('SS Critical (avg/d=10) = 600', computeSafetyStock(10, 2.0), 600);
 
     setResults(cases);
     setRunning(false);

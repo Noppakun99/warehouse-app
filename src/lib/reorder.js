@@ -2,17 +2,16 @@
 // อ้างอิง spec §3 Step 1-8 — ห้าม mutate input
 
 export const RISK_MULTIPLIER = { Normal: 1.0, Essential: 1.5, Critical: 2.0 };
-export const REFILL_FACTOR = { normal: 2.0, refill: 2.3 };
-export const DEFAULT_LEAD_TIME = 15;
-export const SS_BASE_DAYS = 60;
-export const SS_DAY_CAP = 90;
+export const ORDER_FACTOR = 2.3;        // Excel: Avg/เดือน × 2.3 (คงที่ ไม่มี Refill mode)
+export const DEFAULT_LEAD_TIME = 20;    // Excel default LT เมื่อไม่มีข้อมูล
+export const SS_BASE_DAYS = 30;         // Excel: Avg/วัน × 30 × ตัวคูณ (ไม่มี cap)
 export const NEAR_EXPIRY_DAYS = 180;
 
 export const STATUS = {
   EXCLUDED: 'ตัดออก',
   ON_DEMAND: 'สั่งเมื่อขอ',
   OUT_OF_STOCK: 'หมดสต็อค',
-  NEAR_EXPIRY: 'ใกล้หมดอายุ',
+  NEAR_EXPIRY: 'สั่งเพิ่ม ใกล้หมดอายุ',
   REORDER: 'สั่งเพิ่ม',
   SUFFICIENT: 'คงคลังเพียงพอ',
 };
@@ -26,15 +25,15 @@ export function computeStats(monthlyUsage) {
   const max = Math.max(...months);
   const sum = months.reduce((s, m) => s + m, 0);
   const avgMonth = sum / months.length;
-  const avgDay = avgMonth / 30;
+  // Excel: ROUND(avg_monthly/30, 4) — ปัดทศนิยม 4 ตำแหน่งก่อนคำนวณ SS/ROP
+  // (ถ้าไม่ปัด ค่าจะคลาด ±1 ที่ขอบ round เช่น Lidocaine 38/55 แทน 37/54)
+  const avgDay = Math.round((avgMonth / 30) * 1e4) / 1e4;
   return { max, avgMonth, avgDay };
 }
 
-// Step 5 — Safety Stock (cap 90 วัน) + ROP
+// Step 5 — Safety Stock (Excel: Avg/วัน × 30 × ตัวคูณ, ขั้นต่ำ 1, ไม่มี cap) + ROP
 export function computeSafetyStock(avgDay, riskMultiplier) {
-  const base = Math.max(1, avgDay * SS_BASE_DAYS * riskMultiplier);
-  const cap = Math.max(1, avgDay * SS_DAY_CAP);
-  return Math.min(base, cap);
+  return Math.max(1, Math.round(avgDay * SS_BASE_DAYS * riskMultiplier));
 }
 
 export function computeROP(rawSS, avgDay, leadTimeDays) {
@@ -51,38 +50,37 @@ export function classifyStatus({ excludeStatus, stock, nearestExpiryDays, rop })
   return STATUS.SUFFICIENT;
 }
 
-// Step 7 — จำนวนแนะนำสั่งซื้อ
-export function computeOrderQty({ status, max, avgMonth, rop, stock, mode }) {
+// Step 7 — จำนวนแนะนำสั่งซื้อ (Excel: MIN(Max×3, MAX(Avg×2.3, Max×2, ROP)) − คงเหลือ)
+export function computeOrderQty({ status, max, avgMonth, rop, stock, ss }) {
   if (ZERO_V_STATUSES.has(status)) return 0;
-  const factor = mode === 'refill' ? REFILL_FACTOR.refill : REFILL_FACTOR.normal;
-  const target = Math.min(max * 3, Math.max(avgMonth * factor, max * 2, rop));
+  // Excel §08: ROUND(avg_monthly*2.3,0) ก่อนเทียบใน MAX (กัน avg×2.3 ชนะแล้วได้ทศนิยม)
+  const target = Math.min(max * 3, Math.max(Math.round(avgMonth * ORDER_FACTOR), max * 2, rop));
   const v = target - stock;
-  if (v <= 0) return Math.max(1, max);
+  if (v <= 0) return max > 0 ? Math.max(1, max) : ss;   // Excel: max=0 → fallback = safety_stock
   return v;
 }
 
 // Orchestrator: Step 1-8 ต่อยา 1 รายการ
-export function analyzeDrug(drug, opts = {}) {
+export function analyzeDrug(drug) {
   const {
     code = '', name = '',
     monthlyUsage = [],
     stock = 0,
     leadTimeDays = DEFAULT_LEAD_TIME,
-    riskGroup = 'Normal',
+    riskGroup = null,   // ว่าง/ไม่ระบุ → null เพื่อให้ถึง default 1.5 ใน riskMult (ดู docs/adr/0002)
     excludeStatus = null,
     pricePerUnit = 0,
     supplier = '',
     nearestExpiryDays = null,
   } = drug;
-  const { mode = 'normal' } = opts;
 
-  const riskMult = RISK_MULTIPLIER[riskGroup] ?? 1.0;
+  // VEN ว่าง/null → default Essential (1.5) ตาม Excel spec (ดู docs/adr/0002)
+  const riskMult = RISK_MULTIPLIER[riskGroup] ?? 1.5;
   const { max, avgMonth, avgDay } = computeStats(monthlyUsage);
-  const rawSS = computeSafetyStock(avgDay, riskMult);
-  const rop = computeROP(rawSS, avgDay, leadTimeDays);
-  const ss = Math.round(rawSS);
+  const ss = computeSafetyStock(avgDay, riskMult);
+  const rop = computeROP(ss, avgDay, leadTimeDays);
   const status = classifyStatus({ excludeStatus, stock, nearestExpiryDays, rop });
-  const orderQty = computeOrderQty({ status, max, avgMonth, rop, stock, mode });
+  const orderQty = computeOrderQty({ status, max, avgMonth, rop, stock, ss });
   const amount = Math.round(orderQty * pricePerUnit * 100) / 100;
 
   return {
@@ -93,8 +91,8 @@ export function analyzeDrug(drug, opts = {}) {
 }
 
 // Step 8 — รวมผลทั้งหมด + จัดกลุ่ม supplier
-export function analyzeBatch(drugs, opts = {}) {
-  const rows = drugs.map(d => analyzeDrug(d, opts));
+export function analyzeBatch(drugs) {
+  const rows = drugs.map(d => analyzeDrug(d));
   const suppliers = groupBySupplier(rows);
   const totals = rows.reduce((t, r) => {
     t.byStatus[r.status] = (t.byStatus[r.status] || 0) + 1;

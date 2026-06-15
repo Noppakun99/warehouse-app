@@ -24,9 +24,9 @@ function assertEq(actual, expected, label) {
 function section(name) { console.log(`\n=== ${name} ===`); }
 
 // ────────────────────────────────────────────────────────────────────
-// Test 1 — Atorvastatin 40mg (Refill mode, พ.ค.69) — Golden จาก Excel
+// Test 1 — Atorvastatin 40mg — สูตร Excel (SS ฐาน 30 ไม่ cap, factor 2.3)
 // ────────────────────────────────────────────────────────────────────
-section('Test 1: Atorvastatin 40mg — Refill mode (Excel golden)');
+section('Test 1: Atorvastatin 40mg — Excel formula (SS ฐาน 30)');
 {
   const r = analyzeDrug({
     code: 'ATOR40',
@@ -36,16 +36,18 @@ section('Test 1: Atorvastatin 40mg — Refill mode (Excel golden)');
     leadTimeDays: 15.5,
     riskGroup: 'Essential',
     pricePerUnit: 33.30,
-  }, { mode: 'refill' });
+  });
 
+  // avgDay=73.9417; SS=round(73.9417×30×1.5)=3327; ROP=round(3327+73.9417×15.5)=4473
+  // target=MIN(2833×3, MAX(2218.25×2.3, 2833×2, 4473))=MIN(8499, 5666)=5666; V=5666−4400=1266
   assertEq(r.max, 2833, 'Max = 2833');
   assertEq(r.avgMonth, 2218.25, 'Avg/mo = 2218.25');
   assertEq(r.avgDay, 73.94166666666666, 'Avg/d ≈ 73.9417');
-  assertEq(r.ss, 6655, 'SS = 6655 (round of 6654.75)');
-  assertEq(r.rop, 7801, 'ROP = 7801');
+  assertEq(r.ss, 3327, 'SS = 3327 (round of 3327.375)');
+  assertEq(r.rop, 4473, 'ROP = 4473');
   assertEq(r.status, STATUS.REORDER, 'Status = สั่งเพิ่ม');
-  assertEq(r.orderQty, 3401, 'V (orderQty) = 3401');
-  assertEq(r.amount, 113253.30, 'Amount = 113253.30');
+  assertEq(r.orderQty, 1266, 'V (orderQty) = 1266');
+  assertEq(r.amount, 42157.80, 'Amount = 42157.80');
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -82,26 +84,22 @@ section('Test 3: คงเหลือ=0 → หมดสต็อค, V>0');
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Test 4 — Refill > Normal สำหรับยาเดียวกัน
+// Test 4 — Golden แถวจริงจาก Excel: Acetaminophen syrup (SS=506, ROP=686)
 // ────────────────────────────────────────────────────────────────────
-section('Test 4: Refill > Normal (เลือก param ที่ avg×factor มีผล)');
+section('Test 4: Acetaminophen syrup — Excel reference (SS=506, ROP=686)');
 {
-  const drug = {
-    code: 'X003', name: 'ยา Refill test',
-    monthlyUsage: [100, 100, 100, 100], // max=100, avgMonth=100
-    stock: 0, leadTimeDays: 5,           // lead<9 ให้ avg×factor > ROP
-    riskGroup: 'Normal',
-    pricePerUnit: 1,
-  };
-  const normal = analyzeDrug(drug, { mode: 'normal' });
-  const refill = analyzeDrug(drug, { mode: 'refill' });
-  if (refill.orderQty > normal.orderQty) pass++;
-  else { fail++; fails.push(`  ✗ Refill (${refill.orderQty}) ต้อง > Normal (${normal.orderQty})`); }
-  // คำนวณคาดหวัง: avgDay=3.333, rawSS=200, ROP=round(200+16.67)=217
-  // Normal: target=MIN(300, MAX(200,200,217))=217 → V=217
-  // Refill: target=MIN(300, MAX(230,200,217))=230 → V=230
-  assertEq(normal.orderQty, 217, 'Normal V = 217');
-  assertEq(refill.orderQty, 230, 'Refill V = 230');
+  // จากรูป Excel: Avg/วัน=11.25 (Avg/mo=337.5), Essential(×1.5), LT=16, stock=900
+  // SS=round(11.25×30×1.5)=506; ROP=round(506+11.25×16)=686
+  const r = analyzeDrug({
+    code: 'PARA-SYR', name: 'Acetaminophen 120mg/5ml',
+    monthlyUsage: [337.5, 337.5, 337.5, 337.5], // avgMonth=337.5 → avgDay=11.25
+    stock: 900, leadTimeDays: 16,
+    riskGroup: 'Essential',
+  });
+  assertEq(r.avgDay, 11.25, 'Avg/วัน = 11.25');
+  assertEq(r.ss, 506, 'SS = 506');
+  assertEq(r.rop, 686, 'ROP = 686');
+  assertEq(r.status, STATUS.SUFFICIENT, 'Status = คงคลังเพียงพอ (stock 900 > ROP 686)');
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -160,17 +158,16 @@ section('Test 6: Sum invariants + status coverage');
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Test 7 — SS cap 90 วันทำงาน (Critical risk ที่ multiplier × 60 > 90)
+// Test 7 — SS = Avg/วัน × 30 × ตัวคูณ (Excel: ฐาน 30 วัน, ไม่มี cap)
 // ────────────────────────────────────────────────────────────────────
-section('Test 7: SS cap 90 วัน (Critical × 60 = 120 > 90 → cap kick in)');
+section('Test 7: SS ฐาน 30 วัน ไม่มี cap');
 {
-  // avgDay=10, Critical (2.0): base = 10*60*2 = 1200; cap = 10*90 = 900 → SS = 900
-  const ss = computeSafetyStock(10, 2.0);
-  assertEq(ss, 900, 'SS = 900 (capped at 90 วัน)');
-  // Essential (1.5): base = 10*60*1.5 = 900; cap = 900 → SS = 900 (เท่า)
-  assertEq(computeSafetyStock(10, 1.5), 900, 'SS = 900 (เท่า cap)');
-  // Normal (1.0): base = 10*60 = 600; cap = 900 → SS = 600 (cap ไม่ทำงาน)
-  assertEq(computeSafetyStock(10, 1.0), 600, 'SS = 600 (cap ไม่ทำงาน)');
+  // avgDay=10: Critical(2.0)=600, Essential(1.5)=450, Normal(1.0)=300 — สัดส่วนตามตัวคูณตรงๆ
+  assertEq(computeSafetyStock(10, 2.0), 600, 'SS Critical = 600 (10×30×2.0)');
+  assertEq(computeSafetyStock(10, 1.5), 450, 'SS Essential = 450 (10×30×1.5)');
+  assertEq(computeSafetyStock(10, 1.0), 300, 'SS Normal = 300 (10×30×1.0)');
+  // ค่าสูง avgDay ไม่ถูก cap (เดิม cap 90 จะตัด — ตอนนี้ไม่มี)
+  assertEq(computeSafetyStock(100, 2.0), 6000, 'SS ไม่ถูก cap (100×30×2.0)');
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -195,6 +192,41 @@ section('Test 9: ใกล้หมดอายุ (≤180 วัน)');
     leadTimeDays: 15, nearestExpiryDays: 90, pricePerUnit: 2,
   });
   assertEq(r.status, STATUS.NEAR_EXPIRY, 'Status = ใกล้หมดอายุ');
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Test 10 — Lidocaine (แถวจริง Excel) — จับบั๊ก round avgDay 4 ตำแหน่ง
+// ────────────────────────────────────────────────────────────────────
+section('Test 10: Lidocaine — round avgDay (Excel: SS=37, ROP=54, order=200)');
+{
+  // avgMonth=25; avgDay=ROUND(25/30,4)=0.8333; SS=round(0.8333×30×1.5)=37; ROP=round(37+0.8333×20)=54
+  // target=MIN(100×3, MAX(round(25×2.3)=58, 100×2=200, 54))=MIN(300,200)=200; V=200−0=200
+  // ถ้าไม่ปัด avgDay (0.83333…): SS=round(37.5)=38, ROP=55 — บั๊กเดิม
+  const r = analyzeDrug({
+    code: 'LIDO', name: 'Lidocaine',
+    monthlyUsage: [100, 0, 0, 0], stock: 0,
+    leadTimeDays: 20, riskGroup: 'Essential',
+  });
+  assertEq(r.avgMonth, 25, 'Avg/mo = 25');
+  assertEq(r.avgDay, 0.8333, 'Avg/d = 0.8333 (round 4)');
+  assertEq(r.ss, 37, 'SS = 37 (ปัด avgDay ก่อน ไม่ใช่ 38)');
+  assertEq(r.rop, 54, 'ROP = 54 (ไม่ใช่ 55)');
+  assertEq(r.status, STATUS.OUT_OF_STOCK, 'Status = หมดสต็อค');
+  assertEq(r.orderQty, 200, 'V = 200 (Max×2)');
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Test 11 — VEN ว่าง/null → default Essential (1.5), ไม่ใช่ Normal (1.0)
+// ────────────────────────────────────────────────────────────────────
+section('Test 11: VEN ว่าง → default 1.5 (ADR-0002)');
+{
+  // ไม่ส่ง riskGroup → ต้อง fallback 1.5 (เท่ากับ Essential) ไม่ใช่ 1.0 (Normal)
+  const blank = analyzeDrug({ code: 'B', monthlyUsage: [300,300,300,300], stock: 0, leadTimeDays: 15 });
+  const ess   = analyzeDrug({ code: 'E', monthlyUsage: [300,300,300,300], stock: 0, leadTimeDays: 15, riskGroup: 'Essential' });
+  const norm  = analyzeDrug({ code: 'N', monthlyUsage: [300,300,300,300], stock: 0, leadTimeDays: 15, riskGroup: 'Normal' });
+  assertEq(blank.ss, ess.ss, 'VEN ว่าง SS = Essential SS (×1.5)');
+  if (blank.ss > norm.ss) pass++;
+  else { fail++; fails.push(`  ✗ VEN ว่าง SS (${blank.ss}) ต้อง > Normal SS (${norm.ss})`); }
 }
 
 // ────────────────────────────────────────────────────────────────────

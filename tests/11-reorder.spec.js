@@ -13,16 +13,10 @@ import { test, expect } from './fixtures.js';
 async function gotoReorder(page) {
   await page.goto('/');
   await page.waitForSelector('text=สวัสดี,', { timeout: 10_000 });
-  // เข้าระบบแผนผังคลังยาก่อน (ระบบสั่งยาอยู่ใน inventory dashboard card)
-  await page.getByText('ระบบแผนผังและข้อมูลคลังยา').first().click().catch(() => {});
-  // ถ้าหน้า dashboard มีปุ่ม "วิเคราะห์การสั่งซื้อ" ตรงๆ ก็เข้าได้เลย
-  const directBtn = page.getByText(/วิเคราะห์การสั่งซื้อ/);
-  if (await directBtn.count() > 0) {
-    await directBtn.first().click();
-  } else {
-    // fallback: เข้าผ่าน inventory dashboard → card "ต่ำกว่าจุดสั่งซื้อ"
-    await page.locator('text=ต่ำกว่าจุดสั่งซื้อ').first().click();
-  }
+  // Dashboard → คลิก card "Stock ต่ำกว่ากำหนด" → เปิด modal แจ้งเตือน
+  await page.getByRole('button', { name: /Stock ต่ำกว่ากำหนด/ }).first().click();
+  // ใน modal มีปุ่ม "เปิดระบบวิเคราะห์การสั่งซื้อ" (desktop) → คลิกเข้า ReorderApp
+  await page.getByRole('button', { name: /เปิดระบบวิเคราะห์การสั่งซื้อ/ }).click();
   await page.waitForSelector('text=ระบบวิเคราะห์การสั่งซื้อยา', { timeout: 10_000 });
 }
 
@@ -34,11 +28,9 @@ test.describe('ReorderApp — smoke', () => {
 
     await expect(page.getByRole('heading', { name: /ระบบวิเคราะห์การสั่งซื้อยา/ })).toBeVisible();
 
-    // Control bar — ช่วงสถิติ + โหมด + Lead Time + ปุ่มรัน
+    // Control bar — ช่วงสถิติ + Lead Time + ปุ่มรัน (ไม่มีโหมด Normal/Refill แล้ว — factor 2.3 คงที่)
     await expect(page.getByText('ช่วงสถิติ (จาก)')).toBeVisible();
-    await expect(page.getByText('โหมด')).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Normal/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Refill/ })).toBeVisible();
+    await expect(page.getByText('Lead Time default (วัน)')).toBeVisible();
     await expect(page.getByRole('button', { name: /รันวิเคราะห์/ })).toBeVisible();
   });
 

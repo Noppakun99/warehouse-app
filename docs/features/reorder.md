@@ -57,29 +57,30 @@ Step 3: Max = MAX(เดือนในช่วงคำนวณ)
         Avg/mo = SUM / months
         Avg/d  = Avg/mo / 30
 
-Step 5: SS  = MIN( MAX(1, Avg/d × 60 × risk),
-                  MAX(1, Avg/d × 90) )       ← cap 90 วัน
+Step 5: SS  = MAX(1, ROUND(Avg/d × 30 × ตัวคูณ))   ← ฐาน 30 วัน, ไม่มี cap (ตรง Excel)
         ROP = ROUND(SS + Avg/d × leadTime, 0)
+        ตัวคูณ (VEN): V/Critical=2.0, E/Essential=1.5, N/Normal=1.0
 
 Step 6: status priority (หยุดเมื่อตรง):
         1. exclude_status='ตัดออก'  → ตัดออก
         2. exclude_status='สั่งเมื่อขอ' → สั่งเมื่อขอ
         3. stock = 0                → หมดสต็อค
-        4. nearestExpiry ≤ 180 วัน  → ใกล้หมดอายุ
+        4. nearestExpiry ≤ 180 วัน  → สั่งเพิ่ม ใกล้หมดอายุ
         5. stock ≤ ROP              → สั่งเพิ่ม
         6. else                     → คงคลังเพียงพอ
 
 Step 7: ถ้า status ∈ {เพียงพอ, ตัดออก, สั่งเมื่อขอ}: V=0
         มิเช่นนั้น:
-            factor = mode==='refill' ? 2.3 : 2.0
-            target = MIN(Max×3, MAX(Avg/mo × factor, Max×2, ROP))
+            target = MIN(Max×3, MAX(Avg/mo × 2.3, Max×2, ROP))   ← factor 2.3 คงที่ (ไม่มี Refill mode)
             V = target − stock
-            ถ้า V ≤ 0: V = MAX(1, Max)       ← fallback
+            ถ้า V ≤ 0: V = MAX(1, Max)       ← fallback (TODO Q3: ยืนยัน Max vs SS)
 ```
 
-**Golden reference** — Atorvastatin 40mg (Refill mode):
-- Input: usage=[2833,1477,1960,2603], stock=4400, LT=15.5, Essential, ฿33.30
-- Expected: SS=6655, ROP=7801, V=3401, Amount=฿113,253.30
+**Golden reference** — Acetaminophen syrup (จากรูป Excel จริง):
+- Input: Avg/mo=337.5 (Avg/d=11.25), stock=900, LT=16, Essential
+- Expected: SS=506, ROP=686, status=คงคลังเพียงพอ (stock 900 > ROP 686)
+- อีกชุด: Atorvastatin 40mg — usage=[2833,1477,1960,2603], stock=4400, LT=15.5, Essential, ฿33.30
+  → SS=3327, ROP=4473, V=1266, Amount=฿42,157.80
 
 ## Audit log actions
 
@@ -109,8 +110,23 @@ npm run test:reorder    # 33 golden assertions — ต้องผ่าน 100%
 
 หรือผ่าน UI: เปิดระบบ → tab "Verification" → กด "Run tests"
 
+## หน่วยคำนวณ & แหล่งข้อมูล (Phase 1 — recompute-in-app, [ADR-0001](../adr/0001-reorder-recompute-vs-import.md))
+
+วิเคราะห์ **ในหน่วยซื้อล่าสุด** (pack ของบิล "การซื้อ" ล่าสุดต่อรหัสยา) ไม่ใช่หน่วยย่อยสุด:
+
+- **หน่วย/ราคา/บริษัท/วันรับ/Lead Time** ← `fetchLatestReceiptInfo()` ([db.js](../../src/lib/db.js)) — บิล `purchase_type='การซื้อ'` ราคา>0 ล่าสุด; LT = **เฉลี่ย** leadtime ของบิลการซื้อทุกใบ (ดู [[Lead Time]] ใน [CONTEXT.md](../../CONTEXT.md))
+- **แปลงหน่วย**: stock + usage รวมเป็นเม็ด (`× parseUnitFactor(unit).factor` ต่อแถว) แล้ว `÷ factor(หน่วยซื้อล่าสุด)` ก่อนเข้า `analyzeBatch` → SS/ROP/V/มูลค่า เป็นหน่วยซื้อ; ราคา = ต่อ pack
+- **คอลัมน์ใหม่ (ตาราง/Excel)**: หน่วยซื้อ · บริษัทล่าสุด · วันรับล่าสุด · คงอยู่ได้อีก (Coverage) · ต้องซื้อ (หน่วยซื้อ + เม็ด)
+- **หน้าต่าง default** = 4 เดือนเต็มล่าสุด (ตัดเดือนปัจจุบันที่ยังไม่ครบ)
+
 ## ข้อจำกัด / TODO
 
 1. **dispense_type filter** — spec ระบุให้กรองรายการที่ `dispense_type='บันทึกเท่านั้น'` ออก แต่ตาราง `dispense_logs` ไม่มี column นี้ ปัจจุบัน filter จาก `main_log`/`note` ที่มีคำว่า "บันทึก" — อาจไม่ครอบคลุม ต้องยืนยันกับ user
-2. **Pack-aware order qty** — `orderQty` ออกเป็นหน่วยรายงาน (เม็ด) ยังไม่หาร pack เป็นจำนวนกล่อง/แพ็ค (อนาคต)
-3. **Mark ordered** เก็บใน localStorage เท่านั้น (per device) — ถ้าต้องการ sync ข้ามอุปกรณ์ ให้สร้าง table `reorder_orders`
+2. **Mark ordered** เก็บใน localStorage เท่านั้น (per device) — ถ้าต้องการ sync ข้ามอุปกรณ์ ให้สร้าง table `reorder_orders`
+3. **Phase 2** (ยังไม่ทำ): reconcile view (upload Excel เทียบ), ธง acute/IV (BR7) + auto-revert Refill, PR/PO generation
+
+## เทียบสูตรกับ Excel (source of truth)
+
+สูตรในแอปกับ Excel "วิเคราะห์สั่งซื้อ" **ยังไม่ตรงทุกจุด** — รายละเอียด gap + Open Questions ดู
+[reorder-excel-spec.md](reorder-excel-spec.md). ทิศทาง: recompute ในแอปให้ผลตรง Excel ([ADR-0001](../adr/0001-reorder-recompute-vs-import.md)).
+**gap ใหญ่: Safety Stock ใช้ฐาน 60 cap 90 แต่ Excel ใช้ฐาน 30 ไม่ cap → SS สูงกว่า ~2 เท่า.**
