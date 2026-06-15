@@ -491,6 +491,62 @@ export async function fetchDashboardAlerts() {
   }
 }
 
+// ดึงจำนวนครั้งเบิก/รับ รายเดือน ย้อนหลัง `months` เดือน (รวมเดือนปัจจุบัน) สำหรับกราฟ Dashboard
+// นับเป็น "จำนวนครั้ง" (record count) ไม่รวม qty — เลี่ยงปัญหาหน่วยปนข้ามแถว (ดู fetchMonthlyDispenseUsage)
+// ผล: { dispense: [{ ym, label, count }], receive: [...], trend: { dispensePct, receivePct } }
+export async function fetchDashboardCharts(months = 6) {
+  const empty = { dispense: [], receive: [], trend: { dispensePct: null, receivePct: null } }
+  if (!supabase) return empty
+
+  // สร้างกรอบเดือน YYYY-MM ย้อนหลัง (เก่า→ใหม่) + label ไทยย่อ
+  const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
+  const buckets = []
+  const now = new Date()
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    buckets.push({ ym: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: TH_MONTHS[d.getMonth()] })
+  }
+  const fromStr = buckets[0].ym + '-01'
+
+  // นับ record ต่อเดือนจาก date column ที่ระบุ (paginated เลี่ยง 1000-row limit)
+  async function countByMonth(table, dateCol) {
+    const counts = {}
+    const PAGE = 1000
+    let off = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from(table)
+        .select(dateCol)
+        .gte(dateCol, fromStr)
+        .range(off, off + PAGE - 1)
+      if (error || !data || data.length === 0) break
+      for (const r of data) {
+        const ym = String(r[dateCol] || '').slice(0, 7)
+        if (ym) counts[ym] = (counts[ym] || 0) + 1
+      }
+      if (data.length < PAGE) break
+      off += PAGE
+    }
+    return buckets.map(b => ({ ym: b.ym, label: b.label, count: counts[b.ym] || 0 }))
+  }
+
+  const [dispense, receive] = await Promise.all([
+    countByMonth('dispense_logs', 'dispense_date'),
+    countByMonth('receive_logs', 'receive_date'),
+  ])
+
+  // trend % = เดือนล่าสุด vs เดือนก่อนหน้า (null ถ้าเดือนก่อนหน้า = 0 → เทียบไม่ได้)
+  const pct = (arr) => {
+    if (arr.length < 2) return null
+    const prev = arr[arr.length - 2].count
+    const cur = arr[arr.length - 1].count
+    if (!prev) return null
+    return Math.round(((cur - prev) / prev) * 100)
+  }
+
+  return { dispense, receive, trend: { dispensePct: pct(dispense), receivePct: pct(receive) } }
+}
+
 // --- Return Logs ---
 
 export async function fetchReturnLogs({ dateFrom, dateTo, returnSource, returnType, drugName } = {}) {
@@ -978,7 +1034,7 @@ export async function lookupDrugCodes(names) {
 
 // --- Stock Summary (Dashboard modal) ---
 
-const parseUnitFactor = (unit) => {
+export const parseUnitFactor = (unit) => {
   const m = String(unit || '').match(/^(\d+)\s*(.+)$/);
   if (m) return { factor: parseInt(m[1]), base: m[2].trim() };
   return { factor: 1, base: String(unit || '-').trim() };
@@ -990,7 +1046,7 @@ export async function fetchStockSummary() {
   const [invRes, recRes] = await Promise.all([
     supabase.from('inventory').select('code, name, type, unit, qty, receive_status'),
     supabase.from('receive_logs')
-      .select('drug_code, drug_unit, receive_date')
+      .select('drug_code, drug_unit, receive_date, purchase_type, price_per_unit')
       .not('drug_unit', 'is', null)
       .not('drug_code', 'is', null)
       .order('receive_date', { ascending: false })
@@ -999,11 +1055,15 @@ export async function fetchStockSummary() {
 
   if (invRes.error) throw invRes.error;
 
-  // latest unit per drug_code from receive_logs
+  // หน่วยปัจจุบัน = หน่วยจากบิล "การซื้อ" ราคา>0 ล่าสุด (ตรงกับ glossary + ReorderApp)
+  // ไม่นับบริจาค/ยืม/ราคา 0 เพราะ pack อาจต่างจากที่ซื้อจริง — ดู fetchLatestReceiptInfo
   const latestUnit = {};
   (recRes.data || []).forEach(r => {
     const key = (r.drug_code || '').trim();
-    if (key && key !== '-' && !latestUnit[key] && r.drug_unit) latestUnit[key] = r.drug_unit;
+    if (!key || key === '-' || latestUnit[key] || !r.drug_unit) return;
+    const price = parseFloat(String(r.price_per_unit ?? '0').replace(/,/g, '')) || 0;
+    const isPurchase = price > 0 && String(r.purchase_type || '').trim() === PURCHASE_TYPE;
+    if (isPurchase) latestUnit[key] = r.drug_unit;
   });
 
   // group inventory by drug code
@@ -1046,6 +1106,86 @@ export async function fetchStockSummary() {
   })
   .filter(d => d.totalQty > 0)
   .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'th'));
+}
+
+// --- Reorder: หน่วย/ราคา/บริษัท/วันรับ/lead time ต่อรหัสยา (จาก receive_logs) ---
+
+// purchase_type ของบิล "ซื้อจริง" (ยืนยันจาก DB: การซื้อ=2171; อื่นๆ=ยืม/บริจาค/คืน/สนับสนุน/แลกเปลี่ยน)
+const PURCHASE_TYPE = 'การซื้อ';
+
+// คืน { [codeLower]: { unit, factor, base, supplier, pricePerUnit, receiveDate, leadTimeAvg } }
+// - หน่วย/ราคา/บริษัท/วันรับ = บิล "การซื้อ" ราคา>0 ล่าสุด
+// - leadTimeAvg = เฉลี่ย leadtime ของบิลการซื้อ (เฉพาะที่มีค่า leadtime) — ตาม Excel "วิเคราะห์ซื้อ"
+// - รหัสที่ไม่มีบิลซื้อเลย → unit=null (consumer ต้อง fallback เป็น config/inventory)
+export async function fetchLatestReceiptInfo() {
+  if (!supabase) return {};
+
+  const toNum = (v) => parseFloat(String(v ?? '0').replace(/,/g, '')) || 0;
+  // leadtime: คืน null ถ้าไม่มีข้อมูล (null/'-'/ว่าง) หรือนอกช่วง 0–90 (Excel: AVERAGEIFS กรอง 0–90)
+  const parseLt = (v) => {
+    if (v == null) return null;
+    const s = String(v).trim();
+    if (!s || s === '-') return null;
+    const n = parseFloat(s.replace(/,/g, ''));
+    if (!Number.isFinite(n) || n < 0 || n > 90) return null;
+    return n;
+  };
+  const BATCH = 1000;
+  const result = {};
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('receive_logs')
+      .select('drug_code, drug_unit, supplier_current, price_per_unit, receive_date, leadtime, purchase_type')
+      .not('drug_code', 'is', null)
+      .order('receive_date', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: false })
+      .range(offset, offset + BATCH - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    data.forEach(row => {
+      const code = (row.drug_code || '').trim().toLowerCase();
+      if (!code || code === '-') return;
+
+      if (!result[code]) {
+        result[code] = { unit: null, factor: 1, base: null, supplier: null, pricePerUnit: 0, receiveDate: null, leadTimeAvg: 0, _ltSum: 0, _ltCount: 0 };
+      }
+      const entry = result[code];
+
+      const price = toNum(row.price_per_unit);
+      const isPurchase = price > 0 && String(row.purchase_type || '').trim() === PURCHASE_TYPE;
+      if (isPurchase) {
+        // leadtime เฉลี่ยจากบิลการซื้อทุกใบ
+        const lt = parseLt(row.leadtime);
+        if (lt != null) { entry._ltSum += lt; entry._ltCount += 1; }
+        // หน่วย/ราคา/บริษัท/วันรับ = บิลการซื้อล่าสุด (แถวแรกที่เจอ เพราะ sort receive_date desc)
+        if (entry.unit === null && row.drug_unit) {
+          const { factor, base } = parseUnitFactor(row.drug_unit);
+          entry.unit = row.drug_unit;
+          entry.factor = factor;
+          entry.base = base;
+          entry.supplier = row.supplier_current || null;
+          entry.pricePerUnit = price;
+          entry.receiveDate = row.receive_date || null;
+        }
+      }
+    });
+
+    if (data.length < BATCH) break;
+    offset += BATCH;
+  }
+
+  // เฉลี่ย leadtime ต่อรหัส แล้วเก็บกวาด field ชั่วคราว
+  for (const entry of Object.values(result)) {
+    entry.leadTimeAvg = entry._ltCount > 0 ? entry._ltSum / entry._ltCount : 0;
+    delete entry._ltSum;
+    delete entry._ltCount;
+  }
+
+  return result;
 }
 
 // --- Picking Workflow ---
@@ -1137,88 +1277,48 @@ export async function fetchApBills({ stage = null, dateFrom, dateTo, batchId } =
   return data || []
 }
 
-// Group rows by bill_number — ใช้ใน UI tabs
-export function groupRowsByBill(rows) {
-  const map = new Map()
-  for (const r of rows) {
-    const bill = r.bill_number || '-'
-    if (!map.has(bill)) {
-      map.set(bill, {
-        bill_number: bill,
-        supplier: r.supplier_current || '-',
-        receive_date: r.receive_date,
-        ap_stage: r.ap_stage,
-        ap_batch_id: r.ap_batch_id,
-        acknowledged_at: r.acknowledged_at,
-        acknowledged_by: r.acknowledged_by,
-        inspected_at: r.inspected_at,
-        inspected_by: r.inspected_by,
-        ap_sent_at: r.ap_sent_at,
-        ap_sent_by: r.ap_sent_by,
-        ap_posted_at: r.ap_posted_at,
-        ap_posted_by: r.ap_posted_by,
-        items: [],
-        item_count: 0,
-        drug_codes: new Set(),
-        drug_count: 0,
-        total_value: 0,
-      })
-    }
-    const g = map.get(bill)
-    g.items.push(r)
-    g.item_count += 1
-    const code = (r.drug_code && r.drug_code !== '-') ? r.drug_code : (r.drug_name || '').toLowerCase()
-    if (code) g.drug_codes.add(code)
-    const qty = parseFloat(r.qty_received) || 0
-    const price = parseFloat(r.price_per_unit) || 0
-    const lineValue = (r.total_price_vat != null && r.total_price_vat > 0)
-      ? parseFloat(r.total_price_vat) : qty * price
-    g.total_value += lineValue
-    if (g.receive_date == null || (r.receive_date && r.receive_date > g.receive_date)) g.receive_date = r.receive_date
-  }
-  // finalize drug_count + remove Set
-  for (const g of map.values()) { g.drug_count = g.drug_codes.size; delete g.drug_codes; }
-  return Array.from(map.values()).sort((a, b) => (b.receive_date || '').localeCompare(a.receive_date || ''))
-}
+// billGroupKey + groupRowsByBill ย้ายไป ./billGroup (pure module, unit-test ได้)
+// re-export เพื่อ consumer เดิม (import จาก './lib/db') ไม่ต้องแก้ — ดู billGroup.test.js
+export { billGroupKey, groupRowsByBill } from './billGroup'
 
 // จัดซื้อกด "รับบิลแล้ว" — ไม่เปลี่ยน ap_stage (ยังเป็น NULL) แค่ตั้ง acknowledged_at/by
 // ไม่บล็อก flow → Mark ตรวจรับได้แม้ยังไม่ ack
-export async function markBillsAcknowledged(billNumbers, purchaserName, auth = {}) {
+export async function markBillsAcknowledged(rowIds, billNumbers, purchaserName, auth = {}) {
   if (!supabase) throw new Error('Supabase not configured')
-  if (!billNumbers || billNumbers.length === 0) return 0
+  if (!rowIds || rowIds.length === 0) return 0
   const now = new Date().toISOString()
   const ackBy = (purchaserName && purchaserName.trim()) ? purchaserName.trim() : null
   const { error, count } = await supabase
     .from('receive_logs')
     .update({ acknowledged_at: now, acknowledged_by: ackBy }, { count: 'exact' })
-    .in('bill_number', billNumbers)
+    .in('id', rowIds)
     .is('ap_stage', null)        // ack ได้เฉพาะบิลที่ยังไม่ inspected
     .is('acknowledged_at', null) // กัน double-ack
   if (error) throw error
   await insertAuditLog({
     action: 'ap_acknowledge', table_name: 'receive_logs',
     user_name: resolveUserName(auth), department: auth?.department || '-',
-    record_count: count || billNumbers.length,
+    record_count: count ?? rowIds.length,
     details: { bills: billNumbers, purchaser: ackBy || '(ไม่กรอก)' },
   })
   return count || 0
 }
 
 // ย้อน acknowledge (กดผิด)
-export async function unmarkBillsAcknowledged(billNumbers, auth = {}) {
+export async function unmarkBillsAcknowledged(rowIds, billNumbers, auth = {}) {
   if (!supabase) throw new Error('Supabase not configured')
-  if (!billNumbers || billNumbers.length === 0) return 0
+  if (!rowIds || rowIds.length === 0) return 0
   const { error, count } = await supabase
     .from('receive_logs')
     .update({ acknowledged_at: null, acknowledged_by: null }, { count: 'exact' })
-    .in('bill_number', billNumbers)
+    .in('id', rowIds)
     .is('ap_stage', null)
     .not('acknowledged_at', 'is', null)
   if (error) throw error
   await insertAuditLog({
     action: 'ap_unacknowledge', table_name: 'receive_logs',
     user_name: resolveUserName(auth), department: auth?.department || '-',
-    record_count: count || billNumbers.length,
+    record_count: count ?? rowIds.length,
     details: { bills: billNumbers },
   })
   return count || 0
@@ -1227,23 +1327,23 @@ export async function unmarkBillsAcknowledged(billNumbers, auth = {}) {
 // Mark บิล (1 ใบ หรือหลายใบ) → inspected
 // บังคับ flow: ต้อง acknowledged_at NOT NULL (จัดซื้อรับบิลก่อน) — กัน skip stage
 // returnDate = วันที่ส่งคืนบิลให้จัดซื้อ (default = วันนี้) — ใช้แทน NOW() เก็บใน inspected_at
-export async function markBillsInspected(billNumbers, inspectorName, auth = {}, returnDate = null) {
+export async function markBillsInspected(rowIds, billNumbers, inspectorName, auth = {}, returnDate = null) {
   if (!supabase) throw new Error('Supabase not configured')
-  if (!billNumbers || billNumbers.length === 0) return 0
+  if (!rowIds || rowIds.length === 0) return 0
   // ถ้ามี returnDate (YYYY-MM-DD) → ใช้เที่ยงวันของวันนั้นเป็น timestamp (กัน timezone offset)
   // ถ้าไม่มี → ใช้ NOW()
   const inspectedAt = returnDate ? new Date(`${returnDate}T12:00:00`).toISOString() : new Date().toISOString()
   const { error, count } = await supabase
     .from('receive_logs')
     .update({ ap_stage: 'inspected', inspected_at: inspectedAt, inspected_by: (inspectorName || '').trim() || null }, { count: 'exact' })
-    .in('bill_number', billNumbers)
+    .in('id', rowIds)
     .is('ap_stage', null)
     .not('acknowledged_at', 'is', null)
   if (error) throw error
   await insertAuditLog({
     action: 'ap_mark_inspected', table_name: 'receive_logs',
     user_name: resolveUserName(auth), department: auth?.department || '-',
-    record_count: count || billNumbers.length,
+    record_count: count ?? rowIds.length,
     details: { bills: billNumbers, inspector: inspectorName },
   })
   return count || 0
@@ -1251,81 +1351,81 @@ export async function markBillsInspected(billNumbers, inspectorName, auth = {}, 
 
 // Mark บิลที่เลือก → sent_batch + set batch_id
 // senderName = ชื่อ จนท.จัดซื้อ — ถ้าว่าง/null → ap_sent_by = null (เว้นช่องเซ็นเอง)
-export async function markBillsSentBatch(billNumbers, batchId, auth = {}, senderName = null) {
+export async function markBillsSentBatch(rowIds, billNumbers, batchId, auth = {}, senderName = null) {
   if (!supabase) throw new Error('Supabase not configured')
-  if (!billNumbers || billNumbers.length === 0) return 0
+  if (!rowIds || rowIds.length === 0) return 0
   const now = new Date().toISOString()
   const apSentBy = (senderName && senderName.trim()) ? senderName.trim() : null
   const { error, count } = await supabase
     .from('receive_logs')
     .update({ ap_stage: 'sent_batch', ap_batch_id: batchId, ap_sent_at: now, ap_sent_by: apSentBy }, { count: 'exact' })
-    .in('bill_number', billNumbers)
+    .in('id', rowIds)
     .eq('ap_stage', 'inspected')
   if (error) throw error
   await insertAuditLog({
     action: 'ap_send_batch', table_name: 'receive_logs',
     user_name: resolveUserName(auth), department: auth?.department || '-',
-    record_count: count || billNumbers.length,
-    details: { batch_id: batchId, bill_count: billNumbers.length, bills: billNumbers, purchaser: apSentBy || '(ไม่กรอก)' },
+    record_count: count ?? rowIds.length,
+    details: { batch_id: batchId, bill_count: (billNumbers || []).length, bills: billNumbers, purchaser: apSentBy || '(ไม่กรอก)' },
   })
   return count || 0
 }
 
 // Mark บิลที่เลือก → posted (บัญชี post แล้ว)
 // posterName = ชื่อ จนท.บัญชี — ถ้าว่าง/null → ap_posted_by = null (เว้นว่างให้เซ็นเอง)
-export async function markBillsPosted(billNumbers, auth = {}, posterName = null) {
+export async function markBillsPosted(rowIds, billNumbers, auth = {}, posterName = null) {
   if (!supabase) throw new Error('Supabase not configured')
-  if (!billNumbers || billNumbers.length === 0) return 0
+  if (!rowIds || rowIds.length === 0) return 0
   const now = new Date().toISOString()
   const apPostedBy = (posterName && posterName.trim()) ? posterName.trim() : null
   const { error, count } = await supabase
     .from('receive_logs')
     .update({ ap_stage: 'posted', ap_posted_at: now, ap_posted_by: apPostedBy }, { count: 'exact' })
-    .in('bill_number', billNumbers)
+    .in('id', rowIds)
     .eq('ap_stage', 'sent_batch')
   if (error) throw error
   await insertAuditLog({
     action: 'ap_mark_posted', table_name: 'receive_logs',
     user_name: resolveUserName(auth), department: auth?.department || '-',
-    record_count: count || billNumbers.length,
+    record_count: count ?? rowIds.length,
     details: { bills: billNumbers, accountant: apPostedBy || '(ไม่กรอก)' },
   })
   return count || 0
 }
 
 // Rollback: undo inspected กลับเป็น NULL (รอตรวจรับ)
-export async function unmarkBillsInspected(billNumbers, auth = {}) {
+export async function unmarkBillsInspected(rowIds, billNumbers, auth = {}) {
   if (!supabase) throw new Error('Supabase not configured')
-  if (!billNumbers || billNumbers.length === 0) return 0
+  if (!rowIds || rowIds.length === 0) return 0
   const { error, count } = await supabase
     .from('receive_logs')
     .update({ ap_stage: null, inspected_at: null, inspected_by: null }, { count: 'exact' })
-    .in('bill_number', billNumbers)
+    .in('id', rowIds)
     .eq('ap_stage', 'inspected')
   if (error) throw error
   await insertAuditLog({
     action: 'ap_uninspect', table_name: 'receive_logs',
     user_name: resolveUserName(auth), department: auth?.department || '-',
-    record_count: count || billNumbers.length,
+    record_count: count ?? rowIds.length,
     details: { bills: billNumbers },
   })
   return count || 0
 }
 
 // Rollback: undo sent_batch กลับเป็น inspected (ออกจาก batch)
-export async function unmarkBillsSentBatch(billNumbers, auth = {}) {
+export async function unmarkBillsSentBatch(rowIds, billNumbers, auth = {}) {
   if (!supabase) throw new Error('Supabase not configured')
-  if (!billNumbers || billNumbers.length === 0) return 0
+  if (!rowIds || rowIds.length === 0) return 0
   const { error, count } = await supabase
     .from('receive_logs')
     .update({ ap_stage: 'inspected', ap_batch_id: null, ap_sent_at: null, ap_sent_by: null }, { count: 'exact' })
-    .in('bill_number', billNumbers)
+    .in('id', rowIds)
     .eq('ap_stage', 'sent_batch')
   if (error) throw error
   await insertAuditLog({
     action: 'ap_unsend_batch', table_name: 'receive_logs',
     user_name: resolveUserName(auth), department: auth?.department || '-',
-    record_count: count || billNumbers.length,
+    record_count: count ?? rowIds.length,
     details: { bills: billNumbers },
   })
   return count || 0
@@ -1354,19 +1454,19 @@ export async function resetApBatch(batchId, auth = {}) {
 }
 
 // Rollback: undo posted กลับเป็น sent_batch (กรณีกดผิด)
-export async function unmarkBillsPosted(billNumbers, auth = {}) {
+export async function unmarkBillsPosted(rowIds, billNumbers, auth = {}) {
   if (!supabase) throw new Error('Supabase not configured')
-  if (!billNumbers || billNumbers.length === 0) return 0
+  if (!rowIds || rowIds.length === 0) return 0
   const { error, count } = await supabase
     .from('receive_logs')
     .update({ ap_stage: 'sent_batch', ap_posted_at: null, ap_posted_by: null }, { count: 'exact' })
-    .in('bill_number', billNumbers)
+    .in('id', rowIds)
     .eq('ap_stage', 'posted')
   if (error) throw error
   await insertAuditLog({
     action: 'ap_unpost', table_name: 'receive_logs',
     user_name: resolveUserName(auth), department: auth?.department || '-',
-    record_count: count || billNumbers.length,
+    record_count: count ?? rowIds.length,
     details: { bills: billNumbers },
   })
   return count || 0
@@ -1541,7 +1641,8 @@ export async function fetchMonthlyDispenseUsage(fromDate, toDate) {
     if (!code || code === '-') continue
     const recordOnly = String(r.main_log || '').includes('บันทึก') || String(r.note || '').includes('บันทึกเท่านั้น')
     if (recordOnly) continue
-    const qty = parseFloat(r.qty_out || 0) || 0
+    // normalize → หน่วยย่อยสุด (เม็ด): qty_out อาจอยู่หน่วย pack ต่างกันต่อแถว → ×factor ก่อนรวม
+    const qty = (parseFloat(r.qty_out || 0) || 0) * parseUnitFactor(r.drug_unit).factor
     if (qty <= 0) continue
     const ym = String(r.dispense_date || '').slice(0, 7)
     if (!ym) continue

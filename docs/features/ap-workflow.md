@@ -183,18 +183,21 @@ posted                              → "ตั้งหนี้แล้ว"  
 
 ## db.js Functions
 
+> **Bill identity = composite key** (สำคัญ): `bill_number` **ไม่ unique** — เลขซ้ำได้ทั้งคนละบริษัท (เช่น `IV6803645` = แอปคาร์ + บี.เอ็ล.ฮั้ว วันเดียวกัน) และบริษัทเดียวคนละวันรับ. `groupRowsByBill` จึง key ด้วย `billGroupKey(r)` = `bill_number|supplier_current|receive_date` (บิลไม่มีเลข/`'-'` → key ด้วย `id` แยกทุกแถว). ทุก AP action ระบุบิลด้วย **row `id`** (`.in('id', rowIds)`) ไม่ใช่ `bill_number` — group object จึงมี `_key` (composite, ใช้เป็น React key + selection Set) และ `item_ids` (row id ทุกแถวในบิล, ส่งเข้า action). ห้ามกลับไป match ด้วย `bill_number` เพราะจะ update บิลที่เลขชนกันพร้อมกัน.
+
 ```js
 fetchApBills({ stage, dateFrom, dateTo, batchId })   // stage: null|'unack'|'acked'|'pending_inspect'|'inspected'|'sent_batch'|'posted'|'unposted'|'pending_all'
-groupRowsByBill(rows)                                 // → [{ bill_number, supplier, receive_date, items, item_count, drug_count, total_value, ap_stage, acknowledged_at, acknowledged_by, ... }]
-markBillsAcknowledged(billNumbers, purchaserName, auth) // จัดซื้อกด "รับบิล" — ไม่เปลี่ยน ap_stage, ตั้ง acknowledged_at/by
-unmarkBillsAcknowledged(billNumbers, auth)            // rollback ack → null
-markBillsInspected(billNumbers, inspectorName, auth, returnDate?)  // returnDate (YYYY-MM-DD) = วันที่ส่งคืนจัดซื้อ → ใช้แทน NOW() เก็บใน inspected_at (เที่ยงวันของวันนั้น)
-markBillsSentBatch(billNumbers, batchId, auth, senderName?)   // senderName = ชื่อ จนท.จัดซื้อ (override → ap_sent_by)
-markBillsPosted(billNumbers, auth, posterName?)               // posterName = ชื่อ จนท.บัญชี (override → ap_posted_by)
-unmarkBillsInspected(billNumbers, auth)               // rollback inspected → null
-unmarkBillsSentBatch(billNumbers, auth)               // rollback sent_batch → inspected (ออกจาก batch)
-unmarkBillsPosted(billNumbers, auth)                  // rollback posted → sent_batch
-resetApBatch(batchId, auth)                            // reset ทั้ง batch — ทุกบิลกลับเป็น inspected, batch หาย
+billGroupKey(r)                                       // → 'bill_number|supplier|receive_date' (หรือ '__nobill__<id>') — identity ของบิลจริง
+groupRowsByBill(rows)                                 // → [{ _key, item_ids, bill_number, supplier, receive_date, items, item_count, drug_count, total_value, ap_stage, ... }]
+markBillsAcknowledged(rowIds, billNumbers, purchaserName, auth) // billNumbers = เพื่อ audit log เท่านั้น; rowIds = filter จริง
+unmarkBillsAcknowledged(rowIds, billNumbers, auth)   // rollback ack → null
+markBillsInspected(rowIds, billNumbers, inspectorName, auth, returnDate?)  // returnDate (YYYY-MM-DD) → inspected_at (เที่ยงวันของวันนั้น)
+markBillsSentBatch(rowIds, billNumbers, batchId, auth, senderName?)   // senderName = ชื่อ จนท.จัดซื้อ (override → ap_sent_by)
+markBillsPosted(rowIds, billNumbers, auth, posterName?)               // posterName = ชื่อ จนท.บัญชี (override → ap_posted_by)
+unmarkBillsInspected(rowIds, billNumbers, auth)       // rollback inspected → null
+unmarkBillsSentBatch(rowIds, billNumbers, auth)       // rollback sent_batch → inspected (ออกจาก batch)
+unmarkBillsPosted(rowIds, billNumbers, auth)          // rollback posted → sent_batch
+resetApBatch(batchId, auth)                            // reset ทั้ง batch (ใช้ ap_batch_id — ไม่เกี่ยว bill identity)
 fetchApBatches()                                       // → [{ batch_id, sent_at, sent_by, bill_count, posted_count, row_count, total_value }]
 ```
 

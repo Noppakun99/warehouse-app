@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:reorder": "node src/lib/reorder.test.js"
+    "test:reorder": "node src/lib/reorder.test.js",
+    "test:billgroup": "node src/lib/billGroup.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",

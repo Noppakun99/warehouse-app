@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from './lib/supabase';
 import { fetchDrugDetails, RECEIVE_COL_MAP, insertReceiveRows, normalizeLotSearch, scanInvoiceImage, insertScannedBillRows, uploadInvoiceImage, lookupDrugCodes,
-  fetchApBills, groupRowsByBill, markBillsInspected, markBillsSentBatch, markBillsPosted, unmarkBillsPosted, unmarkBillsInspected, unmarkBillsSentBatch, resetApBatch, fetchApBatches,
+  fetchApBills, groupRowsByBill, billGroupKey, markBillsInspected, markBillsSentBatch, markBillsPosted, unmarkBillsPosted, unmarkBillsInspected, unmarkBillsSentBatch, resetApBatch, fetchApBatches,
   markBillsAcknowledged, unmarkBillsAcknowledged } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 import {
@@ -253,7 +253,7 @@ const RECEIVE_EXCEL_COLS = [
 // ============================================================
 // Root
 // ============================================================
-export default function ReceiveLogApp({ onBack, onRefresh, auth = {}, initialTab = 'view' }) {
+export default function ReceiveLogApp({ onRefresh, auth = {}, initialTab = 'view' }) {
   const [tab, setTab]                 = useState(initialTab);
   const [showSummary, setShowSummary] = useState(false);
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
@@ -261,27 +261,25 @@ export default function ReceiveLogApp({ onBack, onRefresh, auth = {}, initialTab
 
   return (
     <div className="min-h-screen bg-slate-200 text-slate-800 font-sans">
-      <div className="sticky top-0 z-10 bg-emerald-700 shadow-md px-4 py-3 flex items-center gap-2">
-        <button onClick={onBack} className="text-emerald-100 hover:text-white p-1 transition-colors shrink-0"><ArrowLeft size={20}/></button>
-        <button onClick={onRefresh} className="flex items-center gap-2 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity">
-          <TrendingUp size={20} className="text-white shrink-0" />
-          <span className="font-semibold text-white truncate">บันทึกการรับเข้าคลัง (คลังรับ)</span>
-        </button>
-        <div className="flex items-center gap-1 shrink-0">
+      {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + action */}
+      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center gap-2 flex-wrap">
+        <div className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 shrink-0"><TrendingUp size={18} /></div>
+        <button onClick={onRefresh} className="font-bold text-base text-slate-800 truncate flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">บันทึกการรับเข้าคลัง (คลังรับ)</button>
+        <div className="flex items-center gap-1.5 shrink-0">
           <button onClick={() => setShowSummary(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white/20 text-white hover:bg-white/30 border border-white/30 transition-all">
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors">
             <BarChart3 size={15}/> สรุปผล
           </button>
           {isStaff && (
             <>
               <button onClick={() => setTab('ap')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'ap' ? 'bg-white text-emerald-700 font-bold' : 'text-emerald-100 hover:text-white hover:bg-white/20'}`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'ap' ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-600 hover:bg-slate-50'}`}
               ><Send size={15}/>ส่งบัญชี</button>
               <button onClick={() => setTab('scan')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'scan' ? 'bg-white text-emerald-700 font-bold' : 'text-emerald-100 hover:text-white hover:bg-white/20'}`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'scan' ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-600 hover:bg-slate-50'}`}
               ><ScanLine size={15}/>สแกนบิล</button>
               <button onClick={() => setTab('import')}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'import' ? 'bg-white text-emerald-700 font-bold' : 'text-emerald-100 hover:text-white hover:bg-white/20'}`}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'import' ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-600 hover:bg-slate-50'}`}
               >Import CSV</button>
             </>
           )}
@@ -2303,9 +2301,12 @@ function printApBatch(rows, batchId, meta = {}) {
   const bills = (function group(){
     const m = new Map();
     for (const r of rows) {
-      const b = r.bill_number || '-';
-      if (!m.has(b)) m.set(b, { bill_number: b, supplier: r.supplier_current || '-', receive_date: r.receive_date, items: [], total_value: 0 });
-      const g = m.get(b);
+      // group ด้วย composite key เดียวกับ groupRowsByBill — เลขบิลซ้ำ (คนละบริษัท/วัน) แยกใบ
+      const billNo = (r.bill_number || '').trim();
+      const b = (billNo && billNo !== '-') ? billNo : '-';
+      const key = billGroupKey(r);
+      if (!m.has(key)) m.set(key, { bill_number: b, supplier: r.supplier_current || '-', receive_date: r.receive_date, items: [], total_value: 0 });
+      const g = m.get(key);
       g.items.push(r);
       const qty = parseFloat(r.qty_received) || 0;
       const price = parseFloat(r.price_per_unit) || 0;
@@ -2646,15 +2647,15 @@ function ApWorkflow({ auth, onBack }) {
   };
   const toggleAll = (list) => {
     if (selected.size === list.length) setSelected(new Set());
-    else setSelected(new Set(list.map(b => b.bill_number)));
+    else setSelected(new Set(list.map(b => b._key)));
   };
 
   // ---- Actions ----
   async function handleMarkInspected() {
     if (selected.size === 0) { setError('เลือกบิลที่ตรวจรับเสร็จก่อน'); return; }
     // ต้องเป็นบิลที่ "จัดซื้อรับแล้ว" (ap_stage=NULL + acknowledged_at NOT NULL) เท่านั้น
-    const ackedSelected = filteredPending.filter(b => !b.ap_stage && b.acknowledged_at && selected.has(b.bill_number));
-    const unackSelected = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number));
+    const ackedSelected = filteredPending.filter(b => !b.ap_stage && b.acknowledged_at && selected.has(b._key));
+    const unackSelected = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b._key));
     if (ackedSelected.length === 0) {
       if (unackSelected.length > 0) {
         setError(`บิลที่เลือก ${unackSelected.length} บิลยังเป็น "รอจัดซื้อรับ"\nต้องกด "จัดซื้อรับบิล" ก่อน → แล้วค่อย Mark ตรวจรับแล้ว`);
@@ -2667,8 +2668,9 @@ function ApWorkflow({ auth, onBack }) {
     setBusy(true); setError(''); setMsg('');
     try {
       const billNumbers = ackedSelected.map(b => b.bill_number);
-      const n = await markBillsInspected(billNumbers, name, auth, returnDate);
-      setMsg(`บันทึก "ตรวจรับแล้ว" ${billNumbers.length} บิล (${n} รายการ) · ส่งคืนวันที่ ${returnDate}`);
+      const rowIds = ackedSelected.flatMap(b => b.item_ids);
+      const n = await markBillsInspected(rowIds, billNumbers, name, auth, returnDate);
+      setMsg(`บันทึก "ตรวจรับแล้ว" ${ackedSelected.length} บิล (${n} รายการ) · ส่งคืนวันที่ ${returnDate}`);
       setSelected(new Set());
       await load();
     } catch (e) { setError(e.message || 'บันทึกไม่สำเร็จ'); }
@@ -2678,7 +2680,7 @@ function ApWorkflow({ auth, onBack }) {
   // คลังพิมพ์ใบส่งจัดซื้อ — เลือกบิลรอจัดซื้อรับ (ap_stage=NULL + acknowledged_at=NULL) แล้วปริ้นใบให้จัดซื้อเซ็น
   // ไม่เปลี่ยน stage — เป็นแค่ paperwork helper
   async function handleExportAck() {
-    const unackBills = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number));
+    const unackBills = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b._key));
     if (unackBills.length === 0) { setError('เลือกบิล "รอจัดซื้อรับ" ก่อน'); return; }
     setBusy(true); setError(''); setMsg('');
     try {
@@ -2703,12 +2705,13 @@ function ApWorkflow({ auth, onBack }) {
   }
 
   async function handleExportAndSend() {
-    const inspectedBills = filteredPending.filter(b => b.ap_stage === 'inspected' && selected.has(b.bill_number));
+    const inspectedBills = filteredPending.filter(b => b.ap_stage === 'inspected' && selected.has(b._key));
     if (inspectedBills.length === 0) { setError('เลือกเฉพาะบิลที่ตรวจรับแล้ว (สถานะ "รอส่งบัญชี") ก่อน'); return; }
     setBusy(true); setError(''); setMsg('');
     try {
       const batchId = todayIsoLocal();
       const billNumbers = inspectedBills.map(b => b.bill_number);
+      const rowIds = inspectedBills.flatMap(b => b.item_ids);
       const rowsToExport = inspectedBills.flatMap(b => b.items);
       const dates = rowsToExport.map(r => r.receive_date).filter(Boolean).sort();
       const inspectorNames = Array.from(new Set(inspectedBills.map(b => b.inspected_by).filter(Boolean)));
@@ -2718,7 +2721,7 @@ function ApWorkflow({ auth, onBack }) {
         senderName: purchaserName,   // ว่างก็ได้ → ช่องเซ็นในใบนำส่งจะเว้นว่าง
         inspectorNames,              // [] ถ้าไม่มีใครกรอก → ช่องกรรมการจะเว้นว่าง
       });
-      await markBillsSentBatch(billNumbers, batchId, auth, purchaserName || null);
+      await markBillsSentBatch(rowIds, billNumbers, batchId, auth, purchaserName || null);
       await insertAuditLog({
         action: 'print_ap_batch', table_name: 'receive_logs',
         user_name: resolveAuditUserName(auth), department: auth?.department || '-',
@@ -2732,8 +2735,11 @@ function ApWorkflow({ auth, onBack }) {
     finally { setBusy(false); }
   }
 
+  // billsToPost = array ของ bill object (จากปุ่ม per-batch) — ถ้าไม่ส่ง → ใช้ selected จาก filteredSent
   async function handleMarkPosted(billsToPost) {
-    const list = billsToPost && billsToPost.length > 0 ? billsToPost : Array.from(selected);
+    const list = (billsToPost && billsToPost.length > 0)
+      ? billsToPost
+      : filteredSent.filter(b => selected.has(b._key));
     if (list.length === 0) { setError('เลือกบิลก่อน'); return; }
     const name = accountant.trim();
     const label = name ? `บัญชี (${name})` : 'บัญชี';
@@ -2741,7 +2747,7 @@ function ApWorkflow({ auth, onBack }) {
     setBusy(true); setError(''); setMsg('');
     try {
       // ถ้าไม่กรอกชื่อ → ส่ง null → ap_posted_by จะเป็น null (เว้นช่องเซ็นเอง)
-      const n = await markBillsPosted(list, auth, name || null);
+      const n = await markBillsPosted(list.flatMap(b => b.item_ids), list.map(b => b.bill_number), auth, name || null);
       setMsg(`ยืนยันบัญชี post แล้ว ${list.length} บิล (${n} รายการ)`);
       setSelected(new Set());
       await load();
@@ -2749,29 +2755,31 @@ function ApWorkflow({ auth, onBack }) {
     finally { setBusy(false); }
   }
 
+  // bills = array ของ bill object
   async function handleUnpost(bills) {
     if (!confirm(`ยกเลิกการ post กลับเป็น "รอ post" ${bills.length} บิล?`)) return;
     setBusy(true); setError('');
-    try { await unmarkBillsPosted(bills, auth); await load(); setMsg(`ยกเลิก post ${bills.length} บิล`); }
+    try { await unmarkBillsPosted(bills.flatMap(b => b.item_ids), bills.map(b => b.bill_number), auth); await load(); setMsg(`ยกเลิก post ${bills.length} บิล`); }
     catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
     finally { setBusy(false); }
   }
 
-  // จัดซื้อกด "รับบิลแล้ว" — รับ single bill หรือ bulk จาก selected
-  async function handleAcknowledge(billNumber) {
+  // จัดซื้อกด "รับบิลแล้ว" — รับ single bill (object) หรือ bulk จาก selected
+  async function handleAcknowledge(singleBill) {
     let bills;
-    if (billNumber) {
-      bills = [billNumber];
+    if (singleBill) {
+      bills = [singleBill];
     } else {
-      const unackBills = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number));
-      if (unackBills.length === 0) { setError('เลือกบิลที่ยังไม่ ack (สถานะ "รอจัดซื้อรับ") ก่อน'); return; }
-      bills = unackBills.map(b => b.bill_number);
+      bills = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b._key));
+      if (bills.length === 0) { setError('เลือกบิลที่ยังไม่ ack (สถานะ "รอจัดซื้อรับ") ก่อน'); return; }
     }
+    const rowIds = bills.flatMap(b => b.item_ids);
+    const billNumbers = bills.map(b => b.bill_number);
     setBusy(true); setError(''); setMsg('');
     try {
-      const n = await markBillsAcknowledged(bills, purchaser.trim() || null, auth);
+      const n = await markBillsAcknowledged(rowIds, billNumbers, purchaser.trim() || null, auth);
       setMsg(`บันทึก "จัดซื้อรับบิลแล้ว" ${bills.length} บิล (${n} รายการ)`);
-      if (!billNumber) setSelected(new Set());
+      if (!singleBill) setSelected(new Set());
       await load();
     } catch (e) {
       const msg = e.message || 'บันทึกไม่สำเร็จ';
@@ -2785,37 +2793,37 @@ function ApWorkflow({ auth, onBack }) {
   }
 
   // ย้อน acknowledge
-  async function handleUnacknowledge(billNumber) {
-    if (!confirm(`ย้อนบิล ${billNumber} กลับเป็น "รอจัดซื้อรับ"?`)) return;
+  async function handleUnacknowledge(bill) {
+    if (!confirm(`ย้อนบิล ${bill.bill_number} กลับเป็น "รอจัดซื้อรับ"?`)) return;
     setBusy(true); setError('');
-    try { await unmarkBillsAcknowledged([billNumber], auth); await load(); setMsg(`ย้อน ack ${billNumber}`); }
+    try { await unmarkBillsAcknowledged(bill.item_ids, [bill.bill_number], auth); await load(); setMsg(`ย้อน ack ${bill.bill_number}`); }
     catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
     finally { setBusy(false); }
   }
 
   // ย้อนกลับหลายบิลพร้อมกัน — group ตาม stage แล้วเรียก unmark ที่เหมาะสม
   async function handleBulkUndo() {
-    const selectedBills = filteredPending.filter(b => selected.has(b.bill_number));
+    const selectedBills = filteredPending.filter(b => selected.has(b._key));
     if (selectedBills.length === 0) { setError('เลือกบิลก่อน'); return; }
 
-    const toUnack    = selectedBills.filter(b => !b.ap_stage && b.acknowledged_at).map(b => b.bill_number);
-    const toUninspect = selectedBills.filter(b => b.ap_stage === 'inspected').map(b => b.bill_number);
+    const unackBills    = selectedBills.filter(b => !b.ap_stage && b.acknowledged_at);
+    const uninspectBills = selectedBills.filter(b => b.ap_stage === 'inspected');
 
-    if (toUnack.length === 0 && toUninspect.length === 0) {
+    if (unackBills.length === 0 && uninspectBills.length === 0) {
       setError('ไม่มีบิลที่ย้อนได้ในการเลือก');
       return;
     }
     const lines = [];
-    if (toUninspect.length) lines.push(`• ย้อน "ตรวจรับแล้ว" → "จัดซื้อรับแล้ว": ${toUninspect.length} บิล`);
-    if (toUnack.length)     lines.push(`• ย้อน "จัดซื้อรับแล้ว" → "รอจัดซื้อรับ": ${toUnack.length} บิล`);
-    if (!confirm(`ย้อนกลับ ${toUnack.length + toUninspect.length} บิล?\n${lines.join('\n')}`)) return;
+    if (uninspectBills.length) lines.push(`• ย้อน "ตรวจรับแล้ว" → "จัดซื้อรับแล้ว": ${uninspectBills.length} บิล`);
+    if (unackBills.length)     lines.push(`• ย้อน "จัดซื้อรับแล้ว" → "รอจัดซื้อรับ": ${unackBills.length} บิล`);
+    if (!confirm(`ย้อนกลับ ${unackBills.length + uninspectBills.length} บิล?\n${lines.join('\n')}`)) return;
 
     setBusy(true); setError(''); setMsg('');
     try {
       let n = 0;
       // เรียงลำดับสำคัญ — inspect ย้อนก่อน (กรณีบิลเดียวกันถูกเลือกซ้ำสาย)
-      if (toUninspect.length > 0) n += await unmarkBillsInspected(toUninspect, auth);
-      if (toUnack.length > 0)    n += await unmarkBillsAcknowledged(toUnack, auth);
+      if (uninspectBills.length > 0) n += await unmarkBillsInspected(uninspectBills.flatMap(b => b.item_ids), uninspectBills.map(b => b.bill_number), auth);
+      if (unackBills.length > 0)    n += await unmarkBillsAcknowledged(unackBills.flatMap(b => b.item_ids), unackBills.map(b => b.bill_number), auth);
       setMsg(`ย้อนกลับ ${selectedBills.length} บิล สำเร็จ (${n} รายการ)`);
       setSelected(new Set());
       await load();
@@ -2824,19 +2832,19 @@ function ApWorkflow({ auth, onBack }) {
   }
 
   // ย้อน inspected → null (กลับเป็น "รอตรวจรับ")
-  async function handleUninspect(billNumber) {
-    if (!confirm(`ย้อนบิล ${billNumber} กลับเป็น "รอตรวจรับ"?`)) return;
+  async function handleUninspect(bill) {
+    if (!confirm(`ย้อนบิล ${bill.bill_number} กลับเป็น "รอตรวจรับ"?`)) return;
     setBusy(true); setError('');
-    try { await unmarkBillsInspected([billNumber], auth); await load(); setMsg(`ย้อน ${billNumber} → รอตรวจรับ`); }
+    try { await unmarkBillsInspected(bill.item_ids, [bill.bill_number], auth); await load(); setMsg(`ย้อน ${bill.bill_number} → รอตรวจรับ`); }
     catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
     finally { setBusy(false); }
   }
 
   // ย้อน sent_batch → inspected (ออกจาก batch)
-  async function handleUnsendBatch(billNumber) {
-    if (!confirm(`ย้อนบิล ${billNumber} ออกจาก batch กลับเป็น "รอส่งบัญชี"?`)) return;
+  async function handleUnsendBatch(bill) {
+    if (!confirm(`ย้อนบิล ${bill.bill_number} ออกจาก batch กลับเป็น "รอส่งบัญชี"?`)) return;
     setBusy(true); setError('');
-    try { await unmarkBillsSentBatch([billNumber], auth); await load(); setMsg(`ย้อน ${billNumber} → รอส่งบัญชี`); }
+    try { await unmarkBillsSentBatch(bill.item_ids, [bill.bill_number], auth); await load(); setMsg(`ย้อน ${bill.bill_number} → รอส่งบัญชี`); }
     catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
     finally { setBusy(false); }
   }
@@ -3029,11 +3037,11 @@ function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, 
   return (
     <div className={`border-b border-slate-100 last:border-b-0 ${isExpanded ? 'bg-emerald-50/40' : ''}`}>
       <div className={`p-3 cursor-pointer hover:bg-slate-50 transition-colors ${selected ? 'bg-emerald-50/60' : ''}`}
-           onClick={() => onToggleExpand(bill.bill_number)}>
+           onClick={() => onToggleExpand(bill._key)}>
         <div className="flex items-start gap-2.5">
           {onToggleSelect && (
             <input type="checkbox" className="mt-1.5 shrink-0" onClick={e => e.stopPropagation()}
-              checked={selected} onChange={() => onToggleSelect(bill.bill_number)}/>
+              checked={selected} onChange={() => onToggleSelect(bill._key)}/>
           )}
           <div className="mt-0.5 shrink-0 text-slate-400">
             {isExpanded ? <ChevronDown size={16} className="text-emerald-600"/> : <ChevronUp size={16} className="rotate-180"/>}
@@ -3098,7 +3106,7 @@ function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, 
                 </span>
                 {/* ปุ่มรับบิล (เฉพาะ unack) */}
                 {onAcknowledge && !stage && !bill.acknowledged_at && (
-                  <button onClick={(e) => { e.stopPropagation(); onAcknowledge(bill.bill_number); }}
+                  <button onClick={(e) => { e.stopPropagation(); onAcknowledge(bill); }}
                     disabled={busy} title="จัดซื้อรับบิลแล้ว"
                     className="text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2 py-0.5 rounded inline-flex items-center gap-1 text-xs disabled:opacity-50 font-medium">
                     <CheckCircle2 size={12}/> รับบิล
@@ -3106,7 +3114,7 @@ function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, 
                 )}
                 {/* ปุ่มย้อน ack */}
                 {onUnacknowledge && isAcked && (
-                  <button onClick={(e) => { e.stopPropagation(); onUnacknowledge(bill.bill_number); }}
+                  <button onClick={(e) => { e.stopPropagation(); onUnacknowledge(bill); }}
                     disabled={busy} title="ย้อนเป็นรอจัดซื้อรับ"
                     className="text-sky-600 hover:bg-sky-50 p-1 rounded inline-flex items-center text-xs disabled:opacity-50">
                     <Undo2 size={13}/>
@@ -3114,7 +3122,7 @@ function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, 
                 )}
                 {/* ปุ่ม undo (inspected/sent) */}
                 {onUndo && (stage === 'inspected' || stage === 'sent_batch') && (
-                  <button onClick={(e) => { e.stopPropagation(); onUndo(bill.bill_number); }}
+                  <button onClick={(e) => { e.stopPropagation(); onUndo(bill); }}
                     disabled={busy} title={undoTitle || 'ย้อนกลับ'}
                     className="text-amber-600 hover:bg-amber-50 p-1 rounded inline-flex items-center text-xs disabled:opacity-50">
                     <Undo2 size={13}/>
@@ -3300,14 +3308,14 @@ function StagePipeline({
 
 function PendingTab({ bills, selected, toggleBill, toggleAll, stageFilter, setStageFilter, stageCount, busy, onMarkInspected, onExportSend, onExportAck, onUninspect, onAcknowledge, onUnacknowledge, onBulkUndo, toggleSort, sortKey, sortDir, expandedBill, toggleExpand }) {
   const allSelected = bills.length > 0 && selected.size === bills.length;
-  const someInspectedSelected = bills.some(b => b.ap_stage === 'inspected' && selected.has(b.bill_number));
-  const someAckedSelected    = bills.some(b => !b.ap_stage && b.acknowledged_at && selected.has(b.bill_number));   // ack แล้ว (พร้อมตรวจรับ)
-  const someUnackSelected    = bills.some(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number)); // ยังไม่ ack (พร้อมรับบิล)
-  const undoableCount = bills.filter(b => selected.has(b.bill_number) && ((b.ap_stage === 'inspected') || (!b.ap_stage && b.acknowledged_at))).length;
+  const someInspectedSelected = bills.some(b => b.ap_stage === 'inspected' && selected.has(b._key));
+  const someAckedSelected    = bills.some(b => !b.ap_stage && b.acknowledged_at && selected.has(b._key));   // ack แล้ว (พร้อมตรวจรับ)
+  const someUnackSelected    = bills.some(b => !b.ap_stage && !b.acknowledged_at && selected.has(b._key)); // ยังไม่ ack (พร้อมรับบิล)
+  const undoableCount = bills.filter(b => selected.has(b._key) && ((b.ap_stage === 'inspected') || (!b.ap_stage && b.acknowledged_at))).length;
   // จำนวนบิลที่เลือกในแต่ละขั้น — โชว์บนปุ่ม action ของขั้นนั้น
-  const selUnack     = bills.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number)).length;
-  const selAcked     = bills.filter(b => !b.ap_stage && b.acknowledged_at && selected.has(b.bill_number)).length;
-  const selInspected = bills.filter(b => b.ap_stage === 'inspected' && selected.has(b.bill_number)).length;
+  const selUnack     = bills.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b._key)).length;
+  const selAcked     = bills.filter(b => !b.ap_stage && b.acknowledged_at && selected.has(b._key)).length;
+  const selInspected = bills.filter(b => b.ap_stage === 'inspected' && selected.has(b._key)).length;
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -3331,9 +3339,9 @@ function PendingTab({ bills, selected, toggleBill, toggleAll, stageFilter, setSt
             totalSelected={selected.size} totalBills={bills.length}/>
           <div>
             {bills.map(b => (
-              <BillCard key={b.bill_number} bill={b}
-                selected={selected.has(b.bill_number)} onToggleSelect={toggleBill}
-                isExpanded={expandedBill === b.bill_number} onToggleExpand={toggleExpand}
+              <BillCard key={b._key} bill={b}
+                selected={selected.has(b._key)} onToggleSelect={toggleBill}
+                isExpanded={expandedBill === b._key} onToggleExpand={toggleExpand}
                 busy={busy} onUndo={onUninspect} undoTitle="ย้อนกลับเป็นรอตรวจรับ"
                 onAcknowledge={onAcknowledge} onUnacknowledge={onUnacknowledge}/>
             ))}
@@ -3385,7 +3393,7 @@ function SentTab({ bills, selected, toggleBill, toggleAll, accountant, setAccoun
             <div key={bk} className="bg-white rounded-xl border border-slate-200 overflow-hidden mb-3">
               <div className="p-2 bg-sky-50 border-b border-sky-100 flex items-center justify-between">
                 <div className="text-sm font-medium text-sky-800">Batch: {bk}  <span className="text-xs text-slate-500">({byBatch[bk].length} บิล)</span></div>
-                <button onClick={() => onMarkPosted(byBatch[bk].map(b => b.bill_number))}
+                <button onClick={() => onMarkPosted(byBatch[bk])}
                   disabled={busy}
                   className="text-xs px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
                   Mark all posted in batch
@@ -3393,9 +3401,9 @@ function SentTab({ bills, selected, toggleBill, toggleAll, accountant, setAccoun
               </div>
               <div>
                 {byBatch[bk].map(b => (
-                  <BillCard key={b.bill_number} bill={b}
-                    selected={selected.has(b.bill_number)} onToggleSelect={toggleBill}
-                    isExpanded={expandedBill === b.bill_number} onToggleExpand={toggleExpand}
+                  <BillCard key={b._key} bill={b}
+                    selected={selected.has(b._key)} onToggleSelect={toggleBill}
+                    isExpanded={expandedBill === b._key} onToggleExpand={toggleExpand}
                     busy={busy} onUndo={onUnsendBatch} undoTitle="ย้อนกลับเป็นรอส่งบัญชี (ออกจาก batch)"
                     sentTimestamp/>
                 ))}
@@ -3540,8 +3548,8 @@ function BatchBillsList({ bills, search = '' }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white">
       {filteredBills.map(b => (
-        <BillCard key={b.bill_number} bill={b}
-          isExpanded={expandedBill === b.bill_number}
+        <BillCard key={b._key} bill={b}
+          isExpanded={expandedBill === b._key}
           onToggleExpand={(bn) => setExpandedBill(cur => cur === bn ? null : bn)}/>
       ))}
     </div>
