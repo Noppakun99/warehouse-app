@@ -206,17 +206,16 @@ const drugPreview = (items) => {
 function PageHeader({ onBack, title, subtitle, children }) {
   const onRefresh = React.useContext(RefreshCtx);
   return (
-    <div className="sticky top-0 z-10 shadow-md px-4 py-3 flex items-center gap-3" style={{background:'#1E90FF'}}>
-      <button onClick={onBack} className="p-1 transition-colors hover:opacity-70" style={{color:'#001F3F'}}>
+    <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-3">
+      <button onClick={onBack} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors">
         <ArrowLeft size={20} />
       </button>
       <div
-        className={`flex-1 min-w-0 border-l-4 pl-3 py-0.5${onRefresh ? ' hover:opacity-80 transition-opacity cursor-pointer' : ''}`}
-        style={{borderColor:'rgba(255,255,255,0.7)'}}
+        className={`flex-1 min-w-0${onRefresh ? ' hover:opacity-70 transition-opacity cursor-pointer' : ''}`}
         onClick={onRefresh}
       >
-        {title    && <p className="font-bold truncate drop-shadow" style={{fontSize:'23px',color:'#ffffff'}}>{title}</p>}
-        {subtitle && <p className="truncate font-medium" style={{fontSize:'20px',color:'rgba(0,0,0,0.55)'}}>{subtitle}</p>}
+        {title    && <p className="font-bold text-slate-800 truncate text-lg leading-tight">{title}</p>}
+        {subtitle && <p className="text-slate-500 truncate text-sm">{subtitle}</p>}
       </div>
       {children}
     </div>
@@ -694,11 +693,11 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
       )}
 
       <PageHeader onBack={onBack} title={info.name} subtitle={info.department}>
-        <button onClick={onHistory} className="transition-colors px-3 py-2 rounded-lg border border-white/50 bg-white/10 hover:bg-white/25 flex items-center gap-1.5 text-white">
+        <button onClick={onHistory} className="transition-colors px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 hover:border-slate-400 flex items-center gap-1.5 text-slate-700">
           <FileText size={16} strokeWidth={2} />
           <span className="text-sm font-medium">ประวัติการเบิก</span>
         </button>
-        <button onClick={onCart} className="relative rounded-lg border border-white/50 bg-white/10 hover:bg-white/25 px-3 py-2 flex items-center gap-1.5 transition-colors text-white">
+        <button onClick={onCart} className="relative rounded-xl border border-blue-600 bg-blue-600 hover:bg-blue-700 px-3 py-2 flex items-center gap-1.5 transition-colors text-white">
           <Package size={16} /><span className="text-sm font-medium">ตะกร้า</span>
           {cart.length > 0 && <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">{cart.length}</span>}
         </button>
@@ -716,16 +715,16 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
         </button>
       )}
 
-      {/* Hero Search Area */}
-      <div className="bg-gradient-to-br from-[#1E90FF] to-[#0055cc] px-4 pt-5 pb-10 shadow-md">
-        <p className="text-white/80 text-sm mb-3 font-medium">ค้นหายาในคลัง</p>
+      {/* Search Area */}
+      <div className="bg-white border-b border-slate-200 px-4 pt-4 pb-5">
+        <p className="text-slate-500 text-sm mb-2 font-medium">ค้นหายาในคลัง</p>
         <div className="relative" ref={searchRef}>
           <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" />
           <input type="text" value={q}
             onChange={e => { setQ(e.target.value); setShowDropdown(true); }}
             onFocus={() => { if (q.trim()) setShowDropdown(true); }}
             placeholder="ชื่อยาหรือรหัสยา..." autoFocus
-            className="w-full bg-white rounded-xl pl-11 pr-10 py-3.5 text-slate-800 placeholder-slate-400 text-base focus:outline-none focus:ring-2 focus:ring-white/80 shadow-lg border-0" />
+            className="w-full bg-slate-100 rounded-xl pl-11 pr-10 py-3.5 text-slate-800 placeholder-slate-400 text-base focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white border border-slate-200" />
           {q && (
             <button onClick={() => { setQ(''); setRawResults([]); }} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
               <X size={18} />
@@ -746,14 +745,14 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
           )}
         </div>
         {results.length > 0 && (
-          <button onClick={() => search(q)} className="mt-3 flex items-center gap-1.5 text-white hover:text-white/80 text-sm font-bold transition-colors">
+          <button onClick={() => search(q)} className="mt-3 flex items-center gap-1.5 text-sky-600 hover:text-sky-700 text-sm font-bold transition-colors">
             <RefreshCcw size={15} strokeWidth={2.5} /> อัพเดตคงเหลือใหม่
           </button>
         )}
       </div>
 
-      {/* Results list — pulls up over hero via negative margin */}
-      <div className="flex-1 px-4 pb-28 -mt-5 space-y-3">
+      {/* Results list */}
+      <div className="flex-1 px-4 pt-4 pb-28 space-y-3">
         {loading && (
           <div className="flex flex-col items-center justify-center py-16 text-slate-400">
             <div className="w-8 h-8 border-4 border-[#1E90FF] border-t-transparent rounded-full animate-spin mb-3" />

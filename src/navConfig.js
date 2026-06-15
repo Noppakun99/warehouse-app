@@ -5,11 +5,13 @@
 // ============================================================
 import {
   Package, Database, RotateCcw, TrendingUp, TrendingDown,
-  Activity, ShoppingCart, ClipboardList, Users,
+  Activity, ShoppingCart, ClipboardList, Users, History, BarChart3,
 } from 'lucide-react';
 
-// แต่ละ item: page = key สำหรับ onNavigate, c = สีประจำระบบ (ตรงกับ SYSTEMS ใน AppRoot)
-// roles = role ที่เห็นเมนูนี้ (ตรงกับ SYSTEMS.roles); reorder = staff/admin (วิเคราะห์สั่งซื้อ)
+// โครงสร้างเมนู — รองรับ 2 แบบใน group.items:
+//   1) leaf item:    { page, icon, title, c, roles }  → ปุ่มเมนูตรง
+//   2) submenu:      { key, icon, title, roles, children: [leaf, ...] }  → กดกางแบบ collapsible
+// page = key สำหรับ onNavigate (ตรง AppRoot routing), c = สีประจำระบบ, roles ตรงกับ SYSTEMS.roles
 export const NAV_GROUPS = [
   {
     label: 'งานประจำวัน', dot: 'bg-emerald-500',
@@ -22,10 +24,20 @@ export const NAV_GROUPS = [
   {
     label: 'สรุปและรายงาน', dot: 'bg-blue-500',
     items: [
-      { page: 'receive',   icon: TrendingUp,   title: 'ประวัติรับยา',     c: 'emerald', roles: ['requester', 'staff', 'admin'] },
-      { page: 'dispense',  icon: TrendingDown, title: 'ประวัติเบิกจ่าย',  c: 'rose',    roles: ['requester', 'staff', 'admin'] },
-      { page: 'analytics', icon: Activity,     title: 'วิเคราะห์การเบิก', c: 'cyan',    roles: ['requester', 'staff', 'admin'] },
-      { page: 'reorder',   icon: ShoppingCart, title: 'วิเคราะห์สั่งซื้อ', c: 'orange',  roles: ['staff', 'admin'] },
+      {
+        key: 'history', icon: History, title: 'ประวัติ', roles: ['requester', 'staff', 'admin'],
+        children: [
+          { page: 'receive',  icon: TrendingUp,   title: 'ประวัติรับยา',    c: 'emerald', roles: ['requester', 'staff', 'admin'] },
+          { page: 'dispense', icon: TrendingDown, title: 'ประวัติเบิกจ่าย', c: 'rose',    roles: ['requester', 'staff', 'admin'] },
+        ],
+      },
+      {
+        key: 'analyze', icon: BarChart3, title: 'วิเคราะห์', roles: ['requester', 'staff', 'admin'],
+        children: [
+          { page: 'analytics', icon: Activity,     title: 'วิเคราะห์การเบิก', c: 'cyan',   roles: ['requester', 'staff', 'admin'] },
+          { page: 'reorder',   icon: ShoppingCart, title: 'วิเคราะห์สั่งซื้อ', c: 'orange', roles: ['staff', 'admin'] },
+        ],
+      },
     ],
   },
   {
@@ -37,7 +49,10 @@ export const NAV_GROUPS = [
   },
 ];
 
-export const NAV_ITEMS = NAV_GROUPS.flatMap(g => g.items);
+// flatten leaf items (รวม children ของ submenu) — ใช้โดย DashboardV2Preview/อื่นๆ
+export const NAV_ITEMS = NAV_GROUPS.flatMap(g =>
+  g.items.flatMap(it => (it.children ? it.children : [it]))
+);
 
 // Tailwind ต้องเห็น class เต็มตอน build → map ตรงต่อสี (ห้ามใช้ `bg-${c}-50` — purge ตัด)
 export const COLOR = {

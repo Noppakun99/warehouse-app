@@ -8,14 +8,46 @@
 // Mobile (< lg): sidebar = drawer overlay เปิดด้วย hamburger
 // ============================================================
 import React, { useState } from 'react';
-import { Pill, LayoutDashboard, ChevronLeft, Menu, X, LogOut, RefreshCcw } from 'lucide-react';
+import { Pill, LayoutDashboard, ChevronLeft, ChevronDown, Menu, X, LogOut, RefreshCcw } from 'lucide-react';
 import { NAV_GROUPS, COLOR } from './navConfig';
+
+// submenu ที่มี active page อยู่ข้างใน → เปิดไว้ตั้งแต่แรก
+const submenuKeyOf = (pageKey) => {
+  for (const g of NAV_GROUPS)
+    for (const it of g.items)
+      if (it.children?.some(c => c.page === pageKey)) return it.key;
+  return null;
+};
 
 export default function AppShell({ page, onNavigate, onRefresh, displayName, role, onLogout, children }) {
   const [collapsed, setCollapsed] = useState(false); // desktop collapse
   const [drawerOpen, setDrawerOpen] = useState(false); // mobile drawer
+  const [openMenus, setOpenMenus] = useState(() => {
+    const k = submenuKeyOf(page);
+    return k ? { [k]: true } : {};
+  });
 
   const go = (p) => { onNavigate(p); setDrawerOpen(false); };
+  const toggleMenu = (k) => setOpenMenus(m => ({ ...m, [k]: !m[k] }));
+
+  // leaf menu item (ใช้ทั้ง top-level และลูกของ submenu)
+  const renderLeaf = (item, mini) => {
+    const Icon = item.icon;
+    const on = page === item.page;
+    const col = COLOR[item.c];
+    return (
+      <button
+        key={item.page}
+        onClick={() => go(item.page)}
+        title={item.title}
+        className={`relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${on ? `${col.activeBg} font-semibold` : 'text-slate-600 hover:bg-slate-50'}`}
+      >
+        {on && <span className={`absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full ${col.bar}`} />}
+        <span className={`p-1 rounded-md shrink-0 ${col.icon}`}><Icon size={15} /></span>
+        {!mini && <span className="truncate">{item.title}</span>}
+      </button>
+    );
+  };
 
   // ฟังก์ชันธรรมดาคืน JSX (ไม่ใช่ component ใน render — เลี่ยง remount ทุก render)
   const renderSidebar = (mini) => (
@@ -55,21 +87,35 @@ export default function AppShell({ page, onNavigate, onRefresh, displayName, rol
               )}
               <div className="space-y-0.5">
                 {items.map(item => {
-                  const Icon = item.icon;
-                  const on = page === item.page;
-                  const col = COLOR[item.c];
-                  return (
-                    <button
-                      key={item.page}
-                      onClick={() => go(item.page)}
-                      title={item.title}
-                      className={`relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${on ? `${col.activeBg} font-semibold` : 'text-slate-600 hover:bg-slate-50'}`}
-                    >
-                      {on && <span className={`absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full ${col.bar}`} />}
-                      <span className={`p-1 rounded-md shrink-0 ${col.icon}`}><Icon size={15} /></span>
-                      {!mini && <span className="truncate">{item.title}</span>}
-                    </button>
-                  );
+                  // ── submenu (collapsible) ──
+                  if (item.children) {
+                    const children = item.children.filter(c => c.roles.includes(role));
+                    if (children.length === 0) return null;
+                    const SubIcon = item.icon;
+                    const open = !!openMenus[item.key];
+                    const hasActive = children.some(c => c.page === page);
+                    // โหมด mini: ไม่มีที่กาง → แสดง leaf ของลูกตรงๆ
+                    if (mini) return children.map(c => renderLeaf(c, true));
+                    return (
+                      <div key={item.key}>
+                        <button
+                          onClick={() => toggleMenu(item.key)}
+                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${hasActive && !open ? 'text-slate-800 font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}
+                        >
+                          <span className="p-1 rounded-md shrink-0 bg-slate-100 text-slate-500"><SubIcon size={15} /></span>
+                          <span className="truncate flex-1 text-left">{item.title}</span>
+                          <ChevronDown size={15} className={`shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+                        </button>
+                        {open && (
+                          <div className="ml-5 mt-0.5 pl-3 border-l border-slate-200 space-y-0.5">
+                            {children.map(c => renderLeaf(c, false))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+                  // ── leaf item ──
+                  return renderLeaf(item, mini);
                 })}
               </div>
             </div>
