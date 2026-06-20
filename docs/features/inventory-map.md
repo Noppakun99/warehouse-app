@@ -11,6 +11,18 @@
 - **Summary modal header**: `bg-indigo-600`
 - ต้อง import `ArrowLeft` จาก `lucide-react` ใน App.jsx — ขาดแล้วหน้าขาว
 
+## Slot Heatmap + List of sections
+
+- **Slot** (`Slot` component) เป็น **square heatmap เล็ก** (`w-9 h-9`, ไม่มี label ตัวอักษร) — รหัสตำแหน่ง + รายการยา (สูงสุด 4) แสดงใน **hover tooltip** (สี indigo) เท่านั้น
+  - สี: ว่าง = `bg-slate-100 border-dashed` · มีของ = `bg-indigo-400` (opacity ตามความหนาแน่น 0.45→1) · ใกล้หมดอายุ = `bg-amber-500` · หมดอายุ = `bg-rose-500` (expiry override density)
+  - คง `onClick={handleLocationClick(id)}` + highlight (`ring-yellow-400`) เดิม — flow คลิกดูตำแหน่งไม่เปลี่ยน
+  - container ของ slot ใช้ `flex flex-wrap gap-1.5` (เดิม `gap-2`)
+- **List of sections** (panel เหนือแผนผัง, ซ่อนตอน `searchTerm`) — progress bar % การใช้พื้นที่ต่อ zone จาก `sectionUsage` useMemo
+  - `sectionUsage` = slot ที่มี item `qty>0` ÷ slot ทั้งหมดต่อ zone (อ้างอิง `layout` + `inventory`) — **คนละค่ากับ Slot Utilization ใน summary modal** ที่นับ qty>0 ระดับ slot เหมือนกันแต่ต่อ cab
+  - bar color: ≥85% rose, ≥60% amber, <60% indigo — คลิกแถว = `setActiveZone(cab)`
+  - มี slot legend (ว่าง/มีของ/ใกล้หมด/หมดอายุ) ใน header ของ panel นี้
+- **ไม่มี** donut "Section usage" และ feed Received/Sent/Expected (ไม่มีข้อมูล Sent/Expected — ไม่ทำ mock) — ดู design ref "Warehouse Logistics" ที่ปรับมาเฉพาะ heatmap + section list, คงธีม indigo
+
 ## Inventory Alert Rules
 
 - `fetchDashboardAlerts()` ต้องดึง `receive_status` ใน `.select()` เสมอ — ใช้ตรวจยาตัดออกจากบัญชี

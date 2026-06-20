@@ -482,6 +482,25 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
 
   const totalCabinets = Object.keys(summary).length;
 
+  // % การใช้พื้นที่ต่อ zone — slot ที่มีของ (qty>0) ÷ slot ทั้งหมด — สำหรับ "List of sections"
+  const sectionUsage = useMemo(() => {
+    return Object.keys(layout).sort().map(cab => {
+      let total = 0;
+      let used = 0;
+      Object.values(layout[cab]).forEach(slots => {
+        slots.forEach(slot => {
+          total += 1;
+          const hasStock = (inventory[slot.id] || []).some(item =>
+            (parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0) > 0
+          );
+          if (hasStock) used += 1;
+        });
+      });
+      const pct = total > 0 ? Math.round((used / total) * 100) : 0;
+      return { cab, total, used, empty: total - used, pct };
+    });
+  }, [layout, inventory]);
+
   // --- ข้อมูลสำหรับสร้างกราฟ ---
   const { typeStats, maxTypeCount } = useMemo(() => {
     const stats = {};
@@ -859,58 +878,76 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
        else if (d <= targetDateForDisplay) hasNearExpiry = true;
     });
 
-    let gradient = 'bg-gradient-to-br from-emerald-100 via-teal-50 to-emerald-100';
-    let border   = 'border-emerald-300';
-    let textSub  = 'text-slate-700';
-    let shadow   = 'shadow-emerald-100';
-    let ring     = 'hover:ring-2 hover:ring-emerald-300';
-    let StatusIcon = null;
-
-    if (hasExpired) {
-      gradient = 'bg-gradient-to-br from-rose-100 via-red-50 to-rose-100';
-      border   = 'border-rose-300';
-      textSub  = 'text-slate-700';
-      shadow   = 'shadow-rose-100';
-      ring     = 'hover:ring-2 hover:ring-rose-300';
-      StatusIcon = <AlertTriangle size={12} className="absolute top-1 right-1 text-rose-500 drop-shadow" />;
-    } else if (hasNearExpiry) {
-      gradient = 'bg-gradient-to-br from-amber-100 via-yellow-50 to-amber-100';
-      border   = 'border-amber-300';
-      textSub  = 'text-slate-700';
-      shadow   = 'shadow-amber-100';
-      ring     = 'hover:ring-2 hover:ring-amber-300';
-      StatusIcon = <Clock size={12} className="absolute top-1 right-1 text-amber-500 drop-shadow" />;
-    }
-
-    // Heatmap: items เยอะ = สีเข้ม (opacity ของ background layer เพิ่มขึ้น — ไม่กระทบสี hue หรือ text)
-    const bgOpacity = itemCount === 0 ? 0.15 : itemCount <= 2 ? 0.6 : itemCount <= 6 ? 0.78 : itemCount <= 12 ? 0.9 : 1;
     const isEmpty = itemCount === 0;
 
+    // Heatmap square: ว่าง = จาง+dashed, มีของ = indigo เข้มตามความหนาแน่น
+    // expiry override: ใกล้หมด = amber, หมดแล้ว = rose
+    let fill   = 'bg-indigo-400';
+    let border = 'border-indigo-200';
+    let ring   = 'hover:ring-2 hover:ring-indigo-300';
+    let StatusIcon = null;
+
+    const opacity = itemCount <= 2 ? 0.45 : itemCount <= 6 ? 0.65 : itemCount <= 12 ? 0.85 : 1;
+
+    if (isEmpty) {
+      fill   = 'bg-slate-100';
+      border = 'border-slate-200 border-dashed';
+      ring   = 'hover:ring-2 hover:ring-slate-300';
+    } else if (hasExpired) {
+      fill   = 'bg-rose-500';
+      border = 'border-rose-200';
+      ring   = 'hover:ring-2 hover:ring-rose-300';
+      StatusIcon = <AlertTriangle size={11} className="absolute -top-1 -right-1 text-rose-600 bg-white rounded-full drop-shadow" />;
+    } else if (hasNearExpiry) {
+      fill   = 'bg-amber-500';
+      border = 'border-amber-200';
+      ring   = 'hover:ring-2 hover:ring-amber-300';
+      StatusIcon = <Clock size={11} className="absolute -top-1 -right-1 text-amber-600 bg-white rounded-full drop-shadow" />;
+    }
+
+    // รายการยาสำหรับ tooltip (สูงสุด 4 รายการ)
+    const previewItems = visibleItems.slice(0, 4);
+
     return (
-      <div
-        onClick={() => handleLocationClick(id)}
-        className={`
-          relative cursor-pointer transition-all duration-200 border-2 rounded-xl bg-white
-          flex items-center justify-center text-xs font-bold px-3 min-w-[70px] flex-1
-          min-h-[44px]
-          ${border} ${isEmpty ? 'border-dashed' : ''} shadow-md ${shadow} ${ring}
-          ${highlighted
-            ? 'ring-4 ring-yellow-400 scale-110 z-10 shadow-xl'
-            : 'hover:scale-105 hover:shadow-lg active:scale-95'}
-          overflow-hidden
-        `}
-      >
-        {/* Heatmap background layer — opacity สะท้อนความหนาแน่น */}
-        <div className={`absolute inset-0 rounded-xl ${gradient}`} style={{ opacity: bgOpacity }} />
-        {/* Shine overlay */}
-        <div className="absolute inset-0 bg-gradient-to-b from-white/30 to-transparent pointer-events-none rounded-xl" />
-        <div className="flex flex-col items-center relative z-10">
-          <span className="tracking-wide drop-shadow-sm">{id}</span>
-          <span className={`text-[10px] font-semibold mt-0.5 ${textSub}`}>
-            {itemCount} รายการ
-          </span>
+      <div className="relative group/slot">
+        <button
+          onClick={() => handleLocationClick(id)}
+          aria-label={`ตำแหน่ง ${id} — ${itemCount} รายการ`}
+          className={`
+            relative cursor-pointer transition-all duration-150 border rounded-lg
+            w-9 h-9 shrink-0 ${border} ${ring}
+            ${highlighted
+              ? 'ring-4 ring-yellow-400 scale-110 z-10 shadow-lg'
+              : 'hover:scale-110 active:scale-95'}
+          `}
+        >
+          <span className={`absolute inset-0 rounded-lg ${fill}`} style={!isEmpty && !hasExpired && !hasNearExpiry ? { opacity } : undefined} />
+          {StatusIcon}
+        </button>
+
+        {/* Hover tooltip — รหัสตำแหน่ง + รายการยา */}
+        <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-30 w-max max-w-[220px]
+          opacity-0 group-hover/slot:opacity-100 transition-opacity duration-150">
+          <div className="bg-indigo-600 text-white rounded-xl shadow-xl px-3 py-2 text-left">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-bold tracking-wide">{id}</span>
+              <span className="text-[10px] font-semibold bg-white/20 rounded-full px-2 py-0.5">{itemCount} รายการ</span>
+            </div>
+            {isEmpty ? (
+              <p className="text-[11px] text-indigo-100 mt-1">ช่องว่าง</p>
+            ) : (
+              <div className="mt-1.5 space-y-0.5">
+                {previewItems.map((it, i) => (
+                  <p key={i} className="text-[11px] text-indigo-50 leading-tight truncate">• {it.name || it.code || '-'}</p>
+                ))}
+                {itemCount > previewItems.length && (
+                  <p className="text-[10px] text-indigo-200 mt-0.5">+ อีก {itemCount - previewItems.length} รายการ</p>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="w-2 h-2 bg-indigo-600 rotate-45 mx-auto -mt-1" />
         </div>
-        {StatusIcon}
       </div>
     );
   };
@@ -1381,6 +1418,43 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
           </div>
         )}
 
+        {/* List of sections — % การใช้พื้นที่ต่อ zone (ซ่อนตอนค้นหา) */}
+        {!searchTerm && sectionUsage.length > 0 && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-indigo-100 text-indigo-600"><Layers size={15} /></div>
+                <span className="text-sm font-bold text-slate-700">รายการโซน</span>
+                <span className="text-xs text-slate-400">% การใช้พื้นที่</span>
+              </div>
+              {/* Slot legend */}
+              <div className="hidden sm:flex items-center gap-3 text-[11px] text-slate-500">
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-slate-100 border border-dashed border-slate-300" /> ว่าง</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-400" /> มีของ</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-500" /> ใกล้หมดอายุ</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-rose-500" /> หมดอายุ</span>
+              </div>
+            </div>
+            <div className="divide-y divide-slate-50">
+              {sectionUsage.map(({ cab, used, total, pct }) => {
+                const barColor = pct >= 85 ? 'bg-rose-500' : pct >= 60 ? 'bg-amber-500' : 'bg-indigo-500';
+                const isActive = !searchTerm && activeZoneKey === cab;
+                return (
+                  <button key={cab} onClick={() => setActiveZone(cab)}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${isActive ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`}>
+                    <span className={`text-sm font-bold w-20 shrink-0 ${isActive ? 'text-indigo-700' : 'text-slate-700'}`}>Log {cab}</span>
+                    <span className="text-xs text-slate-400 w-24 shrink-0 hidden sm:inline">ใช้ {used}/{total} ช่อง</span>
+                    <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+                      <div className={`h-full rounded-full ${barColor} transition-all`} style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-sm font-bold text-slate-700 w-12 text-right shrink-0">{pct}%</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {successMsg && (
           <div className="bg-emerald-50 text-emerald-700 p-4 rounded-xl border border-emerald-200 flex items-center gap-3 shadow-sm mb-6 animate-in fade-in slide-in-from-top-2">
             <Check size={20} className="text-emerald-500" /> <span className="font-medium">{successMsg}</span>
@@ -1493,7 +1567,7 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
                             }
                           </button>
                           {!isCollapsed && (
-                            <div className="flex flex-wrap gap-2 px-1 pt-2 pb-1">
+                            <div className="flex flex-wrap gap-1.5 px-1 pt-2 pb-1">
                               {displaySlots.map(slot => <Slot key={slot.id} id={slot.id} />)}
                             </div>
                           )}
