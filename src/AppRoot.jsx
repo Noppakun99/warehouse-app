@@ -1291,7 +1291,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-start justify-center sm:p-4 sm:pt-6 overflow-y-auto" onClick={onClose}>
-      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-5xl flex flex-col" style={{ maxHeight: '95vh' }} onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-5xl flex flex-col min-h-[60vh] sm:min-h-0" style={{ maxHeight: '95vh' }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-100 bg-sky-50 rounded-t-2xl shrink-0">
