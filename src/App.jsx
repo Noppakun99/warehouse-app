@@ -2340,7 +2340,9 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
                         <td className="px-3 py-2.5">{r.type ? <DrugTypeBadge type={r.type} /> : <span className="text-slate-500">-</span>}</td>
                         <td className="px-3 py-2.5 text-slate-600 font-medium whitespace-nowrap">{r.location || '-'}</td>
                         <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">{r.lot || '-'}</td>
-                        <td className="px-3 py-2.5 text-center font-medium text-slate-700 whitespace-nowrap">{r.exp || '-'}</td>
+                        {isExpiryMode && (
+                          <td className="px-3 py-2.5 text-center font-medium text-slate-700 whitespace-nowrap">{r.exp || '-'}</td>
+                        )}
                         {isExpiryMode && (
                           <td className="px-3 py-2.5 text-center">
                             <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${badgeColor(r.daysLeft)}`}>
@@ -2361,9 +2363,11 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
                           <td className="px-3 py-2.5 text-slate-600 text-xs max-w-[160px] truncate">{r.receiveStatus || '-'}</td>
                         )}
                         <td className="px-3 py-2.5 text-slate-700 text-xs max-w-[160px] truncate" title={r.supplier || '-'}>{r.supplier || '-'}</td>
-                        <td className="px-3 py-2.5 text-slate-600 text-xs max-w-[220px]" title={r.swapPolicy || '-'}>
-                          <span className="line-clamp-2 leading-snug">{r.swapPolicy || '-'}</span>
-                        </td>
+                        {isExpiryMode && (
+                          <td className="px-3 py-2.5 text-slate-600 text-xs max-w-[220px]" title={r.swapPolicy || '-'}>
+                            <span className="line-clamp-2 leading-snug">{r.swapPolicy || '-'}</span>
+                          </td>
+                        )}
                         <td className="px-3 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">{fmtQty(r)}</td>
                       </tr>
                     ))}
