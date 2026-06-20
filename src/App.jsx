@@ -1427,12 +1427,11 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
                 <span className="text-sm font-bold text-slate-700">รายการโซน</span>
                 <span className="text-xs text-slate-400">% การใช้พื้นที่</span>
               </div>
-              {/* Slot legend */}
+              {/* Legend — ระดับการใช้พื้นที่ (ตาม % ของ slot ที่มีของ) */}
               <div className="hidden sm:flex items-center gap-3 text-[11px] text-slate-500">
-                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-slate-100 border border-dashed border-slate-300" /> ว่าง</span>
-                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-400" /> มีของ</span>
-                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-500" /> ใกล้หมดอายุ</span>
-                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-rose-500" /> หมดอายุ</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-500" /> ว่าง/น้อย (&lt;60%)</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-500" /> ค่อนข้างเต็ม (60–85%)</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-rose-500" /> เกือบเต็ม (≥85%)</span>
               </div>
             </div>
             <div className="divide-y divide-slate-50">
