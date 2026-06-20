@@ -2314,42 +2314,42 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
                   ))}
                 </div>
               ) : (
-                <table className="w-full text-xs min-w-[900px]">
+                <table className="w-auto text-xs table-auto">
                   <thead className="sticky top-0 z-20">
                     <tr className="text-slate-500 font-semibold border-b border-slate-100 bg-slate-50">
-                      <th className="px-4 py-2 text-left bg-slate-50">ชื่อยา</th>
-                      <th className="px-4 py-2 text-left bg-slate-50">ชนิด</th>
-                      <th className="px-4 py-2 text-left bg-slate-50">ตำแหน่ง</th>
-                      <th className="px-4 py-2 text-left bg-slate-50">Lot</th>
-                      <th className="px-4 py-2 text-center bg-slate-50">วันหมดอายุ</th>
-                      {isExpiryMode && <th className="px-4 py-2 text-center bg-slate-50">สถานะ</th>}
-                      {!isExpiryMode && <th className="px-4 py-2 text-center bg-slate-50">รอตรวจรับมา</th>}
-                      {!isExpiryMode && <th className="px-4 py-2 text-left bg-slate-50">สถานะรับ</th>}
-                      <th className="px-4 py-2 text-left bg-slate-50">บริษัท</th>
-                      <th className="px-4 py-2 text-left bg-slate-50">นโยบายเปลี่ยนยา</th>
-                      <th className="px-4 py-2 text-right bg-slate-50">คงเหลือ</th>
+                      <th className="px-3 py-2 text-left bg-slate-50">ชื่อยา</th>
+                      <th className="px-3 py-2 text-left bg-slate-50">ชนิด</th>
+                      <th className="px-3 py-2 text-left bg-slate-50">ตำแหน่ง</th>
+                      <th className="px-3 py-2 text-left bg-slate-50">Lot</th>
+                      {isExpiryMode && <th className="px-3 py-2 text-center bg-slate-50">วันหมดอายุ</th>}
+                      {isExpiryMode && <th className="px-3 py-2 text-center bg-slate-50">สถานะ</th>}
+                      {!isExpiryMode && <th className="px-3 py-2 text-center bg-slate-50">รอตรวจรับมา</th>}
+                      {!isExpiryMode && <th className="px-3 py-2 text-left bg-slate-50">สถานะรับ</th>}
+                      <th className="px-3 py-2 text-left bg-slate-50">บริษัท</th>
+                      {isExpiryMode && <th className="px-3 py-2 text-left bg-slate-50">นโยบายเปลี่ยนยา</th>}
+                      <th className="px-3 py-2 text-right bg-slate-50 whitespace-nowrap">คงเหลือ</th>
                     </tr>
                   </thead>
                   <tbody>
                     {timeFiltered.map((r, i) => (
                       <tr key={i} className={`border-b ${rowColor(r.daysLeft)}`}>
-                        <td className="px-4 py-2.5 font-semibold text-slate-800 max-w-[200px]">
+                        <td className="px-3 py-2.5 font-semibold text-slate-800 max-w-[200px]">
                           <span className="block truncate">{r.name || '-'}</span>
                           {r.code && r.code !== '-' && <span className="text-slate-400 font-normal">{r.code}</span>}
                         </td>
-                        <td className="px-4 py-2.5">{r.type ? <DrugTypeBadge type={r.type} /> : <span className="text-slate-500">-</span>}</td>
-                        <td className="px-4 py-2.5 text-slate-600 font-medium">{r.location || '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-500">{r.lot || '-'}</td>
-                        <td className="px-4 py-2.5 text-center font-medium text-slate-700">{r.exp || '-'}</td>
+                        <td className="px-3 py-2.5">{r.type ? <DrugTypeBadge type={r.type} /> : <span className="text-slate-500">-</span>}</td>
+                        <td className="px-3 py-2.5 text-slate-600 font-medium whitespace-nowrap">{r.location || '-'}</td>
+                        <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">{r.lot || '-'}</td>
+                        <td className="px-3 py-2.5 text-center font-medium text-slate-700 whitespace-nowrap">{r.exp || '-'}</td>
                         {isExpiryMode && (
-                          <td className="px-4 py-2.5 text-center">
+                          <td className="px-3 py-2.5 text-center">
                             <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${badgeColor(r.daysLeft)}`}>
                               {daysLabel(r.daysLeft)}
                             </span>
                           </td>
                         )}
                         {!isExpiryMode && (
-                          <td className="px-4 py-2.5 text-center">
+                          <td className="px-3 py-2.5 text-center">
                             {r.waitDays != null ? (
                               <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border bg-sky-100 text-sky-700 border-sky-200">
                                 {r.waitDays} วัน
@@ -2358,13 +2358,13 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
                           </td>
                         )}
                         {!isExpiryMode && (
-                          <td className="px-4 py-2.5 text-slate-600 text-xs max-w-[160px] truncate">{r.receiveStatus || '-'}</td>
+                          <td className="px-3 py-2.5 text-slate-600 text-xs max-w-[160px] truncate">{r.receiveStatus || '-'}</td>
                         )}
-                        <td className="px-4 py-2.5 text-slate-700 text-xs max-w-[160px] truncate" title={r.supplier || '-'}>{r.supplier || '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-600 text-xs max-w-[220px]" title={r.swapPolicy || '-'}>
+                        <td className="px-3 py-2.5 text-slate-700 text-xs max-w-[160px] truncate" title={r.supplier || '-'}>{r.supplier || '-'}</td>
+                        <td className="px-3 py-2.5 text-slate-600 text-xs max-w-[220px]" title={r.swapPolicy || '-'}>
                           <span className="line-clamp-2 leading-snug">{r.swapPolicy || '-'}</span>
                         </td>
-                        <td className="px-4 py-2.5 text-right font-bold text-slate-700">{fmtQty(r)}</td>
+                        <td className="px-3 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">{fmtQty(r)}</td>
                       </tr>
                     ))}
                   </tbody>
