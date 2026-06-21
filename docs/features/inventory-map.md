@@ -23,6 +23,14 @@
   - มี slot legend (ว่าง/มีของ/ใกล้หมด/หมดอายุ) ใน header ของ panel นี้
 - **ไม่มี** donut "Section usage" และ feed Received/Sent/Expected (ไม่มีข้อมูล Sent/Expected — ไม่ทำ mock) — ดู design ref "Warehouse Logistics" ที่ปรับมาเฉพาะ heatmap + section list, คงธีม indigo
 
+## ทุก query จาก inventory ต้อง paginate (1000-row limit)
+
+ทุก function ที่ aggregate ตาราง `inventory` **ต้องดึงทุก row ผ่าน helper `fetchAllInventoryRows(selectCols, { orderBy })`** ([db.js](../../src/lib/db.js)) — ห้าม `.select(...)` เดี่ยวๆ เพราะติด Supabase 1000-row limit (Critical Rule #2)
+
+- `.order('location')` เรียง Latin (`A-1-1`…) ก่อน Thai → คลังชื่อไทย (เช่น `คลังน้ำเกลือ`) มาท้าย ถ้า inventory > 1000 row จะ**ถูกตัดทิ้งเงียบๆ** (พบจริง: inventory 1,108 row, น้ำเกลือ row 1,023–1,108 หาย)
+- อาการเมื่อพลาด: ยา (เช่นน้ำเกลือ/Saline) **หายจากแผนผัง + ค้นหาไม่เจอ + รายการคงเหลือ + dashboard alert + ReorderApp คำนวณคงเหลือ = 0** (สั่งซื้อเกินทั้งที่มีของ)
+- 3 function ที่เคยพลาดและถูกแก้ให้เรียก helper: `fetchInventory` (แผนผัง+ReorderApp), `fetchStockSummary` (StockSummaryModal), `fetchDashboardAlerts` (dashboard alert)
+
 ## Inventory Alert Rules
 
 - `fetchDashboardAlerts()` ต้องดึง `receive_status` ใน `.select()` เสมอ — ใช้ตรวจยาตัดออกจากบัญชี

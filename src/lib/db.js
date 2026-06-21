@@ -4,16 +4,32 @@ const CHUNK_SIZE = 500
 
 // --- Inventory ---
 
+// ดึงทุก row ของ inventory ข้าม Supabase 1000-row limit (paginate) — ทุก query ที่ aggregate
+// คลังต้องใช้ตัวนี้ ไม่งั้น row ที่เรียงท้าย (เช่น คลังชื่อไทย "คลังน้ำเกลือ") ถูกตัดทิ้งเงียบๆ
+// → หายจากแผนผัง/รายการคงเหลือ/dashboard alert + ReorderApp คำนวณคงเหลือเป็น 0 (Critical Rule #2)
+export async function fetchAllInventoryRows(selectCols = '*', { orderBy = 'location' } = {}) {
+  if (!supabase) return []
+  const rows = []
+  const PAGE = 1000
+  let from = 0
+  while (true) {
+    let q = supabase.from('inventory').select(selectCols).range(from, from + PAGE - 1)
+    if (orderBy) q = q.order(orderBy)
+    const { data: page, error } = await q
+    if (error) throw error
+    if (!page || page.length === 0) break
+    rows.push(...page)
+    if (page.length < PAGE) break
+    from += PAGE
+  }
+  return rows
+}
+
 export async function fetchInventory() {
   if (!supabase) return null
 
-  const { data, error } = await supabase
-    .from('inventory')
-    .select('*')
-    .order('location')
-
-  if (error) throw error
-  if (!data || data.length === 0) return null
+  const data = await fetchAllInventoryRows('*')
+  if (data.length === 0) return null
 
   // แปลง flat rows → object grouped by location
   const result = {}
@@ -360,11 +376,14 @@ function _parseExpDate(raw) {
 export async function fetchDashboardAlerts() {
   if (!supabase) return { expiring: [], lowStock: [] }
 
-  const { data, error } = await supabase
-    .from('inventory')
-    .select('name, code, exp, qty, lot, location, safety_stock, type, unit, receive_status, invoice')
-
-  if (error || !data) return { expiring: [], lowStock: [], pendingReceive: [] }
+  // paginate ครบทุก row — ไม่งั้นยาที่เรียงท้าย (เช่นน้ำเกลือ) หายจาก alert (Critical Rule #2)
+  let data
+  try {
+    data = await fetchAllInventoryRows('name, code, exp, qty, lot, location, safety_stock, type, unit, receive_status, invoice')
+  } catch {
+    return { expiring: [], lowStock: [], pendingReceive: [] }
+  }
+  if (!data) return { expiring: [], lowStock: [], pendingReceive: [] }
 
   // ดึง receive_date จาก receive_logs เพื่อคำนวณ waitDays (รอตรวจรับมา X วัน) — ใช้ logic เดียวกับระบบแผนผัง
   // ข้าม 1000-row limit ของ Supabase ด้วย pagination
@@ -1091,8 +1110,9 @@ export const parseUnitFactor = (unit) => {
 export async function fetchStockSummary() {
   if (!supabase) return [];
 
-  const [invRes, recRes] = await Promise.all([
-    supabase.from('inventory').select('code, name, type, unit, qty, receive_status'),
+  // inventory paginate ครบทุก row — ไม่งั้นยาที่เรียงท้าย (เช่นน้ำเกลือ) หายจากรายการคงเหลือ (Critical Rule #2)
+  const [invData, recRes] = await Promise.all([
+    fetchAllInventoryRows('code, name, type, unit, qty, receive_status'),
     supabase.from('receive_logs')
       .select('drug_code, drug_unit, receive_date, purchase_type, price_per_unit')
       .not('drug_unit', 'is', null)
@@ -1100,8 +1120,6 @@ export async function fetchStockSummary() {
       .order('receive_date', { ascending: false })
       .limit(10000),
   ]);
-
-  if (invRes.error) throw invRes.error;
 
   // หน่วยปัจจุบัน = หน่วยจากบิล "การซื้อ" ราคา>0 ล่าสุด (ตรงกับ glossary + ReorderApp)
   // ไม่นับบริจาค/ยืม/ราคา 0 เพราะ pack อาจต่างจากที่ซื้อจริง — ดู fetchLatestReceiptInfo
@@ -1116,7 +1134,7 @@ export async function fetchStockSummary() {
 
   // group inventory by drug code
   const drugMap = {};
-  (invRes.data || []).forEach(row => {
+  (invData || []).forEach(row => {
     const qty = parseFloat(String(row.qty || '0').replace(/,/g, '')) || 0;
     if (qty <= 0) return;
     if (String(row.receive_status || '').includes('ตัดออก')) return;
