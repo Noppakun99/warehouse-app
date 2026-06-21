@@ -837,6 +837,8 @@ function Dashboard({ auth, onNavigate }) {
           charts={charts}
           lowStock={alerts.lowStock}
           onOpenReorder={() => onNavigate('reorder')}
+          onOpenDispense={() => onNavigate('dispense')}
+          onOpenReceive={() => onNavigate('receive')}
         />
       </div>
 
@@ -1453,12 +1455,21 @@ function TrendBadge({ pct }) {
   );
 }
 
-function DashboardCharts({ charts, lowStock = [], onOpenReorder }) {
-  const { dispense = [], receive = [], trend = {} } = charts || {};
-  const hasData = dispense.some(d => d.count > 0) || receive.some(r => r.count > 0);
+// ย่อมูลค่าบาท: 1,250,000 → "1.25M", 12,500 → "12.5K" (แกน Y กราฟ)
+const fmtBahtShort = (v) => {
+  const n = Number(v) || 0;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}K`;
+  return String(n);
+};
+const fmtBaht = (v) => `฿${(Number(v) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+
+function DashboardCharts({ charts, lowStock = [], onOpenReorder, onOpenDispense, onOpenReceive }) {
+  const { dispense = [], receive = [], trend = {}, maxValueMonth = null, maxReceiveValueMonth = null } = charts || {};
+  const hasData = dispense.some(d => d.value > 0) || receive.some(r => r.value > 0);
   const top5 = lowStock.slice(0, 5);
-  const dispenseTotal = dispense.reduce((s, d) => s + (d.count || 0), 0);
-  const lastLabel = dispense.length ? dispense[dispense.length - 1].label : '';
+  const dispenseTotal = dispense.reduce((s, d) => s + (d.value || 0), 0);
+  const receiveTotal = receive.reduce((s, r) => s + (r.value || 0), 0);
 
   return (
     <div className="mt-4 space-y-4">
@@ -1475,8 +1486,8 @@ function DashboardCharts({ charts, lowStock = [], onOpenReorder }) {
         <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-5 items-center">
           {/* เลขเด่นซ้าย */}
           <div className="lg:pr-6 lg:border-r lg:border-slate-100">
-            <p className="text-4xl font-black text-slate-800 leading-none">{dispenseTotal.toLocaleString()}</p>
-            <p className="text-xs text-slate-400 mt-1.5">ครั้งที่เบิกจ่ายรวม</p>
+            <p className="text-4xl font-black text-slate-800 leading-none">{fmtBaht(dispenseTotal)}</p>
+            <p className="text-xs text-slate-400 mt-1.5">มูลค่าเบิกจ่ายรวม (บาท)</p>
             <div className="flex items-center gap-2 mt-3">
               <TrendBadge pct={trend.dispensePct} />
               <span className="text-xs text-slate-400">เทียบเดือนก่อน</span>
@@ -1485,7 +1496,7 @@ function DashboardCharts({ charts, lowStock = [], onOpenReorder }) {
 
           {/* กราฟ area ขวา */}
           <ResponsiveContainer width="100%" height={170}>
-            <AreaChart data={dispense} margin={{ top: 5, right: 12, left: -18, bottom: 0 }}>
+            <AreaChart data={dispense} margin={{ top: 5, right: 12, left: -8, bottom: 0 }}>
               <defs>
                 <linearGradient id="dispenseFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
@@ -1494,33 +1505,57 @@ function DashboardCharts({ charts, lowStock = [], onOpenReorder }) {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip formatter={(v) => [`${v} ครั้ง`, 'เบิกจ่าย']} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }} />
-              <Area type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2.5} fill="url(#dispenseFill)" dot={{ r: 3, fill: '#6366f1' }} activeDot={{ r: 5 }} />
+              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={44} tickFormatter={fmtBahtShort} />
+              <Tooltip formatter={(v) => [fmtBaht(v), 'มูลค่าเบิก']} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }} />
+              <Area type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2.5} fill="url(#dispenseFill)" dot={{ r: 3, fill: '#6366f1' }} activeDot={{ r: 5 }} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
+
+        {/* คำสรุป: เดือนมูลค่าสูงสุด + ลิงก์ไปดูรายการยา */}
+        {maxValueMonth && maxValueMonth.value > 0 && (
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-xs text-slate-500">
+              เดือน <span className="font-bold text-indigo-700">{maxValueMonth.label}</span> มูลค่าเบิกสูงสุด <span className="font-bold text-slate-700">{fmtBaht(maxValueMonth.value)}</span>
+            </p>
+            <button onClick={onOpenDispense} className="text-xs text-[#1E90FF] hover:underline font-semibold inline-flex items-center gap-0.5">
+              ดูรายการยาที่มูลค่าสูงสุด <ArrowRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Panel รอง — รับเข้ารายเดือน (bar) */}
+      {/* Panel รอง — รับเข้ารายเดือน (มูลค่าบาท, bar) */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-sky-100 text-sky-600"><Package size={15} /></div>
-            <span className="text-sm font-bold text-slate-700">การรับเข้ารายเดือน</span>
-            {lastLabel && <span className="text-xs text-slate-400">ล่าสุด {lastLabel}</span>}
+            <span className="text-sm font-bold text-slate-700">มูลค่าการรับเข้ารายเดือน</span>
+            {receiveTotal > 0 && <span className="text-xs text-slate-400">รวม {fmtBaht(receiveTotal)}</span>}
           </div>
           <TrendBadge pct={trend.receivePct} />
         </div>
         <ResponsiveContainer width="100%" height={170}>
-          <BarChart data={receive} margin={{ top: 5, right: 12, left: -18, bottom: 0 }}>
+          <BarChart data={receive} margin={{ top: 5, right: 12, left: -8, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
             <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
-            <Tooltip formatter={(v) => [`${v} ครั้ง`, 'รับเข้า']} cursor={{ fill: '#f8fafc' }} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-            <Bar dataKey="count" fill="#38bdf8" radius={[6, 6, 0, 0]} maxBarSize={40} />
+            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={44} tickFormatter={fmtBahtShort} />
+            <Tooltip formatter={(v) => [fmtBaht(v), 'มูลค่ารับเข้า']} cursor={{ fill: '#f8fafc' }} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+            <Bar dataKey="value" fill="#38bdf8" radius={[6, 6, 0, 0]} maxBarSize={40} />
           </BarChart>
         </ResponsiveContainer>
+
+        {/* คำสรุป: เดือนรับเข้ามูลค่าสูงสุด + ลิงก์ไปประวัติรับยา */}
+        {maxReceiveValueMonth && maxReceiveValueMonth.value > 0 && (
+          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-xs text-slate-500">
+              เดือน <span className="font-bold text-sky-700">{maxReceiveValueMonth.label}</span> รับเข้ามูลค่าสูงสุด <span className="font-bold text-slate-700">{fmtBaht(maxReceiveValueMonth.value)}</span>
+            </p>
+            <button onClick={onOpenReceive} className="text-xs text-[#1E90FF] hover:underline font-semibold inline-flex items-center gap-0.5">
+              ดูประวัติรับเข้า <ArrowRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ตารางยาต้องสั่งซื้อ (Top 5) */}

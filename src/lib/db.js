@@ -491,9 +491,12 @@ export async function fetchDashboardAlerts() {
   }
 }
 
-// ดึงจำนวนครั้งเบิก/รับ รายเดือน ย้อนหลัง `months` เดือน (รวมเดือนปัจจุบัน) สำหรับกราฟ Dashboard
-// นับเป็น "จำนวนครั้ง" (record count) ไม่รวม qty — เลี่ยงปัญหาหน่วยปนข้ามแถว (ดู fetchMonthlyDispenseUsage)
-// ผล: { dispense: [{ ym, label, count }], receive: [...], trend: { dispensePct, receivePct } }
+// ดึงเบิก/รับ รายเดือน ย้อนหลัง `months` เดือน (รวมเดือนปัจจุบัน) สำหรับกราฟ Dashboard
+// แต่ละเดือนมีทั้ง count (จำนวนครั้ง) และ value (มูลค่าบาท) — มูลค่าข้ามหน่วยได้ (บาทคือบาท)
+//   เบิก: value = Σ(qty_out × ราคา/หน่วย) ตรงกับ getPrice ใน DispenseLogApp
+//   รับ:  value = Σ total_price_vat ตรงกับ totalValue ใน ReceiveLogApp
+//   (ไม่ dedup — เป็นภาพรวม trend เหมือน count chart เดิม; ตัวเลข authoritative ดูในโมดอลสรุปของแต่ละหน้า)
+// ผล: { dispense:[{ym,label,count,value}], receive:[...], maxValueMonth, maxReceiveValueMonth, trend:{dispensePct,receivePct} }
 export async function fetchDashboardCharts(months = 6) {
   const empty = { dispense: [], receive: [], trend: { dispensePct: null, receivePct: null } }
   if (!supabase) return empty
@@ -508,43 +511,88 @@ export async function fetchDashboardCharts(months = 6) {
   }
   const fromStr = buckets[0].ym + '-01'
 
-  // นับ record ต่อเดือนจาก date column ที่ระบุ (paginated เลี่ยง 1000-row limit)
-  async function countByMonth(table, dateCol) {
-    const counts = {}
+  // นับ "ครั้ง" + รวม "มูลค่า" (qty_out × ราคา/หน่วย) ต่อเดือน — มูลค่าเป็นบาท ข้ามหน่วยได้
+  // ราคา/หน่วย ต้องตรงกับ getPrice ใน DispenseLogApp (fallback drug_unit ถ้าเป็นตัวเลข) — กัน stat ไม่ตรง (Rule #6)
+  async function dispenseByMonth() {
+    const isNum = (v) => v != null && String(v).trim() !== '' && !isNaN(parseFloat(String(v))) && isFinite(String(v).trim())
+    const priceOf = (r) => {
+      if (r.price_per_unit != null && r.price_per_unit !== '') return parseFloat(r.price_per_unit) || 0
+      if (isNum(r.drug_unit)) return parseFloat(r.drug_unit) || 0
+      return 0
+    }
+    const counts = {}, values = {}
     const PAGE = 1000
     let off = 0
     while (true) {
       const { data, error } = await supabase
-        .from(table)
-        .select(dateCol)
-        .gte(dateCol, fromStr)
+        .from('dispense_logs')
+        .select('dispense_date, qty_out, price_per_unit, drug_unit')
+        .gte('dispense_date', fromStr)
         .range(off, off + PAGE - 1)
       if (error || !data || data.length === 0) break
       for (const r of data) {
-        const ym = String(r[dateCol] || '').slice(0, 7)
-        if (ym) counts[ym] = (counts[ym] || 0) + 1
+        const ym = String(r.dispense_date || '').slice(0, 7)
+        if (!ym) continue
+        counts[ym] = (counts[ym] || 0) + 1
+        values[ym] = (values[ym] || 0) + (Number(r.qty_out) || 0) * priceOf(r)
       }
       if (data.length < PAGE) break
       off += PAGE
     }
-    return buckets.map(b => ({ ym: b.ym, label: b.label, count: counts[b.ym] || 0 }))
+    return buckets.map(b => ({ ym: b.ym, label: b.label, count: counts[b.ym] || 0, value: Math.round(values[b.ym] || 0) }))
+  }
+
+  // นับ "ครั้ง" + รวม "มูลค่า" รับเข้าต่อเดือน (total_price_vat = มูลค่ารวมภาษี ต่อแถว)
+  // ตรงกับ totalValue ใน ReceiveLogApp — Dashboard เป็นภาพรวม ไม่ dedup (เหมือน count chart เดิม)
+  async function receiveByMonth() {
+    const counts = {}, values = {}
+    const PAGE = 1000
+    let off = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from('receive_logs')
+        .select('receive_date, total_price_vat')
+        .gte('receive_date', fromStr)
+        .range(off, off + PAGE - 1)
+      if (error || !data || data.length === 0) break
+      for (const r of data) {
+        const ym = String(r.receive_date || '').slice(0, 7)
+        if (!ym) continue
+        counts[ym] = (counts[ym] || 0) + 1
+        values[ym] = (values[ym] || 0) + (parseFloat(String(r.total_price_vat ?? '0').replace(/,/g, '')) || 0)
+      }
+      if (data.length < PAGE) break
+      off += PAGE
+    }
+    return buckets.map(b => ({ ym: b.ym, label: b.label, count: counts[b.ym] || 0, value: Math.round(values[b.ym] || 0) }))
   }
 
   const [dispense, receive] = await Promise.all([
-    countByMonth('dispense_logs', 'dispense_date'),
-    countByMonth('receive_logs', 'receive_date'),
+    dispenseByMonth(),
+    receiveByMonth(),
   ])
 
   // trend % = เดือนล่าสุด vs เดือนก่อนหน้า (null ถ้าเดือนก่อนหน้า = 0 → เทียบไม่ได้)
-  const pct = (arr) => {
+  const pct = (arr, key) => {
     if (arr.length < 2) return null
-    const prev = arr[arr.length - 2].count
-    const cur = arr[arr.length - 1].count
+    const prev = arr[arr.length - 2][key]
+    const cur = arr[arr.length - 1][key]
     if (!prev) return null
     return Math.round(((cur - prev) / prev) * 100)
   }
 
-  return { dispense, receive, trend: { dispensePct: pct(dispense), receivePct: pct(receive) } }
+  // เดือนที่มูลค่าสูงสุด (สำหรับคำสรุปบน Dashboard) — เบิก + รับ
+  const maxValueOf = (arr) => arr.reduce(
+    (best, d) => (d.value > (best?.value ?? -1) ? { label: d.label, value: d.value, ym: d.ym } : best),
+    null
+  )
+
+  return {
+    dispense, receive,
+    maxValueMonth: maxValueOf(dispense),
+    maxReceiveValueMonth: maxValueOf(receive),
+    trend: { dispensePct: pct(dispense, 'value'), receivePct: pct(receive, 'value') },
+  }
 }
 
 // --- Return Logs ---
