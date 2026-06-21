@@ -1725,16 +1725,10 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
           exportToExcel(rows, cols, 'สรุปคลังยา', `inventory_summary_${dateStr}.xlsx`, auth);
         };
 
-        const showExpired = expiredItems.length > 0;
-        const kpiCards = [
-          { label: 'พื้นที่จัดเก็บ', value: totalCabinets, unit: 'แห่ง', icon: <MapPin size={18}/>, bg: 'bg-indigo-50', border: 'border-indigo-200', text: 'text-indigo-700', val: 'text-indigo-900' },
-          { label: 'รายการยา (Unique)', value: overallStats?.names || 0, unit: 'รายการ', icon: <Pill size={18}/>, bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', val: 'text-emerald-900' },
-          { label: 'จำนวน Lot', value: overallStats?.lots || 0, unit: 'Lot', icon: <Layers size={18}/>, bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', val: 'text-sky-900' },
-          { label: 'มูลค่าคงคลัง', value: formatBaht(overallStats?.value || 0), unit: 'บาท', icon: <FileSpreadsheet size={18}/>, bg: 'bg-teal-50', border: 'border-teal-200', text: 'text-teal-700', val: 'text-teal-900', raw: true },
-          ...(showExpired ? [{ label: 'หมดอายุแล้ว', value: expiredItems.length, unit: 'รายการ', icon: <AlertTriangle size={18}/>, bg: 'bg-rose-50', border: 'border-rose-300', text: 'text-rose-700', val: 'text-rose-800' }] : []),
-          { label: 'ใกล้หมดอายุ', value: nearExpiryItems.length, unit: 'รายการ', icon: <Clock size={18}/>, bg: 'bg-amber-50', border: 'border-amber-300', text: 'text-amber-700', val: 'text-amber-800' },
-          { label: 'รอตรวจรับ', value: pendingReceiveItems.length, unit: 'รายการ', icon: <Package size={18}/>, bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-700', val: 'text-purple-900' },
-        ];
+        const totalLots = overallStats?.lots || 0;
+        // % สถานะหมดอายุ ใช้ expPct/nearPct (คิดจาก totalLogItems = expired+near+safe, per-row)
+        // ตัวเดียวกับ donut "สถานะวันหมดอายุ" — numerator/denominator per-row ทั้งคู่ จึงสอดคล้องกัน
+        // (ไม่หารด้วย overallStats.lots ซึ่งเป็น distinct code+lot — คนละหน่วย → % เพี้ยนเมื่อยาวางหลาย location)
 
         return (
           <div className="fixed inset-0 bg-slate-900/70 flex items-start justify-center z-50 p-4 pt-6 backdrop-blur-sm overflow-y-auto">
@@ -1766,19 +1760,68 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
 
               <div className="p-6 space-y-6 bg-slate-50/30">
 
-                {/* KPI Cards */}
-                <div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                    {kpiCards.map((k, i) => (
-                      <div key={i} className={`${k.bg} border ${k.border} rounded-xl p-3.5 shadow-sm flex flex-col gap-0.5`}>
-                        <div className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide ${k.text}`}>{k.icon}<span className="truncate">{k.label}</span></div>
-                        <div className={`text-2xl font-black ${k.val} leading-tight mt-1`}>{k.raw ? k.value : k.value.toLocaleString()}</div>
-                        <div className="text-[11px] text-slate-500">{k.unit}</div>
-                      </div>
-                    ))}
+                {/* KPI Cards — 2 กลุ่ม: ภาพรวมสต็อก + สถานะ Lot */}
+                <div className="space-y-3">
+
+                  {/* กลุ่ม 1: ภาพรวมสต็อก (นับจาก unique drug code + lot ทั้งหมดที่ qty > 0) */}
+                  <div>
+                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <Database size={11}/> ภาพรวมสต็อก — นับ Lot ที่ qty &gt; 0 ไม่รวมยาตัดออก
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {[
+                        { label: 'พื้นที่จัดเก็บ', value: totalCabinets, unit: 'โซน', icon: <MapPin size={15}/>, bg: 'bg-indigo-50', border: 'border-indigo-200', text: 'text-indigo-700', val: 'text-indigo-900' },
+                        { label: 'รายการยา (Unique Code)', value: overallStats?.names || 0, unit: 'รหัสยา', icon: <Pill size={15}/>, bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', val: 'text-emerald-900' },
+                        { label: 'จำนวน Lot ทั้งหมด', value: totalLots, unit: 'Lot (qty > 0)', icon: <Layers size={15}/>, bg: 'bg-sky-50', border: 'border-sky-200', text: 'text-sky-700', val: 'text-sky-900' },
+                        { label: 'มูลค่าคงคลัง', value: formatBaht(overallStats?.value || 0), unit: 'บาท', icon: <FileSpreadsheet size={15}/>, bg: 'bg-teal-50', border: 'border-teal-200', text: 'text-teal-700', val: 'text-teal-900', raw: true },
+                      ].map((k, i) => (
+                        <div key={i} className={`${k.bg} border ${k.border} rounded-xl p-3.5 shadow-sm flex flex-col gap-0.5`}>
+                          <div className={`flex items-center gap-1.5 text-[11px] font-bold ${k.text}`}>{k.icon}<span className="truncate">{k.label}</span></div>
+                          <div className={`text-2xl font-black ${k.val} leading-tight mt-1`}>{k.raw ? k.value : k.value.toLocaleString()}</div>
+                          <div className="text-[11px] text-slate-500">{k.unit}</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-2 flex items-center gap-1">
-                    <AlertCircle size={11}/> นับเฉพาะคงเหลือ &gt; 0 · ไม่รวมยาตัดออกจากบัญชี · มูลค่าคำนวณจากราคา/หน่วยล่าสุดใน receive_logs
+
+                  {/* กลุ่ม 2: สถานะ Lot (% คิดจาก Lot ทั้งหมดข้างบน — ตัวเลขสอดคล้องกัน) */}
+                  <div>
+                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <AlertTriangle size={11}/> สถานะวันหมดอายุ — % คิดจาก {totalLogItems.toLocaleString()} รายการที่มี stock
+                    </p>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className={`border rounded-xl p-3.5 shadow-sm flex flex-col gap-0.5 ${expiredItems.length > 0 ? 'bg-rose-50 border-rose-300' : 'bg-slate-50 border-slate-200 opacity-60'}`}>
+                        <div className={`flex items-center gap-1.5 text-[11px] font-bold ${expiredItems.length > 0 ? 'text-rose-700' : 'text-slate-500'}`}>
+                          <AlertTriangle size={15}/> หมดอายุแล้ว
+                        </div>
+                        <div className={`text-2xl font-black leading-tight mt-1 ${expiredItems.length > 0 ? 'text-rose-800' : 'text-slate-400'}`}>
+                          {expiredItems.length.toLocaleString()}
+                        </div>
+                        <div className="text-[11px] text-slate-500">รายการ · <span className="font-semibold text-rose-600">{expPct.toFixed(1)}% ของทั้งหมด</span></div>
+                      </div>
+                      <div className={`border rounded-xl p-3.5 shadow-sm flex flex-col gap-0.5 ${nearExpiryItems.length > 0 ? 'bg-amber-50 border-amber-300' : 'bg-slate-50 border-slate-200 opacity-60'}`}>
+                        <div className={`flex items-center gap-1.5 text-[11px] font-bold ${nearExpiryItems.length > 0 ? 'text-amber-700' : 'text-slate-500'}`}>
+                          <Clock size={15}/> ใกล้หมดอายุ (16 เดือน)
+                        </div>
+                        <div className={`text-2xl font-black leading-tight mt-1 ${nearExpiryItems.length > 0 ? 'text-amber-800' : 'text-slate-400'}`}>
+                          {nearExpiryItems.length.toLocaleString()}
+                        </div>
+                        <div className="text-[11px] text-slate-500">รายการ · <span className="font-semibold text-amber-600">{nearPct.toFixed(1)}% ของทั้งหมด</span></div>
+                      </div>
+                      <div className={`border rounded-xl p-3.5 shadow-sm flex flex-col gap-0.5 ${pendingReceiveItems.length > 0 ? 'bg-purple-50 border-purple-200' : 'bg-slate-50 border-slate-200 opacity-60'}`}>
+                        <div className={`flex items-center gap-1.5 text-[11px] font-bold ${pendingReceiveItems.length > 0 ? 'text-purple-700' : 'text-slate-500'}`}>
+                          <Package size={15}/> รอตรวจรับ
+                        </div>
+                        <div className={`text-2xl font-black leading-tight mt-1 ${pendingReceiveItems.length > 0 ? 'text-purple-800' : 'text-slate-400'}`}>
+                          {pendingReceiveItems.length.toLocaleString()}
+                        </div>
+                        <div className="text-[11px] text-slate-500">รายการ (receive_status = รอ)</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-slate-400 flex items-center gap-1">
+                    <AlertCircle size={11}/> มูลค่าคำนวณจากราคา/หน่วยล่าสุดใน receive_logs · ตัวเลข "หมดอายุ/ใกล้หมดอายุ" นับแบบรายการ ตรงกับกราฟ "สถานะวันหมดอายุ" ด้านล่าง
                   </p>
                 </div>
 
