@@ -69,3 +69,25 @@
 สอง dataset ต้นทาง. **Master** = ข้อมูลการรับเข้า (สต็อก, บริษัท, ราคา, lead time, วันหมดอายุ). **เบิก** = ประวัติการจ่าย (ยอดใช้).
 
 - การวิเคราะห์เป็น derived view เหนือสองชุดนี้ — read-only และไม่เคยเป็น source of truth.
+
+---
+
+## Return / Write-off (คืนยา / บันทึกยาเสียหาย)
+
+> บันทึกเหตุการณ์ที่ยา "ออกจากมือผู้ใช้กลับเข้าคลัง" หรือ "ถูกตัดออกจากคลัง" — append-only log ไม่ใช่ระบบปรับสต็อก (stock ไม่ถูกแก้อัตโนมัติจากการบันทึกคืน).
+
+### แหล่งที่คืน (Return Source)
+**ใคร/ที่ไหน** เป็นต้นทางของการคืน. ค่า canonical: `ward` (หน่วยงานในรพ.), `or`, `er`, `opd`, `vendor` (บริษัทยา).
+
+- **Is not:** [[หน่วยงานที่คืน (department)]] — source คือ *ประเภท* ต้นทาง (5 กลุ่ม), department คือ *ชื่อจริง* ของหน่วยงาน (เช่น "ER (ฉุกเฉิน)"). หนึ่ง source มีได้หลาย department.
+- **ข้อมูลเก่า (legacy):** แถวที่ `return_source = null` ใช้ `return_type` เดิม (`ward_return`/`damaged`/`expired_removal`/`vendor_return`) เป็น label — ห้ามลบ branch นี้.
+
+### สาเหตุการคืน (Return Reason)
+**ทำไม** ถึงคืน. ค่า: `leftover`, `over_req`, `wrong_drug`, `damaged`, `expired`, `recall`, `vendor_return`. กรองตาม [[แหล่งที่คืน (Return Source)]] (เช่น `recall` เฉพาะ vendor).
+
+- **เก็บใน `return_logs.return_type`** (ชื่อ column สับสน: เก็บ reason ไม่ใช่ source). source อยู่ใน `return_source`.
+
+### หน่วยงานที่คืน (department)
+ชื่อหน่วยงานจริงที่เลือกจาก dropdown (เช่น "ER (ฉุกเฉิน)"). เก็บใน `return_logs.department` ตรงๆ.
+
+- **Is not:** [[แหล่งที่คืน (Return Source)]] (ประเภท 5 กลุ่ม). ปัจจุบัน source ถูก *derive* จาก department (vendor ↔ ไม่ใช่ vendor) — ดู [[แหล่งที่คืน (Return Source)]].
