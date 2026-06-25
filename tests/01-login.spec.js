@@ -14,7 +14,7 @@ test.describe('Login / Logout', () => {
   test('login สำเร็จด้วย user ที่ถูกต้อง', async ({ page }) => {
     await page.goto('/');
     await page.getByPlaceholder('กรอกชื่อผู้ใช้').fill('test');
-    await page.getByPlaceholder('รหัสผ่าน').fill('444444');
+    await page.getByPlaceholder('รหัสผ่าน').fill('111111');
     await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
     await expect(page.getByText('สวัสดี,')).toBeVisible({ timeout: 10_000 });
   });
@@ -32,7 +32,7 @@ test.describe('Login / Logout', () => {
   test('logout กลับหน้า login', async ({ page }) => {
     await page.goto('/');
     await page.getByPlaceholder('กรอกชื่อผู้ใช้').fill('test');
-    await page.getByPlaceholder('รหัสผ่าน').fill('444444');
+    await page.getByPlaceholder('รหัสผ่าน').fill('111111');
     await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
     await page.waitForSelector('text=สวัสดี,', { timeout: 10_000 });
     await page.getByRole('button', { name: 'ออกจากระบบ' }).click();
