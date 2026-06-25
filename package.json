@@ -9,7 +9,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:reorder": "node src/lib/reorder.test.js",
-    "test:billgroup": "node src/lib/billGroup.test.js"
+    "test:billgroup": "node src/lib/billGroup.test.js",
+    "test:unit": "node src/unitParser.test.js",
+    "test:alloc": "node src/lib/lotAllocation.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",

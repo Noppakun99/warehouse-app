@@ -9,6 +9,8 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { exportToExcel } from './lib/exportExcel';
+import { parseUnit } from './lib/unitParser';
+import { allocateFefo } from './lib/lotAllocation';
 import { deleteRequesterRequisition, updateRequesterRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 
@@ -128,44 +130,82 @@ const REQUISITION_EXCEL_COLS = [
   { header: 'ชนิด',              value: (r) => r._item?.drug_type || '' },
   { header: 'รายการยา',          value: (r) => r._item?.drug_name || '' },
   { header: 'หน่วย',             value: (r) => r._item?.drug_unit || '' },
-  { header: 'ราคา/หน่วย',       value: (r) => r._item?.price_per_unit ?? '' },
-  { header: 'Lot Number',         value: (r) => r._item?.lot || '' },
-  { header: 'Exp',                value: (r) => r._item?.exp || '' },
+  { header: 'ราคา/หน่วย',       value: (r) => r._alloc?.price_per_unit ?? r._item?.price_per_unit ?? '' },
+  { header: 'Lot Number',         value: (r) => r._alloc?.lot ?? r._item?.picked_lot ?? r._item?.lot ?? '' },
+  { header: 'Exp',                value: (r) => r._alloc?.exp ?? r._item?.picked_exp ?? r._item?.exp ?? '' },
   { header: 'ชนิดรายการ',        value: (r) => r._item?._item_type_ref || '' },
   { header: 'คงเหลือก่อนเบิก',  value: () => '' },
-  { header: 'ปริมาณ (ออก)',      value: (r) => r._item?.approved_qty ?? r._item?.requested_qty ?? '' },
+  { header: 'ปริมาณ (ออก)',      value: (r) => r._alloc?.base ?? r._item?.picked_qty ?? r._item?.approved_qty ?? r._item?.requested_qty ?? '' },
   { header: 'คงเหลือหลังจ่าย',  value: () => '' },
   { header: 'หน่วยงานที่เบิก',  value: (r) => r.department || '' },
   { header: 'หมายเหตุ',          value: (r) => r._item?.item_note || r.note || '' },
 ];
 
-// แปลง list ของ requisitions → flat rows (1 row ต่อ item) สำหรับ Excel
-const flattenReqs = (reqs) =>
+// คำนวณ allocation ต่อ item.id สำหรับ print/Excel:
+//   จัดแล้ว → ใช้ picked_allocation (lot จริงที่จ่าย)
+//   ยังไม่จัด → คำนวณ FEFO สดจาก inventory (preview ว่าจะได้ lot ไหน) + เติมราคาราย lot จาก receive_logs
+// คืน { allocByItem: {id: [{lot,exp,base,packs,price_per_unit}]}, priceMap, logMap }
+async function computeReqAllocations(reqs) {
+  const allItems = reqs.flatMap(r => r.requisition_items || []);
+  const codes = [...new Set(allItems.map(i => i.drug_code).filter(Boolean))];
+  const logMap = {}, priceMap = {}, fefoByCode = {};
+  if (supabase && codes.length) {
+    const [{ data: inv }, { data: rl }] = await Promise.all([
+      supabase.from('inventory').select('code, lot, exp, qty, unit, main_log, location, item_type').in('code', codes).gt('qty', 0).limit(3000),
+      supabase.from('receive_logs').select('drug_code, lot, price_per_unit').in('drug_code', codes).limit(5000),
+    ]);
+    (inv || []).forEach(r => {
+      const code = String(r.code||'').trim();
+      const key = `${code}|${String(r.lot||'').trim()}`;
+      if (!logMap[key]) logMap[key] = { main_log: r.main_log || '', detail_log: r.location || '', item_type: r.item_type || '' };
+      const { packSize } = parseUnit(r.unit);
+      const packs = parseFloat(r.qty) || 0;
+      if (packs > 0) (fefoByCode[code] = fefoByCode[code] || []).push({ lot: r.lot, exp: r.exp, unit: r.unit, packSize: packSize || 1, packs, base: packs * (packSize || 1) });
+    });
+    Object.values(fefoByCode).forEach(lots => lots.sort((a, b) => {
+      const da = parseExp(a.exp), db = parseExp(b.exp);
+      if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
+      return da - db;
+    }));
+    (rl || []).forEach(r => {
+      const key = `${String(r.drug_code||'').trim()}|${String(r.lot||'').trim()}`;
+      if (priceMap[key] == null && r.price_per_unit != null) priceMap[key] = r.price_per_unit;
+    });
+  }
+  const withPrice = (code, a) => ({ ...a, price_per_unit: a.price_per_unit ?? priceMap[`${String(code||'').trim()}|${String(a.lot||'').trim()}`] ?? null });
+  const allocByItem = {};
+  allItems.forEach(item => {
+    if (Array.isArray(item.picked_allocation) && item.picked_allocation.length) {
+      allocByItem[item.id] = item.picked_allocation.map(a => withPrice(item.drug_code, a));
+    } else {
+      const wantQty = item.approved_qty ?? item.requested_qty ?? 0;
+      const lots = fefoByCode[String(item.drug_code||'').trim()];
+      if (wantQty > 0 && lots && lots.length) {
+        allocByItem[item.id] = allocateFefo(wantQty, lots).allocation.map(a => withPrice(item.drug_code, a));
+      }
+    }
+  });
+  return { allocByItem, priceMap, logMap };
+}
+
+// แปลง list ของ requisitions → flat rows สำหรับ Excel
+// 1 item → หลาย row ถ้าจ่ายข้าม lot (picked_allocation); ไม่มี allocation → 1 row
+const flattenReqs = (reqs, allocByItem = {}) =>
   reqs.flatMap(req =>
-    (req.requisition_items?.length ? req.requisition_items : [{}]).map(item => ({ ...req, _item: item }))
+    (req.requisition_items?.length ? req.requisition_items : [{}]).flatMap(item => {
+      const alloc = allocByItem[item.id] || (Array.isArray(item.picked_allocation) ? item.picked_allocation : null);
+      if (alloc && alloc.length) return alloc.map(a => ({ ...req, _item: item, _alloc: a }));
+      return [{ ...req, _item: item, _alloc: null }];
+    })
   );
 
-// Export Excel พร้อม lookup main_log / detail_log / item_type จาก inventory ตาม drug_code+lot
+// Export Excel — เติม lot/exp/ราคา/main_log ตามที่จ่าย (จัดแล้ว) หรือ FEFO สด (ยังไม่จัด)
 async function exportReqExcel(reqs, auth) {
-  const flat = flattenReqs(reqs);
-  // lookup main_log, location (detail_log), item_type จาก inventory ตาม drug_code+lot
-  const logMap = {};
-  if (supabase) {
-    const lots = [...new Set(flat.map(r => r._item?.lot).filter(Boolean))];
-    const codes = [...new Set(flat.map(r => r._item?.drug_code).filter(Boolean))];
-    if (lots.length > 0 || codes.length > 0) {
-      let q = supabase.from('inventory').select('code, lot, main_log, location, item_type');
-      if (codes.length > 0) q = q.in('code', codes);
-      const { data } = await q.limit(2000);
-      (data || []).forEach(r => {
-        const key = `${String(r.code||'').trim()}|${String(r.lot||'').trim()}`;
-        if (!logMap[key]) logMap[key] = { main_log: r.main_log || '', detail_log: r.location || '', item_type: r.item_type || '' };
-      });
-    }
-  }
-  // เติม main_log / detail_log / item_type เข้า flat rows
+  const { allocByItem, logMap } = await computeReqAllocations(reqs);
+  const flat = flattenReqs(reqs, allocByItem);
+  const lotOf = (r) => String(r._alloc?.lot || r._item?.picked_lot || r._item?.lot || '').trim();
   const enriched = flat.map(r => {
-    const key = `${String(r._item?.drug_code||'').trim()}|${String(r._item?.lot||'').trim()}`;
+    const key = `${String(r._item?.drug_code||'').trim()}|${lotOf(r)}`;
     const ref = logMap[key] || {};
     return { ...r, _item: { ...r._item, _main_log: ref.main_log || '', _detail_log: ref.detail_log || '', _item_type_ref: ref.item_type || r._item?.item_type || '' } };
   });
@@ -399,25 +439,61 @@ const fmtExp = (raw) => {
   return `${_pad(d.getDate())}/${_pad(d.getMonth()+1)}/${d.getFullYear()}`;
 };
 
+// สรุปกล่องคงเหลือ แยกตาม packsize เช่น "105 กล่อง × 1000เม็ด" หรือ "5 × 1000เม็ด + 2 × 500เม็ด"
+const packSummary = (fefoLots) => {
+  if (!fefoLots || !fefoLots.length) return '';
+  const byUnit = {};
+  fefoLots.forEach(l => { if (l.packs > 0) byUnit[l.unit] = (byUnit[l.unit] || 0) + l.packs; });
+  const parts = Object.entries(byUnit).map(([unit, packs]) => `${Math.ceil(packs).toLocaleString()} × ${unit}`);
+  return parts.join(' + ');
+};
+
 // ---- Drug Search ----
 function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
   const [q, setQ]              = useState('');
   const [rawResults, setRawResults] = useState([]);   // inventory data (no reservation)
-  const [reservedMap, setReservedMap] = useState({}); // lot → total reserved qty (realtime)
+  const [reservedMap, setReservedMap] = useState({}); // drug_code → total reserved qty (หน่วยย่อยสุด, realtime)
   const [loading, setLoading]  = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
 
-  // Combine inventory + reservation → effective qty (recomputes whenever either changes)
+  // ระดับยา (B-base, ADR-0004): คงเหลือรวม = Σ(lot.qty × packSize) แปลงเป็นหน่วยย่อยสุด
+  // หัก reservation ต่อรหัสยา (ของที่ใบ pending/approved จองไว้) — กัน oversell
   const results = useMemo(() =>
     rawResults.map(drug => {
-      const lots = drug.lots.map(lot => {
-        const reserved = reservedMap[lot.lot] || 0;
-        const rawQtyNum = parseFloat(lot.rawQty) || 0;
-        const effectiveQty = Math.max(0, rawQtyNum - reserved);
-        return { ...lot, qty: effectiveQty, reserved };
+      // lot ที่เบิกได้จริง: ตรวจรับแล้ว (ไม่ pending) + ไม่หมดอายุ + มีของ — เรียง FEFO (ใกล้หมดอายุก่อน)
+      const baseUnitCount = {};
+      let totalBaseRaw = 0;
+      const fefoLots = [];
+      drug.lots.forEach(lot => {
+        if (lot.pending || lot.expired) return;
+        const { packSize, baseUnit } = parseUnit(lot.unit);
+        const packs = parseFloat(lot.rawQty) || 0;
+        const base = packs * (packSize || 1);
+        totalBaseRaw += base;
+        if (baseUnit && baseUnit !== '-') baseUnitCount[baseUnit] = (baseUnitCount[baseUnit] || 0) + packs;
+        if (packs > 0) fefoLots.push({ lot: lot.lot, exp: lot.exp, unit: lot.unit, packSize: packSize || 1, packs, base, baseUnit });
       });
-      const availableQty = lots.reduce((sum, lot) => (!lot.pending && !lot.expired ? sum + lot.qty : sum), 0);
-      return { ...drug, lots, availableQty };
+      fefoLots.sort((a, b) => {
+        const da = parseExp(a.exp), db = parseExp(b.exp);
+        if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
+        return da - db;
+      });
+      // baseUnit = หน่วยย่อยที่พบบ่อยสุด (ปกติยาตัวเดียวกันหน่วยเดียว)
+      const baseUnit = Object.keys(baseUnitCount).sort((a, b) => baseUnitCount[b] - baseUnitCount[a])[0] || (drug.unit || '');
+      const reservedBase = reservedMap[codeKey(drug.code)] || 0;
+      const availableBase = Math.max(0, totalBaseRaw - reservedBase);
+      // หัก reservation ออกจาก fefoLots ตามลำดับ FEFO (ของที่จองไปแล้ว = lot ใกล้หมดอายุก่อน)
+      // เพื่อให้ allocation preview ในตะกร้าตรงกับ availableBase (ไม่ preview ของที่ถูกจอง)
+      let toReserve = reservedBase;
+      const availLots = [];
+      for (const l of fefoLots) {
+        if (toReserve <= 0) { availLots.push(l); continue; }
+        if (toReserve >= l.base) { toReserve -= l.base; continue; } // lot นี้ถูกจองหมด
+        const leftBase = l.base - toReserve;
+        availLots.push({ ...l, base: leftBase, packs: l.packSize ? leftBase / l.packSize : leftBase });
+        toReserve = 0;
+      }
+      return { ...drug, totalBaseRaw, baseUnit, reservedBase, availableBase, fefoLots: availLots };
     }), [rawResults, reservedMap]);
   const [qtyMap, setQtyMap]    = useState({});   // key = code+name+lot
   const [warnMap, setWarnMap]  = useState({});   // key = lotKey → warning msg
@@ -427,7 +503,6 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
   const searchRef = useRef(null);
 
   const today = new Date(); today.setHours(0,0,0,0);
-  const nearExpLimit = new Date(today); nearExpLimit.setMonth(nearExpLimit.getMonth() + 16); // 1 ปี 4 เดือน
 
   // Preload drug names + types for dropdown
   useEffect(() => {
@@ -495,7 +570,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
     : [];
 
   const search = useCallback(async (term) => {
-    if (!term.trim()) { setResults([]); return; }
+    if (!term.trim()) { setRawResults([]); return; }
     setLoading(true);
     if (supabase) {
       // Separate queries to avoid comma in term breaking PostgREST or() syntax
@@ -522,23 +597,25 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
         });
       }
 
-      // หัก qty ที่มี requisition pending/approved อยู่ (reserved) ออกจาก available
-      const reservedQtyMap = {}; // lot → total reserved qty
-      if (uniqueLots.length > 0) {
+      // Get supplier/price/type from receive_logs — source of truth for drug details
+      const uniqueCodes = [...new Set(merged.map(r => r.code).filter(Boolean))];
+
+      // หัก qty ที่มี requisition pending/approved อยู่ (reserved) ออกจาก available — ต่อรหัสยา (B-base, ADR-0004)
+      // requested_qty เป็นหน่วยย่อยสุดอยู่แล้ว จึงรวมต่อ code ได้ตรงๆ
+      const reservedQtyMap = {}; // drug_code (normalized) → total reserved (หน่วยย่อยสุด)
+      if (uniqueCodes.length > 0) {
         const { data: ri } = await supabase
           .from('requisition_items')
-          .select('lot, requested_qty, requisitions(status)')
-          .in('lot', uniqueLots);
+          .select('drug_code, requested_qty, requisitions(status)')
+          .in('drug_code', uniqueCodes);
         (ri || []).forEach(item => {
           const status = item.requisitions?.status;
-          if ((status === 'pending' || status === 'approved') && item.lot) {
-            reservedQtyMap[item.lot] = (reservedQtyMap[item.lot] || 0) + (item.requested_qty || 0);
+          if ((status === 'pending' || status === 'approved') && item.drug_code) {
+            const k = codeKey(item.drug_code);
+            reservedQtyMap[k] = (reservedQtyMap[k] || 0) + (item.requested_qty || 0);
           }
         });
       }
-
-      // Get supplier/price/type from receive_logs — source of truth for drug details
-      const uniqueCodes = [...new Set(merged.map(r => r.code).filter(Boolean))];
       const supplierMap = {}; // "code|lot|invoice" → entry (exact), "code|lot" → fallback
       if (uniqueCodes.length > 0) {
         const CHUNK = 500;
@@ -572,36 +649,22 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
         return supplierMap[`${code}|${lot}|${inv}`] || supplierMap[`${code}|${lot}`] || {};
       };
 
-      // Group by drug
+      // Group by drug — เก็บ lot ไว้ภายในเพื่อ classify pending/หมดอายุ + แปลงหน่วยใน results useMemo
+      // (ผู้เบิกไม่เห็น lot — คงเหลือรวมคำนวณระดับยาใน results, ADR-0004)
       const grouped = {};
       merged.forEach(row => {
         const key = `${row.code}||${row.name}`;
-        if (!grouped[key]) grouped[key] = { code: row.code, name: row.name, unit: row.unit, availableQty: 0, pendingQty: 0, lots: [] };
+        if (!grouped[key]) grouped[key] = { code: row.code, name: row.name, unit: row.unit, type: '', lots: [] };
         const rowQty = parseFloat(row.qty) || 0;
         const isPending = pendingLotSet.has(row.lot);
         const expDate = parseExp(row.exp);
         const isExpired = expDate && expDate < today;
-        if (isPending) {
-          grouped[key].pendingQty += rowQty;
-        } else if (!isExpired) {
-          grouped[key].availableQty += rowQty; // raw qty; useMemo adjusts with reservedMap
-        }
         const detail = getDetail(row);
-        grouped[key].lots.push({ lot: row.lot, exp: row.exp, qty: rowQty, rawQty: row.qty, unit: row.unit, location: row.location, invoice: row.invoice, supplier: detail.supplier || '', price: detail.price || '', drugType: detail.drugType || '', itemType: row.itemType || detail.itemType || '', pending: isPending, expired: isExpired });
+        if (!grouped[key].type && detail.drugType && detail.drugType !== '-') grouped[key].type = detail.drugType;
+        grouped[key].lots.push({ lot: row.lot, exp: row.exp, qty: rowQty, rawQty: row.qty, unit: row.unit, drugType: detail.drugType || '', pending: isPending, expired: isExpired });
       });
 
-      const result = Object.values(grouped);
-      result.forEach(drug => {
-        // Sort: available first by exp ASC, then pending, then expired
-        drug.lots.sort((a, b) => {
-          if (a.pending !== b.pending) return a.pending ? 1 : -1;
-          if (a.expired !== b.expired) return a.expired ? 1 : -1;
-          const da = parseExp(a.exp), db = parseExp(b.exp);
-          if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
-          return da - db;
-        });
-      });
-      setRawResults(result);
+      setRawResults(Object.values(grouped));
       setReservedMap(reservedQtyMap); // initial snapshot; realtime will update this
     }
     setLoading(false);
@@ -612,22 +675,23 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
     return () => clearTimeout(t);
   }, [q, search]);
 
-  // Realtime: อัพเดต reservedMap ทันทีเมื่อ requisition_items เปลี่ยน
+  // Realtime: อัพเดต reservedMap (ต่อรหัสยา) ทันทีเมื่อ requisition_items เปลี่ยน
   useEffect(() => {
     if (!supabase || rawResults.length === 0) return;
-    const allLots = [...new Set(rawResults.flatMap(d => d.lots.map(l => l.lot)).filter(Boolean))];
-    if (allLots.length === 0) return;
+    const allCodes = [...new Set(rawResults.map(d => d.code).filter(Boolean))];
+    if (allCodes.length === 0) return;
 
     const fetchReserved = async () => {
       const { data: ri } = await supabase
         .from('requisition_items')
-        .select('lot, requested_qty, requisitions(status)')
-        .in('lot', allLots);
+        .select('drug_code, requested_qty, requisitions(status)')
+        .in('drug_code', allCodes);
       const map = {};
       (ri || []).forEach(item => {
         const status = item.requisitions?.status;
-        if ((status === 'pending' || status === 'approved') && item.lot) {
-          map[item.lot] = (map[item.lot] || 0) + (item.requested_qty || 0);
+        if ((status === 'pending' || status === 'approved') && item.drug_code) {
+          const k = codeKey(item.drug_code);
+          map[k] = (map[k] || 0) + (item.requested_qty || 0);
         }
       });
       setReservedMap(map);
@@ -642,28 +706,28 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
     return () => { supabase.removeChannel(channel); };
   }, [rawResults]);
 
-  const addToCart = (drug, lot, qty, lotKey) => {
+  // เบิกระดับยา (B-base, ADR-0004): ขอเป็นหน่วยย่อยสุด, lot=null — คลังเลือก FEFO ตอน picking
+  const addToCart = (drug, qty) => {
+    const drugKey = drug.code + drug.name;
     const requested = parseInt(qty) || 1;
-    if (requested > lot.qty) {
-      setWarnMap(p => ({ ...p, [lotKey]: `คงเหลือไม่พอ — มีเพียง ${lot.qty} ${lot.unit || drug.unit || ''} เลือกจำนวนใหม่` }));
+    const safeQty = Math.max(1, requested);
+    const inCartQty = cart.find(i => i.code === drug.code && i.name === drug.name)?.requestedQty || 0;
+    if (inCartQty + safeQty > drug.availableBase) {
+      setWarnMap(p => ({ ...p, [drugKey]: inCartQty > 0
+        ? `รวมในตะกร้าแล้ว ${inCartQty.toLocaleString()} — คงเหลือไม่พอ (มี ${drug.availableBase.toLocaleString()} ${drug.baseUnit})`
+        : `คงเหลือไม่พอ — มีเพียง ${drug.availableBase.toLocaleString()} ${drug.baseUnit}` }));
       return;
     }
-    setWarnMap(p => { const n = { ...p }; delete n[lotKey]; return n; });
-    const safeQty = Math.max(1, requested);
+    setWarnMap(p => { const n = { ...p }; delete n[drugKey]; return n; });
     setCart(prev => {
-      const idx = prev.findIndex(i => i.code === drug.code && i.name === drug.name && i.lot === lot.lot);
+      const idx = prev.findIndex(i => i.code === drug.code && i.name === drug.name);
       if (idx >= 0) {
-        const newQty = prev[idx].requestedQty + safeQty;
-        if (newQty > lot.qty) {
-          setWarnMap(p => ({ ...p, [lotKey]: `รวมในตะกร้าแล้ว ${prev[idx].requestedQty} — คงเหลือ Lot นี้ไม่พอ (มี ${lot.qty}) เลือกจำนวนใหม่` }));
-          return prev;
-        }
-        const u = [...prev]; u[idx] = { ...u[idx], requestedQty: newQty }; return u;
+        const u = [...prev]; u[idx] = { ...u[idx], requestedQty: u[idx].requestedQty + safeQty }; return u;
       }
-      return [...prev, { code: drug.code, name: drug.name, unit: lot.unit, lot: lot.lot, exp: lot.exp, price: lot.price, drugType: lot.drugType, itemType: lot.itemType || '', location: lot.location || '', availableQty: lot.qty, lotRawQty: lot.rawQty ?? lot.qty, requestedQty: safeQty, note: '', addedAt: new Date().toISOString() }];
+      return [...prev, { code: drug.code, name: drug.name, unit: drug.baseUnit, lot: null, drugType: drug.type || '', availableBase: drug.availableBase, fefoLots: drug.fefoLots || [], requestedQty: safeQty, note: '', addedAt: new Date().toISOString() }];
     });
-    setQtyMap(p => ({ ...p, [lotKey]: 1 }));
-    setToast({ name: drug.name, type: lot.drugType || drug.type || '', qty: safeQty, unit: lot.unit || drug.unit || '' });
+    setQtyMap(p => ({ ...p, [drugKey]: 1 }));
+    setToast({ name: drug.name, type: drug.type || '', qty: safeQty, unit: drug.baseUnit });
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -696,10 +760,6 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
         <button onClick={onHistory} className="transition-colors px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 hover:border-slate-400 flex items-center gap-1.5 text-slate-700">
           <FileText size={16} strokeWidth={2} />
           <span className="text-sm font-medium">ประวัติการเบิก</span>
-        </button>
-        <button onClick={onCart} className="relative rounded-xl border border-blue-600 bg-blue-600 hover:bg-blue-700 px-3 py-2 flex items-center gap-1.5 transition-colors text-white">
-          <Package size={16} /><span className="text-sm font-medium">ตะกร้า</span>
-          {cart.length > 0 && <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">{cart.length}</span>}
         </button>
       </PageHeader>
 
@@ -779,151 +839,83 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
             <div className="flex flex-wrap gap-2 justify-center text-xs">
               <span className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full font-medium">ค้นด้วยชื่อยา</span>
               <span className="px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-full font-medium">ค้นด้วยรหัสยา</span>
-              <span className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-full font-medium">เลือก Lot ที่ต้องการ</span>
+              <span className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-full font-medium">กรอกจำนวนที่ต้องการเบิก</span>
             </div>
           </div>
         )}
 
-        {results.map(drug => {
-          const drugKey = drug.code + drug.name;
-          const inCart = cart.find(i => i.code === drug.code && i.name === drug.name);
-          const accentColor = drugTypeAccent(drug.lots[0]?.drugType);
-          return (
-            <div key={drugKey} className="bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200"
-              style={{ borderLeft: `4px solid ${accentColor}` }}>
-              {/* Drug header */}
-              <div className="px-4 py-3">
-                <div className="flex items-start gap-2 flex-wrap">
-                  <p className="font-bold text-lg text-slate-800 leading-snug flex-1">{drug.name}</p>
-                  {drug.lots[0]?.drugType && drug.lots[0].drugType !== '-' && (
-                    <DrugTypeBadge type={drug.lots[0].drugType} />
-                  )}
-                </div>
-                <div className="flex items-center gap-3 mt-1 flex-wrap">
-                  <span className="text-sm text-slate-400">รหัส: {drug.code}</span>
-                  {inCart && <span className="text-sm text-[#1E90FF] font-bold bg-blue-50 px-2 py-0.5 rounded-full">ในตะกร้า: {inCart.requestedQty}</span>}
-                </div>
-              </div>
+        {/* การ์ดระดับยา (B-base): มีของขึ้นก่อน เรียงตามชื่อ → หมดสต็อกจางๆ ท้ายสุด */}
+        {[...results]
+          .sort((a, b) => {
+            const aOut = a.availableBase <= 0, bOut = b.availableBase <= 0;
+            if (aOut !== bOut) return aOut ? 1 : -1;
+            return (a.name || '').localeCompare(b.name || '', 'th');
+          })
+          .map(drug => {
+            const drugKey = drug.code + drug.name;
+            const inCart = cart.find(i => i.code === drug.code && i.name === drug.name);
+            const accentColor = drugTypeAccent(drug.type);
+            const outOfStock = drug.availableBase <= 0;
+            const remaining = Math.max(0, drug.availableBase - (inCart?.requestedQty || 0));
+            return (
+              <div key={drugKey} className={`bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200 ${outOfStock ? 'opacity-60' : ''}`}
+                style={{ borderLeft: `4px solid ${outOfStock ? '#CBD5E1' : accentColor}` }}>
+                <div className="px-4 py-3.5">
+                  <div className="flex items-start gap-2 flex-wrap">
+                    <p className="font-bold text-lg text-slate-800 leading-snug flex-1">{drug.name}</p>
+                    {drug.type && drug.type !== '-' && <DrugTypeBadge type={drug.type} />}
+                  </div>
+                  <div className="flex items-center gap-3 mt-1 flex-wrap">
+                    <span className="text-sm text-slate-400">รหัส: {drug.code}</span>
+                    {inCart && <span className="text-sm text-[#1E90FF] font-bold bg-blue-50 px-2 py-0.5 rounded-full">ในตะกร้า: {inCart.requestedQty.toLocaleString()}</span>}
+                  </div>
 
-              {/* Lot rows — badge/chip layout */}
-              {drug.lots.map((lot, li) => {
-                const lotKey = drugKey + lot.lot;
-                const expDate = parseExp(lot.exp);
-                const isExpired = lot.expired;
-                const nearExp = !isExpired && expDate && expDate <= nearExpLimit;
-                const isPending = lot.pending;
-                const canAdd = !isPending && !isExpired && lot.qty > 0;
-
-                let rowBg = 'border-t border-slate-100';
-                if (isPending) rowBg = 'border-t border-dashed border-sky-200 bg-sky-50/50';
-                else if (isExpired) rowBg = 'border-t border-rose-100 bg-rose-50/60';
-                else if (nearExp) rowBg = 'border-t border-amber-100 bg-amber-50/50';
-
-                return (
-                  <div key={li} className={`px-4 py-3 ${rowBg}`}>
-                    {/* Chip row */}
-                    <div className="flex flex-wrap gap-1.5 mb-2.5">
-                      {/* Lot chip */}
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border
-                        ${isPending ? 'bg-sky-100 text-sky-700 border-sky-200'
-                          : isExpired ? 'bg-rose-100 text-rose-700 border-rose-200'
-                          : nearExp ? 'bg-amber-100 text-amber-700 border-amber-200'
-                          : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                        Lot: {lot.lot || '-'}
-                      </span>
-                      {/* Exp chip */}
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border
-                        ${isExpired ? 'bg-rose-100 text-rose-700 border-rose-200'
-                          : nearExp ? 'bg-amber-100 text-amber-700 border-amber-200'
-                          : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-                        {isExpired || nearExp ? <AlertCircle size={11} /> : <Clock size={11} />}
-                        Exp: {fmtExp(lot.exp)}
-                      </span>
-                      {/* Qty chip */}
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border
-                        ${lot.qty === 0 ? 'bg-red-50 text-red-600 border-red-200'
-                          : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-                        จำนวน: {lot.qty}×{lot.unit || '-'}
-                        {lot.reserved > 0 && <span className="ml-1 text-slate-400 font-normal">(จาก {lot.rawQty ?? lot.qty})</span>}
-                      </span>
-                      {/* Status chips */}
-                      {isPending && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-sky-100 text-sky-800 text-xs font-bold border border-sky-200">
-                          <Package size={11} /> รอตรวจรับ
-                        </span>
-                      )}
-                      {isExpired && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 text-xs font-bold border border-rose-200">
-                          <AlertCircle size={11} /> หมดอายุแล้ว
-                        </span>
-                      )}
-                      {nearExp && !isExpired && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-bold border border-amber-200">
-                          <Clock size={11} /> ใกล้หมดอายุ
-                        </span>
-                      )}
-                      {lot.reserved > 0 && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 text-xs font-bold border border-orange-200">
-                          <Clock size={11} /> จอง {lot.reserved}
-                        </span>
-                      )}
-                      {/* Info chips */}
-                      {lot.invoice && lot.invoice !== '-' && (
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 text-xs border border-slate-200">
-                          บิล: {lot.invoice}
-                        </span>
-                      )}
-                      {lot.supplier && (
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-600 text-xs border border-indigo-100">
-                          {lot.supplier}
-                        </span>
-                      )}
-                      {lot.location && lot.location !== '-' && (
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 text-xs border border-slate-200">
-                          {lot.location}
-                        </span>
-                      )}
-                      {lot.itemType && lot.itemType !== '-' && (
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-purple-50 text-purple-600 text-xs border border-purple-100">
-                          {lot.itemType}
-                        </span>
-                      )}
-                      {lot.price && lot.price !== '-' && (
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 text-xs font-semibold border border-amber-200">
-                          ฿ {lot.price}
-                        </span>
+                  {/* คงเหลือรวมระดับยา — base unit เด่น + สรุปกล่องแยก packsize */}
+                  {outOfStock ? (
+                    <span className="inline-flex items-center gap-1.5 mt-2.5 px-3 py-1.5 rounded-full bg-red-50 text-red-600 text-sm font-bold border border-red-200">
+                      <AlertCircle size={14} /> หมดสต็อก
+                    </span>
+                  ) : (
+                    <div className="mt-2.5">
+                      <p className="text-base">
+                        <span className="text-slate-500">คงเหลือในคลัง </span>
+                        <span className="font-extrabold text-emerald-600">{remaining.toLocaleString()}</span>
+                        <span className="text-slate-500"> {drug.baseUnit}</span>
+                        {drug.reservedBase > 0 && (
+                          <span className="ml-1.5 text-xs text-slate-400">(จองแล้ว {drug.reservedBase.toLocaleString()})</span>
+                        )}
+                      </p>
+                      {packSummary(drug.fefoLots) && (
+                        <p className="text-xs text-slate-400 mt-0.5">= {packSummary(drug.fefoLots)}</p>
                       )}
                     </div>
+                  )}
 
-                    {/* Add to cart controls */}
-                    {canAdd ? (
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <input type="number" min="1" max={lot.qty}
-                          value={qtyMap[lotKey] ?? 1}
-                          onChange={e => {
-                            setQtyMap(p => ({ ...p, [lotKey]: e.target.value }));
-                            setWarnMap(p => { const n = { ...p }; delete n[lotKey]; return n; });
-                          }}
-                          className={`w-20 bg-white border rounded-lg px-2 py-2 text-slate-800 text-center text-base font-semibold focus:outline-none focus:ring-2 focus:ring-[#1E90FF] ${warnMap[lotKey] ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
-                        <button onClick={() => addToCart(drug, lot, qtyMap[lotKey] ?? 1, lotKey)}
-                          className="bg-[#1E90FF] hover:bg-[#1a7fe0] text-white rounded-lg px-4 py-2 text-sm font-bold flex items-center gap-1.5 transition-colors shadow-sm">
-                          <Plus size={15} /> เพิ่มเข้าตะกร้า
-                        </button>
-                        {warnMap[lotKey] && (
-                          <p className="w-full text-xs text-red-600 font-medium mt-0.5">⚠️ {warnMap[lotKey]}</p>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-slate-400 italic">
-                        {isPending ? 'รอตรวจรับ — ยังไม่สามารถเบิกได้' : isExpired ? 'ยาหมดอายุแล้ว' : 'ไม่มีสต็อก'}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })}
+                  {/* Add to cart */}
+                  {!outOfStock && (
+                    <div className="flex items-center gap-2 flex-wrap mt-3">
+                      <span className="text-sm text-slate-500 font-medium">ขอเบิก</span>
+                      <input type="number" min="1" max={remaining}
+                        value={qtyMap[drugKey] ?? 1}
+                        onChange={e => {
+                          setQtyMap(p => ({ ...p, [drugKey]: e.target.value }));
+                          setWarnMap(p => { const n = { ...p }; delete n[drugKey]; return n; });
+                        }}
+                        className={`w-24 bg-white border rounded-lg px-2 py-2 text-slate-800 text-center text-base font-semibold focus:outline-none focus:ring-2 focus:ring-[#1E90FF] ${warnMap[drugKey] ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
+                      <span className="text-sm text-slate-500">{drug.baseUnit}</span>
+                      <button onClick={() => addToCart(drug, qtyMap[drugKey] ?? 1)}
+                        className="bg-[#1E90FF] hover:bg-[#1a7fe0] text-white rounded-lg px-4 py-2 text-sm font-bold flex items-center gap-1.5 transition-colors shadow-sm ml-auto">
+                        <Plus size={15} /> เพิ่มเข้าตะกร้า
+                      </button>
+                      {warnMap[drugKey] && (
+                        <p className="w-full text-xs text-red-600 font-medium mt-0.5 flex items-center gap-1"><AlertCircle size={12} /> {warnMap[drugKey]}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
       </div>
 
       {/* Floating Cart Button */}
@@ -946,8 +938,9 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
   const [error, setError]     = useState('');
   const [doneInfo, setDoneInfo] = useState(null);
   const [search, setSearch]   = useState('');
+  const [openNotes, setOpenNotes] = useState({}); // index → เปิดช่องหมายเหตุ
 
-  const updateQty   = (i, v) => setCart(p => { const u=[...p]; u[i]={...u[i], requestedQty: Math.min(Math.max(1, parseInt(v)||1), u[i].availableQty || 99999)}; return u; });
+  const updateQty   = (i, v) => setCart(p => { const u=[...p]; u[i]={...u[i], requestedQty: Math.min(Math.max(1, parseInt(v)||1), u[i].availableBase || 99999)}; return u; });
   const updateNote  = (i, v) => setCart(p => { const u=[...p]; u[i]={...u[i], note: v}; return u; });
 
   const submit = async () => {
@@ -955,35 +948,40 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
     setLoading(true); setError('');
     try {
       if (supabase) {
-        // Re-validate ณ เวลา submit — ดึง qty จริงจาก DB + pending reservations
-        const lots = [...new Set(cart.map(i => i.lot).filter(Boolean))];
-        if (lots.length > 0) {
+        // Re-validate ณ เวลา submit — ระดับรหัสยา หน่วยย่อยสุด (B-base, ADR-0004)
+        // คงเหลือ = Σ(lot.qty × packSize) แปลงเป็นหน่วยย่อย; หัก reservation ต่อ code
+        const codes = [...new Set(cart.map(i => i.code).filter(Boolean))];
+        if (codes.length > 0) {
           const [{ data: invData }, { data: riData }] = await Promise.all([
-            supabase.from('inventory').select('lot, qty').in('lot', lots),
+            supabase.from('inventory').select('code, qty, unit').in('code', codes),
             supabase.from('requisition_items')
-              .select('lot, requested_qty, requisitions(status)')
-              .in('lot', lots),
+              .select('drug_code, requested_qty, requisitions(status)')
+              .in('drug_code', codes),
           ]);
-          const invQtyMap = {};
+          const invBaseMap = {}; // code → คงเหลือรวม (หน่วยย่อยสุด)
           (invData || []).forEach(r => {
-            invQtyMap[r.lot] = (invQtyMap[r.lot] || 0) + (parseFloat(r.qty) || 0);
+            const { packSize } = parseUnit(r.unit);
+            const k = codeKey(r.code);
+            invBaseMap[k] = (invBaseMap[k] || 0) + (parseFloat(r.qty) || 0) * (packSize || 1);
           });
-          const reservedNow = {};
+          const reservedNow = {}; // code → จองแล้ว (หน่วยย่อยสุด) — รวมทุกใบ pending/approved
           (riData || []).forEach(item => {
             const status = item.requisitions?.status;
-            if ((status === 'pending' || status === 'approved') && item.lot) {
-              reservedNow[item.lot] = (reservedNow[item.lot] || 0) + (item.requested_qty || 0);
+            if ((status === 'pending' || status === 'approved') && item.drug_code) {
+              const k = codeKey(item.drug_code);
+              reservedNow[k] = (reservedNow[k] || 0) + (item.requested_qty || 0);
             }
           });
           const conflicts = cart.filter(item => {
-            if (!item.lot) return false;
-            const effective = Math.max(0, (invQtyMap[item.lot] ?? 0) - (reservedNow[item.lot] ?? 0));
+            const k = codeKey(item.code);
+            const effective = Math.max(0, (invBaseMap[k] ?? 0) - (reservedNow[k] ?? 0));
             return item.requestedQty > effective;
           });
           if (conflicts.length > 0) {
             const msg = conflicts.map(item => {
-              const effective = Math.max(0, (invQtyMap[item.lot] ?? 0) - (reservedNow[item.lot] ?? 0));
-              return `${item.name} Lot ${item.lot}: ขอ ${item.requestedQty} แต่เหลือ ${effective}`;
+              const k = codeKey(item.code);
+              const effective = Math.max(0, (invBaseMap[k] ?? 0) - (reservedNow[k] ?? 0));
+              return `${item.name}: ขอ ${item.requestedQty.toLocaleString()} แต่เหลือ ${effective.toLocaleString()} ${item.unit || ''}`;
             }).join('\n');
             setError(`ส่งใบเบิกไม่ได้ — สต็อกไม่เพียงพอ:\n${msg}`);
             setLoading(false);
@@ -995,6 +993,7 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
           .insert({ req_number: genReqNumber(), department: info.department, requester_name: info.name, status: 'pending', note: note.trim()||null })
           .select().single();
         if (e1) throw e1;
+        // เบิกระดับยา: ไม่ระบุ lot/exp/ราคา — คลังจัดสรร lot (FEFO) ตอน picking (ADR-0004)
         const { error: e2 } = await supabase.from('requisition_items').insert(
           cart.map(item => ({
             requisition_id: req.id,
@@ -1002,11 +1001,6 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
             drug_name:      item.name,
             drug_unit:      item.unit || null,
             drug_type:      item.drugType || null,
-            item_type:      item.itemType || null,
-            lot:            item.lot || null,
-            exp:            item.exp || null,
-            price_per_unit: item.price || null,
-            location:       item.location || null,
             requested_qty:  item.requestedQty,
             item_note:      item.note?.trim() || null,
           }))
@@ -1036,7 +1030,7 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
   if (doneInfo) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center space-y-4">
-        <div className="text-5xl">✅</div>
+        <div className="flex justify-center"><CheckCircle size={56} className="text-emerald-500" strokeWidth={2} /></div>
         <h2 className="text-xl font-black text-slate-800">ส่งใบเบิกสำเร็จ</h2>
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-left space-y-2 text-sm">
           <div className="flex justify-between"><span className="text-slate-500">เลขที่ใบเบิก</span><span className="font-bold text-[#1E90FF]">{doneInfo.reqNumber}</span></div>
@@ -1084,37 +1078,88 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
             ? <p className="text-center text-slate-500 py-10">ไม่พบยาที่ค้นหา</p>
           : filteredCart.map((item) => {
               const i = cart.indexOf(item);
+              const overStock = item.availableBase != null && item.requestedQty > item.availableBase;
+              const noteOpen = openNotes[i] || !!item.note;
+              // preview: คาดว่าจะได้ lot อะไรบ้าง ตาม FEFO (lot ตรวจรับแล้ว) — authoritative recompute ตอน picking
+              const alloc = item.fefoLots ? allocateFefo(item.requestedQty, item.fefoLots) : null;
               return (
             <div key={i} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-              <div className="p-4 flex items-start gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="font-bold text-lg text-slate-800 leading-snug">{item.name}</p>
-                  <p className="text-base text-slate-500 mt-1">รหัส: {item.code} · หน่วย: {item.unit || '-'}</p>
-                  {(item.lot || item.exp) && (
-                    <p className="text-base text-slate-500 mt-0.5">
-                      {item.lot && `Lot: ${item.lot}`}{item.lot && item.exp && ' · '}{item.exp && `Exp: ${item.exp}`}
-                    </p>
-                  )}
-                  {item.lotRawQty != null && (
-                    <p className="text-base text-emerald-600 font-medium mt-0.5">คงเหลือ: {item.lotRawQty}×{item.unit || ''}</p>
-                  )}
-                  {item.addedAt && (
-                    <p className="text-xs text-slate-400 mt-1">เพิ่มเข้าตะกร้า: {new Date(item.addedAt).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'})}</p>
-                  )}
+              <div className="p-4">
+                <div className="flex items-start gap-3">
+                  {/* ลำดับการเบิก */}
+                  <span className="shrink-0 w-7 h-7 rounded-full bg-blue-50 text-[#1E90FF] font-bold text-sm flex items-center justify-center mt-0.5">{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start gap-2 flex-wrap">
+                      <p className="font-bold text-lg text-slate-800 leading-snug flex-1">{item.name}</p>
+                      {item.drugType && item.drugType !== '-' && <DrugTypeBadge type={item.drugType} />}
+                    </div>
+                    <p className="text-sm text-slate-400 mt-0.5">รหัส: {item.code}</p>
+                    {item.availableBase != null && (
+                      <p className="text-sm mt-1">
+                        <span className="text-slate-500">คงเหลือในคลัง </span>
+                        <span className="font-bold text-emerald-600">{Number(item.availableBase).toLocaleString()}</span>
+                        <span className="text-slate-500"> {item.unit || ''}</span>
+                      </p>
+                    )}
+                  </div>
+                  <button onClick={() => { setCart(p => p.filter((_,j)=>j!==i)); setError(''); }}
+                    className="shrink-0 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg p-2 transition-colors"><Trash2 size={18} /></button>
                 </div>
-                <div className="flex items-center gap-2 shrink-0 mt-1">
+
+                {/* จำนวนที่ขอเบิก */}
+                <div className="flex items-center gap-2 mt-3">
+                  <span className="text-sm text-slate-500 font-medium">ขอเบิก</span>
                   <button onClick={() => updateQty(i, item.requestedQty-1)} className="bg-slate-100 hover:bg-slate-200 rounded-lg p-2 transition-colors"><Minus size={16} /></button>
                   <input type="number" min="1" value={item.requestedQty} onChange={e => updateQty(i, e.target.value)}
-                    className="w-16 bg-slate-50 border border-slate-300 rounded-lg px-2 py-2 text-slate-800 text-center text-base font-semibold focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
-                  <button onClick={() => updateQty(i, item.requestedQty+1)} disabled={item.availableQty != null && item.requestedQty >= item.availableQty}
+                    className={`w-20 border rounded-lg px-2 py-2 text-slate-800 text-center text-base font-semibold focus:outline-none focus:ring-2 focus:ring-[#1E90FF] ${overStock ? 'border-red-400 bg-red-50' : 'border-slate-300 bg-slate-50'}`} />
+                  <button onClick={() => updateQty(i, item.requestedQty+1)} disabled={item.availableBase != null && item.requestedQty >= item.availableBase}
                     className="bg-slate-100 hover:bg-slate-200 disabled:opacity-40 rounded-lg p-2 transition-colors"><Plus size={16} /></button>
-                  <button onClick={() => { setCart(p => p.filter((_,j)=>j!==i)); setError(''); }} className="text-red-400 hover:text-red-600 p-2 transition-colors"><Trash2 size={18} /></button>
+                  <span className="text-sm text-slate-500">{item.unit || ''}</span>
                 </div>
-              </div>
-              <div className="px-4 pb-4">
-                <input type="text" value={item.note || ''} onChange={e => updateNote(i, e.target.value)}
-                  placeholder="หมายเหตุรายการนี้..."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-700 placeholder-slate-400 text-base focus:outline-none focus:ring-1 focus:ring-[#1E90FF]" />
+                {overStock && (
+                  <p className="text-xs text-red-600 font-medium mt-1.5 flex items-center gap-1"><AlertCircle size={12} /> เกินคงเหลือในคลัง ({Number(item.availableBase).toLocaleString()} {item.unit || ''})</p>
+                )}
+
+                {/* Preview: คาดว่าจะได้ lot อะไรบ้าง ตาม FEFO (lot ตรวจรับแล้ว) */}
+                {alloc && alloc.allocation.length > 0 && (
+                  <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
+                      <Package size={12} /> คาดว่าจะจ่ายจาก Lot (ใกล้หมดอายุก่อน)
+                    </p>
+                    <div className="space-y-1">
+                      {alloc.allocation.map((a, ai) => (
+                        <div key={ai} className="flex items-center gap-2 text-sm flex-wrap">
+                          <span className="font-mono font-semibold text-slate-700">{a.lot || '-'}</span>
+                          <span className="text-xs text-slate-400">Exp {fmtExp(a.exp)}</span>
+                          <span className="ml-auto font-bold text-emerald-600">{a.base.toLocaleString()} {item.unit || ''}</span>
+                          <span className="text-xs text-slate-400">({a.packs.toLocaleString()} × {a.unit})</span>
+                        </div>
+                      ))}
+                    </div>
+                    {alloc.overBase > 0 && (
+                      <p className="text-xs text-amber-600 font-semibold mt-2 pt-2 border-t border-amber-100 flex items-center gap-1">
+                        <AlertCircle size={12} /> จ่ายเต็มกล่อง — ได้ {alloc.allocatedBase.toLocaleString()} {item.unit || ''} (เกินที่ขอ {alloc.overBase.toLocaleString()})
+                      </p>
+                    )}
+                    {!alloc.fulfilled && (
+                      <p className="text-xs text-red-600 font-semibold mt-2 pt-2 border-t border-red-100 flex items-center gap-1">
+                        <AlertCircle size={12} /> ของไม่พอเบิก — ขาดอีก {alloc.shortfallBase.toLocaleString()} {item.unit || ''} (มีให้จ่าย {alloc.allocatedBase.toLocaleString()})
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* หมายเหตุรายการ — ซ่อนจนกดเปิด */}
+                {noteOpen ? (
+                  <input type="text" value={item.note || ''} onChange={e => updateNote(i, e.target.value)} autoFocus={!item.note}
+                    placeholder="หมายเหตุรายการนี้..."
+                    className="w-full mt-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-700 placeholder-slate-400 text-base focus:outline-none focus:ring-1 focus:ring-[#1E90FF]" />
+                ) : (
+                  <button onClick={() => setOpenNotes(p => ({ ...p, [i]: true }))}
+                    className="mt-2.5 inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-[#1E90FF] transition-colors">
+                    <Plus size={14} /> เพิ่มหมายเหตุ
+                  </button>
+                )}
               </div>
             </div>
           ); })}
@@ -1137,7 +1182,9 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
 }
 
 // ---- Print helper ----
-function printReq(req) {
+// async: คำนวณ allocation (จัดแล้ว=picked / ยังไม่จัด=FEFO สด) ก่อนสร้าง HTML เพื่อโชว์ lot/exp/ราคา
+async function printReq(req) {
+  const { allocByItem } = await computeReqAllocations([req]);
   const d = new Date(req.created_at);
   const dateStr = d.toLocaleString('th-TH', { dateStyle: 'long', timeStyle: 'short' });
   const statusLabel = (STATUS_CONFIG[req.status] || STATUS_CONFIG.pending).label;
@@ -1145,19 +1192,39 @@ function printReq(req) {
   const items = req.status === 'partial'
     ? allItems.filter(item => item.approved_qty != null && item.approved_qty > 0)
     : allItems;
-  const rows = items.map((item, i) => `
+  // 1 รายการ → หลายแถวตาม lot ที่จะจ่าย; ไม่มี allocation → แถวเดียว (ค่าที่ขอ)
+  const priceOf = (item) => item.price_per_unit != null && item.price_per_unit !== '' ? Number(item.price_per_unit).toLocaleString('th-TH') : '-';
+  const rows = items.map((item, i) => {
+    const alloc = allocByItem[item.id] || (Array.isArray(item.picked_allocation) ? item.picked_allocation : null);
+    if (alloc && alloc.length) {
+      return alloc.map((a, ai) => `
+    <tr>
+      <td style="text-align:center">${ai === 0 ? i + 1 : ''}</td>
+      <td style="text-align:center">${ai === 0 ? (item.drug_code || '-') : ''}</td>
+      <td style="text-align:center">${ai === 0 ? (item.drug_type || '-') : ''}</td>
+      <td>${ai === 0 ? (item.drug_name || '-') : ''}</td>
+      <td style="text-align:center">${item.drug_unit || '-'}</td>
+      <td style="text-align:center">${Number(a.base).toLocaleString()}</td>
+      <td style="text-align:right">${a.price_per_unit != null && a.price_per_unit !== '' ? Number(a.price_per_unit).toLocaleString('th-TH') : priceOf(item)}</td>
+      <td style="text-align:center">${a.lot || '-'}</td>
+      <td style="text-align:center">${a.exp ? fmtExp(a.exp) : '-'}</td>
+      <td>${ai === 0 ? (item.item_note || '') : ''}</td>
+    </tr>`).join('');
+    }
+    return `
     <tr>
       <td style="text-align:center">${i + 1}</td>
       <td style="text-align:center">${item.drug_code || '-'}</td>
       <td style="text-align:center">${item.drug_type || '-'}</td>
       <td>${item.drug_name || '-'}</td>
       <td style="text-align:center">${item.drug_unit || '-'}</td>
-      <td style="text-align:center">${item.requested_qty}</td>
-      <td style="text-align:right">${item.price_per_unit != null && item.price_per_unit !== '' ? Number(item.price_per_unit).toLocaleString('th-TH') : '-'}</td>
-      <td style="text-align:center">${item.lot || '-'}</td>
-      <td style="text-align:center">${item.exp || '-'}</td>
+      <td style="text-align:center">${item.picked_qty ?? item.approved_qty ?? item.requested_qty}</td>
+      <td style="text-align:right">${priceOf(item)}</td>
+      <td style="text-align:center">${item.picked_lot || item.lot || '-'}</td>
+      <td style="text-align:center">${item.picked_exp ? fmtExp(item.picked_exp) : (item.exp || '-')}</td>
       <td>${item.item_note || ''}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
   const sigBlock = `
     <div class="sig-block">
@@ -1437,9 +1504,25 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                         )}
                         {item.picked_qty!=null && (
                           <span className="text-xs text-purple-600 font-semibold ml-2">
-                            · จัด {item.picked_qty} {item.picked_lot ? `(Lot ${item.picked_lot})` : ''}
+                            · จัด {Number(item.picked_qty).toLocaleString()} {item.drug_unit||''}
                           </span>
                         )}
+                        {/* Lot/Exp ที่จ่ายจริง (ADR-0005) — ผู้เบิกเห็นว่าได้ของ lot ไหน */}
+                        {Array.isArray(item.picked_allocation) && item.picked_allocation.length > 0 ? (
+                          <div className="mt-1 space-y-0.5">
+                            {item.picked_allocation.map((a, ai) => (
+                              <p key={ai} className="text-xs text-slate-500">
+                                <span className="font-mono font-medium text-slate-600">{a.lot || '-'}</span>
+                                <span className="text-slate-400"> · Exp {fmtExp(a.exp)} · {Number(a.base).toLocaleString()} {item.drug_unit||''}</span>
+                              </p>
+                            ))}
+                          </div>
+                        ) : item.picked_lot ? (
+                          <p className="mt-1 text-xs text-slate-500">
+                            <span className="font-mono font-medium text-slate-600">{item.picked_lot}</span>
+                            {item.picked_exp && <span className="text-slate-400"> · Exp {fmtExp(item.picked_exp)}</span>}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="text-slate-500 text-xs">ขอ <b>{item.requested_qty}</b>{item.drug_unit && item.drug_unit !== '-' && <span> × {item.drug_unit}</span>}</span>
@@ -1572,7 +1655,6 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
 function PickingModal({ req, auth, onClose, onDone }) {
   const defaultName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : (auth.username || '');
   const [pickerName, setPickerName] = useState(defaultName);
-  const [inventoryMap, setInventoryMap] = useState({}); // code → [{lot, exp, qty, location}]
   const [loadingInv, setLoadingInv]     = useState(true);
   const [saving, setSaving]             = useState(false);
   const [error, setError]               = useState('');
@@ -1615,28 +1697,22 @@ function PickingModal({ req, auth, onClose, onDone }) {
           return da - db;
         });
       });
-      setInventoryMap(map);
-      // auto-select first lot (FEFO)
+      // คำนวณ FEFO allocation สดจากของจริง ณ ตอนนี้ (ADR-0005) — approved_qty เป็นเม็ด
       setItemStates(prev => prev.map(item => {
         const lots = map[String(item.drug_code || '').trim()] || [];
-        const first = lots[0];
-        return first ? { ...item, picked_lot: first.lot, picked_exp: first.exp } : item;
+        const fefoLots = lots.map(l => {
+          const { packSize } = parseUnit(l.unit);
+          const packs = parseFloat(l.qty) || 0;
+          return { lot: l.lot, exp: l.exp, unit: l.unit, packSize: packSize || 1, packs, base: packs * (packSize || 1) };
+        });
+        const alloc = allocateFefo(item.approved_qty, fefoLots);
+        const first = alloc.allocation[0];
+        return { ...item, allocation: alloc.allocation, shortfallBase: alloc.shortfallBase, allocatedBase: alloc.allocatedBase, overBase: alloc.overBase,
+          picked_lot: first?.lot || '', picked_exp: first?.exp || '', picked_qty: alloc.allocatedBase };
       }));
       setLoadingInv(false);
     }).catch(() => setLoadingInv(false));
   }, []);
-
-  const updateItem = (idx, field, val) =>
-    setItemStates(prev => prev.map((it, i) => i === idx ? { ...it, [field]: val } : it));
-
-  const handleLotChange = (idx, lot) => {
-    const code = itemStates[idx].drug_code;
-    const lots = inventoryMap[String(code || '').trim()] || [];
-    const row  = lots.find(l => l.lot === lot);
-    setItemStates(prev => prev.map((it, i) =>
-      i === idx ? { ...it, picked_lot: lot, picked_exp: row?.exp || '' } : it
-    ));
-  };
 
   const handleConfirm = async () => {
     if (!pickerName.trim()) { setError('กรุณากรอกชื่อผู้จัดยา'); return; }
@@ -1647,6 +1723,9 @@ function PickingModal({ req, auth, onClose, onDone }) {
         picked_lot: it.picked_lot || null,
         picked_exp: it.picked_exp || null,
         picked_qty: parseInt(it.picked_qty) || 0,
+        picked_allocation: (it.allocation && it.allocation.length)
+          ? it.allocation.map(a => ({ lot: a.lot, exp: a.exp, base: a.base, packs: a.packs }))
+          : null,
       }));
       await startPickingRequisition(req.id, { pickerName: pickerName.trim(), items }, auth);
       onDone();
@@ -1686,41 +1765,45 @@ function PickingModal({ req, auth, onClose, onDone }) {
               {itemStates.length === 0 && (
                 <p className="text-sm text-slate-500 text-center py-4">ไม่มีรายการที่อนุมัติ</p>
               )}
-              {itemStates.map((item, idx) => {
-                const lots = inventoryMap[String(item.drug_code || '').trim()] || [];
+              {itemStates.map((item) => {
+                const alloc = item.allocation || [];
                 return (
                   <div key={item.id} className="bg-slate-50 rounded-xl border border-slate-200 p-3 space-y-2.5">
                     <div>
                       <p className="text-sm font-semibold text-slate-800">{item.drug_name}</p>
                       <p className="text-xs text-slate-500">
-                        อนุมัติ <span className="font-bold text-emerald-600">{item.approved_qty}</span> {item.drug_unit || ''}
+                        อนุมัติ <span className="font-bold text-emerald-600">{Number(item.approved_qty).toLocaleString()}</span> {item.drug_unit || ''}
                       </p>
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-500 mb-1">เลือก Lot (FEFO — ใกล้หมดอายุก่อน)</label>
-                      {lots.length > 0 ? (
-                        <select value={item.picked_lot} onChange={e => handleLotChange(idx, e.target.value)}
-                          className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white">
-                          <option value="">-- เลือก Lot --</option>
-                          {lots.map(l => (
-                            <option key={l.lot} value={l.lot}>
-                              {l.lot} | Exp: {fmtExp(l.exp)} | คงเหลือ: {parseFloat(l.qty) || 0}
-                            </option>
+                    {alloc.length > 0 ? (
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-500 mb-1.5">จ่ายจาก Lot (FEFO — ใกล้หมดอายุก่อน)</label>
+                        <div className="space-y-1 bg-white border border-slate-200 rounded-lg p-2.5">
+                          {alloc.map((a, ai) => (
+                            <div key={ai} className="flex items-center gap-2 text-sm flex-wrap">
+                              <span className="font-mono font-semibold text-slate-700">{a.lot || '-'}</span>
+                              <span className="text-xs text-slate-400">Exp {fmtExp(a.exp)}</span>
+                              <span className="ml-auto font-bold text-emerald-600">{a.base.toLocaleString()} {item.drug_unit || ''}</span>
+                              <span className="text-xs text-slate-400">({a.packs.toLocaleString()} × {a.unit})</span>
+                            </div>
                           ))}
-                        </select>
-                      ) : (
-                        <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                          ไม่พบ Lot ในคลัง — กรุณาตรวจสอบสต็อก
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <label className="text-xs font-semibold text-slate-500 shrink-0">จำนวนที่จัด</label>
-                      <input type="number" min="0" value={item.picked_qty}
-                        onChange={e => updateItem(idx, 'picked_qty', e.target.value)}
-                        className="w-24 border border-slate-300 rounded-xl px-3 py-1.5 text-sm text-slate-800 text-center focus:outline-none focus:ring-2 focus:ring-purple-400" />
-                      <span className="text-xs text-slate-500">{item.drug_unit || ''}</span>
-                    </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                        ไม่พบ Lot ในคลัง — กรุณาตรวจสอบสต็อก
+                      </p>
+                    )}
+                    {item.overBase > 0 && (
+                      <p className="text-xs text-amber-600 font-semibold flex items-center gap-1">
+                        <AlertCircle size={12} /> จ่ายเต็มกล่อง — ได้ {Number(item.allocatedBase).toLocaleString()} {item.drug_unit || ''} (เกินที่ขอ {Number(item.overBase).toLocaleString()})
+                      </p>
+                    )}
+                    {item.shortfallBase > 0 && (
+                      <p className="text-xs text-red-600 font-semibold flex items-center gap-1">
+                        <AlertCircle size={12} /> ของไม่พอเบิก — จัดได้ {Number(item.allocatedBase).toLocaleString()} จาก {Number(item.approved_qty).toLocaleString()} {item.drug_unit || ''} (ขาด {Number(item.shortfallBase).toLocaleString()})
+                      </p>
+                    )}
                   </div>
                 );
               })}
@@ -2310,9 +2393,34 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
   const requesterNote = req.note || '';
   const [items, setItems]         = useState(() => toItemState(req.requisition_items));
   const [staffNote, setStaffNote] = useState('');
+  const [editingItems, setEditingItems] = useState({}); // item.id → เปิดปรับรายตัว
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
   const [detailSearch, setDetailSearch] = useState('');
+  const [fefoMap, setFefoMap]     = useState({}); // drug_code → fefoLots (เรียง FEFO, base units) — preview allocation ตอนอนุมัติ
+
+  // โหลด inventory เพื่อ preview ว่าจะจ่ายจาก lot ไหน (FEFO) — แสดงตอนอนุมัติ
+  useEffect(() => {
+    if (!supabase) return;
+    const codes = [...new Set((req.requisition_items || []).map(i => i.drug_code).filter(Boolean))];
+    if (!codes.length) return;
+    fetchInventoryByCodes(codes).then(data => {
+      const map = {};
+      data.forEach(row => {
+        const code = String(row.code || '').trim();
+        const { packSize } = parseUnit(row.unit);
+        const packs = parseFloat(row.qty) || 0;
+        if (packs <= 0) return;
+        (map[code] = map[code] || []).push({ lot: row.lot, exp: row.exp, unit: row.unit, packSize: packSize || 1, packs, base: packs * (packSize || 1) });
+      });
+      Object.values(map).forEach(lots => lots.sort((a, b) => {
+        const da = parseExp(a.exp), db = parseExp(b.exp);
+        if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
+        return da - db;
+      }));
+      setFefoMap(map);
+    }).catch(() => {});
+  }, [req.id]);
 
   const filteredItems = useMemo(() => {
     if (!detailSearch.trim()) return items;
@@ -2437,40 +2545,104 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
             return (
             <div key={item.id} className="print-card bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
               <div className="flex items-start gap-3">
+                <span className="shrink-0 w-7 h-7 rounded-full bg-slate-100 text-slate-600 font-bold text-sm flex items-center justify-center mt-0.5">{realIdx+1}</span>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-800">{realIdx+1}. {item.drug_name}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">รหัส: {item.drug_code} · หน่วย: {item.drug_unit||'-'}</p>
-                  <p className="text-sm mt-1 text-slate-600">ขอ: <span className="font-bold text-slate-800">{item.requested_qty}</span>{item.drug_unit && item.drug_unit !== '-' && <span className="text-slate-600"> × {item.drug_unit}</span>}</p>
-                  {item.item_note && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 mt-1">หมายเหตุจากผู้เบิก: {item.item_note}</p>}
-                </div>
-                {isPending && (
-                  <div className="no-print flex flex-col gap-2 shrink-0 min-w-[160px]">
-                    <div className="flex gap-1">
-                      <button onClick={() => updateItem(realIdx,'decision','approve')}
-                        className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all border ${item.decision==='approve'?'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
-                        <Check size={12}/> อนุมัติ
-                      </button>
-                      <button onClick={() => updateItem(realIdx,'decision','reject')}
-                        className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all border ${item.decision==='reject'?'bg-red-500 text-white border-red-500':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
-                        <X size={12}/> ไม่อนุมัติ
+                  <div className="flex items-start gap-2 flex-wrap">
+                    <p className="font-semibold text-slate-800 flex-1">{item.drug_name}</p>
+                    {item.drug_type && item.drug_type !== '-' && <DrugTypeBadge type={item.drug_type} />}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">รหัส: {item.drug_code}</p>
+                  <p className="text-sm mt-1 text-slate-600">ขอเบิก <span className="font-bold text-slate-800">{Number(item.requested_qty).toLocaleString()}</span> {item.drug_unit && item.drug_unit !== '-' ? item.drug_unit : ''}</p>
+                  {item.item_note && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 mt-1.5">หมายเหตุจากผู้เบิก: {item.item_note}</p>}
+
+                  {/* Preview: จะจ่ายจาก lot ไหน (FEFO) — คำนวณจากจำนวนที่จะอนุมัติ */}
+                  {(() => {
+                    const wantQty = item.decision === 'reject' ? 0 : Number(item.approvedQty) || 0;
+                    if (wantQty <= 0) return null;
+                    const lots = fefoMap[String(item.drug_code || '').trim()];
+                    if (!lots) return null;
+                    const a = allocateFefo(wantQty, lots);
+                    if (!a.allocation.length) return (
+                      <p className="no-print text-xs text-red-600 font-semibold mt-1.5 flex items-center gap-1"><AlertCircle size={12}/> ไม่มีของในคลัง</p>
+                    );
+                    return (
+                      <div className="no-print mt-2 bg-slate-50 border border-slate-200 rounded-lg p-2.5">
+                        <p className="text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Package size={12}/> จะจ่ายจาก Lot (ใกล้หมดอายุก่อน)</p>
+                        <div className="space-y-0.5">
+                          {a.allocation.map((al, ai) => (
+                            <div key={ai} className="flex items-center gap-2 text-xs flex-wrap">
+                              <span className="font-mono font-semibold text-slate-700">{al.lot || '-'}</span>
+                              <span className="text-slate-400">Exp {fmtExp(al.exp)}</span>
+                              <span className="ml-auto font-bold text-emerald-600">{al.base.toLocaleString()} {item.drug_unit||''}</span>
+                              <span className="text-slate-400">({al.packs.toLocaleString()} × {al.unit})</span>
+                            </div>
+                          ))}
+                        </div>
+                        {a.overBase > 0 && (
+                          <p className="text-xs text-amber-600 font-semibold mt-1.5 pt-1.5 border-t border-amber-100 flex items-center gap-1">
+                            <AlertCircle size={12}/> จ่ายเต็มกล่อง — ได้ {a.allocatedBase.toLocaleString()} {item.drug_unit||''} (เกินที่ขอ {a.overBase.toLocaleString()})
+                          </p>
+                        )}
+                        {!a.fulfilled && (
+                          <p className="text-xs text-red-600 font-semibold mt-1.5 pt-1.5 border-t border-red-100 flex items-center gap-1">
+                            <AlertCircle size={12}/> ของไม่พอเบิก — ขาดอีก {a.shortfallBase.toLocaleString()} {item.drug_unit||''} (จัดได้ {a.allocatedBase.toLocaleString()})
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* สถานะการอนุมัติ (collapsed default = อนุมัติเต็ม) */}
+                  {isPending && !editingItems[item.id] && (
+                    <div className="no-print flex items-center gap-2 mt-2 flex-wrap">
+                      {item.decision === 'reject' ? (
+                        <span className="inline-flex items-center gap-1 text-sm font-semibold text-red-500"><X size={14}/> ไม่อนุมัติ</span>
+                      ) : Number(item.approvedQty) !== Number(item.requested_qty) ? (
+                        <span className="inline-flex items-center gap-1 text-sm font-semibold text-amber-600"><Check size={14}/> อนุมัติ {Number(item.approvedQty).toLocaleString()} {item.drug_unit||''}</span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-600"><Check size={14}/> อนุมัติเต็มจำนวน</span>
+                      )}
+                      <button onClick={() => setEditingItems(p => ({ ...p, [item.id]: true }))}
+                        className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-[#1E90FF] transition-colors ml-auto">
+                        <Pencil size={12}/> ปรับรายการนี้
                       </button>
                     </div>
-                    {item.decision==='approve' && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-500">จำนวน:</span>
-                        <input type="number" min="0" value={item.approvedQty} onChange={e => updateItem(realIdx,'approvedQty',e.target.value)}
-                          className="w-20 bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-slate-800 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
-                        <span className="text-xs text-slate-500">{item.drug_unit||''}</span>
+                  )}
+
+                  {/* ปรับรายตัว (เปิดเมื่อกด) */}
+                  {isPending && editingItems[item.id] && (
+                    <div className="no-print mt-2.5 bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2.5">
+                      <div className="flex gap-1.5">
+                        <button onClick={() => updateItem(realIdx,'decision','approve')}
+                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-sm font-medium transition-all border ${item.decision==='approve'?'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                          <Check size={14}/> อนุมัติ
+                        </button>
+                        <button onClick={() => updateItem(realIdx,'decision','reject')}
+                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-sm font-medium transition-all border ${item.decision==='reject'?'bg-red-500 text-white border-red-500':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                          <X size={14}/> ไม่อนุมัติ
+                        </button>
                       </div>
-                    )}
-                    <input type="text" value={item.itemNote} onChange={e => updateItem(realIdx,'itemNote',e.target.value)} placeholder="หมายเหตุ..."
-                      className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-slate-800 text-xs placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
-                  </div>
-                )}
+                      {item.decision==='approve' && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-slate-500">อนุมัติจำนวน</span>
+                          <input type="number" min="0" max={item.requested_qty} value={item.approvedQty} onChange={e => updateItem(realIdx,'approvedQty',e.target.value)}
+                            className="w-24 bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-slate-800 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+                          <span className="text-sm text-slate-500">{item.drug_unit||''}</span>
+                        </div>
+                      )}
+                      <input type="text" value={item.itemNote} onChange={e => updateItem(realIdx,'itemNote',e.target.value)} placeholder="หมายเหตุรายการนี้..."
+                        className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-800 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+                      <button onClick={() => setEditingItems(p => { const n={...p}; delete n[item.id]; return n; })}
+                        className="text-xs text-slate-400 hover:text-slate-600 transition-colors">เสร็จ</button>
+                    </div>
+                  )}
+                </div>
+
+                {/* สรุปผลเมื่ออนุมัติแล้ว (read-only) */}
                 {!isPending && item.approved_qty!=null && (
                   <div className="text-right shrink-0">
-                    <p className={`text-sm font-bold ${item.approved_qty>0?'text-emerald-600':'text-red-500'}`}>
-                      {item.approved_qty>0?`✓ อนุมัติ ${item.approved_qty}`:'✗ ไม่อนุมัติ'}
+                    <p className={`inline-flex items-center gap-1 text-sm font-bold ${item.approved_qty>0?'text-emerald-600':'text-red-500'}`}>
+                      {item.approved_qty>0 ? <><Check size={14}/> อนุมัติ {Number(item.approved_qty).toLocaleString()}</> : <><X size={14}/> ไม่อนุมัติ</>}
                     </p>
                     {item.note && <p className="text-xs text-slate-400 mt-0.5">{item.note}</p>}
                   </div>
@@ -2501,14 +2673,14 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
 
         {isPending && (
           <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-[1fr_auto] gap-2">
               <button onClick={() => save(null)} disabled={loading}
                 className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
-                <CheckCircle size={18}/>{loading?'กำลังบันทึก...':'อนุมัติ'}
+                <CheckCircle size={18}/>{loading?'กำลังบันทึก...':'ยืนยันอนุมัติใบเบิก'}
               </button>
               <button onClick={() => save('rejected')} disabled={loading}
-                className="bg-red-500 hover:bg-red-600 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
-                <XCircle size={18}/> ไม่อนุมัติทั้งหมด
+                className="bg-white hover:bg-red-50 border border-red-300 text-red-600 disabled:opacity-40 rounded-xl px-4 py-3 font-semibold flex items-center justify-center gap-2 transition-all">
+                <XCircle size={18}/> ไม่อนุมัติทั้งใบ
               </button>
             </div>
           </div>

@@ -1260,7 +1260,7 @@ export async function fetchInventoryByCodes(codes) {
   if (!supabase || !codes.length) return []
   const { data, error } = await supabase
     .from('inventory')
-    .select('code, name, lot, exp, qty, location, main_log')
+    .select('code, name, lot, exp, qty, unit, location, main_log')
     .in('code', codes)
     .gt('qty', 0)
   if (error) throw error
@@ -1271,7 +1271,7 @@ export async function startPickingRequisition(id, { pickerName, items }, auth = 
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
   for (const item of items) {
     const { error } = await supabase.from('requisition_items')
-      .update({ picked_lot: item.picked_lot || null, picked_exp: item.picked_exp || null, picked_qty: item.picked_qty ?? null })
+      .update({ picked_lot: item.picked_lot || null, picked_exp: item.picked_exp || null, picked_qty: item.picked_qty ?? null, picked_allocation: item.picked_allocation || null })
       .eq('id', item.id)
     if (error) throw error
   }
