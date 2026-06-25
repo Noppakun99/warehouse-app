@@ -341,6 +341,41 @@ function EditableCell({ value, onChange, type = 'text', className = '' }) {
   );
 }
 
+// ดึงบิลที่บันทึกจากการสแกน AI (receive_status='สแกนบิล AI') — paginate กัน 1000-row limit (Rule #2)
+async function fetchScannedBills() {
+  return fetchAllRows(() =>
+    supabase.from('receive_logs')
+      .select('receive_date, bill_number, supplier_current, drug_name, drug_code, gpu_code, tpu_code, ttmp_code, lot, exp, mfg_date, qty_received, drug_unit, price_per_unit, total_price_vat')
+      .eq('receive_status', 'สแกนบิล AI')
+      .order('receive_date', { ascending: false })
+  );
+}
+
+// group แถวสแกนตาม receive_date (วันที่อัพโหลด/บันทึก) → [{ date, rows }] เรียงวันล่าสุดก่อน
+function groupScannedByDate(rows) {
+  const map = {};
+  for (const r of rows) {
+    const d = r.receive_date || '-';
+    (map[d] = map[d] || []).push(r);
+  }
+  return Object.keys(map).sort((a, b) => (a < b ? 1 : -1)).map(date => ({ date, rows: map[date] }));
+}
+
+const SCAN_EXCEL_COLS = [
+  { header: 'เลขที่บิล',  key: 'bill_number' },
+  { header: 'บริษัท',     key: 'supplier_current' },
+  { header: 'ชื่อยา',     key: 'drug_name' },
+  { header: 'รหัสยา',     key: 'drug_code' },
+  { header: 'GPU',        key: 'gpu_code' },
+  { header: 'TPU',        key: 'tpu_code' },
+  { header: 'Lot',        key: 'lot' },
+  { header: 'Exp',        key: 'exp' },
+  { header: 'จำนวน',      key: 'qty_received' },
+  { header: 'หน่วย',      key: 'drug_unit' },
+  { header: 'ราคา/หน่วย', key: 'price_per_unit' },
+  { header: 'มูลค่า',     key: 'total_price_vat' },
+];
+
 function ScanInvoice({ onDone, auth }) {
   const [files, setFiles] = useState([]);
   const [invoices, setInvoices] = useState([]); // [{ file, previewUrl, header, items, vatMode }]
@@ -349,8 +384,25 @@ function ScanInvoice({ onDone, auth }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
+  const [history, setHistory] = useState([]); // [{ date, rows }] บิลสแกนย้อนหลัง group ตามวัน
+  const [historyLoading, setHistoryLoading] = useState(false);
   const dropRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // โหลดประวัติบิลสแกน group ตามวัน — เรียกหลังบันทึกสำเร็จ
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const rows = await fetchScannedBills();
+      setHistory(groupScannedByDate(rows));
+    } catch {
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { if (saved) loadHistory(); }, [saved, loadHistory]);
 
   // Drag & drop
   const handleDrop = (e) => {
@@ -387,7 +439,7 @@ function ScanInvoice({ onDone, auth }) {
         const base64 = await toBase64(file);
         const data = await scanInvoiceImage(base64, file.type);
         if (data?._debug_error) {
-          throw new Error(`Gemini (${data.status}): ${data.detail}`);
+          throw new Error(`${data.provider || 'AI'} (${data.status}): ${data.detail}`);
         }
         const previewUrl = URL.createObjectURL(file);
 
@@ -536,16 +588,64 @@ function ScanInvoice({ onDone, auth }) {
   const totalItems = invoices.reduce((s, inv) => s + (inv.items?.length || 0), 0);
 
   if (saved) {
+    const dateThai = (iso) => {
+      const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      return m ? `${m[3]}/${m[2]}/${Number(m[1]) + 543}` : (iso || '-');
+    };
     return (
-      <div className="max-w-2xl mx-auto px-4 py-12 text-center">
-        <div className="bg-white rounded-2xl shadow-sm border border-emerald-200 p-8">
-          <CheckCircle2 size={48} className="text-emerald-500 mx-auto mb-4"/>
-          <h2 className="text-xl font-bold text-slate-800 mb-2">บันทึกสำเร็จ</h2>
-          <p className="text-slate-600 mb-6">บันทึกข้อมูล {totalItems} รายการจาก {invoices.length} บิล เข้าระบบแล้ว</p>
-          <button onClick={onDone}
-            className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-xl py-2.5 px-6 font-semibold text-sm transition-colors">
-            กลับหน้าหลัก
-          </button>
+      <div className="max-w-5xl mx-auto px-4 py-8 space-y-5">
+        <div className="bg-white rounded-2xl shadow-sm border border-emerald-200 p-6 text-center">
+          <CheckCircle2 size={40} className="text-emerald-500 mx-auto mb-3"/>
+          <h2 className="text-lg font-bold text-slate-800 mb-1">บันทึกสำเร็จ</h2>
+          <p className="text-slate-600 text-sm mb-4">บันทึกข้อมูล {totalItems} รายการจาก {invoices.length} บิล เข้าระบบแล้ว</p>
+          <div className="flex items-center justify-center gap-2">
+            <button onClick={() => { setSaved(false); setFiles([]); setInvoices([]); }}
+              className="bg-white text-emerald-700 border border-emerald-300 hover:bg-emerald-50 rounded-xl py-2 px-5 font-semibold text-sm transition-colors">
+              สแกนบิลต่อ
+            </button>
+            <button onClick={onDone}
+              className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-xl py-2 px-5 font-semibold text-sm transition-colors">
+              กลับหน้าหลัก
+            </button>
+          </div>
+        </div>
+
+        {/* ประวัติบิลสแกน — group ตามวันที่อัพโหลด */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+          <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+            <History size={16} className="text-emerald-600"/> ประวัติบิลที่สแกน (แยกตามวันที่อัพโหลด)
+          </h3>
+          {historyLoading ? (
+            <div className="text-center text-slate-400 text-sm py-6 flex items-center justify-center gap-2">
+              <RefreshCcw size={15} className="animate-spin"/> กำลังโหลด...
+            </div>
+          ) : history.length === 0 ? (
+            <p className="text-center text-slate-400 text-sm py-6">ยังไม่มีบิลที่สแกน</p>
+          ) : (
+            <div className="space-y-3">
+              {history.map(({ date, rows }) => {
+                const bills = new Set(rows.map(r => `${r.bill_number}|${r.supplier_current}`)).size;
+                const value = rows.reduce((s, r) => s + (parseFloat(String(r.total_price_vat || 0).replace(/,/g, '')) || 0), 0);
+                return (
+                  <div key={date} className="border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="bg-slate-50 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+                      <div className="flex items-center gap-2 text-sm">
+                        <CalendarDays size={15} className="text-emerald-600"/>
+                        <span className="font-semibold text-slate-700">{dateThai(date)}</span>
+                        <span className="text-slate-400">· {bills} บิล · {rows.length} รายการ · {value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>
+                      </div>
+                      <button
+                        onClick={() => exportToExcel(rows, SCAN_EXCEL_COLS, 'บิลสแกน', `บิลสแกน_${date}.xlsx`, auth)}
+                        className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                      >
+                        <FileDown size={15}/> Excel
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -688,23 +788,23 @@ function ScanInvoice({ onDone, auth }) {
                 <tbody className="divide-y divide-slate-100">
                   {inv.items.map((it, itemIdx) => (
                     <tr key={itemIdx} className="hover:bg-slate-50">
-                      <td className="px-3 py-1.5 min-w-40"><EditableCell value={it.drug_name} onChange={v => updateItem(invIdx, itemIdx, 'drug_name', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-24">
+                      <td className="px-3 py-1.5 min-w-56"><EditableCell value={it.drug_name} onChange={v => updateItem(invIdx, itemIdx, 'drug_name', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-28">
                         <div className="relative">
                           <EditableCell value={it.drug_code} onChange={v => updateItem(invIdx, itemIdx, 'drug_code', v)}/>
                           {it._autoCode && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" title="จับคู่อัตโนมัติ"/>}
                         </div>
                       </td>
-                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.gpu_code} onChange={v => updateItem(invIdx, itemIdx, 'gpu_code', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.tpu_code} onChange={v => updateItem(invIdx, itemIdx, 'tpu_code', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.ttmp_code} onChange={v => updateItem(invIdx, itemIdx, 'ttmp_code', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.lot} onChange={v => updateItem(invIdx, itemIdx, 'lot', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.exp} onChange={v => updateItem(invIdx, itemIdx, 'exp', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.mfg_date} onChange={v => updateItem(invIdx, itemIdx, 'mfg_date', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-16"><EditableCell value={it.qty_received} onChange={v => updateItem(invIdx, itemIdx, 'qty_received', v)} type="number"/></td>
-                      <td className="px-3 py-1.5 min-w-16"><EditableCell value={it.drug_unit} onChange={v => updateItem(invIdx, itemIdx, 'drug_unit', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.price_per_unit} onChange={v => updateItem(invIdx, itemIdx, 'price_per_unit', v)} type="number"/></td>
-                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.total_price_vat} onChange={v => updateItem(invIdx, itemIdx, 'total_price_vat', v)} type="number"/></td>
+                      <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.gpu_code} onChange={v => updateItem(invIdx, itemIdx, 'gpu_code', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.tpu_code} onChange={v => updateItem(invIdx, itemIdx, 'tpu_code', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.ttmp_code} onChange={v => updateItem(invIdx, itemIdx, 'ttmp_code', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-28"><EditableCell value={it.lot} onChange={v => updateItem(invIdx, itemIdx, 'lot', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-32"><EditableCell value={it.exp} onChange={v => updateItem(invIdx, itemIdx, 'exp', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-32"><EditableCell value={it.mfg_date} onChange={v => updateItem(invIdx, itemIdx, 'mfg_date', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.qty_received} onChange={v => updateItem(invIdx, itemIdx, 'qty_received', v)} type="number"/></td>
+                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.drug_unit} onChange={v => updateItem(invIdx, itemIdx, 'drug_unit', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-28"><EditableCell value={it.price_per_unit} onChange={v => updateItem(invIdx, itemIdx, 'price_per_unit', v)} type="number"/></td>
+                      <td className="px-3 py-1.5 min-w-28"><EditableCell value={it.total_price_vat} onChange={v => updateItem(invIdx, itemIdx, 'total_price_vat', v)} type="number"/></td>
                       <td className="px-3 py-1.5">
                         <button onClick={() => removeItem(invIdx, itemIdx)} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={14}/></button>
                       </td>
