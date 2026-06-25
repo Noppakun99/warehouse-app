@@ -24,6 +24,9 @@ playwright-report/
 # MCP config (contains personal access token — do not commit)
 .mcp.json
 
+# Supabase CLI local state
+supabase/.temp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
