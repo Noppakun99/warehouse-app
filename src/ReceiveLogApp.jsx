@@ -297,16 +297,40 @@ export default function ReceiveLogApp({ onRefresh, auth = {}, initialTab = 'view
 // ============================================================
 // Invoice Scanner (AI Vision)
 // ============================================================
-const toBase64 = (file) => new Promise((resolve, reject) => {
+// บีบรูปก่อนส่ง AI เพื่อลด token (≈ครึ่งหนึ่ง) — ปรับ 2 ค่านี้ถ้าต้องการ:
+// SCAN_MAX_DIM ใหญ่ขึ้น = คมขึ้นแต่แพงขึ้น, SCAN_JPEG_QUALITY 0–1 (สูง=คม/ใหญ่)
+const SCAN_MAX_DIM = 1600;        // ด้านยาวสุด (px) — ต่ำกว่านี้ตัวเลขบิล carbon จางอาจเบลอ
+const SCAN_JPEG_QUALITY = 0.82;
+
+const readAsDataUrl = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
-  reader.onload = () => {
-    const result = reader.result; // data:image/jpeg;base64,...
-    const base64 = result.split(',')[1];
-    resolve(base64);
-  };
+  reader.onload = () => resolve(reader.result);
   reader.onerror = reject;
   reader.readAsDataURL(file);
 });
+
+// คืน { base64, mimeType } — resize ผ่าน canvas; ถ้า canvas ใช้ไม่ได้ (เช่น HEIC) ส่งรูปเดิม
+const toBase64 = async (file) => {
+  const dataUrl = await readAsDataUrl(file);
+  try {
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = rej;
+      im.src = dataUrl;
+    });
+    const scale = Math.min(1, SCAN_MAX_DIM / Math.max(img.width, img.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    const out = canvas.toDataURL('image/jpeg', SCAN_JPEG_QUALITY);
+    return { base64: out.split(',')[1], mimeType: 'image/jpeg' };
+  } catch {
+    // browser ถอดรูปไม่ได้ (HEIC ฯลฯ) → ส่งดิบ ให้ backend แจ้ง error ที่อ่านรู้เรื่อง
+    return { base64: dataUrl.split(',')[1], mimeType: file.type };
+  }
+};
 
 const fmtExpFromIso = (iso) => {
   if (!iso) return '-';
@@ -345,7 +369,7 @@ function EditableCell({ value, onChange, type = 'text', className = '' }) {
 async function fetchScannedBills() {
   return fetchAllRows(() =>
     supabase.from('receive_logs')
-      .select('receive_date, bill_number, supplier_current, drug_name, drug_code, gpu_code, tpu_code, ttmp_code, lot, exp, mfg_date, qty_received, drug_unit, price_per_unit, total_price_vat')
+      .select('receive_date, bill_number, supplier_current, drug_name, drug_code, drug_type, gpu_code, tpu_code, ttmp_code, lot, exp, mfg_date, qty_received, drug_unit, price_per_unit, total_price_vat')
       .eq('receive_status', 'สแกนบิล AI')
       .order('receive_date', { ascending: false })
   );
@@ -386,15 +410,19 @@ function ScanInvoice({ onDone, auth }) {
   const [error, setError] = useState('');
   const [history, setHistory] = useState([]); // [{ date, rows }] บิลสแกนย้อนหลัง group ตามวัน
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [histQuery, setHistQuery] = useState('');     // ค้นเลขบิล/ชื่อยา/บริษัท
+  const [histFrom, setHistFrom] = useState('');       // ช่วงวันที่ (ISO)
+  const [histTo, setHistTo] = useState('');
+  const [histExpanded, setHistExpanded] = useState({}); // { [date]: true } กางวันไหนเห็นบิลรายใบ
+  const [scanDrugNames, setScanDrugNames] = useState([]); // autocomplete ชื่อยาจากบิลที่เคยสแกน
   const dropRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // โหลดประวัติบิลสแกน group ตามวัน — เรียกหลังบันทึกสำเร็จ
+  // โหลดประวัติบิลสแกน — เก็บ raw rows (filter+group ตอน render) เรียกหลังบันทึกสำเร็จ
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
-      const rows = await fetchScannedBills();
-      setHistory(groupScannedByDate(rows));
+      setHistory(await fetchScannedBills());
     } catch {
       setHistory([]);
     } finally {
@@ -402,7 +430,16 @@ function ScanInvoice({ onDone, auth }) {
     }
   }, []);
 
-  useEffect(() => { if (saved) loadHistory(); }, [saved, loadHistory]);
+  useEffect(() => { loadHistory(); }, [loadHistory]);        // โหลดตอนเปิดหน้า
+  useEffect(() => { if (saved) loadHistory(); }, [saved, loadHistory]); // รีโหลดหลังบันทึก
+
+  // autocomplete ชื่อยา — derive จาก history (บิลที่เคยสแกน) ไม่ query เพิ่ม
+  useEffect(() => {
+    const typeMap = {};
+    history.forEach(r => { if (r.drug_name && r.drug_type && r.drug_type !== '-') typeMap[r.drug_name] = r.drug_type; });
+    const names = [...new Set(history.map(r => r.drug_name).filter(Boolean))].sort();
+    setScanDrugNames(names.map(name => ({ name, type: typeMap[name] || '' })));
+  }, [history]);
 
   // Drag & drop
   const handleDrop = (e) => {
@@ -436,8 +473,8 @@ function ScanInvoice({ onDone, auth }) {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       try {
-        const base64 = await toBase64(file);
-        const data = await scanInvoiceImage(base64, file.type);
+        const { base64, mimeType } = await toBase64(file);
+        const data = await scanInvoiceImage(base64, mimeType);
         if (data?._debug_error) {
           throw new Error(`${data.provider || 'AI'} (${data.status}): ${data.detail}`);
         }
@@ -587,11 +624,121 @@ function ScanInvoice({ onDone, auth }) {
 
   const totalItems = invoices.reduce((s, inv) => s + (inv.items?.length || 0), 0);
 
+  const dateThai = (iso) => {
+    const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${m[3]}/${m[2]}/${Number(m[1]) + 543}` : (iso || '-');
+  };
+
+  // filter raw rows ตามคำค้น + ช่วงวันที่ แล้ว group ตามวัน
+  const histQ = histQuery.trim().toLowerCase();
+  const histFiltered = history.filter(r => {
+    const d = r.receive_date || '';
+    if (histFrom && d < histFrom) return false;
+    if (histTo && d > histTo) return false;
+    if (histQ && !`${r.bill_number || ''} ${r.drug_name || ''} ${r.supplier_current || ''} ${r.drug_code || ''}`.toLowerCase().includes(histQ)) return false;
+    return true;
+  });
+  const histGrouped = groupScannedByDate(histFiltered);
+
+  // group บิลรายใบในแต่ละวัน (composite key กัน bill_number ซ้ำ — Rule #19)
+  const billsOfDay = (rows) => {
+    const m = {};
+    for (const r of rows) {
+      const k = `${r.bill_number || '-'}|${r.supplier_current || '-'}`;
+      (m[k] = m[k] || { bill_number: r.bill_number, supplier: r.supplier_current, items: [] }).items.push(r);
+    }
+    return Object.values(m);
+  };
+
+  // panel ประวัติบิลสแกน — ใช้ทั้งหน้า upload (ตลอด) และหน้า saved
+  const historyPanel = (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+          <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+            <History size={16} className="text-emerald-600"/> ประวัติบิลที่สแกน (แยกตามวันที่อัพโหลด)
+          </h3>
+
+          {/* ตัวกรอง: ค้นหา (ยา/เลขบิล/บริษัท) + ช่วงวันที่ */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 space-y-2.5">
+            <DrugSearchBar
+              value={histQuery}
+              onChange={setHistQuery}
+              options={scanDrugNames}
+              placeholder="ค้นหายา / เลขบิล / บริษัท / รหัส"
+              ringClass="focus:ring-emerald-400"
+              hoverClass="hover:bg-emerald-50"
+            />
+            <div className="flex items-center gap-2 flex-wrap text-sm">
+              <CalendarDays size={15} className="text-slate-400 shrink-0"/>
+              <span className="text-slate-600">วันที่:</span>
+              <IsoDateInput value={histFrom} onChange={setHistFrom} className="w-32"/>
+              <span className="text-slate-400">ถึง</span>
+              <IsoDateInput value={histTo} onChange={setHistTo} className="w-32"/>
+              {(histQuery || histFrom || histTo) && (
+                <button onClick={() => { setHistQuery(''); setHistFrom(''); setHistTo(''); }}
+                  className="flex items-center gap-1 text-slate-500 hover:text-red-500 text-xs px-2 py-1 transition-colors">
+                  <X size={13}/> ล้าง
+                </button>
+              )}
+            </div>
+          </div>
+
+          {historyLoading ? (
+            <div className="text-center text-slate-400 text-sm py-6 flex items-center justify-center gap-2">
+              <RefreshCcw size={15} className="animate-spin"/> กำลังโหลด...
+            </div>
+          ) : histGrouped.length === 0 ? (
+            <p className="text-center text-slate-400 text-sm py-6">
+              {history.length === 0 ? 'ยังไม่มีบิลที่สแกน' : 'ไม่พบบิลตามเงื่อนไข — ลองล้างตัวกรอง'}
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {histGrouped.map(({ date, rows }) => {
+                const dayBills = billsOfDay(rows);
+                const value = rows.reduce((s, r) => s + (parseFloat(String(r.total_price_vat || 0).replace(/,/g, '')) || 0), 0);
+                const open = !!histExpanded[date];
+                return (
+                  <div key={date} className="border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="bg-slate-50 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+                      <button
+                        onClick={() => setHistExpanded(p => ({ ...p, [date]: !p[date] }))}
+                        className="flex items-center gap-2 text-sm hover:text-emerald-700 transition-colors">
+                        {open ? <ChevronUp size={15} className="text-emerald-600"/> : <ChevronDown size={15} className="text-slate-400"/>}
+                        <CalendarDays size={15} className="text-emerald-600"/>
+                        <span className="font-semibold text-slate-700">{dateThai(date)}</span>
+                        <span className="text-slate-400">· {dayBills.length} บิล · {rows.length} รายการ · {value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>
+                      </button>
+                      <button
+                        onClick={() => exportToExcel(rows, SCAN_EXCEL_COLS, 'บิลสแกน', `บิลสแกน_${date}.xlsx`, auth)}
+                        className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                      >
+                        <FileDown size={15}/> Excel
+                      </button>
+                    </div>
+                    {open && (
+                      <div className="divide-y divide-slate-100">
+                        {dayBills.map((b, bi) => {
+                          const bv = b.items.reduce((s, r) => s + (parseFloat(String(r.total_price_vat || 0).replace(/,/g, '')) || 0), 0);
+                          return (
+                            <div key={bi} className="px-4 py-2 flex items-center justify-between gap-3 text-xs">
+                              <div className="min-w-0">
+                                <span className="font-medium text-slate-700">{b.bill_number || '-'}</span>
+                                <span className="text-slate-400"> · {b.supplier || '-'}</span>
+                                <span className="text-slate-400"> · {b.items.length} รายการ · {bv.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+  );
+
   if (saved) {
-    const dateThai = (iso) => {
-      const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      return m ? `${m[3]}/${m[2]}/${Number(m[1]) + 543}` : (iso || '-');
-    };
     return (
       <div className="max-w-5xl mx-auto px-4 py-8 space-y-5">
         <div className="bg-white rounded-2xl shadow-sm border border-emerald-200 p-6 text-center">
@@ -609,44 +756,7 @@ function ScanInvoice({ onDone, auth }) {
             </button>
           </div>
         </div>
-
-        {/* ประวัติบิลสแกน — group ตามวันที่อัพโหลด */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
-          <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-            <History size={16} className="text-emerald-600"/> ประวัติบิลที่สแกน (แยกตามวันที่อัพโหลด)
-          </h3>
-          {historyLoading ? (
-            <div className="text-center text-slate-400 text-sm py-6 flex items-center justify-center gap-2">
-              <RefreshCcw size={15} className="animate-spin"/> กำลังโหลด...
-            </div>
-          ) : history.length === 0 ? (
-            <p className="text-center text-slate-400 text-sm py-6">ยังไม่มีบิลที่สแกน</p>
-          ) : (
-            <div className="space-y-3">
-              {history.map(({ date, rows }) => {
-                const bills = new Set(rows.map(r => `${r.bill_number}|${r.supplier_current}`)).size;
-                const value = rows.reduce((s, r) => s + (parseFloat(String(r.total_price_vat || 0).replace(/,/g, '')) || 0), 0);
-                return (
-                  <div key={date} className="border border-slate-200 rounded-xl overflow-hidden">
-                    <div className="bg-slate-50 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-                      <div className="flex items-center gap-2 text-sm">
-                        <CalendarDays size={15} className="text-emerald-600"/>
-                        <span className="font-semibold text-slate-700">{dateThai(date)}</span>
-                        <span className="text-slate-400">· {bills} บิล · {rows.length} รายการ · {value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>
-                      </div>
-                      <button
-                        onClick={() => exportToExcel(rows, SCAN_EXCEL_COLS, 'บิลสแกน', `บิลสแกน_${date}.xlsx`, auth)}
-                        className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
-                      >
-                        <FileDown size={15}/> Excel
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        {historyPanel}
       </div>
     );
   }
@@ -708,6 +818,9 @@ function ScanInvoice({ onDone, auth }) {
           )}
         </div>
       )}
+
+      {/* ประวัติบิลสแกน — แสดงใต้ upload area เสมอ (เมื่อยังไม่มีรายการกำลังตรวจ) */}
+      {!invoices.length && historyPanel}
 
       {/* Preview per invoice */}
       {invoices.map((inv, invIdx) => (
@@ -1236,6 +1349,7 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
     if (!supabase) { setLoading(false); return; }
     setLoading(true);
     let q = supabase.from('receive_logs').select('*')
+      .neq('receive_status', 'สแกนบิล AI') // บิลสแกนแยกอยู่ในหน้าสแกนบิล ไม่ปนประวัติรับยา (ADR-0006)
       .order('receive_date', { ascending: false })
       .order('id', { ascending: false });
     if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%,bill_number.ilike.%${search}%`); }
@@ -1266,6 +1380,7 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
     const isoFrom = thaiToIso(dateFrom) || dateFrom;
     const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
     const applyFilters = (q) => {
+      q = q.neq('receive_status', 'สแกนบิล AI'); // แยกบิลสแกนออก ให้ stat ตรงกับตาราง (Rule #6)
       if (search.trim())    q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%,bill_number.ilike.%${search}%`);
       if (isoFrom && isoTo)  { q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo); }
       else if (isoFrom)      { q = q.gte('receive_date', isoFrom); }
@@ -1309,6 +1424,7 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
       const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
       const allRows = await fetchAllRows(() => {
         let q = supabase.from('receive_logs').select('*')
+          .neq('receive_status', 'สแกนบิล AI') // export ตรงกับตาราง — ไม่รวมบิลสแกน (Rule #6)
           .order('receive_date', { ascending: false })
           .order('id', { ascending: false });
         if (search.trim())  q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%,bill_number.ilike.%${search}%`);
