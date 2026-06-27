@@ -113,12 +113,19 @@ function fmtDatetime(iso) {
   return `${day}/${mon}/${year} ${hh}:${mm}`;
 }
 
+// ใช้ local date (ไม่ใช่ toISOString ที่เป็น UTC) — ตอนเช้าไทย <07:00 UTC ยังเป็นเมื่อวาน ทำให้ log วันนี้หลุด
+function localDateStr(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateStr();
 }
 function monthAgoStr() {
   const d = new Date(); d.setMonth(d.getMonth() - 1);
-  return d.toISOString().slice(0, 10);
+  return localDateStr(d);
 }
 
 function IsoDateInput({ value, onChange, className = '' }) {

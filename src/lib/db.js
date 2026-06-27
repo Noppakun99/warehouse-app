@@ -762,8 +762,9 @@ export async function fetchAuditLogs({ dateFrom, dateTo, action, userName } = {}
     .select('*')
     .order('created_at', { ascending: false })
 
-  if (dateFrom) q = q.gte('created_at', dateFrom + 'T00:00:00')
-  if (dateTo)   q = q.lte('created_at', dateTo   + 'T23:59:59')
+  // created_at เป็น timestamptz (UTC) — boundary ต้องระบุ +07:00 ไม่งั้นช่วงเย็น-ดึกเวลาไทยหลุดวันผิด
+  if (dateFrom) q = q.gte('created_at', dateFrom + 'T00:00:00+07:00')
+  if (dateTo)   q = q.lte('created_at', dateTo   + 'T23:59:59+07:00')
   if (action && action !== 'all') q = q.eq('action', action)
   if (userName) q = q.ilike('user_name', `%${userName}%`)
 
