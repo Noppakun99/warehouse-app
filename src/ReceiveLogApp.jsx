@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from './lib/supabase';
-import { fetchDrugDetails, RECEIVE_COL_MAP, insertReceiveRows, normalizeLotSearch, scanInvoiceImage, insertScannedBillRows, uploadInvoiceImage, lookupDrugCodes,
+import { fetchDrugDetails, RECEIVE_COL_MAP, insertReceiveRows, normalizeLotSearch, scanInvoiceImage, insertScannedBillRows, deleteScannedBillRows, uploadInvoiceImage,
+  fetchInventoryNameCodeMap, lookupDrugAliases, upsertDrugAliases,
   fetchApBills, groupRowsByBill, billGroupKey, markBillsInspected, markBillsSentBatch, markBillsPosted, unmarkBillsPosted, unmarkBillsInspected, unmarkBillsSentBatch, resetApBatch, fetchApBatches,
   markBillsAcknowledged, unmarkBillsAcknowledged } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
+import SearchableSelect from './SearchableSelect';
 import {
   ArrowLeft, UploadCloud, RefreshCcw, Search, X,
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
@@ -332,6 +334,28 @@ const toBase64 = async (file) => {
   }
 };
 
+// บีบรูปก่อน upload (รูปตรวจรับ) → คืน Blob jpeg ~1600px; ถ้า canvas ใช้ไม่ได้ (HEIC) คืน file เดิม
+const compressImageFile = async (file) => {
+  try {
+    const dataUrl = await readAsDataUrl(file);
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = rej;
+      im.src = dataUrl;
+    });
+    const scale = Math.min(1, SCAN_MAX_DIM / Math.max(img.width, img.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', SCAN_JPEG_QUALITY));
+    return blob || file;
+  } catch {
+    return file;
+  }
+};
+
 const fmtExpFromIso = (iso) => {
   if (!iso) return '-';
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -369,7 +393,7 @@ function EditableCell({ value, onChange, type = 'text', className = '' }) {
 async function fetchScannedBills() {
   return fetchAllRows(() =>
     supabase.from('receive_logs')
-      .select('receive_date, bill_number, supplier_current, drug_name, drug_code, drug_type, gpu_code, tpu_code, ttmp_code, lot, exp, mfg_date, qty_received, drug_unit, price_per_unit, total_price_vat')
+      .select('id, created_at, receive_date, bill_number, supplier_current, drug_name, drug_code, drug_type, gpu_code, tpu_code, ttmp_code, lot, exp, mfg_date, qty_received, drug_unit, price_per_unit, total_price_vat')
       .eq('receive_status', 'สแกนบิล AI')
       .order('receive_date', { ascending: false })
   );
@@ -400,6 +424,15 @@ const SCAN_EXCEL_COLS = [
   { header: 'มูลค่า',     key: 'total_price_vat' },
 ];
 
+// fuzzy match ชื่อยาบนบิล → ชื่อ inventory (generic) เป็น "candidate ตัวช่วย" — ยังไม่ยืนยัน
+// ใช้คำแรก (ตัวยาหลัก) match แบบ prefix; คืน candidate เฉพาะเมื่อ "ชัดพอ" (เจอ 1 ตัว) — กำกวม/ไม่เจอ → null
+function fuzzyInventoryMatch(billName, invNames) {
+  const first = String(billName || '').trim().toLowerCase().split(/\s+/)[0];
+  if (!first || first.length < 3) return '';
+  const hits = invNames.filter(n => n.toLowerCase().includes(first));
+  return hits.length === 1 ? hits[0] : '';   // ชัดเจนเท่านั้น — หลายตัว = ปล่อยให้คนเลือกเอง
+}
+
 function ScanInvoice({ onDone, auth }) {
   const [files, setFiles] = useState([]);
   const [invoices, setInvoices] = useState([]); // [{ file, previewUrl, header, items, vatMode }]
@@ -415,6 +448,8 @@ function ScanInvoice({ onDone, auth }) {
   const [histTo, setHistTo] = useState('');
   const [histExpanded, setHistExpanded] = useState({}); // { [date]: true } กางวันไหนเห็นบิลรายใบ
   const [scanDrugNames, setScanDrugNames] = useState([]); // autocomplete ชื่อยาจากบิลที่เคยสแกน
+  const [invNames, setInvNames] = useState([]);         // ชื่อยา generic จาก inventory (dropdown จับคู่)
+  const [invByName, setInvByName] = useState({});       // { ชื่อ inventory → drug_code }
   const dropRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -469,6 +504,11 @@ function ScanInvoice({ onDone, auth }) {
     setScanning(true);
     setError('');
     setScanProgress({ done: 0, total: files.length });
+
+    // โหลดฐานข้อมูลคลัง (ชื่อ generic → code) + map alias ที่จับคู่ไว้ครั้งก่อน — ครั้งเดียวก่อน loop
+    const { names: invNameList, byName } = await fetchInventoryNameCodeMap();
+    setInvNames(invNameList); setInvByName(byName);
+
     const results = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -480,25 +520,35 @@ function ScanInvoice({ onDone, auth }) {
         }
         const previewUrl = URL.createObjectURL(file);
 
-        // Auto-lookup drug codes from existing DB
-        const names = (data.items || []).map(it => it.drug_name).filter(Boolean);
-        const codeMap = await lookupDrugCodes(names);
+        // จับคู่ชื่อยาบนบิล → รหัสยา ตามลำดับ:
+        //   1) alias table (จับคู่ครั้งก่อน, ชื่อเป๊ะเดิม) → auto-fill code + _autoCode
+        //   2) fuzzy candidate จาก inventory (คำแรกตรง) → ใส่ candidate ใน dropdown แต่ "ยังไม่ยืนยัน" (_needConfirm)
+        const billNames = (data.items || []).map(it => it.drug_name).filter(Boolean);
+        const aliasMap = await lookupDrugAliases(billNames);
 
-        const items = (data.items || []).map(it => ({
-          drug_name:      it.drug_name || '',
-          drug_code:      codeMap[it.drug_name] || '',
-          gpu_code:       it.gpu_code || '',
-          tpu_code:       it.tpu_code || '',
-          ttmp_code:      it.ttmp_code || '',
-          lot:            it.lot_number || '',
-          exp:            fmtExpFromIso(it.expiry_date),
-          mfg_date:       isoToDisplay(it.mfg_date),
-          qty_received:   it.qty_received ?? '',
-          drug_unit:      it.drug_unit || '',
-          price_per_unit: it.price_per_unit ?? '',
-          total_price_vat: it.total_price_vat ?? '',
-          _autoCode:      !!codeMap[it.drug_name],
-        }));
+        const items = (data.items || []).map(it => {
+          const billName = it.drug_name || '';
+          const alias = aliasMap[billName.trim().toLowerCase()];
+          const cand = alias ? null : fuzzyInventoryMatch(billName, invNameList);
+          return {
+            drug_name:      billName,
+            drug_code:      alias ? alias.code : '',
+            matched_name:   alias ? (alias.name || '') : '',   // ชื่อ generic ที่จับคู่ (โชว์ใน dropdown)
+            gpu_code:       it.gpu_code || '',
+            tpu_code:       it.tpu_code || '',
+            ttmp_code:      it.ttmp_code || '',
+            lot:            it.lot_number || '',
+            exp:            fmtExpFromIso(it.expiry_date),
+            mfg_date:       isoToDisplay(it.mfg_date),
+            qty_received:   it.qty_received ?? '',
+            drug_unit:      it.drug_unit || '',
+            price_per_unit: it.price_per_unit ?? '',
+            total_price_vat: it.total_price_vat ?? '',
+            _autoCode:      !!alias,                            // จับคู่จาก alias = ยืนยันแล้ว (dot เขียว)
+            _candidateName: cand || '',                        // fuzzy candidate (ยังไม่ยืนยัน)
+            _needConfirm:   !alias && !!cand,                  // pre-fill fuzzy แต่ต้องให้คนยืนยัน (dot ส้ม)
+          };
+        });
 
         results.push({
           file,
@@ -536,6 +586,25 @@ function ScanInvoice({ onDone, auth }) {
       i !== invIdx ? inv : {
         ...inv,
         items: inv.items.map((it, j) => j !== itemIdx ? it : { ...it, [field]: val }),
+      }
+    ));
+  };
+
+  // คนเลือกยาในระบบจาก dropdown "จับคู่ยาในระบบ" → เติม drug_code จาก inventory + mark ว่าจะ save alias
+  // invName = '' (ล้าง) → คืนสถานะ unmatched
+  const mapItemToInventory = (invIdx, itemIdx, invName) => {
+    const code = invName ? (invByName[invName] || '') : '';
+    setInvoices(prev => prev.map((inv, i) =>
+      i !== invIdx ? inv : {
+        ...inv,
+        items: inv.items.map((it, j) => j !== itemIdx ? it : {
+          ...it,
+          matched_name: invName,
+          drug_code: code || it.drug_code,
+          _autoCode: !!code,
+          _needConfirm: false,
+          _userMapped: !!invName,   // คนจับคู่เอง → upsert alias ตอน save
+        }),
       }
     ));
   };
@@ -614,6 +683,16 @@ function ScanInvoice({ onDone, auth }) {
 
       if (!allRows.length) throw new Error('ไม่มีรายการยาที่จะบันทึก');
       await insertScannedBillRows(allRows, auth);
+
+      // จดจำการจับคู่ชื่อยา→รหัส ที่คนเลือกเอง → ครั้งหน้าชื่อเป๊ะเดิม auto-fill
+      const aliasRows = invoices.flatMap(inv => (inv.error ? [] : inv.items))
+        .filter(it => it._userMapped && it.drug_name && it.drug_code && it.drug_code !== '-')
+        .map(it => ({ billName: it.drug_name, drugCode: it.drug_code, drugName: it.matched_name || null }));
+      if (aliasRows.length) {
+        try { await upsertDrugAliases(aliasRows, auth); }
+        catch { /* mapping ไม่สำเร็จ ไม่ block การบันทึกบิล */ }
+      }
+
       setSaved(true);
     } catch (err) {
       setError(err.message);
@@ -641,13 +720,39 @@ function ScanInvoice({ onDone, auth }) {
   const histGrouped = groupScannedByDate(histFiltered);
 
   // group บิลรายใบในแต่ละวัน (composite key กัน bill_number ซ้ำ — Rule #19)
+  // เก็บ item_ids (row id) ไว้ใช้ลบบิลรายใบด้วย .in('id', ...) ไม่ใช่ bill_number
   const billsOfDay = (rows) => {
     const m = {};
     for (const r of rows) {
       const k = `${r.bill_number || '-'}|${r.supplier_current || '-'}`;
-      (m[k] = m[k] || { bill_number: r.bill_number, supplier: r.supplier_current, items: [] }).items.push(r);
+      const g = (m[k] = m[k] || { bill_number: r.bill_number, supplier: r.supplier_current, items: [], item_ids: [] });
+      g.items.push(r);
+      if (r.id != null) g.item_ids.push(r.id);
     }
     return Object.values(m);
+  };
+
+  // นับ "รอบสแกน" ต่อวันจาก created_at — กลุ่มที่ห่างกันเกิน threshold = คนละรอบ
+  const ROUND_GAP_MS = 2 * 60 * 1000; // ห่างเกิน 2 นาที = คนละรอบสแกน
+  const countScanRounds = (rows) => {
+    const ts = rows.map(r => r.created_at ? new Date(r.created_at).getTime() : null)
+      .filter(Boolean).sort((a, b) => a - b);
+    if (!ts.length) return 1;
+    let rounds = 1;
+    for (let i = 1; i < ts.length; i++) if (ts[i] - ts[i - 1] > ROUND_GAP_MS) rounds++;
+    return rounds;
+  };
+
+  // ลบบิลสแกนตาม row id → ลบ + audit + รีโหลด history
+  const handleDeleteScanned = async (ids, confirmMsg, details) => {
+    if (!ids?.length) return;
+    if (!window.confirm(confirmMsg)) return;
+    try {
+      await deleteScannedBillRows(ids, auth, details);
+      await loadHistory();
+    } catch (err) {
+      alert('ลบไม่สำเร็จ: ' + err.message);
+    }
   };
 
   // panel ประวัติบิลสแกน — ใช้ทั้งหน้า upload (ตลอด) และหน้า saved
@@ -694,6 +799,7 @@ function ScanInvoice({ onDone, auth }) {
             <div className="space-y-3">
               {histGrouped.map(({ date, rows }) => {
                 const dayBills = billsOfDay(rows);
+                const rounds = countScanRounds(rows);
                 const value = rows.reduce((s, r) => s + (parseFloat(String(r.total_price_vat || 0).replace(/,/g, '')) || 0), 0);
                 const open = !!histExpanded[date];
                 return (
@@ -705,14 +811,26 @@ function ScanInvoice({ onDone, auth }) {
                         {open ? <ChevronUp size={15} className="text-emerald-600"/> : <ChevronDown size={15} className="text-slate-400"/>}
                         <CalendarDays size={15} className="text-emerald-600"/>
                         <span className="font-semibold text-slate-700">{dateThai(date)}</span>
-                        <span className="text-slate-400">· {dayBills.length} บิล · {rows.length} รายการ · {value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>
+                        <span className="text-slate-400">· {rounds} รอบ · {dayBills.length} บิล · {rows.length} รายการ · {value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>
                       </button>
-                      <button
-                        onClick={() => exportToExcel(rows, SCAN_EXCEL_COLS, 'บิลสแกน', `บิลสแกน_${date}.xlsx`, auth)}
-                        className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
-                      >
-                        <FileDown size={15}/> Excel
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => exportToExcel(rows, SCAN_EXCEL_COLS, 'บิลสแกน', `บิลสแกน_${date}.xlsx`, auth)}
+                          className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                        >
+                          <FileDown size={15}/> Excel
+                        </button>
+                        <button
+                          onClick={() => handleDeleteScanned(
+                            rows.map(r => r.id).filter(id => id != null),
+                            `ลบบิลสแกนของวันที่ ${dateThai(date)} ทั้งหมด ${rows.length} รายการ?`,
+                            { date, reason: 'scan_delete_day' },
+                          )}
+                          className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                        >
+                          <Trash2 size={15}/> ลบ
+                        </button>
+                      </div>
                     </div>
                     {open && (
                       <div className="divide-y divide-slate-100">
@@ -725,6 +843,17 @@ function ScanInvoice({ onDone, auth }) {
                                 <span className="text-slate-400"> · {b.supplier || '-'}</span>
                                 <span className="text-slate-400"> · {b.items.length} รายการ · {bv.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>
                               </div>
+                              <button
+                                onClick={() => handleDeleteScanned(
+                                  b.item_ids,
+                                  `ลบบิล ${b.bill_number || '-'} (${b.items.length} รายการ)?`,
+                                  { bill_number: b.bill_number, reason: 'scan_delete_bill' },
+                                )}
+                                className="flex items-center gap-1 text-slate-400 hover:text-red-500 shrink-0 transition-colors"
+                                title="ลบบิลนี้"
+                              >
+                                <Trash2 size={14}/>
+                              </button>
                             </div>
                           );
                         })}
@@ -893,7 +1022,7 @@ function ScanInvoice({ onDone, auth }) {
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
-                    {['ชื่อยา','รหัสยา','GPU','TPU','TTMP','Lot','Exp','Mfg','จำนวน','หน่วย','ราคา/หน่วย','มูลค่า',''].map(h => (
+                    {['ชื่อยา','รหัสยา','จับคู่ยาในระบบ','GPU','TPU','TTMP','Lot','Exp','Mfg','จำนวน','หน่วย','ราคา/หน่วย','มูลค่า',''].map(h => (
                       <th key={h} className="text-left px-3 py-2 font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -905,8 +1034,17 @@ function ScanInvoice({ onDone, auth }) {
                       <td className="px-3 py-1.5 min-w-28">
                         <div className="relative">
                           <EditableCell value={it.drug_code} onChange={v => updateItem(invIdx, itemIdx, 'drug_code', v)}/>
-                          {it._autoCode && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" title="จับคู่อัตโนมัติ"/>}
+                          {it._autoCode && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" title="จับคู่แล้ว"/>}
+                          {it._needConfirm && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-orange-400" title="แนะนำจากชื่อยา — ต้องตรวจ/ยืนยัน"/>}
                         </div>
+                      </td>
+                      <td className="px-3 py-1.5 min-w-56">
+                        <SearchableSelect
+                          value={it.matched_name || it._candidateName || ''}
+                          onChange={v => mapItemToInventory(invIdx, itemIdx, v)}
+                          options={invNames}
+                          placeholder="-- เลือกยาในระบบ --"
+                        />
                       </td>
                       <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.gpu_code} onChange={v => updateItem(invIdx, itemIdx, 'gpu_code', v)}/></td>
                       <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.tpu_code} onChange={v => updateItem(invIdx, itemIdx, 'tpu_code', v)}/></td>
@@ -1681,6 +1819,12 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
           </div>
           <button onClick={clearAll} className="text-slate-400 hover:text-slate-600 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
             <RefreshCcw size={16}/>
+          </button>
+          <button
+            onClick={printInspectWorksheet}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-colors"
+            title="พิมพ์ฟอร์มเปล่าให้กรรมการตรวจรับกรอกมือ">
+            <Printer size={14} /> ฟอร์มตรวจรับ
           </button>
           <button
             onClick={handleExport}
@@ -2467,10 +2611,10 @@ function BarSection({ title, items, barColor, unit, shareMode = false, caption }
 // AP Workflow — ติดตาม + ส่งบัญชี (Weekly Batch)
 // ============================================================
 const AP_STAGE_LABEL = {
-  null:           { label: 'รอจัดซื้อรับ',  bg: 'bg-amber-100',  text: 'text-amber-700',  dot: 'bg-amber-500' },
-  acked:          { label: 'จัดซื้อรับแล้ว', bg: 'bg-sky-100',    text: 'text-sky-700',    dot: 'bg-sky-500' },
-  inspected:      { label: 'รอส่งบัญชี',   bg: 'bg-orange-100', text: 'text-orange-700', dot: 'bg-orange-500' },
-  sent_batch:     { label: 'ส่งบัญชีแล้ว(รอตั้งหนี้)', bg: 'bg-indigo-100', text: 'text-indigo-700', dot: 'bg-indigo-500' },
+  null:           { label: 'รอจัดซื้อรับเอกสาร',  bg: 'bg-amber-100',  text: 'text-amber-700',  dot: 'bg-amber-500' },
+  acked:          { label: 'จัดซื้อรับเอกสารแล้ว', bg: 'bg-sky-100',    text: 'text-sky-700',    dot: 'bg-sky-500' },
+  inspected:      { label: 'รอนำส่งบัญชี',   bg: 'bg-orange-100', text: 'text-orange-700', dot: 'bg-orange-500' },
+  sent_batch:     { label: 'นำส่งบัญชีแล้ว (รอตั้งหนี้)', bg: 'bg-indigo-100', text: 'text-indigo-700', dot: 'bg-indigo-500' },
   posted:         { label: 'ตั้งหนี้แล้ว',  bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500' },
 };
 
@@ -2504,10 +2648,10 @@ const HOSPITAL_NAME = 'โรงพยาบาลประชาธิปัต
 
 function printApBatch(rows, batchId, meta = {}) {
   if (!rows || rows.length === 0) return;
-  // kind: 'ap' = ใบนำส่งบิลตั้งหนี้ (คลัง → บัญชี) | 'ack' = ใบส่งจัดซื้อรับบิล (คลัง → จัดซื้อ)
+  // kind: 'ap' = ใบนำส่งบิลตั้งหนี้ (คลัง → บัญชี) | 'ack' = ใบส่งมอบเอกสาร (คลัง → จัดซื้อ)
   const kind = meta.kind || 'ap';
   const isAck = kind === 'ack';
-  const docTitle    = isAck ? 'ใบส่งจัดซื้อรับบิล'            : 'ใบนำส่งบิลตั้งหนี้';
+  const docTitle    = isAck ? 'ใบส่งมอบเอกสาร'            : 'ใบนำส่งบิลตั้งหนี้';
   const docSubtitle = isAck ? 'Bills for Procurement Acknowledgement' : 'Weekly AP Batch Submission';
   const batchLabel  = isAck ? 'วันที่ส่งจัดซื้อ'                : 'รหัสรอบส่ง';
   const sigLeftTitle  = isAck ? 'เจ้าหน้าที่คลัง'   : 'กรรมการตรวจรับ';
@@ -2713,6 +2857,108 @@ function printApBatch(rows, batchId, meta = {}) {
   else     URL.revokeObjectURL(url);
 }
 
+// ฟอร์มตรวจรับยา (เปล่า) — พิมพ์ให้กรรมการตรวจรับกรอกมือขณะตรวจของจริง ไม่ดึงข้อมูลจากระบบ
+// (กรรมการเลือกเองว่าจะตรวจอะไร ดูจากบิล+PO ก่อนมาตรวจ คลังไม่รู้ล่วงหน้า) — ดู CONTEXT.md "ฟอร์มตรวจรับ"
+function printInspectWorksheet() {
+  const ROW_COUNT = 18;
+  const emptyRows = Array.from({ length: ROW_COUNT }, (_, i) => `
+    <tr>
+      <td class="c">${i + 1}</td>
+      <td></td>
+      <td></td>
+      <td class="c"></td>
+      <td></td>
+      <td class="c"></td>
+      <td class="c"></td>
+      <td></td>
+      <td class="c"></td>
+      <td class="c"><span class="bx"></span> ถูก<br/><span class="bx"></span> ไม่ถูก</td>
+      <td></td>
+    </tr>`).join('');
+
+  const html = `<!DOCTYPE html><html lang="th"><head>
+<meta charset="UTF-8"/>
+<title>ฟอร์มตรวจรับยา</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #1e293b; background: #fff; padding: 20px 28px 28px; }
+  @page { size: A4 landscape; }
+  .h-row { text-align: center; border-bottom: 2px solid #1e293b; padding-bottom: 8px; margin-bottom: 14px; }
+  h1 { font-size: 20px; font-weight: 700; color: #1e293b; }
+  .sub { font-size: 13px; color: #334155; font-weight: 600; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 14px; }
+  th { background: #f1f5f9; color: #1e293b; font-weight: 700; padding: 6px 6px; text-align: center;
+    border: 1px solid #000; }
+  td { padding: 5px 6px; border: 1px solid #94a3b8; height: 30px; vertical-align: top; }
+  td.c { text-align: center; }
+  .bx { display: inline-block; width: 11px; height: 11px; border: 1px solid #475569; vertical-align: middle; margin-right: 2px; }
+  .sig-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 28px; page-break-inside: avoid; }
+  .sig-box { padding: 14px 16px; text-align: center; }
+  .sig-title { font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 36px; }
+  .sig-line { border-bottom: 1px solid #94a3b8; }
+  .sig-label { font-size: 11px; color: #64748b; margin-top: 4px; }
+  .sig-date { font-size: 11px; color: #64748b; margin-top: 8px; }
+  .sig-date span { display: inline-block; border-bottom: 1px dotted #94a3b8; min-width: 120px; margin-left: 6px; }
+  .foot { font-size: 10px; color: #94a3b8; text-align: right; margin-top: 14px; }
+  @media print {
+    body { padding: 8mm 10mm; }
+    button { display: none !important; }
+    thead { display: table-header-group; }
+  }
+</style>
+</head><body>
+<button onclick="window.print()" style="position:fixed;top:14px;right:14px;background:#047857;color:#fff;border:none;
+  padding:8px 18px;border-radius:8px;font-family:Sarabun,sans-serif;font-size:13px;cursor:pointer;font-weight:600;z-index:9999;">
+  พิมพ์
+</button>
+
+<div class="h-row">
+  <h1>${HOSPITAL_NAME}</h1>
+  <p class="sub">ใบตรวจรับยา / เวชภัณฑ์</p>
+</div>
+
+<table>
+  <thead><tr>
+    <th style="width:4%;">ลำดับ</th>
+    <th>ชื่อยา</th>
+    <th style="width:12%;">บริษัท/ผู้ขาย</th>
+    <th style="width:9%;">เลขบิล/PO</th>
+    <th style="width:8%;">จำนวนสั่ง</th>
+    <th style="width:8%;">จำนวนรับจริง</th>
+    <th style="width:12%;">LOT.NO</th>
+    <th style="width:9%;">EXP.</th>
+    <th style="width:9%;">วันที่ตรวจรับ</th>
+    <th style="width:10%;">ตรงตามเอกสาร</th>
+    <th style="width:11%;">หมายเหตุ</th>
+  </tr></thead>
+  <tbody>${emptyRows}</tbody>
+</table>
+
+<div class="sig-row">
+  <div class="sig-box">
+    <p class="sig-title">กรรมการตรวจรับ</p>
+    <div class="sig-line"></div>
+    <p class="sig-label">ลายมือชื่อ ผู้ตรวจรับ</p>
+    <p class="sig-date">วันที่ <span></span></p>
+  </div>
+  <div class="sig-box">
+    <p class="sig-title">ผู้ส่งมอบ (เจ้าหน้าที่คลัง)</p>
+    <div class="sig-line"></div>
+    <p class="sig-label">ลายมือชื่อ ผู้ส่งมอบ</p>
+    <p class="sig-date">วันที่ <span></span></p>
+  </div>
+</div>
+
+<p class="foot">พิมพ์เมื่อ ${(() => { const iso = todayIsoLocal(); const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${Number(m[1]) + 543}` : iso; })()}</p>
+</body></html>`;
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const win  = window.open(url, '_blank');
+  if (win) setTimeout(() => URL.revokeObjectURL(url), 30000);
+  else     URL.revokeObjectURL(url);
+}
+
 // match บิลกับคำค้น — เลขบิล / บริษัท / ชื่อยา / รหัสยา / lot (ค้นในรายการยาของบิลด้วย)
 // ใช้ร่วมกันทุกแท็บ (รอตรวจรับ/ส่งบัญชี + ประวัติ batch) เพื่อให้ค้นได้เหมือนกันทุกขั้น
 function billMatchesQuery(bill, q) {
@@ -2726,6 +2972,151 @@ function billMatchesQuery(bill, q) {
   );
 }
 
+// วันที่ feature "บังคับรูปตรวจรับ" เริ่มใช้ (ISO) — บิลที่ตรวจรับก่อนวันนี้ไม่ flag badge "ไม่มีรูป"
+// (บิลเก่าหลายร้อยใบ inspect_meta=null โดยธรรมชาติ — ไม่ใช่ความผิดพลาด)
+const INSPECT_PHOTO_SINCE = '2026-06-27';
+
+// รายการ checklist บังคับติ๊กก่อนยืนยันตรวจรับ (qty/exp/lot/doc) — ปิดช่องโหว่ "เซ็นโดยไม่ตรวจ"
+const INSPECT_CHECKLIST = [
+  { key: 'qty', label: 'จำนวนยาตรงกับบิล' },
+  { key: 'exp', label: 'วันหมดอายุ (Exp) ตรงกับของจริง' },
+  { key: 'lot', label: 'Lot ตรงกับของจริง' },
+  { key: 'doc', label: 'เอกสาร/ใบกำกับครบถ้วน' },
+];
+
+// Modal บังคับ checklist + แนบรูป ก่อน Mark "ตรวจรับแล้ว"
+// บังคับ: ติ๊กครบทุกข้อ + รูป >= 1 ถึงกดยืนยันได้ (แก้ปัญหา 1.2/1.3/1.7)
+function InspectChecklistModal({ bills, defaultInspector, onConfirm, onClose, busy }) {
+  const [checks, setChecks]       = useState({});
+  const [inspector, setInspector] = useState(defaultInspector || '');
+  const [images, setImages]       = useState([]); // [{ file, preview }]
+  const [localErr, setLocalErr]   = useState('');
+  const fileRef = useRef(null);
+
+  const allChecked = INSPECT_CHECKLIST.every(c => checks[c.key]);
+  const canConfirm = allChecked && images.length > 0 && !busy;
+
+  async function handleAddFiles(e) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const next = [];
+    for (const file of files) {
+      try { next.push({ file, preview: await readAsDataUrl(file) }); }
+      catch { next.push({ file, preview: '' }); }
+    }
+    setImages(cur => [...cur, ...next]);
+    if (fileRef.current) fileRef.current.value = '';
+  }
+  const removeImage = (idx) => setImages(cur => cur.filter((_, i) => i !== idx));
+
+  function handleConfirm() {
+    if (!allChecked) { setLocalErr('ต้องติ๊กยืนยันให้ครบทุกข้อก่อน'); return; }
+    if (images.length === 0) { setLocalErr('ต้องแนบรูปการตรวจรับอย่างน้อย 1 รูป'); return; }
+    setLocalErr('');
+    onConfirm({ checklist: { ...checks }, inspector: inspector.trim(), images });
+  }
+
+  const billCount = bills.length;
+  const itemCount = bills.reduce((s, b) => s + (b.item_count || 0), 0);
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-xl" onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 flex items-center justify-between border-b bg-white px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={18} className="text-orange-500" />
+            <h3 className="text-base font-bold text-slate-800">ยืนยันการตรวจรับยา</h3>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X size={18} /></button>
+        </div>
+
+        <div className="space-y-4 px-5 py-4">
+          <p className="rounded-lg bg-orange-50 px-3 py-2 text-xs text-orange-700">
+            กำลังตรวจรับ <b>{billCount} บิล</b> ({itemCount} รายการ) — ติ๊กยืนยันครบทุกข้อ + แนบรูป ถึงจะบันทึกได้
+          </p>
+
+          {/* Checklist */}
+          <div className="space-y-2">
+            {INSPECT_CHECKLIST.map(c => (
+              <label key={c.key} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50">
+                <input
+                  type="checkbox"
+                  checked={!!checks[c.key]}
+                  onChange={e => setChecks(cur => ({ ...cur, [c.key]: e.target.checked }))}
+                  className="h-4 w-4 rounded border-slate-300 text-orange-500 focus:ring-orange-400"
+                />
+                <span className="text-sm text-slate-700">{c.label}</span>
+              </label>
+            ))}
+          </div>
+
+          {/* ชื่อกรรมการตรวจรับ */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">กรรมการตรวจรับ (ไม่กรอกก็ได้ — เซ็นเอง)</label>
+            <input
+              value={inspector}
+              onChange={e => setInspector(e.target.value)}
+              placeholder="ชื่อกรรมการตรวจรับ"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-400"
+            />
+          </div>
+
+          {/* รูปตรวจรับ */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">
+              รูปการตรวจรับ <span className="text-red-500">*</span> (อย่างน้อย 1 รูป)
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {images.map((img, idx) => (
+                <div key={idx} className="relative h-20 w-20 overflow-hidden rounded-lg border border-slate-200">
+                  {img.preview
+                    ? <img src={img.preview} alt="" className="h-full w-full object-cover" />
+                    : <div className="flex h-full w-full items-center justify-center bg-slate-100 text-[10px] text-slate-400">ไฟล์</div>}
+                  <button
+                    onClick={() => removeImage(idx)}
+                    className="absolute right-0.5 top-0.5 rounded-full bg-black/50 p-0.5 text-white hover:bg-black/70"
+                  ><Trash2 size={12} /></button>
+                </div>
+              ))}
+              <button
+                onClick={() => fileRef.current?.click()}
+                className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-slate-300 text-slate-400 hover:border-orange-400 hover:text-orange-500"
+              >
+                <ImagePlus size={20} />
+                <span className="text-[10px]">เพิ่มรูป</span>
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                multiple
+                onChange={handleAddFiles}
+                className="hidden"
+              />
+            </div>
+          </div>
+
+          {localErr && (
+            <div className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
+              <AlertCircle size={14} /> {localErr}
+            </div>
+          )}
+        </div>
+
+        <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t bg-white px-5 py-3">
+          <button onClick={onClose} disabled={busy} className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50">ยกเลิก</button>
+          <button
+            onClick={handleConfirm}
+            disabled={!canConfirm}
+            className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >{busy ? 'กำลังบันทึก…' : 'ยืนยันตรวจรับ'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ApWorkflow({ auth, onBack }) {
   const [subTab, setSubTab]   = useState('pending'); // 'pending' | 'sent' | 'history'
   const [loading, setLoading] = useState(true);
@@ -2733,8 +3124,8 @@ function ApWorkflow({ auth, onBack }) {
   const [sentBills, setSentBills]       = useState([]); // ap_stage = sent_batch
   const [batches, setBatches]           = useState([]); // distinct ap_batch_id
   const [selected, setSelected]         = useState(new Set()); // bill_numbers
-  // ไม่กรอกชื่อ จนท.จัดซื้อ/กรรมการ ในระบบแล้ว — เซ็นด้วยมือบนใบที่พิมพ์แทน (ค่าว่าง = ช่องเซ็นเว้นว่าง)
-  const inspector = '';
+  // ไม่กรอกชื่อ จนท.จัดซื้อ ในระบบแล้ว — เซ็นด้วยมือบนใบที่พิมพ์แทน (ค่าว่าง = ช่องเซ็นเว้นว่าง)
+  // กรรมการตรวจรับ → กรอกใน InspectChecklistModal ตอน Mark ตรวจรับ
   const purchaser = '';
   const [accountant, setAccountant]     = useState('');
   const [returnDate]                    = useState(() => todayIsoLocal()); // วันที่ส่งคืนจัดซื้อ = วันนี้ (เก็บใน inspected_at ตอน Mark ตรวจรับ)
@@ -2754,6 +3145,7 @@ function ApWorkflow({ auth, onBack }) {
   const [stageFilter, setStageFilter]   = useState('all');          // 'all' | 'null' | 'inspected'
   const [expandedBill, setExpandedBill] = useState(null);
   const toggleExpand = (bn) => setExpandedBill(cur => cur === bn ? null : bn);
+  const [inspectModalBills, setInspectModalBills] = useState(null); // บิลที่รอยืนยันตรวจรับ (เปิด modal); null = ปิด
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -2869,35 +3261,58 @@ function ApWorkflow({ auth, onBack }) {
   // ---- Actions ----
   async function handleMarkInspected() {
     if (selected.size === 0) { setError('เลือกบิลที่ตรวจรับเสร็จก่อน'); return; }
-    // ต้องเป็นบิลที่ "จัดซื้อรับแล้ว" (ap_stage=NULL + acknowledged_at NOT NULL) เท่านั้น
+    // ต้องเป็นบิลที่ "จัดซื้อรับเอกสารแล้ว" (ap_stage=NULL + acknowledged_at NOT NULL) เท่านั้น
     const ackedSelected = filteredPending.filter(b => !b.ap_stage && b.acknowledged_at && selected.has(b._key));
     const unackSelected = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b._key));
     if (ackedSelected.length === 0) {
       if (unackSelected.length > 0) {
-        setError(`บิลที่เลือก ${unackSelected.length} บิลยังเป็น "รอจัดซื้อรับ"\nต้องกด "จัดซื้อรับบิล" ก่อน → แล้วค่อย Mark ตรวจรับแล้ว`);
+        setError(`บิลที่เลือก ${unackSelected.length} บิลยังเป็น "รอจัดซื้อรับเอกสาร"\nต้องกด "จัดซื้อรับเอกสาร" ก่อน → แล้วค่อยยืนยันตรวจรับ`);
       } else {
-        setError('ไม่มีบิลที่จัดซื้อรับแล้วในการเลือก');
+        setError('ไม่มีบิลที่จัดซื้อรับเอกสารแล้วในการเลือก');
       }
       return;
     }
-    const name = inspector.trim();
+    // เปิด modal บังคับ checklist + แนบรูป ก่อนบันทึกจริง (กัน "เซ็นโดยไม่ตรวจ")
+    setError('');
+    setInspectModalBills(ackedSelected);
+  }
+
+  // บันทึกจริงหลังผ่าน checklist modal — upload รูป → markBillsInspected พร้อม inspect_meta
+  async function doMarkInspected({ checklist, inspector: inspectorName, images }) {
+    const ackedSelected = inspectModalBills || [];
+    if (ackedSelected.length === 0) { setInspectModalBills(null); return; }
     setBusy(true); setError(''); setMsg('');
     try {
+      // upload รูปทุกใบ → เก็บ URL
+      const ts = Date.now();
+      const imageUrls = [];
+      for (let i = 0; i < images.length; i++) {
+        const blob = await compressImageFile(images[i].file);
+        const url = await uploadInvoiceImage(blob, `inspect_${ts}_${i}.jpg`);
+        imageUrls.push(url);
+      }
+      const inspectMeta = {
+        images: imageUrls,
+        checklist,
+        inspector: inspectorName || null,
+        at: new Date().toISOString(),
+      };
       const billNumbers = ackedSelected.map(b => b.bill_number);
       const rowIds = ackedSelected.flatMap(b => b.item_ids);
-      const n = await markBillsInspected(rowIds, billNumbers, name, auth, returnDate);
-      setMsg(`บันทึก "ตรวจรับแล้ว" ${ackedSelected.length} บิล (${n} รายการ) · ส่งคืนวันที่ ${returnDate}`);
+      const n = await markBillsInspected(rowIds, billNumbers, inspectorName, auth, returnDate, inspectMeta);
+      setMsg(`ยืนยันตรวจรับ ${ackedSelected.length} บิล (${n} รายการ) · แนบรูป ${imageUrls.length} รูป · ส่งคืนวันที่ ${returnDate}`);
       setSelected(new Set());
+      setInspectModalBills(null);
       await load();
     } catch (e) { setError(e.message || 'บันทึกไม่สำเร็จ'); }
     finally { setBusy(false); }
   }
 
-  // คลังพิมพ์ใบส่งจัดซื้อ — เลือกบิลรอจัดซื้อรับ (ap_stage=NULL + acknowledged_at=NULL) แล้วปริ้นใบให้จัดซื้อเซ็น
+  // คลังพิมพ์ใบส่งจัดซื้อ — เลือกบิลรอจัดซื้อรับเอกสาร (ap_stage=NULL + acknowledged_at=NULL) แล้วปริ้นใบให้จัดซื้อเซ็น
   // ไม่เปลี่ยน stage — เป็นแค่ paperwork helper
   async function handleExportAck() {
     const unackBills = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b._key));
-    if (unackBills.length === 0) { setError('เลือกบิล "รอจัดซื้อรับ" ก่อน'); return; }
+    if (unackBills.length === 0) { setError('เลือกบิล "รอจัดซื้อรับเอกสาร" ก่อน'); return; }
     setBusy(true); setError(''); setMsg('');
     try {
       const billNumbers = unackBills.map(b => b.bill_number);
@@ -2922,7 +3337,7 @@ function ApWorkflow({ auth, onBack }) {
 
   async function handleExportAndSend() {
     const inspectedBills = filteredPending.filter(b => b.ap_stage === 'inspected' && selected.has(b._key));
-    if (inspectedBills.length === 0) { setError('เลือกเฉพาะบิลที่ตรวจรับแล้ว (สถานะ "รอส่งบัญชี") ก่อน'); return; }
+    if (inspectedBills.length === 0) { setError('เลือกเฉพาะบิลที่ตรวจรับแล้ว (สถานะ "รอนำส่งบัญชี") ก่อน'); return; }
     setBusy(true); setError(''); setMsg('');
     try {
       const batchId = todayIsoLocal();
@@ -2987,14 +3402,14 @@ function ApWorkflow({ auth, onBack }) {
       bills = [singleBill];
     } else {
       bills = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b._key));
-      if (bills.length === 0) { setError('เลือกบิลที่ยังไม่ ack (สถานะ "รอจัดซื้อรับ") ก่อน'); return; }
+      if (bills.length === 0) { setError('เลือกบิลที่ยังไม่ ack (สถานะ "รอจัดซื้อรับเอกสาร") ก่อน'); return; }
     }
     const rowIds = bills.flatMap(b => b.item_ids);
     const billNumbers = bills.map(b => b.bill_number);
     setBusy(true); setError(''); setMsg('');
     try {
       const n = await markBillsAcknowledged(rowIds, billNumbers, purchaser.trim() || null, auth);
-      setMsg(`บันทึก "จัดซื้อรับบิลแล้ว" ${bills.length} บิล (${n} รายการ)`);
+      setMsg(`บันทึก "จัดซื้อรับเอกสารแล้ว" ${bills.length} บิล (${n} รายการ)`);
       if (!singleBill) setSelected(new Set());
       await load();
     } catch (e) {
@@ -3010,7 +3425,7 @@ function ApWorkflow({ auth, onBack }) {
 
   // ย้อน acknowledge
   async function handleUnacknowledge(bill) {
-    if (!confirm(`ย้อนบิล ${bill.bill_number} กลับเป็น "รอจัดซื้อรับ"?`)) return;
+    if (!confirm(`ย้อนบิล ${bill.bill_number} กลับเป็น "รอจัดซื้อรับเอกสาร"?`)) return;
     setBusy(true); setError('');
     try { await unmarkBillsAcknowledged(bill.item_ids, [bill.bill_number], auth); await load(); setMsg(`ย้อน ack ${bill.bill_number}`); }
     catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
@@ -3030,8 +3445,8 @@ function ApWorkflow({ auth, onBack }) {
       return;
     }
     const lines = [];
-    if (uninspectBills.length) lines.push(`• ย้อน "ตรวจรับแล้ว" → "จัดซื้อรับแล้ว": ${uninspectBills.length} บิล`);
-    if (unackBills.length)     lines.push(`• ย้อน "จัดซื้อรับแล้ว" → "รอจัดซื้อรับ": ${unackBills.length} บิล`);
+    if (uninspectBills.length) lines.push(`• ย้อน "ตรวจรับแล้ว" → "จัดซื้อรับเอกสารแล้ว": ${uninspectBills.length} บิล`);
+    if (unackBills.length)     lines.push(`• ย้อน "จัดซื้อรับเอกสารแล้ว" → "รอจัดซื้อรับเอกสาร": ${unackBills.length} บิล`);
     if (!confirm(`ย้อนกลับ ${unackBills.length + uninspectBills.length} บิล?\n${lines.join('\n')}`)) return;
 
     setBusy(true); setError(''); setMsg('');
@@ -3058,21 +3473,21 @@ function ApWorkflow({ auth, onBack }) {
 
   // ย้อน sent_batch → inspected (ออกจาก batch)
   async function handleUnsendBatch(bill) {
-    if (!confirm(`ย้อนบิล ${bill.bill_number} ออกจาก batch กลับเป็น "รอส่งบัญชี"?`)) return;
+    if (!confirm(`ย้อนบิล ${bill.bill_number} ออกจาก batch กลับเป็น "รอนำส่งบัญชี"?`)) return;
     setBusy(true); setError('');
-    try { await unmarkBillsSentBatch(bill.item_ids, [bill.bill_number], auth); await load(); setMsg(`ย้อน ${bill.bill_number} → รอส่งบัญชี`); }
+    try { await unmarkBillsSentBatch(bill.item_ids, [bill.bill_number], auth); await load(); setMsg(`ย้อน ${bill.bill_number} → รอนำส่งบัญชี`); }
     catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
     finally { setBusy(false); }
   }
 
   // Reset ทั้ง batch — ทุกบิลกลับเป็น inspected, batch หาย
   async function handleResetBatch(batch) {
-    if (!confirm(`Reset batch ${batch.batch_id}?\nทุกบิล (${batch.bill_count} บิล) จะกลับเป็น "รอส่งบัญชี"\nbatch นี้จะหายจากประวัติ`)) return;
+    if (!confirm(`Reset batch ${batch.batch_id}?\nทุกบิล (${batch.bill_count} บิล) จะกลับเป็น "รอนำส่งบัญชี"\nbatch นี้จะหายจากประวัติ`)) return;
     setBusy(true); setError('');
     try {
       const n = await resetApBatch(batch.batch_id, auth);
       await load();
-      setMsg(`Reset batch ${batch.batch_id} เรียบร้อย (${n} รายการกลับสู่ "รอส่งบัญชี")`);
+      setMsg(`Reset batch ${batch.batch_id} เรียบร้อย (${n} รายการกลับสู่ "รอนำส่งบัญชี")`);
     } catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
     finally { setBusy(false); }
   }
@@ -3112,14 +3527,24 @@ function ApWorkflow({ auth, onBack }) {
       </div>
 
       <div className="flex flex-wrap gap-2 mb-4">
-        {tabBtn('pending', 'รอส่งบัญชี', filteredPending.length, <ClipboardList size={16}/>)}
-        {tabBtn('sent',    'ส่งบัญชีแล้ว(รอตั้งหนี้)', filteredSent.length, <FileCheck2 size={16}/>)}
-        {tabBtn('history', 'ประวัติตั้งหนี้',  batches.length,   <History size={16}/>)}
+        {tabBtn('pending', 'รอนำส่งบัญชี', filteredPending.length, <ClipboardList size={16}/>)}
+        {tabBtn('sent',    'นำส่งบัญชีแล้ว', filteredSent.length, <FileCheck2 size={16}/>)}
+        {tabBtn('history', 'ประวัติการตั้งหนี้',  batches.length,   <History size={16}/>)}
       </div>
 
       {(msg || error) && (
         <ToastPopup type={error ? 'error' : 'success'} message={error || msg}
           onClose={() => { setMsg(''); setError(''); }}/>
+      )}
+
+      {inspectModalBills && (
+        <InspectChecklistModal
+          bills={inspectModalBills}
+          defaultInspector=""
+          busy={busy}
+          onConfirm={doMarkInspected}
+          onClose={() => { if (!busy) setInspectModalBills(null); }}
+        />
       )}
 
       <div className="bg-white rounded-xl border border-slate-200 p-3 mb-3 space-y-2">
@@ -3176,6 +3601,57 @@ function ApWorkflow({ auth, onBack }) {
 }
 
 // แสดงรายละเอียด lot ทั้งหมดในบิล — ใช้ทั้ง PendingTab + SentTab + HistoryTab
+// แสดงหลักฐานการตรวจรับ (checklist + ชื่อกรรมการ + รูป) ที่บันทึกตอน "ยืนยันตรวจรับ"
+// อ่านจาก bill.inspect_meta (jsonb { images, checklist, inspector, at }) — ดู docs/features/ap-workflow.md
+function InspectEvidence({ bill }) {
+  const meta = bill.inspect_meta;
+  const [lightbox, setLightbox] = useState(null); // url ของรูปที่กำลังขยาย หรือ null
+  if (!meta || (!meta.images?.length && !meta.checklist && !bill.inspected_by)) return null;
+  const images = meta.images || [];
+  const checklist = meta.checklist || {};
+  const inspector = meta.inspector || bill.inspected_by || '-';
+  const at = meta.at || bill.inspected_at;
+  return (
+    <div className="mt-3 rounded-lg border border-emerald-200 bg-white p-3">
+      <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+        <FileCheck2 size={14}/> หลักฐานการตรวจรับ
+      </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600">
+        <span><span className="text-slate-400">กรรมการตรวจรับ:</span> <span className="font-medium text-slate-800">{inspector}</span></span>
+        {at && <span className="inline-flex items-center gap-1"><CalendarDays size={12} className="text-slate-400"/> {fmtDateThaiShort(at)}</span>}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+        {INSPECT_CHECKLIST.map(c => (
+          <span key={c.key} className={`inline-flex items-center gap-1 text-[11px] ${checklist[c.key] ? 'text-emerald-700' : 'text-slate-400'}`}>
+            {checklist[c.key]
+              ? <CheckCircle2 size={12} className="text-emerald-600"/>
+              : <AlertCircle size={12} className="text-slate-300"/>}
+            {c.label}
+          </span>
+        ))}
+      </div>
+      {images.length > 0 && (
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          {images.map((url, i) => (
+            <button key={i} type="button" onClick={() => setLightbox(url)}
+              className="h-16 w-16 overflow-hidden rounded-lg border border-slate-200 hover:border-emerald-400 transition-colors">
+              <img src={url} alt={`รูปตรวจรับ ${i+1}`} className="h-full w-full object-cover" loading="lazy"/>
+            </button>
+          ))}
+        </div>
+      )}
+      {lightbox && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 p-4" onClick={() => setLightbox(null)}>
+          <button type="button" className="absolute top-4 right-4 text-white/80 hover:text-white" onClick={() => setLightbox(null)}>
+            <X size={28}/>
+          </button>
+          <img src={lightbox} alt="รูปตรวจรับ" className="max-h-full max-w-full rounded-lg object-contain" onClick={e => e.stopPropagation()}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BillItemsDetail({ bill }) {
   const items = bill.items || [];
   const totalQty = items.reduce((s, r) => s + (parseFloat(r.qty_received) || 0), 0);
@@ -3239,6 +3715,7 @@ function BillItemsDetail({ bill }) {
           </tfoot>
         </table>
       </div>
+      <InspectEvidence bill={bill}/>
     </div>
   );
 }
@@ -3250,6 +3727,11 @@ function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, 
   const days = daysSince(baseTimestamp);
   const overdue = days > 7;
   const isAcked = !stage && !!bill.acknowledged_at;
+  // บิลที่ผ่านการตรวจรับแล้ว (inspected ขึ้นไป) แต่ไม่มีรูปแนบ → flag ช่องโหว่ "เซ็นโดยไม่ตรวจ"
+  // เฉพาะบิลที่ตรวจรับตั้งแต่ feature live (INSPECT_PHOTO_SINCE) — บิลเก่าก่อนหน้านั้นไม่ flag (ไม่ใช่ noise)
+  const isInspectedStage = stage === 'inspected' || stage === 'sent_batch' || stage === 'posted';
+  const inspectedSinceFeature = bill.inspected_at && bill.inspected_at.slice(0, 10) >= INSPECT_PHOTO_SINCE;
+  const missingInspectPhoto = isInspectedStage && inspectedSinceFeature && !(bill.inspect_meta?.images?.length > 0);
   return (
     <div className={`border-b border-slate-100 last:border-b-0 ${isExpanded ? 'bg-emerald-50/40' : ''}`}>
       <div className={`p-3 cursor-pointer hover:bg-slate-50 transition-colors ${selected ? 'bg-emerald-50/60' : ''}`}
@@ -3268,6 +3750,12 @@ function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, 
               <div className="flex items-center gap-2 min-w-0 flex-wrap">
                 <span className="font-bold text-slate-800 text-sm">{bill.bill_number}</span>
                 <StageBadge stage={stage} acknowledged={bill.acknowledged_at}/>
+                {missingInspectPhoto && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700"
+                    title="ตรวจรับแล้วแต่ไม่มีรูปหลักฐาน">
+                    <AlertCircle size={12}/> ไม่มีรูปตรวจรับ
+                  </span>
+                )}
               </div>
               <span className="text-emerald-600 font-bold text-sm whitespace-nowrap">
                 <span className="text-slate-400 font-normal">จำนวนรายการยา </span>{bill.drug_count} รายการ
@@ -3323,7 +3811,7 @@ function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, 
                 {/* ปุ่มรับบิล (เฉพาะ unack) */}
                 {onAcknowledge && !stage && !bill.acknowledged_at && (
                   <button onClick={(e) => { e.stopPropagation(); onAcknowledge(bill); }}
-                    disabled={busy} title="จัดซื้อรับบิลแล้ว"
+                    disabled={busy} title="จัดซื้อรับเอกสารแล้ว"
                     className="text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2 py-0.5 rounded inline-flex items-center gap-1 text-xs disabled:opacity-50 font-medium">
                     <CheckCircle2 size={12}/> รับบิล
                   </button>
@@ -3331,7 +3819,7 @@ function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, 
                 {/* ปุ่มย้อน ack */}
                 {onUnacknowledge && isAcked && (
                   <button onClick={(e) => { e.stopPropagation(); onUnacknowledge(bill); }}
-                    disabled={busy} title="ย้อนเป็นรอจัดซื้อรับ"
+                    disabled={busy} title="ย้อนเป็นรอจัดซื้อรับเอกสาร"
                     className="text-sky-600 hover:bg-sky-50 p-1 rounded inline-flex items-center text-xs disabled:opacity-50">
                     <Undo2 size={13}/>
                   </button>
@@ -3466,56 +3954,56 @@ function StagePipeline({
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {/* ขั้น 1 — รอจัดซื้อรับ: พิมพ์ใบส่งจัดซื้อ + จัดซื้อรับบิล */}
+        {/* ขั้น 1 — รอจัดซื้อรับเอกสาร: พิมพ์ใบส่งมอบเอกสาร + บันทึกจัดซื้อรับเอกสาร */}
         <div className={`${cardBase} ${cfg.unack.border}`}>
-          {renderHead(1, 'รอจัดซื้อรับ', stageCount.unack || 0, 'bg-amber-500', cfg.unack)}
+          {renderHead(1, 'รอจัดซื้อรับเอกสาร', stageCount.unack || 0, 'bg-amber-500', cfg.unack)}
           <div className="border-t border-slate-100 p-2 space-y-1.5">
             <button onClick={onExportAck} disabled={busy || !someUnackSelected}
-              title={!someUnackSelected ? 'เลือกบิล "รอจัดซื้อรับ" ก่อน' : 'พิมพ์ใบส่งจัดซื้อให้เซ็น'}
+              title={!someUnackSelected ? 'เลือกบิล "รอจัดซื้อรับเอกสาร" ก่อน' : 'พิมพ์ใบส่งมอบเอกสารให้เซ็น'}
               className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
-              <Printer size={15}/> Print ส่งจัดซื้อ ({selUnack})
+              <Printer size={15}/> พิมพ์ใบส่งมอบเอกสาร ({selUnack})
             </button>
             <button onClick={() => onAcknowledge()} disabled={busy || !someUnackSelected}
               className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-sky-500 text-white hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
-              <CheckCircle2 size={15}/> จัดซื้อรับบิล ({selUnack})
+              <CheckCircle2 size={15}/> บันทึกจัดซื้อรับเอกสาร ({selUnack})
             </button>
           </div>
         </div>
 
         {arrow}
 
-        {/* ขั้น 2 — จัดซื้อรับแล้ว: Mark ตรวจรับ */}
+        {/* ขั้น 2 — จัดซื้อรับเอกสารแล้ว: ยืนยันตรวจรับ (เปิด checklist modal) */}
         <div className={`${cardBase} ${cfg.acked.border}`}>
-          {renderHead(2, 'จัดซื้อรับแล้ว', stageCount.acked || 0, 'bg-sky-500', cfg.acked)}
+          {renderHead(2, 'จัดซื้อรับเอกสารแล้ว', stageCount.acked || 0, 'bg-sky-500', cfg.acked)}
           <div className="border-t border-slate-100 p-2 space-y-1.5">
             <button onClick={onMarkInspected} disabled={busy || !someAckedSelected}
-              title={!someAckedSelected ? 'ต้อง จัดซื้อรับบิล ก่อน (กรุณาเลือกบิลที่ "จัดซื้อรับแล้ว")' : ''}
+              title={!someAckedSelected ? 'ต้องบันทึกจัดซื้อรับเอกสารก่อน (กรุณาเลือกบิลที่ "จัดซื้อรับเอกสารแล้ว")' : ''}
               className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
-              <CheckCircle2 size={15}/> Mark ตรวจรับแล้ว ({selAcked})
+              <CheckCircle2 size={15}/> ยืนยันตรวจรับ ({selAcked})
             </button>
           </div>
         </div>
 
         {arrow}
 
-        {/* ขั้น 3 — รอส่งบัญชี: พิมพ์ใบนำส่ง + ส่งบัญชี */}
+        {/* ขั้น 3 — รอนำส่งบัญชี: พิมพ์ใบนำส่ง + นำส่งบัญชี */}
         <div className={`${cardBase} ${cfg.inspected.border}`}>
-          {renderHead(3, 'รอส่งบัญชี', stageCount.inspected || 0, 'bg-orange-500', cfg.inspected)}
+          {renderHead(3, 'รอนำส่งบัญชี', stageCount.inspected || 0, 'bg-orange-500', cfg.inspected)}
           <div className="border-t border-slate-100 p-2 space-y-1.5">
             <button onClick={onExportSend} disabled={busy || !someInspectedSelected}
               className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
-              <Printer size={15}/> Print & ส่งบัญชี ({selInspected})
+              <Printer size={15}/> พิมพ์ใบนำส่ง & นำส่งบัญชี ({selInspected})
             </button>
           </div>
         </div>
 
         {arrow}
 
-        {/* ปลายทาง — ส่งบัญชีแล้ว (ดูที่แท็บถัดไป) */}
+        {/* ปลายทาง — นำส่งบัญชีแล้ว (ดูที่แท็บถัดไป) */}
         <div className="flex flex-col items-center justify-center min-w-[140px] flex-1 rounded-xl border-2 border-dashed border-slate-200 p-3 text-center bg-slate-50/50">
           <FileCheck2 size={20} className="text-slate-300 mb-1"/>
-          <span className="font-semibold text-sm text-slate-400">ส่งบัญชีแล้ว</span>
-          <span className="text-[11px] text-slate-400 mt-0.5">ดูที่แท็บ “ส่งบัญชีแล้ว”</span>
+          <span className="font-semibold text-sm text-slate-400">นำส่งบัญชีแล้ว</span>
+          <span className="text-[11px] text-slate-400 mt-0.5">ดูที่แท็บ “นำส่งบัญชีแล้ว”</span>
         </div>
       </div>
     </div>
@@ -3594,7 +4082,7 @@ function SentTab({ bills, selected, toggleBill, toggleAll, accountant, setAccoun
         </button>
         <button onClick={() => onMarkPosted()} disabled={busy || selected.size === 0}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all">
-          <CheckCircle2 size={15}/> Mark ตั้งหนี้แล้ว ({selected.size})
+          <CheckCircle2 size={15}/> ยืนยันตั้งหนี้ ({selected.size})
         </button>
       </div>
 
@@ -3612,7 +4100,7 @@ function SentTab({ bills, selected, toggleBill, toggleAll, accountant, setAccoun
                 <button onClick={() => onMarkPosted(byBatch[bk])}
                   disabled={busy}
                   className="text-xs px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
-                  Mark all posted in batch
+                  ยืนยันตั้งหนี้ทั้งรอบ
                 </button>
               </div>
               <div>
@@ -3620,7 +4108,7 @@ function SentTab({ bills, selected, toggleBill, toggleAll, accountant, setAccoun
                   <BillCard key={b._key} bill={b}
                     selected={selected.has(b._key)} onToggleSelect={toggleBill}
                     isExpanded={expandedBill === b._key} onToggleExpand={toggleExpand}
-                    busy={busy} onUndo={onUnsendBatch} undoTitle="ย้อนกลับเป็นรอส่งบัญชี (ออกจาก batch)"
+                    busy={busy} onUndo={onUnsendBatch} undoTitle="ย้อนกลับเป็นรอนำส่งบัญชี (ออกจาก batch)"
                     sentTimestamp/>
                 ))}
               </div>
@@ -3662,7 +4150,7 @@ function HistoryTab({ batches, busy, search = '', onReExport, onUnpost, onResetB
     return bills.some(bill => billMatchesQuery(bill, q));
   });
 
-  if (batches.length === 0) return <div className="bg-white rounded-xl border border-slate-200 text-center text-slate-400 py-12 text-sm">ไม่มี batch ตรงเงื่อนไข — ลองล้างตัวกรองวันที่ส่ง หรือไปแท็บ "รอส่งบัญชี" เพื่อสร้าง batch แรก</div>;
+  if (batches.length === 0) return <div className="bg-white rounded-xl border border-slate-200 text-center text-slate-400 py-12 text-sm">ไม่มี batch ตรงเงื่อนไข — ลองล้างตัวกรองวันที่ส่ง หรือไปแท็บ "รอนำส่งบัญชี" เพื่อสร้าง batch แรก</div>;
   if (visibleBatches.length === 0) return <div className="bg-white rounded-xl border border-slate-200 text-center text-slate-400 py-12 text-sm">ไม่พบบิล/บริษัท ที่ตรงกับคำค้น "{q}"</div>;
 
   async function toggleExpand(batchId) {
@@ -3719,7 +4207,7 @@ function HistoryTab({ batches, busy, search = '', onReExport, onUnpost, onResetB
                         <Printer size={12}/> พิมพ์ซ้ำ
                       </button>
                       <button onClick={() => onResetBatch(b)} disabled={busy}
-                        title={`Reset batch — ทุกบิล (${b.bill_count} บิล) จะกลับเป็น "รอส่งบัญชี"`}
+                        title={`Reset batch — ทุกบิล (${b.bill_count} บิล) จะกลับเป็น "รอนำส่งบัญชี"`}
                         className="px-2 py-1 rounded text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 flex items-center gap-1 disabled:opacity-50">
                         <Undo2 size={12}/> Reset
                       </button>

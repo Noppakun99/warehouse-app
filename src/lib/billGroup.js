@@ -34,6 +34,7 @@ export function groupRowsByBill(rows) {
         acknowledged_by: r.acknowledged_by,
         inspected_at: r.inspected_at,
         inspected_by: r.inspected_by,
+        inspect_meta: r.inspect_meta,
         ap_sent_at: r.ap_sent_at,
         ap_sent_by: r.ap_sent_by,
         ap_posted_at: r.ap_posted_at,

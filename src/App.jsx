@@ -1,6 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { fetchInventory, saveInventory, fetchDrugDetails, fetchUploadMeta, saveUploadMeta, importReceiveLogs, fetchUsageRates, normalizeLotSearch } from './lib/db';
-import { supabase } from './lib/supabase';
+import { fetchInventory, saveInventory, fetchDrugDetails, fetchUploadMeta, saveUploadMeta, importReceiveLogs, normalizeLotSearch } from './lib/db';
 import { exportToExcel } from './lib/exportExcel';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
 import {
@@ -97,19 +96,6 @@ const normalizeCode = (val) => {
   return s || '-';
 };
 
-// ใช้สำหรับ match/เปรียบเทียบ code — lowercase + ตัด leading zeros + trim
-const codeKey = (val) => {
-  if (!val || val === '-') return '';
-  let s = String(val).trim().toLowerCase();
-  if (/^[\d.]+[eE][+-]?\d+$/.test(s)) {
-    const n = parseFloat(s);
-    s = isFinite(n) ? BigInt(Math.round(n)).toString() : s;
-  }
-  // ตัด leading zeros เพื่อให้ "003" === "3"
-  s = s.replace(/^0+(\d)/, '$1');
-  return s;
-};
-
 // แปลง scientific notation → ตัวเลขเต็ม (เช่น 1.12512E+11 → "112512000000")
 const normalizeNumericText = (val) => {
   if (!val) return '-';
@@ -166,7 +152,7 @@ const parseCSVRow = (str) => {
   return arr;
 };
 
-export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }) {
+export default function App({ onRefresh, role = 'staff', auth = {} }) {
   const isStaff = role === 'staff' || role === 'admin';
   const [inventory, setInventory] = useState(initialInventory);
   const [exportLoading, setExportLoading] = useState(false);
@@ -197,7 +183,6 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [summaryStorageView, setSummaryStorageView] = useState('chart'); // 'chart' | 'table'
-  const [usageRates, setUsageRates] = useState({});
   const [uploadWarnings, setUploadWarnings] = useState(null); // { fileName, rows: [{row, issues[]}] }
 
   const [showColumnGuide, setShowColumnGuide] = useState(null); // 'log' | 'drug' | null
@@ -230,14 +215,6 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
       }
     }
     loadFromSupabase();
-  }, []);
-
-  // โหลดเรทการใช้ยาจริง (avgPerDay) จาก dispense_logs 6 เดือนล่าสุด
-  useEffect(() => {
-    if (!supabase) return;
-    fetchUsageRates(6)
-      .then(r => setUsageRates(r))
-      .catch(() => {}); // fallback: lowStockItems ใช้ ss/60 แทนถ้าโหลดไม่ได้
   }, []);
 
   const { todayForDisplay, targetDateForDisplay } = useMemo(() => {
@@ -282,97 +259,6 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
     
     return { expiredItems: expired, nearExpiryItems: near, safeItems: safe };
   }, [inventory, todayForDisplay, targetDateForDisplay]);
-
-  // คำนวณยาที่ต่ำกว่า Safety Stock (Low Stock Alert)
-  const lowStockItems = useMemo(() => {
-    // ค้นหาค่าใน object แบบ case-insensitive
-    const findVal = (obj, ...keys) => {
-      const lowers = keys.map(k => k.toLowerCase().trim());
-      for (const [k, v] of Object.entries(obj)) {
-        if (lowers.includes(k.toLowerCase().trim())) return v;
-      }
-      return undefined;
-    };
-
-    // สร้าง map: code → { safetyStock, leadTimeDays, name }
-    const safetyMap = {};
-    const ltMap     = {}; // แยก leadtime ออกมา — เก็บค่าจริงจาก CSV ถ้ามี
-    const nameMap   = {};
-    const typeMap   = {};
-    const unitMap   = {};
-    Object.values(drugDetails).forEach(d => {
-      const code = codeKey(d._code);
-      if (!code || code === '-') return;
-      const ssVal = findVal(d, 'Safety Stock', 'safety_stock', 'สต็อกขั้นต่ำ', 'ปริมาณขั้นต่ำ', 'ss');
-      const ss = parseFloat(String(ssVal || '0').replace(/,/g, '')) || 0;
-      const ltVal = findVal(d, 'Sum of Lead Time (In days)', 'sum of lead time (in days)', 'Sum of Lead Time', 'sum_of_lead_time', 'lead time (in days)', 'lead time', 'leadtime');
-      const ltRaw = parseFloat(String(ltVal || '0').replace(/,/g, ''));
-      // เก็บ leadtime ที่ไม่ใช่ 0/null ไว้ใน ltMap (ใช้ค่าแรกที่พบ หรืออัปเดตถ้าใหม่กว่า)
-      if (ltRaw > 0 && !ltMap[code]) ltMap[code] = ltRaw;
-      if (ss > 0) {
-        if (!safetyMap[code] || ss > safetyMap[code].ss) {
-          safetyMap[code] = { ss };
-        }
-        if (!nameMap[code]) nameMap[code] = d._name;
-      }
-    });
-
-    // รวม qty ต่อ drug_code จาก inventory ทุก location
-    const qtyMap = {};
-    const discontinuedSet = new Set();
-    Object.values(inventory).forEach(items => {
-      items.forEach(item => {
-        const code = codeKey(item.code);
-        if (!code || code === '-') return;
-        const qty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
-        qtyMap[code] = (qtyMap[code] || 0) + qty;
-        if (!nameMap[code]) nameMap[code] = item.name;
-        if (!typeMap[code] && item.type && item.type !== '-') typeMap[code] = item.type;
-        if (!unitMap[code] && item.unit && item.unit !== '-') unitMap[code] = item.unit;
-        if (item.receiveStatus && String(item.receiveStatus).includes('ตัดออก')) {
-          discontinuedSet.add(code);
-        }
-        const ss = item.safetyStock || 0;
-        if (ss > 0 && !safetyMap[code]) {
-          safetyMap[code] = { ss };
-          if (!nameMap[code]) nameMap[code] = item.name;
-        }
-      });
-    });
-
-    if (Object.keys(safetyMap).length === 0) return [];
-
-    // หายาที่ qty < safety stock และคำนวณ Reorder Point
-    const alerts = [];
-    Object.entries(safetyMap).forEach(([code, { ss }]) => {
-      const lt = ltMap[code] || 20; // ใช้ leadtime จาก CSV ถ้ามี ไม่งั้น default 20
-      const currentQty = qtyMap[code] || 0;
-      // ใช้เรทการใช้จริงจาก dispense_logs ถ้ามีข้อมูล ≥3 เดือน ไม่งั้น fallback ss/60
-      const avgPerDay  = usageRates[code] ?? (ss > 0 ? ss / 60 : 0);
-      const reorderPt  = ss + Math.round(avgPerDay * lt);
-      alerts.push({
-        code,
-        name:        nameMap[code] || code,
-        type:        typeMap[code] || '-',
-        unit:        unitMap[code] || '-',
-        currentQty,
-        safetyStock: ss,
-        leadTime:    lt,
-        reorderPoint: reorderPt,
-        deficit:     Math.max(0, ss - currentQty),
-        belowReorder: currentQty <= reorderPt,
-        belowSafety:  currentQty < ss,
-        pct:         ss > 0 ? Math.round((currentQty / ss) * 100) : 100,
-      });
-    });
-
-    // แสดงเฉพาะที่ต่ำกว่า Reorder Point เรียงจากวิกฤตที่สุด
-    // ยกเว้นยาที่ตัดออกจากบัญชีและคงเหลือ 0 (ไม่ต้องสั่งซื้อ)
-    return alerts
-      .filter(a => a.belowReorder)
-      .filter(a => !(a.currentQty === 0 && discontinuedSet.has(a.code)))
-      .sort((a, b) => a.pct - b.pct);
-  }, [drugDetails, inventory, usageRates]);
 
   // คำนวณรายการยารอตรวจรับ — เรียงจากวันที่รับเข้านานที่สุดก่อน
   const pendingReceiveItems = useMemo(() => {
@@ -755,7 +641,7 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
         if (warnRows.length > 0) setUploadWarnings({ fileName: file.name, type: 'Log คลังยา', rows: warnRows });
         setSuccessMsg(`กำลังบันทึก Log คลังยา "${file.name}" ขึ้น Supabase...`);
 
-        saveInventory(newInventory)
+        saveInventory(newInventory, auth, file.name)
           .then(() => saveUploadMeta('inventory', file.name))
           .then(() => {
             setSuccessMsg(`อัปโหลด Log คลังยาและ "แทนที่ข้อมูลเดิม" ด้วยไฟล์ "${file.name}" สำเร็จ`);
@@ -1254,7 +1140,7 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-5 space-y-4">
 
         {/* ── Alert stat cards ── */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <div onClick={() => expiredItems.length > 0 && setExpiryViewFilter('expired')}
             className={`bg-white rounded-2xl border-2 p-4 transition-all shadow-sm ${expiredItems.length > 0 ? 'border-red-200 hover:border-red-400 cursor-pointer hover:shadow-md' : 'border-slate-100 opacity-60'}`}>
             <div className="flex items-center justify-between mb-2">
@@ -1288,29 +1174,6 @@ export default function App({ onRefresh, onNavigate, role = 'staff', auth = {} }
             </div>
             <p className={`text-xs font-semibold ${pendingReceiveItems.length > 0 ? 'text-sky-500' : 'text-slate-400'}`}>รอตรวจรับ</p>
           </div>
-
-          {isStaff ? (
-            <div onClick={() => onNavigate && onNavigate('reorder')}
-              className={`bg-white rounded-2xl border-2 p-4 transition-all shadow-sm cursor-pointer hover:shadow-md ${lowStockItems.length > 0 ? 'border-orange-200 hover:border-orange-400' : 'border-slate-100 hover:border-slate-200'}`}>
-              <div className="flex items-center justify-between mb-2">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${lowStockItems.length > 0 ? 'bg-orange-100' : 'bg-slate-100'}`}>
-                  <AlertTriangle size={16} className={lowStockItems.length > 0 ? 'text-orange-500' : 'text-slate-300'}/>
-                </div>
-                <span className={`text-2xl font-black ${lowStockItems.length > 0 ? 'text-orange-600' : 'text-slate-300'}`}>{lowStockItems.length}</span>
-              </div>
-              <p className={`text-xs font-semibold ${lowStockItems.length > 0 ? 'text-orange-500' : 'text-slate-400'}`}>ต่ำกว่าจุดสั่งซื้อ</p>
-            </div>
-          ) : (
-            <div className="bg-white rounded-2xl border-2 border-slate-100 p-4 shadow-sm opacity-40">
-              <div className="flex items-center justify-between mb-2">
-                <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center">
-                  <AlertCircle size={16} className="text-slate-300"/>
-                </div>
-                <span className="text-2xl font-black text-slate-300">—</span>
-              </div>
-              <p className="text-xs font-semibold text-slate-400">ต่ำกว่าจุดสั่งซื้อ</p>
-            </div>
-          )}
         </div>
 
         {/* ── Search + hidden file inputs ── */}

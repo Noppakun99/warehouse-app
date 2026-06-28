@@ -49,7 +49,17 @@ export default function AppRoot() {
   const [auth, setAuth]   = useState(() => {
     try { return JSON.parse(sessionStorage.getItem(AUTH_KEY)) || null; } catch { return null; }
   });
-  const [page, setPage]   = useState('dashboard');
+  // navigation stack (browser-like back) — หน้าปัจจุบัน = ตัวท้าย, ปุ่มย้อน = pop
+  const [navStack, setNavStack] = useState(['dashboard']);
+  const page = navStack[navStack.length - 1];
+  const canGoBack = navStack.length > 1;
+  // navigateTo: ไปหน้าใหม่ (push) — ถ้าหน้าเดิมซ้ำหน้าปัจจุบันไม่ push (กัน stack บวม)
+  const setPage = useCallback((p) => {
+    setNavStack(prev => (prev[prev.length - 1] === p ? prev : [...prev, p]));
+  }, []);
+  const goBack = useCallback(() => {
+    setNavStack(prev => (prev.length > 1 ? prev.slice(0, -1) : prev));
+  }, []);
   const [subKey, setSubKey] = useState(0);
   const [toasts, setToasts] = useState([]);
 
@@ -71,7 +81,7 @@ export default function AppRoot() {
   }, [auth?.id]);
 
   const handleLogin = (user) => { sessionStorage.setItem(AUTH_KEY, JSON.stringify(user)); setAuth(user); };
-  const logout = () => { sessionStorage.removeItem(AUTH_KEY); setAuth(null); setPage('dashboard'); setToasts([]); };
+  const logout = () => { sessionStorage.removeItem(AUTH_KEY); setAuth(null); setNavStack(['dashboard']); setToasts([]); };
   const refreshPage = () => setSubKey(k => k + 1);
 
   // early-return หลัง hooks ทั้งหมด (Rules of Hooks) — prototype ?v2
@@ -137,7 +147,7 @@ export default function AppRoot() {
   if (auth) {
     const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username;
     content = (
-      <AppShell page={page} onNavigate={setPage} onRefresh={refreshPage} displayName={displayName} role={auth.role} onLogout={logout}>
+      <AppShell page={page} onNavigate={setPage} onRefresh={refreshPage} displayName={displayName} role={auth.role} onLogout={logout} onGoBack={goBack} canGoBack={canGoBack}>
         {content}
       </AppShell>
     );
@@ -510,9 +520,10 @@ const NOTIF_LABELS = {
   delete_receive:               { label: 'ลบรายการรับยา',        color: 'text-red-600',    dot: 'bg-red-400'   },
   update_receive:               { label: 'แก้ไขรายการรับยา',     color: 'text-amber-600',  dot: 'bg-amber-400' },
   import_receive:               { label: 'นำเข้าประวัติรับยา',    color: 'text-indigo-600', dot: 'bg-indigo-400'},
+  import_inventory:             { label: 'อัปโหลด Log คลัง',     color: 'text-blue-600',   dot: 'bg-blue-400'  },
   scan_invoice:                 { label: 'สแกนบิลรับยา',         color: 'text-cyan-600',   dot: 'bg-cyan-400'  },
   // ── AP Workflow (ส่งบัญชี) ──
-  ap_acknowledge:               { label: 'จัดซื้อรับบิล',        color: 'text-sky-600',    dot: 'bg-sky-400'   },
+  ap_acknowledge:               { label: 'จัดซื้อรับเอกสาร',     color: 'text-sky-600',    dot: 'bg-sky-400'   },
   ap_mark_inspected:            { label: 'ตรวจรับบิล',           color: 'text-emerald-600',dot: 'bg-emerald-400'},
   ap_send_batch:                { label: 'ส่งบัญชี',             color: 'text-orange-600', dot: 'bg-orange-400'},
   ap_mark_posted:               { label: 'ตั้งหนี้แล้ว',          color: 'text-violet-600', dot: 'bg-violet-400'},
@@ -560,10 +571,12 @@ function notifMessage(n) {
       return `${who} แก้ไขรายการรับยา${d.drug_name ? ` "${d.drug_name}"` : ''}`;
     case 'import_receive':
       return `${who} นำเข้าประวัติรับยา ${n.record_count ? `${n.record_count.toLocaleString()} รายการ` : ''}`;
+    case 'import_inventory':
+      return `${who} อัปโหลด Log คลัง${d.file ? ` "${d.file}"` : ''}${n.record_count ? ` (${n.record_count.toLocaleString()} รายการ)` : ''}`;
     case 'scan_invoice':
       return `${who} สแกนบิลรับยา${d.bill_number ? ` (${d.bill_number})` : ''}${n.record_count ? ` · ${n.record_count} รายการ` : ''}`;
     case 'ap_acknowledge':
-      return `${who} จัดซื้อรับบิล${d.bill_count ? ` ${d.bill_count} บิล` : ''}`;
+      return `${who} จัดซื้อรับเอกสาร${d.bill_count ? ` ${d.bill_count} บิล` : ''}`;
     case 'ap_mark_inspected':
       return `${who} ตรวจรับบิล${d.bill_count ? ` ${d.bill_count} บิล` : ''}${d.inspector_name ? ` (${d.inspector_name})` : ''}`;
     case 'ap_send_batch':

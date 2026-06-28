@@ -54,7 +54,7 @@ export async function fetchInventory() {
   return result
 }
 
-export async function saveInventory(inventoryObj) {
+export async function saveInventory(inventoryObj, auth = {}, fileName = null) {
   if (!supabase) throw new Error('Supabase not configured')
 
   // แปลง object → flat rows
@@ -94,6 +94,12 @@ export async function saveInventory(inventoryObj) {
       .insert(rows.slice(i, i + CHUNK_SIZE))
     if (error) throw error
   }
+
+  await insertAuditLog({
+    action: 'import_inventory', table_name: 'inventory',
+    user_name: resolveUserName(auth), department: auth.department,
+    record_count: rows.length, details: fileName ? { file: fileName } : null,
+  })
 }
 
 // --- Drug Details (ดึงจาก receive_logs แทน drug_details) ---
@@ -794,6 +800,7 @@ export async function fetchNotifications() {
     'delete_dispense',
     'update_dispense',
     'import_dispense',
+    'import_inventory',
     'delete_receive',
     'update_receive',
     'import_receive',
@@ -1070,6 +1077,21 @@ export async function insertScannedBillRows(rows, auth = {}) {
   return rows.length
 }
 
+// ลบ receive_logs ตาม id (ใช้กับบิลสแกน) — DELETE by PK + audit log
+// ระบุ row ด้วย id เสมอ (ไม่ใช่ bill_number ที่ซ้ำได้ — Rule #19). reuse action 'delete_receive'
+export async function deleteScannedBillRows(ids, auth = {}, details = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!ids?.length) return 0
+  const { error } = await supabase.from('receive_logs').delete().in('id', ids)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'delete_receive', table_name: 'receive_logs',
+    user_name: resolveUserName(auth), department: auth?.department || '-',
+    record_count: ids.length, details,
+  })
+  return ids.length
+}
+
 // อัพโหลดภาพบิลไปยัง Supabase Storage → return public URL
 export async function uploadInvoiceImage(file, fileName) {
   if (!supabase) throw new Error('Supabase not configured')
@@ -1099,6 +1121,59 @@ export async function lookupDrugCodes(names) {
     })
   }
   return result
+}
+
+// ดึง map ชื่อยา generic → code จาก inventory (ฐานข้อมูลคลังจาก HosXP/CSV)
+// ใช้เป็น source ของ dropdown "จับคู่ยาในระบบ" + เติม drug_code ตอนสแกนบิล
+// return { names: [ชื่อยา distinct เรียง], byName: { name → code } }
+export async function fetchInventoryNameCodeMap() {
+  if (!supabase) return { names: [], byName: {} }
+  const data = await fetchAllInventoryRows('name, code')   // paginate ครบ — Rule #2
+  const byName = {}
+  for (const r of data) {
+    const name = (r.name || '').trim()
+    const code = (r.code || '').trim()
+    if (!name || !code || code === '-') continue
+    if (!byName[name]) byName[name] = code   // ชื่อแรกที่เจอ code (inventory 1 ชื่อ = 1 code)
+  }
+  const names = Object.keys(byName).sort((a, b) => a.localeCompare(b))
+  return { names, byName }
+}
+
+// ค้น code ที่จับคู่ไว้แล้วจากตาราง drug_name_alias (จดจำการ map ครั้งก่อน)
+// key = ชื่อยาบนบิล normalize (lower+trim). return { aliasNameNormalized → { code, name } }
+const normAlias = (s) => String(s || '').trim().toLowerCase()
+export async function lookupDrugAliases(billNames) {
+  if (!supabase || !billNames?.length) return {}
+  const keys = [...new Set(billNames.map(normAlias).filter(Boolean))]
+  const result = {}
+  // .in() จำกัดขนาด — chunk กัน URL ยาวเกิน
+  const CHUNK = 200
+  for (let i = 0; i < keys.length; i += CHUNK) {
+    const { data } = await supabase.from('drug_name_alias')
+      .select('alias_name, drug_code, drug_name')
+      .in('alias_name', keys.slice(i, i + CHUNK))
+    if (data) data.forEach(r => { result[r.alias_name] = { code: r.drug_code, name: r.drug_name } })
+  }
+  return result
+}
+
+// บันทึก/อัพเดต mapping ที่คนจับคู่ใน review สแกน → ครั้งหน้าชื่อเป๊ะเดิม auto
+// rows = [{ billName, drugCode, drugName }] — upsert by alias_name (normalize)
+export async function upsertDrugAliases(rows, auth = {}) {
+  if (!supabase || !rows?.length) return 0
+  const payload = rows
+    .map(r => ({ alias_name: normAlias(r.billName), drug_code: (r.drugCode || '').trim(), drug_name: r.drugName || null, updated_at: new Date().toISOString() }))
+    .filter(r => r.alias_name && r.drug_code && r.drug_code !== '-')
+  if (!payload.length) return 0
+  const { error } = await supabase.from('drug_name_alias').upsert(payload, { onConflict: 'alias_name' })
+  if (error) throw error
+  await insertAuditLog({
+    action: 'map_drug_alias', table_name: 'drug_name_alias',
+    user_name: resolveUserName(auth), department: auth?.department || '-',
+    record_count: payload.length,
+  })
+  return payload.length
 }
 
 // --- Stock Summary (Dashboard modal) ---
@@ -1322,7 +1397,7 @@ export async function fetchApBills({ stage = null, dateFrom, dateTo, batchId } =
   if (!supabase) return []
   let q = supabase
     .from('receive_logs')
-    .select('id, bill_number, supplier_current, receive_date, drug_code, drug_name, drug_type, drug_unit, lot, exp, qty_received, price_per_unit, total_price_vat, receive_status, ap_stage, ap_batch_id, acknowledged_at, acknowledged_by, inspected_at, inspected_by, ap_sent_at, ap_sent_by, ap_posted_at, ap_posted_by')
+    .select('id, bill_number, supplier_current, receive_date, drug_code, drug_name, drug_type, drug_unit, lot, exp, qty_received, price_per_unit, total_price_vat, receive_status, ap_stage, ap_batch_id, acknowledged_at, acknowledged_by, inspected_at, inspected_by, inspect_meta, ap_sent_at, ap_sent_by, ap_posted_at, ap_posted_by')
     .order('receive_date', { ascending: false })
     .limit(AP_DEFAULT_LIMIT)
 
@@ -1393,17 +1468,20 @@ export async function unmarkBillsAcknowledged(rowIds, billNumbers, auth = {}) {
 }
 
 // Mark บิล (1 ใบ หรือหลายใบ) → inspected
-// บังคับ flow: ต้อง acknowledged_at NOT NULL (จัดซื้อรับบิลก่อน) — กัน skip stage
+// บังคับ flow: ต้อง acknowledged_at NOT NULL (จัดซื้อรับเอกสารก่อน) — กัน skip stage
 // returnDate = วันที่ส่งคืนบิลให้จัดซื้อ (default = วันนี้) — ใช้แทน NOW() เก็บใน inspected_at
-export async function markBillsInspected(rowIds, billNumbers, inspectorName, auth = {}, returnDate = null) {
+// inspectMeta = หลักฐานตรวจรับ { images, checklist, inspector, at } เก็บลง inspect_meta jsonb (ทุกแถวในบิลใช้ก้อนเดียวกัน)
+export async function markBillsInspected(rowIds, billNumbers, inspectorName, auth = {}, returnDate = null, inspectMeta = null) {
   if (!supabase) throw new Error('Supabase not configured')
   if (!rowIds || rowIds.length === 0) return 0
   // ถ้ามี returnDate (YYYY-MM-DD) → ใช้เที่ยงวันของวันนั้นเป็น timestamp (กัน timezone offset)
   // ถ้าไม่มี → ใช้ NOW()
   const inspectedAt = returnDate ? new Date(`${returnDate}T12:00:00`).toISOString() : new Date().toISOString()
+  const patch = { ap_stage: 'inspected', inspected_at: inspectedAt, inspected_by: (inspectorName || '').trim() || null }
+  if (inspectMeta) patch.inspect_meta = inspectMeta
   const { error, count } = await supabase
     .from('receive_logs')
-    .update({ ap_stage: 'inspected', inspected_at: inspectedAt, inspected_by: (inspectorName || '').trim() || null }, { count: 'exact' })
+    .update(patch, { count: 'exact' })
     .in('id', rowIds)
     .is('ap_stage', null)
     .not('acknowledged_at', 'is', null)
@@ -1412,7 +1490,7 @@ export async function markBillsInspected(rowIds, billNumbers, inspectorName, aut
     action: 'ap_mark_inspected', table_name: 'receive_logs',
     user_name: resolveUserName(auth), department: auth?.department || '-',
     record_count: count ?? rowIds.length,
-    details: { bills: billNumbers, inspector: inspectorName },
+    details: { bills: billNumbers, inspector: inspectorName, image_count: inspectMeta?.images?.length || 0 },
   })
   return count || 0
 }
@@ -1657,7 +1735,7 @@ export async function bulkUpsertDrugReorderConfig(configs, auth = {}) {
     code: c.code,
     name: c.name ?? null,
     supplier: c.supplier ?? null,
-    risk_group: c.risk_group ?? 'Normal',
+    risk_group: c.risk_group ?? null,   // null = ยังไม่ triage → analyzeDrug fallback 1.5 (ADR-0002); ไม่ coerce เป็น Normal
     lead_time_days: c.lead_time_days ?? 15,
     price_per_unit: c.price_per_unit ?? 0,
     exclude_status: c.exclude_status ?? null,

@@ -7,6 +7,7 @@ const ACTION_LABELS = {
   import_receive:               { label: 'นำเข้าประวัติรับยา',      color: 'bg-indigo-100 text-indigo-700'  },
   import_dispense:              { label: 'นำเข้าประวัติเบิกจ่าย',   color: 'bg-rose-100 text-rose-700'     },
   scan_invoice:                 { label: 'สแกนบิลรับยา',            color: 'bg-cyan-100 text-cyan-700'     },
+  map_drug_alias:               { label: 'จับคู่ชื่อยา→รหัส',        color: 'bg-teal-100 text-teal-700'     },
   insert_return:                { label: 'บันทึกคืนยา',              color: 'bg-violet-100 text-violet-700'  },
   update_return:                { label: 'แก้ไขรายการคืนยา',         color: 'bg-amber-100 text-amber-700'   },
   delete_return:                { label: 'ลบรายการคืนยา',            color: 'bg-red-100 text-red-700'       },
@@ -25,8 +26,8 @@ const ACTION_LABELS = {
   delete_receive:               { label: 'ลบรายการรับยา',            color: 'bg-red-100 text-red-700'        },
   update_receive:               { label: 'แก้ไขรายการรับยา',         color: 'bg-amber-100 text-amber-700'    },
   // ── AP Workflow (ส่งบัญชี) ──
-  ap_acknowledge:               { label: 'จัดซื้อรับบิล',            color: 'bg-sky-100 text-sky-700'       },
-  ap_unacknowledge:             { label: 'ยกเลิกรับบิล',             color: 'bg-slate-100 text-slate-600'   },
+  ap_acknowledge:               { label: 'จัดซื้อรับเอกสาร',         color: 'bg-sky-100 text-sky-700'       },
+  ap_unacknowledge:             { label: 'ยกเลิกรับเอกสาร',          color: 'bg-slate-100 text-slate-600'   },
   ap_mark_inspected:            { label: 'ตรวจรับบิล',               color: 'bg-emerald-100 text-emerald-700'},
   ap_uninspect:                 { label: 'ยกเลิกตรวจรับ',            color: 'bg-slate-100 text-slate-600'   },
   ap_send_batch:                { label: 'ส่งบัญชีรอบ',              color: 'bg-orange-100 text-orange-700' },
@@ -137,7 +138,9 @@ function IsoDateInput({ value, onChange, className = '' }) {
   return (
     <div className={`relative flex items-center bg-white border border-slate-300 rounded-lg focus-within:ring-2 focus-within:ring-slate-400 ${className}`}>
       <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
-      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)} className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
+        onClick={e => { try { e.currentTarget.showPicker?.(); } catch { /* noop */ } }}
+        className="absolute inset-0 opacity-0 w-full cursor-pointer" />
     </div>
   )
 }
@@ -272,6 +275,7 @@ export default function AuditLogApp({ onRefresh, auth }) {
     { key: 'insert_return',                label: 'คืนยา' },
     { key: 'import_receive',               label: 'นำเข้าประวัติรับยา' },
     { key: 'import_inventory',             label: 'นำเข้า Inventory' },
+    { key: 'map_drug_alias',               label: 'จับคู่ชื่อยา→รหัส' },
     { key: 'export_excel',                 label: 'ส่งออก Excel' },
   ];
 
