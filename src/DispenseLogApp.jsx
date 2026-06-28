@@ -320,13 +320,22 @@ function DispenseImport({ onDone, auth = {} }) {
       try {
         const lines = ev.target.result.split('\n').filter(l => l.trim());
         if (lines.length < 2) throw new Error('ไฟล์ไม่มีข้อมูล');
-        const headers = parseCSVRow(lines[0]);
+        // หาแถว header จริง — ไฟล์ export จาก Excel อาจมี snapshot block/แถวว่างก่อนถึง header
+        // เลือกแถวที่ match ฟิลด์ที่รู้จักได้มากสุด (ต้อง ≥ 3 เพื่อกัน false positive จากแถวข้อมูล)
+        let headerIdx = 0, bestScore = 0;
+        for (let i = 0; i < Math.min(lines.length, 30); i++) {
+          const cols = parseCSVRow(lines[i]);
+          const score = cols.filter(h => matchHeader(h)).length;
+          if (score > bestScore) { bestScore = score; headerIdx = i; }
+        }
+        if (bestScore < 3) headerIdx = 0;  // หา header ไม่เจอ → เดิม (แถวแรก) ให้ user map มือ
+        const headers = parseCSVRow(lines[headerIdx]);
         const autoMap = {};
         headers.forEach((h, i) => { const field = matchHeader(h); if (field) autoMap[field] = i; });
         setRawHeaders(headers);
         setMapping(autoMap);
-        setRawRows(lines.slice(1).map(parseCSVRow));
-        setPreview({ fileName: file.name, total: lines.length - 1 });
+        setRawRows(lines.slice(headerIdx + 1).map(parseCSVRow));
+        setPreview({ fileName: file.name, total: lines.length - headerIdx - 1 });
       } catch (err) { setError(err.message); }
     };
     reader.readAsText(file, 'utf-8');

@@ -313,24 +313,33 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const arr = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      // ไฟล์ export จาก Excel "วิเคราะห์สั่งซื้อ" มีแถว title/คำเตือนนำหน้า header จริง
+      // → หาแถว header (cell ใดมีคำว่า "รหัส"/"code") แล้วใช้เป็นจุดเริ่ม ไม่งั้น key เพี้ยนทั้งไฟล์
+      const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      const headerRow = grid.findIndex(row =>
+        row.some(c => { const s = String(c).trim(); return s === 'รหัส' || s.toLowerCase() === 'code'; }));
+      const arr = XLSX.utils.sheet_to_json(ws, { defval: '', range: headerRow >= 0 ? headerRow : 0 });
       const parsed = arr.map(r => {
         const code = String(r['รหัส'] ?? r['code'] ?? r['Code'] ?? '').trim();
         if (!code) return null;
         // รับได้ทั้ง risk_group เดิม (Normal/Essential/Critical) และ VEN (V/E/N) → map เป็น enum
-        const risk = String(r['VEN'] ?? r['ven'] ?? r['กลุ่ม VEN'] ?? r['risk'] ?? r['risk_group'] ?? r['Risk'] ?? 'Normal').trim();
+        // VEN ว่าง/ไม่ระบุ → null (ไม่ใช่ Normal) เพื่อให้ analyzeDrug fallback เป็น 1.5 ตาม ADR-0002
+        const risk = String(r['VEN'] ?? r['ven'] ?? r['กลุ่ม VEN'] ?? r['risk'] ?? r['risk_group'] ?? r['Risk'] ?? '').trim();
         const VEN_MAP = { V: 'Critical', E: 'Essential', N: 'Normal' };
-        const riskNorm = VEN_MAP[risk.toUpperCase()] ?? (['Normal','Essential','Critical'].includes(risk) ? risk : 'Normal');
+        const riskNorm = VEN_MAP[risk.toUpperCase()] ?? (['Normal','Essential','Critical'].includes(risk) ? risk : null);
         return {
           code,
-          name: String(r['ชื่อยา'] ?? r['name'] ?? r['Name'] ?? '').trim() || null,
-          supplier: String(r['บริษัท'] ?? r['supplier'] ?? r['Supplier'] ?? '').trim() || null,
+          name: String(r['รายการยา'] ?? r['ชื่อยา'] ?? r['name'] ?? r['Name'] ?? '').trim() || null,
+          supplier: String(r['บริษัทล่าสุด'] ?? r['บริษัท'] ?? r['supplier'] ?? r['Supplier'] ?? '').trim() || null,
           risk_group: riskNorm,
           lead_time_days: parseFloat(r['lead_time'] ?? r['lead_time_days'] ?? r['LT'] ?? 15) || 15,
           price_per_unit: parseFloat(r['ราคา'] ?? r['price'] ?? r['price_per_unit'] ?? 0) || 0,
           exclude_status: (() => {
-            const v = String(r['exclude_status'] ?? r['สถานะ'] ?? '').trim();
-            if (v === STATUS.EXCLUDED || v === STATUS.ON_DEMAND) return v;
+            // CSV จริงมี emoji นำหน้า (เช่น "✂️ ตัดออก" / "📋 สั่งเมื่อขอ") → strip ก่อนเทียบด้วย includes
+            const v = String(r['exclude_status'] ?? r['ตัดออกจากบัญชี ,สั่งเมื่อขอ'] ?? r['สถานะ'] ?? '')
+              .replace(/[^฀-๿a-zA-Z]/g, '');
+            if (v.includes('ตัดออก')) return STATUS.EXCLUDED;
+            if (v.includes('สั่งเมื่อขอ')) return STATUS.ON_DEMAND;
             return null;
           })(),
           pack_size: parseFloat(r['pack_size'] ?? r['pack'] ?? 1) || 1,
@@ -363,8 +372,8 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
         </div>
         <div className="p-5 space-y-3 text-sm">
           <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-800">
-            <p className="font-bold mb-1">รูปแบบคอลัมน์ที่รองรับ (header row 1)</p>
-            <p className="text-indigo-700">รหัส · ชื่อยา · บริษัท · risk_group · lead_time_days · price_per_unit · exclude_status · pack_size · notes</p>
+            <p className="font-bold mb-1">รองรับไฟล์ "วิเคราะห์สั่งซื้อ" จาก Excel โดยตรง</p>
+            <p className="text-indigo-700">ใช้คอลัมน์ รหัส · กลุ่ม VEN · ตัดออก/สั่งเมื่อขอ เป็นหลัก (ราคา/บริษัท/LT คำนวณสดจากบิลรับเข้า) — ข้ามแถวหัวตารางให้อัตโนมัติ</p>
           </div>
           <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
             className="block w-full text-sm border border-slate-300 rounded-lg p-2 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-indigo-600 file:text-white"/>
