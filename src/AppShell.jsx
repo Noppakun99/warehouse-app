@@ -8,7 +8,7 @@
 // Mobile (< lg): sidebar = drawer overlay เปิดด้วย hamburger
 // ============================================================
 import React, { useState } from 'react';
-import { Pill, LayoutDashboard, ChevronLeft, ChevronDown, Menu, X, LogOut, RefreshCcw } from 'lucide-react';
+import { Pill, LayoutDashboard, ChevronLeft, ChevronDown, Menu, X, LogOut, RefreshCcw, ArrowLeft } from 'lucide-react';
 import { NAV_GROUPS, COLOR } from './navConfig';
 
 // submenu ที่มี active page อยู่ข้างใน → เปิดไว้ตั้งแต่แรก
@@ -19,7 +19,7 @@ const submenuKeyOf = (pageKey) => {
   return null;
 };
 
-export default function AppShell({ page, onNavigate, onRefresh, displayName, role, onLogout, children }) {
+export default function AppShell({ page, onNavigate, onRefresh, displayName, role, onLogout, onGoBack, canGoBack, children }) {
   const [collapsed, setCollapsed] = useState(false); // desktop collapse
   const [drawerOpen, setDrawerOpen] = useState(false); // mobile drawer
   const [openMenus, setOpenMenus] = useState(() => {
@@ -165,6 +165,17 @@ export default function AppShell({ page, onNavigate, onRefresh, displayName, rol
       >
         <Menu size={20} />
       </button>
+
+      {/* ── ปุ่มย้อนกลับ (browser-like) — ใต้ title bar ของ sub-app กัน z-index/ตำแหน่งชนชื่อระบบ ── */}
+      {canGoBack && (
+        <button
+          onClick={onGoBack}
+          className={`${collapsed ? 'lg:left-20' : 'lg:left-64'} fixed top-16 left-3 z-40 flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-slate-200 shadow-md text-slate-600 hover:text-slate-900 hover:border-slate-300 text-sm font-medium transition-colors`}
+          aria-label="ย้อนกลับ"
+        >
+          <ArrowLeft size={16} /> ย้อนกลับ
+        </button>
+      )}
 
       {/* ── Content (sub-app เดิม พร้อม header ของตัวเอง) ── */}
       <div className={`${collapsed ? 'lg:pl-16' : 'lg:pl-60'} transition-all duration-200`}>
