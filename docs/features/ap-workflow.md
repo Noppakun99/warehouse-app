@@ -20,7 +20,25 @@ posted                              → "ตั้งหนี้แล้ว"  
 
 - ทุก stage track ระดับ **bill_number** (1 บิลมีหลาย lot — update พร้อมกัน)
 - `acknowledged_*` เป็น **2 fields แยก** ไม่ใช่ stage ใหม่ — กัน schema bloat
-- ⚠️ **บังคับ flow ack → inspect** — Mark ตรวจรับแล้วได้เฉพาะบิลที่ `acknowledged_at NOT NULL` (ต้องผ่าน ack ก่อน) — ปุ่ม "Mark ตรวจรับแล้ว" disabled ถ้าเลือกแต่บิล unack + db.js `markBillsInspected` มี filter `.is('ap_stage', null).not('acknowledged_at', 'is', null)`
+- ⚠️ **บังคับ flow ack → inspect** — ยืนยันตรวจรับได้เฉพาะบิลที่ `acknowledged_at NOT NULL` (ต้องผ่าน ack ก่อน) — ปุ่ม "ยืนยันตรวจรับ" disabled ถ้าเลือกแต่บิล unack + db.js `markBillsInspected` มี filter `.is('ap_stage', null).not('acknowledged_at', 'is', null)`
+
+## ยืนยันตรวจรับ — บังคับ Checklist + รูปหลักฐาน (กัน "เซ็นโดยไม่ตรวจ")
+
+กดปุ่ม "ยืนยันตรวจรับ (N)" → เปิด `InspectChecklistModal` (ใน [ReceiveLogApp.jsx](../../src/ReceiveLogApp.jsx)) — **บังคับ** ก่อนบันทึก:
+- ☑️ ติ๊ก checklist **ครบทุกข้อ** (`INSPECT_CHECKLIST`: จำนวน/Exp/Lot/เอกสาร) — ปุ่มยืนยัน disabled ถ้าไม่ครบ
+- 📷 แนบรูป **≥ 1 รูป** (ถ่ายกองยา/ใบตรวจ) — `<input capture="environment">` เปิดกล้องมือถือได้
+- ช่องชื่อ "กรรมการตรวจรับ" (ไม่บังคับ — ว่าง = เซ็นเองบนกระดาษ)
+
+หลังกดยืนยัน: `doMarkInspected` → **compress รูป** (`compressImageFile` ~1600px JPEG เหมือน ScanInvoice) → `uploadInvoiceImage` (bucket `invoice-images`) → `markBillsInspected(..., inspectMeta)`
+
+**เก็บใน `receive_logs.inspect_meta` (jsonb)** — ทุกแถวในบิลใช้ก้อนเดียวกัน:
+```json
+{ "images": ["url..."], "checklist": { "qty": true, ... }, "inspector": "ชื่อ", "at": "ISO" }
+```
+- migration: `inspect_meta_migration.sql` (jsonb + GIN index) — รันใน Supabase Dashboard ก่อน deploy
+- audit log `ap_mark_inspected` มี `image_count` ใน details
+
+**Badge "ไม่มีรูปตรวจรับ"** (BillCard) — flag บิล stage inspected ขึ้นไปที่ไม่มีรูป **เฉพาะ** `inspected_at >= INSPECT_PHOTO_SINCE` (วัน feature live) — บิลเก่าก่อนหน้านั้น `inspect_meta=null` โดยธรรมชาติ ไม่ flag (กัน noise วันแรก deploy)
 
 ## Migration files
 - `ap_workflow_migration.sql` — 8 columns (ap_stage, inspected_*, ap_batch_id, ap_sent_*, ap_posted_*)
@@ -32,7 +50,7 @@ posted                              → "ตั้งหนี้แล้ว"  
 |---------------|--------|-----------|
 | 1. คลังรับบิล + บันทึก receive_logs | staff คลัง | Import CSV / สแกนบิล |
 | 2. จัดซื้อทำใบตรวจรับ (eGP) | จนท.จัดซื้อ | นอกระบบ (ทำใน eGP) |
-| 3. กรรมการมาตรวจของ + เซ็น | กรรมการตรวจรับ | Mark ตรวจรับแล้ว (`inspected_by`) |
+| 3. กรรมการมาตรวจของ + เซ็น | กรรมการตรวจรับ | ยืนยันตรวจรับ — checklist + รูป (`inspected_by`, `inspect_meta`) |
 | 4. จัดซื้อรวมส่งบัญชี | จนท.จัดซื้อ | Print & ส่งบัญชี (`ap_sent_by`) |
 | 5. บัญชี post | จนท.บัญชี | Mark ตั้งหนี้แล้ว (`ap_posted_by`) |
 
@@ -191,7 +209,7 @@ billGroupKey(r)                                       // → 'bill_number|suppli
 groupRowsByBill(rows)                                 // → [{ _key, item_ids, bill_number, supplier, receive_date, items, item_count, drug_count, total_value, ap_stage, ... }]
 markBillsAcknowledged(rowIds, billNumbers, purchaserName, auth) // billNumbers = เพื่อ audit log เท่านั้น; rowIds = filter จริง
 unmarkBillsAcknowledged(rowIds, billNumbers, auth)   // rollback ack → null
-markBillsInspected(rowIds, billNumbers, inspectorName, auth, returnDate?)  // returnDate (YYYY-MM-DD) → inspected_at (เที่ยงวันของวันนั้น)
+markBillsInspected(rowIds, billNumbers, inspectorName, auth, returnDate?, inspectMeta?)  // returnDate (YYYY-MM-DD) → inspected_at (เที่ยงวันของวันนั้น); inspectMeta {images,checklist,inspector,at} → inspect_meta jsonb
 markBillsSentBatch(rowIds, billNumbers, batchId, auth, senderName?)   // senderName = ชื่อ จนท.จัดซื้อ (override → ap_sent_by)
 markBillsPosted(rowIds, billNumbers, auth, posterName?)               // posterName = ชื่อ จนท.บัญชี (override → ap_posted_by)
 unmarkBillsInspected(rowIds, billNumbers, auth)       // rollback inspected → null
@@ -236,6 +254,8 @@ fetchApBatches()                                       // → [{ batch_id, sent_
 - **อย่าตั้ง default stage = `'inspected'` ใน fetchApBills** — เคยทำให้ batch ที่ posted แล้วหายจาก history. Default = `null` (ไม่กรอง)
 - **อย่า persist ชื่อใน localStorage** — ทั้ง inspector/purchaser/accountant ต้องเริ่มว่างทุก session
 - **อย่า skip ack** — markBillsInspected บังคับ filter `.not('acknowledged_at', 'is', null)` กัน UI bypass
+- **อย่า upload รูปตรวจรับแบบดิบ** — ต้องผ่าน `compressImageFile` ก่อน (รูปกล้องมือถือ 3-8MB × หลายใบ × ทุกบิล = กิน storage + ช้าบนเน็ตคลัง)
+- **อย่าลบ `INSPECT_PHOTO_SINCE` cutoff** — ถ้า badge "ไม่มีรูปตรวจรับ" flag ทุกบิล (รวมบิลเก่าก่อน feature) จะกลายเป็น noise → user ละเลย badge ทันที
 
 ## Stage Badge Colors
 

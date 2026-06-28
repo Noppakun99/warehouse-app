@@ -70,7 +70,7 @@
 
 - **ห้ามใช้ emoji** ใน UI ทุกที่ — ใช้ lucide-react เท่านั้น
 - **Header buttons** (สรุปข้อมูล + จัดการข้อมูล) ใช้ outline pattern เดียวกัน: `bg-white border border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50 text-indigo-600`
-- **Card "ต่ำกว่าจุดสั่งซื้อ"** (เดิม "ระบบสั่งยา") — label สื่อความหมายตัวเลข (count ของ `lowStockItems`); คลิกแล้วยังไปหน้า order view เหมือนเดิม
+- **Alert stat cards** เหลือ 3 ใบ (`sm:grid-cols-3`): หมดอายุแล้ว / ใกล้หมดอายุ (16 เดือน) / รอตรวจรับ — การ์ด "ต่ำกว่าจุดสั่งซื้อ" ถูกนำออก (2026-06-27) เพราะตัวเลขนี้แสดงใน Dashboard (Top 5 ยาต้องสั่งซื้อ จาก `fetchDashboardAlerts.lowStock`) + ReorderApp (single source of truth) อยู่แล้ว — เลยลบ `lowStockItems`/`usageRates`/`fetchUsageRates` ที่เป็น consumer เดียวออกด้วย
 - **หมายเหตุช่วง 16 เดือน** อยู่ภายใน card "ใกล้หมดอายุ" (text-[10px] text-slate-400)
 - **Toggle ซ่อนช่องว่าง** ใช้ `Eye` / `EyeOff` icon — EyeOff = ซ่อนอยู่ (active state indigo)
 - **Empty state**: เมื่อ `Object.keys(inventory).length === 0` → card dashed border + ปุ่ม "อัปโหลด Log คลังยา" (staff) หรือ hint "ติดต่อเจ้าหน้าที่" (requester)

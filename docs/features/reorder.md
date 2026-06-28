@@ -119,6 +119,16 @@ npm run test:reorder    # 33 golden assertions — ต้องผ่าน 100%
 - **คอลัมน์ใหม่ (ตาราง/Excel)**: หน่วยซื้อ · บริษัทล่าสุด · วันรับล่าสุด · คงอยู่ได้อีก (Coverage) · ต้องซื้อ (หน่วยซื้อ + เม็ด)
 - **หน้าต่าง default** = 4 เดือนเต็มล่าสุด (ตัดเดือนปัจจุบันที่ยังไม่ครบ)
 
+## Import master CSV (ไฟล์ "วิเคราะห์สั่งซื้อ" จาก Excel)
+
+`ImportMasterModal` รับไฟล์ export ของ sheet "วิเคราะห์สั่งซื้อ" ได้ตรงๆ แต่ต้องระวัง 3 จุด (verify กับไฟล์จริง 2026-06-28, 448 แถว):
+- **Header ไม่ใช่แถวแรก** — ไฟล์มี 3 แถวนำหน้า (title / คำเตือนโหมดพิเศษ / header) → ต้อง detect แถวที่ cell = `รหัส` แล้วส่งเป็น `range` ของ `sheet_to_json` ไม่งั้น parse ได้ 0 แถว
+- **exclude_status มี emoji** — ค่าจริง `✂️ ตัดออก` / `📋 สั่งเมื่อขอ` → strip non-อักษร แล้ว `.includes()` (ไม่ใช่ `===`)
+- **VEN ว่าง → `null`** (ไม่ใช่ Normal) เพื่อให้ fallback 1.5 ทำงาน (ADR-0002) — แม้ไฟล์ชุดนี้ VEN ครบทุกแถว (N105/E282/V61) ก็เก็บเป็น defensive
+- **import แค่ VEN + exclude_status** (manual judgment ของเภสัชกร) — ราคา/บริษัท/LT แอป derive จาก `receive_logs` สด ตาม [ADR-0001](../adr/0001-reorder-recompute-vs-import.md) ไม่ override จาก CSV (จะ stale)
+
+**Verify ตัวเลขตรง Excel (445 แถว):** feed usage(ธ.ค.–มี.ค.)/stock/LT/VEN/exclude จาก CSV เข้า `analyzeDrug` แล้วเทียบ SS/ROP/สถานะ/จำนวนสั่ง → **ผ่าน 415/448 (92.6%)** เกณฑ์ SS/ROP ±1, status/qty เป๊ะ. mismatch ที่เหลือ **ไม่ใช่บั๊กสูตร**: ส่วนใหญ่ ROP ต่าง 2–13 เพราะ Excel column "Lead Time" แสดงค่าปัด แต่สูตรภายในใช้ค่าทศนิยมเต็ม (แอปจริงดึง LT เต็มจาก `receive_logs` จะตรงกว่า); ส่วนน้อยต่างที่ status ใกล้หมดอายุ (harness ไม่ feed `nearestExpiryDays` เพราะ CSV ไม่มี exp) + fallback order qty (Open Q3).
+
 ## ข้อจำกัด / TODO
 
 1. **dispense_type filter** — spec ระบุให้กรองรายการที่ `dispense_type='บันทึกเท่านั้น'` ออก แต่ตาราง `dispense_logs` ไม่มี column นี้ ปัจจุบัน filter จาก `main_log`/`note` ที่มีคำว่า "บันทึก" — อาจไม่ครอบคลุม ต้องยืนยันกับ user
