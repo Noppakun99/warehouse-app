@@ -3,6 +3,18 @@
 // ใช้แปลงคงเหลือราย lot → หน่วยย่อยสุด (เม็ด) เพื่อรวมข้ามหน่วยในการเบิกระดับยา (ADR-0004)
 // test: src/unitParser.test.js
 
+// ตาราง normalize ชื่อหน่วยย่อย (จาก sheet "หน่วยย่อย" ของ ยอดคลังยา_69.xlsm)
+// map เฉพาะหน่วย "ไม่มีตัวเลข" ที่สะกด/ภาษาต่างกันให้เป็นชื่อ canonical เดียว — packSize ยังเป็น null (หน่วยย่อยอยู่แล้ว)
+// key เทียบแบบ lowercase; ไม่ใส่หน่วยที่ map ตัวเอง (amp→amp) เพราะ default คืนค่าเดิมอยู่แล้ว
+const UNIT_ALIASES = {
+  'bott': 'ขวด',
+  'gm': 'กรัม',
+  'neb': 'หลอด',
+  'capsules': 'แคปซูล',
+  '50vial': 'vial',
+  'vial': 'vial',   // normalize case "Vial" → "vial"
+};
+
 /**
  * แยก unit string → { packSize, baseUnit, original }
  *   "1000เม็ด"          → { packSize: 1000, baseUnit: "เม็ด" }
@@ -35,8 +47,9 @@ export function parseUnit(raw) {
     return { packSize: parseInt(directMatch[1].replace(/,/g, '')), baseUnit: directMatch[2], original: s };
   }
 
-  // ไม่มีตัวเลข → หน่วยย่อยอยู่แล้ว
-  return { packSize: null, baseUnit: s, original: s };
+  // ไม่มีตัวเลข → หน่วยย่อยอยู่แล้ว (normalize ชื่อผ่าน alias ถ้ามี)
+  const alias = UNIT_ALIASES[s.toLowerCase()];
+  return { packSize: null, baseUnit: alias || s, original: s };
 }
 
 /**

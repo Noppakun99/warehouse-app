@@ -22,6 +22,13 @@ const TEST_CASES = [
   ['-',                null,  '-'],
   ['Tablet',           null,  'Tablet'],
   ['1,000เม็ด',        1000,  'เม็ด'],
+  // unit aliases (sheet "หน่วยย่อย") — normalize ชื่อ packSize ยังเป็น null
+  ['bott',             null,  'ขวด'],
+  ['neb',              null,  'หลอด'],
+  ['gm',               null,  'กรัม'],
+  ['Vial',             null,  'vial'],
+  ['capsules',         null,  'แคปซูล'],
+  ['amp',              null,  'amp'],
 ];
 
 console.log('=== ทดสอบ parseUnit ===\n');
