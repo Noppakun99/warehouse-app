@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { computeClosing, rolloverToNextPeriod } from './ledgerRollover'
 
 const CHUNK_SIZE = 500
 
@@ -1786,4 +1787,104 @@ export async function logReorderAction(action, details, auth = {}) {
     user_name: resolveAuditUserName(auth), department: auth?.department || '-',
     details: details || {},
   })
+}
+
+// --- Monthly Stock Ledger (ทะเบียนคงคลังรายเดือน) — ADR-0007 ---
+// pure logic อยู่ใน ledgerRollover.js; ฟังก์ชันนี้ทำ I/O เท่านั้น
+
+// ดึงทุกแถวของงวด (paginate ข้าม 1000-row limit)
+export async function fetchLedgerPeriod(period) {
+  if (!supabase) return []
+  const rows = []
+  let off = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('stock_ledger')
+      .select('*')
+      .eq('period', period)
+      .range(off, off + 1000 - 1)
+    if (error) throw error
+    if (!data || data.length === 0) break
+    rows.push(...data)
+    if (data.length < 1000) break
+    off += 1000
+  }
+  return rows
+}
+
+// หางวดล่าสุดในระบบ + สถานะ
+export async function fetchLatestLedgerPeriod() {
+  if (!supabase) return null
+  const { data, error } = await supabase
+    .from('stock_ledger')
+    .select('period, status')
+    .order('period', { ascending: false })
+    .limit(1)
+  if (error) throw error
+  return data?.[0] || null
+}
+
+// ปิดงวด (atomic): freeze closing ของงวดปัจจุบัน → set closed → สร้างแถวงวดถัดไป (rollover)
+// nextPeriod = 'YYYY-MM' ของเดือนถัดไป (UI คำนวณส่งมา)
+export async function closeLedgerPeriod(period, nextPeriod, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+
+  const rows = await fetchLedgerPeriod(period)
+  if (rows.length === 0) throw new Error(`ไม่พบข้อมูลงวด ${period}`)
+  if (rows.some(r => r.status === 'closed')) throw new Error(`งวด ${period} ปิดไปแล้ว`)
+
+  // กันสร้างซ้ำ — งวดถัดไปต้องยังไม่มี
+  const existingNext = await fetchLedgerPeriod(nextPeriod)
+  if (existingNext.length > 0) throw new Error(`งวด ${nextPeriod} มีอยู่แล้ว — เปิดงวดถัดไปไม่ได้`)
+
+  // 1) freeze closing + set status='closed' ของงวดปัจจุบัน
+  const closed = rows.map(r => ({ ...computeClosing(r), status: 'closed' }))
+  for (let i = 0; i < closed.length; i += CHUNK_SIZE) {
+    const chunk = closed.slice(i, i + CHUNK_SIZE)
+    const { error } = await supabase.from('stock_ledger').upsert(chunk, { onConflict: 'id' })
+    if (error) throw error
+  }
+
+  // 2) สร้างแถวงวดถัดไป (U→S, AB→AC, แปลงชนิด, ลบแก้ไขระบบ) — ไม่ส่ง id เพื่อให้ insert ใหม่
+  const nextRows = rolloverToNextPeriod(closed, nextPeriod)
+  for (let i = 0; i < nextRows.length; i += CHUNK_SIZE) {
+    const chunk = nextRows.slice(i, i + CHUNK_SIZE)
+    const { error } = await supabase.from('stock_ledger').insert(chunk)
+    if (error) throw error
+  }
+
+  await insertAuditLog({
+    action: 'close_ledger_period', table_name: 'stock_ledger',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: closed.length,
+    details: { period, next_period: nextPeriod, rows_closed: closed.length, rows_carried: nextRows.length },
+  })
+
+  return { closed: closed.length, carried: nextRows.length }
+}
+
+// เปิดงวดที่ปิดไปแล้วใหม่ (admin) — ลบงวดถัดไปที่ rollover สร้าง + คืน status='open'
+export async function reopenLedgerPeriod(period, nextPeriod, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+
+  // งวดถัดไปต้องยังไม่ถูกปิด (กันลบข้อมูลที่ทำงานต่อไปแล้ว)
+  const nextRows = await fetchLedgerPeriod(nextPeriod)
+  if (nextRows.some(r => r.status === 'closed')) {
+    throw new Error(`งวด ${nextPeriod} ปิดไปแล้ว — เปิดงวด ${period} ใหม่ไม่ได้ (ต้องเปิด ${nextPeriod} ก่อน)`)
+  }
+
+  const { error: delErr } = await supabase.from('stock_ledger').delete().eq('period', nextPeriod)
+  if (delErr) throw delErr
+
+  const { error: upErr } = await supabase
+    .from('stock_ledger').update({ status: 'open' }).eq('period', period)
+  if (upErr) throw upErr
+
+  await insertAuditLog({
+    action: 'reopen_ledger_period', table_name: 'stock_ledger',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    details: { period, removed_period: nextPeriod, removed_rows: nextRows.length },
+  })
+
+  return { reopened: period, removed: nextRows.length }
 }

@@ -15,6 +15,7 @@
 | `ap_workflow_migration.sql` | +8 columns ใน receive_logs สำหรับ AP tracking (ap_stage, inspected_at/by, ap_batch_id, ap_sent/posted_at/by) | ใช้งาน |
 | `ap_acknowledge_migration.sql` | +2 columns (acknowledged_at, acknowledged_by) สำหรับจัดซื้อกด "รับบิลแล้ว" | ใช้งาน |
 | `audit_retention_policy.sql` | pg_cron job ลบ audit log เก่า | ใช้งาน |
+| `stock_ledger_migration.sql` | ตาราง `stock_ledger` — ทะเบียนคงคลังรายเดือน (ADR-0007) | รอ deploy + seed |
 
 RLS enabled with public read/write policies (internal app)
 
