@@ -1824,6 +1824,30 @@ export async function fetchLatestLedgerPeriod() {
   return data?.[0] || null
 }
 
+// seed งวดตั้งต้นจาก master sheet (rows มาจาก ledgerSeed.seedFromMasterCsv) — ADR-0007 ข้อ 5
+// ครั้งเดียวต่องวด: กัน seed ซ้ำถ้างวดมีข้อมูลแล้ว. rows ต้อง map ครบ schema แล้ว (period เดียวกัน)
+export async function bulkInsertLedgerRows(rows, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!rows?.length) return 0
+
+  const period = rows[0].period
+  const existing = await fetchLedgerPeriod(period)
+  if (existing.length > 0) throw new Error(`งวด ${period} มีข้อมูลแล้ว (${existing.length} แถว) — seed ซ้ำไม่ได้`)
+
+  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+    const { error } = await supabase.from('stock_ledger').insert(rows.slice(i, i + CHUNK_SIZE))
+    if (error) throw error
+  }
+
+  await insertAuditLog({
+    action: 'seed_ledger', table_name: 'stock_ledger',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: rows.length, details: { period, rows: rows.length },
+  })
+
+  return rows.length
+}
+
 // ปิดงวด (atomic): freeze closing ของงวดปัจจุบัน → set closed → สร้างแถวงวดถัดไป (rollover)
 // nextPeriod = 'YYYY-MM' ของเดือนถัดไป (UI คำนวณส่งมา)
 export async function closeLedgerPeriod(period, nextPeriod, auth = {}) {
