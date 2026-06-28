@@ -26,6 +26,7 @@ import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
 import AnalyticsApp       from './AnalyticsApp';
 import ReorderApp         from './ReorderApp';
+import StockLedgerApp     from './StockLedgerApp';
 import DashboardV2Preview from './DashboardV2Preview'; // prototype ชั่วคราว — เปิดด้วย ?v2 (ลบได้ทั้งบรรทัด)
 import AppShell           from './AppShell';
 
@@ -121,6 +122,9 @@ export default function AppRoot() {
         break;
       case 'reorder':
         content = <ReorderApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
+        break;
+      case 'ledger':
+        content = <StockLedgerApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
         break;
       default:
         content = <Dashboard key={subKey} auth={auth} onNavigate={setPage} />;

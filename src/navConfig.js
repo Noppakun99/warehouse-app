@@ -5,7 +5,7 @@
 // ============================================================
 import {
   Package, Database, RotateCcw, TrendingUp, TrendingDown,
-  Activity, ShoppingCart, ClipboardList, Users, History, BarChart3,
+  Activity, ShoppingCart, ClipboardList, Users, History, BarChart3, Layers,
 } from 'lucide-react';
 
 // โครงสร้างเมนู — รองรับ 2 แบบใน group.items:
@@ -43,8 +43,9 @@ export const NAV_GROUPS = [
   {
     label: 'ควบคุมระบบ', dot: 'bg-slate-500',
     items: [
-      { page: 'audit', icon: ClipboardList, title: 'Audit Log',        c: 'amber', roles: ['staff', 'admin'] },
-      { page: 'users', icon: Users,         title: 'จัดการผู้ใช้งาน', c: 'slate', roles: ['admin'] },
+      { page: 'ledger', icon: Layers,         title: 'ทะเบียนคงคลัง',   c: 'teal',  roles: ['admin'] },
+      { page: 'audit',  icon: ClipboardList,  title: 'Audit Log',        c: 'amber', roles: ['staff', 'admin'] },
+      { page: 'users',  icon: Users,          title: 'จัดการผู้ใช้งาน', c: 'slate', roles: ['admin'] },
     ],
   },
 ];
@@ -64,5 +65,6 @@ export const COLOR = {
   cyan:    { icon: 'bg-cyan-100 text-cyan-600',       activeBg: 'bg-cyan-50 text-cyan-700',       bar: 'bg-cyan-500',    cardBg: 'bg-cyan-50 hover:bg-cyan-100 border-cyan-200' },
   orange:  { icon: 'bg-orange-100 text-orange-600',   activeBg: 'bg-orange-50 text-orange-700',   bar: 'bg-orange-500',  cardBg: 'bg-orange-50 hover:bg-orange-100 border-orange-200' },
   amber:   { icon: 'bg-amber-100 text-amber-600',     activeBg: 'bg-amber-50 text-amber-700',     bar: 'bg-amber-500',   cardBg: 'bg-amber-50 hover:bg-amber-100 border-amber-200' },
+  teal:    { icon: 'bg-teal-100 text-teal-600',       activeBg: 'bg-teal-50 text-teal-700',       bar: 'bg-teal-500',    cardBg: 'bg-teal-50 hover:bg-teal-100 border-teal-200' },
   slate:   { icon: 'bg-slate-200 text-slate-600',     activeBg: 'bg-slate-100 text-slate-700',    bar: 'bg-slate-500',   cardBg: 'bg-slate-50 hover:bg-slate-100 border-slate-200' },
 };

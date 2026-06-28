@@ -71,7 +71,14 @@
   - `mapMasterRow(cells, period)` — map 1 แถว master (45 col) → ledger row (24 col); คืน `null` ถ้ารหัสยาว่าง (แถว summary).
   - `seedFromMasterCsv(text, period)` → `{ rows, skipped, tieOut: { drug, nonDrug, total } }`.
   - mapping cols: ดู `COL` ในไฟล์ (ตาม ADR ข้อ 5). ตัวเลขมี thousands separator → strip `,` ก่อน parse.
-- **ยังไม่ทำ (เฟสถัดไป):** db.js `bulkInsertLedgerRows` + ปุ่ม seed จริงเข้า DB, UI ledger view + ปิด/เปิดงวด, adjustment workflow, audit drift view.
+
+## Implementation (เฟส 2.2–2.3 — db insert + UI, เสร็จ)
+
+- **db.js:** `bulkInsertLedgerRows(rows, auth)` — chunk insert (กัน seed ซ้ำถ้างวดมีข้อมูล) + audit `seed_ledger`.
+- **UI:** `src/StockLedgerApp.jsx` (admin, สี teal) — title bar + งวด/สถานะ + tie-out summary (ยา/มิใช่ยา/รวม) + ตาราง ledger (sticky, search, ค่าติดลบสีแดง) + `SeedModal` (เลือก master CSV → preview tie-out 4 ตัวเลข → ยืนยัน → `bulkInsertLedgerRows`) + ปุ่มปิด/เปิดงวด. wire: `navConfig.js` (เมนู "ทะเบียนคงคลัง" admin-only + `COLOR.teal`), `AppRoot.jsx` (`case 'ledger'`).
+- **Audit labels:** เพิ่ม `seed_ledger`/`close_ledger_period`/`reopen_ledger_period` ครบใน `ACTION_LABELS` ([AuditLogApp.jsx](../../src/AuditLogApp.jsx)) — ไม่เข้า notification bell.
+- **Seed มิ.ย.69 จริงแล้ว (2026-06-28):** 993 ledger rows ใน DB — tie-out ยืนยันใน DB: ยา=3,770,433.26 / มิใช่ยา=223,529.10 / รวม=3,993,962.36 (distinct cost-layer keys = 993 = ไม่มี key ซ้ำ). audit_logs id 417.
+- **ยังไม่ทำ (เฟสถัดไป):** adjustment workflow (UI เพิ่มแถว `แก้ไขระบบ`), audit drift view (เทียบ ledger closing กับ raw dispense/receive), verify UI ใน browser โดย admin (ทำผ่าน MCP แทนเพราะไม่มีรหัส admin).
 
 ## Consequences
 
