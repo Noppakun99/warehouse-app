@@ -43,7 +43,12 @@
 
 **4. Adjustment = แถว ledger ที่ `item_type='แก้ไขระบบ'`.** คนเพิ่มเพื่อ tie-out (เช่น ล้างยอดติดลบเดือนก่อน). มีผลต่อ `adjust_qty/adjust_value` เท่านั้น ไม่แตะข้อมูลดิบ. ถูกลบตอนปิดงวด.
 
-**5. Seed ครั้งแรกจาก Excel `master` เดือนล่าสุด.** import sheet `master` (เช่น มิ.ย.69) เป็น ledger งวดตั้งต้น (opening + carry-in value มาจาก N/AC ที่ paste-as-value แล้ว) — **ครั้งเดียว** จากนั้น app rollover ต่อ. ไม่ derive opening ใหม่จากประวัติทั้งหมด (เพราะมี manual override ที่ derive ไม่ได้).
+**5. Seed ครั้งแรกจาก Excel `master` เดือนล่าสุด.** import sheet `master` (เช่น มิ.ย.69) เป็น ledger งวดตั้งต้น — **ครั้งเดียว** จากนั้น app rollover ต่อ. ไม่ derive opening ใหม่จากประวัติทั้งหมด (เพราะมี manual override ที่ derive ไม่ได้). เกณฑ์ seed (ยืนยันจากข้อมูลจริง มิ.ย.69 + context sheet, 2026-06-28):
+   - **"seed มูลค่าก่อน":** มูลค่า map แม่น (สมการ `closing_value = carry_in + in − out` ตรง 991/993 แถว). ใช้ค่า **ตรงจาก Excel** (col `มูลค่าคงคลัง มิ.ย`=closing, `มูลค่าคงคลัง พ.ค`=carry-in) — **ไม่ recompute** เพราะมี manual override (AC ติดลบ). จำนวน: `closing_qty = คงเหลือหลังจ่าย` (authoritative); `opening/in/out = 0` (qty movement ของ master ไม่ map ตรงสมการ — `closing=open+in−out` ตรงแค่ 191/993 → เริ่มนับ movement จริงจากงวดถัดไป).
+   - **filter แถว summary (รหัสยาว่าง) ทิ้ง** — master มี 8 แถวท้ายเป็นยอดรวม (เช่น `3,723,914.26`) ที่ถ้าไม่ตัดจะ double-count + ชน unique-index. ผล: 1001 → 993 ledger rows.
+   - **รวมแถว `แก้ไขระบบ`/`คืนยา`/`ยืมยา`** (มูลค่าจริง บางตัวติดลบ) — เป็น ledger row จริง; `closeLedgerPeriod` ลบ `แก้ไขระบบ` ตอนขึ้นเดือนใหม่เอง (context [88]/[100]).
+   - **tie-out = ผลรวมแถวจริงจาก Master ต้นทาง** แยกหมวด ยา/มิใช่ยา (`med_category` จาก col `ชนิด`: `เวชภัณฑ์มิใช่ยา`→มิใช่ยา, else→ยา; G='Apply' = ยา ตาม context [86]). มิ.ย.69: ยา=3,770,433.26 / มิใช่ยา=223,529.10 (**มิใช่ยาตรงเป๊ะไฟล์ส่งบัญชี** = หลักฐาน mapping ถูก).
+   - **CSV parse:** master export มี comma ในค่า (ชื่อยา) + quoted → ใช้ **RFC-4180 parser** (`XLSX.read` parse ไฟล์นี้ไม่ได้ — misdetect format).
 
 **6. ไม่แตะข้อมูลดิบ.** `receive_logs`/`dispense_logs`/`inventory` คงเดิม — ledger เป็น layer ใหม่เหนือมัน. `inventory.qty` ยังไม่ถูกหักอัตโนมัติ (เหมือน picking workflow เดิม).
 
@@ -59,7 +64,14 @@
   - `reopenLedgerPeriod(period, nextPeriod, auth)` — ลบงวดถัดไป + คืน `status='open'`; กันเปิดถ้างวดถัดไปปิดไปแล้ว; audit `reopen_ledger_period`.
 - **Audit:** 2 action ใหม่อยู่ใน `ACTION_LABELS` ([AuditLogApp.jsx](../../src/AuditLogApp.jsx)) เท่านั้น — **ไม่เข้า notification bell** (admin action รายเดือน ไม่ใช่ event ที่ staff ต้อง react).
 - **Schema:** `stock_ledger_migration.sql` (ต้องรันใน Supabase Dashboard ก่อน deploy).
-- **ยังไม่ทำ (เฟสถัดไป):** seed จาก master sheet จริง, UI ledger view, adjustment workflow, audit drift view.
+## Implementation (เฟส 2 — seed logic, เสร็จ)
+
+- **Pure logic:** `src/lib/ledgerSeed.js` (golden-testable — `npm run test:ledgerseed`, 25 assertions):
+  - `parseCsv(text)` — RFC-4180 parser (รองรับ comma/quote/newline ในค่า + strip BOM).
+  - `mapMasterRow(cells, period)` — map 1 แถว master (45 col) → ledger row (24 col); คืน `null` ถ้ารหัสยาว่าง (แถว summary).
+  - `seedFromMasterCsv(text, period)` → `{ rows, skipped, tieOut: { drug, nonDrug, total } }`.
+  - mapping cols: ดู `COL` ในไฟล์ (ตาม ADR ข้อ 5). ตัวเลขมี thousands separator → strip `,` ก่อน parse.
+- **ยังไม่ทำ (เฟสถัดไป):** db.js `bulkInsertLedgerRows` + ปุ่ม seed จริงเข้า DB, UI ledger view + ปิด/เปิดงวด, adjustment workflow, audit drift view.
 
 ## Consequences
 

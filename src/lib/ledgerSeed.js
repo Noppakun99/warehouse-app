@@ -1,0 +1,132 @@
+// ledgerSeed.js
+// Seed ทะเบียนคงคลังงวดตั้งต้นจาก Excel master sheet (export เป็น CSV) — ADR-0007 ข้อ 5
+// pure module — ไม่ import supabase (golden-testable; db.js ทำ I/O แยก)
+//
+// เกณฑ์ seed (decision 2026-06-28): "seed มูลค่าก่อน"
+//   - มูลค่า map แม่น (สมการ closing_value = carry_in + in − out ตรง 991/993 แถวจริง)
+//   - closing_value/carry_in_value ใช้ค่า "ตรงจาก Excel" (col มูลค่าคงคลัง) ไม่ recompute
+//     เพราะ master มี manual override (AC ติดลบ) ที่ derive ใหม่ไม่ได้
+//   - closing_qty = คงเหลือหลังจ่าย (authoritative); opening/in/out = 0
+//     (qty movement ของ master ไม่ map ตรงสมการ — เริ่มนับจริงจากงวดถัดไป)
+//   - filter แถว summary (รหัสยาว่าง) ทิ้ง — กัน unique-index ชนกัน
+//
+// master CSV มี comma ในค่า (ชื่อยา + quoted) → ต้องใช้ RFC-4180 parser
+// (XLSX.read parse ไฟล์นี้ไม่ได้ — misdetect format)
+
+// --- RFC-4180 CSV parser (รองรับ quoted field ที่มี comma/newline) ---
+export function parseCsv(text) {
+  // strip BOM (U+FEFF) ถ้ามี — เลี่ยง char ตรงๆ ใน regex (lint: no-irregular-whitespace)
+  const clean = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text
+  const rows = []
+  let row = []
+  let field = ''
+  let inQuotes = false
+  for (let i = 0; i < clean.length; i++) {
+    const c = clean[i]
+    if (inQuotes) {
+      if (c === '"') {
+        if (clean[i + 1] === '"') { field += '"'; i++ }
+        else inQuotes = false
+      } else field += c
+    } else if (c === '"') inQuotes = true
+    else if (c === ',') { row.push(field); field = '' }
+    else if (c === '\n') { row.push(field); rows.push(row); row = []; field = '' }
+    else if (c === '\r') { /* skip */ }
+    else field += c
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row) }
+  return rows
+}
+
+// --- column index ของ master sheet (45 col, ดู ADR-0007 mapping table) ---
+const COL = {
+  drugCode: 5,      // รหัสHosxp
+  kind: 6,          // ชนิด (Tablet/Injection/เวชภัณฑ์มิใช่ยา…) → drug_type + med_category
+  drugName: 7,      // รายการยา
+  unit: 8,          // หน่วย
+  price: 9,         // ราคา/หน่วย
+  lot: 10,          // Lot Number
+  itemType: 12,     // ชนิดรายการ (ยกยอด/ซื้อยา/บริจาค…)
+  company: 16,      // บริษัท
+  outValue: 25,     // มูลค่าเบิกยา (บาท)
+  inValue: 26,      // มูลค่าซื้อยา (บาท)
+  closingValue: 27, // มูลค่าคงคลัง มิ.ย (บาท) — authoritative closing
+  carryInValue: 28, // มูลค่าคงคลัง พ.ค (บาท) — carry-in
+  closingQty: 20,   // คงเหลือหลังจ่าย — authoritative closing qty
+}
+
+// แปลงตัวเลขที่มี thousands separator + ช่องว่าง (เช่น " 3,723,914.26 ")
+const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '').trim()) || 0
+const round4 = (v) => Math.round(num(v) * 1e4) / 1e4
+const str = (v) => String(v ?? '').trim() || '-'
+
+// ชนิด (col6) ที่นับเป็น "เวชภัณฑ์มิใช่ยา"
+const NON_DRUG_KIND = 'เวชภัณฑ์มิใช่ยา'
+
+/**
+ * แปลง 1 แถว CSV → 1 ledger row (ตาม schema stock_ledger)
+ * คืน null ถ้าเป็นแถว summary (รหัสยาว่าง) → caller filter ทิ้ง
+ */
+export function mapMasterRow(cells, period) {
+  const drugCode = String(cells[COL.drugCode] ?? '').trim()
+  if (!drugCode) return null // แถว summary/total — ตัดทิ้ง
+
+  const kind = str(cells[COL.kind])
+  const closingValue = round4(cells[COL.closingValue])
+  const carryInValue = round4(cells[COL.carryInValue])
+  const inValue = round4(cells[COL.inValue])
+  const outValue = round4(cells[COL.outValue])
+
+  return {
+    period,
+    status: 'open',
+    drug_code: drugCode,
+    lot: str(cells[COL.lot]),
+    item_type: str(cells[COL.itemType]) === '-' ? 'ยกยอด' : str(cells[COL.itemType]),
+    price_per_unit: round4(cells[COL.price]),
+    drug_name: str(cells[COL.drugName]),
+    drug_type: kind,
+    unit: str(cells[COL.unit]),
+    med_category: kind === NON_DRUG_KIND ? 'เวชภัณฑ์มิใช่ยา' : 'เวชภัณฑ์ยา',
+    company: str(cells[COL.company]),
+    // qty: closing ตรงจาก master; movement = 0 (เริ่มนับจริงงวดถัดไป)
+    opening_qty: 0,
+    in_qty: 0,
+    out_qty: 0,
+    adjust_qty: 0,
+    closing_qty: num(cells[COL.closingQty]),
+    // value: ใช้ค่าตรงจาก master (มี manual override — ไม่ recompute)
+    carry_in_value: carryInValue,
+    in_value: inValue,
+    out_value: outValue,
+    adjust_value: 0,
+    closing_value: closingValue,
+  }
+}
+
+/**
+ * parse master CSV ทั้งไฟล์ → ledger rows ของงวด `period`
+ * @param text   เนื้อ CSV (utf-8)
+ * @param period 'YYYY-MM'
+ * @returns { rows, skipped, tieOut: { drug, nonDrug, total } }
+ */
+export function seedFromMasterCsv(text, period) {
+  const grid = parseCsv(text)
+  const dataRows = grid.slice(1) // ตัด header
+  const rows = []
+  let skipped = 0
+  for (const cells of dataRows) {
+    const r = mapMasterRow(cells, period)
+    if (r) rows.push(r)
+    else skipped++
+  }
+  // tie-out: Σ closing_value แยก ยา/มิใช่ยา (ต้องตรงไฟล์ส่งบัญชี ก่อนใช้จริง)
+  let drug = 0, nonDrug = 0
+  for (const r of rows) {
+    if (r.med_category === 'เวชภัณฑ์มิใช่ยา') nonDrug += r.closing_value
+    else drug += r.closing_value
+  }
+  drug = round4(drug)
+  nonDrug = round4(nonDrug)
+  return { rows, skipped, tieOut: { drug, nonDrug, total: round4(drug + nonDrug) } }
+}
