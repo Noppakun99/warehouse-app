@@ -2,11 +2,11 @@
 // admin: ดู ledger ต่องวด + seed งวดตั้งต้นจาก master CSV + ปิด/เปิดงวด
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  Layers, Upload, Lock, Unlock, RefreshCw, X, CheckCircle, AlertTriangle, Search,
+  Layers, Upload, Lock, Unlock, RefreshCw, X, CheckCircle, AlertTriangle, Search, PlusCircle,
 } from 'lucide-react';
 import {
   fetchLedgerPeriod, fetchLatestLedgerPeriod, bulkInsertLedgerRows,
-  closeLedgerPeriod, reopenLedgerPeriod,
+  closeLedgerPeriod, reopenLedgerPeriod, addLedgerAdjustment,
 } from './lib/db';
 import { seedFromMasterCsv } from './lib/ledgerSeed';
 
@@ -145,6 +145,111 @@ function SeedModal({ open, onClose, onSeeded, auth }) {
 }
 
 // ────────────────────────────────────────────────────────────
+// AdjustModal — เพิ่มแถวปรับยอด (item_type='แก้ไขระบบ') ในงวดที่เปิดอยู่ — ADR-0007 ข้อ 4
+// ────────────────────────────────────────────────────────────
+function AdjustModal({ open, period, onClose, onAdded, auth }) {
+  const [form, setForm] = useState({
+    drug_code: '', drug_name: '', lot: '-', price_per_unit: '',
+    med_category: 'ยา', adjust_qty: '', adjust_value: '',
+  });
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const handleConfirm = async () => {
+    setError('');
+    if (!form.drug_code.trim()) { setError('กรอกรหัสยา'); return; }
+    if (!form.adjust_qty && !form.adjust_value) { setError('กรอกจำนวนปรับ หรือ มูลค่าปรับ อย่างน้อยหนึ่งช่อง'); return; }
+    setSaving(true);
+    try {
+      await addLedgerAdjustment({ period, ...form, drug_code: form.drug_code.trim() }, auth);
+      onAdded();
+      setForm({ drug_code: '', drug_name: '', lot: '-', price_per_unit: '', med_category: 'ยา', adjust_qty: '', adjust_value: '' });
+      onClose();
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+          <h2 className="text-base font-bold text-slate-800">เพิ่มแถวปรับยอด — {periodLabel(period)}</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+            แถวปรับยอด (ชนิดรายการ <span className="font-semibold">แก้ไขระบบ</span>) มีผลต่อยอดคงคลังของงวดนี้เท่านั้น ไม่แตะข้อมูลรับ/เบิก และจะถูกลบอัตโนมัติเมื่อปิดงวด
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">รหัสยา *</label>
+              <input type="text" value={form.drug_code} onChange={set('drug_code')} placeholder="เช่น 1000001"
+                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Lot</label>
+              <input type="text" value={form.lot} onChange={set('lot')} placeholder="-"
+                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">ชื่อยา</label>
+              <input type="text" value={form.drug_name} onChange={set('drug_name')} placeholder="(ไม่บังคับ)"
+                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">หมวด</label>
+              <select value={form.med_category} onChange={set('med_category')}
+                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                <option value="ยา">เวชภัณฑ์ยา</option>
+                <option value="เวชภัณฑ์มิใช่ยา">เวชภัณฑ์มิใช่ยา</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">ราคา/หน่วย</label>
+              <input type="number" value={form.price_per_unit} onChange={set('price_per_unit')} placeholder="0"
+                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">จำนวนปรับ (+/−)</label>
+              <input type="number" value={form.adjust_qty} onChange={set('adjust_qty')} placeholder="0"
+                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">มูลค่าปรับ (+/−)</label>
+              <input type="number" value={form.adjust_value} onChange={set('adjust_value')} placeholder="0"
+                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </div>
+          </div>
+
+          {error && (
+            <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-start gap-2">
+              <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" /> {error}
+            </p>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-200">
+          <button onClick={onClose} className="bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl py-2 px-4 font-medium text-sm transition-colors">ยกเลิก</button>
+          <button
+            onClick={handleConfirm} disabled={saving}
+            className="bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white rounded-xl py-2 px-5 font-semibold text-sm transition-colors shadow-sm disabled:opacity-50"
+          >
+            {saving ? 'กำลังบันทึก…' : 'เพิ่มแถวปรับยอด'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
 // StockLedgerApp
 // ────────────────────────────────────────────────────────────
 export default function StockLedgerApp({ onRefresh, auth = {} }) {
@@ -153,6 +258,7 @@ export default function StockLedgerApp({ onRefresh, auth = {} }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [seedOpen, setSeedOpen] = useState(false);
+  const [adjustOpen, setAdjustOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
@@ -204,6 +310,11 @@ export default function StockLedgerApp({ onRefresh, auth = {} }) {
     await loadPeriod(p);
   };
 
+  const onAdjustAdded = async () => {
+    setMsg(`เพิ่มแถวปรับยอดในงวด ${periodLabel(period)} แล้ว`);
+    await loadPeriod(period);
+  };
+
   const handleClose = async () => {
     if (!period || !isAdmin) return;
     const next = nextPeriodOf(period);
@@ -253,6 +364,11 @@ export default function StockLedgerApp({ onRefresh, auth = {} }) {
               <button onClick={() => setSeedOpen(true)} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
                 <Upload size={14} /> นำเข้างวดตั้งต้น
               </button>
+              {period && status === 'open' && (
+                <button onClick={() => setAdjustOpen(true)} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
+                  <PlusCircle size={14} /> เพิ่มแถวปรับยอด
+                </button>
+              )}
               {period && status === 'open' && (
                 <button onClick={handleClose} disabled={busy} className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
                   <Lock size={14} /> ปิดงวด + ขึ้นเดือนใหม่
@@ -367,6 +483,7 @@ export default function StockLedgerApp({ onRefresh, auth = {} }) {
       </div>
 
       <SeedModal open={seedOpen} onClose={() => setSeedOpen(false)} onSeeded={onSeeded} auth={auth} />
+      <AdjustModal open={adjustOpen} period={period} onClose={() => setAdjustOpen(false)} onAdded={onAdjustAdded} auth={auth} />
     </div>
   );
 }

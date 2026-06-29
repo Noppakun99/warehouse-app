@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { computeClosing, rolloverToNextPeriod } from './ledgerRollover'
+import { computeClosing, rolloverToNextPeriod, ADJUST_TYPE } from './ledgerRollover'
 
 const CHUNK_SIZE = 500
 
@@ -1989,4 +1989,52 @@ export async function reopenLedgerPeriod(period, nextPeriod, auth = {}) {
   })
 
   return { reopened: period, removed: nextRows.length }
+}
+
+// เพิ่มแถวปรับยอด (adjustment) ในงวดที่เปิดอยู่ — ADR-0007 ข้อ 4
+// แถวใหม่ item_type='แก้ไขระบบ' มีผลต่อ adjust_qty/adjust_value เท่านั้น ไม่แตะข้อมูลดิบ
+// closing คำนวณจาก computeClosing (opening/in/out = 0 → closing = adjust). ถูกลบตอนปิดงวด (rollover filter)
+export async function addLedgerAdjustment(input, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+
+  const period = input.period
+  const existing = await fetchLedgerPeriod(period)
+  if (existing.length === 0) throw new Error(`ไม่พบงวด ${period}`)
+  if (existing.some(r => r.status === 'closed')) throw new Error(`งวด ${period} ปิดแล้ว — เพิ่มแถวปรับยอดไม่ได้`)
+
+  const row = computeClosing({
+    period,
+    status: 'open',
+    drug_code: input.drug_code,
+    lot: input.lot || '-',
+    item_type: ADJUST_TYPE,
+    price_per_unit: Number(input.price_per_unit) || 0,
+    drug_name: input.drug_name || null,
+    drug_type: input.drug_type || null,
+    unit: input.unit || null,
+    med_category: input.med_category || 'ยา',
+    company: input.company || null,
+    opening_qty: 0,
+    in_qty: 0,
+    out_qty: 0,
+    adjust_qty: Number(input.adjust_qty) || 0,
+    carry_in_value: 0,
+    in_value: 0,
+    out_value: 0,
+    adjust_value: Number(input.adjust_value) || 0,
+  })
+
+  const { error } = await supabase.from('stock_ledger').insert(row)
+  if (error) throw error
+
+  await insertAuditLog({
+    action: 'add_ledger_adjustment', table_name: 'stock_ledger',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    details: {
+      period, drug_code: row.drug_code, lot: row.lot,
+      adjust_qty: row.adjust_qty, adjust_value: row.adjust_value,
+    },
+  })
+
+  return row
 }

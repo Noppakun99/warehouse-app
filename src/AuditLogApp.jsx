@@ -52,6 +52,7 @@ const ACTION_LABELS = {
   seed_ledger:                  { label: 'นำเข้างวดคงคลังตั้งต้น',    color: 'bg-teal-100 text-teal-700'     },
   close_ledger_period:          { label: 'ปิดงวดคงคลัง',            color: 'bg-teal-100 text-teal-700'     },
   reopen_ledger_period:         { label: 'เปิดงวดคงคลังใหม่',        color: 'bg-amber-100 text-amber-700'   },
+  add_ledger_adjustment:        { label: 'เพิ่มแถวปรับยอดคงคลัง',     color: 'bg-teal-100 text-teal-700'     },
 };
 
 const RETURN_TYPE_LABELS = {
