@@ -78,7 +78,14 @@
 - **UI:** `src/StockLedgerApp.jsx` (admin, สี teal) — title bar + งวด/สถานะ + tie-out summary (ยา/มิใช่ยา/รวม) + ตาราง ledger (sticky, search, ค่าติดลบสีแดง) + `SeedModal` (เลือก master CSV → preview tie-out 4 ตัวเลข → ยืนยัน → `bulkInsertLedgerRows`) + ปุ่มปิด/เปิดงวด. wire: `navConfig.js` (เมนู "ทะเบียนคงคลัง" admin-only + `COLOR.teal`), `AppRoot.jsx` (`case 'ledger'`).
 - **Audit labels:** เพิ่ม `seed_ledger`/`close_ledger_period`/`reopen_ledger_period` ครบใน `ACTION_LABELS` ([AuditLogApp.jsx](../../src/AuditLogApp.jsx)) — ไม่เข้า notification bell.
 - **Seed มิ.ย.69 จริงแล้ว (2026-06-28):** 993 ledger rows ใน DB — tie-out ยืนยันใน DB: ยา=3,770,433.26 / มิใช่ยา=223,529.10 / รวม=3,993,962.36 (distinct cost-layer keys = 993 = ไม่มี key ซ้ำ). audit_logs id 417.
-- **ยังไม่ทำ (เฟสถัดไป):** adjustment workflow (UI เพิ่มแถว `แก้ไขระบบ`), audit drift view (เทียบ ledger closing กับ raw dispense/receive), verify UI ใน browser โดย admin (ทำผ่าน MCP แทนเพราะไม่มีรหัส admin).
+## Implementation (เฟส 2.4 — adjustment workflow, เสร็จ)
+
+- **db.js:** `addLedgerAdjustment(input, auth)` — insert 1 แถว `item_type='แก้ไขระบบ'` ในงวดที่ `open` ผ่าน `computeClosing` (opening/in/out=0 → closing=adjust); กันเพิ่มในงวดที่ปิดแล้ว; audit `add_ledger_adjustment`. แถวนี้ถูกลบอัตโนมัติตอนปิดงวด (`rolloverToNextPeriod` filter `ADJUST_TYPE` อยู่แล้ว — ไม่ต้องแก้เพิ่ม).
+- **UI:** `AdjustModal` ใน [StockLedgerApp.jsx](../../src/StockLedgerApp.jsx) (รหัส/lot/ชื่อ/หมวด ยา-มิใช่ยา/ราคา/จำนวนปรับ/มูลค่าปรับ) + ปุ่ม "เพิ่มแถวปรับยอด" (admin, งวด open เท่านั้น).
+- **Audit label:** `add_ledger_adjustment` ใน `ACTION_LABELS` ([AuditLogApp.jsx](../../src/AuditLogApp.jsx)) — ไม่เข้า notification bell.
+- **Verify (2026-06-29):** lint 0 error ใหม่ + build ผ่าน + test:ledger 18/18; MCP smoke test insert→verify(closing=adjust)→delete, DB กลับ 993 แถว/tie-out เดิม. **ยังไม่ verify UI ใน browser โดย admin** (ไม่มีรหัส admin).
+
+- **ยังไม่ทำ (เฟสถัดไป):** audit drift view (เทียบ ledger closing กับ raw dispense/receive), verify UI ใน browser โดย admin (ทำผ่าน MCP แทนเพราะไม่มีรหัส admin).
 
 ## Consequences
 
