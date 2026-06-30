@@ -816,6 +816,10 @@ export async function fetchNotifications() {
     'import_reorder_config',
     'mark_ordered',
     'print_po',
+    // ── Stock Count ──
+    'create_stock_count',
+    'update_stock_count',
+    'delete_stock_count',
   ]
   const { data, error } = await supabase
     .from('audit_logs')
@@ -1125,19 +1129,21 @@ export async function lookupDrugCodes(names) {
 
 // ดึง map ชื่อยา generic → code จาก inventory (ฐานข้อมูลคลังจาก HosXP/CSV)
 // ใช้เป็น source ของ dropdown "จับคู่ยาในระบบ" + เติม drug_code ตอนสแกนบิล
-// return { names: [ชื่อยา distinct เรียง], byName: { name → code } }
+// return { names: [ชื่อยา distinct เรียง], byName: { name → code }, typeByName: { name → ชนิดยา } }
 export async function fetchInventoryNameCodeMap() {
-  if (!supabase) return { names: [], byName: {} }
-  const data = await fetchAllInventoryRows('name, code')   // paginate ครบ — Rule #2
+  if (!supabase) return { names: [], byName: {}, typeByName: {} }
+  const data = await fetchAllInventoryRows('name, code, type')   // paginate ครบ — Rule #2
   const byName = {}
+  const typeByName = {}
   for (const r of data) {
     const name = (r.name || '').trim()
     const code = (r.code || '').trim()
     if (!name || !code || code === '-') continue
     if (!byName[name]) byName[name] = code   // ชื่อแรกที่เจอ code (inventory 1 ชื่อ = 1 code)
+    if (!typeByName[name] && r.type && r.type !== '-') typeByName[name] = r.type
   }
   const names = Object.keys(byName).sort((a, b) => a.localeCompare(b))
-  return { names, byName }
+  return { names, byName, typeByName }
 }
 
 // ค้น code ที่จับคู่ไว้แล้วจากตาราง drug_name_alias (จดจำการ map ครั้งก่อน)
@@ -2037,4 +2043,178 @@ export async function addLedgerAdjustment(input, auth = {}) {
   })
 
   return row
+}
+
+// ============================================================
+// Stock Count — ตรวจนับคงคลัง (ADR-0008)
+// append-only: บันทึก discrepancy เท่านั้น ไม่แก้ inventory.qty
+// ============================================================
+
+const toNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0 }
+
+// ดึงทุก lot ของรหัสยาที่เลือก — รวมหลายแถว inventory ของ (code+lot) เป็น 1 บรรทัด
+// (DB จริง 1 code+lot มีได้หลายแถว แตกด้วย invoice — ดู ADR-0008 ข้อ 3)
+// return [{ code, name, lot, unit, system_qty, system_exp, system_location }]
+export async function fetchLotsForCount(codes) {
+  if (!supabase || !codes?.length) return []
+  const data = await fetchAllInventoryRows('code, name, lot, exp, qty, unit, location')
+  const wanted = new Set(codes)
+  const byKey = new Map()  // code|lot → บรรทัดนับ
+  for (const r of data) {
+    if (!wanted.has(r.code)) continue
+    const key = `${r.code}|${r.lot || '-'}`
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        code: r.code, name: r.name || '-', lot: r.lot || '-', unit: r.unit || '-',
+        system_qty: 0, exps: new Set(), locs: new Set(),
+      })
+    }
+    const row = byKey.get(key)
+    row.system_qty += toNum(r.qty)
+    if (r.exp) row.exps.add(String(r.exp))
+    if (r.location) row.locs.add(String(r.location))
+  }
+  return [...byKey.values()]
+    .filter(row => row.system_qty > 0)   // ซ่อน lot ที่ระบบคงเหลือ 0 — ไม่ต้องเดินนับ
+    .map(row => ({
+      code: row.code, name: row.name, lot: row.lot, unit: row.unit,
+      system_qty: row.system_qty,
+      system_exp: [...row.exps].join(' , ') || '-',
+      system_location: [...row.locs].join(' , ') || '-',
+    })).sort((a, b) => a.name.localeCompare(b.name) || a.lot.localeCompare(b.lot))
+}
+
+// รายการ location ทั้งหมด (distinct) — ใช้เป็น dropdown "ที่เก็บจริง" ตอนตรวจนับ
+export async function fetchInventoryLocations() {
+  if (!supabase) return []
+  const data = await fetchAllInventoryRows('location')
+  const set = new Set()
+  for (const r of data) {
+    const loc = (r.location || '').trim()
+    if (loc && loc !== '-') set.add(loc)
+  }
+  return [...set].sort((a, b) => a.localeCompare(b))
+}
+
+// บันทึก 1 รอบตรวจนับ (session + items) — append-only
+// session = { counted_at, counter_name, note, status }
+// items = [{ code, name, lot, unit, system_qty, system_exp, system_location,
+//            counted_qty, counted_exp, counted_location }]
+export async function createStockCount(session, items, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { data: sess, error: sErr } = await supabase.from('stock_count_session')
+    .insert({
+      counted_at: session.counted_at || new Date().toISOString().slice(0, 10),
+      counter_name: resolveAuditUserName(auth),
+      note: session.note || '',
+      status: session.status || 'done',
+    })
+    .select('id')
+    .single()
+  if (sErr) throw sErr
+
+  const payload = (items || []).map(it => {
+    const sysQty = toNum(it.system_qty)
+    const cntQty = it.counted_qty === '' || it.counted_qty == null ? null : toNum(it.counted_qty)
+    const diff = cntQty == null ? 0 : sysQty - cntQty
+    const qtyMatch = cntQty != null && diff === 0
+    const expMatch = !it.counted_exp || String(it.counted_exp).trim() === String(it.system_exp || '').trim()
+    const locMatch = !it.counted_location || String(it.counted_location).trim() === String(it.system_location || '').trim()
+    return {
+      session_id: sess.id,
+      code: it.code || '-', name: it.name || '-', lot: it.lot || '-', unit: it.unit || '-',
+      system_qty: sysQty, system_exp: it.system_exp || '-', system_location: it.system_location || '-',
+      counted_qty: cntQty, counted_exp: it.counted_exp || '', counted_location: it.counted_location || '',
+      diff_qty: diff, match: qtyMatch && expMatch && locMatch,
+    }
+  })
+  if (payload.length) {
+    const { error: iErr } = await supabase.from('stock_count_item').insert(payload)
+    if (iErr) throw iErr
+  }
+
+  const mismatches = payload.filter(p => !p.match).length
+  await insertAuditLog({
+    action: 'create_stock_count', table_name: 'stock_count_session',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: payload.length,
+    details: { session_id: sess.id, counted: payload.length, mismatches },
+  })
+  return { id: sess.id, mismatches }
+}
+
+// ประวัติรอบตรวจนับ (header) เรียงใหม่สุดก่อน
+export async function fetchStockCountSessions() {
+  if (!supabase) return []
+  const { data, error } = await supabase.from('stock_count_session')
+    .select('*').order('counted_at', { ascending: false }).order('id', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+// รายการที่นับใน 1 รอบ
+export async function fetchStockCountItems(sessionId) {
+  if (!supabase) return []
+  const { data, error } = await supabase.from('stock_count_item')
+    .select('*').eq('session_id', sessionId).order('name')
+  if (error) throw error
+  return data || []
+}
+
+// คำนวณ diff_qty + match ใหม่จากค่านับ (ใช้ตอนแก้ไข item) — เทียบกับ snapshot ระบบที่ freeze ไว้
+function computeCountMatch(item) {
+  const sysQty = toNum(item.system_qty)
+  const cntQty = item.counted_qty === '' || item.counted_qty == null ? null : toNum(item.counted_qty)
+  const diff = cntQty == null ? 0 : sysQty - cntQty
+  const qtyMatch = cntQty != null && diff === 0
+  const expMatch = !item.counted_exp || String(item.counted_exp).trim() === String(item.system_exp || '').trim()
+  const locMatch = !item.counted_location || String(item.counted_location).trim() === String(item.system_location || '').trim()
+  return { counted_qty: cntQty, diff_qty: diff, match: qtyMatch && expMatch && locMatch }
+}
+
+// แก้ไขแถวที่นับ (counted_qty/exp/location) — recompute diff+match จาก snapshot เดิม (ไม่แตะค่าระบบ)
+export async function updateStockCountItem(itemId, fields, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { counted_qty, diff_qty, match } = computeCountMatch(fields)
+  const { error } = await supabase.from('stock_count_item')
+    .update({
+      counted_qty,
+      counted_exp: fields.counted_exp || '',
+      counted_location: fields.counted_location || '',
+      diff_qty, match,
+    })
+    .eq('id', itemId)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'update_stock_count', table_name: 'stock_count_item',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    details: { item_id: itemId, counted_qty, match },
+  })
+}
+
+// แก้ไข header ของรอบ (วันที่/หมายเหตุ)
+export async function updateStockCountSession(sessionId, fields, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const patch = {}
+  if (fields.counted_at) patch.counted_at = fields.counted_at
+  if (fields.note != null) patch.note = fields.note
+  const { error } = await supabase.from('stock_count_session').update(patch).eq('id', sessionId)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'update_stock_count', table_name: 'stock_count_session',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    details: { session_id: sessionId, ...patch },
+  })
+}
+
+// ลบทั้งรอบ (items ถูกลบ cascade ผ่าน FK ON DELETE CASCADE)
+export async function deleteStockCountSession(sessionId, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error } = await supabase.from('stock_count_session').delete().eq('id', sessionId)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'delete_stock_count', table_name: 'stock_count_session',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    details: { session_id: sessionId },
+  })
 }

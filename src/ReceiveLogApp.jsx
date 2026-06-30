@@ -6,6 +6,7 @@ import { fetchDrugDetails, RECEIVE_COL_MAP, insertReceiveRows, normalizeLotSearc
   markBillsAcknowledged, unmarkBillsAcknowledged } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 import SearchableSelect from './SearchableSelect';
+import BackButton from './BackButton';
 import {
   ArrowLeft, UploadCloud, RefreshCcw, Search, X,
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
@@ -255,7 +256,7 @@ const RECEIVE_EXCEL_COLS = [
 // ============================================================
 // Root
 // ============================================================
-export default function ReceiveLogApp({ onRefresh, auth = {}, initialTab = 'view' }) {
+export default function ReceiveLogApp({ onRefresh, auth = {}, initialTab = 'view', onGoBack, canGoBack }) {
   const [tab, setTab]                 = useState(initialTab);
   const [showSummary, setShowSummary] = useState(false);
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
@@ -265,6 +266,7 @@ export default function ReceiveLogApp({ onRefresh, auth = {}, initialTab = 'view
     <div className="min-h-screen bg-slate-200 text-slate-800 font-sans">
       {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + action */}
       <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center gap-2 flex-wrap">
+        <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
         <div className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 shrink-0"><TrendingUp size={18} /></div>
         <button onClick={onRefresh} className="font-bold text-base text-slate-800 truncate flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">บันทึกการรับเข้าคลัง (คลังรับ)</button>
         <div className="flex items-center gap-1.5 shrink-0">
@@ -1821,12 +1823,6 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
             <RefreshCcw size={16}/>
           </button>
           <button
-            onClick={printInspectWorksheet}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-colors"
-            title="พิมพ์ฟอร์มเปล่าให้กรรมการตรวจรับกรอกมือ">
-            <Printer size={14} /> ฟอร์มตรวจรับ
-          </button>
-          <button
             onClick={handleExport}
             disabled={exportLoading || rows.length === 0}
             className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-xl text-xs font-semibold transition-colors"
@@ -2849,108 +2845,6 @@ function printApBatch(rows, batchId, meta = {}) {
 </div>
 
 <p class="foot">พิมพ์เมื่อ ${today}</p>
-</body></html>`;
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const url  = URL.createObjectURL(blob);
-  const win  = window.open(url, '_blank');
-  if (win) setTimeout(() => URL.revokeObjectURL(url), 30000);
-  else     URL.revokeObjectURL(url);
-}
-
-// ฟอร์มตรวจรับยา (เปล่า) — พิมพ์ให้กรรมการตรวจรับกรอกมือขณะตรวจของจริง ไม่ดึงข้อมูลจากระบบ
-// (กรรมการเลือกเองว่าจะตรวจอะไร ดูจากบิล+PO ก่อนมาตรวจ คลังไม่รู้ล่วงหน้า) — ดู CONTEXT.md "ฟอร์มตรวจรับ"
-function printInspectWorksheet() {
-  const ROW_COUNT = 18;
-  const emptyRows = Array.from({ length: ROW_COUNT }, (_, i) => `
-    <tr>
-      <td class="c">${i + 1}</td>
-      <td></td>
-      <td></td>
-      <td class="c"></td>
-      <td></td>
-      <td class="c"></td>
-      <td class="c"></td>
-      <td></td>
-      <td class="c"></td>
-      <td class="c"><span class="bx"></span> ถูก<br/><span class="bx"></span> ไม่ถูก</td>
-      <td></td>
-    </tr>`).join('');
-
-  const html = `<!DOCTYPE html><html lang="th"><head>
-<meta charset="UTF-8"/>
-<title>ฟอร์มตรวจรับยา</title>
-<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #1e293b; background: #fff; padding: 20px 28px 28px; }
-  @page { size: A4 landscape; }
-  .h-row { text-align: center; border-bottom: 2px solid #1e293b; padding-bottom: 8px; margin-bottom: 14px; }
-  h1 { font-size: 20px; font-weight: 700; color: #1e293b; }
-  .sub { font-size: 13px; color: #334155; font-weight: 600; margin-top: 2px; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 14px; }
-  th { background: #f1f5f9; color: #1e293b; font-weight: 700; padding: 6px 6px; text-align: center;
-    border: 1px solid #000; }
-  td { padding: 5px 6px; border: 1px solid #94a3b8; height: 30px; vertical-align: top; }
-  td.c { text-align: center; }
-  .bx { display: inline-block; width: 11px; height: 11px; border: 1px solid #475569; vertical-align: middle; margin-right: 2px; }
-  .sig-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 28px; page-break-inside: avoid; }
-  .sig-box { padding: 14px 16px; text-align: center; }
-  .sig-title { font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 36px; }
-  .sig-line { border-bottom: 1px solid #94a3b8; }
-  .sig-label { font-size: 11px; color: #64748b; margin-top: 4px; }
-  .sig-date { font-size: 11px; color: #64748b; margin-top: 8px; }
-  .sig-date span { display: inline-block; border-bottom: 1px dotted #94a3b8; min-width: 120px; margin-left: 6px; }
-  .foot { font-size: 10px; color: #94a3b8; text-align: right; margin-top: 14px; }
-  @media print {
-    body { padding: 8mm 10mm; }
-    button { display: none !important; }
-    thead { display: table-header-group; }
-  }
-</style>
-</head><body>
-<button onclick="window.print()" style="position:fixed;top:14px;right:14px;background:#047857;color:#fff;border:none;
-  padding:8px 18px;border-radius:8px;font-family:Sarabun,sans-serif;font-size:13px;cursor:pointer;font-weight:600;z-index:9999;">
-  พิมพ์
-</button>
-
-<div class="h-row">
-  <h1>${HOSPITAL_NAME}</h1>
-  <p class="sub">ใบตรวจรับยา / เวชภัณฑ์</p>
-</div>
-
-<table>
-  <thead><tr>
-    <th style="width:4%;">ลำดับ</th>
-    <th>ชื่อยา</th>
-    <th style="width:12%;">บริษัท/ผู้ขาย</th>
-    <th style="width:9%;">เลขบิล/PO</th>
-    <th style="width:8%;">จำนวนสั่ง</th>
-    <th style="width:8%;">จำนวนรับจริง</th>
-    <th style="width:12%;">LOT.NO</th>
-    <th style="width:9%;">EXP.</th>
-    <th style="width:9%;">วันที่ตรวจรับ</th>
-    <th style="width:10%;">ตรงตามเอกสาร</th>
-    <th style="width:11%;">หมายเหตุ</th>
-  </tr></thead>
-  <tbody>${emptyRows}</tbody>
-</table>
-
-<div class="sig-row">
-  <div class="sig-box">
-    <p class="sig-title">กรรมการตรวจรับ</p>
-    <div class="sig-line"></div>
-    <p class="sig-label">ลายมือชื่อ ผู้ตรวจรับ</p>
-    <p class="sig-date">วันที่ <span></span></p>
-  </div>
-  <div class="sig-box">
-    <p class="sig-title">ผู้ส่งมอบ (เจ้าหน้าที่คลัง)</p>
-    <div class="sig-line"></div>
-    <p class="sig-label">ลายมือชื่อ ผู้ส่งมอบ</p>
-    <p class="sig-date">วันที่ <span></span></p>
-  </div>
-</div>
-
-<p class="foot">พิมพ์เมื่อ ${(() => { const iso = todayIsoLocal(); const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${Number(m[1]) + 543}` : iso; })()}</p>
 </body></html>`;
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url  = URL.createObjectURL(blob);

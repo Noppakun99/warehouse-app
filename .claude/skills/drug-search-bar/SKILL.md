@@ -14,6 +14,13 @@ description: Add a DrugSearchBar autocomplete with badge to a warehouse-app comp
 - เลือกจาก dropdown → ค่าถูก set ทันที, dropdown ปิด
 - พิมพ์ตรงๆ ก็ได้ (free text filter)
 
+## ⚠️ ต้องมี badge ชนิดยาเสมอ
+
+`options` **ต้องส่ง `type` (ชนิดยา) มาด้วยทุกครั้ง** — ห้ามส่ง `type: ''` (badge จะไม่ขึ้น). ถ้า source ไม่มี type ให้ join จากตารางที่มี:
+
+- **dispense_logs / receive_logs:** มี `drug_type` อยู่แล้ว (ดูข้อ 3)
+- **inventory:** `fetchInventoryNameCodeMap()` คืน `{ names, byName, typeByName }` → map `type: typeByName[name]` (ดูตัวอย่าง "source = inventory")
+
 ## Component ที่ใช้
 
 `src/DrugSearchBar.jsx` — export `default DrugSearchBar` และ named export `DrugTypeBadge`
@@ -117,6 +124,31 @@ const [drugNames, setDrugNames] = useState([]);
 const filteredRows = monthlySearch.trim()
   ? rows.filter(r => r.drug_name?.toLowerCase().includes(monthlySearch.toLowerCase()))
   : rows;
+```
+
+## ตัวอย่าง: source = inventory (มี badge ชนิดยา)
+
+ใช้เมื่อ component อ้างอิงยาจากคลัง (เช่น ตรวจนับคงคลัง). `fetchInventoryNameCodeMap` คืน `typeByName` ให้ map เป็น badge:
+
+```jsx
+import { fetchInventoryNameCodeMap } from './lib/db';
+
+const [pick, setPick] = useState('');
+const [opts, setOpts] = useState([]);
+
+useEffect(() => {
+  fetchInventoryNameCodeMap().then(m =>
+    setOpts((m.names || []).map(name => ({ name, type: m.typeByName?.[name] || '' }))));
+}, []);
+
+<DrugSearchBar
+  value={pick}
+  onChange={setPick}
+  onSelect={(name) => { /* ... ใช้ m.byName[name] หา code */ }}
+  options={opts}
+  ringClass="focus:ring-emerald-400"
+  hoverClass="hover:bg-emerald-50"
+/>
 ```
 
 ## หมายเหตุ

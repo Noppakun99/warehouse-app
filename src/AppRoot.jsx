@@ -27,8 +27,10 @@ import UserManagementApp  from './UserManagementApp';
 import AnalyticsApp       from './AnalyticsApp';
 import ReorderApp         from './ReorderApp';
 import StockLedgerApp     from './StockLedgerApp';
+import StockCountApp      from './StockCountApp';
 import DashboardV2Preview from './DashboardV2Preview'; // prototype ชั่วคราว — เปิดด้วย ?v2 (ลบได้ทั้งบรรทัด)
 import AppShell           from './AppShell';
+import { printInspectWorksheet } from './lib/inspectWorksheet';
 
 
 // ============================================================
@@ -84,6 +86,11 @@ export default function AppRoot() {
   const logout = () => { sessionStorage.removeItem(AUTH_KEY); setAuth(null); setNavStack(['dashboard']); setToasts([]); };
   const refreshPage = () => setSubKey(k => k + 1);
 
+  // action item ใน sidebar (เมนู "แบบฟอร์มต่างๆ") — ทำ action ไม่เปิดหน้า/ไม่เข้า navStack
+  const runFormAction = (action) => {
+    if (action === 'inspectWorksheet') printInspectWorksheet();
+  };
+
   // early-return หลัง hooks ทั้งหมด (Rules of Hooks) — prototype ?v2
   if (showV2) return <DashboardV2Preview onExit={() => setShowV2(false)} />;
 
@@ -93,7 +100,7 @@ export default function AppRoot() {
   } else {
     switch (page) {
       case 'inventory':
-        content = <App key={subKey} onBackToDashboard={() => setPage('dashboard')} onRefresh={refreshPage} onNavigate={setPage} role={auth.role} auth={auth} />;
+        content = <App key={subKey} onBackToDashboard={() => setPage('dashboard')} onRefresh={refreshPage} onNavigate={setPage} role={auth.role} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'requisition':
       case 'requisition-history':
@@ -106,35 +113,40 @@ export default function AppRoot() {
             startAsStaff={auth.role === 'staff' || auth.role === 'admin'}
             initialStep={page === 'requisition-history' ? 'history' : null}
             auth={auth}
+            onGoBack={goBack}
+            canGoBack={canGoBack}
           />
         );
         break;
       case 'dispense':
-        content = <DispenseLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
+        content = <DispenseLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'receive':
-        content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
+        content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'receive-ap':
-        content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} initialTab="ap" />;
+        content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} initialTab="ap" onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'return':
-        content = <ReturnApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
+        content = <ReturnApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'audit':
-        content = <AuditLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
+        content = <AuditLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'users':
-        content = <UserManagementApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
+        content = <UserManagementApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'analytics':
-        content = <AnalyticsApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
+        content = <AnalyticsApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'reorder':
-        content = <ReorderApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
+        content = <ReorderApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'ledger':
-        content = <StockLedgerApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} />;
+        content = <StockLedgerApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
+        break;
+      case 'stockcount':
+        content = <StockCountApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       default:
         content = <Dashboard key={subKey} auth={auth} onNavigate={setPage} />;
@@ -147,7 +159,7 @@ export default function AppRoot() {
   if (auth) {
     const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username;
     content = (
-      <AppShell page={page} onNavigate={setPage} onRefresh={refreshPage} displayName={displayName} role={auth.role} onLogout={logout} onGoBack={goBack} canGoBack={canGoBack}>
+      <AppShell page={page} onNavigate={setPage} onFormAction={runFormAction} onRefresh={refreshPage} displayName={displayName} role={auth.role} onLogout={logout}>
         {content}
       </AppShell>
     );
@@ -534,6 +546,10 @@ const NOTIF_LABELS = {
   import_reorder_config:        { label: 'Import Master ยา',      color: 'text-indigo-600',  dot: 'bg-indigo-400' },
   mark_ordered:                 { label: 'ทำเครื่องหมายสั่งแล้ว',  color: 'text-emerald-600', dot: 'bg-emerald-400' },
   print_po:                     { label: 'พิมพ์ใบสั่งซื้อ',        color: 'text-slate-700',   dot: 'bg-slate-500'  },
+  // ── Stock Count (ตรวจนับคงคลัง) ──
+  create_stock_count:           { label: 'ตรวจนับคงคลัง',         color: 'text-emerald-600', dot: 'bg-emerald-400' },
+  update_stock_count:           { label: 'แก้ไขผลตรวจนับ',        color: 'text-amber-600',   dot: 'bg-amber-400' },
+  delete_stock_count:           { label: 'ลบรอบตรวจนับ',          color: 'text-red-600',     dot: 'bg-red-400' },
 };
 
 const NOTIFY_ACTIONS = Object.keys(NOTIF_LABELS);

@@ -8,6 +8,7 @@ import {
   BarChart2, CalendarDays, FileText, Layers, AlertTriangle, ChevronDown, ChevronUp, FileDown,
 } from 'lucide-react';
 import { fetchDispenseAnalytics } from './lib/db';
+import BackButton from './BackButton';
 import { exportToExcel } from './lib/exportExcel';
 import DrugSearchBar from './DrugSearchBar';
 
@@ -491,6 +492,7 @@ export default function AnalyticsApp({ onRefresh, auth = {} }) {
       {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + refresh + filter */}
       <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3">
         <div className="flex items-center gap-3">
+          <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
           <div className="p-1.5 rounded-lg bg-cyan-100 text-cyan-600 shrink-0"><Activity size={18} /></div>
           <button onClick={onRefresh} className="flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
             <h1 className="font-bold text-base leading-tight text-slate-800">วิเคราะห์การเบิกยา</h1>

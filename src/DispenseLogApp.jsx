@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { supabase } from './lib/supabase';
 import SearchableSelect from './SearchableSelect';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
+import BackButton from './BackButton';
 import {
   ArrowLeft, UploadCloud, RefreshCcw, Search, X,
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
@@ -265,7 +266,7 @@ const DISPENSE_EXCEL_COLS = [
 // ============================================================
 // Root
 // ============================================================
-export default function DispenseLogApp({ onRefresh, auth = {} }) {
+export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBack }) {
   const [tab, setTab]             = useState('view');
   const [showSummary, setShowSummary] = useState(false);
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
@@ -275,6 +276,7 @@ export default function DispenseLogApp({ onRefresh, auth = {} }) {
     <div className="min-h-screen bg-slate-200 text-slate-800 font-sans">
       {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + action */}
       <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center gap-2">
+        <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
         <div className="p-1.5 rounded-lg bg-rose-100 text-rose-600 shrink-0"><TrendingDown size={18} /></div>
         <button onClick={onRefresh} className="font-bold text-base text-slate-800 truncate flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">บันทึกการเบิกจ่าย (คลังเบิก)</button>
         <div className="flex items-center gap-1.5 shrink-0">

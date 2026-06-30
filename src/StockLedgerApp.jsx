@@ -9,6 +9,7 @@ import {
   closeLedgerPeriod, reopenLedgerPeriod, addLedgerAdjustment,
 } from './lib/db';
 import { seedFromMasterCsv } from './lib/ledgerSeed';
+import BackButton from './BackButton';
 
 const fmtBaht = (n) => new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
 const fmtNum = (n) => new Intl.NumberFormat('th-TH').format(n || 0);
@@ -252,7 +253,7 @@ function AdjustModal({ open, period, onClose, onAdded, auth }) {
 // ────────────────────────────────────────────────────────────
 // StockLedgerApp
 // ────────────────────────────────────────────────────────────
-export default function StockLedgerApp({ onRefresh, auth = {} }) {
+export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBack }) {
   const [period, setPeriod] = useState(null);
   const [status, setStatus] = useState(null);      // 'open' | 'closed' | null
   const [rows, setRows] = useState([]);
@@ -353,6 +354,7 @@ export default function StockLedgerApp({ onRefresh, auth = {} }) {
       <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 sticky top-0 z-30">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">
+            <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
             <div className="p-1.5 rounded-lg bg-teal-100 text-teal-600 shrink-0"><Layers size={18} /></div>
             <button onClick={onRefresh} className="text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
               <h1 className="text-base sm:text-lg font-bold leading-tight text-slate-800">ทะเบียนคงคลังรายเดือน</h1>

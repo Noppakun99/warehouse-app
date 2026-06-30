@@ -8,6 +8,7 @@ import {
   fetchAppUsers, createAppUser, updateAppUser,
   deleteAppUser, changeAppUserPassword, updateUserPermissions,
 } from './lib/db';
+import BackButton from './BackButton';
 
 const ROLE_CONFIG = {
   requester: { label: 'ผู้เบิก',          badge: 'bg-blue-100 text-blue-700 border border-blue-300',   icon: User      },
@@ -35,6 +36,7 @@ const SYSTEM_ACCESS = {
     { name: 'ประวัติเบิกยา',   color: 'bg-rose-100 text-rose-700' },
     { name: 'คืนยา',            color: 'bg-violet-100 text-violet-700' },
     { name: 'วิเคราะห์การสั่งซื้อ', color: 'bg-orange-100 text-orange-700' },
+    { name: 'ตรวจนับคงคลัง',    color: 'bg-emerald-100 text-emerald-700' },
     { name: 'Audit Log',        color: 'bg-slate-100 text-slate-600' },
   ],
   admin: [
@@ -44,6 +46,7 @@ const SYSTEM_ACCESS = {
     { name: 'ประวัติเบิกยา',   color: 'bg-rose-100 text-rose-700' },
     { name: 'คืนยา',            color: 'bg-violet-100 text-violet-700' },
     { name: 'วิเคราะห์การสั่งซื้อ', color: 'bg-orange-100 text-orange-700' },
+    { name: 'ตรวจนับคงคลัง',    color: 'bg-emerald-100 text-emerald-700' },
     { name: 'Audit Log',        color: 'bg-slate-100 text-slate-600' },
     { name: 'จัดการผู้ใช้',    color: 'bg-violet-200 text-violet-800' },
   ],
@@ -107,7 +110,7 @@ function PasswordInput({ value, onChange, placeholder = 'รหัสผ่า�
 // ============================================================
 // UserManagementApp
 // ============================================================
-export default function UserManagementApp({ auth }) {
+export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
   const [users, setUsers]     = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch]   = useState('');
@@ -247,6 +250,7 @@ export default function UserManagementApp({ auth }) {
     <div className="min-h-screen bg-slate-50 font-sans">
       {/* Title bar — sidebar (AppShell) คุม navigation แล้ว header เดิมเหลือแค่ title + refresh */}
       <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center gap-3">
+        <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
         <div className="p-1.5 rounded-lg bg-violet-100 text-violet-700 shrink-0"><Users size={18}/></div>
         <div className="flex-1 min-w-0">
           <h1 className="font-bold text-base leading-tight text-slate-800">จัดการผู้ใช้งาน</h1>
@@ -446,8 +450,9 @@ export default function UserManagementApp({ auth }) {
 
       {/* ===== Modals ===== */}
       {modal && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={closeModal}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+          onMouseDown={e => { if (e.target === e.currentTarget) closeModal(); }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
 
             {/* Create User */}
             {modal === 'create' && (

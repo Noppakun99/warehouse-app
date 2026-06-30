@@ -9,6 +9,7 @@ import { fetchReturnLogs, insertReturnLog, deleteReturnLog, updateReturnLog, fet
 import { exportToExcel } from './lib/exportExcel'
 import { supabase } from './lib/supabase'
 import SearchableSelect from './SearchableSelect'
+import BackButton from './BackButton'
 
 // ============================================================
 // Constants
@@ -249,14 +250,14 @@ function printReturnLog(r) {
 // ============================================================
 // Root
 // ============================================================
-export default function ReturnApp({ onRefresh, auth }) {
+export default function ReturnApp({ onRefresh, auth, onGoBack, canGoBack }) {
   const [tab, setTab] = useState('record')
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans">
       <header className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-10">
-        {/* sidebar (AppShell) คุม navigation; ปุ่ม back เดิมเอาออก */}
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
+          <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
           <div className="p-2 bg-violet-100 text-violet-600 rounded-xl shrink-0"><RotateCcw size={20} /></div>
           <button onClick={onRefresh} className="text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
             <p className="font-bold text-sm leading-tight text-slate-800">ระบบคืนยา / บันทึกยาเสียหาย</p>

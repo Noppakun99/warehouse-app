@@ -6,12 +6,14 @@
 import {
   Package, Database, RotateCcw, TrendingUp, TrendingDown,
   Activity, ShoppingCart, ClipboardList, Users, History, BarChart3, Layers,
+  FileText, ClipboardCheck,
 } from 'lucide-react';
 
-// โครงสร้างเมนู — รองรับ 2 แบบใน group.items:
-//   1) leaf item:    { page, icon, title, c, roles }  → ปุ่มเมนูตรง
-//   2) submenu:      { key, icon, title, roles, children: [leaf, ...] }  → กดกางแบบ collapsible
-// page = key สำหรับ onNavigate (ตรง AppRoot routing), c = สีประจำระบบ, roles ตรงกับ SYSTEMS.roles
+// โครงสร้างเมนู — รองรับ 3 แบบใน group.items / children:
+//   1) leaf item:    { page, icon, title, c, roles }    → ปุ่มเมนูตรง (onNavigate → เปิดหน้า)
+//   2) submenu:      { key, icon, title, roles, children: [...] }  → กดกางแบบ collapsible
+//   3) action item:  { action, icon, title, c, roles }  → ปุ่มที่ "ทำ action" (เช่น เปิด print) ไม่เปิดหน้า/ไม่เข้า navStack
+// page = key สำหรับ onNavigate (ตรง AppRoot routing), action = key สำหรับ onFormAction, c = สีประจำระบบ, roles ตรงกับ SYSTEMS.roles
 export const NAV_GROUPS = [
   {
     label: 'งานประจำวัน', dot: 'bg-emerald-500',
@@ -38,12 +40,19 @@ export const NAV_GROUPS = [
           { page: 'reorder',   icon: ShoppingCart, title: 'วิเคราะห์สั่งซื้อ', c: 'orange', roles: ['staff', 'admin'] },
         ],
       },
+      {
+        key: 'forms', icon: FileText, title: 'แบบฟอร์มต่างๆ', roles: ['requester', 'staff', 'admin'],
+        children: [
+          { action: 'inspectWorksheet', icon: ClipboardCheck, title: 'ฟอร์มตรวจรับ', c: 'emerald', roles: ['requester', 'staff', 'admin'] },
+        ],
+      },
     ],
   },
   {
     label: 'ควบคุมระบบ', dot: 'bg-slate-500',
     items: [
-      { page: 'ledger', icon: Layers,         title: 'ทะเบียนคงคลัง',   c: 'teal',  roles: ['admin'] },
+      { page: 'ledger',     icon: Layers,         title: 'ทะเบียนคงคลัง',   c: 'teal',    roles: ['admin'] },
+      { page: 'stockcount', icon: ClipboardCheck, title: 'ตรวจนับคงคลัง',   c: 'emerald', roles: ['staff', 'admin'] },
       { page: 'audit',  icon: ClipboardList,  title: 'Audit Log',        c: 'amber', roles: ['staff', 'admin'] },
       { page: 'users',  icon: Users,          title: 'จัดการผู้ใช้งาน', c: 'slate', roles: ['admin'] },
     ],
@@ -51,9 +60,10 @@ export const NAV_GROUPS = [
 ];
 
 // flatten leaf items (รวม children ของ submenu) — ใช้โดย DashboardV2Preview/อื่นๆ
+// กรอง action item ออก (ไม่มี page — ไม่ใช่หน้าให้ navigate)
 export const NAV_ITEMS = NAV_GROUPS.flatMap(g =>
   g.items.flatMap(it => (it.children ? it.children : [it]))
-);
+).filter(it => it.page);
 
 // Tailwind ต้องเห็น class เต็มตอน build → map ตรงต่อสี (ห้ามใช้ `bg-${c}-50` — purge ตัด)
 export const COLOR = {

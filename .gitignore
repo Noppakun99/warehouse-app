@@ -37,3 +37,6 @@ supabase/.temp/
 *.njsproj
 *.sln
 *.sw?
+
+# ไฟล์ข้อมูล CSV ต้นทาง (ยอดคลังยา) — ไม่เก็บใน git
+csvfile/

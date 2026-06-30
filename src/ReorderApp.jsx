@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import DrugSearchBar from './DrugSearchBar';
+import BackButton from './BackButton';
 import { supabase } from './lib/supabase';
 import {
   fetchInventory, fetchDrugReorderConfig, upsertDrugReorderConfig,
@@ -416,7 +417,7 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
 // ────────────────────────────────────────────────────────────
 // Main App
 // ────────────────────────────────────────────────────────────
-export default function ReorderApp({ onRefresh, auth = {} }) {
+export default function ReorderApp({ onRefresh, auth = {}, onGoBack, canGoBack }) {
   // ── Filters / control state ──
   const [statsFrom, setStatsFrom] = useState(isoMonthsAgo(4));
   const [statsTo,   setStatsTo]   = useState(isoPrevMonthEnd());
@@ -631,6 +632,7 @@ export default function ReorderApp({ onRefresh, auth = {} }) {
       <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 sticky top-0 z-30">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">
+            <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
             <div className="p-1.5 rounded-lg bg-orange-100 text-orange-600 shrink-0"><ShoppingCart size={18}/></div>
             <button onClick={onRefresh} className="text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
               <h1 className="text-base sm:text-lg font-bold leading-tight text-slate-800">ระบบวิเคราะห์การสั่งซื้อยา</h1>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCcw, Search, ClipboardList, Pencil, Trash2, X, Save, CheckSquare } from 'lucide-react';
 import { fetchAuditLogs, updateAuditLog, deleteAuditLog, bulkDeleteAuditLogs } from './lib/db';
+import BackButton from './BackButton';
 
 const ACTION_LABELS = {
   import_inventory:             { label: 'นำเข้า Inventory',       color: 'bg-blue-100 text-blue-700'      },
@@ -53,6 +54,10 @@ const ACTION_LABELS = {
   close_ledger_period:          { label: 'ปิดงวดคงคลัง',            color: 'bg-teal-100 text-teal-700'     },
   reopen_ledger_period:         { label: 'เปิดงวดคงคลังใหม่',        color: 'bg-amber-100 text-amber-700'   },
   add_ledger_adjustment:        { label: 'เพิ่มแถวปรับยอดคงคลัง',     color: 'bg-teal-100 text-teal-700'     },
+  // ── Stock Count (ADR-0008) ──
+  create_stock_count:           { label: 'ตรวจนับคงคลัง',           color: 'bg-emerald-100 text-emerald-700'},
+  update_stock_count:           { label: 'แก้ไขผลตรวจนับ',          color: 'bg-amber-100 text-amber-700'   },
+  delete_stock_count:           { label: 'ลบรอบตรวจนับ',            color: 'bg-red-100 text-red-700'       },
 };
 
 const RETURN_TYPE_LABELS = {
@@ -146,7 +151,7 @@ function IsoDateInput({ value, onChange, className = '' }) {
   )
 }
 
-export default function AuditLogApp({ onRefresh, auth }) {
+export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
   const [logs, setLogs]           = useState([]);
   const [loading, setLoading]     = useState(false);
   const [dateFrom, setDateFrom]   = useState(monthAgoStr());
@@ -284,6 +289,7 @@ export default function AuditLogApp({ onRefresh, auth }) {
     <div className="min-h-screen bg-slate-50">
       {/* Title bar — sidebar (AppShell) คุม navigation แล้ว header เดิมเหลือแค่ title + refresh */}
       <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center gap-3">
+        <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
         <div className="p-1.5 rounded-lg bg-amber-100 text-amber-600 shrink-0"><ClipboardList size={18} /></div>
         <button onClick={onRefresh} className="flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
           <h1 className="font-bold text-base leading-tight text-slate-800">Audit Log</h1>

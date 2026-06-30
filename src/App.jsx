@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { fetchInventory, saveInventory, fetchDrugDetails, fetchUploadMeta, saveUploadMeta, importReceiveLogs, normalizeLotSearch } from './lib/db';
+import BackButton from './BackButton';
 import { exportToExcel } from './lib/exportExcel';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
 import {
@@ -152,7 +153,7 @@ const parseCSVRow = (str) => {
   return arr;
 };
 
-export default function App({ onRefresh, role = 'staff', auth = {} }) {
+export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, canGoBack }) {
   const isStaff = role === 'staff' || role === 'admin';
   const [inventory, setInventory] = useState(initialInventory);
   const [exportLoading, setExportLoading] = useState(false);
@@ -1082,7 +1083,7 @@ export default function App({ onRefresh, role = 'staff', auth = {} }) {
       {/* ── Top header bar ── */}
       <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between sticky top-0 z-30 shadow-sm">
         <div className="flex items-center gap-3">
-          {/* ปุ่มกลับเดิมเอาออก — sidebar (AppShell) คุม navigation */}
+          <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 bg-sky-500 rounded-lg flex items-center justify-center shrink-0">
               <Database size={16} className="text-white" />
