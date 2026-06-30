@@ -30,6 +30,7 @@ export function printInspectWorksheet() {
 
   const html = `<!DOCTYPE html><html lang="th"><head>
 <meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>ฟอร์มตรวจรับยา</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
 <style>
@@ -53,9 +54,17 @@ export function printInspectWorksheet() {
   .sig-date { font-size: 11px; color: #64748b; margin-top: 6px; }
   .sig-date span { display: inline-block; border-bottom: 1px dotted #94a3b8; min-width: 120px; margin-left: 6px; }
   .foot { font-size: 10px; color: #94a3b8; text-align: right; margin-top: 8px; }
+  .tbl-wrap { width: 100%; }
   @media print {
     button { display: none !important; }
     thead { display: table-header-group; }
+    .tbl-wrap { overflow: visible; }
+  }
+  /* บนมือถือ: ปล่อยให้ตารางคงขนาดอ่านได้แล้วเลื่อนแนวนอน แทนการบีบจนตัวเล็ก */
+  @media screen and (max-width: 768px) {
+    body { padding: 12px; }
+    .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { min-width: 760px; }
   }
 </style>
 </head><body>
@@ -69,6 +78,7 @@ export function printInspectWorksheet() {
   <p class="sub">ใบตรวจรับยา / เวชภัณฑ์</p>
 </div>
 
+<div class="tbl-wrap">
 <table>
   <thead>
   <tr>
@@ -91,6 +101,7 @@ export function printInspectWorksheet() {
   </thead>
   <tbody>${emptyRows}</tbody>
 </table>
+</div>
 
 <div class="sig-row">
   <div class="sig-box">
