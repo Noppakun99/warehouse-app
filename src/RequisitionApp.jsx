@@ -173,6 +173,17 @@ async function computeReqAllocations(reqs) {
     });
   }
   const withPrice = (code, a) => ({ ...a, price_per_unit: a.price_per_unit ?? priceMap[`${String(code||'').trim()}|${String(a.lot||'').trim()}`] ?? null });
+  // คงเหลือสดรวมต่อรหัสยา (หน่วยย่อยสุด) — ใช้คำนวณ "คงเหลือหลังจ่าย" ในใบพิมพ์
+  const onHandByCode = {};
+  // คงเหลือสดราย lot (หน่วยย่อยสุด) key = "code|lot" — ใบพิมพ์แสดงคงเหลือหลังจ่ายราย lot
+  const onHandByLot = {};
+  Object.entries(fefoByCode).forEach(([code, lots]) => {
+    onHandByCode[code] = lots.reduce((s, l) => s + l.base, 0);
+    lots.forEach(l => {
+      const key = `${code}|${String(l.lot || '').trim()}`;
+      onHandByLot[key] = (onHandByLot[key] || 0) + l.base;
+    });
+  });
   const allocByItem = {};
   allItems.forEach(item => {
     if (Array.isArray(item.picked_allocation) && item.picked_allocation.length) {
@@ -185,7 +196,7 @@ async function computeReqAllocations(reqs) {
       }
     }
   });
-  return { allocByItem, priceMap, logMap };
+  return { allocByItem, priceMap, logMap, onHandByCode, onHandByLot };
 }
 
 // แปลง list ของ requisitions → flat rows สำหรับ Excel
@@ -437,6 +448,59 @@ const parseExp = (raw) => {
 const fmtExp = (raw) => {
   const d = parseExp(raw); if (!d) return raw || '-';
   return `${_pad(d.getDate())}/${_pad(d.getMonth()+1)}/${d.getFullYear()}`;
+};
+
+// marker นำหน้าบรรทัดหมายเหตุที่ระบบเติมอัตโนมัติ (จ่ายเกิน) — ใช้หา/ตัดออกกัน duplicate ตอน save ซ้ำ
+const MARK_OVER = '[จ่ายเกิน]';
+
+// lot ใกล้หมดอายุ = exp ภายใน 16 เดือนนับจากวันนี้ (เกณฑ์เดียวกับหน้าแผนผังคลัง App.jsx)
+const isNearExpiry = (raw) => {
+  const d = parseExp(raw); if (!d) return false;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const target = new Date(today); target.setMonth(target.getMonth() + 16);
+  d.setHours(0, 0, 0, 0);
+  return d <= target;
+};
+
+// ระยะถึงวันหมดอายุ → "อีก X ปี Y เดือน Z วัน" (สำหรับใบพิมพ์); หมดอายุแล้ว → "หมดอายุแล้ว"
+const expCountdown = (raw) => {
+  const d = parseExp(raw); if (!d) return '';
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  if (d < today) return 'หมดอายุแล้ว';
+  let years = d.getFullYear() - today.getFullYear();
+  let months = d.getMonth() - today.getMonth();
+  let days = d.getDate() - today.getDate();
+  if (days < 0) { months -= 1; const prevMonth = new Date(d.getFullYear(), d.getMonth(), 0); days += prevMonth.getDate(); }
+  if (months < 0) { years -= 1; months += 12; }
+  const parts = [];
+  if (years)  parts.push(`${years} ปี`);
+  if (months) parts.push(`${months} เดือน`);
+  if (days)   parts.push(`${days} วัน`);
+  return parts.length ? `อีก ${parts.join(' ')}` : 'หมดอายุวันนี้';
+};
+
+// แสดงจำนวนที่จ่ายของ lot เป็น "กล่อง × หน่วยย่อย" จาก allocation (packs กล่อง + base เม็ด)
+//   ผู้เบิกใช้เช็คตอนรับของ — packSize = base/packs (ไม่ต้องโหลด inventory)
+const allocPackLabel = (a, unit) => {
+  const packs = Number(a.packs) || 0;
+  const base = Number(a.base) || 0;
+  if (packs <= 0) return `${base.toLocaleString()} ${unit || ''}`.trim();
+  const size = Math.round(base / packs);
+  return size > 1 ? `${packs.toLocaleString()} กล่อง × ${size.toLocaleString()}${unit || ''}` : `${packs.toLocaleString()} ${unit || ''}`.trim();
+};
+
+// แสดงคงเหลือราย lot เป็น "กล่อง × หน่วยย่อย" ให้ staff นับของจริงง่าย
+//   on = ข้อมูล lot จาก inventory สด { packs, packSize, unit }, pickedPacks = กล่องที่จ่ายไป
+//   คืน { remainPacks, label, before, out } — label/before/out เป็นข้อความ "กล่อง × หน่วย"
+const remainLotPacks = (on, pickedPacks) => {
+  if (!on) return null;
+  const size = on.packSize || 1;
+  const before = Math.max(0, on.packs || 0);
+  const out = Math.max(0, pickedPacks || 0);
+  const remainPacks = Math.max(0, before - out);
+  const fmt = (p) => size > 1 ? `${p.toLocaleString()} กล่อง × ${size.toLocaleString()}${on.unit || ''}` : `${p.toLocaleString()} ${on.unit || ''}`;
+  return { remainPacks, label: fmt(remainPacks), before: fmt(before), out: fmt(out) };
 };
 
 // สรุปกล่องคงเหลือ แยกตาม packsize เช่น "105 กล่อง × 1000เม็ด" หรือ "5 × 1000เม็ด + 2 × 500เม็ด"
@@ -933,7 +997,6 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
 
 // ---- Cart ----
 function CartView({ info, cart, setCart, onBack, onSubmitted }) {
-  const [note, setNote]       = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
   const [doneInfo, setDoneInfo] = useState(null);
@@ -990,7 +1053,7 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
         }
 
         const { data: req, error: e1 } = await supabase.from('requisitions')
-          .insert({ req_number: genReqNumber(), department: info.department, requester_name: info.name, status: 'pending', note: note.trim()||null })
+          .insert({ req_number: genReqNumber(), department: info.department, requester_name: info.name, status: 'pending' })
           .select().single();
         if (e1) throw e1;
         // เบิกระดับยา: ไม่ระบุ lot/exp/ราคา — คลังจัดสรร lot (FEFO) ตอน picking (ADR-0004)
@@ -1129,8 +1192,11 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
                     <div className="space-y-1">
                       {alloc.allocation.map((a, ai) => (
                         <div key={ai} className="flex items-center gap-2 text-sm flex-wrap">
-                          <span className="font-mono font-semibold text-slate-700">{a.lot || '-'}</span>
+                          <span className="font-mono font-semibold text-slate-700">Lot {a.lot || '-'}</span>
                           <span className="text-xs text-slate-400">Exp {fmtExp(a.exp)}</span>
+                          {isNearExpiry(a.exp) && (
+                            <span className="inline-flex items-center gap-0.5 text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 font-semibold"><Clock size={10}/> ใกล้หมดอายุ</span>
+                          )}
                           <span className="ml-auto font-bold text-emerald-600">{a.base.toLocaleString()} {item.unit || ''}</span>
                           <span className="text-xs text-slate-400">({a.packs.toLocaleString()} × {a.unit})</span>
                         </div>
@@ -1163,10 +1229,6 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
               </div>
             </div>
           ); })}
-        {cart.length > 0 && (
-          <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="หมายเหตุ (ถ้ามี)..." rows={2}
-            className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF] resize-none mt-2" />
-        )}
         {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-xl px-3 py-2 flex items-center gap-2"><AlertCircle size={14}/>{error}</p>}
       </div>
       {cart.length > 0 && (
@@ -1183,34 +1245,58 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
 
 // ---- Print helper ----
 // async: คำนวณ allocation (จัดแล้ว=picked / ยังไม่จัด=FEFO สด) ก่อนสร้าง HTML เพื่อโชว์ lot/exp/ราคา
-async function printReq(req) {
-  const { allocByItem } = await computeReqAllocations([req]);
+// preopenedWin = หน้าต่างเปล่าที่เปิดไว้ตั้งแต่ตอนคลิก (กัน popup blocker บน mobile — ต้องเปิดใน user gesture ก่อน await)
+async function printReq(req, preopenedWin) {
+  const { allocByItem, onHandByLot } = await computeReqAllocations([req]);
   const d = new Date(req.created_at);
   const dateStr = d.toLocaleString('th-TH', { dateStyle: 'long', timeStyle: 'short' });
-  const statusLabel = (STATUS_CONFIG[req.status] || STATUS_CONFIG.pending).label;
   const allItems = req.requisition_items || [];
   const items = req.status === 'partial'
     ? allItems.filter(item => item.approved_qty != null && item.approved_qty > 0)
     : allItems;
+  // คงเหลือหลังจ่ายราย lot = คงเหลือสดของ lot นั้น − จำนวนที่จ่ายจาก lot นั้น
+  const remainLot = (code, lot, out) => {
+    const onHand = onHandByLot[`${String(code || '').trim()}|${String(lot || '').trim()}`];
+    if (onHand == null) return '-';
+    return Math.max(0, onHand - (Number(out) || 0)).toLocaleString();
+  };
+  // exp + ระยะถึงหมดอายุ (อีกกี่ปี/เดือน/วัน)
+  const expCell = (raw) => {
+    if (!raw) return '-';
+    const cd = expCountdown(raw);
+    return `${fmtExp(raw)}${cd ? `<br><span style="font-size:12px;color:#b45309">${cd}</span>` : ''}`;
+  };
+  // หมายเหตุรายการ + จำนวนที่จ่ายเกินจากขอเบิก (จ่ายเต็มกล่อง)
+  const noteCell = (item, alloc) => {
+    const want = Number(item.approved_qty ?? item.requested_qty) || 0;
+    const out = (alloc && alloc.length) ? alloc.reduce((s, a) => s + (Number(a.base) || 0), 0) : 0;
+    const over = out - want;
+    const overTxt = over > 0 ? `<span style="color:#b45309">จ่ายเต็มกล่อง — เกินที่ขอ ${over.toLocaleString()} ${item.drug_unit || ''}</span>` : '';
+    const note = item.item_note || '';
+    return [note, overTxt].filter(Boolean).join('<br>');
+  };
   // 1 รายการ → หลายแถวตาม lot ที่จะจ่าย; ไม่มี allocation → แถวเดียว (ค่าที่ขอ)
-  const priceOf = (item) => item.price_per_unit != null && item.price_per_unit !== '' ? Number(item.price_per_unit).toLocaleString('th-TH') : '-';
   const rows = items.map((item, i) => {
     const alloc = allocByItem[item.id] || (Array.isArray(item.picked_allocation) ? item.picked_allocation : null);
+    const note = noteCell(item, alloc);
     if (alloc && alloc.length) {
       return alloc.map((a, ai) => `
     <tr>
-      <td style="text-align:center">${ai === 0 ? i + 1 : ''}</td>
-      <td style="text-align:center">${ai === 0 ? (item.drug_code || '-') : ''}</td>
-      <td style="text-align:center">${ai === 0 ? (item.drug_type || '-') : ''}</td>
-      <td>${ai === 0 ? (item.drug_name || '-') : ''}</td>
+      <td style="text-align:center">${i + 1}</td>
+      <td style="text-align:center">${item.drug_code || '-'}</td>
+      <td style="text-align:center">${item.drug_type || '-'}</td>
+      <td>${item.drug_name || '-'}</td>
       <td style="text-align:center">${item.drug_unit || '-'}</td>
       <td style="text-align:center">${Number(a.base).toLocaleString()}</td>
-      <td style="text-align:right">${a.price_per_unit != null && a.price_per_unit !== '' ? Number(a.price_per_unit).toLocaleString('th-TH') : priceOf(item)}</td>
       <td style="text-align:center">${a.lot || '-'}</td>
-      <td style="text-align:center">${a.exp ? fmtExp(a.exp) : '-'}</td>
-      <td>${ai === 0 ? (item.item_note || '') : ''}</td>
+      <td style="text-align:center">${expCell(a.exp)}</td>
+      <td style="text-align:center">${remainLot(item.drug_code, a.lot, a.base)}</td>
+      <td>${ai === 0 ? note : ''}</td>
     </tr>`).join('');
     }
+    const outQty = item.picked_qty ?? item.approved_qty ?? item.requested_qty;
+    const lot = item.picked_lot || item.lot || '';
+    const exp = item.picked_exp || item.exp || '';
     return `
     <tr>
       <td style="text-align:center">${i + 1}</td>
@@ -1218,11 +1304,11 @@ async function printReq(req) {
       <td style="text-align:center">${item.drug_type || '-'}</td>
       <td>${item.drug_name || '-'}</td>
       <td style="text-align:center">${item.drug_unit || '-'}</td>
-      <td style="text-align:center">${item.picked_qty ?? item.approved_qty ?? item.requested_qty}</td>
-      <td style="text-align:right">${priceOf(item)}</td>
-      <td style="text-align:center">${item.picked_lot || item.lot || '-'}</td>
-      <td style="text-align:center">${item.picked_exp ? fmtExp(item.picked_exp) : (item.exp || '-')}</td>
-      <td>${item.item_note || ''}</td>
+      <td style="text-align:center">${Number(outQty).toLocaleString()}</td>
+      <td style="text-align:center">${lot || '-'}</td>
+      <td style="text-align:center">${exp ? expCell(exp) : '-'}</td>
+      <td style="text-align:center">${remainLot(item.drug_code, lot, outQty)}</td>
+      <td>${note}</td>
     </tr>`;
   }).join('');
 
@@ -1241,38 +1327,32 @@ async function printReq(req) {
       body { font-family: 'Sarabun', sans-serif; font-size: 16px; margin: 20px; color: #1e293b; }
       h2 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
       .meta { color: #374151; font-size: 14px; margin-bottom: 16px; line-height: 1.8; }
-      table { width: 100%; border-collapse: collapse; margin-top: 12px; margin-bottom: 80px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 12px; margin-bottom: 24px; }
       th { background: transparent; color: #000; padding: 8px 10px; font-size: 15px; font-weight: 700; text-align: left; border-bottom: 2px solid #000; }
-      td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; font-size: 15px; }
+      td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; font-size: 15px; vertical-align: top; }
       tr:nth-child(even) td { background: #f8fafc; }
       .badge { display:inline-block; padding: 2px 10px; border-radius: 999px; font-size:13px; font-weight:600;
                background:#fef3c7; color:#92400e; border:1px solid #fde68a; }
-      /* signature fixed at bottom — appears on every printed page */
+      /* ลายเซ็น = flow ปกติใต้ตาราง ไม่ทับแถวเบิก (เดิม position:fixed ลอยทับ) */
       .sig-block {
-        position: fixed;
-        bottom: 24px;
-        right: 32px;
+        margin-top: 48px;
+        margin-right: 16px;
         font-size: 15px;
         line-height: 2;
         text-align: center;
+        float: right;
+        width: 320px;
+        page-break-inside: avoid;
       }
       .sig-block p { margin: 0; }
-      @media print {
-        body { margin: 10mm 12mm; }
-        .sig-block {
-          position: fixed;
-          bottom: 12mm;
-          right: 16mm;
-        }
-      }
+      @media print { body { margin: 10mm 12mm; } }
     </style></head><body>
     <h2>ใบเบิกยา : ${req.department}</h2>
     <div class="meta">
       เลขที่: <strong>${req.req_number}</strong> &nbsp;|&nbsp;
       หน่วยงาน: <strong>${req.department}</strong> &nbsp;|&nbsp;
       ผู้เบิก: <strong>${req.requester_name || '-'}</strong> &nbsp;|&nbsp;
-      วันที่: <strong>${dateStr}</strong> &nbsp;|&nbsp;
-      สถานะ: <span class="badge">${statusLabel}</span>
+      วันที่: <strong>${dateStr}</strong>
     </div>
     <table>
       <thead><tr>
@@ -1280,23 +1360,25 @@ async function printReq(req) {
         <th style="width:90px;text-align:center">รหัส</th>
         <th style="width:80px;text-align:center">ชนิด</th>
         <th>รายการ</th>
-        <th style="width:90px;text-align:center">หน่วยนับ</th>
-        <th style="width:110px;text-align:center">จำนวนที่เบิก</th>
-        <th style="width:90px;text-align:right">ราคา/หน่วย</th>
+        <th style="width:80px;text-align:center">หน่วยนับ</th>
+        <th style="width:100px;text-align:center">จำนวนที่เบิก</th>
         <th style="width:90px;text-align:center">Lot</th>
         <th style="width:90px;text-align:center">Exp</th>
+        <th style="width:110px;text-align:center">คงเหลือหลังจ่าย</th>
         <th style="width:120px">หมายเหตุ</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
     ${req.note ? `<p style="margin-top:12px;color:#64748b;font-size:14px">หมายเหตุ: ${req.note}</p>` : ''}
     ${sigBlock}
+    <div style="clear:both"></div>
     <script>window.onload=()=>{window.print();}</script>
     </body></html>`;
 
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
-  const w    = window.open(url, '_blank');
+  // ใช้หน้าต่างที่เปิดไว้ตอนคลิก (mobile) ถ้ามี ไม่งั้นเปิดใหม่ (desktop ไม่โดนบล็อก)
+  const w = preopenedWin && !preopenedWin.closed ? (preopenedWin.location.href = url, preopenedWin) : window.open(url, '_blank');
   if (w) setTimeout(() => URL.revokeObjectURL(url), 30000);
   else   URL.revokeObjectURL(url);
 }
@@ -1466,7 +1548,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${cfg.badge}`}>{cfg.label}</span>
-                  <button onClick={e => { e.stopPropagation(); printReq(req); }}
+                  <button onClick={e => { e.stopPropagation(); printReq(req, window.open('', '_blank')); }}
                     className="p-1.5 text-slate-400 hover:text-[#1E90FF] hover:bg-[#F0F8FF] rounded-lg transition-colors" title="พิมพ์ใบเบิก">
                     <Printer size={15} />
                   </button>
@@ -1511,9 +1593,13 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                         {Array.isArray(item.picked_allocation) && item.picked_allocation.length > 0 ? (
                           <div className="mt-1 space-y-0.5">
                             {item.picked_allocation.map((a, ai) => (
-                              <p key={ai} className="text-xs text-slate-500">
-                                <span className="font-mono font-medium text-slate-600">{a.lot || '-'}</span>
-                                <span className="text-slate-400"> · Exp {fmtExp(a.exp)} · {Number(a.base).toLocaleString()} {item.drug_unit||''}</span>
+                              <p key={ai} className="text-xs text-slate-500 flex items-center gap-1 flex-wrap">
+                                <span className="font-mono font-medium text-slate-600">Lot {a.lot || '-'}</span>
+                                <span className="text-slate-400">· Exp {fmtExp(a.exp)} · {Number(a.base).toLocaleString()} {item.drug_unit||''}</span>
+                                <span className="text-indigo-600 font-medium">({allocPackLabel(a, item.drug_unit)})</span>
+                                {isNearExpiry(a.exp) && (
+                                  <span className="inline-flex items-center gap-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded px-1 py-0.5 font-semibold"><Clock size={9}/> ใกล้หมดอายุ</span>
+                                )}
                               </p>
                             ))}
                           </div>
@@ -1650,6 +1736,51 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
 // Staff Root
 // ============================================================
 // ============================================================
+// DispatchConfirmModal — popup ยืนยันจ่ายออก (ใช้ร่วมทั้งการ์ด list + หน้ารายละเอียด)
+// ============================================================
+function DispatchConfirmModal({ req, onConfirm, onClose, loading = false }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+        <div className="px-5 py-4 border-b border-blue-100 bg-blue-50 flex items-center gap-3">
+          <div className="w-9 h-9 bg-blue-100 rounded-xl flex items-center justify-center shrink-0">
+            <Check size={18} className="text-blue-600" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-bold text-blue-800 text-sm">ยืนยันจ่ายออก</p>
+            <p className="text-xs text-slate-500 font-mono truncate">{req.req_number}</p>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-3">
+          <p className="text-sm text-slate-700">
+            ต้องการจ่ายยาตามใบเบิก <span className="font-semibold">{req.department}</span> ออกจากคลังใช่หรือไม่?
+          </p>
+          <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 truncate">
+            {drugPreview(req.requisition_items)}
+          </p>
+          <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+            <AlertCircle size={15} className="text-amber-500 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-800">เมื่อจ่ายออกแล้ว ใบเบิกจะถูกบันทึกเป็น<span className="font-semibold">จ่ายแล้ว</span> และตัดสต็อกตามที่จัด</p>
+          </div>
+        </div>
+
+        <div className="px-5 pb-5 flex gap-2">
+          <button onClick={onClose} disabled={loading}
+            className="flex-1 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl py-2.5 font-medium text-sm transition-colors disabled:opacity-50">
+            ยกเลิก
+          </button>
+          <button onClick={onConfirm} disabled={loading}
+            className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-2.5 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+            <Check size={15} /> {loading ? 'กำลังจ่ายออก...' : 'ยืนยันจ่ายออก'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // PickingModal — staff จัดยา เลือก Lot FEFO + บันทึกจำนวนที่จัด
 // ============================================================
 function PickingModal({ req, auth, onClose, onDone }) {
@@ -1701,13 +1832,18 @@ function PickingModal({ req, auth, onClose, onDone }) {
       setItemStates(prev => prev.map(item => {
         const lots = map[String(item.drug_code || '').trim()] || [];
         const fefoLots = lots.map(l => {
-          const { packSize } = parseUnit(l.unit);
+          const { packSize, baseUnit } = parseUnit(l.unit);
           const packs = parseFloat(l.qty) || 0;
-          return { lot: l.lot, exp: l.exp, unit: l.unit, packSize: packSize || 1, packs, base: packs * (packSize || 1) };
+          // unit = หน่วยเต็ม (แสดง packs × unit), baseUnit = หน่วยย่อยล้วน (เม็ด/amp/ขวด) สำหรับ label คงเหลือ
+          return { lot: l.lot, exp: l.exp, unit: l.unit, baseUnit: baseUnit || l.unit, packSize: packSize || 1, packs, base: packs * (packSize || 1) };
         });
         const alloc = allocateFefo(item.approved_qty, fefoLots);
         const first = alloc.allocation[0];
-        return { ...item, allocation: alloc.allocation, shortfallBase: alloc.shortfallBase, allocatedBase: alloc.allocatedBase, overBase: alloc.overBase,
+        // คงเหลือกล่องสดราย lot (lot → { packs, packSize, unit }) — แสดง "คงเหลือก่อน/หลังจ่าย" เป็นกล่อง
+        // unit ใช้ baseUnit (หน่วยย่อยล้วน) กัน label เพี้ยน เช่น "× 1000เม็ด" ไม่ใช่ "× 10001000เม็ด"
+        const lotOnHand = {};
+        fefoLots.forEach(l => { lotOnHand[String(l.lot || '').trim()] = { packs: l.packs, packSize: l.packSize, unit: l.baseUnit }; });
+        return { ...item, allocation: alloc.allocation, shortfallBase: alloc.shortfallBase, allocatedBase: alloc.allocatedBase, overBase: alloc.overBase, lotOnHand,
           picked_lot: first?.lot || '', picked_exp: first?.exp || '', picked_qty: alloc.allocatedBase };
       }));
       setLoadingInv(false);
@@ -1779,14 +1915,29 @@ function PickingModal({ req, auth, onClose, onDone }) {
                       <div>
                         <label className="block text-xs font-semibold text-slate-500 mb-1.5">จ่ายจาก Lot (FEFO — ใกล้หมดอายุก่อน)</label>
                         <div className="space-y-1 bg-white border border-slate-200 rounded-lg p-2.5">
-                          {alloc.map((a, ai) => (
-                            <div key={ai} className="flex items-center gap-2 text-sm flex-wrap">
-                              <span className="font-mono font-semibold text-slate-700">{a.lot || '-'}</span>
-                              <span className="text-xs text-slate-400">Exp {fmtExp(a.exp)}</span>
-                              <span className="ml-auto font-bold text-emerald-600">{a.base.toLocaleString()} {item.drug_unit || ''}</span>
-                              <span className="text-xs text-slate-400">({a.packs.toLocaleString()} × {a.unit})</span>
+                          {alloc.map((a, ai) => {
+                            const remain = remainLotPacks(item.lotOnHand?.[String(a.lot || '').trim()], a.packs);
+                            return (
+                            <div key={ai} className="text-sm">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-mono font-semibold text-slate-700">Lot {a.lot || '-'}</span>
+                                <span className="text-xs text-slate-400">Exp {fmtExp(a.exp)}</span>
+                                {isNearExpiry(a.exp) && (
+                                  <span className="inline-flex items-center gap-0.5 text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 font-semibold"><Clock size={10}/> ใกล้หมดอายุ</span>
+                                )}
+                                <span className="ml-auto font-bold text-emerald-600">{a.base.toLocaleString()} {item.drug_unit || ''}</span>
+                                <span className="text-xs text-slate-400">({a.packs.toLocaleString()} × {a.unit})</span>
+                              </div>
+                              {remain && (
+                                <p className="text-xs text-slate-400 mt-0.5">
+                                  คงเหลือก่อนจ่าย <span className="font-medium text-slate-600">{remain.before}</span>
+                                  <span className="text-slate-400"> − เบิกออก {remain.out} = </span>
+                                  <span className="font-bold text-indigo-700">{remain.label}</span>
+                                </p>
+                              )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     ) : (
@@ -1835,12 +1986,36 @@ function VerifyModal({ req, auth, onClose, onDone }) {
   const [verifierName, setVerifierName] = useState(defaultName);
   const [saving, setSaving]             = useState(false);
   const [error, setError]               = useState('');
+  const [onHandLotMap, setOnHandLotMap] = useState(null); // "code|lot" → { packs, packSize, unit } คงเหลือสดราย lot
+  const [checkedItems, setCheckedItems] = useState({});    // item.id → staff ติ๊กว่าตรวจรายการนี้ถูกต้องแล้ว
 
   const pickedItems = (req.requisition_items || []).filter(item => item.picked_qty != null);
+
+  // โหลดคงเหลือสดราย lot เพื่อให้ผู้ตรวจนับเทียบ "คงเหลือหลังจ่าย" เป็นกล่อง × หน่วยย่อย (นับของจริงง่าย)
+  useEffect(() => {
+    if (!supabase) return;
+    const codes = [...new Set((req.requisition_items || []).filter(i => i.picked_qty != null).map(i => i.drug_code).filter(Boolean))];
+    if (!codes.length) { setOnHandLotMap({}); return; }
+    fetchInventoryByCodes(codes).then(data => {
+      const map = {};
+      data.forEach(row => {
+        const key = `${String(row.code || '').trim()}|${String(row.lot || '').trim()}`;
+        const { packSize, baseUnit } = parseUnit(row.unit);
+        const packs = parseFloat(row.qty) || 0;
+        // เก็บ baseUnit (หน่วยย่อยไม่มีตัวเลข) — label = packs × packSize+baseUnit เช่น "0 × 100เม็ด"
+        const prev = map[key] || { packs: 0, packSize: packSize || 1, unit: baseUnit || row.unit || '' };
+        prev.packs += packs;
+        map[key] = prev;
+      });
+      setOnHandLotMap(map);
+    }).catch(() => setOnHandLotMap({}));
+  }, [req.id]);
   const isSamePicker = verifierName.trim() && verifierName.trim() === req.picker_name;
+  const allChecked = pickedItems.length > 0 && pickedItems.every(item => checkedItems[item.id]);
 
   const handleConfirm = async () => {
     if (!verifierName.trim()) { setError('กรุณากรอกชื่อผู้ตรวจนับ'); return; }
+    if (!allChecked) { setError('กรุณาติ๊กยืนยันให้ครบทุกรายการก่อน'); return; }
     setSaving(true); setError('');
     try {
       await verifyRequisition(req.id, verifierName.trim(), auth);
@@ -1883,21 +2058,55 @@ function VerifyModal({ req, auth, onClose, onDone }) {
             {pickedItems.length === 0 && (
               <p className="text-sm text-slate-500 text-center py-4">ไม่มีรายการที่จัดแล้ว</p>
             )}
-            {pickedItems.map(item => (
-              <div key={item.id} className="bg-slate-50 rounded-xl border border-slate-200 px-3 py-2.5 flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-800 truncate">{item.drug_name}</p>
-                  <p className="text-xs text-slate-500">
-                    Lot: <span className="font-medium">{item.picked_lot || '-'}</span>
-                    {item.picked_exp ? ` · Exp: ${fmtExp(item.picked_exp)}` : ''}
-                  </p>
+            {pickedItems.map(item => {
+              const allocs = Array.isArray(item.picked_allocation) && item.picked_allocation.length
+                ? item.picked_allocation
+                : [{ lot: item.picked_lot, exp: item.picked_exp, base: item.picked_qty, packs: null }];
+              const checked = !!checkedItems[item.id];
+              return (
+              <div key={item.id} className={`rounded-xl border px-3 py-2.5 ${checked ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-800 min-w-0 truncate">{item.drug_name}</p>
+                  <div className="shrink-0 text-right">
+                    <span className="text-sm font-bold text-indigo-700">{Number(item.picked_qty).toLocaleString()}</span>
+                    <span className="text-xs text-slate-500 ml-1">{item.drug_unit || ''}</span>
+                  </div>
                 </div>
-                <div className="shrink-0 text-right">
-                  <span className="text-sm font-bold text-indigo-700">{item.picked_qty}</span>
-                  <span className="text-xs text-slate-500 ml-1">{item.drug_unit || ''}</span>
+                {/* แต่ละ lot ที่จ่าย + คงเหลือหลังจ่ายเป็นกล่อง × หน่วยย่อย (นับของจริงง่าย) */}
+                <div className="mt-1 space-y-1">
+                  {allocs.map((a, ai) => {
+                    const key = `${String(item.drug_code || '').trim()}|${String(a.lot || '').trim()}`;
+                    const on = onHandLotMap ? onHandLotMap[key] : null;
+                    const remain = remainLotPacks(on, a.packs);
+                    return (
+                      <div key={ai} className="text-xs text-slate-500">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="font-mono font-medium text-slate-600">Lot {a.lot || '-'}</span>
+                          {a.exp && <span className="text-slate-400">· Exp {fmtExp(a.exp)}</span>}
+                          {isNearExpiry(a.exp) && (
+                            <span className="inline-flex items-center gap-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded px-1 py-0.5 font-semibold"><Clock size={9}/> ใกล้หมดอายุ</span>
+                          )}
+                          <span className="text-slate-400">· จ่าย {Number(a.base).toLocaleString()} {item.drug_unit || ''}</span>
+                        </div>
+                        {remain && (
+                          <p className="text-slate-400 mt-0.5">
+                            คงเหลือก่อนจ่าย <span className="font-medium text-slate-600">{remain.before}</span>
+                            <span> − เบิกออก {remain.out} = </span>
+                            <span className="font-bold text-indigo-700">{remain.label}</span>
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
+                {/* ติ๊กยืนยันว่าตรวจรายการนี้ถูกต้องแล้ว */}
+                <button type="button" onClick={() => setCheckedItems(p => ({ ...p, [item.id]: !p[item.id] }))}
+                  className={`mt-2 w-full flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-colors ${checked ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-600 hover:border-emerald-400'}`}>
+                  <CheckCircle size={14} /> {checked ? 'ตรวจรับรายการนี้แล้ว ✓' : 'ติ๊กเมื่อตรวจรายการนี้ถูกต้อง'}
+                </button>
               </div>
-            ))}
+              );
+            })}
           </div>
           {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>}
         </div>
@@ -1907,7 +2116,7 @@ function VerifyModal({ req, auth, onClose, onDone }) {
             className="flex-1 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl py-2.5 font-medium text-sm transition-colors">
             ยกเลิก
           </button>
-          <button onClick={handleConfirm} disabled={saving || !verifierName.trim()}
+          <button onClick={handleConfirm} disabled={saving || !verifierName.trim() || !allChecked}
             className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-2.5 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
             <CheckCircle size={15} /> {saving ? 'กำลังบันทึก...' : 'ยืนยันถูกต้อง'}
           </button>
@@ -1920,6 +2129,9 @@ function VerifyModal({ req, auth, onClose, onDone }) {
 function StaffRoot({ onBack, alreadyAuthed = false, auth = {} }) {
   const [authed, setAuthed]     = useState(alreadyAuthed);
   const [selected, setSelected] = useState(null);
+  // tab/date filter ยกขึ้นมาที่นี่ — กันรีเซ็ตเมื่อเปิดดูรายละเอียดใบเบิกแล้วกดย้อนกลับ
+  const [filter, setFilter]         = useState('pending');
+  const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 10));
 
   if (!authed) {
     return (
@@ -1942,15 +2154,13 @@ function StaffRoot({ onBack, alreadyAuthed = false, auth = {} }) {
     );
   }
   if (selected) return <RequisitionDetail req={selected} onBack={() => setSelected(null)} onDone={() => setSelected(null)} auth={auth} />;
-  return <StaffDashboard onLogout={() => alreadyAuthed ? onBack() : setAuthed(false)} onSelect={setSelected} auth={auth} />;
+  return <StaffDashboard onLogout={() => alreadyAuthed ? onBack() : setAuthed(false)} onSelect={setSelected} auth={auth} filter={filter} setFilter={setFilter} dateFilter={dateFilter} setDateFilter={setDateFilter} />;
 }
 
 // ---- Staff Dashboard ----
-function StaffDashboard({ onLogout, onSelect, auth = {} }) {
+function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, dateFilter, setDateFilter }) {
   const [list, setList]         = useState([]);
   const [loading, setLoading]   = useState(true);
-  const [filter, setFilter]     = useState('pending');
-  const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 10));
   const [deleteId, setDeleteId] = useState(null);
   const [selected, setSelected] = useState(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
@@ -1959,7 +2169,8 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
   const [showFilters, setShowFilters] = useState(false);
   const [pickingModal, setPickingModal] = useState(null); // req object
   const [verifyModal, setVerifyModal]   = useState(null); // req object
-  const [dispatchingId, setDispatchingId] = useState(null); // id ที่กำลัง confirm จ่ายออก
+  const [dispatchModal, setDispatchModal] = useState(null); // req ที่กำลังยืนยันจ่ายออก
+  const [dispatching, setDispatching]     = useState(false); // กำลังจ่ายออก (loading)
 
   const handleDelete = async (e, id) => {
     e.stopPropagation();
@@ -2029,14 +2240,15 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
     load();
   };
 
-  const handleDispatch = async (req, e) => {
-    e.stopPropagation();
-    if (dispatchingId !== req.id) { setDispatchingId(req.id); return; }
+  const confirmDispatch = async () => {
+    if (!dispatchModal) return;
+    setDispatching(true);
     try {
-      await markRequisitionDispensed(req.id, auth);
+      await markRequisitionDispensed(dispatchModal.id, auth);
       load();
     } catch {}
-    setDispatchingId(null);
+    setDispatching(false);
+    setDispatchModal(null);
   };
 
   const load = useCallback(async () => {
@@ -2309,7 +2521,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
               {/* Card footer — action buttons */}
               <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-t border-slate-100">
                 <div className="flex items-center gap-1">
-                  <button onClick={e => { e.stopPropagation(); printReq(req); }}
+                  <button onClick={e => { e.stopPropagation(); printReq(req, window.open('', '_blank')); }}
                     className="flex items-center gap-1 text-xs text-slate-400 hover:text-[#1E90FF] transition-colors px-2 py-1 rounded-xl hover:bg-white">
                     <Printer size={13}/> พิมพ์
                   </button>
@@ -2346,9 +2558,9 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
                     </button>
                   )}
                   {req.status === 'ready' && (
-                    <button onClick={e => handleDispatch(req, e)}
-                      className={`flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors ${dispatchingId === req.id ? 'bg-blue-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
-                      <Check size={12}/> {dispatchingId === req.id ? 'ยืนยัน?' : 'จ่ายออก'}
+                    <button onClick={e => { e.stopPropagation(); setDispatchModal(req); }}
+                      className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors bg-blue-600 hover:bg-blue-700 text-white">
+                      <Check size={12}/> จ่ายออก
                     </button>
                   )}
                   <button onClick={() => onSelect(req)}
@@ -2372,6 +2584,11 @@ function StaffDashboard({ onLogout, onSelect, auth = {} }) {
           onClose={() => setVerifyModal(null)}
           onDone={() => { setVerifyModal(null); load(); }} />
       )}
+      {dispatchModal && (
+        <DispatchConfirmModal req={dispatchModal} loading={dispatching}
+          onConfirm={confirmDispatch}
+          onClose={() => setDispatchModal(null)} />
+      )}
     </div>
   );
 }
@@ -2381,7 +2598,23 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
   const [currentReq, setCurrentReq] = useState(req);
   const isPending    = currentReq.status==='pending';
   const isApproved   = currentReq.status==='approved'||currentReq.status==='partial';
+  const isPicking    = currentReq.status==='picking';
+  const isReady      = currentReq.status==='ready';
   const isRejected   = currentReq.status==='rejected';
+
+  // workflow action ในหน้ารายละเอียด (จัดยา/ตรวจนับ/จ่ายออก) — reuse modal เดิม ไม่ทำ logic ซ้ำ
+  const [pickingModal, setPickingModal] = useState(false);
+  const [verifyModal, setVerifyModal]   = useState(false);
+  const [dispatchModal, setDispatchModal] = useState(false); // popup ยืนยันจ่ายออก
+  const [dispatching, setDispatching]   = useState(false);
+
+  const confirmDispatch = async () => {
+    setDispatching(true); setError('');
+    try {
+      await markRequisitionDispensed(currentReq.id, auth);
+      onDone();
+    } catch (e) { setError(e.message); setDispatching(false); setDispatchModal(false); }
+  };
 
   const toItemState = (list) => (list||[]).map(item => ({
     ...item,
@@ -2481,7 +2714,21 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
           const allApprove = items.every(i=>i.decision==='approve');
           status = allReject?'rejected':allApprove?'approved':'partial';
         }
-        await supabase.from('requisitions').update({ status, note:staffNote||requesterNote||null, updated_at:new Date().toISOString() }).eq('id',req.id);
+        // เติมหมายเหตุอัตโนมัติเมื่อจ่ายเกินที่ขอ (จ่ายเต็มกล่อง ไม่แกะกล่อง) — 1 บรรทัดต่อรายการที่เกิน
+        const overLines = items.map(item => {
+          if (item.decision === 'reject') return null;
+          const wantQty = Number(item.approvedQty) || 0;
+          const lots = fefoMap[String(item.drug_code || '').trim()];
+          if (wantQty <= 0 || !lots) return null;
+          const a = allocateFefo(wantQty, lots);
+          if (a.overBase <= 0) return null;
+          const u = item.drug_unit && item.drug_unit !== '-' ? item.drug_unit : '';
+          return `${MARK_OVER} ${item.drug_name}: ขอ ${wantQty.toLocaleString()} จ่าย ${a.allocatedBase.toLocaleString()} ${u} เนื่องจากจ่ายเต็มกล่อง (ไม่แกะกล่อง เกิน ${a.overBase.toLocaleString()})`.trim();
+        }).filter(Boolean);
+        // ตัดบรรทัด auto เดิมออกก่อน กัน duplicate เมื่อ save ซ้ำ แล้วต่อบรรทัดใหม่
+        const baseNote = (staffNote || requesterNote || '').split('\n').filter(l => !l.startsWith(MARK_OVER)).join('\n').trim();
+        const finalNote = [baseNote, ...overLines].filter(Boolean).join('\n') || null;
+        await supabase.from('requisitions').update({ status, note:finalNote, updated_at:new Date().toISOString() }).eq('id',req.id);
         insertAuditLog({ action: 'update_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { req_number: req.req_number, requisition_id: req.id, status } });
       }
       onDone();
@@ -2499,7 +2746,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-semibold transition-colors shadow-sm no-print">
               <FileDown size={16}/> Excel
             </button>
-            <button onClick={() => printReq(currentReq)}
+            <button onClick={() => printReq(currentReq, window.open('', '_blank'))}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-[#1E90FF] text-sm font-semibold transition-colors shadow-sm no-print">
               <Printer size={16}/> พิมพ์
             </button>
@@ -2573,6 +2820,11 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                             <div key={ai} className="flex items-center gap-2 text-xs flex-wrap">
                               <span className="font-mono font-semibold text-slate-700">{al.lot || '-'}</span>
                               <span className="text-slate-400">Exp {fmtExp(al.exp)}</span>
+                              {isNearExpiry(al.exp) && (
+                                <span className="inline-flex items-center gap-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 font-semibold">
+                                  <Clock size={10}/> ใกล้หมดอายุ
+                                </span>
+                              )}
                               <span className="ml-auto font-bold text-emerald-600">{al.base.toLocaleString()} {item.drug_unit||''}</span>
                               <span className="text-slate-400">({al.packs.toLocaleString()} × {al.unit})</span>
                             </div>
@@ -2707,7 +2959,50 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
             {error && <p className="text-red-600 text-sm text-center">{error}</p>}
           </div>
         )}
+
+        {/* ── Workflow actions ตามสถานะ (จัดยา/ตรวจนับ/จ่ายออก) ── */}
+        {isApproved && (
+          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200">
+            <button onClick={() => setPickingModal(true)} disabled={loading}
+              className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
+              <Package size={18}/> เริ่มจัดยา
+            </button>
+          </div>
+        )}
+        {isPicking && (
+          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200">
+            <button onClick={() => setVerifyModal(true)} disabled={loading}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
+              <CheckCircle size={18}/> ตรวจนับยา (Double Check)
+            </button>
+          </div>
+        )}
+        {isReady && (
+          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200 space-y-2">
+            <button onClick={() => setDispatchModal(true)} disabled={loading}
+              className="w-full rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all bg-blue-600 hover:bg-blue-700 text-white disabled:bg-slate-200 disabled:text-slate-400">
+              <Check size={18}/> จ่ายออก
+            </button>
+            {error && <p className="text-red-600 text-sm text-center">{error}</p>}
+          </div>
+        )}
       </div>
+
+      {pickingModal && (
+        <PickingModal req={currentReq} auth={auth}
+          onClose={() => setPickingModal(false)}
+          onDone={() => { setPickingModal(false); onDone(); }} />
+      )}
+      {verifyModal && (
+        <VerifyModal req={currentReq} auth={auth}
+          onClose={() => setVerifyModal(false)}
+          onDone={() => { setVerifyModal(false); onDone(); }} />
+      )}
+      {dispatchModal && (
+        <DispatchConfirmModal req={currentReq} loading={dispatching}
+          onConfirm={confirmDispatch}
+          onClose={() => setDispatchModal(false)} />
+      )}
     </>
   );
 }
