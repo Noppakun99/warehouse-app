@@ -124,6 +124,11 @@ export function printInspectWorksheet() {
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
   const win  = window.open(url, '_blank');
-  if (win) setTimeout(() => URL.revokeObjectURL(url), 30000);
-  else     URL.revokeObjectURL(url);
+  if (win) { setTimeout(() => URL.revokeObjectURL(url), 30000); return; }
+  // fallback: in-app WebView (LINE/FB) บล็อก window.open('_blank') → คืน null
+  // นำทางผ่าน <a> click แทน (WebView ยอมให้คลิกลิงก์ แต่บล็อก popup)
+  const a = document.createElement('a');
+  a.href = url; a.target = '_blank'; a.rel = 'noopener';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
