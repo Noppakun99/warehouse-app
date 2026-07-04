@@ -11,7 +11,7 @@
  * @param fefoLots     [{ lot, exp, unit, packSize, packs, base, baseUnit }] เรียง FEFO มาแล้ว
  *                     packs = คงเหลือ (กล่อง), packSize = เม็ด/กล่อง, base = packs×packSize (คงเหลือเม็ด)
  * @returns {
- *   allocation: [{ lot, exp, unit, packSize, base, packs }],  // จัดจาก lot ไหน — base=เม็ด, packs=กล่องเต็ม
+ *   allocation: [{ lot, exp, unit, location, packSize, base, packs }],  // จัดจาก lot ไหน — base=เม็ด, packs=กล่องเต็ม, location=ที่เก็บ
  *   allocatedBase,   // รวมที่จัดได้จริง (เม็ด, เป็นกล่องเต็ม)
  *   shortfallBase,   // ขาด (เม็ด) — 0 ถ้าครบ
  *   overBase,        // จ่ายเกินคำขอ (เม็ด) จากการปัดขึ้นกล่องเต็ม — 0 ถ้าพอดี
@@ -32,7 +32,7 @@ export function allocateFefo(requestBase, fefoLots) {
     const wantPacks = Math.ceil(remaining / packSize);
     const usePacks  = Math.min(availPacks, wantPacks);
     const base = usePacks * packSize;
-    allocation.push({ lot: lot.lot, exp: lot.exp, unit: lot.unit, packSize, base, packs: usePacks });
+    allocation.push({ lot: lot.lot, exp: lot.exp, unit: lot.unit, location: lot.location, packSize, base, packs: usePacks });
     remaining -= base; // อาจติดลบ (lot สุดท้ายปัดขึ้น = จ่ายเกิน)
   }
 

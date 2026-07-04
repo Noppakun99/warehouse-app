@@ -6,7 +6,7 @@ import {
   CheckCircle, XCircle, Package, FileText,
   Printer, RefreshCcw, ChevronRight, Bell,
   Check, X, AlertCircle, Clock, FileDown,
-  SlidersHorizontal,
+  SlidersHorizontal, MapPin,
 } from 'lucide-react';
 import { exportToExcel } from './lib/exportExcel';
 import { parseUnit } from './lib/unitParser';
@@ -160,7 +160,7 @@ async function computeReqAllocations(reqs) {
       if (!logMap[key]) logMap[key] = { main_log: r.main_log || '', detail_log: r.location || '', item_type: r.item_type || '' };
       const { packSize } = parseUnit(r.unit);
       const packs = parseFloat(r.qty) || 0;
-      if (packs > 0) (fefoByCode[code] = fefoByCode[code] || []).push({ lot: r.lot, exp: r.exp, unit: r.unit, packSize: packSize || 1, packs, base: packs * (packSize || 1) });
+      if (packs > 0) (fefoByCode[code] = fefoByCode[code] || []).push({ lot: r.lot, exp: r.exp, unit: r.unit, location: r.location, packSize: packSize || 1, packs, base: packs * (packSize || 1) });
     });
     Object.values(fefoByCode).forEach(lots => lots.sort((a, b) => {
       const da = parseExp(a.exp), db = parseExp(b.exp);
@@ -172,7 +172,11 @@ async function computeReqAllocations(reqs) {
       if (priceMap[key] == null && r.price_per_unit != null) priceMap[key] = r.price_per_unit;
     });
   }
-  const withPrice = (code, a) => ({ ...a, price_per_unit: a.price_per_unit ?? priceMap[`${String(code||'').trim()}|${String(a.lot||'').trim()}`] ?? null });
+  const withPrice = (code, a) => {
+    const key = `${String(code||'').trim()}|${String(a.lot||'').trim()}`;
+    // location: ใช้ของ allocation ถ้ามี (FEFO สด) ไม่งั้น backfill จาก logMap (picked_allocation เก่าไม่ได้เก็บที่เก็บ)
+    return { ...a, price_per_unit: a.price_per_unit ?? priceMap[key] ?? null, location: a.location ?? logMap[key]?.detail_log ?? null };
+  };
   // คงเหลือสดรวมต่อรหัสยา (หน่วยย่อยสุด) — ใช้คำนวณ "คงเหลือหลังจ่าย" ในใบพิมพ์
   const onHandByCode = {};
   // คงเหลือสดราย lot (หน่วยย่อยสุด) key = "code|lot" — ใบพิมพ์แสดงคงเหลือหลังจ่ายราย lot
@@ -1191,14 +1195,18 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
                     </p>
                     <div className="space-y-1">
                       {alloc.allocation.map((a, ai) => (
-                        <div key={ai} className="flex items-center gap-2 text-sm flex-wrap">
-                          <span className="font-mono font-semibold text-slate-700">Lot {a.lot || '-'}</span>
-                          <span className="text-xs text-slate-400">Exp {fmtExp(a.exp)}</span>
-                          {isNearExpiry(a.exp) && (
-                            <span className="inline-flex items-center gap-0.5 text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 font-semibold"><Clock size={10}/> ใกล้หมดอายุ</span>
-                          )}
-                          <span className="ml-auto font-bold text-emerald-600">{a.base.toLocaleString()} {item.unit || ''}</span>
-                          <span className="text-xs text-slate-400">({a.packs.toLocaleString()} × {a.unit})</span>
+                        <div key={ai} className="grid grid-cols-[1fr_auto] gap-x-2 gap-y-1 items-start text-sm">
+                          <div className="flex items-center gap-x-2 gap-y-1 flex-wrap min-w-0">
+                            <span className="font-mono font-semibold text-slate-700">Lot {a.lot || '-'}</span>
+                            <span className="text-xs text-slate-400">Exp {fmtExp(a.exp)}</span>
+                            {isNearExpiry(a.exp) && (
+                              <span className="inline-flex items-center gap-0.5 text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 font-semibold"><Clock size={10}/> ใกล้หมดอายุ · {expCountdown(a.exp)}</span>
+                            )}
+                          </div>
+                          <div className="text-right whitespace-nowrap">
+                            <span className="font-bold text-emerald-600">{a.base.toLocaleString()} {item.unit || ''}</span>
+                            <span className="text-xs text-slate-400"> ({a.packs.toLocaleString()} × {a.unit})</span>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1247,7 +1255,7 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
 // async: คำนวณ allocation (จัดแล้ว=picked / ยังไม่จัด=FEFO สด) ก่อนสร้าง HTML เพื่อโชว์ lot/exp/ราคา
 // preopenedWin = หน้าต่างเปล่าที่เปิดไว้ตั้งแต่ตอนคลิก (กัน popup blocker บน mobile — ต้องเปิดใน user gesture ก่อน await)
 async function printReq(req, preopenedWin) {
-  const { allocByItem, onHandByLot } = await computeReqAllocations([req]);
+  const { allocByItem, onHandByLot, logMap } = await computeReqAllocations([req]);
   const d = new Date(req.created_at);
   const dateStr = d.toLocaleString('th-TH', { dateStyle: 'long', timeStyle: 'short' });
   const allItems = req.requisition_items || [];
@@ -1271,7 +1279,10 @@ async function printReq(req, preopenedWin) {
     const want = Number(item.approved_qty ?? item.requested_qty) || 0;
     const out = (alloc && alloc.length) ? alloc.reduce((s, a) => s + (Number(a.base) || 0), 0) : 0;
     const over = out - want;
-    const overTxt = over > 0 ? `<span style="color:#b45309">จ่ายเต็มกล่อง — เกินที่ขอ ${over.toLocaleString()} ${item.drug_unit || ''}</span>` : '';
+    const u = item.drug_unit || '';
+    const overTxt = over > 0
+      ? `<span style="color:#b45309">ขอ ${want.toLocaleString()} จ่าย ${out.toLocaleString()} ${u} — เนื่องจากจ่ายเต็มกล่อง (ไม่แกะกล่อง เกิน ${over.toLocaleString()})</span>`
+      : '';
     const note = item.item_note || '';
     return [note, overTxt].filter(Boolean).join('<br>');
   };
@@ -1289,6 +1300,7 @@ async function printReq(req, preopenedWin) {
       <td style="text-align:center">${item.drug_unit || '-'}</td>
       <td style="text-align:center">${Number(a.base).toLocaleString()}</td>
       <td style="text-align:center">${a.lot || '-'}</td>
+      <td style="text-align:center">${a.location && a.location !== '-' ? a.location : '-'}</td>
       <td style="text-align:center">${expCell(a.exp)}</td>
       <td style="text-align:center">${remainLot(item.drug_code, a.lot, a.base)}</td>
       <td>${ai === 0 ? note : ''}</td>
@@ -1297,6 +1309,7 @@ async function printReq(req, preopenedWin) {
     const outQty = item.picked_qty ?? item.approved_qty ?? item.requested_qty;
     const lot = item.picked_lot || item.lot || '';
     const exp = item.picked_exp || item.exp || '';
+    const loc = logMap[`${String(item.drug_code||'').trim()}|${String(lot||'').trim()}`]?.detail_log;
     return `
     <tr>
       <td style="text-align:center">${i + 1}</td>
@@ -1306,6 +1319,7 @@ async function printReq(req, preopenedWin) {
       <td style="text-align:center">${item.drug_unit || '-'}</td>
       <td style="text-align:center">${Number(outQty).toLocaleString()}</td>
       <td style="text-align:center">${lot || '-'}</td>
+      <td style="text-align:center">${loc && loc !== '-' ? loc : '-'}</td>
       <td style="text-align:center">${exp ? expCell(exp) : '-'}</td>
       <td style="text-align:center">${remainLot(item.drug_code, lot, outQty)}</td>
       <td>${note}</td>
@@ -1363,6 +1377,7 @@ async function printReq(req, preopenedWin) {
         <th style="width:80px;text-align:center">หน่วยนับ</th>
         <th style="width:100px;text-align:center">จำนวนที่เบิก</th>
         <th style="width:90px;text-align:center">Lot</th>
+        <th style="width:90px;text-align:center">ที่เก็บ</th>
         <th style="width:90px;text-align:center">Exp</th>
         <th style="width:110px;text-align:center">คงเหลือหลังจ่าย</th>
         <th style="width:120px">หมายเหตุ</th>
@@ -1598,7 +1613,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                                 <span className="text-slate-400">· Exp {fmtExp(a.exp)} · {Number(a.base).toLocaleString()} {item.drug_unit||''}</span>
                                 <span className="text-indigo-600 font-medium">({allocPackLabel(a, item.drug_unit)})</span>
                                 {isNearExpiry(a.exp) && (
-                                  <span className="inline-flex items-center gap-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded px-1 py-0.5 font-semibold"><Clock size={9}/> ใกล้หมดอายุ</span>
+                                  <span className="inline-flex items-center gap-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded px-1 py-0.5 font-semibold"><Clock size={9}/> ใกล้หมดอายุ · {expCountdown(a.exp)}</span>
                                 )}
                               </p>
                             ))}
@@ -1835,7 +1850,7 @@ function PickingModal({ req, auth, onClose, onDone }) {
           const { packSize, baseUnit } = parseUnit(l.unit);
           const packs = parseFloat(l.qty) || 0;
           // unit = หน่วยเต็ม (แสดง packs × unit), baseUnit = หน่วยย่อยล้วน (เม็ด/amp/ขวด) สำหรับ label คงเหลือ
-          return { lot: l.lot, exp: l.exp, unit: l.unit, baseUnit: baseUnit || l.unit, packSize: packSize || 1, packs, base: packs * (packSize || 1) };
+          return { lot: l.lot, exp: l.exp, unit: l.unit, location: l.location, baseUnit: baseUnit || l.unit, packSize: packSize || 1, packs, base: packs * (packSize || 1) };
         });
         const alloc = allocateFefo(item.approved_qty, fefoLots);
         const first = alloc.allocation[0];
@@ -1919,15 +1934,24 @@ function PickingModal({ req, auth, onClose, onDone }) {
                             const remain = remainLotPacks(item.lotOnHand?.[String(a.lot || '').trim()], a.packs);
                             return (
                             <div key={ai} className="text-sm">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-mono font-semibold text-slate-700">Lot {a.lot || '-'}</span>
-                                <span className="text-xs text-slate-400">Exp {fmtExp(a.exp)}</span>
-                                {isNearExpiry(a.exp) && (
-                                  <span className="inline-flex items-center gap-0.5 text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 font-semibold"><Clock size={10}/> ใกล้หมดอายุ</span>
-                                )}
-                                <span className="ml-auto font-bold text-emerald-600">{a.base.toLocaleString()} {item.drug_unit || ''}</span>
-                                <span className="text-xs text-slate-400">({a.packs.toLocaleString()} × {a.unit})</span>
+                              <div className="grid grid-cols-[1fr_auto] gap-x-2 gap-y-1 items-start">
+                                <div className="flex items-center gap-x-2 gap-y-1 flex-wrap min-w-0">
+                                  <span className="font-mono font-semibold text-slate-700">Lot {a.lot || '-'}</span>
+                                  <span className="text-xs text-slate-400">Exp {fmtExp(a.exp)}</span>
+                                  {isNearExpiry(a.exp) && (
+                                    <span className="inline-flex items-center gap-0.5 text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 font-semibold"><Clock size={10}/> ใกล้หมดอายุ · {expCountdown(a.exp)}</span>
+                                  )}
+                                </div>
+                                <div className="text-right whitespace-nowrap">
+                                  <span className="font-bold text-emerald-600">{a.base.toLocaleString()} {item.drug_unit || ''}</span>
+                                  <span className="block text-xs text-slate-400">({a.packs.toLocaleString()} × {a.unit})</span>
+                                </div>
                               </div>
+                              {a.location && a.location !== '-' && (
+                                <p className="flex items-center gap-1 text-xs text-indigo-700 font-semibold mt-0.5">
+                                  <MapPin size={11}/> ที่เก็บ: {a.location}
+                                </p>
+                              )}
                               {remain && (
                                 <p className="text-xs text-slate-400 mt-0.5">
                                   คงเหลือก่อนจ่าย <span className="font-medium text-slate-600">{remain.before}</span>
@@ -2084,7 +2108,7 @@ function VerifyModal({ req, auth, onClose, onDone }) {
                           <span className="font-mono font-medium text-slate-600">Lot {a.lot || '-'}</span>
                           {a.exp && <span className="text-slate-400">· Exp {fmtExp(a.exp)}</span>}
                           {isNearExpiry(a.exp) && (
-                            <span className="inline-flex items-center gap-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded px-1 py-0.5 font-semibold"><Clock size={9}/> ใกล้หมดอายุ</span>
+                            <span className="inline-flex items-center gap-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded px-1 py-0.5 font-semibold"><Clock size={9}/> ใกล้หมดอายุ · {expCountdown(a.exp)}</span>
                           )}
                           <span className="text-slate-400">· จ่าย {Number(a.base).toLocaleString()} {item.drug_unit || ''}</span>
                         </div>
@@ -2644,7 +2668,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         const { packSize } = parseUnit(row.unit);
         const packs = parseFloat(row.qty) || 0;
         if (packs <= 0) return;
-        (map[code] = map[code] || []).push({ lot: row.lot, exp: row.exp, unit: row.unit, packSize: packSize || 1, packs, base: packs * (packSize || 1) });
+        (map[code] = map[code] || []).push({ lot: row.lot, exp: row.exp, unit: row.unit, location: row.location, packSize: packSize || 1, packs, base: packs * (packSize || 1) });
       });
       Object.values(map).forEach(lots => lots.sort((a, b) => {
         const da = parseExp(a.exp), db = parseExp(b.exp);
@@ -2815,18 +2839,29 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                     return (
                       <div className="no-print mt-2 bg-slate-50 border border-slate-200 rounded-lg p-2.5">
                         <p className="text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Package size={12}/> จะจ่ายจาก Lot (ใกล้หมดอายุก่อน)</p>
-                        <div className="space-y-0.5">
+                        <div className="space-y-1">
                           {a.allocation.map((al, ai) => (
-                            <div key={ai} className="flex items-center gap-2 text-xs flex-wrap">
-                              <span className="font-mono font-semibold text-slate-700">{al.lot || '-'}</span>
-                              <span className="text-slate-400">Exp {fmtExp(al.exp)}</span>
-                              {isNearExpiry(al.exp) && (
-                                <span className="inline-flex items-center gap-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 font-semibold">
-                                  <Clock size={10}/> ใกล้หมดอายุ
-                                </span>
+                            <div key={ai} className="text-xs">
+                              <div className="grid grid-cols-[1fr_auto] gap-x-2 gap-y-1 items-start">
+                                <div className="flex items-center gap-x-2 gap-y-1 flex-wrap min-w-0">
+                                  <span className="font-mono font-semibold text-slate-700">{al.lot || '-'}</span>
+                                  <span className="text-slate-400">Exp {fmtExp(al.exp)}</span>
+                                  {isNearExpiry(al.exp) && (
+                                    <span className="inline-flex items-center gap-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 font-semibold">
+                                      <Clock size={10}/> ใกล้หมดอายุ · {expCountdown(al.exp)}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-right whitespace-nowrap">
+                                  <span className="font-bold text-emerald-600">{al.base.toLocaleString()} {item.drug_unit||''}</span>
+                                  <span className="text-slate-400"> ({al.packs.toLocaleString()} × {al.unit})</span>
+                                </div>
+                              </div>
+                              {al.location && al.location !== '-' && (
+                                <p className="flex items-center gap-1 text-indigo-700 font-semibold mt-0.5">
+                                  <MapPin size={11}/> ที่เก็บ: {al.location}
+                                </p>
                               )}
-                              <span className="ml-auto font-bold text-emerald-600">{al.base.toLocaleString()} {item.drug_unit||''}</span>
-                              <span className="text-slate-400">({al.packs.toLocaleString()} × {al.unit})</span>
                             </div>
                           ))}
                         </div>
