@@ -19,7 +19,9 @@ const submenuKeyOf = (pageKey) => {
   return null;
 };
 
-export default function AppShell({ page, onNavigate, onFormAction, onRefresh, displayName, role, onLogout, children }) {
+export default function AppShell({ page, onNavigate, onFormAction, onRefresh, displayName, role, permissions, onLogout, children }) {
+  // เมนูแสดงเมื่อ role อนุญาต หรือ admin grant permission รายคน (key = item.page)
+  const canSee = (it) => it.roles.includes(role) || (it.page && (permissions || []).includes(it.page));
   const [collapsed, setCollapsed] = useState(false); // desktop collapse
   const [drawerOpen, setDrawerOpen] = useState(false); // mobile drawer
   const [openMenus, setOpenMenus] = useState(() => {
@@ -79,7 +81,8 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
         </button>
 
         {NAV_GROUPS.map(group => {
-          const items = group.items.filter(it => it.roles.includes(role));
+          // submenu (มี children) แสดงเมื่อ role กลุ่มอนุญาต หรือมีลูกอย่างน้อย 1 ที่ canSee
+          const items = group.items.filter(it => (it.children ? (it.roles.includes(role) || it.children.some(canSee)) : canSee(it)));
           if (items.length === 0) return null;
           return (
             <div key={group.label}>
@@ -93,7 +96,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
                 {items.map(item => {
                   // ── submenu (collapsible) ──
                   if (item.children) {
-                    const children = item.children.filter(c => c.roles.includes(role));
+                    const children = item.children.filter(canSee);
                     if (children.length === 0) return null;
                     const SubIcon = item.icon;
                     const open = !!openMenus[item.key];

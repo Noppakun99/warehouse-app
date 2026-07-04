@@ -62,6 +62,8 @@ const GRANTABLE_SYSTEMS = [
   { key: 'audit',      label: 'Audit Log',            color: 'bg-slate-100 text-slate-600',  defaultRoles: ['staff','admin'] },
   { key: 'analytics',  label: 'วิเคราะห์การเบิกยา', color: 'bg-cyan-100 text-cyan-700',    defaultRoles: ['requester','staff','admin'] },
   { key: 'reorder',    label: 'วิเคราะห์การสั่งซื้อ', color: 'bg-orange-100 text-orange-700', defaultRoles: ['staff','admin'] },
+  { key: 'ledger',     label: 'ทะเบียนคงคลัง',       color: 'bg-teal-100 text-teal-700',    defaultRoles: ['admin'] },
+  { key: 'stockcount', label: 'ตรวจนับคงคลัง',       color: 'bg-emerald-100 text-emerald-700', defaultRoles: ['staff','admin'] },
 ];
 
 const DEPARTMENTS = [

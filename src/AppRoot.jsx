@@ -165,7 +165,7 @@ export default function AppRoot() {
   if (auth) {
     const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username;
     content = (
-      <AppShell page={page} onNavigate={setPage} onFormAction={runFormAction} onRefresh={refreshPage} displayName={displayName} role={auth.role} onLogout={logout}>
+      <AppShell page={page} onNavigate={setPage} onFormAction={runFormAction} onRefresh={refreshPage} displayName={displayName} role={auth.role} permissions={auth.permissions} onLogout={logout}>
         {content}
       </AppShell>
     );
