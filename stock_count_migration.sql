@@ -41,8 +41,13 @@ CREATE TABLE IF NOT EXISTS stock_count_item (
   diff_qty          NUMERIC DEFAULT 0,                -- system_qty − counted_qty
   match             BOOLEAN DEFAULT FALSE,            -- ตรงครบ 3 มิติ (qty+location+exp)
 
+  item_note         TEXT DEFAULT '',                  -- หมายเหตุรายการยานี้ (เช่น พบชำรุด/ตำแหน่งจริง)
+
   created_at        TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- migration (ตารางมีอยู่แล้ว): เพิ่มหมายเหตุรายรายการ
+ALTER TABLE stock_count_item ADD COLUMN IF NOT EXISTS item_note TEXT DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_stock_count_item_session ON stock_count_item(session_id);
 CREATE INDEX IF NOT EXISTS idx_stock_count_item_code    ON stock_count_item(code);

@@ -20,7 +20,26 @@ const fmtThaiDate = (iso) => {
   if (isNaN(d)) return iso
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear() + 543}`
 }
+// วันที่ + เวลา (จาก created_at timestamptz) — ใช้ในประวัติ
+const fmtThaiDateTime = (iso) => {
+  if (!iso) return '-'
+  const d = new Date(iso)
+  if (isNaN(d)) return iso
+  return `${fmtThaiDate(iso)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} น.`
+}
 const toNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0 }
+
+// ปุ่ม "ตรง" ใต้แต่ละช่อง — เติมค่าตามระบบ (autofill รายช่อง) / กดซ้ำ = ล้าง
+function FieldTick({ active, onClick }) {
+  return (
+    <button type="button" onClick={onClick}
+      title={active ? 'ตรงระบบ (กดเพื่อล้าง)' : 'เติมค่าตามระบบ'}
+      className={`mt-1 mx-auto flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors ${
+        active ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500 hover:bg-emerald-50 hover:text-emerald-600'}`}>
+      <CheckCircle size={11} /> ตรง
+    </button>
+  )
+}
 // แสดงคงเหลือเป็น "จำนวน × หน่วย" (เช่น 2 × 1000เม็ด) — unit ฝัง packsize ไว้แล้ว
 const qtyUnit = (qty, unit) => `${toNum(qty)} × ${unit || '-'}`
 
@@ -139,7 +158,7 @@ function CountTab({ auth }) {
     try {
       const lots = await fetchLotsForCount([code])
       const newLines = lots.map(l => ({
-        ...l, counted_qty: '', counted_exp: '', counted_location: '',
+        ...l, counted_qty: '', counted_exp: '', counted_location: '', item_note: '',
       }))
       setLines(prev => [...prev, ...newLines])
       setAddedCodes(prev => new Set(prev).add(code))
@@ -149,14 +168,38 @@ function CountTab({ auth }) {
   const updateLine = (idx, field, val) =>
     setLines(prev => prev.map((l, i) => i === idx ? { ...l, [field]: val } : l))
 
+  // ค่าที่ถือว่า "ตรงระบบ" ของแต่ละช่อง
+  const sysVal = (l, field) =>
+    field === 'counted_qty' ? String(toNum(l.system_qty))
+      : field === 'counted_exp' ? (l.system_exp || '')
+      : (l.system_location || '')
+
+  // เติม/ล้าง 1 ช่อง ให้ตรงระบบ (toggle) — autofill รายช่อง
+  const toggleField = (idx, field) =>
+    setLines(prev => prev.map((l, i) => {
+      if (i !== idx) return l
+      const sv = sysVal(l, field)
+      const next = { ...l, [field]: l[field] === sv ? '' : sv }
+      if (field === 'counted_exp') next._expCustom = false   // ตรง/ล้าง → ออกจากโหมดพิมพ์เอง
+      return next
+    }))
+
+  // เลือก exp จาก dropdown: '' = ล้าง, ค่าระบบ = ตรง, '__custom__' = พิมพ์เอง
+  const pickExp = (idx, val) =>
+    setLines(prev => prev.map((l, i) => {
+      if (i !== idx) return l
+      if (val === '__custom__') return { ...l, _expCustom: true }
+      return { ...l, counted_exp: val, _expCustom: false }
+    }))
+
   // กดทีเดียว = ตรงทั้งหมด (เติมนับได้/ที่เก็บ/exp = ค่าระบบ); กดซ้ำ = ล้าง (toggle)
   const markLineAllMatch = (idx) =>
     setLines(prev => prev.map((l, i) => {
       if (i !== idx) return l
       const isAll = lineMatch(l).all
       return isAll
-        ? { ...l, counted_qty: '', counted_exp: '', counted_location: '' }
-        : { ...l, counted_qty: String(toNum(l.system_qty)), counted_exp: l.system_exp || '', counted_location: l.system_location || '' }
+        ? { ...l, counted_qty: '', counted_exp: '', counted_location: '', _expCustom: false }
+        : { ...l, counted_qty: String(toNum(l.system_qty)), counted_exp: l.system_exp || '', counted_location: l.system_location || '', _expCustom: false }
     }))
 
   const removeLine = (idx) => setLines(prev => prev.filter((_, i) => i !== idx))
@@ -219,7 +262,12 @@ function CountTab({ auth }) {
         <>
           {/* desktop */}
           <div className="hidden md:block bg-white rounded-xl border border-slate-200 overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-fixed">
+              <colgroup>
+                <col className="w-[22%]" /><col className="w-[8%]" /><col className="w-[18%]" />
+                <col className="w-[16%]" /><col className="w-[16%]" /><col className="w-[16%]" />
+                <col className="w-[7%]" /><col className="w-[7%]" />
+              </colgroup>
               <thead className="bg-slate-50 text-slate-600">
                 <tr>
                   <th className="text-left px-3 py-2 font-semibold">รายการยา</th>
@@ -228,46 +276,66 @@ function CountTab({ auth }) {
                   <th className="text-center px-2 py-2 font-semibold">นับได้</th>
                   <th className="text-center px-2 py-2 font-semibold">ที่เก็บจริง</th>
                   <th className="text-center px-2 py-2 font-semibold">exp จริง</th>
-                  <th className="text-center px-2 py-2 font-semibold">ผล</th>
+                  <th className="text-center px-2 py-2 font-semibold">ตรงหมด</th>
                   <th className="px-2 py-2"></th>
                 </tr>
               </thead>
               <tbody>
                 {lines.map((l, i) => {
                   const m = lineMatch(l)
+                  const expCustom = !!l._expCustom
                   return (
                     <tr key={i} className="border-t border-slate-100">
-                      <td className="px-3 py-2">
-                        <p className="font-medium text-slate-800">{l.name}</p>
+                      <td className="px-3 py-2 align-top">
+                        <p className="font-medium text-slate-800 truncate">{l.name}</p>
                         <p className="text-xs text-slate-400">{l.code}</p>
+                        <input type="text" value={l.item_note} placeholder="+ หมายเหตุรายการนี้"
+                          onChange={e => updateLine(i, 'item_note', e.target.value)}
+                          className="w-full mt-1 px-2 py-1 border border-slate-200 rounded-lg text-xs placeholder-slate-300 focus:border-slate-300 focus:ring-1 focus:ring-emerald-200" />
                       </td>
                       <td className="text-center px-2 py-2">{l.lot}</td>
                       <td className="text-center px-2 py-2 text-xs text-slate-500">
                         <span className="font-semibold text-slate-700">{qtyUnit(l.system_qty, l.unit)}</span><br />
                         {l.system_location}<br />{l.system_exp}
                       </td>
-                      <td className="text-center px-2 py-2">
+                      {/* นับได้ */}
+                      <td className="px-2 py-2 align-top">
                         <div className="flex items-center justify-center gap-1">
                           <input type="number" inputMode="decimal" value={l.counted_qty}
                             onChange={e => updateLine(i, 'counted_qty', e.target.value)}
                             className={`w-16 px-2 py-1 border rounded-lg text-center ${m.counted && !m.qtyOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
                           <span className="text-xs text-slate-400 whitespace-nowrap">× {l.unit}</span>
                         </div>
+                        <FieldTick active={m.counted && m.qtyOk} onClick={() => toggleField(i, 'counted_qty')} />
                       </td>
-                      <td className="text-center px-2 py-2">
+                      {/* ที่เก็บจริง */}
+                      <td className="px-2 py-2 align-top">
                         <select value={l.counted_location}
                           onChange={e => updateLine(i, 'counted_location', e.target.value)}
-                          className={`w-32 px-2 py-1 border rounded-lg text-center text-xs ${l.counted_location && !m.locOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}>
+                          className={`w-full px-2 py-1 border rounded-lg text-center text-xs ${l.counted_location && !m.locOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}>
                           <option value="">— ที่เก็บจริง —</option>
                           {locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
                         </select>
+                        <FieldTick active={!!l.counted_location && m.locOk} onClick={() => toggleField(i, 'counted_location')} />
                       </td>
-                      <td className="text-center px-2 py-2">
-                        <input type="text" value={l.counted_exp} placeholder={l.system_exp}
-                          onChange={e => updateLine(i, 'counted_exp', e.target.value)}
-                          className={`w-28 px-2 py-1 border rounded-lg text-center text-xs ${l.counted_exp && !m.expOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
+                      {/* exp จริง — dropdown (ค่าระบบ / อื่นๆ→พิมพ์เอง) */}
+                      <td className="px-2 py-2 align-top">
+                        <select value={expCustom ? '__custom__' : l.counted_exp}
+                          onChange={e => pickExp(i, e.target.value)}
+                          className={`w-full px-2 py-1 border rounded-lg text-center text-xs ${l.counted_exp && !m.expOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}>
+                          <option value="">— exp จริง —</option>
+                          {(l.system_exp && l.system_exp !== '-') && <option value={l.system_exp}>{l.system_exp} (ตามระบบ)</option>}
+                          <option value="__custom__">อื่นๆ (พิมพ์เอง)</option>
+                        </select>
+                        {expCustom && (
+                          <input type="text" autoFocus value={l.counted_exp} placeholder="เช่น 3/12/2028"
+                            onChange={e => updateLine(i, 'counted_exp', e.target.value)}
+                            className="w-full mt-1 px-2 py-1 border border-amber-400 bg-amber-50 rounded-lg text-center text-xs" />
+                        )}
+                        <FieldTick active={!!l.counted_exp && m.expOk} onClick={() => toggleField(i, 'counted_exp')} />
                       </td>
-                      <td className="text-center px-2 py-2">
+                      {/* ตรงทั้งหมด */}
+                      <td className="text-center px-2 py-2 align-top">
                         <button onClick={() => markLineAllMatch(i)}
                           title={m.all ? 'ล้างค่าที่กรอก' : 'ตรงทั้งหมด (เติมค่าตามระบบ)'}
                           className={`inline-flex items-center justify-center w-8 h-8 rounded-full border transition-colors ${
@@ -277,7 +345,7 @@ function CountTab({ auth }) {
                           {m.counted && !m.all ? <AlertTriangle size={16} /> : <CheckCircle size={16} />}
                         </button>
                       </td>
-                      <td className="px-2 py-2 text-center">
+                      <td className="px-2 py-2 text-center align-top">
                         <button onClick={() => removeLine(i)} className="text-slate-300 hover:text-red-500"><X size={16} /></button>
                       </td>
                     </tr>
@@ -291,6 +359,7 @@ function CountTab({ auth }) {
           <div className="md:hidden space-y-3">
             {lines.map((l, i) => {
               const m = lineMatch(l)
+              const expCustom = !!l._expCustom
               return (
                 <div key={i} className="bg-white rounded-xl border border-slate-200 p-3">
                   <div className="flex items-start justify-between gap-2">
@@ -303,22 +372,53 @@ function CountTab({ auth }) {
                   <p className="text-xs text-slate-500 mt-1.5">
                     ระบบ: <b className="text-slate-700">{qtyUnit(l.system_qty, l.unit)}</b> · {l.system_location} · {l.system_exp}
                   </p>
-                  <div className="grid grid-cols-3 gap-2 mt-2">
-                    <div className="flex flex-col">
-                      <input type="number" inputMode="decimal" value={l.counted_qty} placeholder="นับได้"
+                  <div className="mt-2 space-y-2">
+                    {/* นับได้ (ช่องหลัก — เต็มแถว) */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-slate-500 w-14 shrink-0">นับได้</label>
+                      <input type="number" inputMode="decimal" value={l.counted_qty} placeholder="จำนวน"
                         onChange={e => updateLine(i, 'counted_qty', e.target.value)}
-                        className={`px-2 py-1.5 border rounded-lg text-center text-sm ${m.counted && !m.qtyOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
-                      <span className="text-[10px] text-slate-400 text-center mt-0.5">× {l.unit}</span>
+                        className={`flex-1 min-w-0 px-2 py-1.5 border rounded-lg text-center text-sm ${m.counted && !m.qtyOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
+                      <span className="text-[10px] text-slate-400 shrink-0">× {l.unit}</span>
+                      <FieldTick active={m.counted && m.qtyOk} onClick={() => toggleField(i, 'counted_qty')} />
                     </div>
-                    <select value={l.counted_location}
-                      onChange={e => updateLine(i, 'counted_location', e.target.value)}
-                      className={`px-1 py-1.5 border rounded-lg text-center text-xs ${l.counted_location && !m.locOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}>
-                      <option value="">ที่เก็บ</option>
-                      {locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
-                    </select>
-                    <input type="text" value={l.counted_exp} placeholder="exp"
-                      onChange={e => updateLine(i, 'counted_exp', e.target.value)}
-                      className={`px-2 py-1.5 border rounded-lg text-center text-xs ${l.counted_exp && !m.expOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
+                    {/* ที่เก็บจริง */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-slate-500 w-14 shrink-0">ที่เก็บ</label>
+                      <select value={l.counted_location}
+                        onChange={e => updateLine(i, 'counted_location', e.target.value)}
+                        className={`flex-1 min-w-0 px-2 py-1.5 border rounded-lg text-center text-xs ${l.counted_location && !m.locOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}>
+                        <option value="">— เลือกที่เก็บ —</option>
+                        {locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+                      </select>
+                      <FieldTick active={!!l.counted_location && m.locOk} onClick={() => toggleField(i, 'counted_location')} />
+                    </div>
+                    {/* exp จริง — dropdown */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-slate-500 w-14 shrink-0">exp</label>
+                      <div className="flex-1 min-w-0">
+                        <select value={expCustom ? '__custom__' : l.counted_exp}
+                          onChange={e => pickExp(i, e.target.value)}
+                          className={`w-full px-2 py-1.5 border rounded-lg text-center text-xs ${l.counted_exp && !m.expOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}>
+                          <option value="">— เลือก exp —</option>
+                          {(l.system_exp && l.system_exp !== '-') && <option value={l.system_exp}>{l.system_exp} (ตามระบบ)</option>}
+                          <option value="__custom__">อื่นๆ (พิมพ์เอง)</option>
+                        </select>
+                        {expCustom && (
+                          <input type="text" autoFocus value={l.counted_exp} placeholder="เช่น 3/12/2028"
+                            onChange={e => updateLine(i, 'counted_exp', e.target.value)}
+                            className="w-full mt-1 px-2 py-1.5 border border-amber-400 bg-amber-50 rounded-lg text-center text-xs" />
+                        )}
+                      </div>
+                      <FieldTick active={!!l.counted_exp && m.expOk} onClick={() => toggleField(i, 'counted_exp')} />
+                    </div>
+                    {/* หมายเหตุรายการนี้ */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-slate-500 w-14 shrink-0">หมายเหตุ</label>
+                      <input type="text" value={l.item_note} placeholder="เช่น พบชำรุด / ตำแหน่งจริง"
+                        onChange={e => updateLine(i, 'item_note', e.target.value)}
+                        className="flex-1 min-w-0 px-2 py-1.5 border border-slate-300 rounded-lg text-xs" />
+                    </div>
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <div className="text-xs">
@@ -397,6 +497,7 @@ function HistoryTab({ auth }) {
       counted_qty: it.counted_qty == null ? '' : String(toNum(it.counted_qty)),
       counted_location: it.counted_location || '',
       counted_exp: it.counted_exp || '',
+      item_note: it.item_note || '',
     })
   }
 
@@ -439,7 +540,7 @@ function HistoryTab({ auth }) {
               <button onClick={() => toggle(s.id)} className="flex items-center gap-3 flex-1 text-left">
                 <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><ClipboardCheck size={18} /></div>
                 <div className="flex-1">
-                  <p className="font-semibold text-sm text-slate-800">{fmtThaiDate(s.counted_at)}</p>
+                  <p className="font-semibold text-sm text-slate-800">{s.created_at ? fmtThaiDateTime(s.created_at) : fmtThaiDate(s.counted_at)}</p>
                   <p className="text-xs text-slate-400">ผู้นับ: {s.counter_name}{s.note ? ` · ${s.note}` : ''}</p>
                 </div>
               </button>
@@ -476,8 +577,17 @@ function HistoryTab({ auth }) {
                             const editing = editId === it.id
                             return (
                               <tr key={it.id} className={`border-b border-slate-50 ${editing ? 'bg-emerald-50/60' : !it.match ? 'bg-amber-50/50' : ''}`}>
-                                <td className="py-1.5 pr-2">{it.name}<span className="text-slate-400"> · {it.lot}</span></td>
-                                <td className="text-center px-2">{qtyUnit(it.system_qty, it.unit)}</td>
+                                <td className="py-1.5 pr-2 align-top">
+                                  {it.name}<span className="text-slate-400"> · {it.lot}</span>
+                                  {editing ? (
+                                    <input type="text" value={editVal.item_note} placeholder="+ หมายเหตุรายการนี้"
+                                      onChange={e => setEditVal(v => ({ ...v, item_note: e.target.value }))}
+                                      className="w-full mt-1 px-1.5 py-1 border border-slate-300 rounded text-[11px]" />
+                                  ) : it.item_note ? (
+                                    <p className="text-[11px] text-amber-600 mt-0.5">หมายเหตุ: {it.item_note}</p>
+                                  ) : null}
+                                </td>
+                                <td className="text-center px-2 align-top">{qtyUnit(it.system_qty, it.unit)}</td>
                                 {editing ? (
                                   <>
                                     <td className="text-center px-2">

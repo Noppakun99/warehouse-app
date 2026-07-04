@@ -2126,6 +2126,7 @@ export async function createStockCount(session, items, auth = {}) {
       system_qty: sysQty, system_exp: it.system_exp || '-', system_location: it.system_location || '-',
       counted_qty: cntQty, counted_exp: it.counted_exp || '', counted_location: it.counted_location || '',
       diff_qty: diff, match: qtyMatch && expMatch && locMatch,
+      item_note: it.item_note || '',
     }
   })
   if (payload.length) {
@@ -2182,6 +2183,7 @@ export async function updateStockCountItem(itemId, fields, auth = {}) {
       counted_exp: fields.counted_exp || '',
       counted_location: fields.counted_location || '',
       diff_qty, match,
+      ...(fields.item_note != null ? { item_note: fields.item_note } : {}),
     })
     .eq('id', itemId)
   if (error) throw error
