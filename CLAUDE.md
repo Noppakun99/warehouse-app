@@ -54,7 +54,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 
 **Sub-apps (component แยกอิสระ):**
 - `App.jsx` — Inventory map, CSV upload, drug grid (ดู [docs/features/inventory-map.md](docs/features/inventory-map.md))
-- `RequisitionApp.jsx` — เบิกยา (ระดับยา/หน่วยย่อยสุด ซ่อน lot) + auto-split FEFO ผ่าน `src/lib/lotAllocation.js` (เก็บผลใน `picked_allocation` jsonb) + picking workflow (ดู [docs/features/picking-workflow.md](docs/features/picking-workflow.md), ADR-0004)
+- `RequisitionApp.jsx` — เบิกยา (ระดับยา/หน่วยย่อยสุด ซ่อน lot) + auto-split FEFO ผ่าน `src/lib/lotAllocation.js` (เก็บผลใน `picked_allocation` jsonb) + picking workflow + **ใบ lot คุม** (`printLotControl` — แนวนอน 16 คอลัมน์แบบ HosXP, snapshot `onhand` ตอนจัด, หมายเหตุอัตโนมัติ; `staff_note` ต้องรัน `staff_note_migration.sql`) + **ใบปะหน้า** (`printCoverForm` — ฟอร์มราชการ+สายลายเซ็น, ข้อความ pre-printed ใน const `COVER_FORM`) (ดู [docs/features/picking-workflow.md](docs/features/picking-workflow.md), ADR-0004, CONTEXT.md §ใบ lot คุม/§ใบปะหน้า)
 - `DispenseLogApp.jsx` — ประวัติเบิกจ่าย
 - `ReceiveLogApp.jsx` — ประวัติรับยา + สแกนบิล AI (ดู [docs/features/invoice-scanner.md](docs/features/invoice-scanner.md))
 - `ReturnApp.jsx` — บันทึกคืนยา (ดู [docs/features/return.md](docs/features/return.md))

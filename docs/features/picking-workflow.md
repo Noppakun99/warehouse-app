@@ -123,3 +123,25 @@ confirmReceivedRequisition(id, receivedBy, auth)
 - `markRequisitionDispensed` ใช้กับ `ready` เท่านั้น ไม่ใช่ approved โดยตรง
 - ไม่หักสต็อกอัตโนมัติ — ข้อมูล picked_qty ใช้ดาวน์โหลด Excel ตัดสต็อกแยกต่างหาก
 - `exportCSV` function ยังอยู่ใน code แต่ไม่มีที่เรียกแล้ว — ห้ามนำกลับมาใช้ ให้ใช้ `exportReqExcel` แทนเสมอ
+
+## ใบ lot คุม (Lot Control Sheet) — 2026-07-04
+
+เอกสารคุมคลังแนวนอน 16 คอลัมน์ตามแบบรายงาน HosXP (นิยาม: CONTEXT.md §ใบ lot คุม) — ปุ่ม "ใบ lot คุม" ข้างปุ่มพิมพ์เดิมใน StaffDashboard card footer + RequisitionDetail header. ใบเบิกยาเดิม (`printReq`) ไม่เปลี่ยน.
+
+- **`printLotControl(req, preopenedWin)`** (RequisitionApp.jsx) — เรียงแถวตามเส้นทางเดินหยิบ MainLog → DetailedLog (ไม่มีที่เก็บไปท้าย), ปี ค.ศ. ตามแบบ HosXP, `@page landscape`, ใช้ pattern `preopenedWin` กัน LINE WebView block เหมือน `printReq`. ใบที่ยังไม่จัดพิมพ์ได้ (FEFO preview) — มี label "(ประมาณการ FEFO — ยังไม่จัดยา)"
+- **คงเหลือก่อนเบิก/หลังจ่าย** — helper `lotBeforeAfter` (แชร์กับ Excel export, Rule #6):
+  1. ใบที่จัดหลังฟีเจอร์นี้: ใช้ snapshot `onhand` ใน `picked_allocation` (เก็บตอนกดยืนยันจัดยา — พิมพ์ซ้ำเมื่อไหร่ก็ตรง)
+  2. ใบเก่า/ยังไม่จัด: อนุมานจาก qty สด — จ่ายแล้ว (`dispensed`/`received`) **และ**มี `import_inventory` (audit log) หลัง `dispensed_at` → หลังจ่าย = สด, ก่อน = สด + ออก; ไม่งั้น ก่อน = สด, หลัง = สด − ออก. เหตุผล: แอปไม่หัก `inventory.qty` เอง — ตัดใน HosXP แล้ว re-import
+- **หมายเหตุอัตโนมัติ**: `มีXlot` (ทุกแถวของ item ที่คร่อม lot) · `ใกล้exp <countdown>` + ช่อง Exp พื้นแดง (เกณฑ์ `isNearExpiry` 16 เดือนเดิม) · `เบิก X จ่าย Y รอตรวจรับ` (จ่ายไม่ครบ + `receive_logs.receive_status` มี "รอ") · `เบิก X จ่าย Y ยาหมดรอของส่ง` (จ่ายไม่ครบ + สต็อกเหลือ 0 + ไม่มีรอตรวจรับ) · `เบิก X จ่าย Y ยาตัดออกจากบัญชี` (`inventory.receive_status` มี "ตัดออก") · `เปลี่ยนบริษัท` (`receive_logs.supplier_changed` ราย lot)
+- **เคสจ่าย 0**: item ไม่มี allocation และไม่มี `picked_lot` → ปริมาณออก = **0** (ห้าม fallback เป็นยอดที่ขอ) + หมายเหตุบอกเหตุผล — ตรงกับ HosXP "เบิก 12 จ่าย 0 รอตรวจรับ". Excel export ใช้กติกาเดียวกัน (`_out/_before/_after`)
+- **`staff_note`** (column ใหม่ใน `requisition_items` — `staff_note_migration.sql` ต้องรันใน Dashboard ก่อน) — หมายเหตุคลังรายรายการ กรอกใน PickingModal พร้อม chip วลีสำเร็จรูป `STAFF_NOTE_PRESETS` (จ่ายlotเก่าให้หมด / ตัดยอดยาเสพติด / รถกู้ชีพ / เบิกห้องยา) — แยกจาก `item_note` ของผู้เบิก (provenance คนละคน) ขึ้นทั้งใบ lot คุม + Excel
+- **`fetchLastInventoryImportAt()`** (db.js) — คืน ISO string ของ audit log `import_inventory` ล่าสุด (null ถ้าไม่มี/error) — ใช้ตัดสินข้อ 2 ข้างบน
+- **`computeReqAllocations`** เลิก filter `.gt('qty',0)` ที่ SQL (FEFO มี guard `packs > 0` ใน JS อยู่แล้ว) เพื่อเห็นแถว qty=0/ตัดออก สำหรับ status map + คืน `pendingCodes/discontinuedCodes/supplierChangedLots` เพิ่ม
+
+## ใบปะหน้า "ใบเบิกเวชภัณฑ์ยา" (ฟอร์มราชการ) — 2026-07-04
+
+**`printCoverForm(req, preopenedWin)`** (RequisitionApp.jsx) — replica ฟอร์มกระดาษของ รพ. (A4 แนวตั้ง) พิมพ์แทนเขียนมือ: หัวฟอร์ม (เลขที่เบิก = `req_number`, วันที่ไทยย่อ, ข้าพเจ้า/หน่วยงาน prefill) + ตารางระดับรายการยา (ลำดับ/รายการ/หน่วยนับ/คงเหลือก่อนจ่าย/จำนวนที่เบิก/จำนวนที่จ่าย/คงเหลือหลังจ่าย) + สายลายเซ็น 5 บล็อก (ผู้เขียนคำขอ, ผู้จ่ายยาและลงทะเบียน, ผู้รับยา, ผู้เบิก/หัวหน้ากลุ่มงาน, ผู้อนุมัติเบิกจ่าย)
+
+- **ตาราง**: ≤12 รายการพิมพ์ inline (pad แถวว่างขั้นต่ำ 7); เกิน 12 → แถวเดียว "ตามเอกสารแนบท้าย จำนวน N รายการ" ตามธรรมเนียมฟอร์ม. คงเหลือก่อนจ่าย = ระดับรหัสยา (`onHandByCode` + กติกา import-aware เดียวกับใบ lot คุม); **จำนวนที่จ่าย/คงเหลือหลังจ่าย เว้นว่างจนกว่าจะจัดยาแล้ว** (ให้คลังเขียนได้ตาม workflow กระดาษ)
+- **ข้อความ pre-printed** (ชื่อ รพ., ชื่อ/ตำแหน่งเจ้าหน้าที่คลัง+หัวหน้าหน่วยพัสดุยา, ตำแหน่งหัวหน้ากลุ่มงาน) อยู่ใน const `COVER_FORM` ต้นไฟล์ — เปลี่ยนผู้รับผิดชอบแก้จุดเดียว
+- **ปุ่ม "ใบปะหน้า"** (ไอคอน FileText สี indigo) 3 จุด: แถวประวัติผู้เบิก + card footer StaffDashboard + header RequisitionDetail — ใช้ pattern `preopenedWin` กัน WebView block เหมือน print อื่น

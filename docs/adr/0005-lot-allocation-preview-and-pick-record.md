@@ -21,7 +21,7 @@
 
 2. **คำนวณจริงตอน picking (ฝั่ง staff):** เมื่อ staff เปิดจัดยา **คำนวณ FEFO ใหม่จากของจริง ณ ตอนนั้น** (ไม่ใช้ snapshot ตอนขอ) — เพราะของเปลี่ยนได้ระหว่างรอ. staff ปรับได้.
 
-3. **บันทึก lot ที่จ่ายจริง:** เพิ่ม `requisition_items.picked_allocation` (jsonb: `[{lot, exp, base, packs}]`) เก็บผลที่ staff จัดจริง — 1 รายการมีได้หลาย lot. คง `picked_lot/picked_exp/picked_qty` ไว้ (lot แรก + รวม qty) เพื่อ backward-compat. ผู้เบิกเห็น allocation นี้ในประวัติ/ตอนรับยา.
+3. **บันทึก lot ที่จ่ายจริง:** เพิ่ม `requisition_items.picked_allocation` (jsonb: `[{lot, exp, base, packs, onhand}]`) เก็บผลที่ staff จัดจริง — 1 รายการมีได้หลาย lot. `onhand` = คงเหลือ lot นั้น (เม็ด) snapshot ณ ตอนกดยืนยันจัดยา — ใช้เป็น "คงเหลือก่อนเบิก" ใน[ใบ lot คุม](../features/picking-workflow.md) (พิมพ์ซ้ำเมื่อไหร่ก็ตรง เพราะไม่คำนวณสด). คง `picked_lot/picked_exp/picked_qty` ไว้ (lot แรก + รวม qty) เพื่อ backward-compat. ผู้เบิกเห็น allocation นี้ในประวัติ/ตอนรับยา.
 
 6. **Print/Excel แสดง lot ตามที่จะจ่าย:** `computeReqAllocations(reqs)` (async) คืน allocation ต่อ item — จัดแล้วใช้ `picked_allocation`, **ยังไม่จัดคำนวณ FEFO สด**จาก inventory + เติมราคาราย lot จาก `receive_logs`. ทำให้ผู้อนุมัติเห็น lot/exp/ราคา ในใบ "รอดำเนินการ" ก่อนตัดสินใจ. print/Excel แตก 1 รายการเป็นหลายแถวเมื่อจ่ายข้าม lot. (`printReq` เปลี่ยนเป็น async).
 

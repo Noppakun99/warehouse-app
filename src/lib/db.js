@@ -1339,6 +1339,20 @@ export async function fetchLatestReceiptInfo() {
 
 // --- Picking Workflow ---
 
+// เวลา import inventory CSV ครั้งล่าสุด (ISO string | null) — ใช้ตัดสินว่า inventory.qty สะท้อนการตัดสต็อกของใบเบิกที่จ่ายแล้วหรือยัง
+// (แอปไม่หัก qty เองตอนจ่ายออก — ตัดจริงใน HosXP แล้ว re-import; ดู ใบ lot คุม ใน CONTEXT.md)
+export async function fetchLastInventoryImportAt() {
+  if (!supabase) return null
+  const { data, error } = await supabase
+    .from('audit_logs')
+    .select('created_at')
+    .eq('action', 'import_inventory')
+    .order('created_at', { ascending: false })
+    .limit(1)
+  if (error) return null
+  return data?.[0]?.created_at || null
+}
+
 export async function fetchInventoryByCodes(codes) {
   if (!supabase || !codes.length) return []
   const { data, error } = await supabase
@@ -1354,7 +1368,7 @@ export async function startPickingRequisition(id, { pickerName, items }, auth = 
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
   for (const item of items) {
     const { error } = await supabase.from('requisition_items')
-      .update({ picked_lot: item.picked_lot || null, picked_exp: item.picked_exp || null, picked_qty: item.picked_qty ?? null, picked_allocation: item.picked_allocation || null })
+      .update({ picked_lot: item.picked_lot || null, picked_exp: item.picked_exp || null, picked_qty: item.picked_qty ?? null, picked_allocation: item.picked_allocation || null, staff_note: item.staff_note || null })
       .eq('id', item.id)
     if (error) throw error
   }

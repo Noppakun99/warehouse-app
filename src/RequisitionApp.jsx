@@ -11,7 +11,7 @@ import {
 import { exportToExcel } from './lib/exportExcel';
 import { parseUnit } from './lib/unitParser';
 import { allocateFefo } from './lib/lotAllocation';
-import { deleteRequesterRequisition, updateRequesterRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes } from './lib/db';
+import { deleteRequesterRequisition, updateRequesterRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 
 // ============================================================
@@ -134,11 +134,11 @@ const REQUISITION_EXCEL_COLS = [
   { header: 'Lot Number',         value: (r) => r._alloc?.lot ?? r._item?.picked_lot ?? r._item?.lot ?? '' },
   { header: 'Exp',                value: (r) => r._alloc?.exp ?? r._item?.picked_exp ?? r._item?.exp ?? '' },
   { header: 'ชนิดรายการ',        value: (r) => r._item?._item_type_ref || '' },
-  { header: 'คงเหลือก่อนเบิก',  value: () => '' },
-  { header: 'ปริมาณ (ออก)',      value: (r) => r._alloc?.base ?? r._item?.picked_qty ?? r._item?.approved_qty ?? r._item?.requested_qty ?? '' },
-  { header: 'คงเหลือหลังจ่าย',  value: () => '' },
+  { header: 'คงเหลือก่อนเบิก',  value: (r) => r._before ?? '' },
+  { header: 'ปริมาณ (ออก)',      value: (r) => r._out ?? '' },
+  { header: 'คงเหลือหลังจ่าย',  value: (r) => r._after ?? '' },
   { header: 'หน่วยงานที่เบิก',  value: (r) => r.department || '' },
-  { header: 'หมายเหตุ',          value: (r) => r._item?.item_note || r.note || '' },
+  { header: 'หมายเหตุ',          value: (r) => [r._item?.item_note, r._item?.staff_note].filter(Boolean).join(' ') || r.note || '' },
 ];
 
 // คำนวณ allocation ต่อ item.id สำหรับ print/Excel:
@@ -149,15 +149,21 @@ async function computeReqAllocations(reqs) {
   const allItems = reqs.flatMap(r => r.requisition_items || []);
   const codes = [...new Set(allItems.map(i => i.drug_code).filter(Boolean))];
   const logMap = {}, priceMap = {}, fefoByCode = {};
+  // สำหรับหมายเหตุอัตโนมัติในใบ lot คุม (ดู CONTEXT.md §ใบ lot คุม)
+  const pendingCodes = new Set();        // รหัสที่มีบิลรอตรวจรับ (จาก receive_logs — แหล่งเดียวกับ flow ค้นยาตอนเบิก)
+  const discontinuedCodes = new Set();   // รหัสที่ตัดออกจากบัญชี (inventory.receive_status — precedent เดียวกับ Dashboard)
+  const supplierChangedLots = new Set(); // "code|lot" ที่บิลรับ flag เปลี่ยนบริษัท
   if (supabase && codes.length) {
+    // ไม่ filter qty>0 ที่ SQL — ต้องเห็นแถว qty=0/ตัดออก เพื่อ status map; FEFO มี guard packs>0 อยู่แล้ว
     const [{ data: inv }, { data: rl }] = await Promise.all([
-      supabase.from('inventory').select('code, lot, exp, qty, unit, main_log, location, item_type').in('code', codes).gt('qty', 0).limit(3000),
-      supabase.from('receive_logs').select('drug_code, lot, price_per_unit').in('drug_code', codes).limit(5000),
+      supabase.from('inventory').select('code, lot, exp, qty, unit, main_log, location, item_type, receive_status').in('code', codes).limit(3000),
+      supabase.from('receive_logs').select('drug_code, lot, price_per_unit, receive_status, supplier_changed').in('drug_code', codes).limit(5000),
     ]);
     (inv || []).forEach(r => {
       const code = String(r.code||'').trim();
       const key = `${code}|${String(r.lot||'').trim()}`;
       if (!logMap[key]) logMap[key] = { main_log: r.main_log || '', detail_log: r.location || '', item_type: r.item_type || '' };
+      if (String(r.receive_status || '').includes('ตัดออก')) discontinuedCodes.add(code);
       const { packSize } = parseUnit(r.unit);
       const packs = parseFloat(r.qty) || 0;
       if (packs > 0) (fefoByCode[code] = fefoByCode[code] || []).push({ lot: r.lot, exp: r.exp, unit: r.unit, location: r.location, packSize: packSize || 1, packs, base: packs * (packSize || 1) });
@@ -168,8 +174,11 @@ async function computeReqAllocations(reqs) {
       return da - db;
     }));
     (rl || []).forEach(r => {
-      const key = `${String(r.drug_code||'').trim()}|${String(r.lot||'').trim()}`;
+      const code = String(r.drug_code||'').trim();
+      const key = `${code}|${String(r.lot||'').trim()}`;
       if (priceMap[key] == null && r.price_per_unit != null) priceMap[key] = r.price_per_unit;
+      if (String(r.receive_status || '').includes('รอ')) pendingCodes.add(code);
+      if (r.supplier_changed) supplierChangedLots.add(key);
     });
   }
   const withPrice = (code, a) => {
@@ -200,7 +209,7 @@ async function computeReqAllocations(reqs) {
       }
     }
   });
-  return { allocByItem, priceMap, logMap, onHandByCode, onHandByLot };
+  return { allocByItem, priceMap, logMap, onHandByCode, onHandByLot, pendingCodes, discontinuedCodes, supplierChangedLots };
 }
 
 // แปลง list ของ requisitions → flat rows สำหรับ Excel
@@ -215,14 +224,19 @@ const flattenReqs = (reqs, allocByItem = {}) =>
   );
 
 // Export Excel — เติม lot/exp/ราคา/main_log ตามที่จ่าย (จัดแล้ว) หรือ FEFO สด (ยังไม่จัด)
+// คงเหลือก่อนเบิก/หลังจ่าย + ปริมาณออก ใช้ logic เดียวกับใบ lot คุม (lotBeforeAfter) — เลขต้องตรงกัน (Rule #6)
 async function exportReqExcel(reqs, auth) {
-  const { allocByItem, logMap } = await computeReqAllocations(reqs);
+  const { allocByItem, logMap, onHandByLot } = await computeReqAllocations(reqs);
+  const lastImportAt = await fetchLastInventoryImportAt();
   const flat = flattenReqs(reqs, allocByItem);
   const lotOf = (r) => String(r._alloc?.lot || r._item?.picked_lot || r._item?.lot || '').trim();
   const enriched = flat.map(r => {
     const key = `${String(r._item?.drug_code||'').trim()}|${lotOf(r)}`;
     const ref = logMap[key] || {};
-    return { ...r, _item: { ...r._item, _main_log: ref.main_log || '', _detail_log: ref.detail_log || '', _item_type_ref: ref.item_type || r._item?.item_type || '' } };
+    // ไม่มี allocation และไม่มี lot ที่จัด = จ่าย 0 (ห้ามใช้ยอดที่ขอเป็นยอดออก)
+    const out = r._alloc?.base ?? (lotOf(r) ? (r._item?.picked_qty ?? r._item?.approved_qty ?? r._item?.requested_qty ?? 0) : 0);
+    const { before, after } = lotBeforeAfter(r, r._item?.drug_code, lotOf(r), out, r._alloc?.onhand ?? null, onHandByLot, lastImportAt);
+    return { ...r, _out: out, _before: before, _after: after, _item: { ...r._item, _main_log: ref.main_log || '', _detail_log: ref.detail_log || '', _item_type_ref: ref.item_type || r._item?.item_type || '' } };
   });
   const d = new Date();
   const date = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
@@ -456,6 +470,19 @@ const fmtExp = (raw) => {
 
 // marker นำหน้าบรรทัดหมายเหตุที่ระบบเติมอัตโนมัติ (จ่ายเกิน) — ใช้หา/ตัดออกกัน duplicate ตอน save ซ้ำ
 const MARK_OVER = '[จ่ายเกิน]';
+
+// วลีหมายเหตุคลังที่ใช้บ่อย (จาก vocabulary ใบจริงของคลัง) — chip กดเติมลง staff_note ตอนจัดยา แก้ข้อความต่อได้
+// (เคส "รอตรวจรับ/ยาหมดรอของส่ง/เปลี่ยนบริษัท/มีXlot/ใกล้exp" ระบบเติมอัตโนมัติในใบ lot คุม ไม่ต้องมี chip)
+const STAFF_NOTE_PRESETS = ['จ่ายlotเก่าให้หมด', 'ตัดยอดยาเสพติด', 'รถกู้ชีพ', 'เบิกห้องยา'];
+
+// ข้อความ pre-printed บนใบปะหน้า "ใบเบิกเวชภัณฑ์ยา" (ฟอร์มราชการ) — ตามฟอร์มกระดาษจริงของ รพ.
+// เปลี่ยนผู้รับผิดชอบ/ชื่อ รพ. → แก้ที่นี่จุดเดียว
+const COVER_FORM = {
+  hospital:  'โรงพยาบาลประชาธิปัตย์',
+  dispenser: { name: 'นายนพคุณ อายุขุนทด', role: 'เจ้าหน้าที่คลังยาเวชภัณฑ์', position: 'เจ้าพนักงานเภสัชกรรมปฏิบัติงาน' },
+  approver:  { name: 'นางสาวสุขาวดี กิตติณิชกุล', role: 'หัวหน้าหน่วยพัสดุยา', position: 'เภสัชกรปฏิบัติการ' },
+  requesterHead: { position: 'เภสัชกรชำนาญการ', group: 'หัวหน้ากลุ่มงาน เภสัชกรรมและคุ้มครองผู้บริโภค' },
+};
 
 // lot ใกล้หมดอายุ = exp ภายใน 16 เดือนนับจากวันนี้ (เกณฑ์เดียวกับหน้าแผนผังคลัง App.jsx)
 const isNearExpiry = (raw) => {
@@ -1398,6 +1425,308 @@ async function printReq(req, preopenedWin) {
   else   URL.revokeObjectURL(url);
 }
 
+// จ่ายออกแล้ว + มี import inventory CSV รอบใหม่หลังจ่าย → qty สดสะท้อน "หลังจ่าย" แล้ว
+// (แอปไม่หัก inventory.qty เองตอนจ่าย — ตัดจริงใน HosXP แล้ว re-import; ดู CONTEXT.md §ใบ lot คุม)
+const qtyIsPostDispense = (req, lastImportAt) => {
+  if (req.status !== 'dispensed' && req.status !== 'received') return false;
+  const dispensedAt = req.dispensed_at || req.updated_at;
+  return !!(dispensedAt && lastImportAt && new Date(lastImportAt) > new Date(dispensedAt));
+};
+
+// คงเหลือก่อนเบิก/หลังจ่ายของแถว lot ในใบ lot คุม/Excel
+//   snap = snapshot onhand ที่เก็บใน picked_allocation ตอนจัดยา (แม่นเสมอ ใบใหม่มีทุกใบ)
+//   ไม่มี snapshot (ใบเก่า/ยังไม่จัด) → อนุมานจาก qty สด ± ออก ตาม qtyIsPostDispense
+const lotBeforeAfter = (req, code, lot, out, snap, onHandByLot, lastImportAt) => {
+  const o = Number(out) || 0;
+  if (snap != null) return { before: Number(snap), after: Math.max(0, Number(snap) - o) };
+  const live = onHandByLot[`${String(code || '').trim()}|${String(lot || '').trim()}`] ?? 0;
+  return qtyIsPostDispense(req, lastImportAt)
+    ? { before: live + o, after: live }
+    : { before: live, after: Math.max(0, live - o) };
+};
+
+// ============================================================
+// ใบ lot คุม (Lot Control Sheet) — เอกสารคุมคลังแนวนอน 16 คอลัมน์ตามแบบรายงาน HosXP
+// รายรหัส×lot เรียงตามเส้นทางเดินหยิบ (MainLog → DetailedLog) — ดู CONTEXT.md §ใบ lot คุม
+// ============================================================
+async function printLotControl(req, preopenedWin) {
+  const { allocByItem, onHandByLot, onHandByCode, logMap, pendingCodes, discontinuedCodes, supplierChangedLots } =
+    await computeReqAllocations([req]);
+  const lastImportAt = await fetchLastInventoryImportAt();
+  const pad = n => String(n).padStart(2, '0');
+  const fmtDateCE = (iso) => { const d = new Date(iso); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`; };
+  const now = new Date();
+  const isPicked = !['pending', 'approved', 'partial', 'rejected'].includes(req.status);
+  const allItems = req.requisition_items || [];
+  const items = req.status === 'partial'
+    ? allItems.filter(item => item.approved_qty != null && item.approved_qty > 0)
+    : allItems;
+
+  const rowObjs = [];
+  items.forEach(item => {
+    const code = String(item.drug_code || '').trim();
+    const alloc = allocByItem[item.id] || (Array.isArray(item.picked_allocation) ? item.picked_allocation : null);
+    let entries;
+    if (alloc && alloc.length) {
+      entries = alloc.map(a => ({ lot: a.lot || '', exp: a.exp || '', out: Number(a.base) || 0, price: a.price_per_unit ?? null, snap: a.onhand ?? null }));
+    } else if (item.picked_lot) {
+      // legacy (ก่อน B-base): จัดแบบระบุ lot เดียว ไม่มี allocation
+      entries = [{ lot: item.picked_lot, exp: item.picked_exp || item.exp || '', out: Number(item.picked_qty ?? item.approved_qty ?? item.requested_qty) || 0, price: item.price_per_unit ?? null, snap: null }];
+    } else {
+      // ไม่มี lot ให้จ่ายเลย → ออก = 0 (ห้ามพิมพ์ยอดที่ขอเป็นยอดออก — ตาม HosXP "เบิก X จ่าย 0")
+      entries = [{ lot: '', exp: '', out: 0, price: null, snap: null }];
+    }
+    const want = Number(item.approved_qty ?? item.requested_qty) || 0;
+    const out = entries.reduce((s, e) => s + e.out, 0);
+    // หมายเหตุระดับรายการ: เหตุผลจ่ายไม่ครบ / จ่ายเกินเต็มกล่อง / โน้ตผู้เบิก / โน้ตคลัง
+    const itemNotes = [];
+    if (item.item_note) itemNotes.push(item.item_note);
+    if (item.staff_note) itemNotes.push(item.staff_note);
+    if (out < want) {
+      // "ยาหมดรอของส่ง" = สถานะสด ณ วันพิมพ์ (live) โดยเจตนา — ผู้เบิกต้องรู้ว่า "ตอนนี้" ยาหมดหรือยัง
+      // ไม่ผูกกับ snapshot ที่คอลัมน์คงเหลือหลังจ่ายใช้ (นั่นคือยอด ณ ตอนจัด) จึงอาจต่างจากคอลัมน์นั้นในใบเก่า
+      const liveTotal = onHandByCode[code] ?? 0;
+      const remainAfter = qtyIsPostDispense(req, lastImportAt) ? liveTotal : liveTotal - out;
+      const wo = `เบิก ${want.toLocaleString()} จ่าย ${out.toLocaleString()}`;
+      if (discontinuedCodes.has(code))    itemNotes.push(`${wo} ยาตัดออกจากบัญชี`);
+      else if (pendingCodes.has(code))    itemNotes.push(`${wo} รอตรวจรับ`);
+      else if (remainAfter <= 0)          itemNotes.push(`${wo} ยาหมดรอของส่ง`);
+    } else if (out > want) {
+      itemNotes.push(`ขอ ${want.toLocaleString()} จ่าย ${out.toLocaleString()} — จ่ายเต็มกล่อง`);
+    }
+    entries.forEach((e, ei) => {
+      const key = `${code}|${String(e.lot || '').trim()}`;
+      const ref = logMap[key] || {};
+      const { before, after } = lotBeforeAfter(req, code, e.lot, e.out, e.snap, onHandByLot, lastImportAt);
+      const notes = [];
+      if (entries.length > 1) notes.push(`มี${entries.length}lot`);
+      if (e.exp && isNearExpiry(e.exp)) {
+        const cd = expCountdown(e.exp);
+        notes.push(cd === 'หมดอายุแล้ว' ? cd : `ใกล้exp ${cd.replace(/^อีก /, '')}`);
+      }
+      if (supplierChangedLots.has(key)) notes.push('เปลี่ยนบริษัท');
+      if (ei === 0) notes.push(...itemNotes);
+      rowObjs.push({
+        mainLog: ref.main_log || '', detailLog: ref.detail_log || '',
+        code: code || '-', drugType: item.drug_type || '-', name: item.drug_name || '-',
+        unit: item.drug_unit || '-', price: e.price, lot: e.lot || '-', exp: e.exp,
+        itemType: ref.item_type || '-', before, out: e.out, after, note: notes.join(' '),
+      });
+    });
+  });
+  // เรียงตามเส้นทางเดินหยิบ — ไม่มีที่เก็บไปท้ายสุด
+  const sk = v => (v && String(v).trim()) ? String(v).trim() : '￿';
+  rowObjs.sort((a, b) => sk(a.mainLog).localeCompare(sk(b.mainLog), 'en') || sk(a.detailLog).localeCompare(sk(b.detailLog), 'en'));
+
+  const dateCol = fmtDateCE(req.created_at);
+  const rows = rowObjs.map(r => `
+    <tr>
+      <td class="c">${dateCol}</td>
+      <td class="c">${r.mainLog || '-'}</td>
+      <td class="c">${r.detailLog || '-'}</td>
+      <td class="c">${r.code}</td>
+      <td class="c">${r.drugType}</td>
+      <td>${r.name}</td>
+      <td class="c">${r.unit}</td>
+      <td class="r">${r.price != null ? Number(r.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+      <td class="c">${r.lot}</td>
+      <td class="c${r.exp && isNearExpiry(r.exp) ? ' exp-near' : ''}">${r.exp ? fmtExp(r.exp) : '-'}</td>
+      <td class="c">${r.itemType}</td>
+      <td class="r">${r.before.toLocaleString()}</td>
+      <td class="r">${r.out.toLocaleString()}</td>
+      <td class="r">${r.after.toLocaleString()}</td>
+      <td class="c">${req.department || '-'}</td>
+      <td>${r.note}</td>
+    </tr>`).join('');
+
+  const html = `<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
+    <title>ใบ lot คุม ${req.req_number}</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
+      @page { size: A4 landscape; margin: 8mm; }
+      body { font-family: 'Sarabun', sans-serif; font-size: 13px; margin: 12px; color: #111;
+             -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .head { display: flex; justify-content: space-between; align-items: baseline; font-weight: 700; font-size: 16px; }
+      .meta { color: #334155; font-size: 12px; margin: 2px 0 8px; }
+      table { width: 100%; border-collapse: collapse; }
+      thead { display: table-header-group; }
+      tr { page-break-inside: avoid; }
+      th, td { border: 1px solid #94a3b8; padding: 3px 5px; font-size: 11.5px; vertical-align: top; }
+      th { font-weight: 700; text-align: center; background: #f1f5f9; }
+      td.c { text-align: center; } td.r { text-align: right; }
+      td.exp-near { background: #f87171; font-weight: 600; }
+    </style></head><body>
+    <div class="head">
+      <span>${req.department || '-'}</span>
+      <span>${fmtDateCE(now)} เวลา:${pad(now.getHours())}:${pad(now.getMinutes())}</span>
+    </div>
+    <div class="meta">
+      ใบ lot คุม — เลขที่: <strong>${req.req_number}</strong>
+      &nbsp;|&nbsp; ผู้เบิก: ${req.requester_name || '-'}
+      ${req.picker_name ? `&nbsp;|&nbsp; ผู้จัดยา: ${req.picker_name}` : ''}
+      &nbsp;|&nbsp; สถานะ: ${STATUS_CONFIG[req.status]?.label || req.status}
+      ${!isPicked ? ' <strong style="color:#b45309">(ประมาณการ FEFO — ยังไม่จัดยา)</strong>' : ''}
+    </div>
+    <table>
+      <thead><tr>
+        <th>วันที่เบิก</th><th>MainLog</th><th>DetailedLog</th><th>รหัส</th><th>ชนิด</th>
+        <th>รายการยา</th><th>หน่วย</th><th>ราคา/หน่วย</th><th>Lot Number</th><th>Exp</th>
+        <th>ชนิดรายการ</th><th>คงเหลือก่อนเบิก</th><th>ปริมาณ (ออก)</th><th>คงเหลือหลังจ่าย</th>
+        <th>หน่วยงานที่เบิก</th><th>หมายเหตุ</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <script>window.onload=()=>{window.print();}</script>
+    </body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const w = preopenedWin && !preopenedWin.closed ? (preopenedWin.location.href = url, preopenedWin) : window.open(url, '_blank');
+  if (w) setTimeout(() => URL.revokeObjectURL(url), 30000);
+  else   URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// ใบปะหน้า "ใบเบิกเวชภัณฑ์ยา" (ฟอร์มราชการ) — replica ฟอร์มกระดาษ พิมพ์แทนเขียนมือ
+// ตารางระดับรายการยา (ไม่ลง lot) + สายลายเซ็น: ผู้เขียนคำขอ/ผู้จ่ายยา/ผู้รับยา/ผู้เบิก/ผู้อนุมัติเบิกจ่าย
+// ============================================================
+async function printCoverForm(req, preopenedWin) {
+  const { allocByItem, onHandByCode } = await computeReqAllocations([req]);
+  const lastImportAt = await fetchLastInventoryImportAt();
+  const post = qtyIsPostDispense(req, lastImportAt);
+  const isPicked = !['pending', 'approved', 'partial', 'rejected'].includes(req.status);
+  const allItems = req.requisition_items || [];
+  const items = req.status === 'partial'
+    ? allItems.filter(item => item.approved_qty != null && item.approved_qty > 0)
+    : allItems;
+  const thaiDate = new Date(req.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+
+  // แถวตาราง: ≤12 รายการพิมพ์ตรง, เกินนั้นใช้ "ตามเอกสารแนบท้าย" ตามธรรมเนียมฟอร์ม
+  // จำนวนที่จ่าย/คงเหลือหลังจ่าย เติมเมื่อจัดยาแล้วเท่านั้น — ยังไม่จัดเว้นว่างให้คลังเขียน
+  const MAX_INLINE = 12, MIN_ROWS = 7;
+  let bodyRows;
+  if (items.length > MAX_INLINE) {
+    bodyRows = `<tr><td class="c">-</td><td>ตามเอกสารแนบท้าย จำนวน ${items.length} รายการ</td><td></td><td></td><td></td><td></td><td></td></tr>`
+      + Array.from({ length: MIN_ROWS - 1 }, () => '<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>').join('');
+  } else {
+    const filled = items.map((item, i) => {
+      const code = String(item.drug_code || '').trim();
+      const want = Number(item.approved_qty ?? item.requested_qty) || 0;
+      const alloc = allocByItem[item.id] || (Array.isArray(item.picked_allocation) ? item.picked_allocation : null);
+      const out = !isPicked ? null
+        : (alloc && alloc.length) ? alloc.reduce((s, a) => s + (Number(a.base) || 0), 0)
+        : item.picked_lot ? (Number(item.picked_qty ?? want) || 0)
+        : 0;
+      const live = onHandByCode[code] ?? 0;
+      const before = (post && out != null) ? live + out : live;
+      const after = out != null ? Math.max(0, before - out) : null;
+      return `<tr>
+        <td class="c">${i + 1}</td>
+        <td>${item.drug_name || '-'}</td>
+        <td class="c">${item.drug_unit || '-'}</td>
+        <td class="r">${before.toLocaleString()}</td>
+        <td class="r">${want.toLocaleString()}</td>
+        <td class="r">${out != null ? out.toLocaleString() : ''}</td>
+        <td class="r">${after != null ? after.toLocaleString() : ''}</td>
+      </tr>`;
+    });
+    const blanks = Array.from({ length: Math.max(0, MIN_ROWS - items.length) },
+      () => '<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>');
+    bodyRows = [...filled, ...blanks].join('');
+  }
+
+  const dotted = (w = 140) => `<span class="dot" style="min-width:${w}px"></span>`;
+  const dateLine = `วันที่ ${dotted(40)} / ${dotted(40)} / ${dotted(60)}`;
+
+  const html = `<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
+    <title>ใบเบิกเวชภัณฑ์ยา ${req.req_number}</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
+      @page { size: A4 portrait; margin: 14mm 14mm 10mm; }
+      body { font-family: 'Sarabun', sans-serif; font-size: 14.5px; color: #111; margin: 16px; line-height: 1.7; }
+      .num { text-align: right; font-size: 14px; }
+      h2 { text-align: center; font-size: 19px; margin: 2px 0 4px; text-decoration: underline; text-underline-offset: 5px; }
+      .hosp { text-align: right; line-height: 1.6; margin-bottom: 6px; }
+      .dot { display: inline-block; border-bottom: 1px dotted #333; height: 1em; vertical-align: baseline; }
+      table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; }
+      th, td { border: 1px solid #333; padding: 4px 6px; font-size: 13.5px; }
+      th { font-weight: 600; text-align: center; }
+      td.c { text-align: center; } td.r { text-align: right; }
+      .cols { display: flex; gap: 24px; margin-top: 6px; }
+      .col { flex: 1; font-size: 14px; }
+      .blk { margin-bottom: 22px; page-break-inside: avoid; }
+      .blk p { margin: 0 0 6px; }
+      .indent { margin-left: 16px; }
+      .sig-center { text-align: center; }
+    </style></head><body>
+    <p class="num">เลขที่เบิก <span class="dot" style="min-width:120px;text-align:center;font-weight:600">&nbsp;${req.req_number}&nbsp;</span></p>
+    <h2>ใบเบิกเวชภัณฑ์ยา</h2>
+    <div class="hosp"><strong>${COVER_FORM.hospital}</strong><br>วันที่ <span class="dot" style="min-width:110px;text-align:center">&nbsp;${thaiDate}&nbsp;</span></div>
+    <p>เรียน ผู้อำนวยการ${COVER_FORM.hospital}</p>
+    <p>ข้าพเจ้า <span class="dot" style="min-width:200px;text-align:center">&nbsp;${req.requester_name || ''}&nbsp;</span>
+       ตำแหน่ง ${dotted(220)}</p>
+    <p>หน่วยงานผู้เบิก(ฝ่าย) <span class="dot" style="min-width:240px;text-align:center">&nbsp;${req.department || ''}&nbsp;</span>
+       มีความประสงค์จะขอเบิกวัสดุเพื่อใช้ในรายการต่อไปนี้</p>
+    <table>
+      <thead><tr>
+        <th style="width:52px">ลำดับที่</th><th>รายการ</th><th style="width:70px">หน่วยนับ</th>
+        <th style="width:80px">คงเหลือ<br>ก่อนจ่าย</th><th style="width:85px">จำนวนที่เบิก</th>
+        <th style="width:85px">จำนวนที่จ่าย</th><th style="width:80px">คงเหลือ<br>หลังจ่าย</th>
+      </tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+    <div class="cols">
+      <div class="col">
+        <div class="blk">
+          <p><strong>เรียน หัวหน้ากลุ่มงาน / หน่วยงาน</strong></p>
+          <p class="indent">- เพื่อเห็นชอบให้เบิกวัสดุเพื่อใช้ในงานราชการ</p>
+          <p>ในหน่วยงาน <span class="dot" style="min-width:220px;text-align:center">&nbsp;${req.department || ''}&nbsp;</span></p>
+          <p>ลงชื่อ ${dotted(200)} (ผู้เขียนคำขอ)</p>
+          <p>ตำแหน่ง ${dotted(230)}</p>
+          <p>${dateLine}</p>
+        </div>
+        <div class="blk">
+          <p>(ลงชื่อ)${dotted(200)} (ผู้รับยา)</p>
+          <p>ตำแหน่ง ${dotted(230)}</p>
+          <p>${dateLine}</p>
+        </div>
+        <div class="blk">
+          <p>(ลงชื่อ)${dotted(200)} (ผู้เบิก)</p>
+          <p>(${dotted(220)})</p>
+          <p>ตำแหน่ง ${COVER_FORM.requesterHead.position}</p>
+          <p>${COVER_FORM.requesterHead.group}</p>
+          <p>${dateLine}</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="blk">
+          <p><strong>เรียน ${COVER_FORM.approver.role}</strong></p>
+          <p class="indent">- เพื่ออนุมัติเบิกจ่ายวัสดุตามคำขอข้างต้น</p>
+          <p>(ลงชื่อ)${dotted(180)} (ผู้จ่ายยาและลงทะเบียน)</p>
+          <p>(${COVER_FORM.dispenser.name}) ${COVER_FORM.dispenser.role}</p>
+          <p>ตำแหน่ง ${COVER_FORM.dispenser.position}</p>
+          <p>${dateLine}</p>
+          <p class="indent">- อนุมัติ</p>
+          <p class="indent">- รับทราบการเบิกจ่าย</p>
+        </div>
+        <div class="blk">
+          <p>(ลงชื่อ)${dotted(180)} (ผู้อนุมัติเบิกจ่าย)</p>
+          <p>(${COVER_FORM.approver.name}) ${COVER_FORM.approver.role}</p>
+          <p>ตำแหน่ง ${COVER_FORM.approver.position}</p>
+          <p>${dateLine}</p>
+        </div>
+      </div>
+    </div>
+    <script>window.onload=()=>{window.print();}</script>
+    </body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const w = preopenedWin && !preopenedWin.closed ? (preopenedWin.location.href = url, preopenedWin) : window.open(url, '_blank');
+  if (w) setTimeout(() => URL.revokeObjectURL(url), 30000);
+  else   URL.revokeObjectURL(url);
+}
+
 // ---- Requisition History ----
 function RequisitionHistory({ info, onBack, auth = {} }) {
   const [list, setList]           = useState([]);
@@ -1566,6 +1895,10 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                   <button onClick={e => { e.stopPropagation(); printReq(req, window.open('', '_blank')); }}
                     className="p-1.5 text-slate-400 hover:text-[#1E90FF] hover:bg-[#F0F8FF] rounded-lg transition-colors" title="พิมพ์ใบเบิก">
                     <Printer size={15} />
+                  </button>
+                  <button onClick={e => { e.stopPropagation(); printCoverForm(req, window.open('', '_blank')); }}
+                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="พิมพ์ใบปะหน้า (ใบเบิกเวชภัณฑ์ยา)">
+                    <FileText size={15} />
                   </button>
                   <button onClick={e => { e.stopPropagation(); exportReqExcel([req], auth); }}
                     className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Export Excel">
@@ -1820,6 +2153,7 @@ function PickingModal({ req, auth, onClose, onDone }) {
       picked_lot:   '',
       picked_exp:   '',
       picked_qty:   item.approved_qty ?? item.requested_qty,
+      staff_note:   item.staff_note || '',
     }))
   );
 
@@ -1875,8 +2209,13 @@ function PickingModal({ req, auth, onClose, onDone }) {
         picked_exp: it.picked_exp || null,
         picked_qty: parseInt(it.picked_qty) || 0,
         picked_allocation: (it.allocation && it.allocation.length)
-          ? it.allocation.map(a => ({ lot: a.lot, exp: a.exp, base: a.base, packs: a.packs }))
+          // onhand = คงเหลือ lot นั้น (หน่วยย่อยสุด) snapshot ณ ตอนจัด — ใบ lot คุมใช้เป็น "คงเหลือก่อนเบิก" ที่พิมพ์ซ้ำเมื่อไหร่ก็ตรง
+          ? it.allocation.map(a => {
+              const oh = it.lotOnHand?.[String(a.lot || '').trim()];
+              return { lot: a.lot, exp: a.exp, base: a.base, packs: a.packs, onhand: oh ? oh.packs * oh.packSize : null };
+            })
           : null,
+        staff_note: it.staff_note?.trim() || null,
       }));
       await startPickingRequisition(req.id, { pickerName: pickerName.trim(), items }, auth);
       onDone();
@@ -1979,6 +2318,21 @@ function PickingModal({ req, auth, onClose, onDone }) {
                         <AlertCircle size={12} /> ของไม่พอเบิก — จัดได้ {Number(item.allocatedBase).toLocaleString()} จาก {Number(item.approved_qty).toLocaleString()} {item.drug_unit || ''} (ขาด {Number(item.shortfallBase).toLocaleString()})
                       </p>
                     )}
+                    <div>
+                      <div className="flex flex-wrap gap-1 mb-1">
+                        {STAFF_NOTE_PRESETS.map(p => (
+                          <button key={p} type="button"
+                            onClick={() => setItemStates(prev => prev.map(s => s.id === item.id ? { ...s, staff_note: s.staff_note ? `${s.staff_note} ${p}` : p } : s))}
+                            className="text-xs px-2 py-0.5 rounded-full border border-slate-300 bg-white text-slate-500 hover:border-purple-400 hover:text-purple-700 transition-colors">
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                      <input type="text" value={item.staff_note}
+                        onChange={e => setItemStates(prev => prev.map(s => s.id === item.id ? { ...s, staff_note: e.target.value } : s))}
+                        placeholder="หมายเหตุคลัง (ขึ้นใบ lot คุม)"
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-400" />
+                    </div>
                   </div>
                 );
               })}
@@ -2549,6 +2903,14 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
                     className="flex items-center gap-1 text-xs text-slate-400 hover:text-[#1E90FF] transition-colors px-2 py-1 rounded-xl hover:bg-white">
                     <Printer size={13}/> พิมพ์
                   </button>
+                  <button onClick={e => { e.stopPropagation(); printLotControl(req, window.open('', '_blank')); }}
+                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-purple-600 transition-colors px-2 py-1 rounded-xl hover:bg-white">
+                    <Printer size={13}/> ใบ lot คุม
+                  </button>
+                  <button onClick={e => { e.stopPropagation(); printCoverForm(req, window.open('', '_blank')); }}
+                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-indigo-600 transition-colors px-2 py-1 rounded-xl hover:bg-white">
+                    <FileText size={13}/> ใบปะหน้า
+                  </button>
                   <button onClick={e => { e.stopPropagation(); exportReqExcel([req], auth); }}
                     className="flex items-center gap-1 text-xs text-slate-400 hover:text-emerald-600 transition-colors px-2 py-1 rounded-xl hover:bg-white">
                     <FileDown size={13}/> Excel
@@ -2773,6 +3135,14 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
             <button onClick={() => printReq(currentReq, window.open('', '_blank'))}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-[#1E90FF] text-sm font-semibold transition-colors shadow-sm no-print">
               <Printer size={16}/> พิมพ์
+            </button>
+            <button onClick={() => printLotControl(currentReq, window.open('', '_blank'))}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-purple-600 text-sm font-semibold transition-colors shadow-sm no-print">
+              <Printer size={16}/> ใบ lot คุม
+            </button>
+            <button onClick={() => printCoverForm(currentReq, window.open('', '_blank'))}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-indigo-600 text-sm font-semibold transition-colors shadow-sm no-print">
+              <FileText size={16}/> ใบปะหน้า
             </button>
           </PageHeader>
         </div>
