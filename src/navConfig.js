@@ -6,7 +6,7 @@
 import {
   Package, Database, RotateCcw, TrendingUp, TrendingDown,
   Activity, ShoppingCart, ClipboardList, Users, History, BarChart3, Layers,
-  FileText, ClipboardCheck,
+  FileText, ClipboardCheck, Send, ScanLine, ListChecks, Building2, ShieldAlert,
 } from 'lucide-react';
 
 // โครงสร้างเมนู — รองรับ 3 แบบใน group.items / children:
@@ -27,17 +27,22 @@ export const NAV_GROUPS = [
     label: 'สรุปและรายงาน', dot: 'bg-blue-500',
     items: [
       {
-        key: 'history', icon: History, title: 'ประวัติ', roles: ['requester', 'staff', 'admin'],
+        key: 'receive', icon: TrendingUp, title: 'ประวัติรับยา', roles: ['requester', 'staff', 'admin'],
         children: [
-          { page: 'receive',  icon: TrendingUp,   title: 'ประวัติรับยา',    c: 'emerald', roles: ['requester', 'staff', 'admin'] },
-          { page: 'dispense', icon: TrendingDown, title: 'ประวัติเบิกจ่าย', c: 'rose',    roles: ['requester', 'staff', 'admin'] },
+          { page: 'receive',      icon: TrendingUp, title: 'ประวัติรับยา', c: 'emerald', roles: ['requester', 'staff', 'admin'] },
+          { page: 'receive-ap',   icon: Send,       title: 'ส่งบัญชี',      c: 'emerald', roles: ['staff', 'admin'] },
+          { page: 'receive-scan', icon: ScanLine,   title: 'สแกนบิล',       c: 'emerald', roles: ['staff', 'admin'] },
         ],
       },
+      { page: 'dispense', icon: TrendingDown, title: 'ประวัติเบิกจ่าย', c: 'rose', roles: ['requester', 'staff', 'admin'] },
+      { page: 'analytics', icon: Activity, title: 'วิเคราะห์การเบิก', c: 'cyan', roles: ['requester', 'staff', 'admin'] },
       {
-        key: 'analyze', icon: BarChart3, title: 'วิเคราะห์', roles: ['requester', 'staff', 'admin'],
+        key: 'reorder', icon: ShoppingCart, title: 'วิเคราะห์สั่งซื้อ', roles: ['staff', 'admin'],
         children: [
-          { page: 'analytics', icon: Activity,     title: 'วิเคราะห์การเบิก', c: 'cyan',   roles: ['requester', 'staff', 'admin'] },
-          { page: 'reorder',   icon: ShoppingCart, title: 'วิเคราะห์สั่งซื้อ', c: 'orange', roles: ['staff', 'admin'] },
+          { page: 'reorder',          icon: ListChecks,  title: 'ตารางวิเคราะห์',    c: 'orange', roles: ['staff', 'admin'] },
+          { page: 'reorder-supplier', icon: Building2,    title: 'ใบสั่งซื้อแยกบริษัท', c: 'orange', roles: ['staff', 'admin'] },
+          { page: 'reorder-verify',   icon: ShieldAlert, title: 'Verification',      c: 'orange', roles: ['staff', 'admin'] },
+          { page: 'reorder-history',  icon: History,     title: 'History',           c: 'orange', roles: ['staff', 'admin'] },
         ],
       },
       {

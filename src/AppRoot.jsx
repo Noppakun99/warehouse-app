@@ -127,6 +127,9 @@ export default function AppRoot() {
       case 'receive-ap':
         content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} initialTab="ap" onGoBack={goBack} canGoBack={canGoBack} />;
         break;
+      case 'receive-scan':
+        content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} initialTab="scan" onGoBack={goBack} canGoBack={canGoBack} />;
+        break;
       case 'return':
         content = <ReturnApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
@@ -140,7 +143,10 @@ export default function AppRoot() {
         content = <AnalyticsApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'reorder':
-        content = <ReorderApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
+      case 'reorder-supplier':
+      case 'reorder-verify':
+      case 'reorder-history':
+        content = <ReorderApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} initialTab={{ 'reorder-supplier': 'supplier', 'reorder-verify': 'verify', 'reorder-history': 'history' }[page] || 'analysis'} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'ledger':
         content = <StockLedgerApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
