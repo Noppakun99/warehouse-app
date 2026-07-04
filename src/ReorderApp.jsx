@@ -5,7 +5,7 @@ import {
   ShoppingCart, AlertTriangle, Package, Building2, CheckCircle2, XCircle, Clock,
   ChevronDown, FileSpreadsheet, Printer, Save, History, Search, Upload,
   Pencil, ListChecks, AlertCircle, Loader2, RefreshCw, X,
-  Database, Calendar, ShieldAlert, TrendingDown, Trash2,
+  Database, Calendar, ShieldAlert, TrendingDown, Trash2, GitCompare,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import DrugSearchBar from './DrugSearchBar';
@@ -16,11 +16,12 @@ import {
   bulkUpsertDrugReorderConfig, fetchMonthlyDispenseUsage, saveAnalysisRun,
   fetchAnalysisRuns, deleteAnalysisRun, logReorderAction,
   fetchLatestReceiptInfo, parseUnitFactor,
+  fetchReorderOrders, setReorderOrder,
 } from './lib/db';
 import { exportToExcel } from './lib/exportExcel';
 import {
   analyzeBatch, analyzeDrug, STATUS, DEFAULT_LEAD_TIME,
-  computeSafetyStock,
+  computeSafetyStock, reconcileRows,
 } from './lib/reorder';
 
 // ────────────────────────────────────────────────────────────
@@ -417,7 +418,7 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
 // ────────────────────────────────────────────────────────────
 // Main App
 // ────────────────────────────────────────────────────────────
-export default function ReorderApp({ onRefresh, auth = {}, onGoBack, canGoBack }) {
+export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysis', onGoBack, canGoBack }) {
   // ── Filters / control state ──
   const [statsFrom, setStatsFrom] = useState(isoMonthsAgo(4));
   const [statsTo,   setStatsTo]   = useState(isoPrevMonthEnd());
@@ -451,13 +452,10 @@ export default function ReorderApp({ onRefresh, auth = {}, onGoBack, canGoBack }
 
   // ── Results ──
   const [result, setResult] = useState(null); // { rows, suppliers, totals }
-  const [orderedMap, setOrderedMap] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('reorder.ordered') || '{}'); }
-    catch { return {}; }
-  });
+  const [orderedMap, setOrderedMap] = useState({});   // { codeKey: ordered_at } — โหลดจาก DB (reorder_orders)
 
   // ── UI ──
-  const [tab, setTab] = useState('analysis'); // analysis | supplier | verify | history
+  const [tab, setTab] = useState(initialTab); // analysis | supplier | verify | history
   const [editingDrug, setEditingDrug] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
 
@@ -466,10 +464,12 @@ export default function ReorderApp({ onRefresh, auth = {}, onGoBack, canGoBack }
     (async () => {
       setLoadingData(true);
       try {
-        const [inv, cfg, receipt] = await Promise.all([fetchInventory(), fetchDrugReorderConfig(), fetchLatestReceiptInfo()]);
+        const [inv, cfg, receipt, orders] = await Promise.all([fetchInventory(), fetchDrugReorderConfig(), fetchLatestReceiptInfo(), fetchReorderOrders()]);
         setInventory(inv || {});
         setConfigMap(Object.fromEntries((cfg || []).map(c => [codeKey(c.code), c])));
         setReceiptInfo(receipt || {});
+        // normalize key ให้ตรงกับ codeKey ที่ UI ใช้ (กัน case/space drift)
+        setOrderedMap(Object.fromEntries(Object.entries(orders || {}).map(([code, at]) => [codeKey(code), at])));
       } catch (e) { setRunError(e.message || 'โหลดข้อมูลไม่สำเร็จ'); }
       finally { setLoadingData(false); }
     })();
@@ -568,12 +568,16 @@ export default function ReorderApp({ onRefresh, auth = {}, onGoBack, canGoBack }
   const toggleOrdered = useCallback(async (code) => {
     const ck = codeKey(code);
     const now = orderedMap[ck];
+    // optimistic update — เก็บ prev ไว้ rollback ถ้า DB ล้ม
     const next = { ...orderedMap };
-    if (now) { delete next[ck]; }
-    else { next[ck] = todayIso(); }
+    if (now) { delete next[ck]; } else { next[ck] = todayIso(); }
     setOrderedMap(next);
-    localStorage.setItem('reorder.ordered', JSON.stringify(next));
-    await logReorderAction(now ? 'unmark_ordered' : 'mark_ordered', { code }, auth);
+    try {
+      await setReorderOrder(ck, !now, auth);   // เก็บ normalized key (codeKey) — ตรงกับ orderedMap + กัน drift ตอน untick
+    } catch (e) {
+      setOrderedMap(orderedMap);                 // rollback
+      alert('บันทึกสถานะ"สั่งแล้ว"ไม่สำเร็จ: ' + (e?.message || e));
+    }
   }, [orderedMap, auth]);
 
   const onMasterSaved = useCallback(async (config) => {
@@ -679,6 +683,7 @@ export default function ReorderApp({ onRefresh, auth = {}, onGoBack, canGoBack }
           <div className="flex border-b border-slate-200 overflow-x-auto bg-gradient-to-r from-slate-50 to-white">
             <TabBtn id="analysis" cur={tab} set={setTab} icon={<ListChecks size={14}/>}>ตารางวิเคราะห์</TabBtn>
             <TabBtn id="supplier" cur={tab} set={setTab} icon={<Building2 size={14}/>}>ใบสั่งซื้อแยกบริษัท {result?.suppliers?.length ? `(${result.suppliers.length})` : ''}</TabBtn>
+            <TabBtn id="reconcile" cur={tab} set={setTab} icon={<GitCompare size={14}/>}>เทียบกับ Excel</TabBtn>
             <TabBtn id="verify"   cur={tab} set={setTab} icon={<ShieldAlert size={14}/>}>Verification</TabBtn>
             <TabBtn id="history"  cur={tab} set={setTab} icon={<History size={14}/>}>History</TabBtn>
           </div>
@@ -698,6 +703,8 @@ export default function ReorderApp({ onRefresh, auth = {}, onGoBack, canGoBack }
               />
             ) : tab === 'supplier' ? (
               <SupplierTab suppliers={result.suppliers} totalAmount={result.totals.totalAmount} auth={auth}/>
+            ) : tab === 'reconcile' ? (
+              <ReconcileTab appRows={result.rows} auth={auth}/>
             ) : tab === 'verify' ? (
               <VerifyTab/>
             ) : (
@@ -1154,6 +1161,173 @@ function SupplierCard({ group, auth }) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Reconcile tab — เทียบผลแอป (recompute) กับ Excel "วิเคราะห์สั่งซื้อ" (ADR-0001)
+// read-only diff กลางๆ — upload CSV → เทียบ SS/ROP/สถานะ/จำนวนสั่ง ต่อรหัสยา
+// ────────────────────────────────────────────────────────────
+function ReconcileTab({ appRows, auth }) {
+  const [parsing, setParsing] = useState(false);
+  const [error, setError] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [res, setRes] = useState(null);
+
+  const handleFile = async (file) => {
+    setParsing(true); setError(''); setRes(null); setFileName(file.name);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      // ไฟล์ export มีแถว title/คำเตือนนำหน้า header จริง → detect แถวที่มี cell = "รหัส"
+      const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      const headerRow = grid.findIndex(row =>
+        row.some(c => { const s = String(c).trim(); return s === 'รหัส' || s.toLowerCase() === 'code'; }));
+      const arr = XLSX.utils.sheet_to_json(ws, { defval: '', range: headerRow >= 0 ? headerRow : 0 });
+      const out = reconcileRows(appRows || [], arr, codeKey);   // ส่ง codeKey กัน Excel drift; reconcileRows parse CSV เอง
+      if (out.summary.total === 0) throw new Error('ไม่พบรายการในไฟล์ — ต้องมีคอลัมน์ "รหัส"');
+      setRes(out);
+      logReorderAction?.('reconcile_excel', {
+        file: file.name, ...out.summary,
+      }, auth);
+    } catch (e) { setError(e.message || 'อ่านไฟล์ไม่ได้'); }
+    finally { setParsing(false); }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <h3 className="font-bold text-slate-800 flex items-center gap-2"><GitCompare size={16}/> เทียบผลแอปกับ Excel</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              อัปโหลดไฟล์ "วิเคราะห์สั่งซื้อ" (.csv/.xlsx) → เทียบ Safety Stock · ROP · สถานะ · จำนวนสั่ง กับที่แอปคำนวณ
+              <br/>ต่างเกิน ±1 = ไม่ตรง · อ่านอย่างเดียว ไม่แก้ข้อมูล (Excel = source of truth ตาม ADR-0001)
+            </p>
+          </div>
+          <label className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5 cursor-pointer shrink-0">
+            {parsing ? <Loader2 size={14} className="animate-spin"/> : <Upload size={14}/>} เลือกไฟล์
+            <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
+              onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}/>
+          </label>
+        </div>
+        {fileName && <p className="text-xs text-slate-400 mt-2">ไฟล์: {fileName}</p>}
+        {error && <p className="text-xs text-rose-600 mt-2 flex items-center gap-1"><AlertCircle size={12}/> {error}</p>}
+      </div>
+
+      {res && (
+        <>
+          {/* summary strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <ReconStat label="ตรงกัน" value={res.summary.matched} tone="emerald" icon={CheckCircle2}/>
+            <ReconStat label="ไม่ตรง" value={res.summary.differing} tone="amber" icon={AlertTriangle}/>
+            <ReconStat label="มีใน Excel ไม่มีในแอป" value={res.summary.excelOnly} tone="sky" icon={FileSpreadsheet}/>
+            <ReconStat label="มีในแอป ไม่มีใน Excel" value={res.summary.appOnly} tone="slate" icon={Database}/>
+          </div>
+
+          {/* differing rows */}
+          {res.differing.length > 0 && (
+            <div className="bg-white border border-amber-200 rounded-xl overflow-hidden">
+              <div className="bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 flex items-center gap-1.5">
+                <AlertTriangle size={14}/> ไม่ตรง {res.differing.length} รายการ
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 text-slate-500">
+                    <tr>
+                      <th className="text-left px-3 py-2">รหัส / ชื่อยา</th>
+                      <th className="text-center px-2 py-2">Safety Stock<br/><span className="font-normal">แอป / Excel</span></th>
+                      <th className="text-center px-2 py-2">ROP<br/><span className="font-normal">แอป / Excel</span></th>
+                      <th className="text-center px-2 py-2">จำนวนสั่ง<br/><span className="font-normal">แอป / Excel</span></th>
+                      <th className="text-center px-2 py-2">สถานะ<br/><span className="font-normal">แอป / Excel</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {res.differing.map(d => (
+                      <tr key={d.code} className="border-t border-slate-100">
+                        <td className="px-3 py-2"><b className="text-slate-800">{d.code}</b><div className="text-slate-400">{d.name}</div></td>
+                        <DiffCell diff={d.diffs.ss} app={d.app.ss} csv={d.csv.ss}/>
+                        <DiffCell diff={d.diffs.rop} app={d.app.rop} csv={d.csv.rop}/>
+                        <DiffCell diff={d.diffs.orderQty} app={Math.round(d.app.orderQty)} csv={d.csv.orderQty}/>
+                        <td className={`text-center px-2 py-2 ${d.diffs.status ? 'bg-amber-50' : ''}`}>
+                          {d.diffs.status
+                            ? <span className="text-amber-700">{d.app.status || '—'}<br/><span className="text-slate-400">{d.csv.status || '—'}</span></span>
+                            : <span className="text-slate-400">{d.app.status}</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* excel-only / app-only */}
+          {res.excelOnly.length > 0 && (
+            <ReconOnlyList title={`มีใน Excel แต่ไม่มีในแอป (${res.excelOnly.length})`}
+              hint="รหัสยาในไฟล์ที่แอปไม่ได้วิเคราะห์ — อาจไม่มีในคลัง/ไม่มียอดเบิก" tone="sky"
+              items={res.excelOnly.map(r => ({ code: r.code, name: r.name }))}/>
+          )}
+          {res.appOnly.length > 0 && (
+            <ReconOnlyList title={`มีในแอป แต่ไม่มีใน Excel (${res.appOnly.length})`}
+              hint="รหัสยาที่แอปวิเคราะห์แต่ไม่อยู่ในไฟล์ Excel รอบนี้" tone="slate"
+              items={res.appOnly.map(r => ({ code: r.code, name: r.name }))}/>
+          )}
+
+          {res.differing.length === 0 && res.excelOnly.length === 0 && res.appOnly.length === 0 && (
+            <div className="bg-emerald-50 border-2 border-emerald-300 rounded-xl p-4 flex items-center gap-2 text-emerald-800 font-semibold">
+              <CheckCircle2 size={18}/> ตรงกันทุกรายการ — แอปคำนวณตรงกับ Excel
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ReconStat({ label, value, tone, icon: Icon }) {
+  const map = {
+    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    amber: 'bg-amber-50 text-amber-700 border-amber-200',
+    sky: 'bg-sky-50 text-sky-700 border-sky-200',
+    slate: 'bg-slate-50 text-slate-600 border-slate-200',
+  };
+  return (
+    <div className={`border rounded-xl p-3 ${map[tone]}`}>
+      <div className="flex items-center gap-1.5 text-xs font-medium"><Icon size={13}/> {label}</div>
+      <div className="text-2xl font-bold mt-1">{value}</div>
+    </div>
+  );
+}
+
+// เซลล์ตัวเลข: ถ้าต่าง (diff != null) ไฮไลต์ + แสดง app/excel + delta; ถ้าตรง แสดงค่าเดียว
+function DiffCell({ diff, app, csv }) {
+  if (!diff) return <td className="text-center px-2 py-2 text-slate-400">{app ?? '—'}</td>;
+  return (
+    <td className="text-center px-2 py-2 bg-amber-50">
+      <span className="text-slate-800 font-semibold">{app ?? '—'}</span>
+      <span className="text-slate-400"> / {csv ?? '—'}</span>
+      <div className="text-[10px] text-rose-600">Δ {diff.delta > 0 ? '+' : ''}{diff.delta}</div>
+    </td>
+  );
+}
+
+function ReconOnlyList({ title, hint, tone, items }) {
+  const head = tone === 'sky' ? 'bg-sky-50 text-sky-800' : 'bg-slate-50 text-slate-700';
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div className={`px-4 py-2 text-sm font-semibold ${head}`}>{title}</div>
+      <p className="text-xs text-slate-400 px-4 pt-2">{hint}</p>
+      <div className="flex flex-wrap gap-1.5 p-3">
+        {items.map(it => (
+          <span key={it.code} className="inline-flex items-center gap-1 bg-slate-100 rounded-lg px-2 py-1 text-xs">
+            <b className="text-slate-700">{it.code}</b>
+            <span className="text-slate-400">{it.name}</span>
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

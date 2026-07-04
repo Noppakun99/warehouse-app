@@ -49,6 +49,7 @@ const ACTION_LABELS = {
   mark_ordered:                 { label: 'ทำเครื่องหมายสั่งแล้ว',     color: 'bg-emerald-100 text-emerald-700'},
   unmark_ordered:               { label: 'ยกเลิกสั่งแล้ว',           color: 'bg-slate-100 text-slate-600'   },
   print_po:                     { label: 'พิมพ์ใบสั่งซื้อ',           color: 'bg-blue-100 text-blue-700'     },
+  reconcile_excel:              { label: 'เทียบผลกับ Excel',         color: 'bg-indigo-50 text-indigo-600'  },
   // ── Monthly Stock Ledger (ADR-0007) ──
   seed_ledger:                  { label: 'นำเข้างวดคงคลังตั้งต้น',    color: 'bg-teal-100 text-teal-700'     },
   close_ledger_period:          { label: 'ปิดงวดคงคลัง',            color: 'bg-teal-100 text-teal-700'     },

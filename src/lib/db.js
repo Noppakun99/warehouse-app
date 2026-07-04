@@ -1873,6 +1873,29 @@ export async function logReorderAction(action, details, auth = {}) {
   })
 }
 
+// --- Reorder "สั่งแล้ว" (mark-ordered) — เก็บใน DB แทน localStorage ---
+// คืน map { code: ordered_at } เพื่อให้ ReorderApp ใช้ shape เดิม (orderedMap[codeKey])
+export async function fetchReorderOrders() {
+  if (!supabase) return {}
+  const { data, error } = await supabase.from('reorder_orders').select('code, ordered_at')
+  if (error) throw error
+  return Object.fromEntries((data || []).map(r => [r.code, r.ordered_at]))
+}
+
+// toggle "สั่งแล้ว": on=true → upsert (mark), on=false → delete (unmark). log audit ทั้งสองทาง
+export async function setReorderOrder(code, on, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  if (on) {
+    const { error } = await supabase.from('reorder_orders')
+      .upsert({ code, ordered_at: new Date().toISOString().slice(0, 10), ordered_by: resolveAuditUserName(auth) }, { onConflict: 'code' })
+    if (error) throw error
+  } else {
+    const { error } = await supabase.from('reorder_orders').delete().eq('code', code)
+    if (error) throw error
+  }
+  await logReorderAction(on ? 'mark_ordered' : 'unmark_ordered', { code }, auth)
+}
+
 // --- Monthly Stock Ledger (ทะเบียนคงคลังรายเดือน) — ADR-0007 ---
 // pure logic อยู่ใน ledgerRollover.js; ฟังก์ชันนี้ทำ I/O เท่านั้น
 
@@ -2160,6 +2183,25 @@ export async function fetchStockCountItems(sessionId) {
     .select('*').eq('session_id', sessionId).order('name')
   if (error) throw error
   return data || []
+}
+
+// รายการที่นับทั้งหมด (ทุกรอบ) — paginate ครบ (Rule #2) — ใช้ค้นหายา/lot ข้ามรอบในประวัติ
+// return map { session_id: [items...] } เพื่อให้ HistoryTab ใช้ประกอบกับ session ได้เลย
+export async function fetchAllStockCountItems() {
+  if (!supabase) return {}
+  const PAGE = 1000
+  let from = 0, all = []
+  for (;;) {
+    const { data, error } = await supabase.from('stock_count_item')
+      .select('*').order('session_id').range(from, from + PAGE - 1)
+    if (error) throw error
+    all = all.concat(data || [])
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+  const bySession = {}
+  for (const it of all) (bySession[it.session_id] ||= []).push(it)
+  return bySession
 }
 
 // คำนวณ diff_qty + match ใหม่จากค่านับ (ใช้ตอนแก้ไข item) — เทียบกับ snapshot ระบบที่ freeze ไว้

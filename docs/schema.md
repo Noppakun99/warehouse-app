@@ -11,11 +11,15 @@
 | `scan_invoice_migration.sql` | +10 columns ใน receive_logs + bucket invoice-images | ใช้งาน |
 | `picking_workflow_migration.sql` | +columns สำหรับ picking workflow | ใช้งาน |
 | `return_source_migration.sql` | +return_source ใน return_logs | ใช้งาน |
-| `suspend_user_migration.sql` | +suspend_until ใน app_users | ใช้งาน |
+| `suspend_user_migration.sql` | +suspend_until ใน app_users | ใช้งาน (apply prod 2026-06-30 ผ่าน MCP `add_suspend_until_to_app_users` — ก่อนหน้านี้ไฟล์มีแต่ยังไม่ apply ทำให้ updateAppUser/ระงับบัญชี throw) |
 | `ap_workflow_migration.sql` | +8 columns ใน receive_logs สำหรับ AP tracking (ap_stage, inspected_at/by, ap_batch_id, ap_sent/posted_at/by) | ใช้งาน |
 | `ap_acknowledge_migration.sql` | +2 columns (acknowledged_at, acknowledged_by) สำหรับจัดซื้อกด "รับบิลแล้ว" | ใช้งาน |
 | `audit_retention_policy.sql` | pg_cron job ลบ audit log เก่า | ใช้งาน |
 | `stock_ledger_migration.sql` | ตาราง `stock_ledger` — ทะเบียนคงคลังรายเดือน (ADR-0007) | รอ deploy + seed |
+| `stock_count_migration.sql` | ตาราง `stock_count_session` + `stock_count_item` — ตรวจนับคงคลัง (ADR-0008). ทั้งคู่มี `created_at TIMESTAMPTZ DEFAULT NOW()` (ใช้แสดง "นับเมื่อไหร่" — เวลาจริง). `stock_count_item.note` = หมายเหตุรายบรรทัด (per-lot) แยกจาก `stock_count_session.note` (หมายเหตุรอบ) | ใช้งาน |
+| `reorder_orders_migration.sql` | ตาราง `reorder_orders` — สถานะ "สั่งแล้ว" ของ ReorderApp (ย้ายจาก localStorage → DB, sync ข้ามเครื่อง). 1 แถว = 1 รหัสยา; untick = ลบแถว | ใช้งาน (apply prod 2026-07-04 ผ่าน MCP + verify round-trip) |
+
+> ⚠️ **"ใช้งาน" = ไฟล์ migration มีอยู่ ไม่ได้แปลว่า apply บน prod แล้วเสมอ** — ก่อนพึ่งคอลัมน์ใดให้ verify schema จริง (`information_schema.columns` ผ่าน MCP) โดยเฉพาะถ้าเจอ error `column "x" does not exist` ทั้งที่ doc บอก "ใช้งาน" (เคสจริง: `suspend_until` ข้างบน)
 
 RLS enabled with public read/write policies (internal app)
 

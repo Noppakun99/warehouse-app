@@ -7,6 +7,7 @@ import {
   analyzeDrug, analyzeBatch,
   computeSafetyStock,
   STATUS,
+  reconcileRows, parseReconcileCsvRow, parseCsvNumber, normalizeCsvStatus,
 } from './reorder.js';
 
 let pass = 0, fail = 0;
@@ -227,6 +228,93 @@ section('Test 11: VEN ว่าง → default 1.5 (ADR-0002)');
   assertEq(blank.ss, ess.ss, 'VEN ว่าง SS = Essential SS (×1.5)');
   if (blank.ss > norm.ss) pass++;
   else { fail++; fails.push(`  ✗ VEN ว่าง SS (${blank.ss}) ต้อง > Normal SS (${norm.ss})`); }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Test 12 — parseCsvNumber / normalizeCsvStatus (Excel cell quirks)
+// ────────────────────────────────────────────────────────────────────
+section('Test 12: parse CSV cell (วงเล็บ=ติดลบ, emoji สถานะ)');
+{
+  assertEq(parseCsvNumber('(1)'), -1, '"(1)" → -1 (Excel วงเล็บ = ติดลบ)');
+  assertEq(parseCsvNumber('1,266'), 1266, '"1,266" → 1266 (ตัดคอมมา)');
+  assertEq(parseCsvNumber(' -  '), null, '" - " → null');
+  assertEq(parseCsvNumber(''), null, '"" → null');
+  assertEq(normalizeCsvStatus('❌ หมดสต็อค'), STATUS.OUT_OF_STOCK, 'strip emoji → หมดสต็อค');
+  assertEq(normalizeCsvStatus('📋 สั่งเมื่อขอ'), STATUS.ON_DEMAND, 'strip emoji → สั่งเมื่อขอ');
+  assertEq(normalizeCsvStatus('สั่งเพิ่ม ใกล้หมดอายุ'), STATUS.NEAR_EXPIRY, 'ใกล้หมดอายุ ชนะ สั่งเพิ่ม');
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Test 13 — reconcileRows: matched / differing / excelOnly / appOnly
+// ────────────────────────────────────────────────────────────────────
+section('Test 13: reconcileRows — 4 กลุ่ม + tolerance ±1');
+{
+  const appRows = [
+    { code: 'A', name: 'A', ss: 100, rop: 150, status: STATUS.REORDER, orderQty: 50 },
+    { code: 'B', name: 'B', ss: 200, rop: 260, status: STATUS.SUFFICIENT, orderQty: 0 },
+    { code: 'C', name: 'C', ss: 10,  rop: 20,  status: STATUS.OUT_OF_STOCK, orderQty: 5 },  // app-only
+  ];
+  const csvRows = [
+    // A: ตรงเป๊ะ (ss ต่าง 1 = ยังตรง เพราะ tolerance ±1)
+    { 'รหัส': 'A', 'Safety Stock': '101', 'ROP = SS + Avg×LT': '150', 'สถานะ': 'สั่งเพิ่ม', 'จำนวนแนะนำสั่งซื้อ (หน่วย)': '50' },
+    // B: ต่าง (rop ต่าง 40 + status ต่าง)
+    { 'รหัส': 'B', 'Safety Stock': '200', 'ROP = SS + Avg×LT': '300', 'สถานะ': '❌ หมดสต็อค', 'จำนวนแนะนำสั่งซื้อ (หน่วย)': '10' },
+    // D: excel-only
+    { 'รหัส': 'D', 'Safety Stock': '5', 'ROP = SS + Avg×LT': '8', 'สถานะ': '📋 สั่งเมื่อขอ', 'จำนวนแนะนำสั่งซื้อ (หน่วย)': '-' },
+  ];
+  const res = reconcileRows(appRows, csvRows);
+  assertEq(res.summary.matched, 1, 'matched = 1 (A — ss ต่าง 1 ยังตรง)');
+  assertEq(res.summary.differing, 1, 'differing = 1 (B)');
+  assertEq(res.summary.excelOnly, 1, 'excelOnly = 1 (D)');
+  assertEq(res.summary.appOnly, 1, 'appOnly = 1 (C)');
+  assertEq(res.summary.total, 3, 'total (CSV) = 3');
+  assertEq(res.matched[0].code, 'A', 'A อยู่ matched');
+  const b = res.differing.find(x => x.code === 'B');
+  assertEq(b.diffs.rop.delta, -40, 'B rop delta = app−csv = 260−300 = -40');
+  if (b.diffs.status) pass++; else { fail++; fails.push('  ✗ B ต้องมี status diff'); }
+  assertEq(res.appOnly[0].code, 'C', 'C อยู่ appOnly');
+  assertEq(res.excelOnly[0].code, 'D', 'D อยู่ excelOnly');
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Test 14 — parseReconcileCsvRow: header ไทยจริง → shape ที่ reconcile ใช้
+// ────────────────────────────────────────────────────────────────────
+section('Test 14: parseReconcileCsvRow — header CSV จริง');
+{
+  const p = parseReconcileCsvRow({
+    'รหัส': '25', 'รายการยา': 'เถาเอ็นอ่อนแคปซูล',
+    'Safety Stock': '1', 'ROP = SS + Avg×LT': '20',
+    'สถานะ': '📋 สั่งเมื่อขอ', 'จำนวนแนะนำสั่งซื้อ (หน่วย)': '(1)',
+  });
+  assertEq(p.code, '25', 'code = 25');
+  assertEq(p.ss, 1, 'ss = 1');
+  assertEq(p.rop, 20, 'rop = 20');
+  assertEq(p.status, STATUS.ON_DEMAND, 'status = สั่งเมื่อขอ');
+  assertEq(p.orderQty, -1, 'orderQty = -1 (จาก "(1)")');
+  assertEq(parseReconcileCsvRow({ 'รายการยา': 'ไม่มีรหัส' }), null, 'ไม่มีรหัส → null');
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Test 15 — reconcileRows keyFn: normalize กัน Excel drift (leading-zero)
+// ────────────────────────────────────────────────────────────────────
+section('Test 15: reconcileRows keyFn — leading-zero drift');
+{
+  // app code "001000230" (rawCode) vs CSV code "1000230" (Excel ตัด 0 นำ) = ยาตัวเดียวกัน
+  const appRows = [{ code: '001000230', name: 'ยา A', ss: 100, rop: 150, status: STATUS.REORDER, orderQty: 50 }];
+  const csvRows = [{ 'รหัส': '1000230', 'Safety Stock': '100', 'ROP = SS + Avg×LT': '150', 'สถานะ': 'สั่งเพิ่ม', 'จำนวนแนะนำสั่งซื้อ (หน่วย)': '50' }];
+
+  // ไม่มี keyFn → ไม่ match (false orphan) — พิสูจน์ว่า bug จริงถ้าไม่ normalize
+  const raw = reconcileRows(appRows, csvRows);
+  assertEq(raw.summary.excelOnly, 1, 'ไม่ normalize → excelOnly=1 (false orphan)');
+  assertEq(raw.summary.appOnly, 1, 'ไม่ normalize → appOnly=1 (false orphan)');
+
+  // มี keyFn (จำลอง codeKey: lowercase + ตัด 0 นำ) → match
+  const codeKey = (v) => String(v ?? '').trim().toLowerCase().replace(/^0+(\d)/, '$1');
+  const fixed = reconcileRows(appRows, csvRows, codeKey);
+  assertEq(fixed.summary.matched, 1, 'normalize → matched=1 (ตัวเดียวกัน)');
+  assertEq(fixed.summary.excelOnly, 0, 'normalize → ไม่มี orphan');
+  assertEq(fixed.summary.appOnly, 0, 'normalize → ไม่มี orphan');
+  assertEq(fixed.matched[0].code, '001000230', 'แสดง code เดิม (app.code) ไม่ใช่ normalized key');
 }
 
 // ────────────────────────────────────────────────────────────────────

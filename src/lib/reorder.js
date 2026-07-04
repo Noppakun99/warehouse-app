@@ -102,6 +102,104 @@ export function analyzeBatch(drugs) {
   return { rows, suppliers, totals };
 }
 
+// ────────────────────────────────────────────────────────────
+// Reconcile — เทียบผลแอป (recompute) กับ Excel "วิเคราะห์สั่งซื้อ" (source of truth, ADR-0001)
+// read-only diff กลางๆ — ไม่ auto-fix
+// ────────────────────────────────────────────────────────────
+
+// map ค่า "สถานะ" ใน CSV (มี emoji นำหน้า เช่น "❌ หมดสต็อค") → STATUS enum
+export function normalizeCsvStatus(raw) {
+  const v = String(raw ?? '').replace(/[^฀-๿a-zA-Z]/g, '');
+  if (!v) return null;
+  if (v.includes('ตัดออก')) return STATUS.EXCLUDED;
+  if (v.includes('สั่งเมื่อขอ')) return STATUS.ON_DEMAND;
+  if (v.includes('หมดสต็อค') || v.includes('หมดสตอค')) return STATUS.OUT_OF_STOCK;
+  if (v.includes('ใกล้หมดอายุ')) return STATUS.NEAR_EXPIRY;
+  if (v.includes('สั่งเพิ่ม')) return STATUS.REORDER;
+  if (v.includes('เพียงพอ')) return STATUS.SUFFICIENT;
+  return null;
+}
+
+// ดึงตัวเลขจาก cell CSV — รองรับ "(1)" = ค่าติดลบ (Excel แสดงวงเล็บ), คอมมา, ช่องว่าง, "-"
+export function parseCsvNumber(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s || s === '-') return null;
+  const neg = /^\(.*\)$/.test(s);
+  const n = parseFloat(s.replace(/[(),\s]/g, ''));
+  if (!Number.isFinite(n)) return null;
+  return neg ? -n : n;
+}
+
+// 1 row ของ CSV (key = header ไทย) → { code, name, ss, rop, status, orderQty }
+export function parseReconcileCsvRow(r) {
+  const code = String(r['รหัส'] ?? r['code'] ?? r['Code'] ?? '').trim();
+  if (!code) return null;
+  return {
+    code,
+    name: String(r['รายการยา'] ?? r['ชื่อยา'] ?? r['name'] ?? '').trim() || null,
+    ss: parseCsvNumber(r['Safety Stock'] ?? r['safety_stock'] ?? r['SS']),
+    rop: parseCsvNumber(r['ROP = SS + Avg×LT'] ?? r['ROP'] ?? r['rop']),
+    status: normalizeCsvStatus(r['สถานะ'] ?? r['status']),
+    orderQty: parseCsvNumber(r['จำนวนแนะนำสั่งซื้อ (หน่วย)'] ?? r['จำนวนแนะนำสั่งซื้อ'] ?? r['orderQty']),
+  };
+}
+
+// เทียบ 1 field: ต่าง > NUM_TOLERANCE ถึงนับว่า diff (±1 = ตรง เผื่อ Excel ปัดเศษ)
+const NUM_TOLERANCE = 1;
+function numFieldDiff(app, csv) {
+  if (csv == null || app == null) return null;   // ไม่มีข้อมูลฝั่งใด → ข้าม (ไม่ถือว่าต่าง)
+  return Math.abs(app - csv) > NUM_TOLERANCE ? { app, csv, delta: app - csv } : null;
+}
+
+// appRows = result.rows (จาก analyzeBatch), csvRows = parsed CSV rows
+// keyFn = normalize รหัสยาให้ 2 ฝั่งตรงกัน (default identity/trim; ReorderApp ส่ง codeKey กัน
+//         Excel drift เช่น leading-zero / sci-notation → กัน false excelOnly/appOnly)
+// → { matched, differing, excelOnly, appOnly, summary }
+export function reconcileRows(appRows, csvRows, keyFn) {
+  const norm = (c) => keyFn ? keyFn(c) : String(c ?? '').trim();
+  const appByCode = new Map((appRows || []).map(r => [norm(r.code), r]));
+  const csvByCode = new Map();
+  for (const raw of csvRows || []) {
+    if (!raw) continue;
+    // รับได้ทั้ง raw CSV row (key ไทย) และ object ที่ parse แล้ว (มี code + ss เป็น field)
+    const alreadyParsed = 'code' in raw && 'ss' in raw;
+    const p = alreadyParsed ? raw : parseReconcileCsvRow(raw);
+    if (p && p.code) csvByCode.set(norm(p.code), p);
+  }
+
+  const matched = [], differing = [], excelOnly = [], appOnly = [];
+
+  for (const [code, csv] of csvByCode) {
+    const app = appByCode.get(code);
+    if (!app) { excelOnly.push(csv); continue; }
+    const diffs = {
+      ss: numFieldDiff(app.ss, csv.ss),
+      rop: numFieldDiff(app.rop, csv.rop),
+      orderQty: numFieldDiff(Math.round(app.orderQty), csv.orderQty),
+      status: (csv.status != null && app.status !== csv.status)
+        ? { app: app.status, csv: csv.status } : null,
+    };
+    const hasDiff = diffs.ss || diffs.rop || diffs.orderQty || diffs.status;
+    // แสดง code เดิม (อ่านง่าย) ไม่ใช่ normalized key
+    const entry = { code: app.code || csv.code || code, name: app.name || csv.name, app, csv, diffs };
+    if (hasDiff) differing.push(entry); else matched.push(entry);
+  }
+  for (const [code, app] of appByCode) {
+    if (!csvByCode.has(code)) appOnly.push(app);
+  }
+
+  return {
+    matched, differing, excelOnly, appOnly,
+    summary: {
+      total: csvByCode.size,
+      matched: matched.length,
+      differing: differing.length,
+      excelOnly: excelOnly.length,
+      appOnly: appOnly.length,
+    },
+  };
+}
+
 export function groupBySupplier(rows) {
   const map = new Map();
   for (const r of rows) {

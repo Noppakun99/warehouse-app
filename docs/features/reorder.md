@@ -10,6 +10,7 @@ ReorderApp.jsx (sub-app, page='reorder' ใน AppRoot)
 ├── StatusStrip        6 สถานะ (clickable filter): หมดสต็อค/ใกล้หมดอายุ/สั่งเพิ่ม/เพียงพอ/สั่งเมื่อขอ/ตัดออก
 ├── Tab: ตารางวิเคราะห์   sortable + Excel export + mark ordered + edit master
 ├── Tab: ใบสั่งซื้อแยกบริษัท Card per supplier + print Blob URL + Excel export
+├── Tab: เทียบกับ Excel   Reconcile — upload CSV วิเคราะห์สั่งซื้อ → เทียบ SS/ROP/สถานะ/จำนวนสั่ง (read-only, ADR-0001)
 ├── Tab: Verification    Run Golden tests (Atorvastatin reference) ใน browser
 └── Tab: History         รายการ analysis_runs snapshot + ลบได้
 ```
@@ -95,6 +96,7 @@ Step 7: ถ้า status ∈ {เพียงพอ, ตัดออก, สั�
 | `import_reorder_config` | Import Excel/CSV |
 | `mark_ordered` / `unmark_ordered` | toggle checkbox สั่งแล้ว (localStorage) |
 | `print_po` | พิมพ์ใบสั่งซื้อ Blob URL |
+| `reconcile_excel` | อัปโหลด CSV วิเคราะห์สั่งซื้อ เทียบกับผลแอป (audit-only ไม่ขึ้น bell) |
 
 ## Permission
 
@@ -132,8 +134,11 @@ npm run test:reorder    # 33 golden assertions — ต้องผ่าน 100%
 ## ข้อจำกัด / TODO
 
 1. **dispense_type filter** — spec ระบุให้กรองรายการที่ `dispense_type='บันทึกเท่านั้น'` ออก แต่ตาราง `dispense_logs` ไม่มี column นี้ ปัจจุบัน filter จาก `main_log`/`note` ที่มีคำว่า "บันทึก" — อาจไม่ครอบคลุม ต้องยืนยันกับ user
-2. **Mark ordered** เก็บใน localStorage เท่านั้น (per device) — ถ้าต้องการ sync ข้ามอุปกรณ์ ให้สร้าง table `reorder_orders`
-3. **Phase 2** (ยังไม่ทำ): reconcile view (upload Excel เทียบ), ธง acute/IV (BR7) + auto-revert Refill, PR/PO generation
+2. ~~**Mark ordered** เก็บใน localStorage~~ **ย้ายเข้า DB แล้ว 2026-07-03** — table `reorder_orders` (`fetchReorderOrders`/`setReorderOrder` ใน [db.js](../../src/lib/db.js)); sync ข้ามเครื่อง/คน. persist จนกว่าคนกดยกเลิกเอง (ไม่ auto-reset). migration apply แล้ว (prod 2026-07-04)
+3. **Phase 2**: ~~reconcile view (upload Excel เทียบ)~~ **เสร็จ 2026-07-03** (tab "เทียบกับ Excel" — `reconcileRows` ใน [reorder.js](../../src/lib/reorder.js), read-only diff ±1, audit `reconcile_excel`).
+   - ~~auto-revert Refill~~ **ยกเลิก** — Refill mode ถูกลบโดยตั้งใจ (Q1 DONE 2026-06-13, ใช้ `excludedMonth` แทน) → ไม่มีอะไรให้ revert
+   - ~~ธง acute/IV (BR7)~~ **ยังไม่มี business rule** — เป็นแค่ TODO ลอย ไม่มีนิยาม (acute คืออะไร, กระทบสูตรยังไง) ต้องเคาะ rule ก่อนถึงจะ implement ได้
+   - ยังไม่ทำ: **PR/PO generation** (ต้องรู้แบบฟอร์ม PR/PO จริง), **Q3 fallback order qty** (รอ user ส่งเซลล์ Excel ที่เข้าเคส V≤0)
 
 ## เทียบสูตรกับ Excel (source of truth)
 
