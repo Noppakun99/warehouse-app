@@ -565,7 +565,14 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         });
         const lotIdx = headers.findIndex(h => h.toLowerCase().includes('lot') || h.includes('รุ่น'));
         const expIdx = headers.findIndex(h => h.toLowerCase().includes('exp') || h.includes('หมดอายุ'));
-        const qtyIdx = headers.findIndex(h => h.includes('คงเหลือ') || h.toLowerCase() === 'qty');
+        // qty = คงเหลือปัจจุบัน — ไฟล์ master มีหลายคอลัมน์ "คงเหลือ" (คงเหลือ พ.ค., มูลค่าคงเหลือ ฯลฯ)
+        // ต้องเจาะจง "คงเหลือหลังจ่าย"/"คงเหลือจริง" ก่อน แล้วค่อย fallback + กัน "มูลค่าคงเหลือ" (บาท ไม่ใช่จำนวน)
+        const qtyIdx = (() => {
+          const exact = headers.findIndex(h => h.includes('คงเหลือหลังจ่าย') || h.includes('คงเหลือจริง'));
+          if (exact !== -1) return exact;
+          const generic = headers.findIndex(h => (h.includes('คงเหลือ') && !h.includes('มูลค่า')) || h.toLowerCase() === 'qty');
+          return generic;
+        })();
         const qtyReceivedIdx = headers.findIndex(h => h.includes('จำนวนที่รับ') || h.includes('ที่รับ') || h.toLowerCase().includes('qty_received') || h.toLowerCase().includes('received'));
         const invoiceIdx = headers.findIndex(h => h.includes('บิล') || h.includes('ใบเสร็จ') || h.toLowerCase().includes('invoice') || h.toLowerCase().includes('inv'));
         // สถานะตรวจรับ → รอตรวจรับ (เช็คก่อน เพราะต้องการค่า "รอตรวจรับ" จากคอลัมน์นี้)
