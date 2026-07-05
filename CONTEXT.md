@@ -323,4 +323,28 @@
 ### ตรวจช่วงค่า (Numeric Range Guard)
 จับ **ค่าที่เพี้ยนผิดขนาด** บนคอลัมน์ที่ import แล้ว — range/sign/zero เท่านั้น (เช่น SS หลักหมื่น/แสน, qty ติดลบ, ราคา=0 บนรายการที่ไม่ใช่บริจาค). ออกแบบมาเพื่อจับเหตุการณ์แบบ SS เพี้ยนทั้งระบบ (01/07 — ดู Critical Rule #13) ที่ referential จับไม่ได้เพราะ key ครบหมด.
 
+---
+
+## Usage Analytics (สรุปการใช้งานระบบ)
+
+> Derived, read-only view **admin-only** เหนือ `audit_logs` — สรุปว่า *ใคร login เข้าใช้ระบบบ่อยแค่ไหน* (DAU/WAU/MAU/แนวโน้ม). **ไม่ใช่** metric การเติบโต (growth) แบบ SaaS ทั่วไป เพราะผู้ใช้เป็นเจ้าหน้าที่ รพ. จำนวนคงที่ที่ *ต้อง* ใช้เป็นงาน — คุณค่าจริงคือ "admin เห็นว่าใคร active / ใครไม่แตะระบบ". อ่านสดจาก event ที่มีอยู่ ไม่มี table ใหม่/ไม่มี snapshot job. **Is not:** [[รอบตรวจนับ (Count Session)]] หรือ AuditLog รายการดิบ — นี่คือ *aggregate* ของ event เดียว (`login`) ไม่ใช่ log ทีละแถว.
+
+### ผู้ใช้ที่ active (Active User)
+ผู้ใช้ที่ **มี `login` event ในหน้าต่างเวลาที่กำหนด** — นับด้วย `audit_logs.details.user_id` (stable id) ไม่ใช่ `user_name` (display string ที่เปลี่ยนได้ตอน admin แก้ชื่อ หรือชนกันถ้าชื่อซ้ำ).
+
+- **นับจาก `login` event อย่างเดียว** ไม่นับ mutation (เบิก/รับ/คืน) — mutation อาจไม่มี `user_id` และมี `user_name='-'` (auth ไม่ครบ, ดู Critical Rule #1) จะทำให้เกิด phantom user. login มี `user_id` + ชื่อครบเสมอ (`loginUser` ใน db.js).
+- **Is not:** ผู้ใช้ที่ "ออนไลน์อยู่ตอนนี้" (real-time presence) — แอปไม่มี session/heartbeat/logout event. "active" = *เคย login ในช่วง N วัน* ไม่ใช่ *กำลังเปิดจออยู่*.
+- **row ที่ไม่มี `user_id` / `user_name='-'`** → บัคเก็ต "ไม่ระบุตัวตน" แยกต่างหาก **ห้ามยุบรวม**เข้ากับผู้ใช้จริง.
+
+### DAU / WAU / MAU + Stickiness
+จำนวน[[ผู้ใช้ที่ active (Active User)]] distinct ในหน้าต่าง **1 / 7 / 30 วัน** ล่าสุด. **Stickiness = DAU ÷ MAU** (สัดส่วนคนที่ใช้ทุกวันเทียบคนที่ใช้ในเดือน).
+
+- **เพดานย้อนหลัง = 90 วัน** เพราะ `login` event ถูกลบตาม retention rule (`docs/schema.md`: login → 90 วัน). ทุก window (รวมกราฟแนวโน้ม 30 วัน) อยู่ใน 90 วันจึงแม่น — **แต่ห้ามขยาย window เกิน 90 วันโดยไม่โชว์ caption** ไม่งั้นได้ข้อมูลไม่ครบแบบเงียบๆ (กับดักเดียวกับ Critical Rule #15 / dataRange caption #18).
+- **Is not:** ยอดสะสมตลอดกาล — ถ้าจะเก็บประวัติยาวกว่า 90 วันต้องทำ snapshot table (pattern paste-as-value แบบ [[ปิดงวด / ขึ้นเดือนใหม่ (Month Rollover)]]) ซึ่ง *ยังไม่ทำ* จนกว่าจะมีความต้องการจริง.
+
+### active ตาม role (Active-by-role)
+จำนวน[[ผู้ใช้ที่ active (Active User)]] distinct ในหน้าต่างเดียวกับ DAU **group ตาม `app_users.role` ปัจจุบัน** (join กลับหา role สด ไม่อ่าน role จาก event เก่า).
+
+- **Is not:** headcount ต่อ role (`COUNT app_users GROUP BY role`) — นั่นคือ org chart static ที่ดูจาก UserManagement ได้อยู่แล้ว. อันนี้ตอบ "role ไหน *ใช้* ระบบจริง".
+
 - **Is not:** การ recompute สูตร domain (SS/ROP/มูลค่า) มาเทียบ — นั่นคือ reconciliation ที่ **จงใจไม่ทำ** เพราะจะ duplicate สูตร Excel แล้ว drift (กับดักเดียวกับที่ทำให้ SS เพี้ยน). guard นี้ **อ่านค่าที่มีอยู่ ไม่คำนวณใหม่**.

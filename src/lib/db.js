@@ -836,6 +836,116 @@ export async function fetchNotifications() {
   return data || []
 }
 
+// --- Usage Analytics (สรุปการใช้งานระบบ, admin-only) ---
+// derived view เหนือ audit_logs — นับ "login" event เป็น active user
+// ⚠️ login event ถูกลบตาม retention 90 วัน (docs/schema.md) → cap window ที่ 90 วันเสมอ
+// นับด้วย details.user_id (stable) ไม่ใช่ user_name (display เปลี่ยนได้); join app_users เอาชื่อ/role ปัจจุบัน
+export async function fetchUserActivityStats() {
+  if (!supabase) return null
+
+  const CAP_DAYS = 90
+  const now = new Date()
+  const sinceCap = new Date(now.getTime() - CAP_DAYS * 86400000).toISOString()
+
+  // ดึง login event ทั้งหมดใน 90 วัน (paginate — Rule #2)
+  const PAGE = 1000
+  const rows = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('audit_logs')
+      .select('user_name, details, created_at')
+      .eq('action', 'login')
+      .gte('created_at', sinceCap)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + PAGE - 1)
+    if (error) throw error
+    if (!data || data.length === 0) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+    offset += PAGE
+  }
+
+  // แผนที่ผู้ใช้ปัจจุบัน (ชื่อ/role สด) — key = app_users.id
+  const { data: users } = await supabase
+    .from('app_users')
+    .select('id, username, full_name, role')
+  const userMap = {}
+  for (const u of users || []) userMap[u.id] = u
+
+  // identity ของ event: user_id (stable) ถ้ามี ไม่งั้น bucket "ไม่ระบุตัวตน"
+  const UNKNOWN = '__unknown__'
+  const idOf = (r) => {
+    const uid = r.details?.user_id
+    return uid != null ? String(uid) : UNKNOWN
+  }
+  const nameOf = (id, r) => {
+    if (id === UNKNOWN) return 'ไม่ระบุตัวตน'
+    const u = userMap[id]
+    return u ? (u.full_name || u.username) : (r.user_name || '(ผู้ใช้ที่ถูกลบ)')
+  }
+  const roleOf = (id) => (id === UNKNOWN ? '-' : (userMap[id]?.role || '-'))
+
+  const ms = (d) => new Date(d).getTime()
+  const t = now.getTime()
+  const day1 = t - 1 * 86400000
+  const day7 = t - 7 * 86400000
+  const day30 = t - 30 * 86400000
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+
+  const dau = new Set(), wau = new Set(), mau = new Set()
+  const byUser = {}          // id → { id, name, role, count, lastLogin, activeToday }
+  const roleActive = {}      // role → Set(id)  (window = 30d / MAU)
+  const dayCounts = {}       // 'YYYY-MM-DD' → Set(id)  (trend 30d)
+
+  for (const r of rows) {
+    const id = idOf(r)
+    const ts = ms(r.created_at)
+    if (ts >= day1) dau.add(id)
+    if (ts >= day7) wau.add(id)
+    if (ts >= day30) {
+      mau.add(id)
+      const role = roleOf(id)
+      ;(roleActive[role] ||= new Set()).add(id)
+      const ymd = r.created_at.slice(0, 10)
+      ;(dayCounts[ymd] ||= new Set()).add(id)
+    }
+    const u = (byUser[id] ||= {
+      id, name: nameOf(id, r), role: roleOf(id),
+      count: 0, lastLogin: r.created_at, activeToday: false,
+    })
+    u.count += 1
+    if (ts > ms(u.lastLogin)) u.lastLogin = r.created_at
+    if (ts >= startOfToday) u.activeToday = true
+  }
+
+  // กราฟแนวโน้ม 30 วัน (เติมวันที่ไม่มี login = 0)
+  const trend = []
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(t - i * 86400000)
+    const ymd = d.toISOString().slice(0, 10)
+    trend.push({ ymd, count: dayCounts[ymd]?.size || 0 })
+  }
+
+  const byRole = Object.entries(roleActive)
+    .map(([role, set]) => ({ role, count: set.size }))
+    .sort((a, b) => b.count - a.count)
+
+  const users_ = Object.values(byUser).sort((a, b) => ms(b.lastLogin) - ms(a.lastLogin))
+
+  return {
+    dau: dau.size,
+    wau: wau.size,
+    mau: mau.size,
+    stickiness: mau.size > 0 ? dau.size / mau.size : 0,
+    trend,
+    byRole,
+    users: users_,
+    capDays: CAP_DAYS,
+    dataFrom: rows.length ? rows[rows.length - 1].created_at : null,
+  }
+}
+
 // --- Upload Meta ---
 
 export async function fetchUploadMeta() {

@@ -1,7 +1,145 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { RefreshCcw, Search, ClipboardList, Pencil, Trash2, X, Save, CheckSquare } from 'lucide-react';
-import { fetchAuditLogs, updateAuditLog, deleteAuditLog, bulkDeleteAuditLogs } from './lib/db';
+import { RefreshCcw, Search, ClipboardList, Pencil, Trash2, X, Save, CheckSquare, BarChart3, Users, TrendingUp } from 'lucide-react';
+import { fetchAuditLogs, updateAuditLog, deleteAuditLog, bulkDeleteAuditLogs, fetchUserActivityStats } from './lib/db';
 import BackButton from './BackButton';
+
+const ROLE_LABELS = { admin: 'ผู้ดูแลระบบ', staff: 'เจ้าหน้าที่คลัง', requester: 'ผู้เบิก' };
+const roleLabel = (r) => ROLE_LABELS[r] || r || '-';
+
+// สรุปการใช้งานระบบ (admin-only) — derived จาก audit_logs (login event), cap 90 วัน
+function UsageAnalyticsPanel() {
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try { setStats(await fetchUserActivityStats()); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <div className="text-center text-slate-400 py-16 text-sm">กำลังโหลด…</div>;
+  if (error) return <div className="text-center text-red-500 py-16 text-sm">โหลดข้อมูลล้มเหลว: {error}</div>;
+  if (!stats) return <div className="text-center text-slate-400 py-16 text-sm">ยังไม่มีข้อมูลการใช้งาน</div>;
+
+  const { dau, wau, mau, stickiness, trend, byRole, users, capDays, dataFrom } = stats;
+  const maxTrend = Math.max(1, ...trend.map(d => d.count));
+  const maxRole = Math.max(1, ...byRole.map(r => r.count));
+  const fmtDate = (iso) => {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear() + 543} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} น.`;
+  };
+  const cards = [
+    { label: 'ผู้ใช้วันนี้ (DAU)', value: dau, icon: Users, color: 'text-emerald-600 bg-emerald-50' },
+    { label: 'ผู้ใช้ 7 วัน (WAU)', value: wau, icon: Users, color: 'text-sky-600 bg-sky-50' },
+    { label: 'ผู้ใช้ 30 วัน (MAU)', value: mau, icon: Users, color: 'text-indigo-600 bg-indigo-50' },
+    { label: 'Stickiness (DAU/MAU)', value: `${Math.round(stickiness * 100)}%`, icon: TrendingUp, color: 'text-amber-600 bg-amber-50' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* caption ความครอบคลุมข้อมูล — staleness มองเห็นได้ (Rule #18) */}
+      <p className="text-xs text-slate-400">
+        นับจากการเข้าสู่ระบบ (login) ย้อนหลังสูงสุด {capDays} วัน — ข้อมูลเก่ากว่านี้ถูกลบตามนโยบายเก็บ log
+        {dataFrom && <> · มีข้อมูลตั้งแต่ {fmtDate(dataFrom)}</>}
+      </p>
+
+      {/* stat cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {cards.map(c => (
+          <div key={c.label} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+            <div className={`inline-flex p-2 rounded-lg mb-2 ${c.color}`}><c.icon size={16} /></div>
+            <p className="text-2xl font-bold text-slate-800 leading-none">{c.value}</p>
+            <p className="text-xs text-slate-400 mt-1">{c.label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        {/* กราฟแนวโน้ม 30 วัน */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+          <h3 className="text-sm font-semibold text-slate-700 mb-3">แนวโน้มผู้เข้าใช้รายวัน (30 วัน)</h3>
+          <div className="flex items-end gap-0.5 h-32">
+            {trend.map(d => (
+              <div key={d.ymd} className="flex-1 group relative flex items-end" title={`${d.ymd}: ${d.count} คน`}>
+                <div className="w-full bg-sky-400 rounded-t hover:bg-sky-500 transition-colors"
+                  style={{ height: `${(d.count / maxTrend) * 100}%`, minHeight: d.count > 0 ? '3px' : '0' }} />
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+            <span>{trend[0]?.ymd.slice(5)}</span>
+            <span>{trend[trend.length - 1]?.ymd.slice(5)}</span>
+          </div>
+        </div>
+
+        {/* active ตาม role */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+          <h3 className="text-sm font-semibold text-slate-700 mb-3">ผู้ใช้ active ตามบทบาท (30 วัน)</h3>
+          {byRole.length === 0 ? (
+            <p className="text-xs text-slate-400 py-8 text-center">ไม่มีข้อมูล</p>
+          ) : (
+            <div className="space-y-2.5">
+              {byRole.map(r => (
+                <div key={r.role} className="flex items-center gap-2">
+                  <span className="w-24 text-xs text-slate-500 shrink-0">{roleLabel(r.role)}</span>
+                  <div className="flex-1 bg-slate-100 rounded-full h-5 overflow-hidden">
+                    <div className="bg-indigo-400 h-full rounded-full flex items-center justify-end px-2"
+                      style={{ width: `${(r.count / maxRole) * 100}%`, minWidth: '1.5rem' }}>
+                      <span className="text-[10px] font-semibold text-white">{r.count}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ตารางรายคน */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-700">รายละเอียดผู้ใช้</h3>
+          <button onClick={load} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100" title="โหลดใหม่"><RefreshCcw size={14} /></button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[560px]">
+            <thead>
+              <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
+                <th className="px-4 py-2 font-semibold">ผู้ใช้</th>
+                <th className="px-4 py-2 font-semibold">บทบาท</th>
+                <th className="px-4 py-2 font-semibold text-right">เข้าใช้ล่าสุด</th>
+                <th className="px-4 py-2 font-semibold text-right">จำนวนครั้ง</th>
+                <th className="px-4 py-2 font-semibold text-center">วันนี้</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {users.length === 0 ? (
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-xs">ไม่มีการเข้าใช้ใน {capDays} วันที่ผ่านมา</td></tr>
+              ) : users.map(u => (
+                <tr key={u.id} className="hover:bg-slate-50/60">
+                  <td className="px-4 py-2.5 font-medium text-slate-700">{u.name}</td>
+                  <td className="px-4 py-2.5 text-slate-500 text-xs">{roleLabel(u.role)}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-500 text-xs whitespace-nowrap">{fmtDate(u.lastLogin)}</td>
+                  <td className="px-4 py-2.5 text-right font-semibold text-slate-700">{u.count.toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-center">
+                    {u.activeToday
+                      ? <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" title="เข้าใช้วันนี้" />
+                      : <span className="inline-block w-2 h-2 rounded-full bg-slate-200" title="ไม่ได้เข้าใช้วันนี้" />}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const ACTION_LABELS = {
   import_inventory:             { label: 'นำเข้า Inventory',       color: 'bg-blue-100 text-blue-700'      },
@@ -180,6 +318,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const isAdmin = auth?.role === 'admin';
+  const [mainView, setMainView] = useState('logs'); // 'logs' | 'usage' (usage = admin-only)
   const allSelected = logs.length > 0 && selectedIds.size === logs.length;
   const someSelected = selectedIds.size > 0 && selectedIds.size < logs.length;
 
@@ -302,6 +441,28 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
       </div>
 
       <div className="max-w-6xl mx-auto px-4 py-5 space-y-4">
+
+        {/* View switcher — สรุปการใช้งานเป็น admin-only */}
+        {isAdmin && (
+          <div className="flex gap-2">
+            <button onClick={() => setMainView('logs')}
+              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors inline-flex items-center gap-1.5 ${
+                mainView === 'logs' ? 'bg-slate-700 text-white' : 'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'
+              }`}>
+              <ClipboardList size={15} /> รายการ
+            </button>
+            <button onClick={() => setMainView('usage')}
+              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors inline-flex items-center gap-1.5 ${
+                mainView === 'usage' ? 'bg-slate-700 text-white' : 'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'
+              }`}>
+              <BarChart3 size={15} /> สรุปการใช้งาน
+            </button>
+          </div>
+        )}
+
+        {isAdmin && mainView === 'usage' && <UsageAnalyticsPanel />}
+
+        {(!isAdmin || mainView === 'logs') && (<>
 
         {/* Filters */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex flex-wrap gap-3 items-end">
@@ -601,6 +762,8 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
             </div>
           )}
         </div>
+
+        </>)}
       </div>
     </div>
   );
