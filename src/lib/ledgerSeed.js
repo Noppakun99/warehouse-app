@@ -63,6 +63,26 @@ const str = (v) => String(v ?? '').trim() || '-'
 // ชนิด (col6) ที่นับเป็น "เวชภัณฑ์มิใช่ยา"
 const NON_DRUG_KIND = 'เวชภัณฑ์มิใช่ยา'
 
+// structure guard — COL เป็น positional (ผูกตำแหน่ง ไม่ใช่ชื่อ) เพราะ header master
+// ผูกชื่อเดือน (เลื่อนทุกงวด) → match ด้วยชื่อไม่ได้. แต่ถ้า Excel เพิ่ม/ลบ/สลับคอลัมน์
+// ตำแหน่งจะเพี้ยนเงียบทั้งงวด. anchor เช็คคอลัมน์ที่ชื่อ "ไม่ผูกเดือน" ว่ายังอยู่ตำแหน่งเดิม
+// — ถ้าไม่ตรง throw แทน seed เพี้ยน (ดู CONTEXT.md / verify 2026-07-05)
+const HEADER_ANCHORS = [
+  [COL.drugCode, 'รหัสHosxp'],
+  [COL.drugName, 'รายการยา'],
+  [COL.lot, 'Lot Number'],
+  [COL.itemType, 'ชนิดรายการ'],
+  [COL.closingQty, 'คงเหลือหลังจ่าย'],
+]
+
+export function assertMasterStructure(headerRow) {
+  const bad = HEADER_ANCHORS.filter(([idx, kw]) => !String(headerRow?.[idx] ?? '').includes(kw))
+  if (bad.length > 0) {
+    const detail = bad.map(([idx, kw]) => `คอลัมน์ ${idx + 1} ควรเป็น "${kw}" แต่พบ "${headerRow?.[idx] ?? '(ว่าง)'}"`).join('; ')
+    throw new Error(`โครงสร้างไฟล์ master ไม่ตรงที่คาดไว้ — อาจสลับ/เพิ่ม/ลบคอลัมน์ใน Excel: ${detail}`)
+  }
+}
+
 /**
  * แปลง 1 แถว CSV → 1 ledger row (ตาม schema stock_ledger)
  * คืน null ถ้าเป็นแถว summary (รหัสยาว่าง) → caller filter ทิ้ง
@@ -112,6 +132,7 @@ export function mapMasterRow(cells, period) {
  */
 export function seedFromMasterCsv(text, period) {
   const grid = parseCsv(text)
+  assertMasterStructure(grid[0]) // guard: โครงสร้างคอลัมน์ยังตรง positional COL — ไม่งั้น seed เพี้ยนเงียบ
   const dataRows = grid.slice(1) // ตัด header
   const rows = []
   let skipped = 0

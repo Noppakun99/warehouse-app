@@ -7,7 +7,7 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { parseCsv, mapMasterRow, seedFromMasterCsv } from './lib/ledgerSeed.js'
+import { parseCsv, mapMasterRow, seedFromMasterCsv, assertMasterStructure } from './lib/ledgerSeed.js'
 
 let pass = 0, fail = 0
 function check(label, cond) {
@@ -79,21 +79,42 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const csvPath = path.join(__dirname, '..', 'csvfile', 'ยอดคลังยา_master_69.csv')
 if (fs.existsSync(csvPath)) {
   const text = fs.readFileSync(csvPath, 'utf8')
-  const { rows, skipped, tieOut } = seedFromMasterCsv(text, '2026-06')
-  // 1001 data rows − 8 summary (รหัสยาว่าง) = 993 ledger rows
+  const { rows, skipped, tieOut } = seedFromMasterCsv(text, '2026-07')
+  // งวด ก.ค.69 (ไฟล์อัปเดต 2026-07-05): 1012 data rows − 7 summary (รหัสยาว่าง) = 1005 ledger rows
   // (แถว 'แก้ไขระบบ' code='-' legit ถูก seed — จะถูกลบตอนขึ้นเดือนใหม่ ตาม context [88]/[100])
-  check('seed 993 ledger rows (1001 − 8 summary)', rows.length === 993)
-  check('skipped 8 summary rows', skipped === 8)
-  // tie-out = ผลรวมแถวจริงจาก Master (ต้นทาง authoritative) แยกหมวด ตาม context [86]/[87]
-  // มิใช่ยา ตรงเป๊ะกับไฟล์ส่งบัญชี (223,529.10) = หลักฐาน mapping ถูก
-  check('tie-out ยา = 3,770,433.26', Math.abs(tieOut.drug - 3770433.26) < 0.01)
-  check('tie-out มิใช่ยา = 223,529.10', Math.abs(tieOut.nonDrug - 223529.10) < 0.01)
-  check('tie-out รวม = 3,993,962.36', Math.abs(tieOut.total - 3993962.36) < 0.01)
+  check('seed 1005 ledger rows (1012 − 7 summary)', rows.length === 1005)
+  check('skipped 7 summary rows', skipped === 7)
+  // tie-out reference = แถว summary ที่ Excel คำนวณเอง (idx27 = มูลค่าคงคลัง ก.ค.) — ไม่ circular:
+  //   row "เวชภัณฑ์มิใช่ยา" idx27 = 212,439.58 → ตรงเป๊ะกับ seed = หลักฐาน mapping ถูก
+  //   row "ยา" idx27 = 3,201,687.72; seed.drug = ยา + "สมุนไพร_สสจ" (47,009) = 3,248,696.72
+  //   (Excel แยก 3 หมวด ยา/มิใช่ยา/สมุนไพร; seed มี 2 หมวด — สมุนไพรถูกรวมเป็น drug)
+  check('tie-out มิใช่ยา = 212,439.58 (ตรง summary Excel)', Math.abs(tieOut.nonDrug - 212439.58) < 0.01)
+  check('tie-out ยา = 3,248,696.72 (ยา 3,201,687.72 + สมุนไพร 47,009)', Math.abs(tieOut.drug - 3248696.72) < 0.01)
+  check('tie-out รวม = 3,461,136.30', Math.abs(tieOut.total - 3461136.30) < 0.01)
   check('ทุกแถวมี drug_code (รวม "-" ของแถวแก้ไขระบบ)', rows.every(r => !!r.drug_code))
-  check('ทุกแถว period = 2026-06', rows.every(r => r.period === '2026-06'))
+  check('ทุกแถว period = 2026-07', rows.every(r => r.period === '2026-07'))
 } else {
   console.log('⚠️  ข้าม test ไฟล์จริง — ไม่พบ ' + csvPath)
 }
+
+// ============================================================
+// 4. assertMasterStructure — structure guard (2026-07-05)
+// ============================================================
+console.log('\n=== assertMasterStructure (guard) ===\n')
+
+// header ถูกต้อง → ไม่ throw
+const goodHeader = Array(45).fill('')
+goodHeader[5] = 'รหัสHosxp'; goodHeader[7] = 'รายการยา'; goodHeader[10] = 'Lot Number'
+goodHeader[12] = 'ชนิดรายการ'; goodHeader[20] = 'คงเหลือหลังจ่าย'
+let threwGood = false
+try { assertMasterStructure(goodHeader) } catch { threwGood = true }
+check('header ตรงตำแหน่ง → ไม่ throw', threwGood === false)
+
+// คอลัมน์สลับ (รหัสหายจาก idx5) → throw
+const badHeader = [...goodHeader]; badHeader[5] = 'คอลัมน์อื่น'
+let threwBad = false
+try { assertMasterStructure(badHeader) } catch { threwBad = true }
+check('คอลัมน์รหัสเลื่อน → throw (กัน seed เพี้ยนเงียบ)', threwBad === true)
 
 // ============================================================
 console.log(`\nผล: ${pass} ผ่าน, ${fail} ไม่ผ่าน`)
