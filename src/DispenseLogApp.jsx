@@ -118,6 +118,11 @@ const normalizeCode = (val) => {
   return String(val).trim() || '-';
 };
 
+// ตารางประวัติแสดงเฉพาะรายการเบิกจริง (qty_out > 0) — ตัดทั้งแถวว่าง (353) และ void qty=0 (118)
+// ให้ตรงกับ stat "จำนวนรายการ" (5,296) ที่ count ด้วย qty_out>0 อยู่แล้ว (Critical Rule #6)
+// filter ที่ระดับ query (ไม่ใช่ client-side หลัง paginate — ไม่งั้นหน้าที่มีแต่ qty=0 จะว่างทั้งหน้า)
+const withRealRowFilter = (q) => q.gt('qty_out', 0);
+
 const fmtDate = (iso) => {
   if (!iso || iso === '-') return '-';
   const d = new Date(iso);
@@ -359,19 +364,24 @@ function DispenseImport({ onDone, auth = {} }) {
         .map((row, i) => ({ row, rowNum: i + 2 }))
         .filter(({ row }) => row.some(c => c.trim()));
 
-      const rows = activeRaws.map(({ row, rowNum }) => {
+      const rows = activeRaws.flatMap(({ row, rowNum }) => {
           const drugName = getVal(row, 'drug_name');
           const drugCode = normalizeCode(getVal(row, 'drug_code'));
+          const drugType = getVal(row, 'drug_type') || '';
           const lot      = getVal(row, 'lot') || '-';
+
+          // ข้ามแถวที่ไม่มีชื่อยาและไม่มีรหัสยาเลย (แถว footer/total/ว่างที่มีแต่ '-') — ไม่ import ไม่เตือน
+          if (!drugName && (!drugCode || drugCode === '-')) return [];
 
           const issues = [];
           if (!drugName) issues.push('ไม่มีชื่อยา');
           if (!drugCode || drugCode === '-') issues.push('ไม่มีรหัสยา');
-          if (!lot || lot === '-') issues.push('ไม่มี Lot');
+          // เวชภัณฑ์มิใช่ยา (ถุง/ขวด/ตลับ) ไม่มี lot ตามธรรมชาติ — ใช้ '-' ถูกต้อง ไม่เตือน
+          if ((!lot || lot === '-') && drugType !== 'เวชภัณฑ์มิใช่ยา') issues.push('ไม่มี Lot');
           if (issues.length > 0) warnRows.push({ row: rowNum, name: drugName || '-', code: drugCode || '-', issues });
 
           const qtyOut = parseFloat(String(getVal(row, 'qty_out') || '0').replace(/,/g, '')) || 0;
-          return {
+          return [{
             dispense_date:  parseDate(getVal(row, 'dispense_date')) || new Date().toISOString().slice(0,10),
             main_log:       getVal(row, 'main_log') || '-',
             detail_log:     getVal(row, 'detail_log') || '-',
@@ -390,7 +400,7 @@ function DispenseImport({ onDone, auth = {} }) {
             qty_out:        qtyOut,
             qty_after:      parseFloat(String(getVal(row, 'qty_after') || '').replace(/,/g, '')) || null,
             source:         'csv',
-          };
+          }];
         });
 
       // Backfill drug_unit: ถ้าบางแถวไม่มีหน่วย ให้ดึงจากแถวอื่นที่มีรหัสยาเดียวกัน
@@ -816,6 +826,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     else if (isoFrom)       { q = q.gte('dispense_date', isoFrom); }
     else if (isoTo)         { q = q.lte('dispense_date', isoTo); }
     if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%`); }
+    q = withRealRowFilter(q);   // แสดงเฉพาะเบิกจริง qty>0 — ตรงกับ stat count (Rule #6)
     q = q.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
     const { data } = await q;
     setRows(data || []);
@@ -1312,17 +1323,17 @@ function DispenseView({ isAdmin = false, auth = {} }) {
           <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-260px)]">
             <table className="w-full min-w-[800px] text-sm">
               <thead className="sticky top-0 z-[5]">
-                <tr className="text-xs text-white font-bold border-b border-slate-600">
-                  <th className="px-4 py-2.5 text-left bg-slate-700">วันที่เบิก</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">ชื่อรายการยา</th>
-                  <th className="px-4 py-2.5 text-right bg-slate-700">จำนวน</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">หน่วย</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">Lot</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">Exp</th>
-                  <th className="px-4 py-2.5 text-right bg-slate-700">ราคา/หน่วย</th>
-                  <th className="px-4 py-2.5 text-right bg-slate-700">มูลค่า (บาท)</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">หน่วยงาน</th>
-                  <th className="px-4 py-2.5 w-8 bg-slate-700"></th>
+                <tr className="text-xs font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-200">
+                  <th className="px-4 py-3 text-left bg-slate-50">วันที่เบิก</th>
+                  <th className="px-4 py-3 text-left bg-slate-50">ชื่อรายการยา</th>
+                  <th className="px-4 py-3 text-right bg-slate-50">จำนวน</th>
+                  <th className="px-4 py-3 text-left bg-slate-50">หน่วย</th>
+                  <th className="px-4 py-3 text-left bg-slate-50">Lot</th>
+                  <th className="px-4 py-3 text-left bg-slate-50">Exp</th>
+                  <th className="px-4 py-3 text-right bg-slate-50">ราคา/หน่วย</th>
+                  <th className="px-4 py-3 text-right bg-slate-50">มูลค่า (บาท)</th>
+                  <th className="px-4 py-3 text-left bg-slate-50">หน่วยงาน</th>
+                  <th className="px-4 py-3 w-8 bg-slate-50"></th>
                 </tr>
               </thead>
               <tbody>
@@ -1330,7 +1341,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                   <React.Fragment key={row.id}>
                     <tr
                       onClick={() => setExpanded(expanded === row.id ? null : row.id)}
-                      className={`border-b border-slate-200 cursor-pointer transition-colors ${expanded === row.id ? 'bg-rose-100' : i % 2 === 0 ? 'hover:bg-rose-50' : 'bg-slate-50 hover:bg-rose-50'}`}
+                      className={`border-b border-slate-100 cursor-pointer transition-colors ${expanded === row.id ? 'bg-rose-50' : 'hover:bg-rose-50/60'}`}
                     >
                       <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(row.dispense_date)}</td>
                       <td className="px-4 py-2.5 font-semibold text-slate-900 max-w-[220px]">
@@ -1578,10 +1589,11 @@ function DispenseSummaryModal({ onClose }) {
       if (dateTo)     q = q.lte('dispense_date', thaiToIso(dateTo)   || dateTo);
       if (deptFilter) q = q.eq('department', deptFilter);
       if (drugFilter) q = q.ilike('drug_name', `%${drugFilter}%`);
+      q = withRealRowFilter(q);   // เฉพาะเบิกจริง qty>0 — ตรงกับตาราง+stat cards (Rule #6)
       return q;
     });
     setRawRows(rows || []);
-    if (!rows || rows.length === 0) { setStats(null); setLoading(false); return; }
+    if (rows.length === 0) { setStats(null); setLoading(false); return; }
 
     const totalQty   = rows.reduce((s, r) => s + (r.qty_out || 0), 0);
     const totalValue = rows.reduce((s, r) => s + ((r.qty_out || 0) * (getPrice(r) || 0)), 0);

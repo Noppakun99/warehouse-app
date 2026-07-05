@@ -261,7 +261,6 @@ export default function ReceiveLogApp({ onRefresh, auth = {}, initialTab = 'view
   const [tab, setTab]                 = useState(initialTab);
   const [showSummary, setShowSummary] = useState(false);
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
-  const isAdmin = auth.role === 'admin';
 
   return (
     <div className="min-h-screen bg-slate-200 text-slate-800 font-sans">
@@ -293,7 +292,7 @@ export default function ReceiveLogApp({ onRefresh, auth = {}, initialTab = 'view
       {tab === 'scan'   && isStaff && <ScanInvoice onDone={() => setTab('view')} auth={auth} />}
       {tab === 'import' && isStaff && <ReceiveImport onDone={() => setTab('view')} auth={auth} />}
       {tab === 'ap'     && isStaff && <ApWorkflow auth={auth} onBack={() => setTab('view')} />}
-      {tab === 'view'   && <ReceiveView isAdmin={isAdmin} auth={auth} />}
+      {tab === 'view'   && <ReceiveView auth={auth} />}
       {showSummary      && <ReceiveSummaryModal onClose={() => setShowSummary(false)} />}
     </div>
   );
@@ -1166,6 +1165,7 @@ function ReceiveImport({ onDone, auth = {} }) {
       const rows = activeRaws.flatMap(({ row, rowNum }) => {
           const drugName   = getVal(row, 'drug_name');
           const drugCode   = normalizeCode(getVal(row, 'drug_code'));
+          const drugType   = getVal(row, 'drug_type') || '';
           const lot        = getVal(row, 'lot') || '-';
           const billNumber = getVal(row, 'bill_number') || '-';
 
@@ -1175,7 +1175,8 @@ function ReceiveImport({ onDone, auth = {} }) {
           const issues = [];
           if (!drugName) issues.push('ไม่มีชื่อยา');
           if (!drugCode || drugCode === '-') issues.push('ไม่มีรหัสยา');
-          if (!lot || lot === '-') issues.push('ไม่มี Lot');
+          // เวชภัณฑ์มิใช่ยา (ถุง/ขวด/ตลับ) ไม่มี lot ตามธรรมชาติ — ใช้ '-' ถูกต้อง ไม่เตือน
+          if ((!lot || lot === '-') && drugType !== 'เวชภัณฑ์มิใช่ยา') issues.push('ไม่มี Lot');
           if (!billNumber || billNumber === '-') issues.push('ไม่มีเลขที่บิล');
           if (issues.length > 0) warnRows.push({ row: rowNum, name: drugName || '-', code: drugCode || '-', issues });
 
@@ -1419,7 +1420,7 @@ function ReceiveImport({ onDone, auth = {} }) {
 // ============================================================
 // View
 // ============================================================
-function ReceiveView({ isAdmin = false, auth = {} }) {
+function ReceiveView({ auth = {} }) {
   const [rows, setRows]               = useState([]);
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState('');
@@ -1733,23 +1734,6 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
 
   const clearAll = () => { clearSearch(); setSupplier(''); setSupplierSearch(''); setDateFrom(''); setDateTo(''); };
 
-  const deleteBlankRows = async () => {
-    if (!supabase) return;
-    if (!window.confirm('ลบ row ที่ชื่อยาเป็น (blank) หรือ - ออกจากฐานข้อมูล?')) return;
-    const { error, count } = await supabase
-      .from('receive_logs')
-      .delete({ count: 'exact' })
-      .or('drug_name.ilike.(blank),drug_name.eq.-,drug_name.is.null');
-    if (error) { alert('เกิดข้อผิดพลาด: ' + error.message); return; }
-    await insertAuditLog({
-      action: 'delete_receive', table_name: 'receive_logs',
-      user_name: resolveAuditUserName(auth), department: auth?.department || '-',
-      record_count: count ?? null,
-      details: { reason: 'cleanup_blank_rows' },
-    });
-    alert('ลบเรียบร้อย');
-    load();
-  };
 
   return (
     <div className="p-4 space-y-4 max-w-5xl mx-auto">
@@ -1832,11 +1816,6 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
             title="ส่งออก Excel ทุกแถว">
             <FileDown size={14} /> {exportLoading ? 'กำลังโหลด...' : 'Excel'}
           </button>
-          {isAdmin && (
-            <button onClick={deleteBlankRows} className="text-rose-400 hover:text-rose-600 text-xs px-2 py-1.5 rounded-lg border border-rose-200 hover:bg-rose-50 transition-colors" title="ลบ row ที่เป็น (blank)">
-              ลบ blank
-            </button>
-          )}
         </div>
         {/* Date range */}
         <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -1902,17 +1881,17 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
             <div className="overflow-x-auto overflow-y-auto max-h-[480px]">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-[5]">
-                  <tr className="text-xs text-white font-bold border-b border-slate-600">
-                    <th className="px-4 py-2.5 text-left bg-slate-700">วันที่รับ</th>
-                    <th className="px-4 py-2.5 text-right bg-slate-700">จำนวน</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-700">หน่วย</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-700">Lot</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-700">Exp</th>
-                    <th className="px-4 py-2.5 text-right bg-slate-700">ราคา/หน่วย</th>
-                    <th className="px-4 py-2.5 text-right bg-slate-700">มูลค่ารวมภาษี (บาท)</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-700">บริษัท</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-700">เลขบิล</th>
-                    <th className="px-4 py-2.5 w-6 bg-slate-700"></th>
+                  <tr className="text-xs font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-200">
+                    <th className="px-4 py-3 text-left bg-slate-50">วันที่รับ</th>
+                    <th className="px-4 py-3 text-right bg-slate-50">จำนวน</th>
+                    <th className="px-4 py-3 text-left bg-slate-50">หน่วย</th>
+                    <th className="px-4 py-3 text-left bg-slate-50">Lot</th>
+                    <th className="px-4 py-3 text-left bg-slate-50">Exp</th>
+                    <th className="px-4 py-3 text-right bg-slate-50">ราคา/หน่วย</th>
+                    <th className="px-4 py-3 text-right bg-slate-50">มูลค่ารวมภาษี (บาท)</th>
+                    <th className="px-4 py-3 text-left bg-slate-50">บริษัท</th>
+                    <th className="px-4 py-3 text-left bg-slate-50">เลขบิล</th>
+                    <th className="px-4 py-3 w-6 bg-slate-50"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1920,7 +1899,7 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
                     <React.Fragment key={r.id}>
                       <tr
                         onClick={() => setDrugExpanded(drugExpanded === r.id ? null : r.id)}
-                        className={`border-b border-slate-200 cursor-pointer transition-colors ${drugExpanded === r.id ? 'bg-emerald-100' : i % 2 === 0 ? 'hover:bg-emerald-50' : 'bg-slate-50 hover:bg-emerald-50'}`}
+                        className={`border-b border-slate-100 cursor-pointer transition-colors ${drugExpanded === r.id ? 'bg-emerald-50' : 'hover:bg-emerald-50/60'}`}
                       >
                         <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(r.receive_date)}</td>
                         <td className="px-4 py-2.5 text-emerald-800 font-bold text-right whitespace-nowrap">{r.qty_received ? `+${r.qty_received.toLocaleString()}` : '-'}</td>
@@ -2121,19 +2100,19 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
           <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-260px)]">
             <table className="w-full min-w-[900px] text-sm">
               <thead className="sticky top-0 z-[5]">
-                <tr className="text-xs text-white font-bold border-b border-slate-600">
-                  <th className="px-4 py-2.5 text-left bg-slate-700">วันที่รับ</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">ชื่อรายการยา</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">ชนิดยา</th>
-                  <th className="px-4 py-2.5 text-right bg-slate-700">จำนวน</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">หน่วย</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">Lot</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">Exp</th>
-                  <th className="px-4 py-2.5 text-right bg-slate-700">ราคา/หน่วย</th>
-                  <th className="px-4 py-2.5 text-right bg-slate-700">มูลค่ารวมภาษี (บาท)</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">บริษัท</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">เลขบิล</th>
-                  <th className="px-4 py-2.5 w-8 bg-slate-700"></th>
+                <tr className="text-xs font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-200">
+                  <th className="px-4 py-3 text-left bg-slate-50">วันที่รับ</th>
+                  <th className="px-4 py-3 text-left bg-slate-50">ชื่อรายการยา</th>
+                  <th className="px-4 py-3 text-left bg-slate-50">ชนิดยา</th>
+                  <th className="px-4 py-3 text-right bg-slate-50">จำนวน</th>
+                  <th className="px-4 py-3 text-left bg-slate-50">หน่วย</th>
+                  <th className="px-4 py-3 text-left bg-slate-50">Lot</th>
+                  <th className="px-4 py-3 text-left bg-slate-50">Exp</th>
+                  <th className="px-4 py-3 text-right bg-slate-50">ราคา/หน่วย</th>
+                  <th className="px-4 py-3 text-right bg-slate-50">มูลค่ารวมภาษี (บาท)</th>
+                  <th className="px-4 py-3 text-left bg-slate-50">บริษัท</th>
+                  <th className="px-4 py-3 text-left bg-slate-50">เลขบิล</th>
+                  <th className="px-4 py-3 w-8 bg-slate-50"></th>
                 </tr>
               </thead>
               <tbody>
@@ -2141,7 +2120,7 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
                   <React.Fragment key={row.id}>
                     <tr
                       onClick={() => setExpanded(expanded === row.id ? null : row.id)}
-                      className={`border-b border-slate-200 cursor-pointer transition-colors ${expanded === row.id ? 'bg-emerald-100' : i % 2 === 0 ? 'hover:bg-emerald-50' : 'bg-slate-50 hover:bg-emerald-50'}`}
+                      className={`border-b border-slate-100 cursor-pointer transition-colors ${expanded === row.id ? 'bg-emerald-50' : 'hover:bg-emerald-50/60'}`}
                     >
                       <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(row.receive_date)}</td>
                       <td className="px-4 py-2.5 font-semibold text-slate-900 max-w-[220px]">
