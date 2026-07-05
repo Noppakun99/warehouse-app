@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { computeClosing, rolloverToNextPeriod, ADJUST_TYPE } from './ledgerRollover'
+import { buildConsistencyReport } from './consistencyCheck'
 
 const CHUNK_SIZE = 500
 
@@ -189,7 +190,10 @@ export const RECEIVE_COL_MAP = {
   safety_stock:        ['safety stock','safety_stock','สต็อกขั้นต่ำ','ปริมาณขั้นต่ำ'],
   sum_of_lead_time:    ['sum of lead time (in days)','sum of lead time','sum_of_lead_time','lead time (in days)'],
   swap_condition:      ['เงื่อนไขการแลกเปลี่ยนยาของบริษัท','swap_condition','swap condition','เงื่อนไขการแลกเปลี่ยน','เงื่อนไขแลกเปลี่ยน'],
-  swap_items:          ['ระบุรายการยาและเงื่อนไขยาแต่ละตัว','swap_items','swap items','ระบุเงื่อนไขการแลกเปลี่ยนยา','รายการยาแลกเปลี่ยน','ระบุรายการยาแลกเปลี่ยน'],
+  // #21 "ระบุเงื่อนไข..." กับ #22 "ระบุรายการยา..." เป็นคนละคอลัมน์ — เดิม alias ปน field เดียว
+  // ทำให้ #22 ทับ #21 → นโยบายแลกเปลี่ยน 746/~1200 บิลหาย (เก็บได้เฉพาะบิลที่ #22 มีค่า)
+  swap_note:           ['ระบุเงื่อนไขการแลกเปลี่ยนยา','swap_note'],
+  swap_items:          ['ระบุรายการยาและเงื่อนไขยาแต่ละตัว','swap_items','swap items','รายการยาแลกเปลี่ยน','ระบุรายการยาแลกเปลี่ยน'],
 }
 
 function _parseCSVRow(str) {
@@ -307,7 +311,7 @@ export async function importReceiveLogs(csvText, auth = {}) {
   const rows = lines.slice(1).map(_parseCSVRow)
     .filter(row => row.some(c => c && c.trim() && c.trim() !== '-'))
     .map(row => {
-      const swapFromCsv = [getVal(row,'swap_condition'),getVal(row,'swap_items')].filter(Boolean).join(' | ')||null;
+      const swapFromCsv = [getVal(row,'swap_condition'),getVal(row,'swap_note'),getVal(row,'swap_items')].filter(Boolean).join(' | ')||null;
       const drugCode = (() => { const v=getVal(row,'drug_code'); return v?String(v).trim()||'-':'-'; })();
       return {
         order_date:          _parseReceiveDate(getVal(row,'order_date')),
@@ -2275,4 +2279,28 @@ export async function deleteStockCountSession(sessionId, auth = {}) {
     user_name: resolveAuditUserName(auth), department: auth?.department || '-',
     details: { session_id: sessionId },
   })
+}
+
+// --- Data Consistency Check (on-demand) ---
+// ตรวจความสอดคล้องข้อมูลนำเข้า — อ่านสถานะ DB ปัจจุบัน ไม่แตะข้อมูล
+// ดู CONTEXT.md §"Data Consistency Check" + logic บริสุทธิ์ใน consistencyCheck.js
+export async function fetchConsistencyReport() {
+  if (!supabase) return null
+
+  // inventory — paginate ครบ (Rule #2); ดึงเฉพาะ field ที่ check ใช้
+  const inventoryRows = await fetchAllInventoryRows('code, name, lot, qty, location, safety_stock, receive_status')
+
+  // receive_logs — paginate ข้าม 1000-row limit (pattern เดียวกับ fetchDashboardAlerts)
+  const receiveRows = []
+  const PAGE = 1000
+  let from = 0
+  while (true) {
+    const { data: rl } = await supabase.from('receive_logs').select('drug_code, lot').range(from, from + PAGE - 1)
+    if (!rl || rl.length === 0) break
+    receiveRows.push(...rl)
+    if (rl.length < PAGE) break
+    from += PAGE
+  }
+
+  return buildConsistencyReport(inventoryRows, receiveRows)
 }

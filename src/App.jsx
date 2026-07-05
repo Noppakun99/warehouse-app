@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { fetchInventory, saveInventory, fetchDrugDetails, fetchUploadMeta, saveUploadMeta, importReceiveLogs, normalizeLotSearch } from './lib/db';
+import { fetchInventory, saveInventory, fetchDrugDetails, fetchUploadMeta, saveUploadMeta, importReceiveLogs, normalizeLotSearch, fetchConsistencyReport } from './lib/db';
 import BackButton from './BackButton';
 import { exportToExcel } from './lib/exportExcel';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
@@ -7,6 +7,7 @@ import {
   Search, Package, MapPin, X, UploadCloud, FileSpreadsheet,
   AlertCircle, BarChart3, Layers, Pill, FileText,
   ChevronUp, ChevronDown, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw, FileDown, Eye, EyeOff,
+  ShieldCheck, Link2,
 } from 'lucide-react';
 
 const INVENTORY_EXCEL_COLS = [
@@ -185,6 +186,8 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [summaryStorageView, setSummaryStorageView] = useState('chart'); // 'chart' | 'table'
   const [uploadWarnings, setUploadWarnings] = useState(null); // { fileName, rows: [{row, issues[]}] }
+  const [consistency, setConsistency] = useState(null);       // report จาก fetchConsistencyReport
+  const [consistencyLoading, setConsistencyLoading] = useState(false);
 
   const [showColumnGuide, setShowColumnGuide] = useState(null); // 'log' | 'drug' | null
   
@@ -508,6 +511,18 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
     }
   };
 
+  const handleConsistencyCheck = async () => {
+    setConsistencyLoading(true);
+    try {
+      const report = await fetchConsistencyReport();
+      setConsistency(report || { error: 'ไม่สามารถโหลดข้อมูล (ยังไม่ได้เชื่อมต่อฐานข้อมูล)' });
+    } catch (err) {
+      setConsistency({ error: err.message });
+    } finally {
+      setConsistencyLoading(false);
+    }
+  };
+
   const handleReceiveFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -566,14 +581,24 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         const lotIdx = headers.findIndex(h => h.toLowerCase().includes('lot') || h.includes('รุ่น'));
         const expIdx = headers.findIndex(h => h.toLowerCase().includes('exp') || h.includes('หมดอายุ'));
         // qty = คงเหลือปัจจุบัน — ไฟล์ master มีหลายคอลัมน์ "คงเหลือ" (คงเหลือ พ.ค., มูลค่าคงเหลือ ฯลฯ)
-        // ต้องเจาะจง "คงเหลือหลังจ่าย"/"คงเหลือจริง" ก่อน แล้วค่อย fallback + กัน "มูลค่าคงเหลือ" (บาท ไม่ใช่จำนวน)
+        // ต้องเจาะจง "คงเหลือหลังจ่าย" ก่อนสุด (authoritative closing — ตัวเดียวกับ ledgerSeed COL.closingQty)
+        // เพราะ "ปริมาณรับเข้า−คงเหลือ...=คงเหลือจริง" (แก้ติดลบส่งบัญชี) ต่างค่ากับ "คงเหลือหลังจ่าย" 36/1005 แถว
+        // แล้วค่อย fallback "คงเหลือจริง" → generic + กัน "มูลค่าคงเหลือ" (บาท ไม่ใช่จำนวน)
         const qtyIdx = (() => {
-          const exact = headers.findIndex(h => h.includes('คงเหลือหลังจ่าย') || h.includes('คงเหลือจริง'));
-          if (exact !== -1) return exact;
+          const afterDispense = headers.findIndex(h => h.includes('คงเหลือหลังจ่าย'));
+          if (afterDispense !== -1) return afterDispense;
+          const realBalance = headers.findIndex(h => h.includes('คงเหลือจริง'));
+          if (realBalance !== -1) return realBalance;
           const generic = headers.findIndex(h => (h.includes('คงเหลือ') && !h.includes('มูลค่า')) || h.toLowerCase() === 'qty');
           return generic;
         })();
-        const qtyReceivedIdx = headers.findIndex(h => h.includes('จำนวนที่รับ') || h.includes('ที่รับ') || h.toLowerCase().includes('qty_received') || h.toLowerCase().includes('received'));
+        // จำนวนที่รับเข้า — เจาะจงชื่อก่อน (master ใช้ "ปริมาณ (เข้า)", ไฟล์รับยาใช้ "จำนวนที่รับ")
+        // แล้วค่อย fallback + กัน "วันที่..." (คอลัมน์วันที่ เช่น "วันที่รับเข้า" มีคำว่า "ที่รับ" อยู่ในชื่อ)
+        const qtyReceivedIdx = (() => {
+          const exact = headers.findIndex(h => h.includes('จำนวนที่รับ') || h.replace(/\s/g,'').includes('ปริมาณ(เข้า)'));
+          if (exact !== -1) return exact;
+          return headers.findIndex(h => !h.includes('วันที่') && (h.includes('ที่รับ') || h.toLowerCase().includes('qty_received') || h.toLowerCase().includes('received')));
+        })();
         const invoiceIdx = headers.findIndex(h => h.includes('บิล') || h.includes('ใบเสร็จ') || h.toLowerCase().includes('invoice') || h.toLowerCase().includes('inv'));
         // สถานะตรวจรับ → รอตรวจรับ (เช็คก่อน เพราะต้องการค่า "รอตรวจรับ" จากคอลัมน์นี้)
         const statusIdx = headers.findIndex(h => h.includes('สถานะตรวจรับ') || h.includes('ตรวจรับ') || h.toLowerCase().includes('status'));
@@ -1112,6 +1137,9 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           <button onClick={() => setShowSummaryModal(true)} className="flex items-center gap-1.5 bg-white border border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
             <BarChart3 size={15}/><span className="hidden sm:inline">สรุปข้อมูล</span>
           </button>
+          <button onClick={handleConsistencyCheck} disabled={consistencyLoading} className="flex items-center gap-1.5 bg-white border border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+            <ShieldCheck size={15}/><span className="hidden sm:inline">{consistencyLoading ? 'กำลังตรวจ...' : 'ตรวจความสอดคล้อง'}</span>
+          </button>
           <div className="relative">
             <button onClick={() => setShowManageMenu(v => !v)}
               className="flex items-center gap-1.5 bg-white border border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
@@ -1512,6 +1540,101 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           </div>
         </div>
       )}
+
+      {/* Consistency Check Modal */}
+      {consistency && (() => {
+        const { error, counts, referential, guards } = consistency;
+        const orphans = referential?.orphans || [];
+        const ssTooHigh = guards?.ssTooHigh || [];
+        const qtyNegative = guards?.qtyNegative || [];
+        const totalIssues = orphans.length + ssTooHigh.length + qtyNegative.length;
+        const allClear = !error && referential?.hasReceiveData && totalIssues === 0;
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+              <div className={`text-white px-6 py-4 rounded-t-2xl flex items-center justify-between ${error ? 'bg-red-500' : totalIssues > 0 ? 'bg-orange-500' : 'bg-emerald-600'}`}>
+                <div>
+                  <p className="font-bold text-lg flex items-center gap-2"><ShieldCheck size={20}/> ตรวจความสอดคล้องข้อมูล</p>
+                  {!error && counts && (
+                    <p className="text-white/80 text-sm">คลัง {counts.inventoryRows.toLocaleString()} แถว · ประวัติรับ {counts.receiveKeys.toLocaleString()} คู่ (รหัส+lot)</p>
+                  )}
+                </div>
+                <button onClick={() => setConsistency(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={16}/></button>
+              </div>
+              <div className="overflow-y-auto flex-1 p-4 space-y-4">
+                {error && (
+                  <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
+                )}
+                {allClear && (
+                  <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-emerald-800 text-sm font-medium">
+                    <Check size={16} className="text-emerald-600"/> ข้อมูลสอดคล้องกันดี — ไม่พบรายการที่ต้องตรวจสอบ
+                  </div>
+                )}
+
+                {/* Referential: inventory → receive */}
+                {!error && (
+                  <div>
+                    <p className="text-sm font-bold text-slate-700 flex items-center gap-1.5 mb-2">
+                      <Link2 size={15} className="text-slate-500"/> lot ในคลังที่ไม่มีประวัติรับ
+                      {referential?.hasReceiveData && <span className="text-xs font-normal text-slate-400">({orphans.length})</span>}
+                    </p>
+                    {!referential?.hasReceiveData ? (
+                      <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-600 text-sm">
+                        <AlertTriangle size={16} className="text-slate-400"/> ยังไม่มีข้อมูลประวัติรับยาในระบบ — ข้ามการตรวจนี้ (อัปโหลดไฟล์รับยาก่อน)
+                      </div>
+                    ) : orphans.length === 0 ? (
+                      <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">ทุก lot ในคลังมีประวัติรับ ✓</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {orphans.map((o, i) => (
+                          <div key={i} className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-2 text-sm flex gap-3 items-start">
+                            <span className="font-mono bg-orange-200 text-orange-900 px-2 py-0.5 rounded text-xs font-bold shrink-0">lot {o.lot}</span>
+                            <div className="flex-1">
+                              <span className="font-semibold text-slate-800">{o.name}</span>
+                              {o.code && o.code !== '-' && <span className="text-slate-400 ml-2 text-xs">[{o.code}]</span>}
+                              <span className="text-slate-500 ml-2 text-xs inline-flex items-center gap-0.5"><MapPin size={11}/>{o.location}</span>
+                              <span className="text-slate-500 ml-2 text-xs">คงเหลือ {o.qty}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Range-guards */}
+                {!error && (ssTooHigh.length > 0 || qtyNegative.length > 0) && (
+                  <div>
+                    <p className="text-sm font-bold text-slate-700 flex items-center gap-1.5 mb-2">
+                      <AlertTriangle size={15} className="text-orange-500"/> ค่าที่อาจเพี้ยนผิดขนาด
+                    </p>
+                    <div className="space-y-1.5">
+                      {ssTooHigh.map((r, i) => (
+                        <div key={`ss${i}`} className="bg-red-50 border border-red-200 rounded-xl px-4 py-2 text-sm">
+                          <span className="font-semibold text-slate-800">{r.name}</span>
+                          {r.code && r.code !== '-' && <span className="text-slate-400 ml-2 text-xs">[{r.code}]</span>}
+                          <span className="bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full text-xs ml-2">Safety Stock = {Number(r.safety_stock).toLocaleString()} (สูงผิดปกติ)</span>
+                        </div>
+                      ))}
+                      {qtyNegative.map((r, i) => (
+                        <div key={`qty${i}`} className="bg-red-50 border border-red-200 rounded-xl px-4 py-2 text-sm">
+                          <span className="font-semibold text-slate-800">{r.name}</span>
+                          {r.code && r.code !== '-' && <span className="text-slate-400 ml-2 text-xs">[{r.code}]</span>}
+                          <span className="bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full text-xs ml-2">คงเหลือติดลบ = {r.qty}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="px-6 py-4 border-t border-slate-100 flex justify-between items-center">
+                <p className="text-xs text-slate-400">ตรวจสอบเฉพาะ — ไม่แก้ข้อมูล แก้ที่ไฟล์ต้นทางแล้วอัปโหลดใหม่</p>
+                <button onClick={() => setConsistency(null)} className="px-5 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-xl font-medium text-sm">ปิด</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {showSummaryModal && (() => {
         const totalLogItems = expiredItems.length + nearExpiryItems.length + safeItems.length;
