@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { fetchInventory, saveInventory, fetchDrugDetails, fetchUploadMeta, saveUploadMeta, importReceiveLogs, normalizeLotSearch, fetchConsistencyReport } from './lib/db';
+import { fetchInventory, saveInventory, fetchDrugDetails, fetchUploadMeta, saveUploadMeta, normalizeLotSearch, fetchConsistencyReport } from './lib/db';
 import BackButton from './BackButton';
 import { exportToExcel } from './lib/exportExcel';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
@@ -192,7 +192,6 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   const [showColumnGuide, setShowColumnGuide] = useState(null); // 'log' | 'drug' | null
   
   const logInputRef     = useRef(null);
-  const receiveInputRef = useRef(null);
 
   // โหลดข้อมูลจาก Supabase เมื่อแอปเริ่มทำงาน
   useEffect(() => {
@@ -523,26 +522,6 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
     }
   };
 
-  const handleReceiveFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    e.target.value = '';
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      setSuccessMsg(`กำลังนำเข้าประวัติรับยา "${file.name}"...`);
-      try {
-        const count = await importReceiveLogs(ev.target.result);
-        setSuccessMsg(`นำเข้าประวัติรับยาสำเร็จ ${count.toLocaleString()} รายการ จากไฟล์ "${file.name}"`);
-        // โหลด drugDetails ใหม่เพราะดึงจาก receive_logs
-        const drugs = await fetchDrugDetails();
-        if (drugs) setDrugDetails(drugs);
-        setTimeout(() => setSuccessMsg(''), 6000);
-      } catch (err) {
-        setErrorMsg('นำเข้าประวัติรับยาล้มเหลว: ' + err.message);
-      }
-    };
-    reader.readAsText(file, 'utf-8');
-  };
 
   const handleLogFileUpload = (e) => {
     const file = e.target.files[0];
@@ -1156,15 +1135,11 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                   <div className="border-t border-slate-100 my-1"/>
                   <button onClick={() => { logInputRef.current?.click(); setShowManageMenu(false); }}
                     className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors">
-                    <UploadCloud size={15}/> อัปโหลด Log คลัง
+                    <UploadCloud size={15}/> อัปโหลด Master
                   </button>
                   <button onClick={() => { setShowColumnGuide(showColumnGuide === 'log' ? null : 'log'); setShowManageMenu(false); }}
                     className="w-full flex items-center gap-2 px-4 py-2 text-xs text-slate-400 hover:text-slate-600 transition-colors">
                     ดูหัวคอลัมน์ที่รองรับ
-                  </button>
-                  <button onClick={() => { receiveInputRef.current?.click(); setShowManageMenu(false); }}
-                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors">
-                    <UploadCloud size={15}/> อัปโหลดประวัติรับยา
                   </button>
                 </>}
               </div>
@@ -1230,7 +1205,6 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           {/* Hidden file inputs */}
           {isStaff && <>
             <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={logInputRef} onChange={handleLogFileUpload} className="hidden"/>
-            <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={receiveInputRef} onChange={handleReceiveFileUpload} className="hidden"/>
             <p className="text-[11px] text-slate-400">*อัปโหลดได้เฉพาะไฟล์ .csv (หากบันทึกจาก Excel ในมือถือ ให้บันทึกเป็น CSV ก่อน)</p>
           </>}
 
