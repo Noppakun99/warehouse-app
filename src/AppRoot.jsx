@@ -1650,7 +1650,7 @@ function DashboardCharts({ charts, lowStock = [], onOpenReorder, onOpenDispense,
                   <span className="text-xs font-semibold text-amber-600 shrink-0">{Math.round(r.ratio * 100)}% ของ SS</span>
                 </div>
                 <p className="text-xs text-slate-500 mt-1">
-                  คงเหลือ <span className="font-bold text-red-600">{Number(r.qty).toLocaleString()} {r.unit}</span> / SS {Number(r.safety_stock).toLocaleString()}
+                  คงเหลือ <span className="font-bold text-red-600">{Number(r.qty).toLocaleString()}</span> <span className="text-slate-400">{r.unit}</span> / SS {Number(r.safety_stock).toLocaleString()}
                 </p>
               </div>
             ))}
