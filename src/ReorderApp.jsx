@@ -444,6 +444,7 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
   // ── Data ──
   const [inventory, setInventory] = useState({});
   const [configMap, setConfigMap] = useState({}); // code -> config
+  const [rerunToken, setRerunToken] = useState(0); // bump เพื่อสั่ง re-run analysis หลัง Import Master
   const [receiptInfo, setReceiptInfo] = useState({}); // codeLower -> { unit, factor, supplier, pricePerUnit, receiveDate, leadTimeAvg }
   const [, setUsage] = useState({});              // raw usage cache (set for debugging)
   const [loadingData, setLoadingData] = useState(true);
@@ -565,6 +566,12 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingData]);
 
+  // Re-run หลัง Import Master — token bump หลัง configMap ใหม่ commit แล้ว จึงรอ effect (ไม่เรียก runAnalysis ตรงๆ ที่ยังจับ configMap เก่า)
+  useEffect(() => {
+    if (rerunToken > 0) runAnalysis();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rerunToken]);
+
   const toggleOrdered = useCallback(async (code) => {
     const ck = codeKey(code);
     const now = orderedMap[ck];
@@ -588,6 +595,7 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
   const onMasterImported = useCallback(async (count) => {
     const cfg = await fetchDrugReorderConfig();
     setConfigMap(Object.fromEntries((cfg || []).map(c => [codeKey(c.code), c])));
+    setRerunToken(t => t + 1); // สั่ง re-run เพื่อให้การ์ด/ตารางสะท้อน exclude_status ใหม่ (ไม่งั้นค้างผลเก่า)
     alert(`Import สำเร็จ ${count} รายการ`);
   }, []);
 
@@ -877,23 +885,19 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth }) {
         </button>
       </div>
 
-      {/* Desktop table */}
-      <div className="hidden md:block overflow-auto rounded-xl border border-slate-200">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-700 text-white sticky top-0 z-10">
-            <tr>
-              <th className="px-3 py-2.5 text-left font-semibold sticky left-0 bg-slate-700 z-20">รายการยา</th>
-              <th className="px-3 py-2.5 text-center font-semibold">Risk</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Max</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Avg/mo</th>
-              <th className="px-3 py-2.5 text-right font-semibold">คงเหลือ</th>
-              <th className="px-3 py-2.5 text-right font-semibold bg-rose-800">SS</th>
-              <th className="px-3 py-2.5 text-right font-semibold bg-orange-800">ROP</th>
-              <th className="px-3 py-2.5 text-right font-semibold">คงเหลือ−ROP</th>
-              <th className="px-3 py-2.5 text-right font-semibold bg-cyan-800">ต้องซื้อ</th>
-              <th className="px-3 py-2.5 text-right font-semibold bg-emerald-800">มูลค่า</th>
-              <th className="px-3 py-2.5 text-center font-semibold">สถานะ</th>
-              <th className="px-3 py-2.5 text-center font-semibold">⚙</th>
+      {/* Desktop table — light sticky header + frozen first column (ดู /sticky-table) */}
+      <div className="hidden md:block overflow-auto rounded-xl border border-slate-200 shadow-sm bg-white" style={{ maxHeight: 'calc(100vh - 240px)' }}>
+        <table className="w-full text-sm min-w-[920px]">
+          <thead className="sticky top-0 z-20">
+            <tr className="text-slate-500 border-b border-slate-200">
+              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide sticky left-0 z-30 bg-slate-50 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">รายการยา</th>
+              <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">สถานะ</th>
+              <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">คงเหลือ</th>
+              <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">ต้องซื้อ · มูลค่า</th>
+              <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">SS · ROP</th>
+              <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">ใช้/เดือน</th>
+              <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50">VEN</th>
+              <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50">จัดการ</th>
             </tr>
           </thead>
           <tbody>
@@ -915,48 +919,61 @@ function AnalysisRow({ r, ordered, toggleOrdered, onEdit }) {
   const tone = TONE_CLASSES[meta.tone];
   const Icon = meta.icon;
   const gap = r.stock - r.rop;
+  const ropPct = r.rop > 0 ? Math.min(100, Math.round((r.stock / r.rop) * 100)) : null;
   return (
-    <tr className={`border-t border-slate-100 ${ordered ? 'bg-emerald-50/40 opacity-70' : 'hover:bg-slate-50'}`}>
-      <td className="px-3 py-2.5 sticky left-0 z-10 bg-inherit">
-        <div className="font-semibold text-slate-800 flex items-center gap-1.5">
-          {ordered && <CheckCircle2 size={13} className="text-emerald-600"/>}
-          <span className={ordered ? 'line-through text-slate-400' : ''}>{r.name || '-'}</span>
+    <tr className={`border-t border-slate-100 transition-colors ${ordered ? 'bg-emerald-50/50' : 'bg-white hover:bg-slate-50'}`}>
+      {/* รายการยา + แถบสีสถานะซ้าย (scan เร็วโดยไม่ต้องอ่าน chip) */}
+      <td className="p-0 sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.04)]">
+        <div className="flex items-stretch gap-2.5 px-3 py-2.5">
+          <span className={`w-1 rounded-full shrink-0 ${tone.bar}`} aria-hidden="true"/>
+          <div className="min-w-0">
+            <div className="font-semibold text-slate-800 flex items-center gap-1.5">
+              {ordered && <CheckCircle2 size={13} className="text-emerald-600 shrink-0"/>}
+              <span className={ordered ? 'line-through text-slate-400' : ''}>{r.name || '-'}</span>
+            </div>
+            <div className="text-xs text-slate-400 font-mono truncate">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}{r.receiveDate ? ` · รับ ${fmtThaiDate(r.receiveDate)}` : ''}</div>
+          </div>
         </div>
-        <div className="text-xs text-slate-400 font-mono">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}{r.receiveDate ? ` · รับ ${fmtThaiDate(r.receiveDate)}` : ''}</div>
       </td>
+      {/* สถานะ — ติดชื่อยา เพื่อเห็นก่อนตัวเลข */}
       <td className="px-3 py-2.5 text-center">
-        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.riskGroup === 'Critical' ? 'bg-rose-50 border-rose-200 text-rose-700' : r.riskGroup === 'Normal' ? 'bg-slate-100 border-slate-200 text-slate-600' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>{venLetter(r.riskGroup)}</span>
+        <span className={`inline-flex items-center gap-1 ${tone.chip} px-2 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap`}>
+          <Icon size={11}/> {r.status}
+        </span>
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums">{fmtNum(r.max)}</td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{fmtNum(r.avgMonth)}</td>
-      <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-        <div>{fmtNum(r.stock)}</div>
-        <div className="text-[10px] font-normal text-slate-400">อยู่ได้ {fmtCoverage(r.stock, r.avgDay)}</div>
-        {r.rop > 0 && (
-          <div className="w-20 bg-slate-200 rounded-full h-1 mt-1 ml-auto">
-            <div className={`h-1 rounded-full ${tone.bar}`} style={{ width: `${Math.min(100, (r.stock / r.rop) * 100)}%` }}/>
+      {/* คงเหลือ + coverage + bar เทียบ ROP */}
+      <td className="px-3 py-2.5 text-right">
+        <div className="font-bold tabular-nums text-slate-800">{fmtNum(r.stock)}</div>
+        <div className="text-[10px] text-slate-400">อยู่ได้ {fmtCoverage(r.stock, r.avgDay)}</div>
+        {ropPct != null && (
+          <div className="w-24 bg-slate-100 rounded-full h-1.5 mt-1 ml-auto overflow-hidden" title={`${ropPct}% ของ ROP`}>
+            <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${ropPct}%` }}/>
           </div>
         )}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-rose-700 font-semibold">{fmtNum(r.ss)}</td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-orange-700 font-semibold">{fmtNum(r.rop)}</td>
-      <td className={`px-3 py-2.5 text-right tabular-nums font-semibold ${gap < 0 ? 'text-rose-600' : 'text-slate-500'}`}>{fmtNum(gap)}</td>
-      <td className="px-3 py-2.5 text-right tabular-nums font-bold">
+      {/* ต้องซื้อ + มูลค่า — ข้อมูลตัดสินใจรวม cell เดียว */}
+      <td className="px-3 py-2.5 text-right tabular-nums">
         {r.orderQty > 0 ? (
           <>
-            <span className="text-cyan-700">{fmtNum(r.orderQty)}</span>
-            {(r.packFactor || 1) > 1 && <div className="text-[10px] font-normal text-slate-400">{fmtNum(r.orderQty * r.packFactor)} {parseUnitFactor(r.unit).base}</div>}
+            <div className="font-bold text-slate-800">{fmtNum(r.orderQty)}</div>
+            {(r.packFactor || 1) > 1 && <div className="text-[10px] text-slate-400">= {fmtNum(r.orderQty * r.packFactor)} {parseUnitFactor(r.unit).base}</div>}
+            {r.amount > 0 && <div className="text-xs font-bold text-emerald-700">฿{fmtBaht(r.amount)}</div>}
           </>
         ) : <span className="text-slate-300">—</span>}
       </td>
+      {/* SS · ROP + ขาดเท่าไหร่ (เฉพาะต่ำกว่า ROP) */}
+      <td className="px-3 py-2.5 text-right text-xs tabular-nums whitespace-nowrap">
+        <div className="text-slate-400">SS <span className="font-semibold text-slate-700">{fmtNum(r.ss)}</span></div>
+        <div className="text-slate-400 mt-0.5">ROP <span className="font-semibold text-slate-700">{fmtNum(r.rop)}</span></div>
+        {gap < 0 && <div className="text-rose-600 font-semibold mt-0.5">ขาด {fmtNum(-gap)}</div>}
+      </td>
+      {/* การใช้ต่อเดือน (Avg เด่น, Max รอง) */}
       <td className="px-3 py-2.5 text-right tabular-nums">
-        {r.amount > 0 ? <span className="font-bold text-emerald-700">฿{fmtBaht(r.amount)}</span> : <span className="text-slate-300">—</span>}
+        <div className="font-semibold text-slate-700">{fmtNum(r.avgMonth)}</div>
+        <div className="text-[10px] text-slate-400">Max {fmtNum(r.max)}</div>
       </td>
       <td className="px-3 py-2.5 text-center">
-        <span className={`inline-flex items-center gap-1 ${tone.chip} px-2 py-0.5 rounded-full text-[11px] font-semibold border`}>
-          <Icon size={11}/> {r.status}
-        </span>
-        {gap < 0 && r.orderQty > 0 && <div className="text-[10px] text-rose-600 mt-0.5">ขาด {fmtNum(-gap)}</div>}
+        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.riskGroup === 'Critical' ? 'bg-rose-50 border-rose-200 text-rose-700' : r.riskGroup === 'Normal' ? 'bg-slate-100 border-slate-200 text-slate-600' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>{venLetter(r.riskGroup)}</span>
       </td>
       <td className="px-3 py-2.5 text-center">
         <div className="flex items-center justify-center gap-1">
