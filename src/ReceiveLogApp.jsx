@@ -140,6 +140,7 @@ const FIELD_LABELS = {
   safety_stock:        'Safety Stock',
   sum_of_lead_time:    'Sum of Lead Time',
   swap_condition:      'เงื่อนไขแลกเปลี่ยน',
+  swap_note:           'ระบุเงื่อนไขแลกเปลี่ยน',
   swap_items:          'รายการยาแลกเปลี่ยน',
 };
 
@@ -1178,7 +1179,9 @@ function ReceiveImport({ onDone, auth = {} }) {
           if (!billNumber || billNumber === '-') issues.push('ไม่มีเลขที่บิล');
           if (issues.length > 0) warnRows.push({ row: rowNum, name: drugName || '-', code: drugCode || '-', issues });
 
-          const swapFromCsv = [getVal(row, 'swap_condition'), getVal(row, 'swap_items')].filter(Boolean).join(' | ') || null;
+          // merge 3 คอลัมน์ swap (#20 condition + #21 note + #22 items) — ตรงกับ importReceiveLogs ใน db.js
+          // เดิมใช้แค่ 2 → #21 (ระบุเงื่อนไข) หาย 746 บิล (แก้ 2026-07-05)
+          const swapFromCsv = [getVal(row, 'swap_condition'), getVal(row, 'swap_note'), getVal(row, 'swap_items')].filter(Boolean).join(' | ') || null;
           return [{
             order_date:           parseDate(getVal(row, 'order_date')),
             receive_date:         parseDate(getVal(row, 'receive_date')),
