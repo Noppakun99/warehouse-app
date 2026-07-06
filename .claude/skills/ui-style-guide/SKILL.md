@@ -74,6 +74,32 @@ hover:from-sky-600 hover:to-blue-700
 </div>
 ```
 
+### Detail card (รายการยา/ผลค้นหา — ไอคอน + หัวข้อ + กล่องข้อมูลย่อย)
+
+card ที่แสดงรายละเอียด 1 รายการ (drug detail ในแผนผัง, ผลค้นหา) — มุมโค้งใหญ่ + เงานุ่ม hover + ข้อมูลจัดเป็น **กล่องย่อย label-บน/value-ล่าง** (สไตล์ dashboard เช่น Heart Rate/Energy card)
+
+```jsx
+<div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-5 hover:shadow-md hover:border-indigo-300 transition-all">
+  {/* หัว: ไอคอนในกล่องสีธีม + ชื่อ + badge สถานะ (pill) */}
+  <div className="flex items-start gap-4">
+    <div className="p-3 rounded-xl bg-indigo-50 text-indigo-600 shrink-0"><Pill size={28} /></div>
+    <div className="w-full">
+      <h4 className="font-bold text-slate-800 text-lg leading-tight mb-2">ชื่อรายการ</h4>
+      {/* กล่องข้อมูลย่อย: grid, label uppercase เล็ก + value เด่น */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div className="bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-100">
+          <div className="text-[11px] text-slate-500 uppercase font-bold tracking-wider mb-1">คงเหลือ</div>
+          <div className="text-sm font-black text-slate-700 tabular-nums">10</div>
+        </div>
+        {/* กล่องที่ต้องเน้น → เปลี่ยนสี bg/border/text เป็น theme (indigo/emerald/amber) */}
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+**หลักการ:** card `rounded-2xl` + `hover:shadow-md transition-all` · ไอคอนหัวใน chip สีธีม · กล่องย่อย `rounded-xl` (ไม่ใช่ `-lg`) label `text-[11px] uppercase tracking-wider` value เด่น · กล่องที่มีความหมายพิเศษ (exp ใกล้หมด/บิล) เปลี่ยนสีทั้งกล่อง
+
 ---
 
 ## Typography
