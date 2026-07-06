@@ -235,6 +235,73 @@ hover:from-sky-600 hover:to-blue-700
 </div>
 ```
 
+### History / data table (แถวคลิกดูรายละเอียด) — สไตล์ dashboard
+
+ใช้กับตารางประวัติที่ user อ่านบ่อย (ประวัติเบิก/รับ/ตรวจนับ) — header จางเบา + เส้นแบ่งบางมาก + hover เด่นแทน + ตัวเลขจุดเด่นห่อ pill สีธีม (อ้างอิงตาราง Proposals สไตล์ SaaS dashboard)
+
+```jsx
+<div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+  <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-260px)]">
+    <table className="w-full text-sm">
+      {/* header: จาง + สูง + tracking-wider + พื้นโปร่ง */}
+      <thead className="sticky top-0 z-[5]">
+        <tr className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+          <th className="px-4 py-3.5 text-left bg-slate-50/80">วันที่</th>
+          <th className="px-4 py-3.5 text-right bg-slate-50/80">จำนวน</th>
+        </tr>
+      </thead>
+      <tbody>
+        {/* row: เส้นแบ่งบางมาก (border-slate-50) + hover สีธีมเบา */}
+        <tr className="border-b border-slate-50 cursor-pointer transition-colors hover:bg-emerald-50/50">
+          <td className="px-4 py-3 text-slate-800 font-medium whitespace-nowrap">…</td>
+          {/* ตัวเลขจุดเด่น = pill สีธีม + tabular-nums */}
+          <td className="px-4 py-3 text-right whitespace-nowrap">
+            <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 font-bold px-2.5 py-0.5 text-xs tabular-nums">+1,250</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+```
+
+**หลักการ:**
+- `text-slate-400 tracking-wider` + `py-3.5` — header จางและสูง อ่านง่ายไม่แย่งความสนใจ
+- `border-slate-50` ระหว่างแถว (บางกว่า `-100`) — ให้ hover เป็นตัวแบ่งสายตาหลัก
+- **ตัวเลขคอลัมน์ต้องเลข** ใส่ `tabular-nums` ให้เรียงตรงหลัก
+- จุดเด่น (จำนวนเบิก/รับ, สถานะ) → **pill** `rounded-full bg-{theme}-50 text-{theme}-700` แทนตัวเลขลอย
+- Lot/รหัส → chip `font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded` (desktop `rounded-md px-2`)
+- แถวถูกปิดใช้งาน (เช่น lot ที่ไม่ได้ติ๊กนับ) → `bg-slate-50/60 opacity-60`
+
+### Mobile card (แทนตารางที่ < 768px)
+
+```jsx
+<div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm active:bg-emerald-50 transition-colors">
+  <div className="flex items-start justify-between gap-2">
+    <div className="min-w-0 flex-1">
+      <p className="font-semibold text-slate-900 text-sm truncate">ชื่อรายการ</p>
+      <p className="text-xs text-slate-400 mt-0.5">รหัส · วันที่</p>
+    </div>
+    {/* จุดเด่น = pill เดียวกับตาราง desktop เพื่อความสม่ำเสมอ */}
+    <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 font-bold px-2.5 py-0.5 text-xs tabular-nums">+1,250</span>
+  </div>
+</div>
+```
+
+### Badge สรุปสถานะบนหัว list (ให้เห็นก่อนกาง)
+
+```jsx
+{/* มีปัญหา → ส้ม + ไอคอน; ปกติ → เขียว */}
+<span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-[11px] font-semibold">
+  <AlertTriangle size={11} /> ไม่ตรง 3 รายการ
+</span>
+<span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-[11px] font-semibold">
+  ตรงทั้งหมด
+</span>
+```
+
+> **หมายเหตุ:** ตาราง summary/analytics แบบ sticky-column (drug × month) ใช้ **header สีเข้ม** (`bg-slate-700`) โดยเจตนา — contrast จำเป็นสำหรับ frozen column ที่ข้อมูลหนาแน่น **อย่าเอาสไตล์ header จางข้างบนไปแทน** (ดู `/monthly-stats-table`, `/sticky-table`)
+
 ---
 
 ## Icons
@@ -249,5 +316,7 @@ hover:from-sky-600 hover:to-blue-700
 
 - ห้ามใช้ arbitrary values เช่น `w-[123px]` ถ้าหลีกเลี่ยงได้
 - ห้ามสร้างไฟล์ `.css` หรือใช้ `<style>` tag ใน component
-- ห้ามใช้ `rounded-md` — ใช้ `rounded-xl` หรือ `rounded-2xl` เท่านั้น
+- ห้ามใช้ `rounded-md` — ใช้ `rounded-xl` หรือ `rounded-2xl` เท่านั้น (ยกเว้น chip/pill เล็กใช้ `rounded-full`/`rounded-md` ได้)
 - ห้ามใช้ `shadow-lg` ใน card ปกติ — ใช้ `shadow-sm` เท่านั้น
+- คอลัมน์ตัวเลขในตาราง **ต้องมี `tabular-nums`** ให้เรียงตรงหลัก — อย่าปล่อยเลขลอยไม่จัดหลัก
+- อย่าเอาสไตล์ history-table (header จาง) ไปใช้กับตาราง sticky-column analytics (ต้อง header เข้ม)
