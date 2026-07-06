@@ -837,6 +837,14 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth }) {
     return arr;
   }, [rows, sortBy]);
 
+  // ยอดรวมท้ายตาราง — รวมจาก sorted (แถวที่แสดงจริงหลัง filter) ให้ตรงกับที่ user เห็น (Rule #6)
+  // รวมเฉพาะค่าที่รวมข้ามรหัสได้: คงเหลือ/ต้องซื้อ (หน่วยซื้อ) / มูลค่าบาท — SS/ROP/coverage รวมไม่ได้ (ต่อรหัส)
+  const footTotals = useMemo(() => sorted.reduce((a, r) => ({
+    stock:    a.stock + (r.stock || 0),
+    orderQty: a.orderQty + (r.orderQty || 0),
+    amount:   a.amount + (r.amount || 0),
+  }), { stock: 0, orderQty: 0, amount: 0 }), [sorted]);
+
   const exportCsv = async () => {
     setExporting(true);
     try {
@@ -903,6 +911,24 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth }) {
           <tbody>
             {sorted.map((r, i) => <AnalysisRow key={r.code + i} r={r} ordered={!!orderedMap[codeKey(r.code)]} toggleOrdered={() => toggleOrdered(r.code)} onEdit={() => onEdit({ code: r.code, name: r.name, supplier: r.supplier, risk_group: r.riskGroup, lead_time_days: r.leadTimeDays, price_per_unit: r.pricePerUnit })}/>)}
           </tbody>
+          {/* ยอดรวมท้ายตาราง — sticky ล่าง รวมเฉพาะแถวที่แสดง (Rule #6) */}
+          <tfoot className="sticky bottom-0 z-20">
+            <tr className="bg-slate-100 border-t-2 border-slate-300 font-bold text-slate-700">
+              <td className="px-3 py-2.5 sticky left-0 z-30 bg-slate-100 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
+                รวม <span className="font-normal text-slate-400 text-xs">({fmtNum(sorted.length)} รายการ)</span>
+              </td>
+              <td className="bg-slate-100"/>
+              <td className="px-3 py-2.5 text-right tabular-nums bg-slate-100">{fmtNum(footTotals.stock)}</td>
+              <td className="px-3 py-2.5 text-right tabular-nums bg-slate-100">
+                {footTotals.orderQty > 0 && <div>{fmtNum(footTotals.orderQty)}</div>}
+                {footTotals.amount > 0 && <div className="text-emerald-700">฿{fmtBaht(footTotals.amount)}</div>}
+              </td>
+              <td className="bg-slate-100"/>
+              <td className="bg-slate-100"/>
+              <td className="bg-slate-100"/>
+              <td className="bg-slate-100"/>
+            </tr>
+          </tfoot>
         </table>
       </div>
 
