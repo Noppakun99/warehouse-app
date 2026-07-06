@@ -708,6 +708,7 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
                 rows={filteredRows}
                 orderedMap={orderedMap} toggleOrdered={toggleOrdered}
                 onEdit={setEditingDrug} auth={auth}
+                months={monthsInRange.filter(mm => mm !== excludedMonth)}
               />
             ) : tab === 'supplier' ? (
               <SupplierTab suppliers={result.suppliers} totalAmount={result.totals.totalAmount} auth={auth}/>
@@ -823,11 +824,107 @@ function EmptyState({ text }) {
 }
 
 // ────────────────────────────────────────────────────────────
+// Row-detail side panel — เห็นรายละเอียดยา 1 รหัสโดยไม่ออกจากตาราง
+// ใช้ field ที่ row มีอยู่แล้ว ไม่ query เพิ่ม (monthlyUsage = เบิกรายเดือนหน้าต่าง SS)
+// ────────────────────────────────────────────────────────────
+function DetailField({ label, children }) {
+  return (
+    <div className="flex justify-between gap-3 py-1.5 border-b border-slate-50 text-sm">
+      <span className="text-slate-400 shrink-0">{label}</span>
+      <span className="text-slate-700 text-right font-medium min-w-0">{children}</span>
+    </div>
+  );
+}
+
+function DrugDetailPanel({ r, months, onClose }) {
+  if (!r) return null;
+  const meta = STATUS_META[r.status] || STATUS_META[STATUS.SUFFICIENT];
+  const tone = TONE_CLASSES[meta.tone];
+  const usage = r.monthlyUsage || [];
+  const maxU = Math.max(1, ...usage);
+  const base = parseUnitFactor(r.unit).base;
+  return (
+    <>
+      {/* backdrop */}
+      <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose}/>
+      {/* panel */}
+      <div className="fixed top-0 right-0 h-full w-full max-w-md bg-white z-50 shadow-2xl flex flex-col">
+        <div className="flex items-start justify-between gap-2 px-5 py-4 border-b border-slate-200">
+          <div className="min-w-0">
+            <h3 className="font-bold text-slate-800 leading-tight">{r.name || '-'}</h3>
+            <p className="text-xs text-slate-400 font-mono mt-0.5">{r.code}{r.unit ? ` · ${r.unit}` : ''}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 shrink-0" title="ปิด"><X size={18}/></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {/* สถานะ */}
+          <span className={`inline-flex items-center gap-1 ${tone.chip} px-2.5 py-1 rounded-full text-xs font-semibold border`}>
+            <meta.icon size={12}/> {r.status}
+          </span>
+
+          {/* ตัวเลขตัดสินใจ */}
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="bg-slate-50 rounded-lg py-2.5">
+              <div className="text-lg font-bold text-slate-800 tabular-nums">{fmtNum(r.stock)}</div>
+              <div className="text-[10px] text-slate-400">คงเหลือ</div>
+            </div>
+            <div className="bg-slate-50 rounded-lg py-2.5">
+              <div className="text-lg font-bold text-slate-800 tabular-nums">{fmtNum(r.ss)}</div>
+              <div className="text-[10px] text-slate-400">Safety Stock</div>
+            </div>
+            <div className="bg-slate-50 rounded-lg py-2.5">
+              <div className="text-lg font-bold text-slate-800 tabular-nums">{fmtNum(r.rop)}</div>
+              <div className="text-[10px] text-slate-400">ROP</div>
+            </div>
+          </div>
+
+          {/* mini bar chart — เบิกรายเดือน (หน้าต่าง SS) */}
+          {usage.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 mb-2">ยอดเบิกรายเดือน (หน่วยซื้อ)</h4>
+              <div className="flex items-end gap-2 h-24">
+                {usage.map((v, i) => (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-1" title={`${fmtNum(v)} ${r.unit || ''}`}>
+                    <div className="w-full flex items-end h-16">
+                      <div className="w-full bg-orange-400 rounded-t hover:bg-orange-500 transition-colors"
+                        style={{ height: `${(v / maxU) * 100}%`, minHeight: v > 0 ? '3px' : '0' }}/>
+                    </div>
+                    <span className="text-[9px] text-slate-400 tabular-nums">{fmtNum(Math.round(v))}</span>
+                    {months?.[i] && <span className="text-[9px] text-slate-300">{thaiMonthLabel(months[i])}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* รายละเอียด */}
+          <div>
+            <DetailField label="ใช้เฉลี่ย/เดือน">{fmtNum(Math.round(r.avgMonth || 0))} {r.unit}</DetailField>
+            <DetailField label="คงอยู่ได้อีก">{fmtCoverage(r.stock, r.avgDay)}</DetailField>
+            <DetailField label="ต้องซื้อ">
+              {r.orderQty > 0 ? <>{fmtNum(r.orderQty)} {r.unit}{(r.packFactor||1)>1 && <span className="text-slate-400"> = {fmtNum(r.orderQty*r.packFactor)} {base}</span>}</> : '—'}
+            </DetailField>
+            {r.amount > 0 && <DetailField label="มูลค่าที่ต้องซื้อ"><span className="text-emerald-700 font-bold">฿{fmtBaht(r.amount)}</span></DetailField>}
+            <DetailField label="ราคา/หน่วยซื้อ">{r.pricePerUnit > 0 ? `฿${fmtBaht(r.pricePerUnit)}` : '—'}</DetailField>
+            <DetailField label="VEN">{venLetter(r.riskGroup)}</DetailField>
+            <DetailField label="Lead Time">{r.leadTimeDays ? `${Math.round(r.leadTimeDays)} วัน` : '—'}</DetailField>
+            <DetailField label="บริษัทล่าสุด">{r.supplier || '—'}</DetailField>
+            <DetailField label="วันรับล่าสุด">{r.receiveDate ? fmtThaiDate(r.receiveDate) : '—'}</DetailField>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
 // Analysis tab — table (desktop) + cards (mobile)
 // ────────────────────────────────────────────────────────────
-function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth }) {
+function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, months }) {
   const [sortBy, setSortBy] = useState('status'); // status | amount | gap
   const [exporting, setExporting] = useState(false);
+  const [detailRow, setDetailRow] = useState(null); // แถวที่เปิด side panel
 
   const sorted = useMemo(() => {
     const arr = [...rows];
@@ -909,7 +1006,7 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth }) {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((r, i) => <AnalysisRow key={r.code + i} r={r} ordered={!!orderedMap[codeKey(r.code)]} toggleOrdered={() => toggleOrdered(r.code)} onEdit={() => onEdit({ code: r.code, name: r.name, supplier: r.supplier, risk_group: r.riskGroup, lead_time_days: r.leadTimeDays, price_per_unit: r.pricePerUnit })}/>)}
+            {sorted.map((r, i) => <AnalysisRow key={r.code + i} r={r} ordered={!!orderedMap[codeKey(r.code)]} toggleOrdered={() => toggleOrdered(r.code)} onOpen={() => setDetailRow(r)} onEdit={() => onEdit({ code: r.code, name: r.name, supplier: r.supplier, risk_group: r.riskGroup, lead_time_days: r.leadTimeDays, price_per_unit: r.pricePerUnit })}/>)}
           </tbody>
           {/* ยอดรวมท้ายตาราง — sticky ล่าง รวมเฉพาะแถวที่แสดง (Rule #6) */}
           <tfoot className="sticky bottom-0 z-20">
@@ -934,13 +1031,15 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth }) {
 
       {/* Mobile cards */}
       <div className="md:hidden space-y-2">
-        {sorted.map((r, i) => <AnalysisCard key={r.code + i} r={r} ordered={!!orderedMap[codeKey(r.code)]} toggleOrdered={() => toggleOrdered(r.code)} onEdit={() => onEdit({ code: r.code, name: r.name, supplier: r.supplier, risk_group: r.riskGroup, lead_time_days: r.leadTimeDays, price_per_unit: r.pricePerUnit })}/>)}
+        {sorted.map((r, i) => <AnalysisCard key={r.code + i} r={r} ordered={!!orderedMap[codeKey(r.code)]} toggleOrdered={() => toggleOrdered(r.code)} onOpen={() => setDetailRow(r)} onEdit={() => onEdit({ code: r.code, name: r.name, supplier: r.supplier, risk_group: r.riskGroup, lead_time_days: r.leadTimeDays, price_per_unit: r.pricePerUnit })}/>)}
       </div>
+
+      <DrugDetailPanel r={detailRow} months={months} onClose={() => setDetailRow(null)}/>
     </>
   );
 }
 
-function AnalysisRow({ r, ordered, toggleOrdered, onEdit }) {
+function AnalysisRow({ r, ordered, toggleOrdered, onEdit, onOpen }) {
   const meta = STATUS_META[r.status] || STATUS_META[STATUS.SUFFICIENT];
   const tone = TONE_CLASSES[meta.tone];
   const Icon = meta.icon;
@@ -948,17 +1047,17 @@ function AnalysisRow({ r, ordered, toggleOrdered, onEdit }) {
   const ropPct = r.rop > 0 ? Math.min(100, Math.round((r.stock / r.rop) * 100)) : null;
   return (
     <tr className={`border-t border-slate-100 transition-colors ${ordered ? 'bg-emerald-50/50' : 'bg-white hover:bg-slate-50'}`}>
-      {/* รายการยา + แถบสีสถานะซ้าย (scan เร็วโดยไม่ต้องอ่าน chip) */}
+      {/* รายการยา + แถบสีสถานะซ้าย (scan เร็วโดยไม่ต้องอ่าน chip) — คลิกชื่อเปิดรายละเอียด */}
       <td className="p-0 sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.04)]">
         <div className="flex items-stretch gap-2.5 px-3 py-2.5">
           <span className={`w-1 rounded-full shrink-0 ${tone.bar}`} aria-hidden="true"/>
-          <div className="min-w-0">
+          <button onClick={onOpen} className="min-w-0 text-left hover:opacity-70 transition-opacity" title="ดูรายละเอียด">
             <div className="font-semibold text-slate-800 flex items-center gap-1.5">
               {ordered && <CheckCircle2 size={13} className="text-emerald-600 shrink-0"/>}
               <span className={ordered ? 'line-through text-slate-400' : ''}>{r.name || '-'}</span>
             </div>
             <div className="text-xs text-slate-400 font-mono truncate">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}{r.receiveDate ? ` · รับ ${fmtThaiDate(r.receiveDate)}` : ''}</div>
-          </div>
+          </button>
         </div>
       </td>
       {/* สถานะ — ติดชื่อยา เพื่อเห็นก่อนตัวเลข */}
@@ -1016,17 +1115,17 @@ function AnalysisRow({ r, ordered, toggleOrdered, onEdit }) {
   );
 }
 
-function AnalysisCard({ r, ordered, toggleOrdered, onEdit }) {
+function AnalysisCard({ r, ordered, toggleOrdered, onEdit, onOpen }) {
   const meta = STATUS_META[r.status] || STATUS_META[STATUS.SUFFICIENT];
   const tone = TONE_CLASSES[meta.tone];
   const Icon = meta.icon;
   return (
     <div className={`bg-white border rounded-xl p-3 shadow-sm ${ordered ? 'border-emerald-200 opacity-75' : 'border-slate-200'}`}>
       <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="flex-1 min-w-0">
+        <button onClick={onOpen} className="flex-1 min-w-0 text-left" title="ดูรายละเอียด">
           <div className={`font-bold text-sm leading-tight ${ordered ? 'line-through text-slate-400' : 'text-slate-800'}`}>{r.name || '-'}</div>
           <div className="text-[11px] text-slate-400 font-mono">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}</div>
-        </div>
+        </button>
         <span className={`inline-flex items-center gap-1 ${tone.chip} px-2 py-0.5 rounded-full text-[10px] font-semibold border whitespace-nowrap`}>
           <Icon size={10}/> {r.status}
         </span>
