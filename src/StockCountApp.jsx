@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import {
   ClipboardCheck, Plus, X, Printer, Save, CheckCircle, AlertTriangle,
-  ChevronDown, ChevronUp, Search, Package, Pencil, Trash2,
+  ChevronDown, ChevronUp, Search, Package, Pencil, Trash2, Calendar,
 } from 'lucide-react'
 import {
   fetchInventoryNameCodeMap, fetchLotsForCount, createStockCount,
   fetchStockCountSessions, fetchStockCountItems, fetchInventoryLocations,
-  updateStockCountItem, deleteStockCountSession,
+  updateStockCountItem, deleteStockCountSession, fetchAllStockCountItems,
 } from './lib/db'
 import DrugSearchBar from './DrugSearchBar'
 import BackButton from './BackButton'
@@ -28,6 +28,19 @@ const fmtThaiDateTime = (iso) => {
   return `${fmtThaiDate(iso)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} น.`
 }
 const toNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0 }
+
+// date input ที่แสดง DD/MM/YYYY (พ.ศ.) ทับ hidden <input type="date"> — ตาม pattern AuditLog (Rule #3/#14)
+function IsoDateInput({ value, onChange, className = '' }) {
+  const display = iso => { if (!iso) return null; const [y, m, d] = iso.split('-'); return `${d}/${m}/${Number(y) + 543}` }
+  return (
+    <div className={`relative flex items-center bg-white border border-slate-300 rounded-lg focus-within:ring-2 focus-within:ring-emerald-400 ${className}`}>
+      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
+      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
+        onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }}
+        className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+    </div>
+  )
+}
 
 // ปุ่ม "ตรง" ใต้แต่ละช่อง — เติมค่าตามระบบ (autofill รายช่อง) / กดซ้ำ = ล้าง
 function FieldTick({ active, onClick }) {
@@ -113,8 +126,8 @@ export default function StockCountApp({ onRefresh, auth, onGoBack, canGoBack }) 
           <div className="flex gap-2">
             {[{ key: 'count', label: 'ตรวจนับ' }, { key: 'history', label: 'ประวัติ' }].map(t => (
               <button key={t.key} onClick={() => setTab(t.key)}
-                className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
-                  tab === t.key ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 bg-slate-100 hover:bg-slate-200'
+                className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all ${
+                  tab === t.key ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm shadow-emerald-200' : 'text-slate-500 bg-slate-100 hover:bg-slate-200 hover:text-slate-700'
                 }`}>
                 {t.label}
               </button>
@@ -158,7 +171,7 @@ function CountTab({ auth }) {
     try {
       const lots = await fetchLotsForCount([code])
       const newLines = lots.map(l => ({
-        ...l, counted_qty: '', counted_exp: '', counted_location: '', item_note: '',
+        ...l, counted_qty: '', counted_exp: '', counted_location: '', item_note: '', _selected: true,
       }))
       setLines(prev => [...prev, ...newLines])
       setAddedCodes(prev => new Set(prev).add(code))
@@ -202,7 +215,17 @@ function CountTab({ auth }) {
         : { ...l, counted_qty: String(toNum(l.system_qty)), counted_exp: l.system_exp || '', counted_location: l.system_location || '', _expCustom: false }
     }))
 
-  const removeLine = (idx) => setLines(prev => prev.filter((_, i) => i !== idx))
+  // X = เอายาออก "ทั้งตัว" (ทุก lot ของ code เดียวกัน) + ปลดให้เลือกยาตัวนี้ใหม่ได้
+  // ต่างจาก checkbox ที่แค่ข้าม lot รายตัวโดยยังเห็นในจอ
+  const removeDrug = (code) => {
+    setLines(prev => prev.filter(l => l.code !== code))
+    setAddedCodes(prev => { const s = new Set(prev); s.delete(code); return s })
+  }
+
+  // ติ๊กเลือก lot ที่จะนับ (default ติ๊กหมด) — save เฉพาะที่ติ๊ก
+  const toggleSelect = (idx) =>
+    setLines(prev => prev.map((l, i) => i === idx ? { ...l, _selected: !l._selected } : l))
+  const selectedCount = lines.filter(l => l._selected).length
 
   const lineMatch = (l) => {
     const cnt = l.counted_qty === '' ? null : toNum(l.counted_qty)
@@ -213,12 +236,13 @@ function CountTab({ auth }) {
   }
 
   const handleSave = async () => {
-    if (!lines.length) return
+    const toSave = lines.filter(l => l._selected)
+    if (!toSave.length) return
     setSaving(true)
     try {
       const res = await createStockCount(
         { counted_at: today, note, status: 'done' },
-        lines, auth,
+        toSave, auth,
       )
       setSaved(res)
       setLines([]); setAddedCodes(new Set()); setNote('')
@@ -240,9 +264,9 @@ function CountTab({ auth }) {
       )}
 
       {/* เลือกยา */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
         <label className="block text-sm font-semibold text-slate-700 mb-2 flex items-center gap-1.5">
-          <Search size={15} /> เลือกรหัสยาที่จะตรวจนับ (ทีละตัว)
+          <span className="p-1 rounded-lg bg-emerald-100 text-emerald-600"><Search size={14} /></span> เลือกรหัสยาที่จะตรวจนับ (ทีละตัว)
         </label>
         <DrugSearchBar
           value={pickName}
@@ -257,27 +281,33 @@ function CountTab({ auth }) {
         {loading && <p className="text-xs text-slate-400 mt-2">กำลังโหลด lot...</p>}
       </div>
 
+      {/* suggestion ที่เก็บ (ใช้ร่วม input list ทุกช่อง) — พิมพ์เองได้ถ้าเจอจุดที่ไม่มีในรายการ */}
+      <datalist id="stock-locations">
+        {locations.map(loc => <option key={loc} value={loc} />)}
+      </datalist>
+
       {/* ตารางนับ */}
       {lines.length > 0 ? (
         <>
           {/* desktop */}
-          <div className="hidden md:block bg-white rounded-xl border border-slate-200 overflow-x-auto">
+          <div className="hidden md:block bg-white rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
             <table className="w-full text-sm table-fixed">
               <colgroup>
-                <col className="w-[22%]" /><col className="w-[8%]" /><col className="w-[18%]" />
-                <col className="w-[16%]" /><col className="w-[16%]" /><col className="w-[16%]" />
-                <col className="w-[7%]" /><col className="w-[7%]" />
+                <col className="w-[5%]" /><col className="w-[20%]" /><col className="w-[8%]" /><col className="w-[17%]" />
+                <col className="w-[15%]" /><col className="w-[15%]" /><col className="w-[15%]" />
+                <col className="w-[5%]" /><col className="w-[5%]" />
               </colgroup>
-              <thead className="bg-slate-50 text-slate-600">
-                <tr>
-                  <th className="text-left px-3 py-2 font-semibold">รายการยา</th>
-                  <th className="text-center px-2 py-2 font-semibold">Lot</th>
-                  <th className="text-center px-2 py-2 font-semibold">ระบบ (คงเหลือ/ที่เก็บ/exp)</th>
-                  <th className="text-center px-2 py-2 font-semibold">นับได้</th>
-                  <th className="text-center px-2 py-2 font-semibold">ที่เก็บจริง</th>
-                  <th className="text-center px-2 py-2 font-semibold">exp จริง</th>
-                  <th className="text-center px-2 py-2 font-semibold">ตรงหมด</th>
-                  <th className="px-2 py-2"></th>
+              <thead className="bg-slate-50/80 text-slate-400 sticky top-0 z-[5]">
+                <tr className="text-[11px] uppercase tracking-wider">
+                  <th className="text-center px-2 py-3.5 font-semibold">นับ</th>
+                  <th className="text-left px-3 py-3.5 font-semibold">รายการยา</th>
+                  <th className="text-center px-2 py-3.5 font-semibold">Lot</th>
+                  <th className="text-center px-2 py-3.5 font-semibold">ระบบ (คงเหลือ/ที่เก็บ/exp)</th>
+                  <th className="text-center px-2 py-3.5 font-semibold">นับได้</th>
+                  <th className="text-center px-2 py-3.5 font-semibold">ที่เก็บจริง</th>
+                  <th className="text-center px-2 py-3.5 font-semibold">exp จริง</th>
+                  <th className="text-center px-2 py-3.5 font-semibold">ตรงหมด</th>
+                  <th className="px-2 py-3.5"></th>
                 </tr>
               </thead>
               <tbody>
@@ -285,17 +315,24 @@ function CountTab({ auth }) {
                   const m = lineMatch(l)
                   const expCustom = !!l._expCustom
                   return (
-                    <tr key={i} className="border-t border-slate-100">
-                      <td className="px-3 py-2 align-top">
+                    <tr key={i} className={`border-t border-slate-50 transition-colors ${l._selected ? 'hover:bg-emerald-50/40' : 'bg-slate-50/60 opacity-60'}`}>
+                      <td className="text-center px-2 py-3 align-top">
+                        <input type="checkbox" checked={!!l._selected} onChange={() => toggleSelect(i)}
+                          title="เลือก lot นี้เข้าตรวจนับ"
+                          className="w-4 h-4 mt-1 accent-emerald-600 cursor-pointer" />
+                      </td>
+                      <td className="px-3 py-3 align-top">
                         <p className="font-medium text-slate-800 truncate">{l.name}</p>
                         <p className="text-xs text-slate-400">{l.code}</p>
                         <input type="text" value={l.item_note} placeholder="+ หมายเหตุรายการนี้"
                           onChange={e => updateLine(i, 'item_note', e.target.value)}
                           className="w-full mt-1 px-2 py-1 border border-slate-200 rounded-lg text-xs placeholder-slate-300 focus:border-slate-300 focus:ring-1 focus:ring-emerald-200" />
                       </td>
-                      <td className="text-center px-2 py-2">{l.lot}</td>
-                      <td className="text-center px-2 py-2 text-xs text-slate-500">
-                        <span className="font-semibold text-slate-700">{qtyUnit(l.system_qty, l.unit)}</span><br />
+                      <td className="text-center px-2 py-3 align-top">
+                        <span className="inline-flex items-center rounded-md bg-slate-100 text-slate-600 font-mono text-xs px-2 py-0.5">{l.lot || '-'}</span>
+                      </td>
+                      <td className="text-center px-2 py-3 text-xs text-slate-500 align-top">
+                        <span className="font-semibold text-slate-700 tabular-nums">{qtyUnit(l.system_qty, l.unit)}</span><br />
                         {l.system_location}<br />{l.system_exp}
                       </td>
                       {/* นับได้ */}
@@ -308,14 +345,12 @@ function CountTab({ auth }) {
                         </div>
                         <FieldTick active={m.counted && m.qtyOk} onClick={() => toggleField(i, 'counted_qty')} />
                       </td>
-                      {/* ที่เก็บจริง */}
+                      {/* ที่เก็บจริง — พิมพ์เองได้ (เจอยาที่จุดที่ระบบยังไม่รู้ก็เลือกได้) */}
                       <td className="px-2 py-2 align-top">
-                        <select value={l.counted_location}
+                        <input list="stock-locations" value={l.counted_location}
                           onChange={e => updateLine(i, 'counted_location', e.target.value)}
-                          className={`w-full px-2 py-1 border rounded-lg text-center text-xs ${l.counted_location && !m.locOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}>
-                          <option value="">— ที่เก็บจริง —</option>
-                          {locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
-                        </select>
+                          placeholder="— ที่เก็บจริง —"
+                          className={`w-full px-2 py-1 border rounded-lg text-center text-xs ${l.counted_location && !m.locOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
                         <FieldTick active={!!l.counted_location && m.locOk} onClick={() => toggleField(i, 'counted_location')} />
                       </td>
                       {/* exp จริง — dropdown (ค่าระบบ / อื่นๆ→พิมพ์เอง) */}
@@ -346,7 +381,7 @@ function CountTab({ auth }) {
                         </button>
                       </td>
                       <td className="px-2 py-2 text-center align-top">
-                        <button onClick={() => removeLine(i)} className="text-slate-300 hover:text-red-500"><X size={16} /></button>
+                        <button onClick={() => removeDrug(l.code)} title="เอายาตัวนี้ออกทั้งหมด (ทุก lot)" className="text-slate-300 hover:text-red-500"><X size={16} /></button>
                       </td>
                     </tr>
                   )
@@ -361,13 +396,18 @@ function CountTab({ auth }) {
               const m = lineMatch(l)
               const expCustom = !!l._expCustom
               return (
-                <div key={i} className="bg-white rounded-xl border border-slate-200 p-3">
+                <div key={i} className={`bg-white rounded-2xl border p-3 shadow-sm transition-colors ${l._selected ? 'border-slate-200' : 'border-slate-200 bg-slate-50/60 opacity-60'}`}>
                   <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="font-medium text-slate-800 text-sm">{l.name}</p>
-                      <p className="text-xs text-slate-400">{l.code} · Lot {l.lot}</p>
+                    <div className="flex items-start gap-2 min-w-0">
+                      <input type="checkbox" checked={!!l._selected} onChange={() => toggleSelect(i)}
+                        title="เลือก lot นี้เข้าตรวจนับ"
+                        className="w-4 h-4 mt-0.5 accent-emerald-600 cursor-pointer shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-800 text-sm truncate">{l.name}</p>
+                        <p className="text-xs text-slate-400">{l.code} · <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">Lot {l.lot}</span></p>
+                      </div>
                     </div>
-                    <button onClick={() => removeLine(i)} className="text-slate-300 hover:text-red-500"><X size={16} /></button>
+                    <button onClick={() => removeDrug(l.code)} title="เอายาตัวนี้ออกทั้งหมด (ทุก lot)" className="text-slate-300 hover:text-red-500 shrink-0"><X size={16} /></button>
                   </div>
                   <p className="text-xs text-slate-500 mt-1.5">
                     ระบบ: <b className="text-slate-700">{qtyUnit(l.system_qty, l.unit)}</b> · {l.system_location} · {l.system_exp}
@@ -385,12 +425,10 @@ function CountTab({ auth }) {
                     {/* ที่เก็บจริง */}
                     <div className="flex items-center gap-2">
                       <label className="text-xs text-slate-500 w-14 shrink-0">ที่เก็บ</label>
-                      <select value={l.counted_location}
+                      <input list="stock-locations" value={l.counted_location}
                         onChange={e => updateLine(i, 'counted_location', e.target.value)}
-                        className={`flex-1 min-w-0 px-2 py-1.5 border rounded-lg text-center text-xs ${l.counted_location && !m.locOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}>
-                        <option value="">— เลือกที่เก็บ —</option>
-                        {locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
-                      </select>
+                        placeholder="— เลือก/พิมพ์ที่เก็บ —"
+                        className={`flex-1 min-w-0 px-2 py-1.5 border rounded-lg text-center text-xs ${l.counted_location && !m.locOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
                       <FieldTick active={!!l.counted_location && m.locOk} onClick={() => toggleField(i, 'counted_location')} />
                     </div>
                     {/* exp จริง — dropdown */}
@@ -438,18 +476,19 @@ function CountTab({ auth }) {
           </div>
 
           {/* note + actions */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
             <input type="text" value={note} onChange={e => setNote(e.target.value)}
               placeholder="หมายเหตุรอบนี้ (ไม่บังคับ)"
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
-            <div className="flex flex-wrap gap-2">
-              <button onClick={() => printCountSheet(lines, { counterName, dateLabel: fmtThaiDate(today) })}
-                className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-200">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-500">เลือกนับ <span className="font-semibold text-emerald-700">{selectedCount}</span> / {lines.length} lot</span>
+              <button onClick={() => printCountSheet(lines.filter(l => l._selected), { counterName, dateLabel: fmtThaiDate(today) })}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-sm font-semibold hover:bg-emerald-100 transition-colors ml-auto">
                 <Printer size={16} /> พิมพ์ใบเดินนับ
               </button>
-              <button onClick={handleSave} disabled={saving}
-                className="flex items-center gap-1.5 px-5 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 ml-auto">
-                <Save size={16} /> {saving ? 'กำลังบันทึก...' : 'บันทึกรอบตรวจนับ'}
+              <button onClick={handleSave} disabled={saving || !selectedCount}
+                className="flex items-center gap-1.5 px-5 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl text-sm font-semibold shadow-sm shadow-emerald-200 transition-all disabled:opacity-50 disabled:shadow-none">
+                <Save size={16} /> {saving ? 'กำลังบันทึก...' : `บันทึกรอบตรวจนับ${selectedCount ? ` (${selectedCount})` : ''}`}
               </button>
             </div>
           </div>
@@ -476,17 +515,55 @@ function HistoryTab({ auth }) {
   const [editId, setEditId] = useState(null)        // item id ที่กำลังแก้
   const [editVal, setEditVal] = useState({})
   const [busy, setBusy] = useState(false)
+  const [allItems, setAllItems] = useState({})      // { session_id: [items] } ทุกรอบ — ใช้ค้นยา/lot
+  const [dateFrom, setDateFrom] = useState('')      // filter ช่วงวันที่ตรวจนับ (ISO)
+  const [dateTo, setDateTo] = useState('')
+  const [drugQ, setDrugQ] = useState('')            // ค้นชื่อยา/รหัส/lot
+  const [drugOpts, setDrugOpts] = useState([])
 
   useEffect(() => {
     fetchStockCountSessions().then(s => { setSessions(s); setLoading(false) })
     fetchInventoryLocations().then(setLocations)
+    fetchAllStockCountItems().then(map => {
+      setAllItems(map)
+      // build autocomplete จากยาที่เคยนับจริง (unique ชื่อ) — badge ชนิดยาไม่มีใน snapshot จึงเว้น
+      const seen = new Map()
+      Object.values(map).flat().forEach(it => { if (it.name && !seen.has(it.name)) seen.set(it.name, { name: it.name, type: '' }) })
+      setDrugOpts([...seen.values()].sort((a, b) => a.name.localeCompare(b.name)))
+    })
   }, [])
+
+  // ค้น item ตรงกับคำค้น (ชื่อยา / รหัส / lot)
+  const itemMatchesQ = (it, q) => {
+    const s = q.trim().toLowerCase()
+    if (!s) return true
+    return [it.name, it.code, it.lot].some(v => String(v || '').toLowerCase().includes(s))
+  }
+
+  // sessions ที่ผ่าน filter วันที่ + คำค้นยา/lot
+  const filteredSessions = sessions.filter(s => {
+    if (dateFrom && s.counted_at < dateFrom) return false
+    if (dateTo && s.counted_at > dateTo) return false
+    if (drugQ.trim()) {
+      const its = allItems[s.id] || []
+      if (!its.some(it => itemMatchesQ(it, drugQ))) return false
+    }
+    return true
+  })
+
+  // group ตามวันที่ตรวจนับ (counted_at) — sessions เรียงใหม่สุดก่อนอยู่แล้ว
+  const groupedByDate = filteredSessions.reduce((acc, s) => {
+    (acc[s.counted_at] ||= []).push(s)
+    return acc
+  }, {})
+  const dateKeys = Object.keys(groupedByDate).sort((a, b) => b.localeCompare(a))
 
   const toggle = async (id) => {
     if (openId === id) { setOpenId(null); return }
     setOpenId(id)
     if (!items[id]) {
-      const data = await fetchStockCountItems(id)
+      // ใช้ allItems ที่โหลดมาแล้วถ้ามี — ไม่งั้น fetch รอบนั้น
+      const data = allItems[id] || await fetchStockCountItems(id)
       setItems(prev => ({ ...prev, [id]: data }))
     }
   }
@@ -498,7 +575,39 @@ function HistoryTab({ auth }) {
       counted_location: it.counted_location || '',
       counted_exp: it.counted_exp || '',
       item_note: it.item_note || '',
+      _expCustom: !!it.counted_exp && String(it.counted_exp) !== String(it.system_exp || ''),
     })
+  }
+
+  // ค่าที่ถือว่า "ตรงระบบ" ของแต่ละช่อง (อ้าง snapshot ระบบจาก it)
+  const sysValEdit = (it, field) =>
+    field === 'counted_qty' ? String(toNum(it.system_qty))
+      : field === 'counted_exp' ? (it.system_exp || '')
+      : (it.system_location || '')
+
+  // autofill รายช่องในโหมดแก้ไข (toggle เติม/ล้าง)
+  const tickEdit = (it, field) =>
+    setEditVal(v => {
+      const sv = sysValEdit(it, field)
+      const next = { ...v, [field]: v[field] === sv ? '' : sv }
+      if (field === 'counted_exp') next._expCustom = false
+      return next
+    })
+
+  // เลือก exp dropdown ในโหมดแก้ไข
+  const pickExpEdit = (val) =>
+    setEditVal(v => val === '__custom__'
+      ? { ...v, _expCustom: true }
+      : { ...v, counted_exp: val, _expCustom: false })
+
+  // ตรวจว่าช่องตรงระบบไหม (ใช้ไฮไลต์ FieldTick) — logic เดียวกับ computeCountMatch
+  const editMatch = (it) => {
+    const cnt = editVal.counted_qty === '' ? null : toNum(editVal.counted_qty)
+    return {
+      qtyOk: cnt != null && cnt - toNum(it.system_qty) === 0,
+      expOk: !editVal.counted_exp || String(editVal.counted_exp).trim() === String(it.system_exp || '').trim(),
+      locOk: !editVal.counted_location || String(editVal.counted_location).trim() === String(it.system_location || '').trim(),
+    }
   }
 
   const saveEdit = async (it) => {
@@ -529,19 +638,74 @@ function HistoryTab({ auth }) {
   if (loading) return <p className="text-slate-400 text-sm">กำลังโหลด...</p>
   if (!sessions.length) return <p className="text-slate-400 text-sm text-center py-10">ยังไม่มีประวัติตรวจนับ</p>
 
+  const hasFilter = dateFrom || dateTo || drugQ.trim()
+
   return (
     <div className="space-y-3">
-      {sessions.map(s => {
+      {/* แถบค้นหา: ช่วงวันที่ + ค้นชื่อยา/lot ที่เคยนับ */}
+      <div className="bg-white rounded-xl border border-slate-200 p-3 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-slate-500 flex items-center gap-1"><Calendar size={14} /> วันที่ตรวจนับ</span>
+          <IsoDateInput value={dateFrom} onChange={setDateFrom} className="w-40" />
+          <span className="text-slate-400 text-sm">ถึง</span>
+          <IsoDateInput value={dateTo} onChange={setDateTo} className="w-40" />
+        </div>
+        <DrugSearchBar
+          value={drugQ}
+          onChange={setDrugQ}
+          options={drugOpts}
+          placeholder="ค้นหายา / รหัส / lot ที่เคยนับ..."
+          ringClass="focus:ring-emerald-400"
+          hoverClass="hover:bg-emerald-50"
+          maxResults={10}
+        />
+        {hasFilter && (
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <span>พบ {filteredSessions.length} รอบ</span>
+            <button onClick={() => { setDateFrom(''); setDateTo(''); setDrugQ('') }}
+              className="flex items-center gap-1 text-slate-400 hover:text-red-500">
+              <X size={12} /> ล้างตัวกรอง
+            </button>
+          </div>
+        )}
+      </div>
+
+      {!filteredSessions.length ? (
+        <p className="text-slate-400 text-sm text-center py-10">ไม่พบประวัติที่ตรงกับตัวกรอง</p>
+      ) : dateKeys.map(dateKey => (
+        <div key={dateKey} className="space-y-2">
+          {/* หัวข้อวันที่ (group) */}
+          <div className="flex items-center gap-2 px-1 pt-1">
+            <Calendar size={15} className="text-emerald-600" />
+            <h3 className="text-sm font-bold text-slate-700">{fmtThaiDate(dateKey)}</h3>
+            <span className="text-xs text-slate-400">({groupedByDate[dateKey].length} รอบ)</span>
+            <div className="flex-1 border-t border-slate-200 ml-1" />
+          </div>
+          {groupedByDate[dateKey].map(s => {
         const its = items[s.id] || []
         const mismatch = its.filter(i => !i.match).length
+        // นับ "ไม่ตรง" จาก allItems (โหลดครบทุกรอบตั้งแต่แรก) เพื่อโชว์ badge บนหัวรอบโดยไม่ต้องกาง
+        const allIts = allItems[s.id]
+        const headMismatch = allIts ? allIts.filter(i => !i.match).length : null
         return (
-          <div key={s.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div key={s.id} className={`bg-white rounded-xl border overflow-hidden ${headMismatch ? 'border-amber-300' : 'border-slate-200'}`}>
             <div className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50">
               <button onClick={() => toggle(s.id)} className="flex items-center gap-3 flex-1 text-left">
-                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><ClipboardCheck size={18} /></div>
+                <div className={`p-2 rounded-lg ${headMismatch ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}><ClipboardCheck size={18} /></div>
                 <div className="flex-1">
-                  <p className="font-semibold text-sm text-slate-800">{s.created_at ? fmtThaiDateTime(s.created_at) : fmtThaiDate(s.counted_at)}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-semibold text-sm text-slate-800">{s.created_at ? fmtThaiDateTime(s.created_at) : fmtThaiDate(s.counted_at)}</p>
+                    {headMismatch != null && (headMismatch > 0
+                      ? <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-[11px] font-semibold"><AlertTriangle size={11} /> ไม่ตรง {headMismatch} รายการ</span>
+                      : <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-[11px] font-semibold">ตรงทั้งหมด</span>
+                    )}
+                  </div>
                   <p className="text-xs text-slate-400">ผู้นับ: {s.counter_name}{s.note ? ` · ${s.note}` : ''}</p>
+                  {drugQ.trim() && (allItems[s.id] || []).filter(it => itemMatchesQ(it, drugQ)).slice(0, 3).map(it => (
+                    <p key={it.id} className="text-xs text-emerald-700 mt-0.5">
+                      พบ: {it.name} · lot {it.lot} · นับได้ {it.counted_qty == null ? '-' : `${toNum(it.counted_qty)} × ${it.unit}`}
+                    </p>
+                  ))}
                 </div>
               </button>
               <button onClick={() => deleteSession(s)} disabled={busy}
@@ -588,26 +752,41 @@ function HistoryTab({ auth }) {
                                   ) : null}
                                 </td>
                                 <td className="text-center px-2 align-top">{qtyUnit(it.system_qty, it.unit)}</td>
-                                {editing ? (
+                                {editing ? (() => {
+                                  const em = editMatch(it)
+                                  return (
                                   <>
-                                    <td className="text-center px-2">
+                                    <td className="text-center px-2 align-top">
                                       <input type="number" inputMode="decimal" value={editVal.counted_qty}
                                         onChange={e => setEditVal(v => ({ ...v, counted_qty: e.target.value }))}
-                                        className="w-16 px-1.5 py-1 border border-slate-300 rounded text-center" />
+                                        className={`w-16 px-1.5 py-1 border rounded text-center ${editVal.counted_qty !== '' && !em.qtyOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
+                                      <FieldTick active={editVal.counted_qty !== '' && em.qtyOk} onClick={() => tickEdit(it, 'counted_qty')} />
                                     </td>
-                                    <td className="text-center px-2 text-slate-300">—</td>
-                                    <td className="text-center px-2">
-                                      <select value={editVal.counted_location}
+                                    <td className="text-center px-2 text-slate-300 align-top">—</td>
+                                    <td className="text-center px-2 align-top">
+                                      <input list="stock-locations-edit" value={editVal.counted_location}
                                         onChange={e => setEditVal(v => ({ ...v, counted_location: e.target.value }))}
-                                        className="w-28 px-1 py-1 border border-slate-300 rounded text-center text-[11px]">
-                                        <option value="">— ที่เก็บ —</option>
-                                        {locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+                                        placeholder="— ที่เก็บ —"
+                                        className={`w-28 px-1 py-1 border rounded text-center text-[11px] ${editVal.counted_location && !em.locOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
+                                      <datalist id="stock-locations-edit">
+                                        {locations.map(loc => <option key={loc} value={loc} />)}
+                                      </datalist>
+                                      <FieldTick active={!!editVal.counted_location && em.locOk} onClick={() => tickEdit(it, 'counted_location')} />
+                                      <select value={editVal._expCustom ? '__custom__' : editVal.counted_exp}
+                                        onChange={e => pickExpEdit(e.target.value)}
+                                        className={`w-28 mt-1 px-1 py-1 border rounded text-center text-[11px] ${editVal.counted_exp && !em.expOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}>
+                                        <option value="">— exp จริง —</option>
+                                        {(it.system_exp && it.system_exp !== '-') && <option value={it.system_exp}>{it.system_exp} (ตามระบบ)</option>}
+                                        <option value="__custom__">อื่นๆ (พิมพ์เอง)</option>
                                       </select>
-                                      <input type="text" value={editVal.counted_exp} placeholder="exp จริง"
-                                        onChange={e => setEditVal(v => ({ ...v, counted_exp: e.target.value }))}
-                                        className="w-28 mt-1 px-1.5 py-1 border border-slate-300 rounded text-center text-[11px]" />
+                                      {editVal._expCustom && (
+                                        <input type="text" autoFocus value={editVal.counted_exp} placeholder="เช่น 3/12/2028"
+                                          onChange={e => setEditVal(v => ({ ...v, counted_exp: e.target.value }))}
+                                          className="w-28 mt-1 px-1.5 py-1 border border-amber-400 bg-amber-50 rounded text-center text-[11px]" />
+                                      )}
+                                      <FieldTick active={!!editVal.counted_exp && em.expOk} onClick={() => tickEdit(it, 'counted_exp')} />
                                     </td>
-                                    <td className="text-center px-2">
+                                    <td className="text-center px-2 align-top">
                                       <div className="flex items-center justify-center gap-1">
                                         <button onClick={() => saveEdit(it)} disabled={busy}
                                           className="p-1.5 rounded bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50"><Save size={13} /></button>
@@ -617,7 +796,8 @@ function HistoryTab({ auth }) {
                                     </td>
                                     <td></td>
                                   </>
-                                ) : (
+                                  )
+                                })() : (
                                   <>
                                     <td className="text-center px-2">{it.counted_qty == null ? '-' : `${toNum(it.counted_qty)} × ${it.unit}`}</td>
                                     <td className={`text-center px-2 font-semibold ${toNum(it.diff_qty) !== 0 ? 'text-red-600' : 'text-slate-400'}`}>
@@ -648,7 +828,9 @@ function HistoryTab({ auth }) {
             )}
           </div>
         )
-      })}
+          })}
+        </div>
+      ))}
     </div>
   )
 }
