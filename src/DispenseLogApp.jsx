@@ -1290,15 +1290,15 @@ function DispenseView({ isAdmin = false, auth = {} }) {
         <div className="space-y-2">
           {rows.map((row, i) => (
             <div key={row.id} onClick={() => setMobileDetail(row)}
-              className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm active:bg-rose-50 transition-colors cursor-pointer">
+              className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm active:bg-rose-50 transition-colors cursor-pointer">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-slate-900 truncate text-sm">{row.drug_name}</p>
                   <p className="text-xs text-slate-400 mt-0.5">{row.drug_code} · {fmtDate(row.dispense_date)}</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-sm font-bold text-rose-700">{fmtQtyOut(row.qty_out)}</p>
-                  <p className="text-[10px] text-slate-400">{getUnit(row)}</p>
+                  <span className="inline-flex items-center rounded-full bg-rose-50 text-rose-700 font-bold px-2.5 py-0.5 text-xs tabular-nums">{fmtQtyOut(row.qty_out)}</span>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{getUnit(row)}</p>
                 </div>
               </div>
               {(row.lot || row.exp) && (
@@ -1323,17 +1323,17 @@ function DispenseView({ isAdmin = false, auth = {} }) {
           <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-260px)]">
             <table className="w-full min-w-[800px] text-sm">
               <thead className="sticky top-0 z-[5]">
-                <tr className="text-xs font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-200">
-                  <th className="px-4 py-3 text-left bg-slate-50">วันที่เบิก</th>
-                  <th className="px-4 py-3 text-left bg-slate-50">ชื่อรายการยา</th>
-                  <th className="px-4 py-3 text-right bg-slate-50">จำนวน</th>
-                  <th className="px-4 py-3 text-left bg-slate-50">หน่วย</th>
-                  <th className="px-4 py-3 text-left bg-slate-50">Lot</th>
-                  <th className="px-4 py-3 text-left bg-slate-50">Exp</th>
-                  <th className="px-4 py-3 text-right bg-slate-50">ราคา/หน่วย</th>
-                  <th className="px-4 py-3 text-right bg-slate-50">มูลค่า (บาท)</th>
-                  <th className="px-4 py-3 text-left bg-slate-50">หน่วยงาน</th>
-                  <th className="px-4 py-3 w-8 bg-slate-50"></th>
+                <tr className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                  <th className="px-4 py-3.5 text-left bg-slate-50/80">วันที่เบิก</th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50/80">ชื่อรายการยา</th>
+                  <th className="px-4 py-3.5 text-right bg-slate-50/80">จำนวน</th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50/80">หน่วย</th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50/80">Lot</th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50/80">Exp</th>
+                  <th className="px-4 py-3.5 text-right bg-slate-50/80">ราคา/หน่วย</th>
+                  <th className="px-4 py-3.5 text-right bg-slate-50/80">มูลค่า (บาท)</th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50/80">หน่วยงาน</th>
+                  <th className="px-4 py-3.5 w-8 bg-slate-50/80"></th>
                 </tr>
               </thead>
               <tbody>
@@ -1341,21 +1341,23 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                   <React.Fragment key={row.id}>
                     <tr
                       onClick={() => setExpanded(expanded === row.id ? null : row.id)}
-                      className={`border-b border-slate-100 cursor-pointer transition-colors ${expanded === row.id ? 'bg-rose-50' : 'hover:bg-rose-50/60'}`}
+                      className={`border-b border-slate-50 cursor-pointer transition-colors ${expanded === row.id ? 'bg-rose-50' : 'hover:bg-rose-50/50'}`}
                     >
-                      <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(row.dispense_date)}</td>
-                      <td className="px-4 py-2.5 font-semibold text-slate-900 max-w-[220px]">
+                      <td className="px-4 py-3 text-slate-800 whitespace-nowrap font-medium">{fmtDate(row.dispense_date)}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900 max-w-[220px]">
                         <span className="block truncate">{row.drug_name}</span>
-                        <span className="text-xs text-slate-600 font-normal">{row.drug_code}</span>
+                        <span className="text-xs text-slate-500 font-normal">{row.drug_code}</span>
                       </td>
-                      <td className="px-4 py-2.5 text-rose-700 font-bold text-right whitespace-nowrap">{fmtQtyOut(row.qty_out)}</td>
-                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{getUnit(row)}</td>
-                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{row.lot || '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>
-                      <td className="px-4 py-2.5 text-slate-800 font-medium text-right whitespace-nowrap">{getPrice(row) != null ? Number(getPrice(row)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-2.5 text-amber-800 font-bold text-right whitespace-nowrap">{getPrice(row) != null ? ((row.qty_out||0)*getPrice(row)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-800 max-w-[140px] truncate font-medium">{row.department || '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-500">
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <span className="inline-flex items-center justify-end rounded-full bg-rose-50 text-rose-700 font-bold px-2.5 py-0.5 text-xs tabular-nums">{fmtQtyOut(row.qty_out)}</span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700 text-xs whitespace-nowrap font-medium">{getUnit(row)}</td>
+                      <td className="px-4 py-3 text-slate-700 text-xs whitespace-nowrap">{row.lot || '-'}</td>
+                      <td className="px-4 py-3 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>
+                      <td className="px-4 py-3 text-slate-800 font-medium text-right whitespace-nowrap tabular-nums">{getPrice(row) != null ? Number(getPrice(row)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                      <td className="px-4 py-3 text-amber-800 font-bold text-right whitespace-nowrap tabular-nums">{getPrice(row) != null ? ((row.qty_out||0)*getPrice(row)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                      <td className="px-4 py-3 text-slate-800 max-w-[140px] truncate font-medium">{row.department || '-'}</td>
+                      <td className="px-4 py-3 text-slate-400">
                         {expanded === row.id ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                       </td>
                     </tr>
