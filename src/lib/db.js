@@ -2241,10 +2241,13 @@ export async function fetchInventoryLocations() {
   const data = await fetchAllInventoryRows('location')
   const set = new Set()
   for (const r of data) {
-    const loc = (r.location || '').trim()
-    if (loc && loc !== '-') set.add(loc)
+    // location 1 ช่องอาจเก็บหลายที่เก็บคั่นด้วย comma (เช่น "E-1-4 ,E-1-5") → split ให้เลือกแยกได้
+    for (const loc of String(r.location || '').split(',')) {
+      const v = loc.trim()
+      if (v && v !== '-') set.add(v)
+    }
   }
-  return [...set].sort((a, b) => a.localeCompare(b))
+  return [...set].sort((a, b) => a.localeCompare(b, 'th', { numeric: true }))
 }
 
 // บันทึก 1 รอบตรวจนับ (session + items) — append-only
