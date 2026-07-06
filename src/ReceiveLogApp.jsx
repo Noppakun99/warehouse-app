@@ -1881,17 +1881,17 @@ function ReceiveView({ auth = {} }) {
             <div className="overflow-x-auto overflow-y-auto max-h-[480px]">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-[5]">
-                  <tr className="text-xs font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-200">
-                    <th className="px-4 py-3 text-left bg-slate-50">วันที่รับ</th>
-                    <th className="px-4 py-3 text-right bg-slate-50">จำนวน</th>
-                    <th className="px-4 py-3 text-left bg-slate-50">หน่วย</th>
-                    <th className="px-4 py-3 text-left bg-slate-50">Lot</th>
-                    <th className="px-4 py-3 text-left bg-slate-50">Exp</th>
-                    <th className="px-4 py-3 text-right bg-slate-50">ราคา/หน่วย</th>
-                    <th className="px-4 py-3 text-right bg-slate-50">มูลค่ารวมภาษี (บาท)</th>
-                    <th className="px-4 py-3 text-left bg-slate-50">บริษัท</th>
-                    <th className="px-4 py-3 text-left bg-slate-50">เลขบิล</th>
-                    <th className="px-4 py-3 w-6 bg-slate-50"></th>
+                  <tr className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                    <th className="px-4 py-3.5 text-left bg-slate-50/80">วันที่รับ</th>
+                    <th className="px-4 py-3.5 text-right bg-slate-50/80">จำนวน</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50/80">หน่วย</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50/80">Lot</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50/80">Exp</th>
+                    <th className="px-4 py-3.5 text-right bg-slate-50/80">ราคา/หน่วย</th>
+                    <th className="px-4 py-3.5 text-right bg-slate-50/80">มูลค่ารวมภาษี (บาท)</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50/80">บริษัท</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50/80">เลขบิล</th>
+                    <th className="px-4 py-3.5 w-6 bg-slate-50/80"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1899,22 +1899,24 @@ function ReceiveView({ auth = {} }) {
                     <React.Fragment key={r.id}>
                       <tr
                         onClick={() => setDrugExpanded(drugExpanded === r.id ? null : r.id)}
-                        className={`border-b border-slate-100 cursor-pointer transition-colors ${drugExpanded === r.id ? 'bg-emerald-50' : 'hover:bg-emerald-50/60'}`}
+                        className={`border-b border-slate-50 cursor-pointer transition-colors ${drugExpanded === r.id ? 'bg-emerald-50' : 'hover:bg-emerald-50/50'}`}
                       >
-                        <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(r.receive_date)}</td>
-                        <td className="px-4 py-2.5 text-emerald-800 font-bold text-right whitespace-nowrap">{r.qty_received ? `+${r.qty_received.toLocaleString()}` : '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{r.drug_unit || r.unit_per_bill || '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{r.lot || '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
-                        <td className="px-4 py-2.5 text-slate-800 font-medium text-right whitespace-nowrap">{r.price_per_unit != null ? Number(r.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                        <td className="px-4 py-2.5 text-amber-800 font-bold text-right whitespace-nowrap">{r.total_price_vat != null ? Number(r.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                        <td className="px-4 py-2.5 max-w-[160px]">
+                        <td className="px-4 py-3 text-slate-800 whitespace-nowrap font-medium">{fmtDate(r.receive_date)}</td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          {r.qty_received ? <span className="inline-flex items-center justify-end rounded-full bg-emerald-50 text-emerald-700 font-bold px-2.5 py-0.5 text-xs tabular-nums">+{r.qty_received.toLocaleString()}</span> : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700 text-xs whitespace-nowrap font-medium">{r.drug_unit || r.unit_per_bill || '-'}</td>
+                        <td className="px-4 py-3 text-slate-700 text-xs whitespace-nowrap">{r.lot || '-'}</td>
+                        <td className="px-4 py-3 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
+                        <td className="px-4 py-3 text-slate-800 font-medium text-right whitespace-nowrap tabular-nums">{r.price_per_unit != null ? Number(r.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                        <td className="px-4 py-3 text-amber-800 font-bold text-right whitespace-nowrap tabular-nums">{r.total_price_vat != null ? Number(r.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                        <td className="px-4 py-3 max-w-[160px]">
                           <span className="text-slate-800 font-medium truncate block text-xs">
                             {getDetailSupplier(r) || r.supplier_current || '-'}
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{r.bill_number || '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-500">
+                        <td className="px-4 py-3 text-slate-700 text-xs whitespace-nowrap">{r.bill_number || '-'}</td>
+                        <td className="px-4 py-3 text-slate-400">
                           {drugExpanded === r.id ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
                         </td>
                       </tr>
@@ -2073,17 +2075,23 @@ function ReceiveView({ auth = {} }) {
         <div className="space-y-2">
           {displayRows.map(row => (
             <button key={row.id} onClick={() => setMobileDetail(row)}
-              className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm text-left active:bg-emerald-50 transition-colors">
+              className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 shadow-sm text-left active:bg-emerald-50 transition-colors">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold text-slate-900 text-sm leading-tight truncate">{row.drug_name}</p>
                   <p className="text-xs text-slate-400 mt-0.5">{row.drug_code} · {fmtDate(row.receive_date)}</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-emerald-700 font-bold text-sm">+{(row.qty_received||0).toLocaleString()}</p>
-                  <p className="text-[10px] text-slate-400">{row.drug_unit || row.unit_per_bill || '-'}</p>
+                  <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 font-bold px-2.5 py-0.5 text-xs tabular-nums">+{(row.qty_received||0).toLocaleString()}</span>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{row.drug_unit || row.unit_per_bill || '-'}</p>
                 </div>
               </div>
+              {((row.lot && row.lot !== '-') || (row.exp && row.exp !== '-')) && (
+                <div className="flex items-center gap-2 mt-1.5 text-[11px] text-slate-500">
+                  {row.lot && row.lot !== '-' && <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded">Lot {row.lot}</span>}
+                  {row.exp && row.exp !== '-' && <span>Exp {fmtAnyDate(row.exp)}</span>}
+                </div>
+              )}
               <div className="flex items-center justify-between mt-2">
                 <span className="text-xs text-slate-500 truncate max-w-[60%]">{getDetailSupplier(row) || row.supplier_current || '-'}</span>
                 <span className="text-amber-700 font-bold text-sm">
