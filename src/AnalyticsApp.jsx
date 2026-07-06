@@ -195,7 +195,7 @@ function MultiLineTooltip({ active, payload, label }) {
 // ============================================================
 // Main Component
 // ============================================================
-export default function AnalyticsApp({ onRefresh, auth = {} }) {
+export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack }) {
   const [dateFrom,       setDateFrom]       = useState('');
   const [dateTo,         setDateTo]         = useState('');
   const [rows,           setRows]           = useState([]);
