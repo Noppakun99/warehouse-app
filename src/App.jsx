@@ -937,7 +937,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
     }
 
     return (
-      <div key={uniqueItemId} className={`bg-white border ${isPendingStatus ? 'border-sky-300 bg-sky-50/40 border-dashed' : 'border-slate-200'} shadow-sm rounded-xl p-5 hover:border-indigo-300 transition-colors`}>
+      <div key={uniqueItemId} className={`bg-white border ${isPendingStatus ? 'border-sky-300 bg-sky-50/40 border-dashed' : 'border-slate-200'} shadow-sm rounded-2xl p-5 hover:shadow-md hover:border-indigo-300 transition-all`}>
         <div className="flex flex-col sm:flex-row items-start gap-5">
           <div className={`p-3 rounded-xl shrink-0 shadow-inner mt-1 ${isPendingStatus ? 'bg-sky-100 text-sky-600' : 'bg-indigo-50 text-indigo-600'}`}>
             {isPendingStatus ? <Package size={32} /> : <Pill size={32} />}
@@ -977,7 +977,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
               
               <button
                 onClick={() => toggleDetails(uniqueItemId)}
-                className={`shrink-0 inline-flex items-center justify-center gap-1.5 min-w-[140px] px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
+                className={`shrink-0 inline-flex items-center justify-center gap-1.5 min-w-[140px] px-3 py-1.5 rounded-xl text-sm font-medium transition-colors border ${
                   isExpanded
                     ? 'bg-slate-100 text-slate-700 border-slate-300'
                     : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50 cursor-pointer'
@@ -989,11 +989,11 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
             </div>
             
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
-              <div className="bg-slate-50 px-3 py-2.5 rounded-lg border border-slate-100">
+              <div className="bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-100">
                 <div className="text-[11px] text-slate-500 uppercase font-bold tracking-wider mb-1">ชนิด/หน่วย</div>
                 <div className="text-sm font-medium text-slate-700">{item.type} <span className="text-slate-400">({item.unit})</span></div>
               </div>
-              <div className={`${item.isPending ? 'bg-sky-50 border-sky-100' : 'bg-slate-50 border-slate-100'} px-3 py-2.5 rounded-lg border`}>
+              <div className={`${item.isPending ? 'bg-sky-50 border-sky-100' : 'bg-slate-50 border-slate-100'} px-3 py-2.5 rounded-xl border`}>
                 <div className="text-[11px] text-slate-500 uppercase font-bold tracking-wider mb-1">
                   {item.isPending && item.qtyReceived != null ? 'จำนวนที่รับ' : 'จำนวนคงเหลือ'}
                 </div>
@@ -1001,15 +1001,15 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                   {item.isPending && item.qtyReceived != null ? item.qtyReceived : item.qty}
                 </div>
               </div>
-              <div className="bg-slate-50 px-3 py-2.5 rounded-lg border border-slate-100">
+              <div className="bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-100">
                 <div className="text-[11px] text-slate-500 uppercase font-bold tracking-wider mb-1">Lot Number</div>
                 <div className="text-sm font-medium text-slate-700">{item.lot}</div>
               </div>
-              <div className="bg-indigo-50 px-3 py-2.5 rounded-lg border border-indigo-100">
+              <div className="bg-indigo-50 px-3 py-2.5 rounded-xl border border-indigo-100">
                 <div className="text-[11px] text-indigo-500 uppercase font-bold tracking-wider mb-1">เลขที่บิลซื้อ</div>
                 <div className="text-sm font-medium text-indigo-700">{item.invoice}</div>
               </div>
-              <div className={`px-3 py-2.5 rounded-lg border ${expBgClass}`}>
+              <div className={`px-3 py-2.5 rounded-xl border ${expBgClass}`}>
                 <div className="text-[11px] opacity-70 uppercase font-bold tracking-wider mb-1">Exp Date</div>
                 <div className={`text-sm ${expColorClass}`}>
                   {expIcon}

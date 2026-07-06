@@ -2087,9 +2087,9 @@ function ReceiveView({ auth = {} }) {
                 </div>
               </div>
               {((row.lot && row.lot !== '-') || (row.exp && row.exp !== '-')) && (
-                <div className="flex items-center gap-2 mt-1.5 text-[11px] text-slate-500">
-                  {row.lot && row.lot !== '-' && <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded">Lot {row.lot}</span>}
-                  {row.exp && row.exp !== '-' && <span>Exp {fmtAnyDate(row.exp)}</span>}
+                <div className="flex items-center gap-1.5 mt-2 text-[11px]">
+                  {row.lot && row.lot !== '-' && <span className="font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">Lot {row.lot}</span>}
+                  {row.exp && row.exp !== '-' && <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">Exp {fmtAnyDate(row.exp)}</span>}
                 </div>
               )}
               <div className="flex items-center justify-between mt-2">
