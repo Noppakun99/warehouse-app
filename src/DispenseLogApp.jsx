@@ -1109,16 +1109,16 @@ function DispenseView({ isAdmin = false, auth = {} }) {
             <div className="overflow-x-auto overflow-y-auto max-h-[480px]">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-[5]">
-                  <tr className="text-xs text-white font-bold border-b border-slate-600">
-                    <th className="px-4 py-2.5 text-left bg-slate-700">วันที่เบิก</th>
-                    <th className="px-4 py-2.5 text-right bg-slate-700">จำนวน</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-700">หน่วย</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-700">Lot</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-700">Exp</th>
-                    <th className="px-4 py-2.5 text-right bg-slate-700">ราคา/หน่วย</th>
-                    <th className="px-4 py-2.5 text-right bg-slate-700">มูลค่า (บาท)</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-700">หน่วยงาน</th>
-                    <th className="px-4 py-2.5 w-8 bg-slate-700"></th>
+                  <tr className="text-xs font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-200">
+                    <th className="px-4 py-3 text-left bg-slate-50">วันที่เบิก</th>
+                    <th className="px-4 py-3 text-right bg-slate-50">จำนวน</th>
+                    <th className="px-4 py-3 text-left bg-slate-50">หน่วย</th>
+                    <th className="px-4 py-3 text-left bg-slate-50">Lot</th>
+                    <th className="px-4 py-3 text-left bg-slate-50">Exp</th>
+                    <th className="px-4 py-3 text-right bg-slate-50">ราคา/หน่วย</th>
+                    <th className="px-4 py-3 text-right bg-slate-50">มูลค่า (บาท)</th>
+                    <th className="px-4 py-3 text-left bg-slate-50">หน่วยงาน</th>
+                    <th className="px-4 py-3 w-8 bg-slate-50"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1126,7 +1126,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                     <React.Fragment key={r.id}>
                       <tr
                         onClick={() => setExpandedDrug(expandedDrug === r.id ? null : r.id)}
-                        className={`border-b border-slate-200 cursor-pointer transition-colors ${expandedDrug === r.id ? 'bg-rose-100' : i % 2 === 0 ? 'hover:bg-rose-50' : 'bg-slate-50 hover:bg-rose-50'}`}
+                        className={`border-b border-slate-100 cursor-pointer transition-colors ${expandedDrug === r.id ? 'bg-rose-50' : 'hover:bg-rose-50/60'}`}
                       >
                         <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(r.dispense_date)}</td>
                         <td className="px-4 py-2.5 text-rose-700 font-bold text-right whitespace-nowrap">{fmtQtyOut(r.qty_out)}</td>
