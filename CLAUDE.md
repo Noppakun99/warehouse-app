@@ -59,11 +59,11 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 - `ReceiveLogApp.jsx` — ประวัติรับยา + สแกนบิล AI (ดู [docs/features/invoice-scanner.md](docs/features/invoice-scanner.md))
 - `ReturnApp.jsx` — บันทึกคืนยา (ดู [docs/features/return.md](docs/features/return.md))
 - `AnalyticsApp.jsx` — วิเคราะห์เบิกยา (ดู [docs/features/analytics.md](docs/features/analytics.md))
-- `AuditLogApp.jsx` — ดู audit log
+- `AuditLogApp.jsx` — ดู audit log + tab **"สรุปการใช้งาน" (User Analytics)** admin-only: DAU/WAU/MAU/stickiness + กราฟแนวโน้ม 30 วัน + active-by-role + ตารางรายคน — derive จาก `audit_logs` (action=`login`) ผ่าน `fetchUserActivityStats()`, นับด้วย `details.user_id` (ไม่ใช่ user_name), cap 90 วันตาม retention. ดู CONTEXT.md §"Usage Analytics"
 - `UserManagementApp.jsx` — admin จัดการ user
 - `ReorderApp.jsx` — วิเคราะห์การสั่งซื้อยา (ROP/SS ตามสูตร Excel/VEN/แยกบริษัท) (ดู [docs/features/reorder.md](docs/features/reorder.md))
 - `StockLedgerApp.jsx` — ทะเบียนคงคลังรายเดือน (admin) — seed master CSV + ปิด/เปิดงวด + tie-out ยา/มิใช่ยา (ดู [ADR-0007](docs/adr/0007-monthly-stock-ledger.md))
-- `StockCountApp.jsx` — ตรวจนับคงคลัง (staff/admin) — สุ่มเลือกรหัสยา → นับ 3 มิติ (จำนวน/ที่เก็บ/exp) เทียบ `inventory.qty` สด → append-only เก็บ `stock_count_session`+`stock_count_item` (freeze snapshot, ไม่แก้ qty) + พิมพ์ใบเดินนับ (ดู [ADR-0008](docs/adr/0008-stock-count-append-only-snapshot.md))
+- `StockCountApp.jsx` — ตรวจนับคงคลัง (staff/admin) — เลือกรหัสยา → ได้ทุก lot แต่ **ติ๊กเลือก lot ที่จะนับ** (`_selected` default true; save/print เฉพาะที่ติ๊ก; ปุ่ม X = `removeDrug` เอายาออกทั้งตัว ≠ checkbox ข้าม lot รายตัว) → นับ 3 มิติ (จำนวน/ที่เก็บ/exp) เทียบ `inventory.qty` สด. **ช่อง "ที่เก็บจริง" = `<input list>`+`<datalist>` พิมพ์เองได้** (เจอยาที่จุดที่ระบบยังไม่รู้) → append-only เก็บ `stock_count_session`+`stock_count_item` (freeze snapshot, ไม่แก้ qty) + พิมพ์ใบเดินนับ. ประวัติ: badge "ไม่ตรง N รายการ" บนหัวรอบ (คำนวณจาก `allItems` โหลดครบทุกรอบ ไม่ใช่ `items` ที่ lazy) (ดู [ADR-0008](docs/adr/0008-stock-count-append-only-snapshot.md))
 
 **Data layer:**
 - ทุก Supabase query ผ่าน `src/lib/db.js` — component ห้ามเรียก `supabase` ตรงๆ
@@ -105,7 +105,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | `/monthly-stats-table` | ตาราง drug × month (ใช้ mechanics จาก `/sticky-table`) |
 | `/sticky-table` | ตารางทั่วไป sticky header + frozen column (mechanics กลาง) |
 | `/excel-export` | ปุ่ม Export Excel (.xlsx) + audit log |
-| `/ui-style-guide` | Tailwind: สี, layout, buttons, inputs |
+| `/ui-style-guide` | Tailwind: สี, layout, buttons, inputs + card patterns (detail card, stat card gradient+glow, history-table, mobile card, badge) |
 | `/karpathy-checklist` | Quick-check 4 ข้อก่อนลงมือ (Think / Simple / Surgical / Goal-Driven) |
 | `/grill-with-docs` | ซักค้านแผนทีละข้อกับ domain model + อัพเดต CONTEXT.md/ADR inline |
 | `/scrutinize` | รีวิว plan/PR/diff แบบ outsider — ตั้งคำถาม intent + trace code path จริง |
@@ -234,11 +234,12 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 ### Key shared functions
 
 - **`fetchDashboardAlerts()`** (db.js) — return `{ expiring, lowStock, pendingReceive }` — ดึง inventory + receive_logs (paginated) เพื่อคำนวณ `waitDays` ของบิลรอตรวจรับ — ใช้ใน StatsStrip ของ Dashboard
-- **`fetchDashboardCharts(months = 6)`** (db.js) — return `{ dispense: [{ ym, label, count, value }], receive: [...], maxValueMonth, maxReceiveValueMonth, trend: { dispensePct, receivePct } }` — เบิก/รับ รายเดือน ย้อนหลัง `months` เดือน แต่ละเดือนมีทั้ง `count` (จำนวนครั้ง) และ `value` (**มูลค่าบาท** — เบิก = `Σ qty_out×ราคา/หน่วย` ตรงกับ `getPrice` ใน DispenseLogApp; รับ = `Σ total_price_vat` ตรงกับ `totalValue` ใน ReceiveLogApp). **มูลค่าข้ามหน่วยได้** (บาทคือบาท) จึงรวมข้ามแถวได้ — ต่างจากการรวม `qty` ดิบที่หน่วยปน. `trend`/กราฟ/เลขเด่น ใช้ **value** เป็นหลัก. **ไม่ dedup** (ภาพรวม trend — ตัวเลข authoritative ดูในโมดอลสรุปของแต่ละหน้า). ใช้ใน `DashboardCharts` (area เบิก / bar รับ + คำสรุปเดือนมูลค่าสูงสุด + ลิงก์ไปประวัติเบิก/รับ + ตาราง Top 5 ยาต้องสั่งซื้อ จาก `alerts.lowStock`) ใน [AppRoot.jsx](src/AppRoot.jsx) — **แสดงทุก role** (กระดิ่งแจ้งเตือนยังเป็น staff/admin เท่านั้น)
+- **`fetchDashboardCharts(months = 6)`** (db.js) — return `{ dispense: [{ ym, label, count, value }], receive: [...], maxValueMonth, maxReceiveValueMonth, trend: { dispensePct, receivePct, dispenseLabels: {cur,prev}, receiveLabels: {cur,prev} } }` — เบิก/รับ รายเดือน ย้อนหลัง `months` เดือน แต่ละเดือนมีทั้ง `count` (จำนวนครั้ง) และ `value` (**มูลค่าบาท** — เบิก = `Σ qty_out×ราคา/หน่วย` ตรงกับ `getPrice` ใน DispenseLogApp; รับ = `Σ total_price_vat` ตรงกับ `totalValue` ใน ReceiveLogApp). **มูลค่าข้ามหน่วยได้** (บาทคือบาท) จึงรวมข้ามแถวได้ — ต่างจากการรวม `qty` ดิบที่หน่วยปน. `trend`/กราฟ/เลขเด่น ใช้ **value** เป็นหลัก. **ไม่ dedup** (ภาพรวม trend — ตัวเลข authoritative ดูในโมดอลสรุปของแต่ละหน้า). **trend % เทียบ 2 เดือนที่จบแล้ว** — `pctInfo` ตัดเดือนปัจจุบัน (`ym === curYm`) ออกก่อนหาคู่เทียบ ไม่งั้นเทียบเดือนครึ่งใบ→เพี้ยน (↓98/99%); `*Labels` = ชื่อเดือนคู่ที่เทียบให้ caption แสดง "มิ.ย. เทียบ พ.ค." (concept เดียวกับ "เรท" CONTEXT.md — ตัดเดือนล่าสุดที่ยังไม่ครบ; AnalyticsApp `momTrend` ใช้กฎเดียวกัน). ใช้ใน `DashboardCharts` (area เบิก / **ComposedChart รับ = bar + เส้นแนวโน้ม** + คำสรุปเดือนมูลค่าสูงสุด + ลิงก์ไปประวัติเบิก/รับ + ตาราง Top 5 ยาต้องสั่งซื้อ จาก `alerts.lowStock`) ใน [AppRoot.jsx](src/AppRoot.jsx) — **แสดงทุก role** (กระดิ่งแจ้งเตือนยังเป็น staff/admin เท่านั้น)
 - **`printApBatch(rows, batchId, { kind, senderName, inspectorNames })`** (ReceiveLogApp.jsx) — รับ `kind: 'ap'|'ack'`:
   - `'ap'` = ใบนำส่งบิลตั้งหนี้ (คลัง → บัญชี) — signature: กรรมการตรวจรับ + เจ้าหน้าที่จัดซื้อ
   - `'ack'` = ใบส่งจัดซื้อรับบิล (คลัง → จัดซื้อ) — signature: เจ้าหน้าที่คลัง + เจ้าหน้าที่จัดซื้อ
 - **`resolveAuditUserName(auth)`** (db.js) — fallback chain: `auth.name || auth.username || '-'`
+- **`fetchInventoryLocations()`** (db.js) — distinct ที่เก็บสำหรับ dropdown ตรวจนับ — **split ค่าที่คั่น comma** (1 ช่อง inventory อาจเก็บหลายที่เก็บ เช่น `"E-1-4 ,E-1-5"`) แล้ว dedupe + sort numeric — ไม่งั้นที่เก็บที่ปนช่องเดียวกันหายจาก dropdown
 - **`billMatchesQuery(bill, q)`** (ReceiveLogApp.jsx) — match บิลกับคำค้น ค้นได้ทั้ง เลขบิล / บริษัท / ชื่อยา / รหัสยา / lot — ใช้ทุก tab ของ AP workflow เพื่อผลลัพธ์สอดคล้องกัน
 
 ### AP Workflow stages (`receive_logs.ap_stage`)
