@@ -1086,17 +1086,18 @@ function DispenseView({ isAdmin = false, auth = {} }) {
 
           {/* Summary cards */}
           <div className="grid grid-cols-3 gap-3 px-4 py-3">
-            <div className="bg-slate-700 border border-slate-600 rounded-xl p-3 text-center shadow-sm">
-              <p className="text-2xl font-bold text-white">{filteredDrugRows.length.toLocaleString()}</p>
+            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
+              <p className="text-2xl font-bold text-white tabular-nums">{filteredDrugRows.length.toLocaleString()}</p>
               <p className="text-xs text-slate-300 mt-0.5">รายการ (กรอง)</p>
             </div>
-            <div className="bg-rose-700 border border-rose-600 rounded-xl p-3 text-center shadow-sm">
-              <p className="text-2xl font-bold text-white">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-              <p className="text-xs text-rose-200 mt-0.5">ปริมาณรวม (ออก)</p>
+            <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-3.5 text-center shadow-lg shadow-rose-300/60">
+              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
+              <p className="relative text-2xl font-bold text-white tabular-nums">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+              <p className="relative text-xs text-rose-50 mt-0.5">ปริมาณรวม (ออก)</p>
             </div>
-            <div className="bg-amber-600 border border-amber-500 rounded-xl p-3 text-center shadow-sm">
-              <p className="text-2xl font-bold text-white">{drugTotalVal.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-              <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวม (บาท)</p>
+            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
+              <p className="text-2xl font-bold text-white tabular-nums">{drugTotalVal.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+              <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวม (บาท)</p>
             </div>
           </div>
 
@@ -1202,17 +1203,18 @@ function DispenseView({ isAdmin = false, auth = {} }) {
             </div>
           )}
           <div className="grid grid-cols-3 gap-3">
-            <div className="bg-slate-700 border border-slate-600 rounded-xl p-3 text-center shadow-sm">
-              <p className="text-2xl font-bold text-white">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
+            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
+              <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
               <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
             </div>
-            <div className="bg-rose-700 border border-rose-600 rounded-xl p-3 text-center shadow-sm">
-              <p className="text-2xl font-bold text-white">{aggStats ? aggStats.totalQty.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
-              <p className="text-xs text-rose-200 mt-0.5">ปริมาณรวมออก{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
+            <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-3.5 text-center shadow-lg shadow-rose-300/60">
+              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
+              <p className="relative text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.totalQty.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
+              <p className="relative text-xs text-rose-50 mt-0.5">ปริมาณรวมออก{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
             </div>
-            <div className="bg-amber-600 border border-amber-500 rounded-xl p-3 text-center shadow-sm">
-              <p className="text-2xl font-bold text-white">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
-              <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวม (บาท){deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
+            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
+              <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
+              <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวม (บาท){deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
             </div>
           </div>
         </div>

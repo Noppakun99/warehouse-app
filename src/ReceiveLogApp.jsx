@@ -1534,7 +1534,7 @@ function ReceiveView({ auth = {} }) {
     };
     // ดึงทุก field ที่ต้องใช้กรอง blank+dedup เพื่อให้ stat card ตรงกับ displayRows ในตาราง
     const [data, minResult, maxResult] = await Promise.all([
-      fetchAllRows(() => applyFilters(supabase.from('receive_logs').select('drug_name, drug_code, lot, exp, bill_number, receive_date, qty_received, total_price_vat'))),
+      fetchAllRows(() => applyFilters(supabase.from('receive_logs').select('id, drug_name, drug_code, lot, exp, bill_number, supplier_current, receive_date, qty_received, total_price_vat'))),
       applyFilters(supabase.from('receive_logs').select('receive_date').not('receive_date', 'is', null).order('receive_date', { ascending: true }).limit(1)),
       applyFilters(supabase.from('receive_logs').select('receive_date').not('receive_date', 'is', null).order('receive_date', { ascending: false }).limit(1)),
     ]);
@@ -1551,11 +1551,13 @@ function ReceiveView({ auth = {} }) {
       seen.add(key);
       return true;
     });
-    const totalQty   = filtered.reduce((s, r) => s + (r.qty_received    || 0), 0);
+    // นับ "บิลจริง" ด้วย composite key (bill_number|supplier|receive_date) — เลขบิลไม่ unique (Rule #19)
+    // ไม่รวม qty ดิบข้ามหน่วย (กล่อง/ขวด/เม็ด/amp ปนกัน = ไร้ความหมายทางคลัง) — ใช้จำนวนบิลแทน
+    const billCount  = new Set(filtered.map(billGroupKey)).size;
     const totalValue = filtered.reduce((s, r) => s + (r.total_price_vat || 0), 0);
     const minDate = minResult.data?.[0]?.receive_date || null;
     const maxDate = maxResult.data?.[0]?.receive_date || null;
-    setAggStats({ count: filtered.length, totalQty, totalValue, minDate, maxDate });
+    setAggStats({ count: filtered.length, billCount, totalValue, minDate, maxDate });
   }, [search, supplierFilter, dateFrom, dateTo]);
 
   useEffect(() => { const t = setTimeout(loadAgg, 300); return () => clearTimeout(t); }, [loadAgg]);
@@ -1858,17 +1860,18 @@ function ReceiveView({ auth = {} }) {
 
           {/* Summary cards */}
           <div className="grid grid-cols-3 gap-3 px-4 py-3">
-            <div className="bg-slate-700 border border-slate-600 rounded-xl p-3 text-center shadow-sm">
-              <p className="text-2xl font-bold text-white">{filteredDrugRows.length.toLocaleString()}</p>
+            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
+              <p className="text-2xl font-bold text-white tabular-nums">{filteredDrugRows.length.toLocaleString()}</p>
               <p className="text-xs text-slate-300 mt-0.5">รายการ (กรอง)</p>
             </div>
-            <div className="bg-emerald-700 border border-emerald-600 rounded-xl p-3 text-center shadow-sm">
-              <p className="text-2xl font-bold text-white">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-              <p className="text-xs text-emerald-200 mt-0.5">ปริมาณรับรวม</p>
+            <div className="relative overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-700 rounded-2xl p-3.5 text-center shadow-lg shadow-emerald-300/60">
+              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
+              <p className="relative text-2xl font-bold text-white tabular-nums">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+              <p className="relative text-xs text-emerald-50 mt-0.5">ปริมาณรับรวม</p>
             </div>
-            <div className="bg-amber-600 border border-amber-500 rounded-xl p-3 text-center shadow-sm">
-              <p className="text-2xl font-bold text-white">{drugTotalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-              <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวมภาษี (บาท)</p>
+            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
+              <p className="text-2xl font-bold text-white tabular-nums">{drugTotalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+              <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวมภาษี (บาท)</p>
             </div>
           </div>
 
@@ -1977,17 +1980,18 @@ function ReceiveView({ auth = {} }) {
             </div>
           )}
         <div className="grid grid-cols-3 gap-3">
-          <div className="bg-slate-700 border border-slate-600 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-white">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
+          <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
+            <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
             <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
           </div>
-          <div className="bg-emerald-700 border border-emerald-600 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-white">{aggStats ? aggStats.totalQty.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
-            <p className="text-xs text-emerald-200 mt-0.5">ปริมาณรับรวม{supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
+          <div className="relative overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-700 rounded-2xl p-3.5 text-center shadow-lg shadow-emerald-300/60">
+            <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
+            <p className="relative text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.billCount.toLocaleString() : '...'}</p>
+            <p className="relative text-xs text-emerald-50 mt-0.5">จำนวนบิล{supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
           </div>
-          <div className="bg-amber-600 border border-amber-500 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-white">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
-            <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวมภาษี (บาท){supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
+          <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
+            <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
+            <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวมภาษี (บาท){supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
           </div>
         </div>
         </div>
