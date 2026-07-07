@@ -918,6 +918,16 @@ function DrugDetailPanel({ r, months, onClose }) {
   );
 }
 
+// คอลัมน์ที่ซ่อน/แสดงได้ (desktop) — รายการยา + จัดการ เป็น fixed ไม่อยู่ในนี้
+const TOGGLE_COLS = [
+  { key: 'status', label: 'สถานะ' },
+  { key: 'stock',  label: 'คงเหลือ' },
+  { key: 'order',  label: 'ต้องซื้อ · มูลค่า' },
+  { key: 'ssrop',  label: 'SS · ROP' },
+  { key: 'usage',  label: 'ใช้/เดือน' },
+  { key: 'ven',    label: 'VEN' },
+];
+
 // ────────────────────────────────────────────────────────────
 // Analysis tab — table (desktop) + cards (mobile)
 // ────────────────────────────────────────────────────────────
@@ -925,6 +935,14 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, months }) 
   const [sortBy, setSortBy] = useState('status'); // status | amount | gap
   const [exporting, setExporting] = useState(false);
   const [detailRow, setDetailRow] = useState(null); // แถวที่เปิด side panel
+  const [visibleCols, setVisibleCols] = useState(() => new Set(TOGGLE_COLS.map(c => c.key))); // แสดงครบเป็น default
+  const [colMenuOpen, setColMenuOpen] = useState(false);
+  const showCol = (k) => visibleCols.has(k);
+  const toggleCol = (k) => setVisibleCols(prev => {
+    const next = new Set(prev);
+    next.has(k) ? next.delete(k) : next.add(k);
+    return next;
+  });
 
   const sorted = useMemo(() => {
     const arr = [...rows];
@@ -985,9 +1003,34 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, months }) 
             <button key={o.v} onClick={() => setSortBy(o.v)} className={`px-2.5 py-1 rounded-md ${sortBy === o.v ? 'bg-orange-100 text-orange-700 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}>{o.l}</button>
           ))}
         </div>
-        <button onClick={exportCsv} disabled={exporting} className="flex items-center gap-1.5 text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-medium">
-          {exporting ? <Loader2 size={13} className="animate-spin"/> : <FileSpreadsheet size={13}/>} Export Excel
-        </button>
+        <div className="flex items-center gap-2">
+          {/* จัดการคอลัมน์ — desktop เท่านั้น (mobile เป็น card แสดงทุก field) */}
+          <div className="relative hidden md:block">
+            <button onClick={() => setColMenuOpen(o => !o)}
+              className="flex items-center gap-1.5 text-xs sm:text-sm bg-white border border-slate-300 hover:border-slate-400 text-slate-700 px-3 py-1.5 rounded-lg font-medium transition-colors">
+              <ListChecks size={13}/> จัดการคอลัมน์
+            </button>
+            {colMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setColMenuOpen(false)}/>
+                <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-lg border border-slate-200 py-1.5 z-20">
+                  {TOGGLE_COLS.map(c => (
+                    <button key={c.key} onClick={() => toggleCol(c.key)}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 text-left">
+                      <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${showCol(c.key) ? 'bg-orange-500 border-orange-500 text-white' : 'border-slate-300'}`}>
+                        {showCol(c.key) && <CheckCircle2 size={11}/>}
+                      </span>
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <button onClick={exportCsv} disabled={exporting} className="flex items-center gap-1.5 text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-medium">
+            {exporting ? <Loader2 size={13} className="animate-spin"/> : <FileSpreadsheet size={13}/>} Export Excel
+          </button>
+        </div>
       </div>
 
       {/* Desktop table — light sticky header + frozen first column (ดู /sticky-table) */}
@@ -996,17 +1039,17 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, months }) 
           <thead className="sticky top-0 z-20">
             <tr className="text-slate-500 border-b border-slate-200">
               <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide sticky left-0 z-30 bg-slate-50 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">รายการยา</th>
-              <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">สถานะ</th>
-              <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">คงเหลือ</th>
-              <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">ต้องซื้อ · มูลค่า</th>
-              <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">SS · ROP</th>
-              <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">ใช้/เดือน</th>
-              <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50">VEN</th>
+              {showCol('status') && <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">สถานะ</th>}
+              {showCol('stock') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">คงเหลือ</th>}
+              {showCol('order') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">ต้องซื้อ · มูลค่า</th>}
+              {showCol('ssrop') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">SS · ROP</th>}
+              {showCol('usage') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">ใช้/เดือน</th>}
+              {showCol('ven') && <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50">VEN</th>}
               <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50">จัดการ</th>
             </tr>
           </thead>
           <tbody>
-            {sorted.map((r, i) => <AnalysisRow key={r.code + i} r={r} ordered={!!orderedMap[codeKey(r.code)]} toggleOrdered={() => toggleOrdered(r.code)} onOpen={() => setDetailRow(r)} onEdit={() => onEdit({ code: r.code, name: r.name, supplier: r.supplier, risk_group: r.riskGroup, lead_time_days: r.leadTimeDays, price_per_unit: r.pricePerUnit })}/>)}
+            {sorted.map((r, i) => <AnalysisRow key={r.code + i} r={r} visibleCols={visibleCols} ordered={!!orderedMap[codeKey(r.code)]} toggleOrdered={() => toggleOrdered(r.code)} onOpen={() => setDetailRow(r)} onEdit={() => onEdit({ code: r.code, name: r.name, supplier: r.supplier, risk_group: r.riskGroup, lead_time_days: r.leadTimeDays, price_per_unit: r.pricePerUnit })}/>)}
           </tbody>
           {/* ยอดรวมท้ายตาราง — sticky ล่าง รวมเฉพาะแถวที่แสดง (Rule #6) */}
           <tfoot className="sticky bottom-0 z-20">
@@ -1014,15 +1057,17 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, months }) 
               <td className="px-3 py-2.5 sticky left-0 z-30 bg-slate-100 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
                 รวม <span className="font-normal text-slate-400 text-xs">({fmtNum(sorted.length)} รายการ)</span>
               </td>
-              <td className="bg-slate-100"/>
-              <td className="px-3 py-2.5 text-right tabular-nums bg-slate-100">{fmtNum(footTotals.stock)}</td>
-              <td className="px-3 py-2.5 text-right tabular-nums bg-slate-100">
-                {footTotals.orderQty > 0 && <div>{fmtNum(footTotals.orderQty)}</div>}
-                {footTotals.amount > 0 && <div className="text-emerald-700">฿{fmtBaht(footTotals.amount)}</div>}
-              </td>
-              <td className="bg-slate-100"/>
-              <td className="bg-slate-100"/>
-              <td className="bg-slate-100"/>
+              {showCol('status') && <td className="bg-slate-100"/>}
+              {showCol('stock') && <td className="px-3 py-2.5 text-right tabular-nums bg-slate-100">{fmtNum(footTotals.stock)}</td>}
+              {showCol('order') && (
+                <td className="px-3 py-2.5 text-right tabular-nums bg-slate-100">
+                  {footTotals.orderQty > 0 && <div>{fmtNum(footTotals.orderQty)}</div>}
+                  {footTotals.amount > 0 && <div className="text-emerald-700">฿{fmtBaht(footTotals.amount)}</div>}
+                </td>
+              )}
+              {showCol('ssrop') && <td className="bg-slate-100"/>}
+              {showCol('usage') && <td className="bg-slate-100"/>}
+              {showCol('ven') && <td className="bg-slate-100"/>}
               <td className="bg-slate-100"/>
             </tr>
           </tfoot>
@@ -1039,12 +1084,13 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, months }) 
   );
 }
 
-function AnalysisRow({ r, ordered, toggleOrdered, onEdit, onOpen }) {
+function AnalysisRow({ r, ordered, toggleOrdered, onEdit, onOpen, visibleCols }) {
   const meta = STATUS_META[r.status] || STATUS_META[STATUS.SUFFICIENT];
   const tone = TONE_CLASSES[meta.tone];
   const Icon = meta.icon;
   const gap = r.stock - r.rop;
   const ropPct = r.rop > 0 ? Math.min(100, Math.round((r.stock / r.rop) * 100)) : null;
+  const showCol = (k) => !visibleCols || visibleCols.has(k);
   return (
     <tr className={`border-t border-slate-100 transition-colors ${ordered ? 'bg-emerald-50/50' : 'bg-white hover:bg-slate-50'}`}>
       {/* รายการยา + แถบสีสถานะซ้าย (scan เร็วโดยไม่ต้องอ่าน chip) — คลิกชื่อเปิดรายละเอียด */}
@@ -1061,45 +1107,57 @@ function AnalysisRow({ r, ordered, toggleOrdered, onEdit, onOpen }) {
         </div>
       </td>
       {/* สถานะ — ติดชื่อยา เพื่อเห็นก่อนตัวเลข */}
-      <td className="px-3 py-2.5 text-center">
-        <span className={`inline-flex items-center gap-1 ${tone.chip} px-2 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap`}>
-          <Icon size={11}/> {r.status}
-        </span>
-      </td>
+      {showCol('status') && (
+        <td className="px-3 py-2.5 text-center">
+          <span className={`inline-flex items-center gap-1 ${tone.chip} px-2 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap`}>
+            <Icon size={11}/> {r.status}
+          </span>
+        </td>
+      )}
       {/* คงเหลือ + coverage + bar เทียบ ROP */}
-      <td className="px-3 py-2.5 text-right">
-        <div className="font-bold tabular-nums text-slate-800">{fmtNum(r.stock)}</div>
-        <div className="text-[10px] text-slate-400">อยู่ได้ {fmtCoverage(r.stock, r.avgDay)}</div>
-        {ropPct != null && (
-          <div className="w-24 bg-slate-100 rounded-full h-1.5 mt-1 ml-auto overflow-hidden" title={`${ropPct}% ของ ROP`}>
-            <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${ropPct}%` }}/>
-          </div>
-        )}
-      </td>
+      {showCol('stock') && (
+        <td className="px-3 py-2.5 text-right">
+          <div className="font-bold tabular-nums text-slate-800">{fmtNum(r.stock)}</div>
+          <div className="text-[10px] text-slate-400">อยู่ได้ {fmtCoverage(r.stock, r.avgDay)}</div>
+          {ropPct != null && (
+            <div className="w-24 bg-slate-100 rounded-full h-1.5 mt-1 ml-auto overflow-hidden" title={`${ropPct}% ของ ROP`}>
+              <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${ropPct}%` }}/>
+            </div>
+          )}
+        </td>
+      )}
       {/* ต้องซื้อ + มูลค่า — ข้อมูลตัดสินใจรวม cell เดียว */}
-      <td className="px-3 py-2.5 text-right tabular-nums">
-        {r.orderQty > 0 ? (
-          <>
-            <div className="font-bold text-slate-800">{fmtNum(r.orderQty)}</div>
-            {(r.packFactor || 1) > 1 && <div className="text-[10px] text-slate-400">= {fmtNum(r.orderQty * r.packFactor)} {parseUnitFactor(r.unit).base}</div>}
-            {r.amount > 0 && <div className="text-xs font-bold text-emerald-700">฿{fmtBaht(r.amount)}</div>}
-          </>
-        ) : <span className="text-slate-300">—</span>}
-      </td>
+      {showCol('order') && (
+        <td className="px-3 py-2.5 text-right tabular-nums">
+          {r.orderQty > 0 ? (
+            <>
+              <div className="font-bold text-slate-800">{fmtNum(r.orderQty)}</div>
+              {(r.packFactor || 1) > 1 && <div className="text-[10px] text-slate-400">= {fmtNum(r.orderQty * r.packFactor)} {parseUnitFactor(r.unit).base}</div>}
+              {r.amount > 0 && <div className="text-xs font-bold text-emerald-700">฿{fmtBaht(r.amount)}</div>}
+            </>
+          ) : <span className="text-slate-300">—</span>}
+        </td>
+      )}
       {/* SS · ROP + ขาดเท่าไหร่ (เฉพาะต่ำกว่า ROP) */}
-      <td className="px-3 py-2.5 text-right text-xs tabular-nums whitespace-nowrap">
-        <div className="text-slate-400">SS <span className="font-semibold text-slate-700">{fmtNum(r.ss)}</span></div>
-        <div className="text-slate-400 mt-0.5">ROP <span className="font-semibold text-slate-700">{fmtNum(r.rop)}</span></div>
-        {gap < 0 && <div className="text-rose-600 font-semibold mt-0.5">ขาด {fmtNum(-gap)}</div>}
-      </td>
+      {showCol('ssrop') && (
+        <td className="px-3 py-2.5 text-right text-xs tabular-nums whitespace-nowrap">
+          <div className="text-slate-400">SS <span className="font-semibold text-slate-700">{fmtNum(r.ss)}</span></div>
+          <div className="text-slate-400 mt-0.5">ROP <span className="font-semibold text-slate-700">{fmtNum(r.rop)}</span></div>
+          {gap < 0 && <div className="text-rose-600 font-semibold mt-0.5">ขาด {fmtNum(-gap)}</div>}
+        </td>
+      )}
       {/* การใช้ต่อเดือน (Avg เด่น, Max รอง) */}
-      <td className="px-3 py-2.5 text-right tabular-nums">
-        <div className="font-semibold text-slate-700">{fmtNum(r.avgMonth)}</div>
-        <div className="text-[10px] text-slate-400">Max {fmtNum(r.max)}</div>
-      </td>
-      <td className="px-3 py-2.5 text-center">
-        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.riskGroup === 'Critical' ? 'bg-rose-50 border-rose-200 text-rose-700' : r.riskGroup === 'Normal' ? 'bg-slate-100 border-slate-200 text-slate-600' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>{venLetter(r.riskGroup)}</span>
-      </td>
+      {showCol('usage') && (
+        <td className="px-3 py-2.5 text-right tabular-nums">
+          <div className="font-semibold text-slate-700">{fmtNum(r.avgMonth)}</div>
+          <div className="text-[10px] text-slate-400">Max {fmtNum(r.max)}</div>
+        </td>
+      )}
+      {showCol('ven') && (
+        <td className="px-3 py-2.5 text-center">
+          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.riskGroup === 'Critical' ? 'bg-rose-50 border-rose-200 text-rose-700' : r.riskGroup === 'Normal' ? 'bg-slate-100 border-slate-200 text-slate-600' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>{venLetter(r.riskGroup)}</span>
+        </td>
+      )}
       <td className="px-3 py-2.5 text-center">
         <div className="flex items-center justify-center gap-1">
           <button onClick={toggleOrdered} title={ordered ? 'ยกเลิกการสั่ง' : 'สั่งแล้ว'}
