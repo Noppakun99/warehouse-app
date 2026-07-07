@@ -528,7 +528,7 @@ export async function fetchDashboardAlerts() {
 //   (ไม่ dedup — เป็นภาพรวม trend เหมือน count chart เดิม; ตัวเลข authoritative ดูในโมดอลสรุปของแต่ละหน้า)
 // ผล: { dispense:[{ym,label,count,value}], receive:[...], maxValueMonth, maxReceiveValueMonth, trend:{dispensePct,receivePct} }
 export async function fetchDashboardCharts(months = 6) {
-  const empty = { dispense: [], receive: [], trend: { dispensePct: null, receivePct: null } }
+  const empty = { dispense: [], receive: [], trend: { dispensePct: null, receivePct: null, dispenseLabels: {}, receiveLabels: {} } }
   if (!supabase) return empty
 
   // สร้างกรอบเดือน YYYY-MM ย้อนหลัง (เก่า→ใหม่) + label ไทยย่อ
@@ -602,14 +602,25 @@ export async function fetchDashboardCharts(months = 6) {
     receiveByMonth(),
   ])
 
-  // trend % = เดือนล่าสุด vs เดือนก่อนหน้า (null ถ้าเดือนก่อนหน้า = 0 → เทียบไม่ได้)
-  const pct = (arr, key) => {
-    if (arr.length < 2) return null
-    const prev = arr[arr.length - 2][key]
-    const cur = arr[arr.length - 1][key]
-    if (!prev) return null
-    return Math.round(((cur - prev) / prev) * 100)
+  // trend % = 2 เดือนล่าสุดที่ "จบแล้ว" เทียบกัน (เช่น มิ.ย. vs พ.ค.)
+  // ตัดเดือนปัจจุบันที่ยังไม่จบออก ไม่งั้นเทียบเดือนครึ่งใบกับเดือนเต็ม → เพี้ยน (↓98/99%)
+  // (concept เดียวกับ "เรท" CONTEXT.md ที่ตัดเดือนล่าสุดที่ยังไม่ครบ)
+  const curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const pctInfo = (arr, key) => {
+    if (arr.length < 2) return { pct: null, curLabel: null, prevLabel: null }
+    // ตัดเดือนปัจจุบัน (ยังไม่จบ) ออกก่อนหาคู่เทียบ
+    const done = arr[arr.length - 1].ym === curYm ? arr.slice(0, -1) : arr
+    if (done.length < 2) return { pct: null, curLabel: null, prevLabel: null }
+    const prevRow = done[done.length - 2]
+    const curRow = done[done.length - 1]
+    if (!prevRow[key]) return { pct: null, curLabel: curRow.label, prevLabel: prevRow.label }
+    return {
+      pct: Math.round(((curRow[key] - prevRow[key]) / prevRow[key]) * 100),
+      curLabel: curRow.label, prevLabel: prevRow.label,
+    }
   }
+  const dispenseTrend = pctInfo(dispense, 'value')
+  const receiveTrend = pctInfo(receive, 'value')
 
   // เดือนที่มูลค่าสูงสุด (สำหรับคำสรุปบน Dashboard) — เบิก + รับ
   const maxValueOf = (arr) => arr.reduce(
@@ -621,7 +632,11 @@ export async function fetchDashboardCharts(months = 6) {
     dispense, receive,
     maxValueMonth: maxValueOf(dispense),
     maxReceiveValueMonth: maxValueOf(receive),
-    trend: { dispensePct: pct(dispense, 'value'), receivePct: pct(receive, 'value') },
+    trend: {
+      dispensePct: dispenseTrend.pct, receivePct: receiveTrend.pct,
+      dispenseLabels: { cur: dispenseTrend.curLabel, prev: dispenseTrend.prevLabel },
+      receiveLabels: { cur: receiveTrend.curLabel, prev: receiveTrend.prevLabel },
+    },
   }
 }
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  AreaChart, Area,
+  AreaChart, Area, ComposedChart,
 } from 'recharts';
 import SearchableSelect from './SearchableSelect';
 import {
@@ -1529,7 +1529,9 @@ function DashboardCharts({ charts, lowStock = [], onOpenReorder, onOpenDispense,
             <p className="text-xs text-slate-400 mt-1.5">มูลค่าเบิกจ่ายรวม (บาท)</p>
             <div className="flex items-center gap-2 mt-3">
               <TrendBadge pct={trend.dispensePct} />
-              <span className="text-xs text-slate-400">เทียบเดือนก่อน</span>
+              <span className="text-xs text-slate-400">
+                {trend.dispenseLabels?.cur ? `${trend.dispenseLabels.cur} เทียบ ${trend.dispenseLabels.prev}` : 'เทียบเดือนก่อน'}
+              </span>
             </div>
           </div>
 
@@ -1572,16 +1574,21 @@ function DashboardCharts({ charts, lowStock = [], onOpenReorder, onOpenDispense,
             <span className="text-sm font-bold text-slate-700">มูลค่าการรับเข้ารายเดือน</span>
             {receiveTotal > 0 && <span className="text-xs text-slate-400">รวม {fmtBaht(receiveTotal)}</span>}
           </div>
-          <TrendBadge pct={trend.receivePct} />
+          <div className="flex items-center gap-1.5">
+            <TrendBadge pct={trend.receivePct} />
+            {trend.receiveLabels?.cur && <span className="text-xs text-slate-400 hidden sm:inline">{trend.receiveLabels.cur} เทียบ {trend.receiveLabels.prev}</span>}
+          </div>
         </div>
         <ResponsiveContainer width="100%" height={170}>
-          <BarChart data={receive} margin={{ top: 5, right: 12, left: -8, bottom: 0 }}>
+          <ComposedChart data={receive} margin={{ top: 5, right: 12, left: -8, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
             <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={44} tickFormatter={fmtBahtShort} />
             <Tooltip formatter={(v) => [fmtBaht(v), 'มูลค่ารับเข้า']} cursor={{ fill: '#f8fafc' }} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
             <Bar dataKey="value" fill="#38bdf8" radius={[6, 6, 0, 0]} maxBarSize={40} />
-          </BarChart>
+            {/* เส้นแนวโน้ม — เห็นทิศทางเพิ่ม/ลดชัดกว่าแท่งอย่างเดียว */}
+            <Line type="monotone" dataKey="value" stroke="#0369a1" strokeWidth={2} dot={{ r: 2.5, fill: '#0369a1' }} activeDot={{ r: 4 }} />
+          </ComposedChart>
         </ResponsiveContainer>
 
         {/* คำสรุป: เดือนรับเข้ามูลค่าสูงสุด + ลิงก์ไปประวัติรับยา */}

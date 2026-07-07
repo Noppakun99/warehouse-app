@@ -468,12 +468,16 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
   );
 
   const momTrend = useMemo(() => {
-    const lastM = monthlyTrend[monthlyTrend.length - 1];
-    const prevM = monthlyTrend[monthlyTrend.length - 2];
+    // เทียบ 2 เดือนล่าสุดที่ "จบแล้ว" — ตัดเดือนปัจจุบันที่ยังไม่จบออก ไม่งั้นเทียบเดือนครึ่งใบ → เพี้ยน
+    const curYm = new Date().toISOString().slice(0, 7);
+    const done = monthlyTrend.length && monthlyTrend[monthlyTrend.length - 1].month === curYm
+      ? monthlyTrend.slice(0, -1) : monthlyTrend;
+    const lastM = done[done.length - 1];
+    const prevM = done[done.length - 2];
     if (!lastM || !prevM || prevM.value === 0) return null;
     const diff = lastM.value - prevM.value;
     const pct  = diff / prevM.value * 100;
-    return { pct, diff, label: lastM.label, up: pct > 0 };
+    return { pct, diff, label: lastM.label, prevLabel: prevM.label, up: pct > 0 };
   }, [monthlyTrend]);
 
   const displayedDepts = showAllDepts ? topDeptsValue : topDeptsValue.slice(0, 5);
@@ -687,7 +691,7 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                     <p className={`text-sm font-semibold ${momTrend.up ? 'text-orange-700' : 'text-emerald-700'}`}>
                       เดือน {momTrend.label} มูลค่าการเบิก{momTrend.up ? 'เพิ่มขึ้น' : 'ลดลง'}{' '}
                       <strong>{fmtMoney(Math.abs(momTrend.diff))}</strong>{' '}
-                      ({momTrend.up ? '+' : ''}{momTrend.pct.toFixed(1)}%) จากเดือนก่อน
+                      ({momTrend.up ? '+' : ''}{momTrend.pct.toFixed(1)}%) จากเดือน {momTrend.prevLabel}
                     </p>
                   </div>
                 )}
