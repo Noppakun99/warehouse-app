@@ -100,6 +100,35 @@ card ที่แสดงรายละเอียด 1 รายการ (d
 
 **หลักการ:** card `rounded-2xl` + `hover:shadow-md transition-all` · ไอคอนหัวใน chip สีธีม · กล่องย่อย `rounded-xl` (ไม่ใช่ `-lg`) label `text-[11px] uppercase tracking-wider` value เด่น · กล่องที่มีความหมายพิเศษ (exp ใกล้หมด/บิล) เปลี่ยนสีทั้งกล่อง
 
+### Stat card (สรุปตัวเลข 3 ใบ — gradient + เงามีสี + hero glow)
+
+แถบ stat 3 ใบเหนือตาราง (นับ / ปริมาณ / มูลค่า) — **สีทึบ gradient** + **เงามีสีตามการ์ด** (ลอยเด่นสไตล์ dashboard). **ใบที่เป็น theme ของหน้า** (รับ=emerald, เบิก=rose) ทำเป็น hero มี glow มุมบน; อีก 2 ใบคงสีแยกความหมาย (นับ=slate, มูลค่าเงิน=amber)
+
+```jsx
+<div className="grid grid-cols-3 gap-3">
+  {/* ใบทั่วไป: gradient + เงาสีตามการ์ด */}
+  <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
+    <p className="text-2xl font-bold text-white tabular-nums">2,440</p>
+    <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ</p>
+  </div>
+
+  {/* ใบ hero (สีธีมหน้า): + glow มุมบน — ต้อง relative overflow-hidden แล้ววาง <span> radial */}
+  <div className="relative overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-700 rounded-2xl p-3.5 text-center shadow-lg shadow-emerald-300/60">
+    <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
+    <p className="relative text-2xl font-bold text-white tabular-nums">792,085</p>
+    <p className="relative text-xs text-emerald-50 mt-0.5">ปริมาณรับรวม</p>
+  </div>
+
+  {/* มูลค่าเงิน = amber เสมอ */}
+  <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
+    <p className="text-2xl font-bold text-white tabular-nums">32,372,250</p>
+    <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวม (บาท)</p>
+  </div>
+</div>
+```
+
+**หลักการ:** `bg-gradient-to-br from-{c}-400/500 to-{c}-700/800` + `shadow-lg shadow-{c}-300/60` (เงาสีตามการ์ด ไม่ใช่ `shadow-sm` เทา) · `rounded-2xl` · ตัวเลข `tabular-nums` · glow = `<span>` radial `bg-white/25 blur-xl` (ต้อง `relative overflow-hidden` บน card + `relative` บนข้อความ ไม่งั้น glow ทับตัวเลข) · **คงสีแยกความหมาย** — glow ใส่เฉพาะใบ theme หน้า อย่าให้ทุกใบสีเดียวกัน (scan ยาก)
+
 ---
 
 ## Typography
@@ -343,6 +372,6 @@ card ที่แสดงรายละเอียด 1 รายการ (d
 - ห้ามใช้ arbitrary values เช่น `w-[123px]` ถ้าหลีกเลี่ยงได้
 - ห้ามสร้างไฟล์ `.css` หรือใช้ `<style>` tag ใน component
 - ห้ามใช้ `rounded-md` — ใช้ `rounded-xl` หรือ `rounded-2xl` เท่านั้น (ยกเว้น chip/pill เล็กใช้ `rounded-full`/`rounded-md` ได้)
-- ห้ามใช้ `shadow-lg` ใน card ปกติ — ใช้ `shadow-sm` เท่านั้น
+- card ข้อมูลปกติใช้ `shadow-sm` — **ยกเว้น stat card / detail card** ที่ตั้งใจให้ลอยเด่น ใช้ `shadow-lg shadow-{สี}-300` (เงามีสี) ได้
 - คอลัมน์ตัวเลขในตาราง **ต้องมี `tabular-nums`** ให้เรียงตรงหลัก — อย่าปล่อยเลขลอยไม่จัดหลัก
 - อย่าเอาสไตล์ history-table (header จาง) ไปใช้กับตาราง sticky-column analytics (ต้อง header เข้ม)
