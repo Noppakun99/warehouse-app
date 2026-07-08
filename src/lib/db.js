@@ -427,6 +427,37 @@ export async function fetchDashboardAlerts() {
     }
   } catch { /* ถ้า table ยังไม่มี (pre-migration) ก็ผ่าน */ }
 
+  // การเบิก 3 เดือนปฏิทินล่าสุด ต่อ drug_code — ใช้จัดลำดับ lowStock (ขาดบ่อย = ต้องซื้อก่อน)
+  //   weeks   = จำนวนสัปดาห์ปฏิทินไม่ซ้ำที่มีการเบิก (เบิกเกือบทุกสัปดาห์ = ขาดไม่ได้)
+  //   usage3m = ยอดเบิกรวม (หน่วยเดียวกับยานั้น — ไม่ข้ามยา จึงหน่วยไม่ปน) แสดงเสริม
+  // ไม่ใช่ "เรท" ตาม glossary (4 เดือนปิดงวด) — เป็น proxy ความเร่งด่วนจากความถี่เบิกล่าสุด
+  const usageByCode = new Map() // ck → { weeks:Set, usage3m }
+  try {
+    const since = new Date(today); since.setMonth(since.getMonth() - 3)
+    const sinceStr = since.toISOString().slice(0, 10)
+    const weekOf = (iso) => { const d = new Date(iso); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return d.toISOString().slice(0, 10) } // จันทร์ต้นสัปดาห์
+    const PAGE = 1000
+    let from = 0
+    while (true) {
+      const { data: dl } = await supabase.from('dispense_logs')
+        .select('drug_code, qty_out, dispense_date')
+        .gte('dispense_date', sinceStr)
+        .gt('qty_out', 0)
+        .range(from, from + PAGE - 1)
+      if (!dl || dl.length === 0) break
+      for (const r of dl) {
+        const ck = (r.drug_code || '').trim().toLowerCase()
+        if (!ck || ck === '-') continue
+        const cur = usageByCode.get(ck) || { weeks: new Set(), usage3m: 0 }
+        cur.usage3m += parseFloat(r.qty_out) || 0
+        if (r.dispense_date) cur.weeks.add(weekOf(r.dispense_date))
+        usageByCode.set(ck, cur)
+      }
+      if (dl.length < PAGE) break
+      from += PAGE
+    }
+  } catch { /* ถ้าโหลด dispense ไม่ได้ ก็ปล่อยว่าง (เรียงตาม ratio เดิม) */ }
+
   const expiring = []
   const pendingReceive = []
   // aggregate stock ระดับ "code" (ไม่ใช่ per-lot) ให้ตรงกับระบบสั่งยาใหม่
@@ -497,11 +528,14 @@ export async function fetchDashboardAlerts() {
     const exc = excludeByCode.get(ck)
     if (exc === 'ตัดออก' || exc === 'สั่งเมื่อขอ') continue
     if (c.ss > 0 && c.qty < c.ss) {
+      const u = usageByCode.get(ck)
       lowStock.push({
         name: c.name, code: c.code, qty: c.qty,
         safety_stock: c.ss, location: c.location,
         type: c.type, unit: c.unit,
         ratio: c.qty / c.ss,
+        usageWeeks: u ? u.weeks.size : 0,
+        usage3m: u ? u.usage3m : 0,
       })
     }
   }
@@ -516,7 +550,14 @@ export async function fetchDashboardAlerts() {
 
   return {
     expiring:       expiring.sort((a, b) => a.expDate - b.expDate),
-    lowStock:       lowStock.sort((a, b) => a.ratio - b.ratio),
+    // เรียงความเร่งด่วน: (1) ของหมด (qty≤0) ก่อน (2) เบิกถี่ต่อสัปดาห์ก่อน (ขาดไม่ได้)
+    //   (3) ยอดเบิกมากก่อน (4) ของเหลือน้อยกว่าก่อน — ถ้าไม่ซื้อ สัปดาห์หน้าไม่มีจ่าย
+    lowStock:       lowStock.sort((a, b) =>
+      ((a.qty <= 0 ? 0 : 1) - (b.qty <= 0 ? 0 : 1)) ||
+      (b.usageWeeks - a.usageWeeks) ||
+      (b.usage3m - a.usage3m) ||
+      (a.ratio - b.ratio)
+    ),
     pendingReceive,
   }
 }
@@ -1324,7 +1365,7 @@ export async function fetchStockSummary() {
 
   // inventory paginate ครบทุก row — ไม่งั้นยาที่เรียงท้าย (เช่นน้ำเกลือ) หายจากรายการคงเหลือ (Critical Rule #2)
   const [invData, recRes] = await Promise.all([
-    fetchAllInventoryRows('code, name, type, unit, qty, receive_status'),
+    fetchAllInventoryRows('code, name, type, unit, qty, lot, exp, receive_status'),
     supabase.from('receive_logs')
       .select('drug_code, drug_unit, receive_date, purchase_type, price_per_unit')
       .not('drug_unit', 'is', null)
@@ -1353,7 +1394,7 @@ export async function fetchStockSummary() {
     const key = (row.code && row.code !== '-') ? row.code.trim() : (row.name || '').trim();
     if (!key) return;
     if (!drugMap[key]) drugMap[key] = { code: row.code, name: row.name, type: row.type, lots: [] };
-    drugMap[key].lots.push({ unit: row.unit, qty });
+    drugMap[key].lots.push({ unit: row.unit, qty, lot: row.lot, exp: row.exp });
   });
 
   return Object.values(drugMap).map(drug => {
@@ -1371,6 +1412,16 @@ export async function fetchStockSummary() {
     });
 
     const totalInMain = mainParsed.factor > 0 ? totalSmallest / mainParsed.factor : totalSmallest;
+    // ราย lot คงเหลือ (qty>0 อยู่แล้ว) เรียง FEFO — ให้ผู้ใช้กางดูแต่ละ lot ในโมดอล
+    const lots = drug.lots
+      .map(l => ({ lot: (l.lot && l.lot !== '-') ? l.lot : '', exp: (l.exp && l.exp !== '-') ? l.exp : '', qty: l.qty, unit: l.unit }))
+      .sort((a, b) => {
+        const da = _parseExpDate(a.exp), db_ = _parseExpDate(b.exp);
+        if (da && db_) return da - db_;
+        if (da) return -1;
+        if (db_) return 1;
+        return 0;
+      });
     return {
       code: drug.code,
       name: drug.name,
@@ -1380,6 +1431,7 @@ export async function fetchStockSummary() {
       hasMultipleUnits,
       units: uniqueUnits,
       lotCount: drug.lots.length,
+      lots,
     };
   })
   .filter(d => d.totalQty > 0)
