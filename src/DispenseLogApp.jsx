@@ -876,16 +876,19 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     };
     const [countResult, data, minResult, maxResult] = await Promise.all([
       applyFilters(supabase.from('dispense_logs').select('*', { count: 'exact', head: true })),
-      fetchAllRows(() => applyFilters(supabase.from('dispense_logs').select('qty_out, price_per_unit, drug_unit'))),
+      fetchAllRows(() => applyFilters(supabase.from('dispense_logs').select('qty_out, price_per_unit, drug_unit, drug_code, drug_name'))),
       applyFilters(supabase.from('dispense_logs').select('dispense_date').not('dispense_date', 'is', null).order('dispense_date', { ascending: true }).limit(1)),
       applyFilters(supabase.from('dispense_logs').select('dispense_date').not('dispense_date', 'is', null).order('dispense_date', { ascending: false }).limit(1)),
     ]);
     const { count } = countResult;
-    const totalQty   = data.reduce((s, r) => s + (r.qty_out || 0), 0);
+    // "จำนวนชนิดยา" = distinct drug — ไม่รวม qty ดิบข้ามหน่วย (เม็ด/ขวด/amp บวกกันไม่ได้ ผิดหลักคลัง)
+    const drugCount = new Set(
+      data.map(r => (r.drug_code && r.drug_code !== '-') ? r.drug_code.trim() : (r.drug_name || '').trim()).filter(Boolean)
+    ).size;
     const totalValue = data.reduce((s, r) => s + ((r.qty_out || 0) * (getPrice(r) || 0)), 0);
     const minDate = minResult.data?.[0]?.dispense_date || null;
     const maxDate = maxResult.data?.[0]?.dispense_date || null;
-    setAggStats({ count: count ?? data.length, totalQty, totalValue, minDate, maxDate });
+    setAggStats({ count: count ?? data.length, drugCount, totalValue, minDate, maxDate });
   }, [search, deptFilter, dateFrom, dateTo]);
 
   useEffect(() => { const t = setTimeout(loadAgg, 300); return () => clearTimeout(t); }, [loadAgg]);
@@ -1209,8 +1212,8 @@ function DispenseView({ isAdmin = false, auth = {} }) {
             </div>
             <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-3.5 text-center shadow-lg shadow-rose-300/60">
               <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
-              <p className="relative text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.totalQty.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
-              <p className="relative text-xs text-rose-50 mt-0.5">ปริมาณรวมออก{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
+              <p className="relative text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.drugCount.toLocaleString() : '...'}</p>
+              <p className="relative text-xs text-rose-50 mt-0.5">จำนวนชนิดยา{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
             </div>
             <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
               <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
