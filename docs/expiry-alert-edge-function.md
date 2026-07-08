@@ -75,13 +75,79 @@ if (error) alert('ส่งล้มเหลว: ' + error.message);
 else alert(`ส่งสำเร็จ ${data.total} รายการ`);
 ```
 
+## ช่องทาง LINE กลุ่ม (เพิ่มควบคู่ email)
+
+Edge Function เดียวกันส่งได้ทั้ง email + LINE — เลือกด้วย `channel` ใน request body:
+
+| body | ช่องทาง | ใช้โดย |
+|---|---|---|
+| `{}` หรือ `{"channel":"email"}` | email | cron รายวัน (`expiry-alert-daily`) + ปุ่มในแอป |
+| `{"channel":"line"}` | LINE | cron สัปดาห์ละครั้ง (`expiry-alert-line-weekly`) |
+| `{"channel":"both"}` | ทั้งคู่ | ทดสอบ manual |
+
+### ทำไม LINE สัปดาห์ละครั้ง ไม่ใช่รายวัน (สำคัญ)
+
+**LINE Notify ปิดบริการแล้ว** (31 มี.ค. 2025) — ใช้ **Messaging API** (push เข้ากลุ่ม) แทน. Push เข้ากลุ่ม **นับเป็นรายหัว**: กลุ่ม N คน = N ข้อความ/ครั้ง. Free tier = **200 ข้อความ/เดือน**.
+
+- กลุ่ม ~19 คน × สัปดาห์ละครั้ง × 4 = **76 ข้อความ/เดือน** < 200 ✅ (มี headroom)
+- ถ้าส่งรายวัน: 19 × 30 = 570 → ทะลุ free tier → ต้องจ่าย Standard Plan
+- ⚠️ **ถ้ากลุ่มโต >40 คน ต้องทบทวนความถี่** — ดู log `LINE push:` ใน Edge Function logs เพื่อดูแนวโน้ม
+
+LINE ใช้ `LINE_WARNING_DAYS=365` (ต่างจาก email `WARNING_DAYS=400`) — 365 ครอบนโยบายบริษัทที่ต้อง "แจ้งก่อนหมดอายุ 1 ปี" (สยามฟาร์มา/พอนด์เคมีคอล). ดู `csvfile/นโยบาย.csv` + CONTEXT.md §"Expiry / Return Alert".
+
+### Setup LINE (ทำครั้งเดียว)
+
+**1. สร้าง LINE Official Account + Messaging API channel**
+1. ไปที่ https://developers.line.biz/console/ → สร้าง Provider → สร้าง Messaging API channel
+2. ในแท็บ **Messaging API** → เปิด **"Allow bot to join group chats"** (ปิดเป็น default)
+3. copy **Channel access token** (long-lived) จากแท็บ Messaging API
+
+**2. ตั้ง token เป็น secret**
+```bash
+supabase secrets set LINE_CHANNEL_ACCESS_TOKEN=<channel access token>
+supabase secrets set LINE_WARNING_DAYS=365
+```
+
+**3. หา `groupId` ของกลุ่ม** (ต้องมี webhook ชั่วคราวครั้งเดียว)
+
+> ⚠️ **อย่าเติม webhook handler ลงใน `expiry-alert` production** — production function ยิงจาก cron ด้วย `Authorization: Bearer` และเปิด JWT verify; LINE webhook ยิงมาแบบไม่มี header นั้น (ใช้ `X-Line-Signature`) จะโดน reject 401 ก่อนถึงโค้ด. ใช้ **function ชั่วคราวแยกตัว** แทน แล้วลบทิ้ง.
+
+1. สร้าง function ชั่วคราว `supabase/functions/line-webhook/index.ts`:
+   ```ts
+   Deno.serve(async (req) => {
+     const body = await req.json().catch(() => ({}));
+     console.log("LINE webhook:", JSON.stringify(body));  // groupId อยู่ใน events[].source.groupId
+     return new Response("ok");
+   });
+   ```
+2. deploy แบบปิด JWT: `supabase functions deploy line-webhook --no-verify-jwt`
+3. เอา URL (`https://<REF>.supabase.co/functions/v1/line-webhook`) ไปตั้งใน LINE Console → Messaging API → **Webhook URL** + เปิด **Use webhook**
+4. **เชิญบอทเข้ากลุ่ม** (เพิ่มเป็นเพื่อนด้วย QR/ID แล้วเชิญเข้ากลุ่ม) — หมายเหตุ: 1 กลุ่มมี OA ได้แค่ 1 บัญชี
+5. **พิมพ์อะไรก็ได้ในกลุ่ม 1 ข้อความ** → เปิด function logs (`supabase functions logs line-webhook`) → จะเห็น `source.groupId` = `Cxxxxxxxx...`
+6. ตั้ง secret: `supabase secrets set LINE_GROUP_ID=Cxxxxxxxx...`
+7. **ลบ function + webhook ทิ้ง**: `supabase functions delete line-webhook` + ปิด Use webhook ใน Console
+
+**4. ทดสอบ + เปิด cron**
+```bash
+# ทดสอบ LINE อย่างเดียว
+curl -X POST "https://<REF>.supabase.co/functions/v1/expiry-alert" \
+  -H "Authorization: Bearer <ANON_KEY>" -H "Content-Type: application/json" \
+  -d '{"channel":"line"}'
+```
+response ควรได้ `{ ok:true, line:{ sent:true, ... } }`. ถ้า `line:"skip:..."` = ไม่มียาเข้าเกณฑ์ (ปกติ). ถ้า token/group ไม่ตั้ง → `line:{ sent:false, error:"...ไม่ได้ตั้ง..." }`.
+
+จากนั้นรัน `expiry_alert_cron.sql` (มี job LINE `expiry-alert-line-weekly` แล้ว).
+
 ## เปลี่ยนแปลงการตั้งค่า
 
 | ต้องการ | ทำยังไง |
 |---|---|
-| เปลี่ยน warningDays | `supabase secrets set WARNING_DAYS=300` |
+| เปลี่ยน warningDays (email) | `supabase secrets set WARNING_DAYS=300` |
+| เปลี่ยน warningDays (LINE) | `supabase secrets set LINE_WARNING_DAYS=365` |
 | เพิ่ม/ลด email | `supabase secrets set ALERT_EMAILS=a@x.com,b@y.com` |
-| เปลี่ยนเวลา cron | แก้ใน Dashboard SQL: `SELECT cron.unschedule('expiry-alert-daily');` แล้ว schedule ใหม่ |
+| เปลี่ยนกลุ่ม LINE | `supabase secrets set LINE_GROUP_ID=<groupId ใหม่>` |
+| ปิด LINE ชั่วคราว | `SELECT cron.unschedule('expiry-alert-line-weekly');` (email ยังทำงาน) |
+| เปลี่ยนเวลา/ความถี่ cron | แก้ใน Dashboard SQL: `unschedule` แล้ว `schedule` ใหม่ |
 | แก้ logic / template | แก้ `supabase/functions/expiry-alert/index.ts` → `supabase functions deploy expiry-alert` |
 
 ## Critical Rules (บทเรียนจาก migration จริง)
@@ -91,6 +157,9 @@ else alert(`ส่งสำเร็จ ${data.total} รายการ`);
 3. **เช็คข้อมูลใน DB ก่อนสรุปว่า code bug** — เมื่ออีเมลโชว์ข้อมูลไม่ครบ มีโอกาสสูงที่ CSV ต้นทางกรอกไม่ครบ ไม่ใช่ code ดึงพลาด (ตัวอย่าง: Phenobarbital มี `drug_swap_policy` แค่ "เงื่อนไขเดียวกันทุกรายการ" ใน DB เพราะ col 2+3 ใน CSV ว่าง)
 4. **`_matchHeader()` fuzzy match อาจ route header ผิด** — เพราะใช้ `includes()` หลัง exact match fail (ดู [db.js:184-193](../src/lib/db.js#L184)). header CSV ที่มีคำว่า "เปลี่ยน" อาจถูก map เป็น `supplier_changed` ทั้งที่ตั้งใจให้เป็น `swap_condition`
 5. **ใช้ `service_role` key ใน Edge Function** ไม่ใช่ anon key — เพราะต้อง bypass RLS เพื่อดึง inventory ทั้งหมด
+6. **LINE Notify ตายแล้ว** (สิ้นสุด 31 มี.ค. 2025, docs ลบ 12 พ.ค. 2025) — ต้องใช้ Messaging API (push เข้ากลุ่ม) เท่านั้น
+7. **groupId capture ห้ามปนใน production function** — webhook LINE ยิงมาแบบไม่มี `Authorization: Bearer` → JWT verify reject 401. ใช้ function ชั่วคราว `--no-verify-jwt` แยกตัวแล้วลบ (ดู Setup LINE ข้อ 3)
+8. **LINE push นับรายหัว** — คุม volume ด้วย **ความถี่ cron (สัปดาห์ละครั้ง)** ไม่ใช่แค่ guard `total===0` (ยาตัวเดิมเข้าเกณฑ์ทุกวันติดกันหลายเดือน → push ซ้ำทุกวันถ้าตั้งรายวัน)
 
 ## Troubleshooting
 
