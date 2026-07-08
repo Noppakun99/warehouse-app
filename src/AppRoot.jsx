@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  AreaChart, Area, ComposedChart,
+  AreaChart, Area, ComposedChart, LabelList,
 } from 'recharts';
 import SearchableSelect from './SearchableSelect';
 import {
@@ -20,7 +20,7 @@ import RequisitionApp     from './RequisitionApp';
 import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
-import { fetchDashboardAlerts, fetchDashboardCharts, fetchNotifications, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary } from './lib/db';
+import { fetchDashboardAlerts, fetchDashboardCharts, fetchNotifications, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows } from './lib/db';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
@@ -31,6 +31,7 @@ import StockCountApp      from './StockCountApp';
 import DashboardV2Preview from './DashboardV2Preview'; // prototype ชั่วคราว — เปิดด้วย ?v2 (ลบได้ทั้งบรรทัด)
 import AppShell           from './AppShell';
 import { printInspectWorksheet } from './lib/inspectWorksheet';
+import { printReturnForm, printVendorExchangeForm } from './lib/returnForm';
 
 
 // ============================================================
@@ -89,6 +90,8 @@ export default function AppRoot() {
   // action item ใน sidebar (เมนู "แบบฟอร์มต่างๆ") — ทำ action ไม่เปิดหน้า/ไม่เข้า navStack
   const runFormAction = (action) => {
     if (action === 'inspectWorksheet') printInspectWorksheet();
+    else if (action === 'returnForm') printReturnForm();
+    else if (action === 'vendorExchangeForm') printVendorExchangeForm();
   };
 
   // early-return หลัง hooks ทั้งหมด (Rules of Hooks) — prototype ?v2
@@ -905,14 +908,19 @@ const EXPIRY_EXCEL_COLS = [
   { header: 'Lot',          key: 'lot' },
   { header: 'วันหมดอายุ', key: 'exp' },
   { header: 'สถานะ',       value: r => r.daysLeft < 0 ? `หมดอายุแล้ว ${Math.abs(r.daysLeft)} วัน` : r.daysLeft === 0 ? 'หมดอายุวันนี้' : `อีก ${r.daysLeft} วัน` },
+  { header: 'บริษัท',      key: 'supplier' },
+  { header: 'นโยบายเปลี่ยนยา', key: 'swapPolicy' },
   { header: 'คงเหลือ',     key: 'qty' },
   { header: 'หน่วย',       key: 'unit' },
 ];
 
 function ExpiryAlertSection({ expiring = [], onClose, auth }) {
   const [filter, setFilter]     = React.useState('all'); // all | expired | soon30 | soon90 | soon180 | soon16m
+  const [zoneFilter, setZoneFilter] = React.useState('all'); // โซนที่เก็บ A/B/C ... (จาก location prefix)
+  const [search, setSearch]     = React.useState('');
   const [expanded, setExpanded] = React.useState(false);
   const [exporting, setExporting] = React.useState(false);
+  const [drugDetails, setDrugDetails] = React.useState(null); // receive_logs detail — เติมบริษัท/นโยบายเปลี่ยนยา (เหมือนโมดอลระบบแผนผัง)
   const [isMobile, setIsMobile] = React.useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
 
   React.useEffect(() => {
@@ -921,9 +929,53 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
     return () => window.removeEventListener('resize', fn);
   }, []);
 
+  // โหลด drugDetails ตอนเปิดโมดอลเท่านั้น (query receive_logs ทั้งหมด — หนัก จึง lazy)
+  React.useEffect(() => {
+    fetchDrugDetails().then(setDrugDetails).catch(() => setDrugDetails(null));
+  }, []);
+
   if (expiring.length === 0) return null;
 
-  const filtered = expiring.filter(r => {
+  // เติมบริษัท + นโยบายเปลี่ยนยา + โซน จาก drugDetails (ตรรกะเดียวกับโมดอลระบบแผนผัง App.jsx)
+  const lookupDetail = (item) => {
+    if (!drugDetails) return null;
+    const code = (item.code || '-').trim().toLowerCase();
+    const lot  = (item.lot  || '-').trim().toLowerCase();
+    return Object.values(drugDetails).find(d =>
+      (d._code || '').toLowerCase() === code && (d._lot || '').toLowerCase() === lot
+    ) || null;
+  };
+  const buildSwapPolicy = (d) => {
+    if (!d) return '';
+    const parts = [];
+    if (d._drug_swap_policy && d._drug_swap_policy !== '-') parts.push(d._drug_swap_policy);
+    if (d.supplier_changed && d.supplier_changed !== '-')   parts.push(d.supplier_changed);
+    return parts.join(' | ');
+  };
+  const zoneOf = (r) => {
+    const m = (r.location || '').trim().toUpperCase().match(/^([A-Z]+)/);
+    return m ? m[1] : '-';
+  };
+  const enriched = expiring.map(item => {
+    const d = lookupDetail(item);
+    return { ...item, supplier: d?.supplier_current || d?._company || '', swapPolicy: buildSwapPolicy(d), zone: zoneOf(item) };
+  });
+
+  // ค้นชื่อยา / รหัส / เลขบิล (invoice ไม่มีใน expiring — ค้นจาก name/code)
+  const q = search.trim().toLowerCase();
+  const searched = q
+    ? enriched.filter(r => (r.name || '').toLowerCase().includes(q) || (r.code || '').toLowerCase().includes(q))
+    : enriched;
+
+  // filter โซนที่เก็บ (นับจาก searched เพื่อให้ตัวเลข chip ตรงกับที่ค้นเจอ)
+  const zoneGroups = (() => {
+    const map = new Map();
+    searched.forEach(r => map.set(r.zone, (map.get(r.zone) || 0) + 1));
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'en', { numeric: true }));
+  })();
+  const zoneScoped = zoneFilter !== 'all' ? searched.filter(r => r.zone === zoneFilter) : searched;
+
+  const filtered = zoneScoped.filter(r => {
     if (filter === 'expired') return r.daysLeft < 0;
     if (filter === 'soon30')  return r.daysLeft >= 0 && r.daysLeft < 30;
     if (filter === 'soon90')  return r.daysLeft >= 30 && r.daysLeft < 90;
@@ -932,11 +984,13 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
     return true;
   });
 
-  const expiredCount = expiring.filter(r => r.daysLeft < 0).length;
-  const soon30Count  = expiring.filter(r => r.daysLeft >= 0 && r.daysLeft < 30).length;
-  const soon90Count  = expiring.filter(r => r.daysLeft >= 30 && r.daysLeft < 90).length;
-  const soon180Count = expiring.filter(r => r.daysLeft >= 90 && r.daysLeft < 180).length;
-  const soon16mCount = expiring.filter(r => r.daysLeft >= 180).length;
+  // นับจาก zoneScoped (หลัง search+zone) เพื่อให้ตัวเลขบน tab ตรงกับที่ตารางแสดง
+  const allCount     = zoneScoped.length;
+  const expiredCount = zoneScoped.filter(r => r.daysLeft < 0).length;
+  const soon30Count  = zoneScoped.filter(r => r.daysLeft >= 0 && r.daysLeft < 30).length;
+  const soon90Count  = zoneScoped.filter(r => r.daysLeft >= 30 && r.daysLeft < 90).length;
+  const soon180Count = zoneScoped.filter(r => r.daysLeft >= 90 && r.daysLeft < 180).length;
+  const soon16mCount = zoneScoped.filter(r => r.daysLeft >= 180).length;
 
   const fmtExp = (raw) => {
     if (!raw || raw === '-') return '-';
@@ -1000,10 +1054,28 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
         </div>
       </div>
 
-      {/* Filter tabs */}
+      {/* Search bar */}
+      <div className="px-5 pt-3">
+        <DrugSearchBar
+          value={search}
+          onChange={setSearch}
+          options={(() => {
+            const seen = new Map();
+            expiring.forEach(item => { if (item.name && !seen.has(item.name)) seen.set(item.name, item.type || ''); });
+            return [...seen.entries()].map(([name, type]) => ({ name, type }));
+          })()}
+          placeholder="ค้นหาชื่อยา, รหัสยา..."
+          ringClass="focus:ring-red-400"
+          hoverClass="hover:bg-red-50"
+          maxResults={20}
+          inputClassName="py-2 bg-slate-50"
+        />
+      </div>
+
+      {/* Filter tabs (ช่วงเวลา) */}
       <div className="flex gap-2 px-5 pt-3 pb-1 overflow-x-auto">
         {[
-          { key: 'all',     label: 'ทั้งหมด',          count: expiring.length,  active: 'bg-slate-700 text-white' },
+          { key: 'all',     label: 'ทั้งหมด',          count: allCount,         active: 'bg-slate-700 text-white' },
           { key: 'expired', label: 'หมดอายุแล้ว',       count: expiredCount,     active: 'bg-red-600 text-white' },
           { key: 'soon30',  label: 'ภายใน 30 วัน',      count: soon30Count,      active: 'bg-orange-500 text-white' },
           { key: 'soon90',  label: '1–3 เดือน',          count: soon90Count,      active: 'bg-yellow-500 text-white' },
@@ -1027,6 +1099,28 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
         ))}
       </div>
 
+      {/* Filter tabs (โซนที่เก็บ) */}
+      {zoneGroups.length > 1 && (
+        <div className="flex gap-2 px-5 pt-1 pb-1 overflow-x-auto">
+          <button onClick={() => { setZoneFilter('all'); setExpanded(false); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
+              zoneFilter === 'all' ? 'bg-red-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+            }`}>
+            ทั้งหมด
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter === 'all' ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{searched.length}</span>
+          </button>
+          {zoneGroups.map(([zone, n]) => (
+            <button key={zone} onClick={() => { setZoneFilter(zone); setExpanded(false); }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
+                zoneFilter === zone ? 'bg-red-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+              }`}>
+              {zone}
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter === zone ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{n}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Table (desktop) / Card list (mobile) */}
       {filtered.length === 0 ? (
         <p className="text-center text-slate-400 text-sm py-6">ไม่มีรายการในหมวดนี้</p>
@@ -1049,13 +1143,19 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                 <div><span className="text-slate-400">Lot:</span> <span className="text-slate-700">{r.lot || '-'}</span></div>
                 <div><span className="text-slate-400">Exp:</span> <span className="text-slate-700">{fmtExp(r.exp)}</span></div>
                 <div className="col-span-2"><span className="text-slate-400">คงเหลือ:</span> <span className="text-slate-800 font-bold">{r.qty || '-'}</span> <span className="text-slate-500">{r.unit || ''}</span></div>
+                {r.supplier && (
+                  <div className="col-span-2"><span className="text-slate-400">บริษัท:</span> <span className="text-slate-700">{r.supplier}</span></div>
+                )}
+                {r.swapPolicy && (
+                  <div className="col-span-2"><span className="text-slate-400">นโยบายเปลี่ยนยา:</span> <span className="text-slate-700">{r.swapPolicy}</span></div>
+                )}
               </div>
             </div>
           ))}
         </div>
       ) : (
         <div className="overflow-auto" style={{ maxHeight: onClose ? 'calc(90vh - 200px)' : 'calc(100vh - 420px)' }}>
-          <table className="w-full text-xs min-w-[600px]">
+          <table className="w-full text-xs min-w-[860px]">
             <thead className="sticky top-0 z-20">
               <tr className="text-slate-500 font-semibold border-b border-slate-100 bg-slate-50">
                 <th className="px-4 py-2 text-left bg-slate-50">ชื่อยา</th>
@@ -1064,6 +1164,8 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                 <th className="px-4 py-2 text-left bg-slate-50">Lot</th>
                 <th className="px-4 py-2 text-center bg-slate-50">วันหมดอายุ</th>
                 <th className="px-4 py-2 text-center bg-slate-50">สถานะ</th>
+                <th className="px-4 py-2 text-left bg-slate-50">บริษัท</th>
+                <th className="px-4 py-2 text-left bg-slate-50">นโยบายเปลี่ยนยา</th>
                 <th className="px-4 py-2 text-right bg-slate-50">คงเหลือ</th>
                 <th className="px-4 py-2 text-left bg-slate-50">หน่วย</th>
               </tr>
@@ -1085,6 +1187,10 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                     <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${badgeColor(r.daysLeft)}`}>
                       {daysLabel(r.daysLeft)}
                     </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-700 text-xs max-w-[160px] truncate" title={r.supplier || '-'}>{r.supplier || '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-600 text-xs max-w-[220px]" title={r.swapPolicy || '-'}>
+                    <span className="line-clamp-2 leading-snug">{r.swapPolicy || '-'}</span>
                   </td>
                   <td className="px-4 py-2.5 text-right font-bold text-slate-700">{r.qty || '-'}</td>
                   <td className="px-4 py-2.5 text-slate-500">{r.unit || '-'}</td>
@@ -1249,6 +1355,13 @@ function StockSummaryModal({ onClose, auth = {} }) {
   const [uploadInfo, setUploadInfo] = React.useState(null);
   const [isMobile, setIsMobile]     = React.useState(() => window.innerWidth < 768);
   const [sortBy, setSortBy]         = React.useState(null); // null | { key: 'name'|'lot'|'qty', dir: 'asc'|'desc' }
+  const [expanded, setExpanded]     = React.useState(() => new Set()); // key ยาที่กางดูราย lot
+
+  const toggleExpand = (key) => setExpanded(prev => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
 
   const cycleSort = (key) => setSortBy(prev => {
     if (!prev || prev.key !== key) return { key, dir: 'asc' };
@@ -1391,24 +1504,51 @@ function StockSummaryModal({ onClose, auth = {} }) {
           ) : isMobile ? (
             /* ── Mobile card list ── */
             <div className="divide-y divide-slate-100">
-              {sortedFiltered.map((r, i) => (
-                <div key={r.code || r.name || i} className="px-4 py-3 flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-slate-800 text-sm leading-snug truncate">{r.name}</p>
-                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      {r.code && r.code !== '-' && <span className="text-[10px] text-slate-400 font-mono">{r.code}</span>}
-                      <DrugTypeBadge type={r.type} />
-                      {r.hasMultipleUnits && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200">~หลายหน่วย</span>
-                      )}
+              {sortedFiltered.map((r, i) => {
+                const rowKey = r.code || r.name || i;
+                const isOpen = expanded.has(rowKey);
+                const lots = r.lots || [];
+                return (
+                <div key={rowKey}>
+                  <div onClick={() => lots.length > 0 && toggleExpand(rowKey)}
+                    className={`px-4 py-3 flex items-center gap-3 ${lots.length > 0 ? 'cursor-pointer active:bg-sky-50' : ''}`}>
+                    {lots.length > 0 && (isOpen
+                      ? <ChevronDown size={16} className="text-sky-500 shrink-0"/>
+                      : <ChevronRight size={16} className="text-slate-300 shrink-0"/>)}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-slate-800 text-sm leading-snug truncate">{r.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        {r.code && r.code !== '-' && <span className="text-[10px] text-slate-400 font-mono">{r.code}</span>}
+                        <DrugTypeBadge type={r.type} />
+                        {r.hasMultipleUnits && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200">~หลายหน่วย</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-lg font-bold text-sky-700 leading-tight">{r.totalQty.toLocaleString()}</p>
+                      <p className="text-[10px] text-slate-400">{r.mainUnit} · {r.lotCount} Lot</p>
                     </div>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-lg font-bold text-sky-700 leading-tight">{r.totalQty.toLocaleString()}</p>
-                    <p className="text-[10px] text-slate-400">{r.mainUnit} · {r.lotCount} Lot</p>
-                  </div>
+                  {isOpen && lots.length > 0 && (
+                    <div className="bg-sky-50/50 px-4 pb-2.5 pt-1 space-y-1">
+                      {lots.map((l, li) => (
+                        <div key={`${rowKey}-lot-${li}`} className="flex items-center justify-between text-xs pl-6">
+                          <div className="min-w-0">
+                            <span className="text-slate-400">Lot </span>
+                            <span className="font-mono text-slate-700">{l.lot || '—'}</span>
+                            {l.exp && <span className="text-slate-400 ml-2">EXP {l.exp}</span>}
+                          </div>
+                          <div className="shrink-0 text-slate-600">
+                            <span className="font-semibold text-sky-700">{l.qty.toLocaleString()}</span> {l.unit}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             /* ── Desktop table ── */
@@ -1447,11 +1587,24 @@ function StockSummaryModal({ onClose, auth = {} }) {
                 </tr>
               </thead>
               <tbody>
-                {sortedFiltered.map((r, i) => (
-                  <tr key={r.code || r.name || i} className={`border-b border-slate-100 hover:bg-sky-50 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
+                {sortedFiltered.map((r, i) => {
+                  const rowKey = r.code || r.name || i;
+                  const isOpen = expanded.has(rowKey);
+                  const lots = r.lots || [];
+                  return (
+                  <React.Fragment key={rowKey}>
+                  <tr onClick={() => lots.length > 0 && toggleExpand(rowKey)}
+                    className={`border-b border-slate-100 hover:bg-sky-50 transition-colors ${lots.length > 0 ? 'cursor-pointer' : ''} ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
                     <td className="px-4 py-2.5 sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.04)]">
-                      <p className="font-medium text-slate-800 leading-snug">{r.name}</p>
-                      {r.code && r.code !== '-' && <p className="text-[10px] text-slate-400">{r.code}</p>}
+                      <div className="flex items-center gap-1.5">
+                        {lots.length > 0 && (isOpen
+                          ? <ChevronDown size={14} className="text-sky-500 shrink-0"/>
+                          : <ChevronRight size={14} className="text-slate-300 shrink-0"/>)}
+                        <div>
+                          <p className="font-medium text-slate-800 leading-snug">{r.name}</p>
+                          {r.code && r.code !== '-' && <p className="text-[10px] text-slate-400">{r.code}</p>}
+                        </div>
+                      </div>
                     </td>
                     <td className="px-4 py-2.5"><DrugTypeBadge type={r.type}/></td>
                     <td className="px-4 py-2.5 text-right">
@@ -1468,7 +1621,23 @@ function StockSummaryModal({ onClose, auth = {} }) {
                     <td className="px-4 py-2.5 text-slate-600 text-xs whitespace-nowrap">{r.mainUnit}</td>
                     <td className="px-4 py-2.5 text-center text-slate-400 text-xs">{r.lotCount}</td>
                   </tr>
-                ))}
+                  {isOpen && lots.map((l, li) => (
+                    <tr key={`${rowKey}-lot-${li}`} className="border-b border-slate-100 bg-sky-50/40 text-xs">
+                      <td className="px-4 py-1.5 pl-10 sticky left-0 z-10 bg-sky-50/40 text-slate-600">
+                        <span className="text-slate-400">Lot: </span>
+                        <span className="font-mono text-slate-700">{l.lot || '—'}</span>
+                      </td>
+                      <td className="px-4 py-1.5 text-slate-400">
+                        {l.exp ? <><span className="text-slate-400">EXP </span>{l.exp}</> : '—'}
+                      </td>
+                      <td className="px-4 py-1.5 text-right font-semibold text-sky-700">{l.qty.toLocaleString()}</td>
+                      <td className="px-4 py-1.5 text-slate-500">{l.unit}</td>
+                      <td className="px-4 py-1.5"></td>
+                    </tr>
+                  ))}
+                  </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -1504,6 +1673,7 @@ const fmtBahtShort = (v) => {
 const fmtBaht = (v) => `฿${(Number(v) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
 function DashboardCharts({ charts, lowStock = [], onOpenReorder, onOpenDispense, onOpenReceive }) {
+  const [showTrendLine, setShowTrendLine] = React.useState(true); // เส้นเปรียบเทียบแนวโน้มบนกราฟรับเข้า
   const { dispense = [], receive = [], trend = {}, maxValueMonth = null, maxReceiveValueMonth = null } = charts || {};
   const hasData = dispense.some(d => d.value > 0) || receive.some(r => r.value > 0);
   const top5 = lowStock.slice(0, 5);
@@ -1574,20 +1744,30 @@ function DashboardCharts({ charts, lowStock = [], onOpenReorder, onOpenDispense,
             <span className="text-sm font-bold text-slate-700">มูลค่าการรับเข้ารายเดือน</span>
             {receiveTotal > 0 && <span className="text-xs text-slate-400">รวม {fmtBaht(receiveTotal)}</span>}
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
+            {/* toggle เส้นเปรียบเทียบแนวโน้ม — ให้ user เลือกเปิด/ปิดได้ */}
+            <button onClick={() => setShowTrendLine(v => !v)}
+              className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg border transition-colors ${showTrendLine ? 'bg-sky-50 border-sky-200 text-sky-700' : 'bg-white border-slate-200 text-slate-400 hover:text-slate-600'}`}
+              title={showTrendLine ? 'ซ่อนเส้นเปรียบเทียบ' : 'แสดงเส้นเปรียบเทียบ'}>
+              <TrendingUp size={13} /> เส้นเปรียบเทียบ
+            </button>
             <TrendBadge pct={trend.receivePct} />
             {trend.receiveLabels?.cur && <span className="text-xs text-slate-400 hidden sm:inline">{trend.receiveLabels.cur} เทียบ {trend.receiveLabels.prev}</span>}
           </div>
         </div>
         <ResponsiveContainer width="100%" height={170}>
-          <ComposedChart data={receive} margin={{ top: 5, right: 12, left: -8, bottom: 0 }}>
+          <ComposedChart data={receive} margin={{ top: showTrendLine ? 20 : 5, right: 12, left: -8, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
             <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={44} tickFormatter={fmtBahtShort} />
             <Tooltip formatter={(v) => [fmtBaht(v), 'มูลค่ารับเข้า']} cursor={{ fill: '#f8fafc' }} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-            <Bar dataKey="value" fill="#38bdf8" radius={[6, 6, 0, 0]} maxBarSize={40} />
-            {/* เส้นแนวโน้ม — เห็นทิศทางเพิ่ม/ลดชัดกว่าแท่งอย่างเดียว */}
-            <Line type="monotone" dataKey="value" stroke="#0369a1" strokeWidth={2} dot={{ r: 2.5, fill: '#0369a1' }} activeDot={{ r: 4 }} />
+            <Bar dataKey="value" fill="#7dd3fc" radius={[6, 6, 0, 0]} maxBarSize={40} />
+            {/* เส้นแนวโน้ม — toggle ได้: เปิดแล้วโชว์เส้น + จุดทุกเดือน + ตัวเลขมูลค่ากำกับ (default ซ่อนให้กราฟโล่ง) */}
+            {showTrendLine && (
+              <Line type="monotone" dataKey="value" stroke="#0284c7" strokeWidth={1.5} dot={{ r: 3, fill: '#0284c7', strokeWidth: 0 }} activeDot={{ r: 4, fill: '#0284c7' }}>
+                <LabelList dataKey="value" position="top" offset={8} formatter={fmtBahtShort} style={{ fontSize: 10, fill: '#0369a1', fontWeight: 600 }} />
+              </Line>
+            )}
           </ComposedChart>
         </ResponsiveContainer>
 
@@ -1625,6 +1805,7 @@ function DashboardCharts({ charts, lowStock = [], onOpenReorder, onOpenDispense,
                 <th className="px-4 py-2 font-semibold">ชื่อยา</th>
                 <th className="px-4 py-2 font-semibold text-right">คงเหลือ</th>
                 <th className="px-4 py-2 font-semibold text-right">Safety Stock</th>
+                <th className="px-4 py-2 font-semibold text-right">เบิก 3 เดือน</th>
                 <th className="px-4 py-2 font-semibold text-right">% ของ SS</th>
               </tr>
             </thead>
@@ -1635,8 +1816,16 @@ function DashboardCharts({ charts, lowStock = [], onOpenReorder, onOpenDispense,
                     <p className="font-semibold text-slate-700 leading-tight">{r.name || r.code}</p>
                     <p className="text-xs text-slate-400">{r.code}</p>
                   </td>
-                  <td className="px-4 py-2.5 text-right font-bold text-red-600">{Number(r.qty).toLocaleString()} <span className="font-normal text-slate-400 text-xs">{r.unit}</span></td>
-                  <td className="px-4 py-2.5 text-right text-slate-600">{Number(r.safety_stock).toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-right font-bold text-red-600 whitespace-nowrap">{Number(r.qty).toLocaleString()} <span className="font-normal text-slate-400 text-xs">{r.unit}</span></td>
+                  <td className="px-4 py-2.5 text-right text-slate-600 whitespace-nowrap">{Number(r.safety_stock).toLocaleString()} <span className="text-slate-400 text-xs">{r.unit}</span></td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                    {r.usageWeeks > 0 ? (
+                      <>
+                        <span className="font-semibold text-slate-700">{r.usageWeeks}</span><span className="text-slate-400 text-xs">/13 สัปดาห์</span>
+                        <span className="block text-[11px] text-slate-400">{Number(r.usage3m).toLocaleString()} {r.unit}</span>
+                      </>
+                    ) : <span className="text-slate-300">—</span>}
+                  </td>
                   <td className="px-4 py-2.5 text-right">
                     <span className="inline-block w-12 text-right font-semibold text-amber-600">{Math.round(r.ratio * 100)}%</span>
                   </td>
@@ -1657,8 +1846,14 @@ function DashboardCharts({ charts, lowStock = [], onOpenReorder, onOpenDispense,
                   <span className="text-xs font-semibold text-amber-600 shrink-0">{Math.round(r.ratio * 100)}% ของ SS</span>
                 </div>
                 <p className="text-xs text-slate-500 mt-1">
-                  คงเหลือ <span className="font-bold text-red-600">{Number(r.qty).toLocaleString()}</span> <span className="text-slate-400">{r.unit}</span> / SS {Number(r.safety_stock).toLocaleString()}
+                  คงเหลือ <span className="font-bold text-red-600">{Number(r.qty).toLocaleString()}</span> <span className="text-slate-400">{r.unit}</span> / SS {Number(r.safety_stock).toLocaleString()} {r.unit}
                 </p>
+                {r.usageWeeks > 0 && (
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    <span className="text-slate-400">เบิก</span> <span className="font-semibold text-slate-600">{r.usageWeeks}/13 สัปดาห์</span>
+                    <span className="text-slate-400"> · รวม </span><span className="font-semibold text-slate-600">{Number(r.usage3m).toLocaleString()} {r.unit}</span>
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -1679,10 +1874,16 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] 
   const loadStats = React.useCallback(async () => {
     if (!supabase) return;
     const [inv, pend] = await Promise.all([
-      supabase.from('inventory').select('code'),
+      // paginate ครบทุก row (ข้าม 1000-row limit) + กรองยา 'ตัดออกจากบัญชี' ออก
+      // ให้ตรงกับ "รายการยาในคลังจริง" — pattern เดียวกับ fetchDashboardAlerts (Rule #2/#13)
+      fetchAllInventoryRows('code, receive_status'),
       supabase.from('requisitions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     ]);
-    const uniqueDrugs = new Set((inv.data || []).map(r => r.code).filter(Boolean)).size;
+    const uniqueDrugs = new Set(
+      (inv || [])
+        .filter(r => r.code && !String(r.receive_status || '').includes('ตัดออก'))
+        .map(r => r.code)
+    ).size;
     const pending = pend.count ?? 0;
 
     setStats({ inventory: uniqueDrugs || '-', pending });
