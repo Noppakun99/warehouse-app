@@ -7,6 +7,7 @@ import {
   Package, Database, RotateCcw, TrendingUp, TrendingDown,
   Activity, ShoppingCart, ClipboardList, Users, History, BarChart3, Layers,
   FileText, ClipboardCheck, Send, ScanLine, ListChecks, Building2, ShieldAlert,
+  Undo2, CalendarClock,
 } from 'lucide-react';
 
 // โครงสร้างเมนู — รองรับ 3 แบบใน group.items / children:
@@ -49,6 +50,8 @@ export const NAV_GROUPS = [
         key: 'forms', icon: FileText, title: 'แบบฟอร์มต่างๆ', roles: ['requester', 'staff', 'admin'],
         children: [
           { action: 'inspectWorksheet', icon: ClipboardCheck, title: 'ฟอร์มตรวจรับ', c: 'emerald', roles: ['requester', 'staff', 'admin'] },
+          { action: 'returnForm',        icon: Undo2,         title: 'ฟอร์มคืนยา', c: 'violet', roles: ['requester', 'staff', 'admin'] },
+          { action: 'vendorExchangeForm', icon: CalendarClock, title: 'ฟอร์มคืนยาใกล้หมดอายุ', c: 'orange', roles: ['requester', 'staff', 'admin'] },
         ],
       },
     ],
