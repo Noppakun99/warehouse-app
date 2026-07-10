@@ -115,7 +115,7 @@ export async function fetchDrugDetails() {
   while (true) {
     const { data, error } = await supabase
       .from('receive_logs')
-      .select('drug_code, drug_name, lot, bill_number, exp, supplier_current, supplier_prev, supplier_changed, drug_swap_policy, drug_type, safety_stock, leadtime, sum_of_lead_time, price_per_unit, receive_date, inspect_date, qty_received, receive_status, purchase_type')
+      .select('drug_code, drug_name, lot, bill_number, po_number, exp, supplier_current, supplier_prev, supplier_changed, drug_swap_policy, drug_type, safety_stock, leadtime, sum_of_lead_time, price_per_unit, receive_date, inspect_date, qty_received, receive_status, purchase_type')
       .range(offset, offset + BATCH - 1)
 
     if (error) throw error
@@ -129,6 +129,7 @@ export async function fetchDrugDetails() {
           _name: row.drug_name,
           _lot: row.lot,
           _invoice: row.bill_number,
+          po_number: row.po_number,
           _exp: row.exp,
           _company: row.supplier_current,
           _drug_swap_policy: row.drug_swap_policy,

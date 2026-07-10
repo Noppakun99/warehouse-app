@@ -2090,10 +2090,12 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           const inv  = (item.invoice || '-').trim().toLowerCase();
           const exact = drugDetails[`${code}|${lot}|${inv}`];
           if (exact) return exact;
-          return Object.values(drugDetails || {}).find(d =>
-            (d._code || '').toLowerCase() === code &&
-            (d._lot  || '').toLowerCase() === lot
-          ) || null;
+          const all = Object.values(drugDetails || {});
+          // 1) match รหัส+lot เป๊ะ  2) fallback: match แค่รหัสยา — บริษัท/นโยบายเป็นคุณสมบัติระดับรหัส
+          //    (lot ใน inventory มักไม่มีใน receive_logs → เดิมว่างทั้งคู่พร้อมกัน)
+          return all.find(d => (d._code || '').toLowerCase() === code && (d._lot || '').toLowerCase() === lot)
+              || all.find(d => (d._code || '').toLowerCase() === code)
+              || null;
         };
         const buildSwapPolicy = (d) => {
           if (!d) return '';
@@ -2101,6 +2103,16 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           if (d._drug_swap_policy && d._drug_swap_policy !== '-') parts.push(d._drug_swap_policy);
           if (d.supplier_changed && d.supplier_changed !== '-')   parts.push(d.supplier_changed);
           return parts.join(' | ');
+        };
+        // PO เป็นข้อมูลระดับ lot (ต่าง lot คนละ PO) → match code+lot เป๊ะเท่านั้น ห้าม fallback ระดับรหัส
+        const lookupPo = (item) => {
+          if (!drugDetails) return '';
+          const code = (item.code || '-').trim().toLowerCase();
+          const lot  = (item.lot  || '-').trim().toLowerCase();
+          const d = Object.values(drugDetails).find(x =>
+            (x._code || '').toLowerCase() === code && (x._lot || '').toLowerCase() === lot
+          );
+          return (d?.po_number && d.po_number !== '-') ? d.po_number : '';
         };
         const enriched = trackingModal.list.map(item => {
           const d = lookupDetail(item);
@@ -2110,13 +2122,15 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
             waitDays: computeWaitDays(item),
             supplier: d?.supplier_current || d?._company || '',
             swapPolicy: buildSwapPolicy(d),
+            po: lookupPo(item),
           };
         });
         const q = modalSearch.trim().toLowerCase();
         const searched = q
           ? enriched.filter(item =>
               (item.name || '').toLowerCase().includes(q) ||
-              (item.invoice || '').toLowerCase().includes(q)
+              (item.invoice || '').toLowerCase().includes(q) ||
+              (item.po || '').toLowerCase().includes(q)
             )
           : enriched;
         const zoneOf = (r) => {
@@ -2187,6 +2201,10 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
               { header: 'ชนิด', key: 'type' },
               { header: 'ตำแหน่ง', key: 'location' },
               { header: 'Lot', key: 'lot' },
+              ...(isExpiryMode ? [] : [
+                { header: 'บิลยา', key: 'invoice' },
+                { header: 'PO', key: 'po' },
+              ]),
               { header: 'วันหมดอายุ', key: 'exp' },
               { header: 'คงเหลือ', key: 'qty' },
               { header: 'หน่วย', key: 'unit' },
@@ -2232,7 +2250,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                   });
                   return [...seen.entries()].map(([name, type]) => ({ name, type }));
                 })()}
-                placeholder="ค้นหาชื่อยา, เลขที่บิล..."
+                placeholder="ค้นหาชื่อยา, เลขที่บิล, PO..."
                 ringClass="focus:ring-sky-400"
                 hoverClass="hover:bg-sky-50"
                 maxResults={20}
@@ -2308,11 +2326,17 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                         <div><span className="text-slate-400">Lot:</span> <span className="text-slate-700">{r.lot || '-'}</span></div>
                         <div><span className="text-slate-400">Exp:</span> <span className="text-slate-700">{r.exp || '-'}</span></div>
                         <div className="col-span-2"><span className="text-slate-400">คงเหลือ:</span> <span className="text-slate-800 font-bold">{fmtQty(r)}</span></div>
-                        {!isExpiryMode && r.waitDays != null && (
-                          <div className="col-span-2"><span className="text-slate-400">รอตรวจรับมา:</span> <span className="text-sky-700 font-semibold">{r.waitDays} วัน</span></div>
+                        {!isExpiryMode && (
+                          <div className="col-span-2"><span className="text-slate-400">รอตรวจรับมา:</span> <span className="text-sky-700 font-semibold">{r.waitDays != null ? `${r.waitDays} วัน` : '-'}</span></div>
                         )}
                         {!isExpiryMode && r.receiveStatus && (
                           <div className="col-span-2"><span className="text-slate-400">สถานะ:</span> <span className="text-slate-700">{r.receiveStatus}</span></div>
+                        )}
+                        {!isExpiryMode && (
+                          <div><span className="text-slate-400">บิลยา:</span> <span className="text-indigo-700 font-medium">{normalizeNumericText(r.invoice) || '-'}</span></div>
+                        )}
+                        {!isExpiryMode && (
+                          <div><span className="text-slate-400">PO:</span> <span className="text-slate-700">{r.po || '-'}</span></div>
                         )}
                         {r.supplier && (
                           <div className="col-span-2"><span className="text-slate-400">บริษัท:</span> <span className="text-slate-700">{r.supplier}</span></div>
@@ -2332,6 +2356,8 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                       <th className="px-3 py-2 text-left bg-slate-50">ชนิด</th>
                       <th className="px-3 py-2 text-left bg-slate-50">ตำแหน่ง</th>
                       <th className="px-3 py-2 text-left bg-slate-50">Lot</th>
+                      {!isExpiryMode && <th className="px-3 py-2 text-left bg-slate-50 whitespace-nowrap">บิลยา</th>}
+                      {!isExpiryMode && <th className="px-3 py-2 text-left bg-slate-50 whitespace-nowrap">PO</th>}
                       {isExpiryMode && <th className="px-3 py-2 text-center bg-slate-50">วันหมดอายุ</th>}
                       {isExpiryMode && <th className="px-3 py-2 text-center bg-slate-50">สถานะ</th>}
                       {!isExpiryMode && <th className="px-3 py-2 text-center bg-slate-50">รอตรวจรับมา</th>}
@@ -2351,6 +2377,12 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                         <td className="px-3 py-2.5">{r.type ? <DrugTypeBadge type={r.type} /> : <span className="text-slate-500">-</span>}</td>
                         <td className="px-3 py-2.5 text-slate-600 font-medium whitespace-nowrap">{r.location || '-'}</td>
                         <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">{r.lot || '-'}</td>
+                        {!isExpiryMode && (
+                          <td className="px-3 py-2.5 text-indigo-700 font-medium whitespace-nowrap">{normalizeNumericText(r.invoice) || '-'}</td>
+                        )}
+                        {!isExpiryMode && (
+                          <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{r.po || '-'}</td>
+                        )}
                         {isExpiryMode && (
                           <td className="px-3 py-2.5 text-center font-medium text-slate-700 whitespace-nowrap">{r.exp || '-'}</td>
                         )}

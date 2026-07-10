@@ -941,9 +941,12 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
     if (!drugDetails) return null;
     const code = (item.code || '-').trim().toLowerCase();
     const lot  = (item.lot  || '-').trim().toLowerCase();
-    return Object.values(drugDetails).find(d =>
-      (d._code || '').toLowerCase() === code && (d._lot || '').toLowerCase() === lot
-    ) || null;
+    const all  = Object.values(drugDetails);
+    // 1) match รหัส+lot เป๊ะ  2) fallback: match แค่รหัสยา — บริษัท/นโยบายเป็นคุณสมบัติระดับรหัส
+    //    (lot ใน inventory มักไม่มีใน receive_logs → เดิมว่างทั้งคู่พร้อมกัน)
+    return all.find(d => (d._code || '').toLowerCase() === code && (d._lot || '').toLowerCase() === lot)
+        || all.find(d => (d._code || '').toLowerCase() === code)
+        || null;
   };
   const buildSwapPolicy = (d) => {
     if (!d) return '';
