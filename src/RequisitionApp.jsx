@@ -24,7 +24,9 @@ function IsoDateInput({ value, onChange, className = '', ring = 'focus-within:ri
   return (
     <div className={`relative flex items-center bg-white border border-slate-300 rounded-xl focus-within:ring-2 ${ring} ${className}`}>
       <span className={`px-3 py-2 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
-      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)} className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
+        onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }}
+        className="absolute inset-0 opacity-0 w-full cursor-pointer" />
     </div>
   )
 }
@@ -2645,10 +2647,8 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
   }, [load]);
 
   const pendingCount    = list.filter(r => r.status === 'pending').length;
-  const today           = new Date().toISOString().slice(0, 10);
   const approvedCount   = list.filter(r => r.status === 'approved' || r.status === 'partial').length;
   const pickingCount    = list.filter(r => r.status === 'picking'  || r.status === 'ready').length;
-  const doneTodayCount  = list.filter(r => (r.status === 'dispensed' || r.status === 'received') && (r.updated_at?.slice(0, 10) === today || r.created_at?.slice(0, 10) === today)).length;
 
   const allDepts = [...new Set(list.map(r => r.department).filter(Boolean))].sort();
 
@@ -2682,30 +2682,6 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
         <button onClick={load} className="text-white/70 hover:text-white p-1 transition-colors"><RefreshCcw size={18}/></button>
       </PageHeader>
 
-      {/* Task Summary Strip */}
-      <div className="bg-white border-b border-slate-100 px-3 py-2 flex gap-2 overflow-x-auto">
-        <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-xl px-3 py-1.5 shrink-0">
-          <div className="w-2 h-2 rounded-full bg-red-500"/>
-          <span className="text-xs text-red-600">รอดำเนินการ</span>
-          <span className="text-sm font-bold text-red-700">{pendingCount}</span>
-        </div>
-        <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-xl px-3 py-1.5 shrink-0">
-          <div className="w-2 h-2 rounded-full bg-amber-400"/>
-          <span className="text-xs text-amber-600">รออนุมัติ/จัด</span>
-          <span className="text-sm font-bold text-amber-700">{approvedCount}</span>
-        </div>
-        <div className="flex items-center gap-1.5 bg-purple-50 border border-purple-200 rounded-xl px-3 py-1.5 shrink-0">
-          <div className="w-2 h-2 rounded-full bg-purple-500"/>
-          <span className="text-xs text-purple-600">กำลังจัด/ตรวจ</span>
-          <span className="text-sm font-bold text-purple-700">{pickingCount}</span>
-        </div>
-        <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-1.5 shrink-0">
-          <div className="w-2 h-2 rounded-full bg-emerald-500"/>
-          <span className="text-xs text-emerald-600">เสร็จสิ้นวันนี้</span>
-          <span className="text-sm font-bold text-emerald-700">{doneTodayCount}</span>
-        </div>
-      </div>
-
       {/* Filter Bar — mobile-responsive */}
       <div className="bg-white border-b border-slate-100 px-3 py-2">
         <div className="flex items-center gap-2">
@@ -2732,6 +2708,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
                 {dateFilter ? dateFilter.split('-').reverse().join('/') : 'dd/mm/yyyy'}
               </span>
               <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+                onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }}
                 className="absolute inset-0 opacity-0 w-full cursor-pointer text-base" />
             </div>
             <button onClick={() => setDateFilter('')}
@@ -2761,6 +2738,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
                   {dateFilter ? dateFilter.split('-').reverse().join('/') : 'dd/mm/yyyy'}
                 </span>
                 <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+                  onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }}
                   className="absolute inset-0 opacity-0 w-full cursor-pointer text-base" />
               </div>
               <button onClick={() => setDateFilter('')}
