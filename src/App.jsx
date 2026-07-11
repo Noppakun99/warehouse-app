@@ -2409,6 +2409,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                           </span>
                           <span className="text-xs font-semibold text-slate-700 truncate">{r.name}</span>
                           <span className="text-[11px] text-slate-500 shrink-0">Lot {r.lot} · {r.supplier || 'ไม่ทราบบริษัท'}</span>
+                          {r.exp && r.exp !== '-' && <span className="text-[11px] text-slate-500 shrink-0">หมดอายุ {fmtThaiDate(parseDateString(r.exp))}</span>}
                           <span className="text-[11px] text-slate-500 shrink-0">ต้องคืนภายใน {fmtThaiDate(r.returnInfo.deadline)}</span>
                           {flagged ? (
                             <span className="ml-auto text-[11px] font-semibold text-emerald-600 shrink-0">แจ้งหัวหน้าแล้ว</span>
