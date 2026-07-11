@@ -14,7 +14,8 @@
     "test:alloc": "node src/lib/lotAllocation.test.js",
     "test:ledger": "node src/ledgerRollover.test.js",
     "test:ledgerseed": "node src/ledgerSeed.test.js",
-    "test:consistency": "node src/lib/consistencyCheck.test.js"
+    "test:consistency": "node src/lib/consistencyCheck.test.js",
+    "test:swappolicy": "node src/lib/swapPolicy.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",
