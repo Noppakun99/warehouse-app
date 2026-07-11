@@ -4,7 +4,20 @@ Supabase Edge Function ที่ทำหน้าที่แจ้งเตื
 
 - **Function**: [supabase/functions/expiry-alert/index.ts](../supabase/functions/expiry-alert/index.ts)
 - **Cron migration**: [expiry_alert_cron.sql](../expiry_alert_cron.sql)
-- **Email**: Gmail SMTP (denomailer) — ใช้ App Password ของ Gmail account
+- **Email**: Gmail SMTP (nodemailer) — ใช้ App Password ของ Gmail account
+
+## เนื้อหา email (3 section)
+
+1. **ยาหมดอายุแล้ว** + **2. ยาใกล้หมดอายุ** (ภายใน `WARNING_DAYS`) — ตาราง 11 คอลัมน์:
+   `โซน · ตำแหน่ง · ชนิดยา · ชื่อยา · Lot · Exp · คงเหลือ · หน่วย · บริษัท · นโยบายเปลี่ยนยา · คงเหลือ(วัน)`
+   - **โซน** = ตัวอักษรนำหน้าของ `location` (E-1-4 → E) — logic เดียวกับ `zoneOf` ใน [App.jsx](../src/App.jsx) (pill กรองโซนในโมดอลใกล้หมดอายุ)
+3. **ถึงกำหนดแจ้งเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด** (status `due`+`overdue`) — สิทธิ์เปลี่ยน/คืนยากับบริษัทหมด*ก่อน* exp
+   - ตาราง 7 คอลัมน์: `สถานะ · ชื่อยา · Lot · บริษัท · Exp · ต้องคืนภายใน · นโยบาย(เต็ม)`
+   - logic port ตรงจาก [src/lib/swapPolicy.js](../src/lib/swapPolicy.js) (`parseReturnPolicy` + `computeReturnStatus`, buffer 60 วัน) → ต้องตรงกับ popup "แจ้งหัวหน้า" ในแอป (`fetchSwapReturnDue`). **แก้ logic ที่ swapPolicy.js ต้อง sync มา index.ts ด้วย** (copy ไม่ใช่ import — Deno รัน node module ตรงไม่ได้)
+   - **coverage check (เรท)**: ถ้ายายังเบิกใช้และของจะหมดเองก่อน deadline (คงเหลือรวมต่อรหัส÷เรท 6 เดือน < วันถึง deadline) → แถวจาง + ป้าย "คาดว่าจะหมดเองก่อน" + ดันลงล่าง (*ไม่ตัดออก*). ยาไม่มีเรท (นิ่ง) = ต้องคืน. ดู CONTEXT.md §"ความจำเป็นต้องคืน" — port `fetchUsageRates` + packSize เข้า index.ts ด้วย
+   - **นโยบายเต็ม (raw)** ราย*รหัสยา* จากบิลรับล่าสุด (`receive_logs.drug_swap_policy`) — ยืนยันว่าเป็น policy ของยานั้นจริง
+   - email ส่งแม้ไม่มียาใกล้หมดอายุ ถ้ามีรายการถึงกำหนดคืน (subject รวมทั้งสองยอด)
+   - **section นี้มีเฉพาะ email** — LINE ไม่มี (โดยเจตนา)
 
 ## ฟรี 100%
 

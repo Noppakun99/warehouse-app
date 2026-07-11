@@ -108,8 +108,73 @@ function fmtDate(d: Date): string {
   return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
 }
 
+// โซน = ตัวอักษรนำหน้าของ location (E-1-4 → E). logic เดียวกับ zoneOf ใน App.jsx (pill กรองโซน)
+function zoneOf(location: string | null | undefined): string {
+  const m = String(location || "").trim().toUpperCase().match(/^([A-Z]+)/);
+  return m ? m[1] : "-";
+}
+
 function daysLeft(exp: Date, today: Date): number {
   return Math.floor((exp.getTime() - today.getTime()) / 86400000);
+}
+
+// ============================================================
+// นโยบายเปลี่ยน/คืนยาก่อนพ้นกำหนดบริษัท — port ตรงจาก src/lib/swapPolicy.js
+// (ต้องตรงกับแอป: parseReturnPolicy + computeReturnStatus, buffer 60 วัน)
+// ============================================================
+const RETURN_ALERT_BUFFER_DAYS = 60;
+
+function monthsFromMatch(numStr: string, unit: string): number | null {
+  const n = parseFloat(numStr);
+  if (isNaN(n) || n <= 0) return null;
+  if (unit === "ปี") return Math.round(n * 12);
+  if (unit === "วัน") return Math.max(1, Math.ceil(n / 30));
+  return Math.round(n);
+}
+
+// text → { canReturn, months, differsByItem } (ตรงกับ swapPolicy.js)
+function parseReturnPolicy(text: string): { canReturn: boolean | null; months: number | null; differsByItem: boolean } {
+  const raw = (text || "").trim();
+  if (!raw || raw === "-") return { canReturn: null, months: null, differsByItem: false };
+  const differsByItem = /เงื่อนไข\s*แตกต่าง|แล้วแต่รายการ/.test(raw);
+  const monthRe = /(\d+(?:\.\d+)?)\s*(เดือน|ปี|วัน)/g;
+  let best: number | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = monthRe.exec(raw)) !== null) {
+    const val = monthsFromMatch(m[1], m[2]);
+    if (val == null) continue;
+    if (best == null || val < best) best = val;
+  }
+  if (best != null) return { canReturn: true, months: best, differsByItem };
+  const noReturn = /ไม่รับ(แลก)?(เปลี่ยน|คืน)|ไม่มีนโยบาย(การ)?แลกเปลี่ยน|สงวนสิทธิ์ไม่รับ/.test(raw);
+  if (noReturn) return { canReturn: false, months: null, differsByItem };
+  return { canReturn: null, months: null, differsByItem };
+}
+
+function diffDaysD(a: Date, b: Date): number {
+  const da = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+  const db = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((da.getTime() - db.getTime()) / 86400000);
+}
+
+function subMonths(date: Date, months: number): Date {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setMonth(d.getMonth() - months);
+  return d;
+}
+
+// → { status: 'ok'|'due'|'overdue'|'no_policy', deadline, daysToDeadline } (ตรงกับ swapPolicy.js)
+function computeReturnStatus(exp: Date, months: number | null, today: Date): { status: string; deadline: Date | null; daysToDeadline: number | null } {
+  if (months == null || isNaN(exp.getTime()) || isNaN(today.getTime())) {
+    return { status: "no_policy", deadline: null, daysToDeadline: null };
+  }
+  const deadline = subMonths(exp, months);
+  const daysToDeadline = diffDaysD(deadline, today);
+  let status: string;
+  if (daysToDeadline <= 0) status = "overdue";
+  else if (daysToDeadline <= RETURN_ALERT_BUFFER_DAYS) status = "due";
+  else status = "ok";
+  return { status, deadline, daysToDeadline };
 }
 
 // ============================================================
@@ -131,7 +196,7 @@ function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMa
   const th = `style="background:#e2e8f0;padding:10px 12px;text-align:left;border:1px solid #cbd5e1;font-size:14px;font-weight:bold;color:#334155;white-space:nowrap;"`;
   let html = `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:20px;">`;
   html += "<thead><tr>";
-  ["ตำแหน่ง","ชนิดยา","ชื่อยา","Lot","Exp","คงเหลือ","หน่วย","บริษัท","นโยบายเปลี่ยนยา", isExpired ? "เกินมาแล้ว" : "คงเหลือ (วัน)"].forEach(h => {
+  ["โซน","ตำแหน่ง","ชนิดยา","ชื่อยา","Lot","Exp","คงเหลือ","หน่วย","บริษัท","นโยบายเปลี่ยนยา", isExpired ? "เกินมาแล้ว" : "คงเหลือ (วัน)"].forEach(h => {
     html += `<th ${th}>${h}</th>`;
   });
   html += "</tr></thead><tbody>";
@@ -154,6 +219,7 @@ function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMa
     const swapText = swapParts.length > 0 ? swapParts.join(" | ") : "-";
 
     html += "<tr>";
+    html += `<td style="padding:9px 12px;border:1px solid #e2e8f0;background:${bg};font-size:14px;text-align:center;font-weight:bold;color:#475569;vertical-align:middle;">${zoneOf(row.location)}</td>`;
     html += `<td ${td}>${row.location || "-"}</td>`;
     html += `<td ${td}>${row.type || "-"}</td>`;
     html += `<td ${td}><b style="font-size:15px;">${row.name || "-"}</b></td>`;
@@ -171,7 +237,43 @@ function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMa
   return html;
 }
 
-function buildEmail(expired: AlertItem[], nearExpiry: AlertItem[], today: Date, detailMap: Record<string, DetailEntry>): string {
+// รายการถึงกำหนดเปลี่ยน/คืนบริษัท (status due|overdue) — deadline = exp − returnMonths
+interface ReturnDueItem {
+  r: InvRow; company: string; deadline: Date; daysToDeadline: number; overdue: boolean;
+  policyText: string; avgPerDay: number; coverageDays: number | null; willDeplete: boolean;
+}
+
+function makeReturnDueTable(items: ReturnDueItem[]): string {
+  const th = `style="background:#ffedd5;padding:10px 12px;text-align:left;border:1px solid #fdba74;font-size:14px;font-weight:bold;color:#9a3412;white-space:nowrap;"`;
+  let html = `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:20px;">`;
+  html += "<thead><tr>";
+  ["สถานะ","ชื่อยา","Lot","บริษัท","Exp","ต้องคืนภายใน","นโยบาย (เต็ม)"].forEach(h => { html += `<th ${th}>${h}</th>`; });
+  html += "</tr></thead><tbody>";
+  for (const it of items) {
+    // willDeplete = คาดว่าจะหมดเองก่อน deadline (ตามเรทเบิก) → แถวจาง เตือนว่าอาจไม่ต้องคืน
+    const bg = it.willDeplete ? "#f8fafc" : (it.overdue ? "#fef2f2" : "#fff7ed");
+    const border = it.willDeplete ? "#e2e8f0" : "#fed7aa";
+    const td = `style="padding:9px 12px;border:1px solid ${border};background:${bg};font-size:14px;vertical-align:middle;${it.willDeplete ? "color:#64748b;" : ""}"`;
+    const statusLabel = it.overdue ? "พ้นกำหนด" : `เหลือ ${it.daysToDeadline} วัน`;
+    const statusColor = it.willDeplete ? "#94a3b8" : (it.overdue ? "#dc2626" : "#ea580c");
+    const nameHtml = it.willDeplete
+      ? `${it.r.name || "-"}<br><span style="font-size:12px;color:#059669;">คาดว่าจะหมดเองก่อน (ใช้ ~${Math.round(it.avgPerDay)}/วัน · พอ ~${it.coverageDays} วัน)</span>`
+      : `<b style="font-size:15px;">${it.r.name || "-"}</b>`;
+    html += "<tr>";
+    html += `<td style="padding:9px 12px;border:1px solid ${border};background:${bg};font-weight:bold;color:${statusColor};white-space:nowrap;vertical-align:middle;">${statusLabel}</td>`;
+    html += `<td ${td}>${nameHtml}</td>`;
+    html += `<td ${td}>${it.r.lot || "-"}</td>`;
+    html += `<td ${td}>${it.company || "-"}</td>`;
+    html += `<td ${td}>${fmtDate(parseExpDate(it.r.exp) || new Date())}</td>`;
+    html += `<td style="padding:9px 12px;border:1px solid ${border};background:${bg};font-weight:bold;color:${statusColor};white-space:nowrap;vertical-align:middle;">${fmtDate(it.deadline)}</td>`;
+    html += `<td style="padding:9px 12px;border:1px solid ${border};background:${bg};font-size:12px;color:#475569;vertical-align:middle;">${it.policyText || "-"}</td>`;
+    html += "</tr>";
+  }
+  html += "</tbody></table>";
+  return html;
+}
+
+function buildEmail(expired: AlertItem[], nearExpiry: AlertItem[], returnDue: ReturnDueItem[], today: Date, detailMap: Record<string, DetailEntry>): string {
   let html = `<div style="font-family:'Sarabun','Noto Sans Thai',sans-serif;max-width:1100px;margin:auto;color:#1e293b;font-size:15px;">`;
   html += `<h2 style="color:#b91c1c;border-bottom:3px solid #fee2e2;padding-bottom:10px;font-size:22px;">รายงานยาใกล้หมดอายุ — ${fmtDate(today)}</h2>`;
   html += `<p style="color:#64748b;font-size:14px;">ข้อมูลจากระบบแผนผังคลังยา (Supabase) · แจ้งเตือนอัตโนมัติ</p>`;
@@ -183,6 +285,11 @@ function buildEmail(expired: AlertItem[], nearExpiry: AlertItem[], today: Date, 
   if (nearExpiry.length > 0) {
     html += `<h3 style="color:#d97706;margin-top:28px;font-size:18px;">⚠️ ยาใกล้หมดอายุ ภายใน ${WARNING_DAYS} วัน (${nearExpiry.length} รายการ)</h3>`;
     html += makeTable(nearExpiry, today, false, detailMap);
+  }
+  if (returnDue.length > 0) {
+    html += `<h3 style="color:#ea580c;margin-top:28px;font-size:18px;">🔁 ถึงกำหนดแจ้งเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด (${returnDue.length} รายการ)</h3>`;
+    html += `<p style="color:#9a3412;font-size:13px;margin:0 0 8px;">สิทธิ์เปลี่ยน/คืนยากับบริษัทจะหมดก่อนวันหมดอายุ — ควรแจ้งดำเนินการก่อนถึง "ต้องคืนภายใน"</p>`;
+    html += makeReturnDueTable(returnDue);
   }
 
   html += `<p style="color:#94a3b8;font-size:13px;margin-top:32px;border-top:1px solid #e2e8f0;padding-top:12px;">ส่งอัตโนมัติโดย Supabase Edge Function · ระบบแผนผังคลังยา</p>`;
@@ -285,10 +392,14 @@ Deno.serve(async (req) => {
     const doEmail = channel === "email" || channel === "both";
     const doLine  = channel === "line"  || channel === "both";
 
-    // 1. ดึง inventory + receive_logs
-    const [invRows, recRows] = await Promise.all([
+    // 1. ดึง inventory + receive_logs + dispense_logs (6 เดือน สำหรับ coverage)
+    const usageFrom = new Date();
+    usageFrom.setMonth(usageFrom.getMonth() - 6);
+    const usageFromStr = usageFrom.toISOString().slice(0, 10);
+    const [invRows, recRows, dispRows] = await Promise.all([
       fetchTable("inventory", "code,location,type,name,lot,exp,qty,unit,supplier,receive_status", "order=location"),
       fetchTable("receive_logs", "drug_code,lot,bill_number,supplier_current,drug_swap_policy,supplier_changed,receive_date", "order=receive_date.desc.nullslast"),
+      fetchTable("dispense_logs", "drug_code,qty_out,dispense_date", `dispense_date=gte.${usageFromStr}`),
     ]);
 
     // 2. สร้าง detailMap key="code|lot" + fallback "code|"
@@ -306,6 +417,36 @@ Deno.serve(async (req) => {
       const keyCode = `${code}|`;
       if (!detailMap[keyLot])  detailMap[keyLot]  = entry;
       if (!detailMap[keyCode]) detailMap[keyCode] = entry;
+    }
+
+    // 2b. usage rate (avgPerDay ต่อรหัสยา, เม็ด) — port fetchUsageRates(6): ต้องมีข้อมูล ≥3 เดือน
+    const usageKey = (v: string) => String(v || "").trim().toLowerCase().replace(/^0+(\d)/, "$1");
+    const usageAgg: Record<string, { totalQty: number; months: Set<string> }> = {};
+    for (const r of dispRows) {
+      const code = usageKey(r.drug_code);
+      if (!code) continue;
+      const qty = parseFloat(String(r.qty_out || "0")) || 0;
+      if (qty <= 0) continue;
+      if (!usageAgg[code]) usageAgg[code] = { totalQty: 0, months: new Set() };
+      usageAgg[code].totalQty += qty;
+      if (r.dispense_date) usageAgg[code].months.add(String(r.dispense_date).slice(0, 7));
+    }
+    const avgPerDayByCode: Record<string, number> = {};
+    for (const [code, { totalQty, months }] of Object.entries(usageAgg)) {
+      if (months.size >= 3) avgPerDayByCode[code] = totalQty / (6 * 30);
+    }
+    // คงเหลือรวมต่อรหัสยา (แปลงเป็นเม็ดด้วย packSize จาก unit label) — สำหรับ coverage
+    const parseFactor = (unit: string): number => {
+      const m = String(unit || "").match(/^(\d+)\s*(.+)$/);
+      return m ? parseInt(m[1]) : 1;
+    };
+    const baseStockByCode: Record<string, number> = {};
+    for (const row of invRows) {
+      const qty = parseFloat(String(row.qty || "0").replace(/,/g, ""));
+      if (isNaN(qty) || qty <= 0) continue;
+      if (String(row.receive_status || "").includes("ตัดออก")) continue;
+      const code = usageKey(row.code);
+      baseStockByCode[code] = (baseStockByCode[code] || 0) + qty * parseFactor(row.unit);
     }
 
     // 3. แยก expired / nearExpiry
@@ -334,6 +475,38 @@ Deno.serve(async (req) => {
 
     const total = expired.length + nearExpiry.length;
 
+    // 3b. รายการถึงกำหนดเปลี่ยน/คืนบริษัท (due|overdue) — logic ตรงกับ fetchSwapReturnDue ในแอป
+    const returnDue: ReturnDueItem[] = [];
+    for (const row of invRows) {
+      const qty = parseFloat(String(row.qty || "0").replace(/,/g, ""));
+      if (isNaN(qty) || qty <= 0) continue;
+      if (String(row.receive_status || "").includes("ตัดออก")) continue;
+      const exp = parseExpDate(row.exp);
+      if (!exp) continue;
+      const code = String(row.code || "").trim().toLowerCase();
+      const lot  = String(row.lot  || "").trim().toLowerCase();
+      const d = detailMap[`${code}|${lot}`] || detailMap[`${code}|`];
+      if (!d) continue;
+      const company = d.supplier_current || row.supplier || "";
+      const pol = parseReturnPolicy(d.drug_swap_policy);
+      if (pol.differsByItem || pol.months == null) continue; // ผูกระดับบริษัทไม่ได้ / ไม่มีเดือน → ข้าม (ตรงกับแอป)
+      const { status, deadline, daysToDeadline } = computeReturnStatus(exp, pol.months, today);
+      if ((status !== "due" && status !== "overdue") || !deadline) continue;
+      // coverage: คงเหลือรวม(เม็ด) ÷ เรท(เม็ด/วัน) → ของจะหมดในกี่วัน. หมดก่อน deadline → willDeplete (flag ไม่ตัดออก)
+      const avgPerDay = avgPerDayByCode[usageKey(row.code)] || 0;
+      const baseStock = baseStockByCode[usageKey(row.code)] || 0;
+      const coverageDays = avgPerDay > 0 ? Math.round(baseStock / avgPerDay) : null;
+      const willDeplete = coverageDays != null && coverageDays < (daysToDeadline ?? 0);
+      returnDue.push({
+        r: row, company, deadline, daysToDeadline: daysToDeadline ?? 0, overdue: status === "overdue",
+        policyText: (d.drug_swap_policy || "").trim(), avgPerDay, coverageDays, willDeplete,
+      });
+    }
+    // ต้องคืนจริง (ไม่ willDeplete) ก่อน → ในกลุ่มเดียวกัน เหลือน้อยสุดก่อน (ตรงกับ fetchSwapReturnDue)
+    returnDue.sort((a, b) => (a.willDeplete === b.willDeplete)
+      ? a.daysToDeadline - b.daysToDeadline
+      : (a.willDeplete ? 1 : -1));
+
     // LINE ใช้ threshold แคบกว่า (365) = subset ของ nearExpiry email (400) — filter ไม่ต้อง re-loop
     const lineNear = nearExpiry.filter(it => daysLeft(it.expDate, today) <= LINE_WARNING_DAYS);
     const lineTotal = expired.length + lineNear.length;
@@ -342,11 +515,15 @@ Deno.serve(async (req) => {
     const result: Record<string, unknown> = { ok: true, channel, expired: expired.length };
 
     if (doEmail) {
-      if (total === 0) {
+      // ส่งเมื่อมีอย่างน้อยหมวดใดหมวดหนึ่ง (รวมถึงถึงกำหนดคืนบริษัท แม้ยังไม่ใกล้หมดอายุ)
+      if (total === 0 && returnDue.length === 0) {
         result.email = "skip: ไม่มียาที่ต้องแจ้งเตือน";
       } else {
-        const subject = `[แจ้งเตือน] ยาใกล้หมดอายุ — ${fmtDate(today)} (${total} รายการ)`;
-        const html = buildEmail(expired, nearExpiry, today, detailMap);
+        const subjParts: string[] = [];
+        if (total > 0) subjParts.push(`ใกล้หมดอายุ ${total}`);
+        if (returnDue.length > 0) subjParts.push(`ถึงกำหนดคืน ${returnDue.length}`);
+        const subject = `[แจ้งเตือน] ${subjParts.join(" · ")} — ${fmtDate(today)}`;
+        const html = buildEmail(expired, nearExpiry, returnDue, today, detailMap);
         const transporter = nodemailer.createTransport({
           host: "smtp.gmail.com",
           port: 465,
@@ -360,7 +537,7 @@ Deno.serve(async (req) => {
           text: "กรุณาดูรายละเอียดใน HTML",
           html,
         });
-        result.email = { sent: true, total, nearExpiry: nearExpiry.length };
+        result.email = { sent: true, total, nearExpiry: nearExpiry.length, returnDue: returnDue.length };
       }
     }
 
