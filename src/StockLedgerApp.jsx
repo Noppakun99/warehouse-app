@@ -2,17 +2,36 @@
 // admin: ดู ledger ต่องวด + seed งวดตั้งต้นจาก master CSV + ปิด/เปิดงวด
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  Layers, Upload, Lock, Unlock, RefreshCw, X, CheckCircle, AlertTriangle, Search, PlusCircle,
+  Layers, Upload, Lock, Unlock, RefreshCw, X, CheckCircle, AlertTriangle, Search, PlusCircle, FileDown,
 } from 'lucide-react';
 import {
   fetchLedgerPeriod, fetchLatestLedgerPeriod, bulkInsertLedgerRows,
   closeLedgerPeriod, reopenLedgerPeriod, addLedgerAdjustment,
 } from './lib/db';
+import { exportToExcel } from './lib/exportExcel';
 import { seedFromMasterCsv } from './lib/ledgerSeed';
 import BackButton from './BackButton';
 
 const fmtBaht = (n) => new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
 const fmtNum = (n) => new Intl.NumberFormat('th-TH').format(n || 0);
+
+// คอลัมน์ Excel ส่งบัญชี — ตรงกับตาราง (จำนวน 4 + มูลค่า 4) + หมวด ยา/มิใช่ยา
+const LEDGER_EXCEL_COLS = [
+  { header: 'รหัส', key: 'drug_code' },
+  { header: 'ชื่อยา', key: 'drug_name' },
+  { header: 'Lot', key: 'lot' },
+  { header: 'ชนิดรายการ', key: 'item_type' },
+  { header: 'หมวด', key: 'med_category' },
+  { header: 'ราคา/หน่วย', value: (r) => Number(r.price_per_unit) || 0 },
+  { header: 'ยกมา (จำนวน)', value: (r) => Number(r.opening_qty) || 0 },
+  { header: 'เข้า', value: (r) => Number(r.in_qty) || 0 },
+  { header: 'ออก', value: (r) => Number(r.out_qty) || 0 },
+  { header: 'คงเหลือ', value: (r) => Number(r.closing_qty) || 0 },
+  { header: 'ยกมา (บาท)', value: (r) => Number(r.carry_in_value) || 0 },
+  { header: 'ซื้อ (บาท)', value: (r) => Number(r.in_value) || 0 },
+  { header: 'เบิก (บาท)', value: (r) => Number(r.out_value) || 0 },
+  { header: 'คงคลัง (บาท)', value: (r) => Number(r.closing_value) || 0 },
+];
 
 // 'YYYY-MM' → 'เดือน พ.ศ.' (เช่น 2026-06 → มิ.ย. 2569)
 const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
@@ -328,10 +347,13 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
 
   const handleReopen = async () => {
     if (!period || !isAdmin) return;
-    if (!window.confirm(`ปลดล็อกงวด ${periodLabel(period)}?\nจะกลับมาแก้/นำเข้าทับได้อีกครั้ง.`)) return;
+    // บังคับเหตุผล (หลักบัญชี: แก้งบย้อนหลังต้องมีร่องรอย) → ลง audit
+    const reason = window.prompt(`ปลดล็อกงวด ${periodLabel(period)}?\nจะกลับมาแก้/นำเข้าทับได้อีกครั้ง.\n\nระบุเหตุผลการปลดล็อก (บันทึกลง audit):`);
+    if (reason == null) return;                 // กด Cancel
+    if (!reason.trim()) { setMsg('ปลดล็อกงวดไม่สำเร็จ: ต้องระบุเหตุผล'); return; }
     setBusy(true); setMsg('');
     try {
-      await reopenLedgerPeriod(period, auth);
+      await reopenLedgerPeriod(period, auth, reason.trim());
       setMsg(`ปลดล็อกงวด ${periodLabel(period)} แล้ว`);
       await loadPeriod(period);
     } catch (e) {
@@ -339,6 +361,11 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleExport = () => {
+    if (!period || rows.length === 0) return;
+    exportToExcel(rows, LEDGER_EXCEL_COLS, `ทะเบียนคงคลัง ${periodLabel(period)}`, `ทะเบียนคงคลัง_${period}.xlsx`, auth);
   };
 
   return (
@@ -356,6 +383,11 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
           </div>
           {isAdmin && (
             <div className="flex items-center gap-2 flex-wrap">
+              {period && rows.length > 0 && (
+                <button onClick={handleExport} className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
+                  <FileDown size={14} /> ส่งบัญชี (Excel)
+                </button>
+              )}
               <button onClick={() => setSeedOpen(true)} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
                 <Upload size={14} /> นำเข้างวด (master CSV)
               </button>
