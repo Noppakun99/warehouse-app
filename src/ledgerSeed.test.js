@@ -65,6 +65,20 @@ check('status open', m.status === 'open')
 const cellsND = [...cells]; cellsND[6] = 'เวชภัณฑ์มิใช่ยา'
 check('med_category มิใช่ยา', mapMasterRow(cellsND, '2026-06').med_category === 'เวชภัณฑ์มิใช่ยา')
 
+// บริจาค/สนับสนุน → med_category='บริจาค+สนับสนุน', closing จาก idx29 (ไม่ใช่ idx27)
+const cellsDon = [...cells]; cellsDon[12] = 'บริจาค-ยกยอด'; cellsDon[27] = '0'; cellsDon[29] = '1,785.00'
+const mDon = mapMasterRow(cellsDon, '2026-06')
+check('บริจาค → med_category บริจาค+สนับสนุน', mDon.med_category === 'บริจาค+สนับสนุน')
+check('บริจาค closing จาก idx29 (1785) ไม่ใช่ idx27 (0)', mDon.closing_value === 1785)
+const cellsSup = [...cells]; cellsSup[12] = 'สนับสนุน'; cellsSup[29] = '3,276.00'
+check('สนับสนุน → med_category บริจาค+สนับสนุน', mapMasterRow(cellsSup, '2026-06').med_category === 'บริจาค+สนับสนุน')
+
+// โครงการ → med_category='ยาโครงการ', closing จาก idx34
+const cellsProj = [...cells]; cellsProj[12] = 'ยาโครงการ'; cellsProj[27] = '0'; cellsProj[34] = '46,280.00'
+const mProj = mapMasterRow(cellsProj, '2026-06')
+check('โครงการ → med_category ยาโครงการ', mProj.med_category === 'ยาโครงการ')
+check('โครงการ closing จาก idx34 (46280)', mProj.closing_value === 46280)
+
 // thousands separator + ช่องว่าง
 const cellsBig = [...cells]; cellsBig[27] = ' 2,564.79 '
 check('thousands separator + trim: 2564.79', mapMasterRow(cellsBig, '2026-06').closing_value === 2564.79)
@@ -116,13 +130,14 @@ if (fs.existsSync(csvPath)) {
   check('seed 1014 ledger rows (1015 − 7 summary − 1 merged)', rows.length === 1014)
   check('skipped 7 summary rows', skipped === 7)
   check('merged 1 cost-layer ซ้ำ (dedup กันชน unique index)', merged === 1)
-  // tie-out reference = แถว summary ที่ Excel คำนวณเอง (idx27 = มูลค่าคงคลัง ก.ค.) — ไม่ circular:
-  //   row "เวชภัณฑ์มิใช่ยา" idx27 = 205,381.42 → ตรงเป๊ะกับ seed = หลักฐาน mapping ถูก
-  //   Excel แยก 3 หมวด: ยา 3,757,421.07 / มิใช่ยา 205,381.42 / สมุนไพร_สสจ 47,009;
-  //   seed มี 2 หมวด — สมุนไพร + แถวหมวดพิเศษถูกรวมเป็น drug = 3,802,580.07
+  // tie-out 4 หมวด (บริจาค/โครงการ แยกออกด้วย med_category — ADR-0007 amendment 2026-07-12):
+  //   มิใช่ยา idx27 = 205,381.42 (ตรง summary Excel); บริจาค+สนับสนุน = Σidx29 = 59,298;
+  //   ยาโครงการ = Σidx34 = 138,840; ยา = ที่เหลือ = 3,757,421.07 (บริจาคถูกย้ายออกจากยา)
   check('tie-out มิใช่ยา = 205,381.42 (ตรง summary Excel)', Math.abs(tieOut.nonDrug - 205381.42) < 0.01)
-  check('tie-out ยา = 3,802,580.07', Math.abs(tieOut.drug - 3802580.07) < 0.01)
-  check('tie-out รวม = 4,007,961.49', Math.abs(tieOut.total - 4007961.49) < 0.01)
+  check('tie-out ยา = 3,757,421.07 (บริจาคแยกออกแล้ว)', Math.abs(tieOut.drug - 3757421.07) < 0.01)
+  check('tie-out บริจาค+สนับสนุน = 59,298 (Σidx29)', Math.abs(tieOut.donation - 59298) < 0.01)
+  check('tie-out ยาโครงการ = 138,840 (Σidx34)', Math.abs(tieOut.project - 138840) < 0.01)
+  check('tie-out รวม = 4,160,940.49', Math.abs(tieOut.total - 4160940.49) < 0.01)
   check('ทุกแถวมี drug_code (รวม "-" ของแถวแก้ไขระบบ)', rows.every(r => !!r.drug_code))
   check('ทุกแถว period = 2026-07', rows.every(r => r.period === '2026-07'))
   // dedup: ไม่มี cost-layer key ซ้ำเหลือ (กันชน uq_stock_ledger_row ตอน insert)

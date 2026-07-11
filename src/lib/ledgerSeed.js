@@ -56,12 +56,19 @@ const COL = {
   inValue: 26,      // มูลค่าซื้อยา (บาท)
   closingValue: 27, // มูลค่าคงคลัง มิ.ย (บาท) — authoritative closing
   carryInValue: 28, // มูลค่าคงคลัง พ.ค (บาท) — carry-in
+  donationValue: 29, // มูลค่าคงคลัง(บริจาค+สนับสนุน) — closing ของแถวบริจาค
+  projectValue: 34,  // มูลค่าคงคลัง ยาโครงการ — closing ของแถวโครงการ
 }
 
 // แปลงตัวเลขที่มี thousands separator + ช่องว่าง (เช่น " 3,723,914.26 ")
 const num = (v) => parseFloat(String(v ?? '').replace(/,/g, '').trim()) || 0
 const round4 = (v) => Math.round(num(v) * 1e4) / 1e4
 const str = (v) => String(v ?? '').trim() || '-'
+
+// item_type ที่เป็นบริจาค/สนับสนุน → med_category='บริจาค+สนับสนุน', closing จาก idx29
+const DONATION_TYPES = new Set(['สนับสนุน', 'สนับสนุน2', 'บริจาค', 'บริจาค-ยกยอด', 'บริจาค-ซื้อยา'])
+// item_type โครงการ → med_category='ยาโครงการ', closing จาก idx34
+const PROJECT_TYPES = new Set(['ยาโครงการ'])
 
 // ชนิด (col6) ที่นับเป็น "เวชภัณฑ์มิใช่ยา"
 const NON_DRUG_KIND = 'เวชภัณฑ์มิใช่ยา'
@@ -95,22 +102,36 @@ export function mapMasterRow(cells, period) {
   if (!drugCode) return null // แถว summary/total — ตัดทิ้ง
 
   const kind = str(cells[COL.kind])
-  const closingValue = round4(cells[COL.closingValue])
+  const itemType = str(cells[COL.itemType]) === '-' ? 'ยกยอด' : str(cells[COL.itemType])
   const carryInValue = round4(cells[COL.carryInValue])
   const inValue = round4(cells[COL.inValue])
   const outValue = round4(cells[COL.outValue])
+
+  // บริจาค/สนับสนุน/โครงการ = หมวดแยก, closing_value ดึงจาก idx29/34 (idx27 มัก=0 → มูลค่าหาย)
+  // idx29 ≥ idx27 เสมอ (verify 2026-07-12) → ใช้ idx29 แทน ไม่มีค่าหาย, ไม่ double-count
+  let medCategory, closingValue
+  if (DONATION_TYPES.has(itemType)) {
+    medCategory = 'บริจาค+สนับสนุน'
+    closingValue = round4(cells[COL.donationValue])
+  } else if (PROJECT_TYPES.has(itemType)) {
+    medCategory = 'ยาโครงการ'
+    closingValue = round4(cells[COL.projectValue])
+  } else {
+    medCategory = kind === NON_DRUG_KIND ? 'เวชภัณฑ์มิใช่ยา' : 'เวชภัณฑ์ยา'
+    closingValue = round4(cells[COL.closingValue])
+  }
 
   return {
     period,
     status: 'open',
     drug_code: drugCode,
     lot: str(cells[COL.lot]),
-    item_type: str(cells[COL.itemType]) === '-' ? 'ยกยอด' : str(cells[COL.itemType]),
+    item_type: itemType,
     price_per_unit: round4(cells[COL.price]),
     drug_name: str(cells[COL.drugName]),
     drug_type: kind,
     unit: str(cells[COL.unit]),
-    med_category: kind === NON_DRUG_KIND ? 'เวชภัณฑ์มิใช่ยา' : 'เวชภัณฑ์ยา',
+    med_category: medCategory,
     company: str(cells[COL.company]),
     // qty: ดึง movement ตรงจาก master (opening/in/out/closing) — Excel มีครบทุกคอลัมน์
     opening_qty: num(cells[COL.openingQty]),
@@ -131,23 +152,21 @@ export function mapMasterRow(cells, period) {
 const ledgerKey = (r) => `${r.period}|${r.drug_code}|${r.lot}|${r.item_type}|${r.price_per_unit}`
 
 /**
- * รวมแถวที่ cost-layer key ซ้ำ → 1 แถว (sum ทุก qty/value)
+ * รวมแถวที่ cost-layer key ซ้ำ → 1 แถว (sum ทุก qty/value + closing)
  * Master บางไฟล์แยก lot เดียว ราคา/ชนิดเดียวเป็นหลายแถว (เช่น ยกยอดมา 2 ครั้ง) — key เดียวกัน
  * = cost layer เดียวตามนิยาม ADR-0007 ต้องรวม ไม่งั้นชน unique index ตอน insert.
- * closing_value/closing_qty recompute จาก field ที่รวมแล้ว (ผ่านสมการ) — ไม่ sum closing ดิบ
+ * **sum closing ดิบ** (ไม่ recompute จากสมการ) — เพราะ closing ที่ mapMasterRow ตั้งมาถูกทุกกรณี
+ * (ปกติ=idx27, บริจาค/โครงการ=idx29/34, override=ค่าดิบ Excel ที่ไม่ตรงสมการ). recompute จะทับค่าพวกนี้.
  * @returns { rows, merged } — merged = จำนวนแถวที่ถูกยุบ (rows_in − rows_out)
  */
 export function dedupeCostLayers(rows) {
   const map = new Map()
-  const SUM = ['opening_qty', 'in_qty', 'out_qty', 'adjust_qty', 'carry_in_value', 'in_value', 'out_value', 'adjust_value']
+  const SUM = ['opening_qty', 'in_qty', 'out_qty', 'adjust_qty', 'closing_qty', 'carry_in_value', 'in_value', 'out_value', 'adjust_value', 'closing_value']
   for (const r of rows) {
     const k = ledgerKey(r)
     const cur = map.get(k)
     if (!cur) { map.set(k, { ...r }); continue }
     for (const f of SUM) cur[f] = round4(num(cur[f]) + num(r[f]))
-    // closing = สมการคงคลัง จาก field ที่รวมแล้ว
-    cur.closing_qty = round4(cur.opening_qty + cur.in_qty - cur.out_qty + cur.adjust_qty)
-    cur.closing_value = round4(cur.carry_in_value + cur.in_value - cur.out_value + cur.adjust_value)
   }
   const merged = rows.length - map.size
   return { rows: [...map.values()], merged }
@@ -172,13 +191,14 @@ export function seedFromMasterCsv(text, period) {
   }
   // รวมแถว cost-layer key ซ้ำ (กันชน unique index DB)
   const { rows, merged } = dedupeCostLayers(mapped)
-  // tie-out: Σ closing_value แยก ยา/มิใช่ยา (ต้องตรงไฟล์ส่งบัญชี ก่อนใช้จริง)
-  let drug = 0, nonDrug = 0
+  // tie-out: Σ closing_value แยก 4 หมวด (ต้องตรงไฟล์ส่งบัญชี ก่อนใช้จริง)
+  let drug = 0, nonDrug = 0, donation = 0, project = 0
   for (const r of rows) {
     if (r.med_category === 'เวชภัณฑ์มิใช่ยา') nonDrug += r.closing_value
+    else if (r.med_category === 'บริจาค+สนับสนุน') donation += r.closing_value
+    else if (r.med_category === 'ยาโครงการ') project += r.closing_value
     else drug += r.closing_value
   }
-  drug = round4(drug)
-  nonDrug = round4(nonDrug)
-  return { rows, skipped, merged, tieOut: { drug, nonDrug, total: round4(drug + nonDrug) } }
+  drug = round4(drug); nonDrug = round4(nonDrug); donation = round4(donation); project = round4(project)
+  return { rows, skipped, merged, tieOut: { drug, nonDrug, donation, project, total: round4(drug + nonDrug + donation + project) } }
 }

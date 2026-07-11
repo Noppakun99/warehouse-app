@@ -178,8 +178,16 @@ function SeedModal({ open, onClose, onSeeded, auth }) {
                   <p className="text-xs text-slate-500">เวชภัณฑ์มิใช่ยา</p>
                   <p className="font-bold text-teal-700">{fmtBaht(preview.tieOut.nonDrug)}</p>
                 </div>
+                <div className="bg-white rounded-lg border border-slate-200 px-3 py-2">
+                  <p className="text-xs text-slate-500">บริจาค+สนับสนุน</p>
+                  <p className="font-bold text-amber-600">{fmtBaht(preview.tieOut.donation)}</p>
+                </div>
+                <div className="bg-white rounded-lg border border-slate-200 px-3 py-2">
+                  <p className="text-xs text-slate-500">ยาโครงการ</p>
+                  <p className="font-bold text-amber-600">{fmtBaht(preview.tieOut.project)}</p>
+                </div>
               </div>
-              <p className="text-xs text-slate-500">⚠️ ตรวจยอดแยก ยา/มิใช่ยา ให้ตรงไฟล์ส่งบัญชีก่อนยืนยัน — งวดที่ล็อกแล้วแก้ไม่ได้</p>
+              <p className="text-xs text-slate-500">⚠️ ตรวจยอดแยก 4 หมวด (ยา/มิใช่ยา/บริจาค/โครงการ) ให้ตรงไฟล์ส่งบัญชีก่อนยืนยัน — งวดที่ล็อกแล้วแก้ไม่ได้</p>
             </div>
           )}
         </div>
@@ -341,12 +349,15 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
   useEffect(() => { init(); }, [init]);
 
   const tieOut = useMemo(() => {
-    let drug = 0, nonDrug = 0;
+    let drug = 0, nonDrug = 0, donation = 0, project = 0;
     for (const r of rows) {
       const v = Number(r.closing_value) || 0;
-      if (r.med_category === 'เวชภัณฑ์มิใช่ยา') nonDrug += v; else drug += v;
+      if (r.med_category === 'เวชภัณฑ์มิใช่ยา') nonDrug += v;
+      else if (r.med_category === 'บริจาค+สนับสนุน') donation += v;
+      else if (r.med_category === 'ยาโครงการ') project += v;
+      else drug += v;
     }
-    return { drug, nonDrug, total: drug + nonDrug };
+    return { drug, nonDrug, donation, project, total: drug + nonDrug + donation + project };
   }, [rows]);
 
   const filtered = useMemo(() => {
@@ -494,7 +505,7 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
                   </span>
                   <button onClick={() => loadPeriod(period)} className="text-slate-400 hover:text-slate-600" title="โหลดใหม่"><RefreshCw size={15} /></button>
                 </div>
-                <div className="flex gap-4 text-right">
+                <div className="flex gap-4 text-right flex-wrap justify-end">
                   <div>
                     <p className="text-xs text-slate-500">เวชภัณฑ์ยา</p>
                     <p className="text-base font-bold text-teal-700">{fmtBaht(tieOut.drug)}</p>
@@ -502,6 +513,14 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
                   <div>
                     <p className="text-xs text-slate-500">มิใช่ยา</p>
                     <p className="text-base font-bold text-teal-700">{fmtBaht(tieOut.nonDrug)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">บริจาค+สนับสนุน</p>
+                    <p className="text-base font-bold text-amber-600">{fmtBaht(tieOut.donation)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">ยาโครงการ</p>
+                    <p className="text-base font-bold text-amber-600">{fmtBaht(tieOut.project)}</p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-500">รวม ({fmtNum(rows.length)} แถว)</p>
