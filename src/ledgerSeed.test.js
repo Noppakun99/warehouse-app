@@ -45,6 +45,7 @@ check('แถวรหัสว่าง → null (ตัดทิ้ง)', mapM
 const cells = Array(45).fill('')
 cells[5] = '1000028'; cells[6] = 'Tablet'; cells[7] = 'Amoxicillin trihydrate 250mg'
 cells[8] = 'เม็ด'; cells[9] = '485.0000'; cells[10] = 'N670219'; cells[12] = 'ยกยอด'
+cells[13] = '5'; cells[15] = '10'; cells[19] = '14'  // opening/in/out (จำนวน)
 cells[16] = 'บริษัท ก'; cells[20] = '1'; cells[25] = '0.00'; cells[26] = '0.00'
 cells[27] = '485.00'; cells[28] = '485.00'
 const m = mapMasterRow(cells, '2026-06')
@@ -52,7 +53,9 @@ check('drug_code map', m.drug_code === '1000028')
 check('closing_value strip + parse: 485', m.closing_value === 485)
 check('carry_in_value: 485', m.carry_in_value === 485)
 check('closing_qty = col20: 1', m.closing_qty === 1)
-check('movement = 0 (opening/in/out)', m.opening_qty === 0 && m.in_qty === 0 && m.out_qty === 0)
+check('opening_qty = col13: 5', m.opening_qty === 5)
+check('in_qty = col15: 10', m.in_qty === 10)
+check('out_qty = col19: 14', m.out_qty === 14)
 check('med_category ยา (Tablet)', m.med_category === 'เวชภัณฑ์ยา')
 check('price round4', m.price_per_unit === 485)
 check('period set', m.period === '2026-06')

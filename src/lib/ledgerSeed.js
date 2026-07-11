@@ -6,8 +6,8 @@
 //   - มูลค่า map แม่น (สมการ closing_value = carry_in + in − out ตรง 991/993 แถวจริง)
 //   - closing_value/carry_in_value ใช้ค่า "ตรงจาก Excel" (col มูลค่าคงคลัง) ไม่ recompute
 //     เพราะ master มี manual override (AC ติดลบ) ที่ derive ใหม่ไม่ได้
-//   - closing_qty = คงเหลือหลังจ่าย (authoritative); opening/in/out = 0
-//     (qty movement ของ master ไม่ map ตรงสมการ — เริ่มนับจริงจากงวดถัดไป)
+//   - qty ดึงตรงจาก master ครบ: opening(คงเหลือเดือนก่อน)/in(ปริมาณเข้า)/out(ปริมาณออก)/closing(คงเหลือหลังจ่าย)
+//     (upload รายเดือน — Excel มีคอลัมน์ปริมาณครบ; สมการจำนวนอาจไม่ตรงเป๊ะ = ตาม Excel ต้นทาง)
 //   - filter แถว summary (รหัสยาว่าง) ทิ้ง — กัน unique-index ชนกัน
 //
 // master CSV มี comma ในค่า (ชื่อยา + quoted) → ต้องใช้ RFC-4180 parser
@@ -47,12 +47,15 @@ const COL = {
   price: 9,         // ราคา/หน่วย
   lot: 10,          // Lot Number
   itemType: 12,     // ชนิดรายการ (ยกยอด/ซื้อยา/บริจาค…)
+  openingQty: 13,   // คงเหลือเดือนก่อน (จำนวน) — opening/ยกมา
+  inQty: 15,        // ปริมาณ (เข้า) — in
   company: 16,      // บริษัท
+  outQty: 19,       // ปริมาณ (ออก) — out
+  closingQty: 20,   // คงเหลือหลังจ่าย — authoritative closing qty
   outValue: 25,     // มูลค่าเบิกยา (บาท)
   inValue: 26,      // มูลค่าซื้อยา (บาท)
   closingValue: 27, // มูลค่าคงคลัง มิ.ย (บาท) — authoritative closing
   carryInValue: 28, // มูลค่าคงคลัง พ.ค (บาท) — carry-in
-  closingQty: 20,   // คงเหลือหลังจ่าย — authoritative closing qty
 }
 
 // แปลงตัวเลขที่มี thousands separator + ช่องว่าง (เช่น " 3,723,914.26 ")
@@ -109,10 +112,10 @@ export function mapMasterRow(cells, period) {
     unit: str(cells[COL.unit]),
     med_category: kind === NON_DRUG_KIND ? 'เวชภัณฑ์มิใช่ยา' : 'เวชภัณฑ์ยา',
     company: str(cells[COL.company]),
-    // qty: closing ตรงจาก master; movement = 0 (เริ่มนับจริงงวดถัดไป)
-    opening_qty: 0,
-    in_qty: 0,
-    out_qty: 0,
+    // qty: ดึง movement ตรงจาก master (opening/in/out/closing) — Excel มีครบทุกคอลัมน์
+    opening_qty: num(cells[COL.openingQty]),
+    in_qty: num(cells[COL.inQty]),
+    out_qty: num(cells[COL.outQty]),
     adjust_qty: 0,
     closing_qty: num(cells[COL.closingQty]),
     // value: ใช้ค่าตรงจาก master (มี manual override — ไม่ recompute)

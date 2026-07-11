@@ -447,7 +447,10 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
                       <th className="text-left px-3 py-2 font-semibold whitespace-nowrap">Lot</th>
                       <th className="text-left px-3 py-2 font-semibold whitespace-nowrap">ชนิดรายการ</th>
                       <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">ราคา/หน่วย</th>
-                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">คงเหลือ</th>
+                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap bg-slate-600">ยกมา (จำนวน)</th>
+                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap bg-slate-600">เข้า</th>
+                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap bg-slate-600">ออก</th>
+                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap bg-slate-600">คงเหลือ</th>
                       <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">ยกมา (บาท)</th>
                       <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">ซื้อ (บาท)</th>
                       <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">เบิก (บาท)</th>
@@ -456,9 +459,9 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {loading ? (
-                      <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-400">กำลังโหลด…</td></tr>
+                      <tr><td colSpan={13} className="px-3 py-8 text-center text-slate-400">กำลังโหลด…</td></tr>
                     ) : filtered.length === 0 ? (
-                      <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-400">ไม่พบรายการ</td></tr>
+                      <tr><td colSpan={13} className="px-3 py-8 text-center text-slate-400">ไม่พบรายการ</td></tr>
                     ) : filtered.map((r) => (
                       <tr key={r.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.drug_code}</td>
@@ -466,7 +469,10 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
                         <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.lot}</td>
                         <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.item_type}</td>
                         <td className="px-3 py-2 text-right text-slate-600 whitespace-nowrap">{fmtBaht(r.price_per_unit)}</td>
-                        <td className="px-3 py-2 text-right text-slate-700 whitespace-nowrap">{fmtNum(r.closing_qty)}</td>
+                        <td className="px-3 py-2 text-right text-slate-500 whitespace-nowrap bg-slate-50">{fmtNum(r.opening_qty)}</td>
+                        <td className="px-3 py-2 text-right text-emerald-700 whitespace-nowrap bg-slate-50">{fmtNum(r.in_qty)}</td>
+                        <td className="px-3 py-2 text-right text-rose-600 whitespace-nowrap bg-slate-50">{fmtNum(r.out_qty)}</td>
+                        <td className="px-3 py-2 text-right text-slate-700 font-medium whitespace-nowrap bg-slate-50">{fmtNum(r.closing_qty)}</td>
                         <td className="px-3 py-2 text-right text-slate-500 whitespace-nowrap">{fmtBaht(r.carry_in_value)}</td>
                         <td className="px-3 py-2 text-right text-emerald-700 whitespace-nowrap">{fmtBaht(r.in_value)}</td>
                         <td className="px-3 py-2 text-right text-rose-600 whitespace-nowrap">{fmtBaht(r.out_value)}</td>
