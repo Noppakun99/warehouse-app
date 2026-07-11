@@ -20,7 +20,7 @@ import RequisitionApp     from './RequisitionApp';
 import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
-import { fetchDashboardAlerts, fetchDashboardCharts, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows, fetchSwapReturnDue, flagSwapReturn } from './lib/db';
+import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows, fetchSwapReturnDue, flagSwapReturn } from './lib/db';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
@@ -550,12 +550,27 @@ function Dashboard({ auth, onNavigate }) {
   const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock' | 'stock'
   const [swapDue, setSwapDue] = useState([]);          // ยาต้องคืนบริษัทก่อนพ้นกำหนด (staff/admin)
   const [swapPopupOpen, setSwapPopupOpen] = useState(false); // popup เด้งอัตโนมัติตอน login
+  const [chartMonths, setChartMonths] = useState(6);   // ช่วงเปรียบเทียบกราฟ: 3 | 6 | 12 | 'all'
+  const [chartEndYm, setChartEndYm] = useState(null);  // เดือนสิ้นสุดของช่วง (YYYY-MM); null = เดือนล่าสุด
+  const [monthRange, setMonthRange] = useState([]);    // รายการเดือนให้เลือกใน dropdown
 
   useEffect(() => {
     if (!supabase) return;
     fetchDashboardAlerts().then(setAlerts);
-    // กราฟเบิก/รับ + ยาต้องสั่งซื้อ — แสดงทุก role
-    fetchDashboardCharts(6).then(setCharts).catch(() => {});
+    fetchChartMonthRange().then(setMonthRange).catch(() => {});
+  }, []);
+
+  // กราฟเบิก/รับ — refetch เมื่อเปลี่ยนช่วง (3/6/12/ทั้งหมด) หรือเดือนสิ้นสุด. แสดงทุก role
+  // ไม่ล้าง charts เป็น null ระหว่างโหลด → คงกราฟเดิมไว้ ไม่กระพริบว่าง (race: ค่าล่าสุดชนะด้วย alive flag)
+  useEffect(() => {
+    if (!supabase) return;
+    let alive = true;
+    fetchDashboardCharts(chartMonths, chartEndYm).then(c => { if (alive) setCharts(c); }).catch(() => {});
+    return () => { alive = false; };
+  }, [chartMonths, chartEndYm]);
+
+  useEffect(() => {
+    if (!supabase) return;
     // ยาต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด — เด้ง popup อัตโนมัติ "ครั้งเดียวต่อรอบ login"
     // (Dashboard remount ทุกครั้งที่กลับมาหน้าหลัก → กันเด้งซ้ำด้วย sessionStorage flag; ล้างตอน logout)
     if (isStaff) {
@@ -602,6 +617,11 @@ function Dashboard({ auth, onNavigate }) {
         {/* Charts + ยาต้องสั่งซื้อ — แสดงทุก role */}
         <DashboardCharts
           charts={charts}
+          months={chartMonths}
+          onChangeMonths={setChartMonths}
+          endYm={chartEndYm}
+          onChangeEndYm={setChartEndYm}
+          monthRange={monthRange}
           lowStock={alerts.lowStock}
           onOpenReorder={() => onNavigate('reorder')}
           onOpenDispense={() => onNavigate('dispense')}
@@ -1504,8 +1524,46 @@ const fmtBahtShort = (v) => {
 };
 const fmtBaht = (v) => `฿${(Number(v) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
-function DashboardCharts({ charts, lowStock = [], onOpenReorder, onOpenDispense, onOpenReceive }) {
+const CHART_RANGES = [
+  { key: 3,     label: '3 เดือน' },
+  { key: 6,     label: '6 เดือน' },
+  { key: 12,    label: '12 เดือน' },
+  { key: 'all', label: 'ทั้งหมด' },
+];
+
+// ตัวเลือกช่วงเปรียบเทียบ — คุมทั้งกราฟเบิกจ่ายและกราฟรับเข้า (มาจาก fetchDashboardCharts เดียวกัน)
+// months = จำนวนเดือน/ทั้งหมด · endYm = เดือนสิ้นสุด (dropdown; ปิดเมื่อเลือกทั้งหมด)
+function RangeSelector({ months, onChange, endYm, onChangeEndYm, monthRange = [], loading }) {
+  const isAll = months === 'all';
+  return (
+    <div className="flex items-center gap-2 flex-wrap justify-end">
+      {/* dropdown เลือกเดือนสิ้นสุด — ปิดเมื่อ "ทั้งหมด" (กางตั้งแต่แรกสุด ไม่ต้องเลือกสิ้นสุด) */}
+      {monthRange.length > 0 && (
+        <select
+          value={isAll ? '' : (endYm || '')}
+          onChange={e => onChangeEndYm(e.target.value || null)}
+          disabled={loading || isAll}
+          title="เลือกเดือนสิ้นสุดของช่วงเปรียบเทียบ"
+          className="text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed">
+          <option value="">ถึงเดือนล่าสุด</option>
+          {monthRange.map(m => <option key={m.ym} value={m.ym}>ถึง {m.label}</option>)}
+        </select>
+      )}
+      <div className="inline-flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5">
+        {CHART_RANGES.map(r => (
+          <button key={r.key} type="button" onClick={() => onChange(r.key)} disabled={loading}
+            className={`text-xs font-semibold px-2.5 py-1 rounded-md transition-colors disabled:opacity-50 ${months === r.key ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            {r.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEndYm, monthRange = [], lowStock = [], onOpenReorder, onOpenDispense, onOpenReceive }) {
   const [showTrendLine, setShowTrendLine] = React.useState(true); // เส้นเปรียบเทียบแนวโน้มบนกราฟรับเข้า
+  const loading = charts == null;
   const { dispense = [], receive = [], trend = {}, maxValueMonth = null, maxReceiveValueMonth = null } = charts || {};
   const hasData = dispense.some(d => d.value > 0) || receive.some(r => r.value > 0);
   const top5 = lowStock.slice(0, 5);
@@ -1520,8 +1578,9 @@ function DashboardCharts({ charts, lowStock = [], onOpenReorder, onOpenDispense,
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-indigo-100 text-indigo-600"><Activity size={15} /></div>
             <span className="text-sm font-bold text-slate-700">การเบิกจ่ายรายเดือน</span>
+            {months === 'all' && dispense.length > 0 && <span className="text-xs text-slate-400">({dispense.length} เดือน)</span>}
           </div>
-          <span className="text-xs text-slate-400">ย้อนหลัง {dispense.length} เดือน</span>
+          <RangeSelector months={months} onChange={onChangeMonths} endYm={endYm} onChangeEndYm={onChangeEndYm} monthRange={monthRange} loading={loading} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-5 items-center">

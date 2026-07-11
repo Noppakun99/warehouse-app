@@ -574,13 +574,22 @@ export async function fetchDashboardAlerts() {
 //   (ไม่ dedup — เป็นภาพรวม trend เหมือน count chart เดิม; ตัวเลข authoritative ดูในโมดอลสรุปของแต่ละหน้า)
 // ผล: { dispense:[{ym,label,count,value}], receive:[...], maxValueMonth, maxReceiveValueMonth, trend:{dispensePct,receivePct} }
 // months = จำนวนเดือนย้อนหลัง หรือ 'all' = ตั้งแต่เดือนแรกที่มีข้อมูล
-export async function fetchDashboardCharts(months = 6) {
+// endYm = เดือนสิ้นสุดของช่วง (YYYY-MM); default = เดือนปัจจุบัน. 'all' ไม่สนใจ endYm
+export async function fetchDashboardCharts(months = 6, endYm = null) {
   const empty = { dispense: [], receive: [], trend: { dispensePct: null, receivePct: null, dispenseLabels: {}, receiveLabels: {} } }
   if (!supabase) return empty
 
   // สร้างกรอบเดือน YYYY-MM ย้อนหลัง (เก่า→ใหม่) + label ไทยย่อ
   const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
   const now = new Date()
+  const nowYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+
+  // เดือนสิ้นสุด (anchor) — parse endYm; 'all' บังคับสิ้นสุดที่เดือนปัจจุบันเสมอ
+  let anchor = now
+  if (endYm && months !== 'all' && /^\d{4}-\d{2}$/.test(endYm)) {
+    const [y, m] = endYm.split('-').map(Number)
+    anchor = new Date(y, m - 1, 1)
+  }
 
   // 'all' → หาเดือนแรกสุดที่มีข้อมูล (min ของ dispense_date/receive_date) แล้วนับ span ถึงเดือนปัจจุบัน
   let span = months
@@ -604,11 +613,12 @@ export async function fetchDashboardCharts(months = 6) {
   const showYear = span > 12
   const buckets = []
   for (let i = span - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const d = new Date(anchor.getFullYear(), anchor.getMonth() - i, 1)
     const label = showYear ? `${TH_MONTHS[d.getMonth()]} ${String((d.getFullYear() + 543)).slice(-2)}` : TH_MONTHS[d.getMonth()]
     buckets.push({ ym: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label })
   }
   const fromStr = buckets[0].ym + '-01'
+  const toStr = buckets[buckets.length - 1].ym + '-31'  // ขอบบนของช่วง (กรองเดือนหลัง endYm ออก)
 
   // นับ "ครั้ง" + รวม "มูลค่า" (qty_out × ราคา/หน่วย) ต่อเดือน — มูลค่าเป็นบาท ข้ามหน่วยได้
   // ราคา/หน่วย ต้องตรงกับ getPrice ใน DispenseLogApp (fallback drug_unit ถ้าเป็นตัวเลข) — กัน stat ไม่ตรง (Rule #6)
@@ -627,6 +637,7 @@ export async function fetchDashboardCharts(months = 6) {
         .from('dispense_logs')
         .select('dispense_date, qty_out, price_per_unit, drug_unit')
         .gte('dispense_date', fromStr)
+        .lte('dispense_date', toStr)
         .range(off, off + PAGE - 1)
       if (error || !data || data.length === 0) break
       for (const r of data) {
@@ -652,6 +663,7 @@ export async function fetchDashboardCharts(months = 6) {
         .from('receive_logs')
         .select('receive_date, total_price_vat')
         .gte('receive_date', fromStr)
+        .lte('receive_date', toStr)
         .range(off, off + PAGE - 1)
       if (error || !data || data.length === 0) break
       for (const r of data) {
@@ -674,11 +686,11 @@ export async function fetchDashboardCharts(months = 6) {
   // trend % = 2 เดือนล่าสุดที่ "จบแล้ว" เทียบกัน (เช่น มิ.ย. vs พ.ค.)
   // ตัดเดือนปัจจุบันที่ยังไม่จบออก ไม่งั้นเทียบเดือนครึ่งใบกับเดือนเต็ม → เพี้ยน (↓98/99%)
   // (concept เดียวกับ "เรท" CONTEXT.md ที่ตัดเดือนล่าสุดที่ยังไม่ครบ)
-  const curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  // ถ้าผู้ใช้เลือกเดือนสิ้นสุดในอดีต เดือนนั้นจบแล้ว → ไม่ต้องตัด (เทียบได้เลย); ตัดเฉพาะเมื่อ bucket ท้าย = เดือนปัจจุบันจริง
   const pctInfo = (arr, key) => {
     if (arr.length < 2) return { pct: null, curLabel: null, prevLabel: null }
     // ตัดเดือนปัจจุบัน (ยังไม่จบ) ออกก่อนหาคู่เทียบ
-    const done = arr[arr.length - 1].ym === curYm ? arr.slice(0, -1) : arr
+    const done = arr[arr.length - 1].ym === nowYm ? arr.slice(0, -1) : arr
     if (done.length < 2) return { pct: null, curLabel: null, prevLabel: null }
     const prevRow = done[done.length - 2]
     const curRow = done[done.length - 1]
@@ -707,6 +719,33 @@ export async function fetchDashboardCharts(months = 6) {
       receiveLabels: { cur: receiveTrend.curLabel, prev: receiveTrend.prevLabel },
     },
   }
+}
+
+// รายการเดือน (YYYY-MM) ตั้งแต่เดือนแรกที่มีข้อมูลถึงเดือนปัจจุบัน (ใหม่→เก่า) — สำหรับ dropdown เลือกเดือนสิ้นสุด
+export async function fetchChartMonthRange() {
+  if (!supabase) return []
+  const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
+  const earliestOf = async (table, col) => {
+    const { data } = await supabase.from(table).select(col).order(col, { ascending: true }).limit(1)
+    return data?.[0]?.[col] || null
+  }
+  const [d0, r0] = await Promise.all([
+    earliestOf('dispense_logs', 'dispense_date'),
+    earliestOf('receive_logs', 'receive_date'),
+  ])
+  const dates = [d0, r0].filter(Boolean).map(s => new Date(String(s).slice(0, 10)))
+  const now = new Date()
+  const earliest = dates.length ? new Date(Math.min(...dates)) : now
+  const total = (now.getFullYear() - earliest.getFullYear()) * 12 + (now.getMonth() - earliest.getMonth()) + 1
+  const out = []
+  for (let i = 0; i < Math.max(1, total); i++) {   // ใหม่→เก่า (เดือนล่าสุดอยู่บนสุด)
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    out.push({
+      ym: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      label: `${TH_MONTHS[d.getMonth()]} ${d.getFullYear() + 543}`,
+    })
+  }
+  return out
 }
 
 // --- Return Logs ---

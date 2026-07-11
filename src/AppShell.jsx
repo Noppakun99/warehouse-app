@@ -7,9 +7,10 @@
 //   → ใช้ padding (ไม่ใช่ flex) เพื่อให้ sticky top-0 ของ sub-app คำนวณจาก viewport เหมือนเดิม
 // Mobile (< lg): sidebar = drawer overlay เปิดด้วย hamburger
 // ============================================================
-import React, { useState } from 'react';
-import { Pill, LayoutDashboard, ChevronLeft, ChevronDown, Menu, X, LogOut, RefreshCcw, Shield, ShieldCheck, User } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Pill, LayoutDashboard, ChevronLeft, ChevronDown, Menu, X, LogOut, RefreshCcw, Shield, ShieldCheck, User, KeyRound, Eye, EyeOff, Check } from 'lucide-react';
 import { NAV_GROUPS, COLOR } from './navConfig';
+import { changeOwnPassword } from './lib/db';
 import NotificationBell from './NotificationBell';
 
 // submenu ที่มี active page อยู่ข้างใน → เปิดไว้ตั้งแต่แรก
@@ -204,7 +205,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
             {/* ขวา: กระดิ่ง → user chip (เรียงแบบ YouTube) */}
             <div className="flex items-center gap-2 shrink-0">
               <NotificationBell auth={auth} onNavigate={isStaff ? onNavigate : undefined} onBlue />
-              <UserChip displayName={displayName} role={role} department={auth.department} isStaff={isStaff} />
+              <AccountMenu displayName={displayName} role={role} auth={auth} isStaff={isStaff} onLogout={onLogout} />
             </div>
           </div>
         )}
@@ -214,17 +215,162 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
   );
 }
 
-// user chip — ไอคอน role + ชื่อ + บทบาท (ขาวบนแถบสีฟ้า — ย้ายมาจาก Dashboard blue header)
-function UserChip({ displayName, role, department, isStaff }) {
+// user chip → คลิกเปิดเมนูบัญชี (ดูข้อมูล + เปลี่ยนรหัสผ่าน + ออกจากระบบ) — สไตล์เมนูบัญชี YouTube
+function AccountMenu({ displayName, role, auth, isStaff, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const [pwModal, setPwModal] = useState(false);
+  const ref = useRef(null);
   const RoleIcon = role === 'admin' ? ShieldCheck : isStaff ? Shield : User;
   const roleColor = role === 'admin' ? 'text-violet-200' : 'text-indigo-100';
-  const roleLabel = role === 'admin' ? 'ผู้ดูแลระบบ' : isStaff ? 'เจ้าหน้าที่คลังยา' : department;
+  const roleLabel = role === 'admin' ? 'ผู้ดูแลระบบ' : isStaff ? 'เจ้าหน้าที่คลังยา' : (auth.department || 'ผู้เบิก');
+
+  // ปิดเมนูเมื่อคลิกนอก / กด Esc
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
   return (
-    <div className="flex items-center gap-2 bg-white/15 border border-white/20 rounded-xl px-2.5 py-1.5 max-w-[200px]">
-      <RoleIcon size={15} className={`${roleColor} shrink-0`} />
-      <div className="text-xs min-w-0">
-        <p className="font-semibold text-white leading-tight truncate">{displayName}</p>
-        <p className="text-indigo-100 leading-tight truncate">{roleLabel}</p>
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-2 bg-white/15 border border-white/20 rounded-xl px-2.5 py-1.5 max-w-[200px] hover:bg-white/25 transition-colors"
+        title="บัญชีของฉัน"
+      >
+        <RoleIcon size={15} className={`${roleColor} shrink-0`} />
+        <div className="text-xs min-w-0 text-left">
+          <p className="font-semibold text-white leading-tight truncate">{displayName}</p>
+          <p className="text-indigo-100 leading-tight truncate">{roleLabel}</p>
+        </div>
+        <ChevronDown size={14} className={`text-indigo-100 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden text-slate-700">
+          {/* การ์ดข้อมูลผู้ใช้ (อ่านอย่างเดียว) */}
+          <div className="px-4 py-3 border-b border-slate-100 flex items-start gap-3">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-500 to-blue-600 text-white flex items-center justify-center shrink-0">
+              <RoleIcon size={18} />
+            </div>
+            <div className="min-w-0">
+              <p className="font-bold text-sm text-slate-800 truncate">{displayName}</p>
+              <p className="text-xs text-slate-400 truncate font-mono">@{auth.username}</p>
+              <p className="text-xs text-slate-500 mt-0.5 truncate">{roleLabel}{isStaff && auth.department ? ` · ${auth.department}` : ''}</p>
+            </div>
+          </div>
+          {/* actions */}
+          <div className="py-1.5">
+            <button
+              type="button"
+              onClick={() => { setOpen(false); setPwModal(true); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              <KeyRound size={16} className="text-slate-400 shrink-0" /> เปลี่ยนรหัสผ่าน
+            </button>
+            <button
+              type="button"
+              onClick={() => { setOpen(false); onLogout?.(); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+            >
+              <LogOut size={16} className="shrink-0" /> ออกจากระบบ
+            </button>
+          </div>
+        </div>
+      )}
+
+      {pwModal && <SelfPasswordModal auth={auth} onClose={() => setPwModal(false)} />}
+    </div>
+  );
+}
+
+// โมดอลให้ผู้ใช้เปลี่ยนรหัสผ่านตัวเอง — ต้องกรอกรหัสผ่านเดิม (ยืนยันผ่าน changeOwnPassword)
+function SelfPasswordModal({ auth, onClose }) {
+  const [oldPw, setOldPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [show, setShow] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (newPw.length < 6) { setError('รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร'); return; }
+    if (newPw !== confirm) { setError('รหัสผ่านใหม่และยืนยันไม่ตรงกัน'); return; }
+    setSaving(true); setError('');
+    try {
+      await changeOwnPassword(auth.id, oldPw, newPw);
+      setDone(true);
+    } catch (err) { setError(err.message || 'เกิดข้อผิดพลาด'); } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4"
+      onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm text-slate-700">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-50 rounded-t-2xl">
+          <div className="flex items-center gap-2 font-bold text-base text-slate-800"><KeyRound size={18} /> เปลี่ยนรหัสผ่านของฉัน</div>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+        </div>
+
+        {done ? (
+          <div className="p-5 space-y-4">
+            <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+              <Check size={18} /><span className="text-sm font-semibold">เปลี่ยนรหัสผ่านสำเร็จ</span>
+            </div>
+            <p className="text-xs text-slate-500">ครั้งต่อไปที่เข้าสู่ระบบ กรุณาใช้รหัสผ่านใหม่นี้</p>
+            <button type="button" onClick={onClose}
+              className="w-full bg-violet-600 hover:bg-violet-700 text-white rounded-xl py-2.5 text-sm font-semibold transition-colors">
+              ปิด
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={submit} className="p-5 space-y-3.5">
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+              <div className="min-w-0">
+                <p className="text-xs text-slate-500">ผู้ใช้</p>
+                <p className="text-sm font-semibold text-slate-800 font-mono">{auth.username}</p>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">รหัสผ่านเดิม</label>
+              <input type={show ? 'text' : 'password'} value={oldPw} onChange={e => setOldPw(e.target.value)} required autoComplete="current-password"
+                className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">รหัสผ่านใหม่</label>
+              <div className="relative">
+                <input type={show ? 'text' : 'password'} value={newPw} onChange={e => setNewPw(e.target.value)} required autoComplete="new-password"
+                  placeholder="อย่างน้อย 6 ตัวอักษร"
+                  className="w-full border border-slate-300 rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
+                <button type="button" onClick={() => setShow(s => !s)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  {show ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">ยืนยันรหัสผ่านใหม่</label>
+              <input type={show ? 'text' : 'password'} value={confirm} onChange={e => setConfirm(e.target.value)} required autoComplete="new-password"
+                className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
+            </div>
+            {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+            <div className="flex gap-2 pt-1">
+              <button type="button" onClick={onClose}
+                className="flex-1 border border-slate-300 rounded-xl py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+                ยกเลิก
+              </button>
+              <button type="submit" disabled={saving}
+                className="flex-1 bg-violet-600 hover:bg-violet-700 text-white rounded-xl py-2.5 text-sm font-semibold transition-colors disabled:opacity-50">
+                {saving ? 'กำลังบันทึก...' : 'บันทึก'}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );
