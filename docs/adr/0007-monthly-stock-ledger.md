@@ -1,7 +1,23 @@
 # 0007. ทะเบียนคงคลังรายเดือน (Monthly Stock Ledger) ในแอป — แทนการปิดงวดมือใน Excel
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-07-11 — rollover ในแอป → upload master รายเดือน)
 - **Date:** 2026-06-28
+
+> **Amendment (2026-07-11): งวดใหม่มาจาก upload ไม่ใช่ rollover ในแอป.**
+> เดิม (ข้อ 3) ออกแบบให้ seed ครั้งเดียว แล้ว `closeLedgerPeriod` rollover สร้างงวดถัดไปแบบ atomic
+> (paste U→N, AB→AC ในแอป). หลังทดลองใช้ + ชั่งข้อดี-เสียกับ user → **เปลี่ยนเป็น "upload master
+> CSV เข้า ledger ทุกงวด"** (Excel ทำ rollover paste U→N ในไฟล์อยู่แล้ว — แอปไม่ต้องทำซ้ำ, และ Excel
+> เก็บ manual override บริจาค/AC/โครงการ ที่ derive ไม่ได้). พิจารณา auto-derive movement จาก
+> receive/dispense แล้ว**ปฏิเสธ** (ดู [ADR-0011](0011-ledger-derive-movement-value-for-accounting.md)):
+> เสี่ยง drift ยอดส่งบัญชีผิด, ยังไม่พร้อมเลิก Excel. การเปลี่ยนแปลงเชิงพฤติกรรม:
+> - `bulkInsertLedgerRows` — upload ได้ทุกงวด; งวด `open` ที่มีข้อมูล → **replace ทั้งงวด** (ลบก่อน insert); งวด `closed` → กัน (ต้องปลดล็อกก่อน).
+> - `closeLedgerPeriod(period, auth)` — **freeze-only** (set `status='closed'`), **ไม่ rollover** สร้างงวดถัดไป. ตัด param `nextPeriod`.
+> - `reopenLedgerPeriod(period, auth)` — คืน `status='open'` เฉยๆ (ไม่ลบงวดถัดไป เพราะไม่ได้สร้างจาก rollover แล้ว). ตัด param `nextPeriod`.
+> - `rolloverToNextPeriod` ใน [ledgerRollover.js](../../src/lib/ledgerRollover.js) กลายเป็น **unused** (คง test ไว้ — pure logic อาจกลับมาใช้ถ้าทำ hybrid derive ในอนาคต).
+> - ตาราง `StockLedgerApp` เพิ่มคอลัมน์ **ซื้อ (in_value) / เบิก (out_value)** — ข้อมูลมีใน DB จาก seed อยู่แล้ว (ledgerSeed map ครบ) แค่ไม่เคยแสดง.
+>
+> เนื้อหาเดิมด้านล่างคงไว้เป็น record (ข้อ 3 rollover = ทางที่เลิกใช้). ส่วนอื่น (identity key, cost layer,
+> seed mapping, freeze หลักบัญชี, adjustment) ยังใช้เหมือนเดิมทุกประการ.
 
 ## Context
 

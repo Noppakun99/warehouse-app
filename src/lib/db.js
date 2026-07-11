@@ -573,17 +573,40 @@ export async function fetchDashboardAlerts() {
 //   รับ:  value = Σ total_price_vat ตรงกับ totalValue ใน ReceiveLogApp
 //   (ไม่ dedup — เป็นภาพรวม trend เหมือน count chart เดิม; ตัวเลข authoritative ดูในโมดอลสรุปของแต่ละหน้า)
 // ผล: { dispense:[{ym,label,count,value}], receive:[...], maxValueMonth, maxReceiveValueMonth, trend:{dispensePct,receivePct} }
+// months = จำนวนเดือนย้อนหลัง หรือ 'all' = ตั้งแต่เดือนแรกที่มีข้อมูล
 export async function fetchDashboardCharts(months = 6) {
   const empty = { dispense: [], receive: [], trend: { dispensePct: null, receivePct: null, dispenseLabels: {}, receiveLabels: {} } }
   if (!supabase) return empty
 
   // สร้างกรอบเดือน YYYY-MM ย้อนหลัง (เก่า→ใหม่) + label ไทยย่อ
   const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
-  const buckets = []
   const now = new Date()
-  for (let i = months - 1; i >= 0; i--) {
+
+  // 'all' → หาเดือนแรกสุดที่มีข้อมูล (min ของ dispense_date/receive_date) แล้วนับ span ถึงเดือนปัจจุบัน
+  let span = months
+  if (months === 'all') {
+    const earliestOf = async (table, col) => {
+      const { data } = await supabase.from(table).select(col).order(col, { ascending: true }).limit(1)
+      return data?.[0]?.[col] || null
+    }
+    const [d0, r0] = await Promise.all([
+      earliestOf('dispense_logs', 'dispense_date'),
+      earliestOf('receive_logs', 'receive_date'),
+    ])
+    const dates = [d0, r0].filter(Boolean).map(s => new Date(String(s).slice(0, 10)))
+    if (dates.length === 0) return empty
+    const earliest = new Date(Math.min(...dates))
+    span = (now.getFullYear() - earliest.getFullYear()) * 12 + (now.getMonth() - earliest.getMonth()) + 1
+    span = Math.max(1, span)
+  }
+
+  // ช่วง > 12 เดือน → เดือนซ้ำชื่อกัน (ม.ค. ปีไหน?) ต้องใส่ปี พ.ศ. บนแกน/คำสรุป
+  const showYear = span > 12
+  const buckets = []
+  for (let i = span - 1; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    buckets.push({ ym: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: TH_MONTHS[d.getMonth()] })
+    const label = showYear ? `${TH_MONTHS[d.getMonth()]} ${String((d.getFullYear() + 543)).slice(-2)}` : TH_MONTHS[d.getMonth()]
+    buckets.push({ ym: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label })
   }
   const fromStr = buckets[0].ym + '-01'
 
@@ -1466,6 +1489,22 @@ export async function changeAppUserPassword(id, newPassword) {
     .update({ password_hash: hash, updated_at: new Date().toISOString() })
     .eq('id', id)
   if (error) throw error
+}
+
+// ผู้ใช้เปลี่ยนรหัสผ่านของตัวเอง — ต้องยืนยันรหัสผ่านเดิมก่อน (ต่างจาก changeAppUserPassword ที่ admin reset โดยไม่ตรวจ)
+export async function changeOwnPassword(id, oldPassword, newPassword) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { data, error } = await supabase.from('app_users')
+    .select('password_hash').eq('id', id).single()
+  if (error || !data) throw new Error('ไม่พบบัญชีผู้ใช้')
+  const oldHash = await hashPassword(oldPassword)
+  if (oldHash !== data.password_hash) throw new Error('รหัสผ่านเดิมไม่ถูกต้อง')
+  const newHash = await hashPassword(newPassword)
+  if (newHash === data.password_hash) throw new Error('รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม')
+  const { error: upErr } = await supabase.from('app_users')
+    .update({ password_hash: newHash, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (upErr) throw upErr
 }
 
 // --- Invoice Scanner (AI Vision) ---

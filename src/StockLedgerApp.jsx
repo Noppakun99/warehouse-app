@@ -14,11 +14,6 @@ import BackButton from './BackButton';
 const fmtBaht = (n) => new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
 const fmtNum = (n) => new Intl.NumberFormat('th-TH').format(n || 0);
 
-// 'YYYY-MM' → 'YYYY-MM' ของเดือนถัดไป
-function nextPeriodOf(period) {
-  const [y, m] = period.split('-').map(Number);
-  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
-}
 // 'YYYY-MM' → 'เดือน พ.ศ.' (เช่น 2026-06 → มิ.ย. 2569)
 const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 function periodLabel(period) {
@@ -73,7 +68,7 @@ function SeedModal({ open, onClose, onSeeded, auth }) {
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-          <h2 className="text-base font-bold text-slate-800">นำเข้างวดตั้งต้นจาก Master CSV</h2>
+          <h2 className="text-base font-bold text-slate-800">นำเข้างวดจาก Master CSV</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
         </div>
 
@@ -85,7 +80,7 @@ function SeedModal({ open, onClose, onSeeded, auth }) {
               placeholder="2026-06"
               className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
             />
-            <p className="text-xs text-slate-400 mt-1">งวดที่ seed (เช่น 2026-06 = มิ.ย. 2569). ต้องไม่ซ้ำงวดที่มีอยู่แล้ว</p>
+            <p className="text-xs text-slate-400 mt-1">งวดที่นำเข้า (เช่น 2026-07 = ก.ค. 2569). ถ้างวดนี้มีอยู่แล้วและยังเปิดอยู่ → นำเข้าทับทั้งงวด; งวดที่ล็อกแล้วต้องปลดล็อกก่อน</p>
           </div>
 
           <div>
@@ -111,7 +106,7 @@ function SeedModal({ open, onClose, onSeeded, auth }) {
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="bg-white rounded-lg border border-slate-200 px-3 py-2">
                   <p className="text-xs text-slate-500">จำนวนแถว</p>
-                  <p className="font-bold text-slate-800">{fmtNum(preview.rows.length)} <span className="text-xs font-normal text-slate-400">(ตัด summary {preview.skipped})</span></p>
+                  <p className="font-bold text-slate-800">{fmtNum(preview.rows.length)} <span className="text-xs font-normal text-slate-400">(ตัด summary {preview.skipped}{preview.merged > 0 ? `, รวมซ้ำ ${preview.merged}` : ''})</span></p>
                 </div>
                 <div className="bg-white rounded-lg border border-slate-200 px-3 py-2">
                   <p className="text-xs text-slate-500">มูลค่าคงคลังรวม</p>
@@ -126,7 +121,7 @@ function SeedModal({ open, onClose, onSeeded, auth }) {
                   <p className="font-bold text-teal-700">{fmtBaht(preview.tieOut.nonDrug)}</p>
                 </div>
               </div>
-              <p className="text-xs text-slate-500">⚠️ ตรวจยอดแยก ยา/มิใช่ยา ให้ตรงไฟล์ส่งบัญชีก่อนยืนยัน — งวดที่ปิดแล้วแก้ไม่ได้</p>
+              <p className="text-xs text-slate-500">⚠️ ตรวจยอดแยก ยา/มิใช่ยา ให้ตรงไฟล์ส่งบัญชีก่อนยืนยัน — งวดที่ล็อกแล้วแก้ไม่ได้</p>
             </div>
           )}
         </div>
@@ -318,15 +313,14 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
 
   const handleClose = async () => {
     if (!period || !isAdmin) return;
-    const next = nextPeriodOf(period);
-    if (!window.confirm(`ปิดงวด ${periodLabel(period)} แล้วขึ้นเดือนใหม่ (${periodLabel(next)})?\nยอดงวดนี้จะถูก freeze แก้ไม่ได้.`)) return;
+    if (!window.confirm(`ล็อกงวด ${periodLabel(period)}?\nยอดงวดนี้จะถูก freeze แก้ไม่ได้ (นำเข้าทับไม่ได้จนกว่าจะปลดล็อก).`)) return;
     setBusy(true); setMsg('');
     try {
-      const r = await closeLedgerPeriod(period, next, auth);
-      setMsg(`ปิดงวด ${periodLabel(period)} แล้ว (${fmtNum(r.closed)} แถว) → สร้างงวด ${periodLabel(next)} (${fmtNum(r.carried)} แถว)`);
+      const r = await closeLedgerPeriod(period, auth);
+      setMsg(`ล็อกงวด ${periodLabel(period)} แล้ว (${fmtNum(r.closed)} แถว)`);
       await loadPeriod(period);
     } catch (e) {
-      setMsg('ปิดงวดไม่สำเร็จ: ' + (e.message || e));
+      setMsg('ล็อกงวดไม่สำเร็จ: ' + (e.message || e));
     } finally {
       setBusy(false);
     }
@@ -334,15 +328,14 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
 
   const handleReopen = async () => {
     if (!period || !isAdmin) return;
-    const next = nextPeriodOf(period);
-    if (!window.confirm(`เปิดงวด ${periodLabel(period)} ใหม่?\nงวดถัดไป (${periodLabel(next)}) จะถูกลบ.`)) return;
+    if (!window.confirm(`ปลดล็อกงวด ${periodLabel(period)}?\nจะกลับมาแก้/นำเข้าทับได้อีกครั้ง.`)) return;
     setBusy(true); setMsg('');
     try {
-      const r = await reopenLedgerPeriod(period, next, auth);
-      setMsg(`เปิดงวด ${periodLabel(period)} ใหม่แล้ว (ลบงวดถัดไป ${fmtNum(r.removed)} แถว)`);
+      await reopenLedgerPeriod(period, auth);
+      setMsg(`ปลดล็อกงวด ${periodLabel(period)} แล้ว`);
       await loadPeriod(period);
     } catch (e) {
-      setMsg('เปิดงวดไม่สำเร็จ: ' + (e.message || e));
+      setMsg('ปลดล็อกงวดไม่สำเร็จ: ' + (e.message || e));
     } finally {
       setBusy(false);
     }
@@ -358,13 +351,13 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
             <div className="p-1.5 rounded-lg bg-teal-100 text-teal-600 shrink-0"><Layers size={18} /></div>
             <button onClick={onRefresh} className="text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
               <h1 className="text-base sm:text-lg font-bold leading-tight text-slate-800">ทะเบียนคงคลังรายเดือน</h1>
-              <p className="text-xs text-slate-400">มูลค่าคงคลัง · ปิดงวด/ขึ้นเดือนใหม่ atomic · ADR-0007</p>
+              <p className="text-xs text-slate-400">มูลค่าคงคลัง · นำเข้า master รายเดือน · ADR-0007</p>
             </button>
           </div>
           {isAdmin && (
             <div className="flex items-center gap-2 flex-wrap">
               <button onClick={() => setSeedOpen(true)} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
-                <Upload size={14} /> นำเข้างวดตั้งต้น
+                <Upload size={14} /> นำเข้างวด (master CSV)
               </button>
               {period && status === 'open' && (
                 <button onClick={() => setAdjustOpen(true)} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
@@ -373,12 +366,12 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
               )}
               {period && status === 'open' && (
                 <button onClick={handleClose} disabled={busy} className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
-                  <Lock size={14} /> ปิดงวด + ขึ้นเดือนใหม่
+                  <Lock size={14} /> ล็อกงวด
                 </button>
               )}
               {period && status === 'closed' && (
                 <button onClick={handleReopen} disabled={busy} className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
-                  <Unlock size={14} /> เปิดงวดใหม่
+                  <Unlock size={14} /> ปลดล็อกงวด
                 </button>
               )}
             </div>
@@ -456,14 +449,16 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
                       <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">ราคา/หน่วย</th>
                       <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">คงเหลือ</th>
                       <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">ยกมา (บาท)</th>
+                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">ซื้อ (บาท)</th>
+                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">เบิก (บาท)</th>
                       <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">คงคลัง (บาท)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {loading ? (
-                      <tr><td colSpan={8} className="px-3 py-8 text-center text-slate-400">กำลังโหลด…</td></tr>
+                      <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-400">กำลังโหลด…</td></tr>
                     ) : filtered.length === 0 ? (
-                      <tr><td colSpan={8} className="px-3 py-8 text-center text-slate-400">ไม่พบรายการ</td></tr>
+                      <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-400">ไม่พบรายการ</td></tr>
                     ) : filtered.map((r) => (
                       <tr key={r.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.drug_code}</td>
@@ -473,6 +468,8 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
                         <td className="px-3 py-2 text-right text-slate-600 whitespace-nowrap">{fmtBaht(r.price_per_unit)}</td>
                         <td className="px-3 py-2 text-right text-slate-700 whitespace-nowrap">{fmtNum(r.closing_qty)}</td>
                         <td className="px-3 py-2 text-right text-slate-500 whitespace-nowrap">{fmtBaht(r.carry_in_value)}</td>
+                        <td className="px-3 py-2 text-right text-emerald-700 whitespace-nowrap">{fmtBaht(r.in_value)}</td>
+                        <td className="px-3 py-2 text-right text-rose-600 whitespace-nowrap">{fmtBaht(r.out_value)}</td>
                         <td className={`px-3 py-2 text-right font-medium whitespace-nowrap ${Number(r.closing_value) < 0 ? 'text-red-600' : 'text-slate-800'}`}>{fmtBaht(r.closing_value)}</td>
                       </tr>
                     ))}

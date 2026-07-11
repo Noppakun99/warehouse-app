@@ -124,23 +124,51 @@ export function mapMasterRow(cells, period) {
   }
 }
 
+// cost-layer key = ledger row identity (period + รหัส + lot + ชนิด + ราคา) — ตรง unique index DB
+const ledgerKey = (r) => `${r.period}|${r.drug_code}|${r.lot}|${r.item_type}|${r.price_per_unit}`
+
+/**
+ * รวมแถวที่ cost-layer key ซ้ำ → 1 แถว (sum ทุก qty/value)
+ * Master บางไฟล์แยก lot เดียว ราคา/ชนิดเดียวเป็นหลายแถว (เช่น ยกยอดมา 2 ครั้ง) — key เดียวกัน
+ * = cost layer เดียวตามนิยาม ADR-0007 ต้องรวม ไม่งั้นชน unique index ตอน insert.
+ * closing_value/closing_qty recompute จาก field ที่รวมแล้ว (ผ่านสมการ) — ไม่ sum closing ดิบ
+ * @returns { rows, merged } — merged = จำนวนแถวที่ถูกยุบ (rows_in − rows_out)
+ */
+export function dedupeCostLayers(rows) {
+  const map = new Map()
+  const SUM = ['opening_qty', 'in_qty', 'out_qty', 'adjust_qty', 'carry_in_value', 'in_value', 'out_value', 'adjust_value']
+  for (const r of rows) {
+    const k = ledgerKey(r)
+    const cur = map.get(k)
+    if (!cur) { map.set(k, { ...r }); continue }
+    for (const f of SUM) cur[f] = round4(num(cur[f]) + num(r[f]))
+    // closing = สมการคงคลัง จาก field ที่รวมแล้ว
+    cur.closing_qty = round4(cur.opening_qty + cur.in_qty - cur.out_qty + cur.adjust_qty)
+    cur.closing_value = round4(cur.carry_in_value + cur.in_value - cur.out_value + cur.adjust_value)
+  }
+  const merged = rows.length - map.size
+  return { rows: [...map.values()], merged }
+}
+
 /**
  * parse master CSV ทั้งไฟล์ → ledger rows ของงวด `period`
  * @param text   เนื้อ CSV (utf-8)
  * @param period 'YYYY-MM'
- * @returns { rows, skipped, tieOut: { drug, nonDrug, total } }
+ * @returns { rows, skipped, merged, tieOut: { drug, nonDrug, total } }
  */
 export function seedFromMasterCsv(text, period) {
   const grid = parseCsv(text)
   assertMasterStructure(grid[0]) // guard: โครงสร้างคอลัมน์ยังตรง positional COL — ไม่งั้น seed เพี้ยนเงียบ
   const dataRows = grid.slice(1) // ตัด header
-  const rows = []
+  const mapped = []
   let skipped = 0
   for (const cells of dataRows) {
     const r = mapMasterRow(cells, period)
-    if (r) rows.push(r)
+    if (r) mapped.push(r)
     else skipped++
   }
+  // รวมแถว cost-layer key ซ้ำ (กันชน unique index DB)
+  const { rows, merged } = dedupeCostLayers(mapped)
   // tie-out: Σ closing_value แยก ยา/มิใช่ยา (ต้องตรงไฟล์ส่งบัญชี ก่อนใช้จริง)
   let drug = 0, nonDrug = 0
   for (const r of rows) {
@@ -149,5 +177,5 @@ export function seedFromMasterCsv(text, period) {
   }
   drug = round4(drug)
   nonDrug = round4(nonDrug)
-  return { rows, skipped, tieOut: { drug, nonDrug, total: round4(drug + nonDrug) } }
+  return { rows, skipped, merged, tieOut: { drug, nonDrug, total: round4(drug + nonDrug) } }
 }
