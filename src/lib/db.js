@@ -953,24 +953,32 @@ export async function fetchSwapReturnDue() {
   ])
   if (!inv || Object.keys(policies).length === 0) return []
 
-  // code → { บริษัทล่าสุด, นโยบายดิบล่าสุด } (จาก receive_logs) — paginate
-  const supplierByCode = {}
-  const policyTextByCode = {}   // นโยบายเต็ม (raw) ของยานั้นจากบิลรับล่าสุด — ยืนยันว่าตรงรายการ
+  // นโยบายคืนผูกกับบริษัทที่ส่ง lot นั้นจริงๆ (ADR-0012): map ต่อ code|lot ต้อง unique 1 บริษัท
+  // lot ชนหลายบริษัท → mark ambiguous (null) → ไม่แสดง deadline (คืนผิดเจ้าอันตรายกว่าเตือนขาด)
+  const lotKey = (code, lot) => `${(code || '').trim().toLowerCase()}|${(lot || '-').trim().toLowerCase()}`
+  const supplierByLot = {}     // code|lot → บริษัท (หรือ null ถ้าชนหลายบริษัท)
+  const policyTextByLot = {}   // code|lot → นโยบายดิบของบริษัทนั้น
   let offset = 0
   const BATCH = 1000
   while (true) {
     const { data, error } = await supabase
       .from('receive_logs')
-      .select('drug_code, supplier_current, drug_swap_policy, receive_date')
+      .select('drug_code, lot, supplier_current, drug_swap_policy, receive_date')
       .order('receive_date', { ascending: false, nullsFirst: false })
       .range(offset, offset + BATCH - 1)
     if (error || !data || data.length === 0) break
     for (const r of data) {
       const code = (r.drug_code || '').trim()
       const co = (r.supplier_current || '').trim()
-      if (code && co && co !== '-' && !supplierByCode[code]) supplierByCode[code] = co
-      const pol = (r.drug_swap_policy || '').trim()
-      if (code && pol && pol !== '-' && !policyTextByCode[code]) policyTextByCode[code] = pol
+      if (!code || !co || co === '-') continue
+      const key = lotKey(code, r.lot)
+      if (!(key in supplierByLot)) {
+        supplierByLot[key] = co
+        const pol = (r.drug_swap_policy || '').trim()
+        policyTextByLot[key] = (pol && pol !== '-') ? pol : null
+      } else if (supplierByLot[key] !== null && supplierByLot[key] !== co) {
+        supplierByLot[key] = null   // lot เดียวกันคนละบริษัท → กำกวม → ไม่ใช้
+      }
     }
     if (data.length < BATCH) break
     offset += BATCH
@@ -996,7 +1004,8 @@ export async function fetchSwapReturnDue() {
     if (!isNaN(qtyNum) && qtyNum === 0) continue
     if (String(item.receive_status || '').includes('ตัดออก')) continue
     const code = (item.code || '').trim()
-    const company = supplierByCode[code]
+    // นโยบายจากบริษัทของ lot นั้น (unique เท่านั้น) — null = ไม่เจอ/ชนหลายบริษัท → ข้าม (ADR-0012)
+    const company = supplierByLot[lotKey(code, item.lot)]
     const pol = company ? policies[company] : null
     if (!pol || pol.differsByItem || pol.returnMonths == null) continue
     const exp = _parseExpDate(item.exp)
@@ -1014,7 +1023,7 @@ export async function fetchSwapReturnDue() {
       code: item.code, name: item.name, lot: item.lot, exp: item.exp, location: item.location,
       qty: item.qty, company, returnMonths: pol.returnMonths,
       status, deadline: deadline ? deadline.toISOString().slice(0, 10) : null, daysToDeadline,
-      policyText: policyTextByCode[code] || null,   // นโยบายเต็มของยานั้น (raw)
+      policyText: policyTextByLot[lotKey(code, item.lot)] || null,   // นโยบายเต็มของ lot นั้น (raw)
       avgPerDay: avgPerDay || null, coverageDays, willDeplete,
     })
   }

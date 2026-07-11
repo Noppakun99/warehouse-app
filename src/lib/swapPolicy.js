@@ -30,12 +30,16 @@ export function parseReturnPolicy(text) {
 
   const differsByItem = /เงื่อนไข\s*แตกต่าง|แล้วแต่รายการ/.test(raw)
 
+  // ตัดรูปแบบวันที่ dd/mm/yyyy (หรือ dd/mm/yy, คั่นด้วย / . -) ออกก่อน — กันเลขวัน/เดือนในวันที่
+  // ถูกตีเป็นระยะเวลาคืน เช่น "วันที่ 17/11/2568" ต้องไม่กลายเป็น 11 หรือ 17 เดือน
+  const cleaned = raw.replace(/\b\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}\b/g, ' ')
+
   // ดึงเดือน: จับเลข+หน่วยที่อยู่ในบริบท "เปลี่ยน/คืน/แลก/อายุ/แจ้ง/ก่อนหมดอายุ"
   // ครอบคลุมทั้งมีเว้นวรรค ("6 เดือน") และไม่มี ("6เดือน")
   const monthRe = /(\d+(?:\.\d+)?)\s*(เดือน|ปี|วัน)/g
   let best = null
   let m
-  while ((m = monthRe.exec(raw)) !== null) {
+  while ((m = monthRe.exec(cleaned)) !== null) {
     const val = monthsFromMatch(m[1], m[2])
     if (val == null) continue
     // เลือกเดือนที่ "น้อยที่สุด" ที่เกี่ยวกับ window การคืน (tier คืนเต็มมักเป็นค่าที่เข้มสุด)

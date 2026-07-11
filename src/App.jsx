@@ -2123,10 +2123,27 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           );
           return (d?.po_number && d.po_number !== '-') ? d.po_number : '';
         };
-        // นโยบายคืนยา: จับบริษัท → policy → คำนวณ deadline ต้องคืนก่อนหมดอายุ (เฟส 1)
-        const buildReturnInfo = (item, supplier) => {
-          const pol = supplier ? swapPolicies[supplier] : null;
-          if (!pol) return null; // ไม่มีนโยบายในตาราง → ไม่ประเมิน
+        // บริษัทของ lot นั้นจริงๆ (ADR-0012) — match code+lot ใน drugDetails, unique เท่านั้น
+        // คืน '' ถ้าไม่เจอ หรือ lot ชนหลายบริษัท → deadline จะไม่ถูกคำนวณ (ไม่เดา คืนผิดเจ้า)
+        const supplierForLot = (item) => {
+          if (!drugDetails) return '';
+          const code = (item.code || '').trim().toLowerCase();
+          const lot  = (item.lot  || '-').trim().toLowerCase();
+          let found = '';
+          for (const d of Object.values(drugDetails)) {
+            if ((d._code || '').toLowerCase() !== code) continue;
+            if ((d._lot || '-').toLowerCase() !== lot) continue;
+            const co = (d.supplier_current || d._company || '').trim();
+            if (!co || co === '-') continue;
+            if (!found) found = co;
+            else if (found !== co) return '';   // lot เดียวกันคนละบริษัท → กำกวม
+          }
+          return found;
+        };
+        // นโยบายคืนยา: จับบริษัทของ lot → policy → คำนวณ deadline ต้องคืนก่อนหมดอายุ (เฟส 1, ADR-0012)
+        const buildReturnInfo = (lotSupplier, item) => {
+          const pol = lotSupplier ? swapPolicies[lotSupplier] : null;
+          if (!pol) return null; // ไม่มีบริษัท (ไม่เจอ/กำกวม) หรือไม่มีนโยบายในตาราง → ไม่ประเมิน
           const exp = parseDateString(item.exp);
           if (!exp) return { ...pol, status: 'no_policy', deadline: null, daysToDeadline: null };
           const r = computeReturnStatus({ exp, months: pol.returnMonths, today: todayForDisplay });
@@ -2134,15 +2151,15 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         };
         const enriched = trackingModal.list.map(item => {
           const d = lookupDetail(item);
-          const supplier = d?.supplier_current || d?._company || '';
+          const lotSupplier = supplierForLot(item);   // บริษัทของ lot นี้ (unique) — ใช้คิด deadline
           return {
             ...item,
             daysLeft: computeDays(item),
             waitDays: computeWaitDays(item),
-            supplier,
+            supplier: d?.supplier_current || d?._company || '',
             swapPolicy: buildSwapPolicy(d),
             po: lookupPo(item),
-            returnInfo: buildReturnInfo(item, supplier),
+            returnInfo: buildReturnInfo(lotSupplier, item),
           };
         });
         const q = modalSearch.trim().toLowerCase();
