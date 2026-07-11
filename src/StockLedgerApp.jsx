@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Layers, Upload, Lock, Unlock, RefreshCw, X, CheckCircle, AlertTriangle, Search, PlusCircle, FileDown,
+  ChevronUp, ChevronDown, ChevronsUpDown,
 } from 'lucide-react';
 import {
   fetchLedgerPeriod, fetchLatestLedgerPeriod, bulkInsertLedgerRows,
@@ -39,6 +40,44 @@ function periodLabel(period) {
   if (!period) return '-';
   const [y, m] = period.split('-').map(Number);
   return `${TH_MONTHS[m - 1]} ${y + 543}`;
+}
+
+// คอลัมน์ตาราง ledger (key = field สำหรับ sort, align, กลุ่มจำนวน qty)
+const LEDGER_TABLE_COLS = [
+  { key: 'drug_code', label: 'รหัส', align: 'left' },
+  { key: 'drug_name', label: 'ชื่อยา', align: 'left' },
+  { key: 'lot', label: 'Lot', align: 'left' },
+  { key: 'item_type', label: 'ชนิดรายการ', align: 'left' },
+  { key: 'price_per_unit', label: 'ราคา/หน่วย', align: 'right' },
+  { key: 'opening_qty', label: 'ยกมา (จำนวน)', align: 'right', qty: true },
+  { key: 'in_qty', label: 'เข้า', align: 'right', qty: true },
+  { key: 'out_qty', label: 'ออก', align: 'right', qty: true },
+  { key: 'closing_qty', label: 'คงเหลือ', align: 'right', qty: true },
+  { key: 'carry_in_value', label: 'ยกมา (บาท)', align: 'right' },
+  { key: 'in_value', label: 'ซื้อ (บาท)', align: 'right' },
+  { key: 'out_value', label: 'เบิก (บาท)', align: 'right' },
+  { key: 'closing_value', label: 'คงคลัง (บาท)', align: 'right' },
+];
+
+// คอลัมน์ที่ sort แบบตัวเลข — ที่เหลือ sort แบบ string
+const NUMERIC_KEYS = new Set(['price_per_unit', 'opening_qty', 'in_qty', 'out_qty', 'closing_qty', 'carry_in_value', 'in_value', 'out_value', 'closing_value']);
+
+// หัวคอลัมน์คลิก sort ได้ + ไอคอนบอกทิศ
+function SortTh({ col, sort, onSort }) {
+  const active = sort.key === col.key;
+  const Icon = !active ? ChevronsUpDown : (sort.dir === 'asc' ? ChevronUp : ChevronDown);
+  return (
+    <th className={`px-3 py-2 font-semibold whitespace-nowrap ${col.align === 'left' ? 'text-left' : 'text-right'} ${col.qty ? 'bg-slate-600' : ''}`}>
+      <button
+        onClick={() => onSort(col.key)}
+        className={`inline-flex items-center gap-1 hover:text-teal-200 transition-colors ${col.align === 'right' ? 'flex-row-reverse' : ''}`}
+        title="คลิกเพื่อเรียงลำดับ"
+      >
+        <span>{col.label}</span>
+        <Icon size={13} className={active ? 'text-teal-300' : 'text-slate-400'} />
+      </button>
+    </th>
+  );
 }
 
 // ────────────────────────────────────────────────────────────
@@ -275,6 +314,7 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
   const [seedOpen, setSeedOpen] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [sort, setSort] = useState({ key: null, dir: 'asc' }); // คลิกหัวตาราง sort
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
@@ -318,6 +358,19 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
       (r.lot || '').toLowerCase().includes(q)
     );
   }, [rows, search]);
+
+  const sorted = useMemo(() => {
+    if (!sort.key) return filtered;
+    const num = NUMERIC_KEYS.has(sort.key);
+    const factor = sort.dir === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      if (num) return ((Number(a[sort.key]) || 0) - (Number(b[sort.key]) || 0)) * factor;
+      return String(a[sort.key] ?? '').localeCompare(String(b[sort.key] ?? ''), 'th') * factor;
+    });
+  }, [filtered, sort]);
+
+  // คลิกหัว: คอลัมน์เดิม → สลับ asc/desc; คอลัมน์ใหม่ → เริ่ม asc
+  const toggleSort = (key) => setSort(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
 
   const onSeeded = async (p, n) => {
     setMsg(`นำเข้างวด ${periodLabel(p)} สำเร็จ (${fmtNum(n)} แถว)`);
@@ -474,27 +527,17 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
                 <table className="w-full text-sm">
                   <thead className="bg-slate-700 text-white sticky top-0 z-10">
                     <tr>
-                      <th className="text-left px-3 py-2 font-semibold whitespace-nowrap">รหัส</th>
-                      <th className="text-left px-3 py-2 font-semibold whitespace-nowrap">ชื่อยา</th>
-                      <th className="text-left px-3 py-2 font-semibold whitespace-nowrap">Lot</th>
-                      <th className="text-left px-3 py-2 font-semibold whitespace-nowrap">ชนิดรายการ</th>
-                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">ราคา/หน่วย</th>
-                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap bg-slate-600">ยกมา (จำนวน)</th>
-                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap bg-slate-600">เข้า</th>
-                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap bg-slate-600">ออก</th>
-                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap bg-slate-600">คงเหลือ</th>
-                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">ยกมา (บาท)</th>
-                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">ซื้อ (บาท)</th>
-                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">เบิก (บาท)</th>
-                      <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">คงคลัง (บาท)</th>
+                      {LEDGER_TABLE_COLS.map(col => (
+                        <SortTh key={col.key} col={col} sort={sort} onSort={toggleSort} />
+                      ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {loading ? (
                       <tr><td colSpan={13} className="px-3 py-8 text-center text-slate-400">กำลังโหลด…</td></tr>
-                    ) : filtered.length === 0 ? (
+                    ) : sorted.length === 0 ? (
                       <tr><td colSpan={13} className="px-3 py-8 text-center text-slate-400">ไม่พบรายการ</td></tr>
-                    ) : filtered.map((r) => (
+                    ) : sorted.map((r) => (
                       <tr key={r.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.drug_code}</td>
                         <td className="px-3 py-2 text-slate-800">{r.drug_name}</td>
