@@ -1,7 +1,16 @@
 # 0007. ทะเบียนคงคลังรายเดือน (Monthly Stock Ledger) ในแอป — แทนการปิดงวดมือใน Excel
 
-- **Status:** Accepted (amended 2026-07-11 — rollover ในแอป → upload master รายเดือน)
+- **Status:** Accepted (amended 2026-07-11 upload รายเดือน; 2026-07-12 tie-out 4 หมวด)
 - **Date:** 2026-06-28
+
+> **Amendment (2026-07-12): tie-out แยก 4 หมวด — บริจาค/สนับสนุน/โครงการ.**
+> เดิม med_category มี 2 ค่า (ยา/มิใช่ยา) → มูลค่าบริจาค/สนับสนุน/โครงการ (master idx29/34) **หายจาก ledger**
+> เพราะแถวพวกนี้ (`item_type` = สนับสนุน/บริจาค/บริจาค-ยกยอด/ยาโครงการ) ดึง `closing_value` จาก idx27
+> ซึ่งมัก=0. แก้: `mapMasterRow` ตรวจ `item_type` → set `med_category` ใหม่ (`บริจาค+สนับสนุน`/`ยาโครงการ`)
+> + ดึง `closing_value` จาก **idx29/idx34** (idx29≥idx27 เสมอ → ไม่มีค่าหาย, ไม่ double-count).
+> `dedupeCostLayers` เปลี่ยนจาก recompute closing → **sum closing ดิบ** (กันทับ closing ของบริจาค/override
+> ที่ไม่ตรงสมการ). tie-out + SeedModal + export แสดง 4 หมวด. **แก้แถวเดิม ไม่สร้างแถวใหม่** (สร้างใหม่=double-count).
+> ผลงวด ก.ค.: ยา 3,757,421.07 / มิใช่ยา 205,381.42 / บริจาค 59,298 / โครงการ 138,840 / รวม 4,160,940.49.
 
 > **Amendment (2026-07-11): งวดใหม่มาจาก upload ไม่ใช่ rollover ในแอป.**
 > เดิม (ข้อ 3) ออกแบบให้ seed ครั้งเดียว แล้ว `closeLedgerPeriod` rollover สร้างงวดถัดไปแบบ atomic
