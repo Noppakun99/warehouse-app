@@ -2503,12 +2503,34 @@ export async function bulkInsertLedgerRows(rows, auth = {}) {
 
 // ล็อกงวด (freeze-only): freeze closing ของงวด → set status='closed' แก้ไม่ได้อีก
 // ไม่ rollover สร้างงวดถัดไป — งวดถัดไปมาจาก upload master (ADR-0007 upload รายเดือน)
+// เลื่อนงวด YYYY-MM ไป delta เดือน (−1 = เดือนก่อนหน้า, +1 = เดือนถัดไป)
+function shiftPeriod(period, delta) {
+  const [y, m] = period.split('-').map(Number)
+  const d = new Date(y, m - 1 + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+// สถานะงวด: 'open' | 'closed' | null (ไม่มีข้อมูล) — เช็คแถวเดียวพอ (ทั้งงวด status เดียวกัน)
+async function ledgerPeriodStatus(period) {
+  const { data } = await supabase
+    .from('stock_ledger').select('status').eq('period', period).limit(1)
+  return data?.[0]?.status || null
+}
+
 export async function closeLedgerPeriod(period, auth = {}) {
   if (!supabase) throw new Error('Supabase not configured')
 
   const rows = await fetchLedgerPeriod(period)
   if (rows.length === 0) throw new Error(`ไม่พบข้อมูลงวด ${period}`)
   if (rows.some(r => r.status === 'closed')) throw new Error(`งวด ${period} ปิดไปแล้ว`)
+
+  // หลักบัญชี: ปิดงวดต้องเรียงลำดับ — งวดก่อนหน้า (ถ้ามีข้อมูล) ต้องปิดแล้วก่อน
+  // กันปิด ก.ค. ทั้งที่ มิ.ย. ยังเปิด (ยอดยกมาไม่ freeze → carry-forward เพี้ยน)
+  const prev = shiftPeriod(period, -1)
+  const prevStatus = await ledgerPeriodStatus(prev)
+  if (prevStatus === 'open') {
+    throw new Error(`ต้องล็อกงวดก่อนหน้า (${prev}) ให้เสร็จก่อน จึงจะล็อกงวด ${period} ได้`)
+  }
 
   // freeze closing + set status='closed'
   const closed = rows.map(r => ({ ...computeClosing(r), status: 'closed' }))
@@ -2529,12 +2551,24 @@ export async function closeLedgerPeriod(period, auth = {}) {
 }
 
 // ปลดล็อกงวดที่ปิดไปแล้ว (admin) — คืน status='open' ให้ upload ทับ/แก้ได้อีก
-export async function reopenLedgerPeriod(period, auth = {}) {
+// ต้องระบุ reason (เหตุผลการแก้ย้อนหลัง) → ลง audit; ปลดได้เฉพาะงวดล่าสุดที่ปิด (กันแก้งบที่ปิดจบลึกๆ)
+export async function reopenLedgerPeriod(period, auth = {}, reason = '') {
   if (!supabase) throw new Error('Supabase not configured')
+
+  const trimReason = String(reason || '').trim()
+  if (!trimReason) throw new Error('ต้องระบุเหตุผลในการปลดล็อกงวด (สำหรับ audit)')
 
   const rows = await fetchLedgerPeriod(period)
   if (rows.length === 0) throw new Error(`ไม่พบข้อมูลงวด ${period}`)
   if (!rows.some(r => r.status === 'closed')) throw new Error(`งวด ${period} ยังเปิดอยู่ (ไม่ต้องปลดล็อก)`)
+
+  // หลักบัญชี: ปลดล็อกได้เฉพาะงวดล่าสุดที่ปิด — ถ้างวดถัดไปปิดแล้ว ต้องปลดจากงวดหลังสุดก่อน
+  // (กันเปิดงวดกลางแล้วแก้ยอดจนงบงวดถัดไปที่ปิดจบไปแล้วเพี้ยน)
+  const next = shiftPeriod(period, 1)
+  const nextStatus = await ledgerPeriodStatus(next)
+  if (nextStatus === 'closed') {
+    throw new Error(`ต้องปลดล็อกงวดถัดไป (${next}) ก่อน จึงจะปลดล็อกงวด ${period} ได้`)
+  }
 
   const { error: upErr } = await supabase
     .from('stock_ledger').update({ status: 'open' }).eq('period', period)
@@ -2543,7 +2577,7 @@ export async function reopenLedgerPeriod(period, auth = {}) {
   await insertAuditLog({
     action: 'reopen_ledger_period', table_name: 'stock_ledger',
     user_name: resolveAuditUserName(auth), department: auth?.department || '-',
-    details: { period },
+    details: { period, reason: trimReason },
   })
 
   return { reopened: period }
