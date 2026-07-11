@@ -127,6 +127,14 @@
 
 > บันทึกเหตุการณ์ที่ยา "ออกจากมือผู้ใช้กลับเข้าคลัง" หรือ "ถูกตัดออกจากคลัง" — append-only log ไม่ใช่ระบบปรับสต็อก (stock ไม่ถูกแก้อัตโนมัติจากการบันทึกคืน).
 
+### สถานะคืนยา (Return Status)
+lifecycle 2 สถานะของ 1 รายการคืน (ADR-0009): `pending` (**รอรับคืน** — ผู้เบิก/เจ้าหน้าที่ส่งคำขอ) → `received` (**รับแล้ว** — เจ้าหน้าที่คลังยืนยันรับมอบจริง). เก็บใน `return_logs.status`.
+
+- **Is not:** [[สาเหตุการคืน (Return Reason)]] / [[แหล่งที่คืน (Return Source)]] — สถานะคือ *ขั้นในกระบวนการรับมอบ* คนละแกนกับ ทำไม/จากไหน.
+- **การยืนยันรับคืน** ทำได้เฉพาะ `staff`/`admin` — เติม `received_by` (ชื่อคนกดยืนยัน) + `received_at` อัตโนมัติ; ผู้เบิกกรอกเองไม่ได้.
+- **แถวเก่า `status = null`** = ถือเป็น `received` ใน code (ไม่ backfill DB) — แนวเดียวกับ legacy ของ [[แหล่งที่คืน (Return Source)]].
+- **"รับแล้ว" ไม่ปรับ stock** — คงหลัก append-only (ดูย่อหน้าบนสุดของ section นี้). การยืนยัน = รับมอบเชิงเอกสาร ไม่ใช่ stock mutation.
+
 ### แหล่งที่คืน (Return Source)
 **ใคร/ที่ไหน** เป็นต้นทางของการคืน. ค่า canonical: `ward` (หน่วยงานในรพ.), `or`, `er`, `opd`, `vendor` (บริษัทยา).
 
@@ -134,7 +142,9 @@
 - **ข้อมูลเก่า (legacy):** แถวที่ `return_source = null` ใช้ `return_type` เดิม (`ward_return`/`damaged`/`expired_removal`/`vendor_return`) เป็น label — ห้ามลบ branch นี้.
 
 ### สาเหตุการคืน (Return Reason)
-**ทำไม** ถึงคืน. ค่า: `leftover`, `over_req`, `wrong_drug`, `damaged`, `expired`, `recall`, `vendor_return`. กรองตาม [[แหล่งที่คืน (Return Source)]] (เช่น `recall` เฉพาะ vendor).
+**ทำไม** ถึงคืน. ค่า: `leftover`, `over_req`, `wrong_drug`, `damaged`, `expired`, `recall`, `vendor_return`, `other`. กรองตาม [[แหล่งที่คืน (Return Source)]] (เช่น `recall` เฉพาะ vendor; `other` เลือกได้ทุก source).
+
+- **`other` (อื่นๆ):** สาเหตุที่ไม่มีในตัวเลือก — **บังคับระบุใน `note`** (ช่องหมายเหตุถูกยกมาไว้ใต้ dropdown สาเหตุตอนเลือก other). ไม่เพิ่ม DB column — ข้อความอยู่ใน `return_logs.note` เดิม.
 
 - **เก็บใน `return_logs.return_type`** (ชื่อ column สับสน: เก็บ reason ไม่ใช่ source). source อยู่ใน `return_source`.
 
@@ -282,6 +292,19 @@
 
 ---
 
+## การแจ้งเตือนในแอป (In-App Notification Bell / Feed)
+
+> กระดิ่ง 🔔 + badge จำนวน + dropdown รายการเหตุการณ์ล่าสุด (แบบ YouTube) — เป็น **derived read-only view เหนือ `audit_logs`** ไม่ใช่ตารางใหม่. แหล่งข้อมูล = ทุก mutation ที่ผ่าน `insertAuditLog` ในทุก sub-app (เบิก/คืน/รับ/จ่าย/AP/สั่งซื้อ/ตรวจนับ). อยู่บน **แถบบนสุด (top bar) ของ shell คู่กับ user chip** จึงติดตามผู้ใช้ทุกหน้า (ไม่ใช่แค่ Dashboard).
+
+- **Is not:** [[Expiry / Return Alert]] — อันนั้นคือ email/LINE เชิงรุกเรื่อง "สิทธิ์เปลี่ยนยาจะหมด" (derived เหนือ `inventory`+`receive_logs`). **บิลนี้คือ activity feed ของคนในระบบ** เหนือ `audit_logs`. คนละแกน คนละแหล่งข้อมูล ทั้งคู่ชื่อ "แจ้งเตือน".
+- **Is not:** [[Audit Log]] — audit คือ record ถาวรไว้ตรวจสอบย้อนหลัง; feed คือ *มุมมองล่าสุด 7 วัน* ของ subset ของ audit (เฉพาะ action ที่มีใน `NOTIFY_ACTIONS`) จัดให้อ่านง่ายแบบ realtime.
+- **ขอบเขตต่อ role (scope):** เป็นแนวคิดหลักของ feed.
+  - **staff / admin = global feed** — เห็นทุกเหตุการณ์ในระบบ (เขาต้อง react ต่อทุกใบเบิก/ทุกบิล).
+  - **requester = department-scoped** — เห็นเฉพาะเหตุการณ์ของ *แผนกตัวเอง* (ใบเบิกของแผนกถูกจัด/ตรวจ/จ่าย/ให้รับ). กันไม่ให้เห็น activity ข้ามแผนก (noise + info-leak).
+- **กับดักข้อมูล (สำคัญ):** lifecycle event ฝั่ง staff (`picking/verify/dispense/received_requisition`) เดิมบันทึก `audit_logs.department` = **แผนกของ staff** ไม่ใช่แผนกที่เบิก → filter ตรงๆ requester จะไม่เห็นใบเบิกตัวเอง. แก้ด้วยการ stamp **`details.req_department`** (แผนกต้นทางของใบเบิก) ตอน log แล้ว scope requester ด้วย field นี้ ไม่ใช่ `department` คอลัมน์.
+
+---
+
 ## Expiry / Return Alert (แจ้งเตือนยาใกล้หมดอายุ)
 
 > การแจ้งเตือนเชิงรุกว่ายาในคลังกำลังจะ "เสียสิทธิ์เปลี่ยนคืนกับบริษัท" — ไม่ใช่แค่ "ใกล้หมดอายุ". เป็น derived, read-only view เหนือ `inventory` + `receive_logs` — ไม่แก้ stock. ปัจจุบันส่งทาง email (Edge Function `expiry-alert`); กำลังเพิ่มช่องทาง LINE กลุ่ม.
@@ -292,6 +315,14 @@
 - **Is not:** วันหมดอายุ (exp) — deadline อยู่ *ก่อน* exp เสมอ (เช่น exp − 6 เดือน). ยาที่ยัง "ไม่หมดอายุ" อาจ "เลย deadline เปลี่ยน" ไปแล้ว = urgent กว่าที่ตัวเลข exp บอก.
 - **Is not:** ROP/Safety Stock — คนละแกน (นั่นคือ "สต็อกจะหมด", นี่คือ "สิทธิ์เปลี่ยนจะหมด").
 - **ช่วงค่าจริง (จากนโยบาย):** ส่วนใหญ่ 6 เดือน; มี 60 วัน (วิทยาศรม), 3 เดือน (แหลมทองการแพทย์), 1 ปี (สยามฟาร์มา/พอนด์ ต้องอายุเหลือ >1ปีจึงเปลี่ยนได้เต็ม). worst-case 1 ปี คือเหตุผลที่ email ตั้ง `WARNING_DAYS=400`.
+
+### ความจำเป็นต้องคืน (Return-Need = Coverage vs Deadline)
+"ถึง [[deadline เปลี่ยนยา (Return-Exchange Deadline)]] แล้ว" **ไม่ได้แปลว่าต้องคืนเสมอ** — ถ้ายานั้นยังเบิกใช้อยู่และของจะ **หมดเองก่อน**ถึง deadline ก็ไม่ต้องคืน (เปลืองแรง). เกณฑ์ = เทียบ [[คงอยู่ได้อีก (Coverage)]] (คงเหลือ ÷ [[เรท]]) กับจำนวนวันถึง deadline.
+
+- **coverage < วันถึง deadline** → ของจะหมดก่อน → **ไม่ต้องคืน** (flag "คาดว่าจะหมดเอง" — *ไม่ซ่อน* เพราะถ้าเรทตก ยังต้องคืนทัน).
+- **coverage ≥ วันถึง deadline** *หรือ* **ไม่มีเรท** (ยานิ่ง/ไม่หมุน) → **ต้องคืนจริง** (เด่น). ยาไม่หมุน = ยิ่งต้องคืน.
+- **Coverage คิดต่อรหัสยา (รวมทุก lot แปลงเป็นหน่วยย่อยสุด)** ไม่ใช่ต่อ lot — FEFO ทำให้ lot ใกล้ deadline ถูกจ่ายก่อนอยู่แล้ว (concept เดียวกับ [[คงอยู่ได้อีก (Coverage)]]).
+- **เรท**ที่ใช้ = usage rate จาก dispense_logs (window 6 เดือน, ต้องมีข้อมูล ≥3 เดือน) — *ไม่ใช่* [[เรท]] เข้มของ Reorder (4 เดือนปิดงวด) เพราะที่นี่ถามถึง "การหมุนจริง" ไม่ใช่สูตรสั่งซื้อ.
 
 ### นโยบายเปลี่ยนยารายบริษัท (Supplier Swap Policy)
 เงื่อนไขการรับเปลี่ยน/คืนยาของ **แต่ละบริษัท** (ต้นทาง `csvfile/นโยบาย.csv`). เก็บในระบบเป็น **free-text** ที่ `receive_logs.drug_swap_policy` (merged `swap_condition + swap_items` ตอน import — ดู [[Master (รับเข้า) / เบิก]] / Critical Rule #11). ผูกกับ lot ผ่าน `supplier_current`.
