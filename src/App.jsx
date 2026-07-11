@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { fetchInventory, saveInventory, fetchDrugDetails, fetchUploadMeta, saveUploadMeta, normalizeLotSearch, fetchConsistencyReport } from './lib/db';
+import { fetchInventory, saveInventory, fetchDrugDetails, fetchUploadMeta, saveUploadMeta, normalizeLotSearch, fetchConsistencyReport, fetchSwapPolicies, flagSwapReturn } from './lib/db';
+import { computeReturnStatus } from './lib/swapPolicy';
 import BackButton from './BackButton';
 import { exportToExcel } from './lib/exportExcel';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
@@ -7,7 +8,7 @@ import {
   Search, Package, MapPin, X, UploadCloud, FileSpreadsheet,
   AlertCircle, BarChart3, Layers, Pill, FileText,
   ChevronUp, ChevronDown, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw, FileDown, Eye, EyeOff,
-  ShieldCheck, Link2,
+  ShieldCheck, Link2, Filter,
 } from 'lucide-react';
 
 const INVENTORY_EXCEL_COLS = [
@@ -159,6 +160,8 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   const [inventory, setInventory] = useState(initialInventory);
   const [exportLoading, setExportLoading] = useState(false);
   const [drugDetails, setDrugDetails] = useState(initialDrugDetails);
+  const [swapPolicies, setSwapPolicies] = useState({}); // { [company]: { returnMonths, canReturn, differsByItem, rawNote } }
+  const [swapFlagged, setSwapFlagged] = useState({});   // { [flagKey]: true } — lot ที่กด "แจ้งหัวหน้า" แล้ว (กันกดซ้ำในเซสชัน)
   const [_logFileName, setLogFileName] = useState('');
   const [logUpdateDate, setLogUpdateDate] = useState(null);
 
@@ -173,7 +176,9 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   const [modalSearch, setModalSearch] = useState('');
   const [modalTimeFilter, setModalTimeFilter] = useState('all'); // all | expired | soon30 | soon90 | soon180 | soon16m
   const [modalLogFilter, setModalLogFilter] = useState('all');   // 'all' | <invoice>
+  const [zonePillsOpen, setZonePillsOpen] = useState(false);     // ซ่อน pill กรองโซนไว้ก่อน คลิกแล้วกาง
   const [modalExporting, setModalExporting] = useState(false);
+  const [returnBannerOpen, setReturnBannerOpen] = useState(false); // แถบเตือนคืนยา (พับได้ ให้ตารางมีที่อ่าน)
   const [isMobileExpiry, setIsMobileExpiry] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
   useEffect(() => {
     const fn = () => setIsMobileExpiry(window.innerWidth < 768);
@@ -197,10 +202,11 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   useEffect(() => {
     async function loadFromSupabase() {
       try {
-        const [inv, drugs, meta] = await Promise.all([
+        const [inv, drugs, meta, policies] = await Promise.all([
           fetchInventory(),
           fetchDrugDetails(),
           fetchUploadMeta(),
+          fetchSwapPolicies(),
         ]);
 
         // ถ้า Supabase ยังไม่มีข้อมูล → แจ้งให้ import CSV
@@ -209,6 +215,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         } else {
           setInventory(inv);
           if (drugs) setDrugDetails(drugs);
+          if (policies) setSwapPolicies(policies);
           if (meta?.inventory?.file_name) setLogFileName(meta.inventory.file_name);
           if (meta?.inventory?.updated_at) setLogUpdateDate(new Date(meta.inventory.updated_at));
         }
@@ -477,13 +484,15 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
     setShowResetConfirm(false);
     setSuccessMsg('กำลังโหลดข้อมูลจาก Supabase ใหม่...');
     try {
-      const [inv, drugs, meta] = await Promise.all([
+      const [inv, drugs, meta, policies] = await Promise.all([
         fetchInventory(),
         fetchDrugDetails(),
         fetchUploadMeta(),
+        fetchSwapPolicies(),
       ]);
       if (inv) setInventory(inv);
       if (drugs) setDrugDetails(drugs);
+      if (policies) setSwapPolicies(policies);
       if (meta?.inventory?.file_name) setLogFileName(meta.inventory.file_name);
       if (meta?.inventory?.updated_at) setLogUpdateDate(new Date(meta.inventory.updated_at));
       setErrorMsg('');
@@ -2114,15 +2123,26 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           );
           return (d?.po_number && d.po_number !== '-') ? d.po_number : '';
         };
+        // นโยบายคืนยา: จับบริษัท → policy → คำนวณ deadline ต้องคืนก่อนหมดอายุ (เฟส 1)
+        const buildReturnInfo = (item, supplier) => {
+          const pol = supplier ? swapPolicies[supplier] : null;
+          if (!pol) return null; // ไม่มีนโยบายในตาราง → ไม่ประเมิน
+          const exp = parseDateString(item.exp);
+          if (!exp) return { ...pol, status: 'no_policy', deadline: null, daysToDeadline: null };
+          const r = computeReturnStatus({ exp, months: pol.returnMonths, today: todayForDisplay });
+          return { ...pol, ...r };
+        };
         const enriched = trackingModal.list.map(item => {
           const d = lookupDetail(item);
+          const supplier = d?.supplier_current || d?._company || '';
           return {
             ...item,
             daysLeft: computeDays(item),
             waitDays: computeWaitDays(item),
-            supplier: d?.supplier_current || d?._company || '',
+            supplier,
             swapPolicy: buildSwapPolicy(d),
             po: lookupPo(item),
+            returnInfo: buildReturnInfo(item, supplier),
           };
         });
         const q = modalSearch.trim().toLowerCase();
@@ -2192,6 +2212,37 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           if (d === 0) return 'หมดอายุวันนี้';
           return `อีก ${d} วัน`;
         };
+        // ── นโยบายคืนยา (เฟส 1): badge + รายการที่ต้องเตือน ──
+        const flagKeyOf = (r) => `${(r.code||'-')}|${(r.lot||'-')}|${(r.location||'-')}`;
+        // สรุปสถานะคืนยาเป็น badge: due/overdue = ต้องดำเนินการ, differs = เช็กเอกสาร
+        const returnBadge = (ri) => {
+          if (!ri) return null;
+          if (ri.differsByItem) return { text: 'ต้องเช็กเอกสาร', cls: 'bg-slate-100 text-slate-600 border-slate-200' };
+          if (ri.canReturn === false) return { text: 'บริษัทไม่รับคืน', cls: 'bg-slate-100 text-slate-500 border-slate-200' };
+          if (ri.status === 'overdue') return { text: 'พ้นกำหนดคืน', cls: 'bg-rose-100 text-rose-700 border-rose-200' };
+          if (ri.status === 'due')     return { text: `ต้องคืนใน ${ri.daysToDeadline} วัน`, cls: 'bg-amber-100 text-amber-800 border-amber-300' };
+          if (ri.status === 'ok' && ri.returnMonths != null) return { text: `คืนก่อน ${ri.returnMonths} ด.`, cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+          return null;
+        };
+        // รายการที่ต้องเด้ง popup = due/overdue (ยังไม่ถูก flag ในเซสชันนี้)
+        const dueReturns = enriched.filter(r =>
+          r.returnInfo && !r.returnInfo.differsByItem && r.returnInfo.canReturn !== false &&
+          (r.returnInfo.status === 'due' || r.returnInfo.status === 'overdue')
+        );
+        const fmtThaiDate = (d) => d ? `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()+543}` : '-';
+        const handleFlagReturn = async (r) => {
+          const ri = r.returnInfo;
+          try {
+            await flagSwapReturn({
+              drugCode: r.code, drugName: r.name, lot: r.lot, company: r.supplier,
+              returnMonths: ri?.returnMonths, deadline: ri?.deadline ? ri.deadline.toISOString().slice(0,10) : null,
+              daysLeft: ri?.daysToDeadline,
+            }, auth);
+            setSwapFlagged(prev => ({ ...prev, [flagKeyOf(r)]: true }));
+          } catch (e) {
+            setErrorMsg('แจ้งหัวหน้าไม่สำเร็จ: ' + (e?.message || 'เกิดข้อผิดพลาด'));
+          }
+        };
         const handleModalExport = async () => {
           setModalExporting(true);
           try {
@@ -2220,7 +2271,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         };
         return (
         <div className="fixed inset-0 bg-slate-900/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col animate-in fade-in zoom-in duration-200">
             <div className={`p-5 flex justify-between items-center text-white shrink-0 rounded-t-2xl ${trackingModal.bg}`}>
               <h3 className="text-base sm:text-xl font-bold flex items-center gap-2 min-w-0">
                 {TrackingModalIcon && <TrackingModalIcon size={20} className={`${trackingModal.text} shrink-0`} />}
@@ -2277,23 +2328,39 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                 </div>
               )}
               {logGroups.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
-                  <button onClick={() => setModalLogFilter('all')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
-                      modalLogFilter === 'all' ? 'bg-sky-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-                    }`}>
-                    ทั้งหมด
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${modalLogFilter === 'all' ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{searched.length}</span>
+                <div>
+                  {/* ปุ่มกาง/พับ pill กรองโซน — ซ่อนไว้ก่อน คลิกแล้วค่อยเปิด */}
+                  <button
+                    onClick={() => setZonePillsOpen(o => !o)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border bg-white text-slate-600 border-slate-200 hover:border-slate-300 transition-colors"
+                  >
+                    <Filter size={13} />
+                    กรองตามโซน
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${modalLogFilter !== 'all' ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>
+                      {modalLogFilter === 'all' ? 'ทั้งหมด' : modalLogFilter}
+                    </span>
+                    {zonePillsOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                   </button>
-                  {logGroups.map(([zone, n]) => (
-                    <button key={zone} onClick={() => setModalLogFilter(zone)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
-                        modalLogFilter === zone ? 'bg-sky-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-                      }`}>
-                      {zone}
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${modalLogFilter === zone ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{n}</span>
-                    </button>
-                  ))}
+                  {zonePillsOpen && (
+                    <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 mt-2">
+                      <button onClick={() => setModalLogFilter('all')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
+                          modalLogFilter === 'all' ? 'bg-sky-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                        }`}>
+                        ทั้งหมด
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${modalLogFilter === 'all' ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{searched.length}</span>
+                      </button>
+                      {logGroups.map(([zone, n]) => (
+                        <button key={zone} onClick={() => setModalLogFilter(zone)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
+                            modalLogFilter === zone ? 'bg-sky-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                          }`}>
+                          {zone}
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${modalLogFilter === zone ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{n}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               <p className="text-xs text-slate-500">
@@ -2301,6 +2368,49 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                 {expiryViewFilter !== 'pending' && ' · เรียงตามวันหมดอายุก่อน'}
               </p>
             </div>
+
+            {isExpiryMode && dueReturns.length > 0 && (
+              <div className="px-4 sm:px-6 py-2.5 bg-amber-50 border-b border-amber-200 shrink-0">
+                <button onClick={() => setReturnBannerOpen(v => !v)}
+                  className="w-full flex items-center gap-2.5 text-left">
+                  <AlertTriangle size={18} className="text-amber-600 shrink-0" />
+                  <span className="text-sm font-bold text-amber-800 min-w-0 flex-1">
+                    มี {dueReturns.length} รายการต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด
+                    <span className="font-normal text-amber-700"> — แจ้งหัวหน้าให้ดำเนินการก่อนตกหล่น</span>
+                  </span>
+                  <span className="text-xs font-semibold text-amber-700 shrink-0">{returnBannerOpen ? 'ซ่อน' : 'ดูรายการ'}</span>
+                  <ChevronDown size={16} className={`text-amber-600 shrink-0 transition-transform ${returnBannerOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {returnBannerOpen && (
+                  <div className="mt-2 space-y-1.5 max-h-52 overflow-auto">
+                    {dueReturns.slice(0, 30).map((r) => {
+                      const flagged = swapFlagged[flagKeyOf(r)];
+                      return (
+                        <div key={flagKeyOf(r)} className="flex items-center gap-2 flex-wrap bg-white/70 rounded-lg px-2.5 py-1.5 border border-amber-200">
+                          <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.returnInfo.status === 'overdue' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+                            {r.returnInfo.status === 'overdue' ? 'พ้นกำหนด' : `เหลือ ${r.returnInfo.daysToDeadline} วัน`}
+                          </span>
+                          <span className="text-xs font-semibold text-slate-700 truncate">{r.name}</span>
+                          <span className="text-[11px] text-slate-500 shrink-0">Lot {r.lot} · {r.supplier || 'ไม่ทราบบริษัท'}</span>
+                          <span className="text-[11px] text-slate-500 shrink-0">ต้องคืนภายใน {fmtThaiDate(r.returnInfo.deadline)}</span>
+                          {flagged ? (
+                            <span className="ml-auto text-[11px] font-semibold text-emerald-600 shrink-0">แจ้งหัวหน้าแล้ว</span>
+                          ) : (
+                            <button onClick={() => handleFlagReturn(r)}
+                              className="ml-auto text-[11px] font-semibold bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1 rounded-md transition-colors shrink-0">
+                              แจ้งหัวหน้า
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {dueReturns.length > 30 && (
+                      <p className="text-[11px] text-amber-700 pt-1">และอีก {dueReturns.length - 30} รายการ (ดูในตารางด้านล่าง)</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="overflow-auto bg-slate-50 flex-1">
               {timeFiltered.length === 0 ? (
@@ -2315,9 +2425,14 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                           {r.code && r.code !== '-' && <p className="text-[11px] text-slate-400 mt-0.5">{r.code}</p>}
                         </div>
                         {isExpiryMode && (
-                          <span className={`shrink-0 inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeColor(r.daysLeft)}`}>
-                            {daysLabel(r.daysLeft)}
-                          </span>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeColor(r.daysLeft)}`}>
+                              {daysLabel(r.daysLeft)}
+                            </span>
+                            {(() => { const b = returnBadge(r.returnInfo); return b ? (
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${b.cls}`}>{b.text}</span>
+                            ) : null; })()}
+                          </div>
                         )}
                       </div>
                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] mt-2 pt-2 border-t border-slate-200/60">
@@ -2363,6 +2478,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                       {!isExpiryMode && <th className="px-3 py-2 text-center bg-slate-50">รอตรวจรับมา</th>}
                       {!isExpiryMode && <th className="px-3 py-2 text-left bg-slate-50">สถานะรับ</th>}
                       <th className="px-3 py-2 text-left bg-slate-50">บริษัท</th>
+                      {isExpiryMode && <th className="px-3 py-2 text-center bg-slate-50 whitespace-nowrap">คืนบริษัท</th>}
                       {isExpiryMode && <th className="px-3 py-2 text-left bg-slate-50">นโยบายเปลี่ยนยา</th>}
                       <th className="px-3 py-2 text-right bg-slate-50 whitespace-nowrap">คงเหลือ</th>
                     </tr>
@@ -2406,6 +2522,13 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                           <td className="px-3 py-2.5 text-slate-600 text-xs max-w-[160px] truncate">{r.receiveStatus || '-'}</td>
                         )}
                         <td className="px-3 py-2.5 text-slate-700 text-xs max-w-[160px] truncate" title={r.supplier || '-'}>{r.supplier || '-'}</td>
+                        {isExpiryMode && (
+                          <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                            {(() => { const b = returnBadge(r.returnInfo); return b ? (
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${b.cls}`}>{b.text}</span>
+                            ) : <span className="text-slate-300">-</span>; })()}
+                          </td>
+                        )}
                         {isExpiryMode && (
                           <td className="px-3 py-2.5 text-slate-600 text-xs max-w-[220px]" title={r.swapPolicy || '-'}>
                             <span className="line-clamp-2 leading-snug">{r.swapPolicy || '-'}</span>

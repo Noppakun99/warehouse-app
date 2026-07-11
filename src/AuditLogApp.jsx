@@ -147,9 +147,12 @@ const ACTION_LABELS = {
   import_dispense:              { label: 'นำเข้าประวัติเบิกจ่าย',   color: 'bg-rose-100 text-rose-700'     },
   scan_invoice:                 { label: 'สแกนบิลรับยา',            color: 'bg-cyan-100 text-cyan-700'     },
   map_drug_alias:               { label: 'จับคู่ชื่อยา→รหัส',        color: 'bg-teal-100 text-teal-700'     },
-  insert_return:                { label: 'บันทึกคืนยา',              color: 'bg-violet-100 text-violet-700'  },
+  insert_return:                { label: 'ส่งคำขอคืนยา',             color: 'bg-violet-100 text-violet-700'  },
+  confirm_return:               { label: 'ยืนยันรับคืนยา',           color: 'bg-emerald-100 text-emerald-700'},
   update_return:                { label: 'แก้ไขรายการคืนยา',         color: 'bg-amber-100 text-amber-700'   },
   delete_return:                { label: 'ลบรายการคืนยา',            color: 'bg-red-100 text-red-700'       },
+  flag_swap_return:             { label: 'แจ้งเปลี่ยน/คืนยา',        color: 'bg-amber-100 text-amber-800'   },
+  seed_swap_policy:             { label: 'อัปเดตนโยบายคืนยา',        color: 'bg-slate-100 text-slate-600'   },
   export_excel:                 { label: 'ส่งออก Excel',             color: 'bg-emerald-100 text-emerald-700'},
   submit_requisition:           { label: 'ส่งใบเบิกยา',             color: 'bg-sky-100 text-sky-700'        },
   requester_edit_requisition:   { label: 'แก้ไขใบเบิก',             color: 'bg-amber-100 text-amber-700'    },
@@ -237,6 +240,20 @@ function formatDetails(action, details, recordCount) {
         rtLabel && `(${rtLabel})`,
       ].filter(Boolean).join(' · ') || '-';
     }
+
+    case 'confirm_return':
+      return [
+        d.received_by && `ผู้รับคืน: ${d.received_by}`,
+        d.return_log_id && `รายการ #${d.return_log_id}`,
+      ].filter(Boolean).join(' · ') || '-';
+
+    case 'flag_swap_return':
+      return [
+        d.drug_name && `ยา: ${d.drug_name}`,
+        d.lot && `Lot ${d.lot}`,
+        d.company && `บริษัท: ${d.company}`,
+        d.deadline && `ต้องคืนภายใน ${d.deadline}`,
+      ].filter(Boolean).join(' · ') || '-';
 
     case 'export_excel':
       return d.file ? `ไฟล์: ${d.file}` : '-';
@@ -418,7 +435,9 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
     { key: 'submit_requisition',           label: 'ส่งใบเบิก' },
     { key: 'requester_edit_requisition',   label: 'แก้ไขใบเบิก' },
     { key: 'requester_delete_requisition', label: 'ลบใบเบิก' },
-    { key: 'insert_return',                label: 'คืนยา' },
+    { key: 'insert_return',                label: 'ส่งคำขอคืนยา' },
+    { key: 'confirm_return',               label: 'ยืนยันรับคืนยา' },
+    { key: 'flag_swap_return',             label: 'แจ้งเปลี่ยน/คืนยา' },
     { key: 'import_receive',               label: 'นำเข้าประวัติรับยา' },
     { key: 'import_inventory',             label: 'นำเข้า Inventory' },
     { key: 'map_drug_alias',               label: 'จับคู่ชื่อยา→รหัส' },

@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
-import { computeClosing, rolloverToNextPeriod, ADJUST_TYPE } from './ledgerRollover'
+import { computeClosing, ADJUST_TYPE } from './ledgerRollover'
 import { buildConsistencyReport } from './consistencyCheck'
+import { parseReturnPolicy, computeReturnStatus } from './swapPolicy'
 
 const CHUNK_SIZE = 500
 
@@ -195,6 +196,9 @@ export const RECEIVE_COL_MAP = {
   // ทำให้ #22 ทับ #21 → นโยบายแลกเปลี่ยน 746/~1200 บิลหาย (เก็บได้เฉพาะบิลที่ #22 มีค่า)
   swap_note:           ['ระบุเงื่อนไขการแลกเปลี่ยนยา','swap_note'],
   swap_items:          ['ระบุรายการยาและเงื่อนไขยาแต่ละตัว','swap_items','swap items','รายการยาแลกเปลี่ยน','ระบุรายการยาแลกเปลี่ยน'],
+  // Auto-Match (คอลัมน์ Z–AD ในไฟล์รับยา) — รายละเอียดเงื่อนไขที่ระบบจับคู่ให้แล้ว
+  // ใช้เสริม drug_swap_policy ให้ข้อความ "N เดือน" ครบขึ้น (parseReturnPolicy ดึงเดือนได้แม่นขึ้น)
+  swap_automatch:      ['รายละเอียดเงื่อนไขการแลกเปลี่ยน (auto-match)','รายละเอียดเงื่อนไขการแลกเปลี่ยน','swap_automatch'],
 }
 
 function _parseCSVRow(str) {
@@ -312,7 +316,7 @@ export async function importReceiveLogs(csvText, auth = {}) {
   const rows = lines.slice(1).map(_parseCSVRow)
     .filter(row => row.some(c => c && c.trim() && c.trim() !== '-'))
     .map(row => {
-      const swapFromCsv = [getVal(row,'swap_condition'),getVal(row,'swap_note'),getVal(row,'swap_items')].filter(Boolean).join(' | ')||null;
+      const swapFromCsv = [getVal(row,'swap_condition'),getVal(row,'swap_note'),getVal(row,'swap_items'),getVal(row,'swap_automatch')].filter(Boolean).join(' | ')||null;
       const drugCode = (() => { const v=getVal(row,'drug_code'); return v?String(v).trim()||'-':'-'; })();
       return {
         order_date:          _parseReceiveDate(getVal(row,'order_date')),
@@ -684,7 +688,7 @@ export async function fetchDashboardCharts(months = 6) {
 
 // --- Return Logs ---
 
-export async function fetchReturnLogs({ dateFrom, dateTo, returnSource, returnType, drugName } = {}) {
+export async function fetchReturnLogs({ dateFrom, dateTo, returnSource, returnType, drugName, status, department } = {}) {
   if (!supabase) return []
 
   let q = supabase
@@ -695,6 +699,11 @@ export async function fetchReturnLogs({ dateFrom, dateTo, returnSource, returnTy
 
   if (dateFrom) q = q.gte('return_date', dateFrom)
   if (dateTo)   q = q.lte('return_date', dateTo)
+  // กรองตามหน่วยงานจริง (return_logs.department ตรงๆ)
+  if (department && department !== 'all') q = q.eq('department', department)
+  // สถานะ (ADR-0009): แถวเก่า status=null ถือเป็น received → รวม null เมื่อกรอง received
+  if (status === 'pending')  q = q.eq('status', 'pending')
+  else if (status === 'received') q = q.or('status.eq.received,status.is.null')
   if (returnSource && returnSource !== 'all') {
     // ward และ vendor รองรับข้อมูลเก่าด้วย OR filter
     if (returnSource === 'ward')
@@ -713,6 +722,28 @@ export async function fetchReturnLogs({ dateFrom, dateTo, returnSource, returnTy
   return data || []
 }
 
+// นับคำขอคืนยาที่รอเจ้าหน้าที่คลังดำเนินการ (status='pending') — สำหรับ badge sidebar (staff/admin)
+export async function fetchPendingReturnCount() {
+  if (!supabase) return 0
+  const { count, error } = await supabase
+    .from('return_logs')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending')
+  if (error) return 0
+  return count || 0
+}
+
+// นับใบเบิกใหม่ที่รอคลังเริ่มจัด (status='pending') — badge เมนู "เบิกยาออนไลน์" (staff/admin)
+export async function fetchPendingRequisitionCount() {
+  if (!supabase) return 0
+  const { count, error } = await supabase
+    .from('requisitions')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending')
+  if (error) return 0
+  return count || 0
+}
+
 export async function deleteReturnLog(id, auth = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
   const { error } = await supabase.from('return_logs').delete().eq('id', id)
@@ -729,19 +760,221 @@ export async function updateReturnLog(id, fields, auth = {}) {
 
 export async function insertReturnLog(log, auth = {}) {
   if (!supabase) throw new Error('Supabase not configured')
+  // คำขอคืนใหม่ = 'pending' (รอคลังยืนยัน) — ADR-0009. caller ระบุ status เองได้ (เช่น staff บันทึกให้จบเลย)
+  const row = { ...log, status: log.status || 'pending' }
   const { data, error } = await supabase
     .from('return_logs')
-    .insert([log])
+    .insert([row])
     .select()
     .single()
   if (error) throw error
   await insertAuditLog({
     action: 'insert_return', table_name: 'return_logs',
-    user_name: resolveUserName(auth) !== '-' ? resolveUserName(auth) : (log.returned_by || '-'), department: auth.department || log.department,
+    // department = หน่วยงานที่คืน (จากฟอร์ม) เป็นหลัก — ให้ staff เห็นชัดว่าคืนจากหน่วยไหนในการแจ้งเตือน
+    user_name: resolveUserName(auth) !== '-' ? resolveUserName(auth) : (log.returned_by || '-'), department: log.department || auth.department,
     record_count: 1,
     details: { drug_name: log.drug_name, return_type: log.return_type, qty: log.qty_returned },
   })
   return data
+}
+
+// staff/admin กดยืนยันรับคืน → status='received' + เติม received_by + received_at (ADR-0009)
+// ไม่แตะ inventory.qty (Return = append-only log — CONTEXT.md §Return)
+export async function confirmReturnReceived(id, receivedBy, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error } = await supabase
+    .from('return_logs')
+    .update({ status: 'received', received_by: receivedBy || resolveUserName(auth), received_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'confirm_return', table_name: 'return_logs',
+    user_name: resolveUserName(auth), department: auth?.department || '-',
+    details: { return_log_id: id, received_by: receivedBy || resolveUserName(auth) },
+  })
+}
+
+// --- Swap/Return Policy (นโยบายเปลี่ยน/คืนยาก่อนพ้นเงื่อนไขบริษัท — เฟส 1) ---
+
+// ดึงนโยบายคืนยาทั้งหมด → map { [company]: { returnMonths, canReturn, differsByItem, rawNote, source } }
+// ใช้ใน App.jsx จับ lot (ตาม supplier) → นโยบาย เพื่อคำนวณ deadline คืน
+export async function fetchSwapPolicies() {
+  if (!supabase) return {}
+  const { data, error } = await supabase
+    .from('swap_return_policy')
+    .select('company, return_months, can_return, differs_by_item, raw_note, source')
+  if (error) return {}
+  const map = {}
+  for (const r of (data || [])) {
+    map[r.company] = {
+      returnMonths: r.return_months == null ? null : Number(r.return_months),
+      canReturn: r.can_return,
+      differsByItem: !!r.differs_by_item,
+      rawNote: r.raw_note,
+      source: r.source,
+    }
+  }
+  return map
+}
+
+// seed/refresh ตาราง swap_return_policy จาก receive_logs.drug_swap_policy สด
+// derive เดือน/คืนได้ ผ่าน parseReturnPolicy (pure, golden-tested) — ไม่ override แถว source='manual'
+// เรียกครั้งเดียวหลัง migration หรือหลัง import receive ใหม่ (admin)
+export async function seedSwapPolicies(auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+
+  // 1) นโยบายที่พบบ่อยสุดต่อบริษัท จาก receive_logs (paginate ผ่าน fetchAllRows-style)
+  const counts = {} // company -> { [policyText]: n }
+  const BATCH = 1000
+  let offset = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('receive_logs')
+      .select('supplier_current, drug_swap_policy')
+      .range(offset, offset + BATCH - 1)
+    if (error) throw error
+    if (!data || data.length === 0) break
+    for (const r of data) {
+      const co = (r.supplier_current || '').trim()
+      const pol = (r.drug_swap_policy || '').trim()
+      if (!co || co === '-' || !pol || pol === '-') continue
+      if (!counts[co]) counts[co] = {}
+      counts[co][pol] = (counts[co][pol] || 0) + 1
+    }
+    if (data.length < BATCH) break
+    offset += BATCH
+  }
+
+  // 2) เลือกนโยบายที่พบบ่อยสุดต่อบริษัท → parse → แถว seed
+  const rows = []
+  for (const [company, polCounts] of Object.entries(counts)) {
+    const topPolicy = Object.entries(polCounts).sort((a, b) => b[1] - a[1])[0][0]
+    const p = parseReturnPolicy(topPolicy)
+    rows.push({
+      company,
+      return_months: p.months,
+      can_return: p.canReturn,
+      differs_by_item: p.differsByItem,
+      raw_note: topPolicy,
+      source: 'auto',
+    })
+  }
+
+  // 3) upsert เฉพาะแถว auto — ไม่แตะแถวที่ admin ยืนยัน (source='manual')
+  const { data: existing } = await supabase.from('swap_return_policy').select('company, source')
+  const manual = new Set((existing || []).filter(r => r.source === 'manual').map(r => r.company))
+  const toUpsert = rows.filter(r => !manual.has(r.company))
+  if (toUpsert.length > 0) {
+    const { error } = await supabase.from('swap_return_policy').upsert(toUpsert, { onConflict: 'company' })
+    if (error) throw error
+  }
+
+  await insertAuditLog({
+    action: 'seed_swap_policy', table_name: 'swap_return_policy',
+    user_name: resolveUserName(auth), department: auth.department,
+    record_count: toUpsert.length,
+  })
+  return { total: rows.length, upserted: toUpsert.length, skippedManual: manual.size }
+}
+
+// หา lot ในคลังที่ "ใกล้/พ้นกำหนดคืนบริษัท" — สำหรับ popup เด้งหน้า Dashboard ตอน login (staff/admin)
+// รวม logic เดียวกับโมดอลใน App.jsx แต่คำนวณครบใน db.js (client ไม่ต้องโหลด drugDetails หนัก)
+// คืน [{ code, name, lot, exp, location, qty, company, returnMonths, status, deadline, daysToDeadline }]
+// เฉพาะ status = 'due' | 'overdue' (เรียง overdue ก่อน แล้วเหลือน้อยสุด)
+export async function fetchSwapReturnDue() {
+  if (!supabase) return []
+
+  const [policies, inv, usageRates] = await Promise.all([
+    fetchSwapPolicies(),
+    fetchAllInventoryRows('code, name, unit, lot, exp, qty, location, receive_status'),
+    fetchUsageRates(6),   // avgPerDay ต่อรหัสยา (หน่วยย่อยสุด, เม็ด) — สำหรับ coverage
+  ])
+  if (!inv || Object.keys(policies).length === 0) return []
+
+  // code → { บริษัทล่าสุด, นโยบายดิบล่าสุด } (จาก receive_logs) — paginate
+  const supplierByCode = {}
+  const policyTextByCode = {}   // นโยบายเต็ม (raw) ของยานั้นจากบิลรับล่าสุด — ยืนยันว่าตรงรายการ
+  let offset = 0
+  const BATCH = 1000
+  while (true) {
+    const { data, error } = await supabase
+      .from('receive_logs')
+      .select('drug_code, supplier_current, drug_swap_policy, receive_date')
+      .order('receive_date', { ascending: false, nullsFirst: false })
+      .range(offset, offset + BATCH - 1)
+    if (error || !data || data.length === 0) break
+    for (const r of data) {
+      const code = (r.drug_code || '').trim()
+      const co = (r.supplier_current || '').trim()
+      if (code && co && co !== '-' && !supplierByCode[code]) supplierByCode[code] = co
+      const pol = (r.drug_swap_policy || '').trim()
+      if (code && pol && pol !== '-' && !policyTextByCode[code]) policyTextByCode[code] = pol
+    }
+    if (data.length < BATCH) break
+    offset += BATCH
+  }
+
+  // คงเหลือรวมต่อรหัสยา (แปลงเป็นหน่วยย่อยสุด/เม็ด) — สำหรับ coverage (concept CONTEXT.md §คงอยู่ได้อีก)
+  const baseStockByCode = {}
+  for (const item of Object.values(inv).flat()) {
+    const qtyNum = parseFloat(String(item.qty).replace(/,/g, ''))
+    if (isNaN(qtyNum) || qtyNum <= 0) continue
+    if (String(item.receive_status || '').includes('ตัดออก')) continue
+    const code = (item.code || '').trim()
+    const { factor } = parseUnitFactor(item.unit)
+    baseStockByCode[code] = (baseStockByCode[code] || 0) + qtyNum * (factor || 1)
+  }
+  const usageKey = (c) => String(c || '').trim().toLowerCase().replace(/^0+(\d)/, '$1')
+
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const out = []
+  const rows = Object.values(inv).flat()
+  for (const item of rows) {
+    const qtyNum = parseFloat(String(item.qty).replace(/,/g, ''))
+    if (!isNaN(qtyNum) && qtyNum === 0) continue
+    if (String(item.receive_status || '').includes('ตัดออก')) continue
+    const code = (item.code || '').trim()
+    const company = supplierByCode[code]
+    const pol = company ? policies[company] : null
+    if (!pol || pol.differsByItem || pol.returnMonths == null) continue
+    const exp = _parseExpDate(item.exp)
+    if (!exp || isNaN(exp)) continue
+    const { status, deadline, daysToDeadline } = computeReturnStatus({ exp, months: pol.returnMonths, today })
+    if (status !== 'due' && status !== 'overdue') continue
+
+    // coverage: คงเหลือรวม(เม็ด) ÷ เรท(เม็ด/วัน) → ของจะหมดในกี่วัน. ถ้าหมดก่อน deadline → ไม่ต้องคืน (flag)
+    const avgPerDay = usageRates[usageKey(code)] || 0
+    const baseStock = baseStockByCode[code] || 0
+    const coverageDays = avgPerDay > 0 ? Math.round(baseStock / avgPerDay) : null   // null = ไม่มีเรท (ยานิ่ง → ต้องคืน)
+    const willDeplete = coverageDays != null && daysToDeadline != null && coverageDays < daysToDeadline
+
+    out.push({
+      code: item.code, name: item.name, lot: item.lot, exp: item.exp, location: item.location,
+      qty: item.qty, company, returnMonths: pol.returnMonths,
+      status, deadline: deadline ? deadline.toISOString().slice(0, 10) : null, daysToDeadline,
+      policyText: policyTextByCode[code] || null,   // นโยบายเต็มของยานั้น (raw)
+      avgPerDay: avgPerDay || null, coverageDays, willDeplete,
+    })
+  }
+  // ต้องคืนจริง (ไม่ willDeplete) ก่อน → ในกลุ่มเดียวกัน overdue/เหลือน้อยก่อน
+  out.sort((a, b) => (a.willDeplete === b.willDeplete)
+    ? (a.daysToDeadline ?? 0) - (b.daysToDeadline ?? 0)
+    : (a.willDeplete ? 1 : -1))
+  return out
+}
+
+// staff กด "แจ้งหัวหน้า" ให้ดำเนินการเปลี่ยน/คืนยาที่ใกล้พ้นกำหนด → audit log (เด้งกระดิ่ง)
+// ไม่แตะ inventory — เป็นแค่การ flag ติดตามงาน (กันตกหล่น)
+export async function flagSwapReturn({ drugCode, drugName, lot, company, returnMonths, deadline, daysLeft }, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  await insertAuditLog({
+    action: 'flag_swap_return', table_name: 'inventory',
+    user_name: resolveUserName(auth), department: auth.department,
+    details: {
+      drug_code: drugCode, drug_name: drugName, lot, company,
+      return_months: returnMonths, deadline, days_left: daysLeft,
+    },
+  })
 }
 
 // --- Audit Log ---
@@ -841,7 +1074,11 @@ export async function fetchAuditLogs({ dateFrom, dateTo, action, userName } = {}
   return data || []
 }
 
-export async function fetchNotifications() {
+// scope (optional): { department } — requester เห็นเฉพาะเหตุการณ์ของแผนกตัวเอง
+//   match ทั้ง audit_logs.department (action ที่ requester ทำเอง)
+//   และ details->>req_department (lifecycle ที่ staff ทำ — ดู CONTEXT.md §"การแจ้งเตือนในแอป")
+// ไม่ส่ง scope = global feed (staff/admin)
+export async function fetchNotifications(scope = null) {
   if (!supabase) return []
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
   // ต้องตรงกับ NOTIF_LABELS ใน AppRoot.jsx
@@ -856,8 +1093,10 @@ export async function fetchNotifications() {
     'dispense_requisition',
     'received_requisition',
     'insert_return',
+    'confirm_return',
     'update_return',
     'delete_return',
+    'flag_swap_return',
     'delete_dispense',
     'update_dispense',
     'import_dispense',
@@ -882,11 +1121,17 @@ export async function fetchNotifications() {
     'update_stock_count',
     'delete_stock_count',
   ]
-  const { data, error } = await supabase
+  let query = supabase
     .from('audit_logs')
     .select('id, action, table_name, user_name, department, record_count, details, created_at')
     .in('action', NOTIFY_ACTIONS)
     .gte('created_at', since)
+  if (scope?.department) {
+    const dept = scope.department
+    // เห็นเฉพาะแผนกตัวเอง: department ตรง หรือ details.req_department ตรง
+    query = query.or(`department.eq.${dept},details->>req_department.eq.${dept}`)
+  }
+  const { data, error } = await query
     .order('created_at', { ascending: false })
     .limit(30)
   if (error) throw error
@@ -1554,38 +1799,47 @@ export async function startPickingRequisition(id, { pickerName, items }, auth = 
       .eq('id', item.id)
     if (error) throw error
   }
-  const { error } = await supabase.from('requisitions')
+  const { data: reqRow, error } = await supabase.from('requisitions')
     .update({ status: 'picking', picker_name: pickerName, picking_started_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq('id', id)
+    .select('department, req_number')
+    .single()
   if (error) throw error
-  await insertAuditLog({ action: 'picking_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id, picker_name: pickerName } })
+  // req_department = แผนกต้นทางของใบเบิก → ให้ requester scope เห็นใบเบิกตัวเอง (ดู CONTEXT.md)
+  await insertAuditLog({ action: 'picking_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id, req_number: reqRow?.req_number, req_department: reqRow?.department, picker_name: pickerName } })
 }
 
 export async function verifyRequisition(id, verifierName, auth = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
-  const { error } = await supabase.from('requisitions')
+  const { data: reqRow, error } = await supabase.from('requisitions')
     .update({ status: 'ready', verifier_name: verifierName, verified_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq('id', id)
+    .select('department, req_number')
+    .single()
   if (error) throw error
-  await insertAuditLog({ action: 'verify_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id, verifier_name: verifierName } })
+  await insertAuditLog({ action: 'verify_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id, req_number: reqRow?.req_number, req_department: reqRow?.department, verifier_name: verifierName } })
 }
 
 export async function markRequisitionDispensed(id, auth = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
-  const { error } = await supabase.from('requisitions')
+  const { data: reqRow, error } = await supabase.from('requisitions')
     .update({ status: 'dispensed', dispensed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq('id', id)
+    .select('department, req_number')
+    .single()
   if (error) throw error
-  await insertAuditLog({ action: 'dispense_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id } })
+  await insertAuditLog({ action: 'dispense_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id, req_number: reqRow?.req_number, req_department: reqRow?.department } })
 }
 
 export async function confirmReceivedRequisition(id, receivedBy, auth = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
-  const { error } = await supabase.from('requisitions')
+  const { data: reqRow, error } = await supabase.from('requisitions')
     .update({ status: 'received', received_at: new Date().toISOString(), received_by: receivedBy, updated_at: new Date().toISOString() })
     .eq('id', id)
+    .select('department, req_number')
+    .single()
   if (error) throw error
-  await insertAuditLog({ action: 'received_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id, received_by: receivedBy } })
+  await insertAuditLog({ action: 'received_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id, req_number: reqRow?.req_number, req_department: reqRow?.department, received_by: receivedBy } })
 }
 
 // --- AP Workflow (ตั้งหนี้รายอาทิตย์) ---
@@ -2127,15 +2381,24 @@ export async function fetchLatestLedgerPeriod() {
   return data?.[0] || null
 }
 
-// seed งวดตั้งต้นจาก master sheet (rows มาจาก ledgerSeed.seedFromMasterCsv) — ADR-0007 ข้อ 5
-// ครั้งเดียวต่องวด: กัน seed ซ้ำถ้างวดมีข้อมูลแล้ว. rows ต้อง map ครบ schema แล้ว (period เดียวกัน)
+// นำเข้างวดจาก master sheet (rows มาจาก ledgerSeed.seedFromMasterCsv) — ADR-0007 (upload รายเดือน)
+// upload ได้ทุกงวด: งวด open ที่มีข้อมูลอยู่แล้ว → replace (ลบก่อน insert); งวด closed → กัน (freeze).
+// rows ต้อง map ครบ schema แล้ว (period เดียวกันทุกแถว)
 export async function bulkInsertLedgerRows(rows, auth = {}) {
   if (!supabase) throw new Error('Supabase not configured')
   if (!rows?.length) return 0
 
   const period = rows[0].period
   const existing = await fetchLedgerPeriod(period)
-  if (existing.length > 0) throw new Error(`งวด ${period} มีข้อมูลแล้ว (${existing.length} แถว) — seed ซ้ำไม่ได้`)
+  const replaced = existing.length
+  if (existing.some(r => r.status === 'closed')) {
+    throw new Error(`งวด ${period} ปิดแล้ว (freeze) — นำเข้าทับไม่ได้ ต้องเปิดงวดก่อน`)
+  }
+  // งวด open ที่มีข้อมูล → ลบทิ้งก่อน insert ชุดใหม่ (re-upload = replace ทั้งงวด)
+  if (replaced > 0) {
+    const { error: delErr } = await supabase.from('stock_ledger').delete().eq('period', period)
+    if (delErr) throw delErr
+  }
 
   for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
     const { error } = await supabase.from('stock_ledger').insert(rows.slice(i, i + CHUNK_SIZE))
@@ -2145,26 +2408,22 @@ export async function bulkInsertLedgerRows(rows, auth = {}) {
   await insertAuditLog({
     action: 'seed_ledger', table_name: 'stock_ledger',
     user_name: resolveAuditUserName(auth), department: auth?.department || '-',
-    record_count: rows.length, details: { period, rows: rows.length },
+    record_count: rows.length, details: { period, rows: rows.length, replaced },
   })
 
   return rows.length
 }
 
-// ปิดงวด (atomic): freeze closing ของงวดปัจจุบัน → set closed → สร้างแถวงวดถัดไป (rollover)
-// nextPeriod = 'YYYY-MM' ของเดือนถัดไป (UI คำนวณส่งมา)
-export async function closeLedgerPeriod(period, nextPeriod, auth = {}) {
+// ล็อกงวด (freeze-only): freeze closing ของงวด → set status='closed' แก้ไม่ได้อีก
+// ไม่ rollover สร้างงวดถัดไป — งวดถัดไปมาจาก upload master (ADR-0007 upload รายเดือน)
+export async function closeLedgerPeriod(period, auth = {}) {
   if (!supabase) throw new Error('Supabase not configured')
 
   const rows = await fetchLedgerPeriod(period)
   if (rows.length === 0) throw new Error(`ไม่พบข้อมูลงวด ${period}`)
   if (rows.some(r => r.status === 'closed')) throw new Error(`งวด ${period} ปิดไปแล้ว`)
 
-  // กันสร้างซ้ำ — งวดถัดไปต้องยังไม่มี
-  const existingNext = await fetchLedgerPeriod(nextPeriod)
-  if (existingNext.length > 0) throw new Error(`งวด ${nextPeriod} มีอยู่แล้ว — เปิดงวดถัดไปไม่ได้`)
-
-  // 1) freeze closing + set status='closed' ของงวดปัจจุบัน
+  // freeze closing + set status='closed'
   const closed = rows.map(r => ({ ...computeClosing(r), status: 'closed' }))
   for (let i = 0; i < closed.length; i += CHUNK_SIZE) {
     const chunk = closed.slice(i, i + CHUNK_SIZE)
@@ -2172,36 +2431,23 @@ export async function closeLedgerPeriod(period, nextPeriod, auth = {}) {
     if (error) throw error
   }
 
-  // 2) สร้างแถวงวดถัดไป (U→S, AB→AC, แปลงชนิด, ลบแก้ไขระบบ) — ไม่ส่ง id เพื่อให้ insert ใหม่
-  const nextRows = rolloverToNextPeriod(closed, nextPeriod)
-  for (let i = 0; i < nextRows.length; i += CHUNK_SIZE) {
-    const chunk = nextRows.slice(i, i + CHUNK_SIZE)
-    const { error } = await supabase.from('stock_ledger').insert(chunk)
-    if (error) throw error
-  }
-
   await insertAuditLog({
     action: 'close_ledger_period', table_name: 'stock_ledger',
     user_name: resolveAuditUserName(auth), department: auth?.department || '-',
     record_count: closed.length,
-    details: { period, next_period: nextPeriod, rows_closed: closed.length, rows_carried: nextRows.length },
+    details: { period, rows_closed: closed.length },
   })
 
-  return { closed: closed.length, carried: nextRows.length }
+  return { closed: closed.length }
 }
 
-// เปิดงวดที่ปิดไปแล้วใหม่ (admin) — ลบงวดถัดไปที่ rollover สร้าง + คืน status='open'
-export async function reopenLedgerPeriod(period, nextPeriod, auth = {}) {
+// ปลดล็อกงวดที่ปิดไปแล้ว (admin) — คืน status='open' ให้ upload ทับ/แก้ได้อีก
+export async function reopenLedgerPeriod(period, auth = {}) {
   if (!supabase) throw new Error('Supabase not configured')
 
-  // งวดถัดไปต้องยังไม่ถูกปิด (กันลบข้อมูลที่ทำงานต่อไปแล้ว)
-  const nextRows = await fetchLedgerPeriod(nextPeriod)
-  if (nextRows.some(r => r.status === 'closed')) {
-    throw new Error(`งวด ${nextPeriod} ปิดไปแล้ว — เปิดงวด ${period} ใหม่ไม่ได้ (ต้องเปิด ${nextPeriod} ก่อน)`)
-  }
-
-  const { error: delErr } = await supabase.from('stock_ledger').delete().eq('period', nextPeriod)
-  if (delErr) throw delErr
+  const rows = await fetchLedgerPeriod(period)
+  if (rows.length === 0) throw new Error(`ไม่พบข้อมูลงวด ${period}`)
+  if (!rows.some(r => r.status === 'closed')) throw new Error(`งวด ${period} ยังเปิดอยู่ (ไม่ต้องปลดล็อก)`)
 
   const { error: upErr } = await supabase
     .from('stock_ledger').update({ status: 'open' }).eq('period', period)
@@ -2210,10 +2456,10 @@ export async function reopenLedgerPeriod(period, nextPeriod, auth = {}) {
   await insertAuditLog({
     action: 'reopen_ledger_period', table_name: 'stock_ledger',
     user_name: resolveAuditUserName(auth), department: auth?.department || '-',
-    details: { period, removed_period: nextPeriod, removed_rows: nextRows.length },
+    details: { period },
   })
 
-  return { reopened: period, removed: nextRows.length }
+  return { reopened: period }
 }
 
 // เพิ่มแถวปรับยอด (adjustment) ในงวดที่เปิดอยู่ — ADR-0007 ข้อ 4

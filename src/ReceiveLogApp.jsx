@@ -1180,9 +1180,9 @@ function ReceiveImport({ onDone, auth = {} }) {
           if (!billNumber || billNumber === '-') issues.push('ไม่มีเลขที่บิล');
           if (issues.length > 0) warnRows.push({ row: rowNum, name: drugName || '-', code: drugCode || '-', issues });
 
-          // merge 3 คอลัมน์ swap (#20 condition + #21 note + #22 items) — ตรงกับ importReceiveLogs ใน db.js
-          // เดิมใช้แค่ 2 → #21 (ระบุเงื่อนไข) หาย 746 บิล (แก้ 2026-07-05)
-          const swapFromCsv = [getVal(row, 'swap_condition'), getVal(row, 'swap_note'), getVal(row, 'swap_items')].filter(Boolean).join(' | ') || null;
+          // merge คอลัมน์ swap (#20 condition + #21 note + #22 items + Auto-Match รายละเอียด) — ตรงกับ importReceiveLogs ใน db.js
+          // เดิมใช้แค่ 2 → #21 (ระบุเงื่อนไข) หาย 746 บิล (แก้ 2026-07-05); เพิ่ม Auto-Match ให้ "N เดือน" ครบขึ้น (2026-07-11)
+          const swapFromCsv = [getVal(row, 'swap_condition'), getVal(row, 'swap_note'), getVal(row, 'swap_items'), getVal(row, 'swap_automatch')].filter(Boolean).join(' | ') || null;
           return [{
             order_date:           parseDate(getVal(row, 'order_date')),
             receive_date:         parseDate(getVal(row, 'receive_date')),

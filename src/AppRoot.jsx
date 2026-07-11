@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -7,7 +7,7 @@ import {
 import SearchableSelect from './SearchableSelect';
 import {
   Pill, Package, TrendingUp, TrendingDown,
-  User, Shield, ShieldCheck,
+  ShieldCheck,
   ChevronRight, Activity, Database, Clock,
   AlertTriangle, ChevronDown, ChevronUp, ClipboardList,
   Eye, EyeOff, X, Bell, Search, RefreshCcw, FileDown,
@@ -20,7 +20,7 @@ import RequisitionApp     from './RequisitionApp';
 import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
-import { fetchDashboardAlerts, fetchDashboardCharts, fetchNotifications, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows } from './lib/db';
+import { fetchDashboardAlerts, fetchDashboardCharts, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows, fetchSwapReturnDue, flagSwapReturn } from './lib/db';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
@@ -28,6 +28,7 @@ import AnalyticsApp       from './AnalyticsApp';
 import ReorderApp         from './ReorderApp';
 import StockLedgerApp     from './StockLedgerApp';
 import StockCountApp      from './StockCountApp';
+import NotificationBell   from './NotificationBell';
 import DashboardV2Preview from './DashboardV2Preview'; // prototype ชั่วคราว — เปิดด้วย ?v2 (ลบได้ทั้งบรรทัด)
 import AppShell           from './AppShell';
 import { printInspectWorksheet } from './lib/inspectWorksheet';
@@ -83,9 +84,32 @@ export default function AppRoot() {
     return () => supabase.removeChannel(ch);
   }, [auth?.id]);
 
+  // badge จำนวนงานรอดำเนินการ (status=pending) บนเมนู sidebar — staff/admin เท่านั้น
+  // คืนยา (return_logs) + ใบเบิกใหม่ (requisitions)
+  const [pendingReturns, setPendingReturns]           = useState(0);
+  const [pendingRequisitions, setPendingRequisitions] = useState(0);
+  const [badgeTick, setBadgeTick] = useState(0); // bump เพื่อบังคับ refetch count (ปุ่ม "โหลดหน้านี้ใหม่")
+  useEffect(() => {
+    // เฉพาะ staff/admin — requester ไม่ fetch (count คง 0 ตาม initial state, ไม่ต้อง reset sync)
+    if (!supabase || !auth || (auth.role !== 'staff' && auth.role !== 'admin')) return;
+    const refreshReturns = () => fetchPendingReturnCount().then(setPendingReturns).catch(() => {});
+    const refreshReqs    = () => fetchPendingRequisitionCount().then(setPendingRequisitions).catch(() => {});
+    refreshReturns(); refreshReqs();
+    const ch = supabase
+      .channel('approot-pending-badges')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'return_logs' },   refreshReturns)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'requisitions' },   refreshReqs)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [auth?.id, auth?.role, badgeTick]);
+
   const handleLogin = (user) => { sessionStorage.setItem(AUTH_KEY, JSON.stringify(user)); setAuth(user); };
-  const logout = () => { sessionStorage.removeItem(AUTH_KEY); setAuth(null); setNavStack(['dashboard']); setToasts([]); };
-  const refreshPage = () => setSubKey(k => k + 1);
+  const logout = () => {
+    if (auth?.id) sessionStorage.removeItem(`swap_popup_shown_${auth.id}`); // login ใหม่ให้เด้ง popup ได้อีก
+    sessionStorage.removeItem(AUTH_KEY); setAuth(null); setNavStack(['dashboard']); setToasts([]);
+  };
+  // โหลดหน้านี้ใหม่ = remount sub-app (subKey) + refetch badge count (badgeTick) — กัน badge ค้างเมื่อ realtime พลาด
+  const refreshPage = () => { setSubKey(k => k + 1); setBadgeTick(t => t + 1); };
 
   // action item ใน sidebar (เมนู "แบบฟอร์มต่างๆ") — ทำ action ไม่เปิดหน้า/ไม่เข้า navStack
   const runFormAction = (action) => {
@@ -168,7 +192,7 @@ export default function AppRoot() {
   if (auth) {
     const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username;
     content = (
-      <AppShell page={page} onNavigate={setPage} onFormAction={runFormAction} onRefresh={refreshPage} displayName={displayName} role={auth.role} permissions={auth.permissions} onLogout={logout}>
+      <AppShell page={page} onNavigate={setPage} onFormAction={runFormAction} onRefresh={refreshPage} displayName={displayName} role={auth.role} permissions={auth.permissions} auth={auth} onLogout={logout} badges={{ return: pendingReturns, requisition: pendingRequisitions }}>
         {content}
       </AppShell>
     );
@@ -519,337 +543,38 @@ function CheckCircle({ size, className }) {
 // Dashboard — system selection
 // ============================================================
 
-// ---- Notification helpers ----
-const NOTIF_LABELS = {
-  // ── Requisition lifecycle ──
-  submit_requisition:           { label: 'ส่งใบเบิกใหม่',        color: 'text-[#1E90FF]',  dot: 'bg-[#1E90FF]' },
-  requester_edit_requisition:   { label: 'แก้ไขใบเบิก',          color: 'text-amber-600',  dot: 'bg-amber-400' },
-  requester_delete_requisition: { label: 'ลบใบเบิก',             color: 'text-red-600',    dot: 'bg-red-400'   },
-  delete_requisition:           { label: 'ลบใบเบิก',             color: 'text-red-600',    dot: 'bg-red-400'   },
-  update_requisition:           { label: 'แก้ไขใบเบิก',          color: 'text-amber-600',  dot: 'bg-amber-400' },
-  picking_requisition:          { label: 'จัดยา',                color: 'text-blue-600',   dot: 'bg-blue-400'  },
-  verify_requisition:           { label: 'ตรวจสอบใบเบิก',       color: 'text-indigo-600', dot: 'bg-indigo-400'},
-  dispense_requisition:         { label: 'จ่ายยา',                color: 'text-emerald-600',dot: 'bg-emerald-400'},
-  received_requisition:         { label: 'หน่วยงานรับยา',        color: 'text-teal-600',   dot: 'bg-teal-400'  },
-  // ── Receive / Dispense / Return ──
-  insert_return:                { label: 'คืนยา',                color: 'text-blue-600',   dot: 'bg-blue-400'  },
-  update_return:                { label: 'แก้ไขรายการคืนยา',     color: 'text-amber-600',  dot: 'bg-amber-400' },
-  delete_return:                { label: 'ลบรายการคืนยา',        color: 'text-red-600',    dot: 'bg-red-400'   },
-  delete_dispense:              { label: 'ลบรายการจ่ายยา',       color: 'text-red-600',    dot: 'bg-red-400'   },
-  update_dispense:              { label: 'แก้ไขรายการจ่ายยา',    color: 'text-amber-600',  dot: 'bg-amber-400' },
-  import_dispense:              { label: 'นำเข้าประวัติเบิกจ่าย', color: 'text-rose-600',  dot: 'bg-rose-400'  },
-  delete_receive:               { label: 'ลบรายการรับยา',        color: 'text-red-600',    dot: 'bg-red-400'   },
-  update_receive:               { label: 'แก้ไขรายการรับยา',     color: 'text-amber-600',  dot: 'bg-amber-400' },
-  import_receive:               { label: 'นำเข้าประวัติรับยา',    color: 'text-indigo-600', dot: 'bg-indigo-400'},
-  import_inventory:             { label: 'อัปโหลด Log คลัง',     color: 'text-blue-600',   dot: 'bg-blue-400'  },
-  scan_invoice:                 { label: 'สแกนบิลรับยา',         color: 'text-cyan-600',   dot: 'bg-cyan-400'  },
-  // ── AP Workflow (ส่งบัญชี) ──
-  ap_acknowledge:               { label: 'จัดซื้อรับเอกสาร',     color: 'text-sky-600',    dot: 'bg-sky-400'   },
-  ap_mark_inspected:            { label: 'ตรวจรับบิล',           color: 'text-emerald-600',dot: 'bg-emerald-400'},
-  ap_send_batch:                { label: 'ส่งบัญชี',             color: 'text-orange-600', dot: 'bg-orange-400'},
-  ap_mark_posted:               { label: 'ตั้งหนี้แล้ว',          color: 'text-violet-600', dot: 'bg-violet-400'},
-  export_excel:                 { label: 'Export Excel',         color: 'text-emerald-600', dot: 'bg-emerald-400' },
-  // ── Reorder Analysis ──
-  analysis_run:                 { label: 'บันทึก Snapshot สั่งซื้อ', color: 'text-orange-600', dot: 'bg-orange-400' },
-  update_reorder_config:        { label: 'แก้ Master ยา',         color: 'text-violet-600',  dot: 'bg-violet-400' },
-  import_reorder_config:        { label: 'Import Master ยา',      color: 'text-indigo-600',  dot: 'bg-indigo-400' },
-  mark_ordered:                 { label: 'ทำเครื่องหมายสั่งแล้ว',  color: 'text-emerald-600', dot: 'bg-emerald-400' },
-  print_po:                     { label: 'พิมพ์ใบสั่งซื้อ',        color: 'text-slate-700',   dot: 'bg-slate-500'  },
-  // ── Stock Count (ตรวจนับคงคลัง) ──
-  create_stock_count:           { label: 'ตรวจนับคงคลัง',         color: 'text-emerald-600', dot: 'bg-emerald-400' },
-  update_stock_count:           { label: 'แก้ไขผลตรวจนับ',        color: 'text-amber-600',   dot: 'bg-amber-400' },
-  delete_stock_count:           { label: 'ลบรอบตรวจนับ',          color: 'text-red-600',     dot: 'bg-red-400' },
-};
-
-const NOTIFY_ACTIONS = Object.keys(NOTIF_LABELS);
-
-function notifMessage(n) {
-  const who = n.user_name && n.user_name !== '-' ? n.user_name : (n.department || 'ผู้ใช้');
-  const d = n.details || {};
-  const reqRef = d.req_number || (d.requisition_id ? `#${d.requisition_id}` : '');
-  switch (n.action) {
-    case 'submit_requisition':
-      return `${who} ส่งใบเบิก${reqRef ? ` ${reqRef}` : ''} ${n.record_count ? `(${n.record_count} รายการ)` : ''} · ${n.department}`;
-    case 'picking_requisition':
-      return `${who} จัดยาใบเบิก${reqRef ? ` ${reqRef}` : ''}${d.picker_name ? ` (${d.picker_name})` : ''}`;
-    case 'verify_requisition':
-      return `${who} ตรวจสอบใบเบิก${reqRef ? ` ${reqRef}` : ''}${d.verifier_name ? ` (${d.verifier_name})` : ''}`;
-    case 'dispense_requisition':
-      return `${who} จ่ายยาตามใบเบิก${reqRef ? ` ${reqRef}` : ''}`;
-    case 'received_requisition':
-      return `${n.department} รับยาแล้ว${reqRef ? ` (${reqRef})` : ''}${d.received_by ? ` · ${d.received_by}` : ''}`;
-    case 'insert_return':
-      return `${who} คืนยา "${d.drug_name || ''}" ${d.qty ? `${d.qty} หน่วย` : ''} · ${n.department}`;
-    case 'update_return':
-      return `${who} แก้ไขรายการคืนยา${d.drug_name ? ` "${d.drug_name}"` : ''}`;
-    case 'delete_return':
-      return `${who} ลบรายการคืนยา · ${n.department}`;
-    case 'update_dispense':
-      return `${who} แก้ไขรายการจ่ายยา${d.drug_name ? ` "${d.drug_name}"` : ''}`;
-    case 'delete_dispense':
-      return `${who} ลบรายการจ่ายยา${d.drug_name ? ` "${d.drug_name}"` : ''}${d.qty ? ` (${d.qty} หน่วย)` : ''}`;
-    case 'import_dispense':
-      return `${who} นำเข้าประวัติเบิกจ่าย ${n.record_count ? `${n.record_count.toLocaleString()} รายการ` : ''}`;
-    case 'delete_receive':
-      return `${who} ลบรายการรับยา${n.record_count ? ` ${n.record_count} แถว` : ''}`;
-    case 'update_receive':
-      return `${who} แก้ไขรายการรับยา${d.drug_name ? ` "${d.drug_name}"` : ''}`;
-    case 'import_receive':
-      return `${who} นำเข้าประวัติรับยา ${n.record_count ? `${n.record_count.toLocaleString()} รายการ` : ''}`;
-    case 'import_inventory':
-      return `${who} อัปโหลด Log คลัง${d.file ? ` "${d.file}"` : ''}${n.record_count ? ` (${n.record_count.toLocaleString()} รายการ)` : ''}`;
-    case 'scan_invoice':
-      return `${who} สแกนบิลรับยา${d.bill_number ? ` (${d.bill_number})` : ''}${n.record_count ? ` · ${n.record_count} รายการ` : ''}`;
-    case 'ap_acknowledge':
-      return `${who} จัดซื้อรับเอกสาร${d.bill_count ? ` ${d.bill_count} บิล` : ''}`;
-    case 'ap_mark_inspected':
-      return `${who} ตรวจรับบิล${d.bill_count ? ` ${d.bill_count} บิล` : ''}${d.inspector_name ? ` (${d.inspector_name})` : ''}`;
-    case 'ap_send_batch':
-      return `${who} ส่งบัญชี${d.batch_id ? ` ${d.batch_id}` : ''}${d.bill_count ? ` (${d.bill_count} บิล)` : ''}`;
-    case 'ap_mark_posted':
-      return `${who} ตั้งหนี้แล้ว${d.batch_id ? ` ${d.batch_id}` : ''}${d.accountant_name ? ` (${d.accountant_name})` : ''}`;
-    case 'export_excel':
-      return `${who} Export Excel · ${n.department}`;
-    case 'requester_edit_requisition':
-    case 'update_requisition':
-      return `${who} แก้ไขใบเบิก${reqRef ? ` ${reqRef}` : ''} · ${n.department}`;
-    case 'requester_delete_requisition':
-    case 'delete_requisition':
-      return `${who} ลบใบเบิก${reqRef ? ` ${reqRef}` : ''} · ${n.department}`;
-    default:
-      return `${who} · ${n.department}`;
-  }
-}
-
-function timeAgo(iso) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'เมื่อกี้';
-  if (mins < 60) return `${mins} นาทีที่แล้ว`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs} ชั่วโมงที่แล้ว`;
-  const days = Math.floor(hrs / 24);
-  return `${days} วันที่แล้ว`;
-}
-
 function Dashboard({ auth, onNavigate }) {
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
   const [alerts, setAlerts] = useState({ expiring: [], lowStock: [], pendingReceive: [] });
   const [charts, setCharts] = useState(null);
   const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock' | 'stock'
-
-  // Online presence
-  const [onlineUsers, setOnlineUsers] = useState([]);
-  useEffect(() => {
-    if (!supabase || !auth?.id) return;
-    const ch = supabase.channel('user-presence', { config: { presence: { key: String(auth.id) } } });
-    ch.on('presence', { event: 'sync' }, () => {
-      const state = ch.presenceState();
-      setOnlineUsers(Object.values(state).flat());
-    }).subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') {
-        await ch.track({
-          user_id:    auth.id,
-          user_name:  (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username,
-          role:       auth.role,
-          department: auth.department || '-',
-          joined_at:  new Date().toISOString(),
-        });
-      }
-    });
-    return () => { supabase.removeChannel(ch); };
-  }, [auth?.id]);
-
-  // Notification bell
-  const LAST_READ_KEY = `notif_last_read_${auth.id}`;
-  const [notifs, setNotifs]       = useState([]);
-  const [showBell, setShowBell]   = useState(false);
-  const [lastRead, setLastRead]   = useState(() => localStorage.getItem(LAST_READ_KEY) || null);
-  const bellRef = useRef(null);
-
-  const unreadCount = notifs.filter(n => !lastRead || new Date(n.created_at) > new Date(lastRead)).length;
-
-  const markRead = useCallback(() => {
-    const now = new Date().toISOString();
-    localStorage.setItem(LAST_READ_KEY, now);
-    setLastRead(now);
-  }, [LAST_READ_KEY]);
-
-  const loadNotifs = useCallback(() => {
-    fetchNotifications().then(setNotifs).catch(() => {});
-  }, []);
+  const [swapDue, setSwapDue] = useState([]);          // ยาต้องคืนบริษัทก่อนพ้นกำหนด (staff/admin)
+  const [swapPopupOpen, setSwapPopupOpen] = useState(false); // popup เด้งอัตโนมัติตอน login
 
   useEffect(() => {
     if (!supabase) return;
     fetchDashboardAlerts().then(setAlerts);
     // กราฟเบิก/รับ + ยาต้องสั่งซื้อ — แสดงทุก role
     fetchDashboardCharts(6).then(setCharts).catch(() => {});
-
+    // ยาต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด — เด้ง popup อัตโนมัติ "ครั้งเดียวต่อรอบ login"
+    // (Dashboard remount ทุกครั้งที่กลับมาหน้าหลัก → กันเด้งซ้ำด้วย sessionStorage flag; ล้างตอน logout)
     if (isStaff) {
-      loadNotifs();
-
-      const sub = supabase
-        .channel('notif-bell')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'audit_logs' }, (payload) => {
-          const row = payload.new;
-          if (NOTIFY_ACTIONS.includes(row.action)) {
-            setNotifs(prev => [row, ...prev].slice(0, 30));
-          }
-        })
-        .subscribe();
-      return () => { supabase.removeChannel(sub); };
+      const shownKey = `swap_popup_shown_${auth.id}`;
+      fetchSwapReturnDue().then(rows => {
+        setSwapDue(rows);
+        if (rows.length > 0 && !sessionStorage.getItem(shownKey)) {
+          setSwapPopupOpen(true);
+          sessionStorage.setItem(shownKey, '1');
+        }
+      }).catch(() => {});
     }
-  }, [isStaff, loadNotifs]);
-
-  // ปิด dropdown เมื่อคลิกนอก
-  useEffect(() => {
-    if (!showBell) return;
-    const handler = (e) => { if (bellRef.current && !bellRef.current.contains(e.target)) setShowBell(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showBell]);
+  }, [isStaff, auth.id]);
 
   const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-200 via-slate-100 to-indigo-100 font-sans">
-      {/* Top navbar */}
-      <header className="bg-gradient-to-r from-sky-500 to-blue-600 shadow-md sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-white/20 text-white rounded-xl">
-              <Pill size={22} />
-            </div>
-            <div>
-              <p className="font-bold text-white text-sm leading-tight">ระบบบริหารคลังยา</p>
-              <p className="text-xs text-indigo-200">Pharmacy Management System</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 bg-white/15 border border-white/20 rounded-xl px-3 py-1.5">
-              {auth.role === 'admin'
-                ? <ShieldCheck size={14} className="text-violet-200" />
-                : isStaff
-                  ? <Shield size={14} className="text-indigo-200" />
-                  : <User   size={14} className="text-indigo-200" />
-              }
-              <div className="text-xs">
-                <p className="font-semibold text-white">{displayName}</p>
-                <p className="text-indigo-200">
-                  {auth.role === 'admin' ? 'ผู้ดูแลระบบ' : isStaff ? 'เจ้าหน้าที่คลังยา' : auth.department}
-                </p>
-              </div>
-            </div>
-
-            {/* Bell — staff/admin เท่านั้น */}
-            {isStaff && (
-              <div className="relative" ref={bellRef}>
-                <button
-                  onClick={() => { setShowBell(v => { if (!v) markRead(); return !v; }); }}
-                  className="relative p-2 text-indigo-100 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
-                  title="การแจ้งเตือน"
-                >
-                  <Bell size={20} />
-                  {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-0.5 leading-none shadow">
-                      {unreadCount > 9 ? '9+' : unreadCount}
-                    </span>
-                  )}
-                </button>
-
-                {showBell && (
-                  <div className="fixed left-2 right-2 top-16 w-auto sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
-                      <span className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                        <Bell size={14} className="text-slate-500" /> การแจ้งเตือน
-                        {notifs.length > 0 && (
-                          <span className="text-xs text-slate-400 font-normal">7 วันล่าสุด</span>
-                        )}
-                      </span>
-                      <button onClick={() => setShowBell(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
-                        <X size={16} />
-                      </button>
-                    </div>
-
-                    {/* ── ผู้ใช้งานออนไลน์ขณะนี้ ── */}
-                    <div className="px-4 py-3 border-b border-slate-100 bg-emerald-50/60">
-                      <p className="text-xs font-bold text-emerald-700 flex items-center gap-1.5 mb-2">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
-                        ออนไลน์ขณะนี้
-                        <span className="ml-auto font-semibold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full">
-                          {onlineUsers.length} คน
-                        </span>
-                      </p>
-                      <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                        {onlineUsers.length === 0
-                          ? <p className="text-xs text-slate-400">ไม่มีผู้ใช้งาน</p>
-                          : onlineUsers.map((u, i) => {
-                            const isMe = String(u.user_id) === String(auth.id);
-                            const roleLabel = u.role === 'admin' ? 'ผู้ดูแล' : u.role === 'staff' ? 'เจ้าหน้าที่' : 'ผู้ใช้';
-                            const roleColor = u.role === 'admin' ? 'text-violet-700 bg-violet-100' : u.role === 'staff' ? 'text-indigo-700 bg-indigo-100' : 'text-slate-600 bg-slate-100';
-                            return (
-                              <div key={i} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg ${isMe ? 'bg-emerald-100/80' : 'bg-white'}`}>
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                                <span className="text-xs font-semibold text-slate-700 truncate flex-1">
-                                  {u.user_name || '-'}
-                                  {isMe && <span className="ml-1 text-emerald-600 font-normal">(คุณ)</span>}
-                                </span>
-                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${roleColor}`}>{roleLabel}</span>
-                              </div>
-                            );
-                          })
-                        }
-                      </div>
-                    </div>
-
-                    <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
-                      {notifs.length === 0
-                        ? (
-                          <div className="py-8 text-center">
-                            <Bell size={28} className="text-slate-300 mx-auto mb-2" />
-                            <p className="text-slate-400 text-sm">ไม่มีการแจ้งเตือน</p>
-                          </div>
-                        )
-                        : notifs.map(n => {
-                          const meta = NOTIF_LABELS[n.action] || { label: n.action, color: 'text-slate-600', dot: 'bg-slate-400' };
-                          const isNew = !lastRead || new Date(n.created_at) > new Date(lastRead);
-                          return (
-                            <div key={n.id} className={`px-4 py-3 ${isNew ? 'bg-blue-50/50' : ''}`}>
-                              <div className="flex items-start gap-2.5">
-                                <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${meta.dot}`} />
-                                <div className="flex-1 min-w-0">
-                                  <p className={`text-xs font-bold ${meta.color}`}>{meta.label}</p>
-                                  <p className="text-sm text-slate-700 leading-snug mt-0.5 break-words">{notifMessage(n)}</p>
-                                  <p className="text-xs text-slate-400 mt-1">{timeAgo(n.created_at)}</p>
-                                </div>
-                                {isNew && <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0 mt-1.5" />}
-                              </div>
-                            </div>
-                          );
-                        })
-                      }
-                    </div>
-
-                    {notifs.length > 0 && (
-                      <div className="px-4 py-2.5 border-t border-slate-100 bg-slate-50 text-center">
-                        <button
-                          onClick={() => { setShowBell(false); onNavigate('audit'); }}
-                          className="text-xs text-[#1E90FF] hover:underline font-semibold"
-                        >
-                          ดูประวัติทั้งหมด →
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ปุ่มออกจากระบบย้ายไป sidebar (AppShell) แล้ว */}
-          </div>
-        </div>
-      </header>
+      {/* แบรนด์ + user chip + กระดิ่ง อยู่บน top bar (แถบสีฟ้า) ของ AppShell — แสดงทุกหน้า */}
 
       {/* Welcome */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 pb-4">
@@ -895,6 +620,110 @@ function Dashboard({ auth, onNavigate }) {
       {alertModal === 'stock' && (
         <StockSummaryModal onClose={() => setAlertModal(null)} auth={auth} />
       )}
+
+      {/* Popup เด้งอัตโนมัติตอน login — ยาต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด */}
+      {swapPopupOpen && swapDue.length > 0 && (
+        <SwapReturnPopup rows={swapDue} auth={auth} onClose={() => setSwapPopupOpen(false)} />
+      )}
+    </div>
+  );
+}
+
+// ---- Popup ยาต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด (เด้งตอน login) ----
+function SwapReturnPopup({ rows = [], auth, onClose }) {
+  const [flagged, setFlagged] = React.useState({});
+  const keyOf = (r) => `${r.code}|${r.lot}|${r.location}`;
+  const fmtThai = (iso) => {
+    if (!iso) return '-';
+    const [y, m, d] = iso.split('-').map(Number);
+    return `${d}/${m}/${y + 543}`;
+  };
+  const overdue = rows.filter(r => r.status === 'overdue');
+  const due = rows.filter(r => r.status === 'due');
+  const handleFlag = async (r) => {
+    try {
+      await flagSwapReturn({
+        drugCode: r.code, drugName: r.name, lot: r.lot, company: r.company,
+        returnMonths: r.returnMonths, deadline: r.deadline, daysLeft: r.daysToDeadline,
+      }, auth);
+      setFlagged(prev => ({ ...prev, [keyOf(r)]: true }));
+    } catch { /* เงียบ — ไม่บล็อกการใช้งาน */ }
+  };
+  const Row = (r) => {
+    const isFlagged = flagged[keyOf(r)];
+    // willDeplete = ของจะหมดเองก่อนถึง deadline (ตามเรทเบิก) → ไม่ต้องคืน (flag จาง ไม่ซ่อน — ดู CONTEXT.md §ความจำเป็นต้องคืน)
+    return (
+      <div key={keyOf(r)} className={`rounded-lg px-3 py-2 border ${r.willDeplete ? 'bg-slate-50 border-slate-200 opacity-80' : 'bg-white border-amber-200'}`}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.status === 'overdue' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+            {r.status === 'overdue' ? 'พ้นกำหนด' : `เหลือ ${r.daysToDeadline} วัน`}
+          </span>
+          <span className="text-sm font-semibold text-slate-800 truncate min-w-0">{r.name}</span>
+          <span className="text-[11px] text-slate-500 shrink-0">Lot {r.lot} · {r.location}</span>
+          <span className="text-[11px] text-slate-500 shrink-0">{r.company}</span>
+          <span className="text-[11px] text-slate-500 shrink-0">ต้องคืนภายใน {fmtThai(r.deadline)}</span>
+          {isFlagged ? (
+            <span className="ml-auto text-[11px] font-semibold text-emerald-600 shrink-0">แจ้งหัวหน้าแล้ว</span>
+          ) : (
+            <button onClick={() => handleFlag(r)}
+              className="ml-auto text-[11px] font-semibold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded-md transition-colors shrink-0">
+              แจ้งหัวหน้า
+            </button>
+          )}
+        </div>
+        {r.willDeplete && (
+          <p className="text-[11px] text-emerald-700 mt-1 flex items-center gap-1">
+            <span className="font-semibold">คาดว่าจะหมดเองก่อน</span>
+            (ใช้ ~{Math.round(r.avgPerDay)}/วัน · คงเหลือพอ ~{r.coverageDays} วัน) — อาจไม่ต้องคืน
+          </p>
+        )}
+        {r.policyText && (
+          <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+            <span className="font-semibold text-slate-600">นโยบาย:</span> {r.policyText}
+          </p>
+        )}
+      </div>
+    );
+  };
+  return (
+    <div className="fixed inset-0 bg-slate-900/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+      <div className="bg-amber-50 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col animate-in fade-in zoom-in duration-200">
+        <div className="p-5 flex justify-between items-start gap-3 shrink-0 rounded-t-2xl bg-amber-500 text-white">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <AlertTriangle size={22} className="text-white shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <h3 className="text-lg font-bold leading-tight">ยาต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด</h3>
+              <p className="text-amber-50 text-xs mt-0.5">
+                มี {rows.length} รายการ{overdue.length > 0 ? ` (พ้นกำหนดแล้ว ${overdue.length})` : ''}
+                {rows.some(r => r.willDeplete) ? ` · ควรคืนจริง ${rows.filter(r => !r.willDeplete).length}` : ''} — แจ้งหัวหน้าให้ดำเนินการก่อนตกหล่น
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-white/80 hover:text-white bg-black/10 hover:bg-black/20 p-2 rounded-xl transition-colors shrink-0">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="overflow-auto p-4 space-y-2 flex-1">
+          {overdue.length > 0 && (
+            <>
+              <p className="text-xs font-bold text-rose-700 px-1">พ้นกำหนดคืนแล้ว ({overdue.length})</p>
+              {overdue.map(Row)}
+            </>
+          )}
+          {due.length > 0 && (
+            <>
+              <p className="text-xs font-bold text-amber-700 px-1 pt-1">ใกล้พ้นกำหนด ({due.length})</p>
+              {due.map(Row)}
+            </>
+          )}
+        </div>
+        <div className="bg-white p-3 border-t border-amber-200 flex justify-between items-center shrink-0 rounded-b-2xl">
+          <p className="text-[11px] text-slate-500">ดูรายละเอียดเพิ่มเติมได้ที่ระบบแผนผัง ▸ ใกล้หมดอายุ</p>
+          <button onClick={onClose} className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-sm font-medium transition-colors">
+            รับทราบ
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
