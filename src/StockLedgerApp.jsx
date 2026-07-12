@@ -19,6 +19,7 @@ const fmtNum = (n) => new Intl.NumberFormat('th-TH').format(n || 0);
 // คอลัมน์ Excel ส่งบัญชี — ตรงกับตาราง (จำนวน 4 + มูลค่า 4) + หมวด ยา/มิใช่ยา
 const LEDGER_EXCEL_COLS = [
   { header: 'รหัส', key: 'drug_code' },
+  { header: 'ชนิดยา', key: 'drug_type' },
   { header: 'ชื่อยา', key: 'drug_name' },
   { header: 'Lot', key: 'lot' },
   { header: 'ชนิดรายการ', key: 'item_type' },
@@ -45,6 +46,7 @@ function periodLabel(period) {
 // คอลัมน์ตาราง ledger (key = field สำหรับ sort, align, กลุ่มจำนวน qty)
 const LEDGER_TABLE_COLS = [
   { key: 'drug_code', label: 'รหัส', align: 'left' },
+  { key: 'drug_type', label: 'ชนิดยา', align: 'left' },
   { key: 'drug_name', label: 'ชื่อยา', align: 'left' },
   { key: 'lot', label: 'Lot', align: 'left' },
   { key: 'item_type', label: 'ชนิดรายการ', align: 'left' },
@@ -553,12 +555,13 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {loading ? (
-                      <tr><td colSpan={13} className="px-3 py-8 text-center text-slate-400">กำลังโหลด…</td></tr>
+                      <tr><td colSpan={14} className="px-3 py-8 text-center text-slate-400">กำลังโหลด…</td></tr>
                     ) : sorted.length === 0 ? (
-                      <tr><td colSpan={13} className="px-3 py-8 text-center text-slate-400">ไม่พบรายการ</td></tr>
+                      <tr><td colSpan={14} className="px-3 py-8 text-center text-slate-400">ไม่พบรายการ</td></tr>
                     ) : sorted.map((r) => (
                       <tr key={r.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.drug_code}</td>
+                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.drug_type}</td>
                         <td className="px-3 py-2 text-slate-800">{r.drug_name}</td>
                         <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.lot}</td>
                         <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.item_type}</td>
