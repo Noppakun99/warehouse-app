@@ -9,6 +9,7 @@ import {
   deleteAppUser, changeAppUserPassword, updateUserPermissions,
 } from './lib/db';
 import BackButton from './BackButton';
+import { useSort, SortableTh } from './SortableTable';
 
 const ROLE_CONFIG = {
   requester: { label: 'ผู้เบิก',          badge: 'bg-blue-100 text-blue-700 border border-blue-300',   icon: User      },
@@ -248,6 +249,9 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
     return matchSearch && matchRole;
   });
 
+  // เรียงตารางฝั่ง client (users โหลดครบใน state) — default = ลำดับจาก server (created_at ล่าสุด)
+  const { sorted, sort, toggleSort } = useSort(filtered, {});
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans">
       {/* Title bar — sidebar (AppShell) คุม navigation แล้ว header เดิมเหลือแค่ title + refresh */}
@@ -310,7 +314,7 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
             </div>
           ) : isMobile ? (
             <div className="divide-y divide-slate-100">
-              {filtered.map(u => {
+              {sorted.map(u => {
                 const t = USER_TYPE[u.role] || USER_TYPE.requester;
                 return (
                   <div key={u.id} className={`p-4 space-y-2.5 ${!u.is_active ? 'opacity-60' : ''}`}>
@@ -360,18 +364,18 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
               <table className="w-full text-sm min-w-[900px]">
                 <thead>
                   <tr className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                    <th className="px-4 py-3 text-left bg-slate-50">ชื่อผู้ใช้</th>
-                    <th className="px-4 py-3 text-left bg-slate-50">ชื่อ-สกุล</th>
-                    <th className="px-4 py-3 text-left bg-slate-50">หน่วยงาน</th>
+                    <SortableTh sortKey="username" label="ชื่อผู้ใช้" sort={sort} onSort={toggleSort} className="px-4 py-3 bg-slate-50" activeColor="text-violet-600" />
+                    <SortableTh sortKey="full_name" label="ชื่อ-สกุล" sort={sort} onSort={toggleSort} className="px-4 py-3 bg-slate-50" activeColor="text-violet-600" />
+                    <SortableTh sortKey="department" label="หน่วยงาน" sort={sort} onSort={toggleSort} className="px-4 py-3 bg-slate-50" activeColor="text-violet-600" />
                     <th className="px-4 py-3 text-center bg-slate-50">ประเภทผู้ใช้</th>
                     <th className="px-4 py-3 text-left bg-slate-50">สิทธิ์ระบบ</th>
                     <th className="px-4 py-3 text-center bg-slate-50">สถานะ</th>
-                    <th className="px-4 py-3 text-center bg-slate-50">วันที่สมัคร</th>
+                    <SortableTh sortKey="created_at" label="วันที่สมัคร" align="center" sort={sort} onSort={toggleSort} className="px-4 py-3 bg-slate-50" activeColor="text-violet-600" />
                     <th className="px-4 py-3 text-center bg-slate-50">จัดการ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filtered.map(u => (
+                  {sorted.map(u => (
                     <tr key={u.id} className={`hover:bg-slate-50 transition-colors ${!u.is_active ? 'opacity-50' : ''}`}>
                       <td className="px-4 py-3 font-mono text-slate-700 font-medium">{u.username}</td>
                       <td className="px-4 py-3 font-medium text-slate-800">

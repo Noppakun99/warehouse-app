@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { RefreshCcw, Search, ClipboardList, Pencil, Trash2, X, Save, CheckSquare, BarChart3, Users, TrendingUp } from 'lucide-react';
+import { RefreshCcw, Search, ClipboardList, Pencil, Trash2, X, Save, CheckSquare, BarChart3, Users, TrendingUp, Filter, ChevronDown } from 'lucide-react';
 import { fetchAuditLogs, updateAuditLog, deleteAuditLog, bulkDeleteAuditLogs, fetchUserActivityStats } from './lib/db';
 import BackButton from './BackButton';
+import { useSort, SortableTh } from './SortableTable';
 
 const ROLE_LABELS = { admin: 'ผู้ดูแลระบบ', staff: 'เจ้าหน้าที่คลัง', requester: 'ผู้เบิก' };
 const roleLabel = (r) => ROLE_LABELS[r] || r || '-';
@@ -336,6 +337,9 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
 
   const isAdmin = auth?.role === 'admin';
   const [mainView, setMainView] = useState('logs'); // 'logs' | 'usage' (usage = admin-only)
+  // เรียงตารางฝั่ง client (data โหลดครบใน state) — default = ลำดับจาก server (created_at ล่าสุด)
+  const { sorted, sort, toggleSort } = useSort(logs, { numericKeys: ['record_count'] });
+
   const allSelected = logs.length > 0 && selectedIds.size === logs.length;
   const someSelected = selectedIds.size > 0 && selectedIds.size < logs.length;
 
@@ -430,18 +434,16 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
 
   useEffect(() => { load(); setSelectedIds(new Set()); setBulkConfirm(false); }, [load]);
 
-  const actionTabs = [
-    { key: 'all',                          label: 'ทั้งหมด' },
-    { key: 'submit_requisition',           label: 'ส่งใบเบิก' },
-    { key: 'requester_edit_requisition',   label: 'แก้ไขใบเบิก' },
-    { key: 'requester_delete_requisition', label: 'ลบใบเบิก' },
-    { key: 'insert_return',                label: 'ส่งคำขอคืนยา' },
-    { key: 'confirm_return',               label: 'ยืนยันรับคืนยา' },
-    { key: 'flag_swap_return',             label: 'แจ้งเปลี่ยน/คืนยา' },
-    { key: 'import_receive',               label: 'นำเข้าประวัติรับยา' },
-    { key: 'import_inventory',             label: 'นำเข้า Inventory' },
-    { key: 'map_drug_alias',               label: 'จับคู่ชื่อยา→รหัส' },
-    { key: 'export_excel',                 label: 'ส่งออก Excel' },
+  // dropdown กรอง action — จัดกลุ่มตาม workflow, label มาจาก ACTION_LABELS (single source ไม่ duplicate)
+  const ACTION_GROUPS = [
+    { label: 'ใบเบิกยา',   keys: ['submit_requisition', 'requester_edit_requisition', 'requester_delete_requisition', 'update_requisition', 'delete_requisition', 'picking_requisition', 'verify_requisition', 'dispense_requisition', 'received_requisition'] },
+    { label: 'รับยา',      keys: ['import_receive', 'scan_invoice', 'map_drug_alias', 'update_receive', 'delete_receive'] },
+    { label: 'จ่ายยา',     keys: ['import_dispense', 'update_dispense', 'delete_dispense'] },
+    { label: 'คืนยา',      keys: ['insert_return', 'confirm_return', 'update_return', 'delete_return', 'flag_swap_return', 'seed_swap_policy'] },
+    { label: 'คลัง/Inventory', keys: ['import_inventory', 'create_stock_count', 'update_stock_count', 'delete_stock_count', 'seed_ledger', 'close_ledger_period', 'reopen_ledger_period', 'add_ledger_adjustment'] },
+    { label: 'ส่งบัญชี (AP)', keys: ['ap_acknowledge', 'ap_unacknowledge', 'ap_mark_inspected', 'ap_uninspect', 'ap_send_batch', 'ap_unsend_batch', 'ap_mark_posted', 'ap_unpost', 'ap_reset_batch', 'print_ap_batch', 'print_ack_batch', 'export_ap_batch'] },
+    { label: 'วิเคราะห์สั่งซื้อ', keys: ['analysis_run', 'analysis_view', 'delete_analysis_run', 'update_reorder_config', 'import_reorder_config', 'mark_ordered', 'unmark_ordered', 'print_po', 'reconcile_excel'] },
+    { label: 'อื่นๆ',      keys: ['export_excel', 'login'] },
   ];
 
   return (
@@ -511,18 +513,24 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
           </button>
         </div>
 
-        {/* Action tabs */}
-        <div className="flex gap-2 flex-wrap">
-          {actionTabs.map(t => (
-            <button key={t.key} onClick={() => setAction(t.key)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors border ${
-                actionFilter === t.key
-                  ? 'bg-slate-700 text-white border-transparent shadow-sm'
-                  : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-              }`}>
-              {t.label}
-            </button>
-          ))}
+        {/* Action filter dropdown — เลือกกรองประเภทการดำเนินการ (auto-refetch ผ่าน useEffect[load]) */}
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-slate-500 font-medium">กรองประเภทการดำเนินการ</label>
+          <div className="relative w-full sm:w-72">
+            <Filter size={14} className="absolute left-2.5 top-2.5 text-slate-400 pointer-events-none" />
+            <select value={actionFilter} onChange={e => setAction(e.target.value)}
+              className="w-full appearance-none bg-white border border-slate-300 rounded-lg pl-8 pr-8 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 cursor-pointer">
+              <option value="all">ทั้งหมด</option>
+              {ACTION_GROUPS.map(g => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.keys.map(k => (
+                    <option key={k} value={k}>{ACTION_LABELS[k]?.label || k}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            <ChevronDown size={15} className="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none" />
+          </div>
         </div>
 
         {/* Mobile edit bottom sheet */}
@@ -607,7 +615,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
             <p className="text-center text-slate-400 text-sm py-10">ไม่มีข้อมูล</p>
           ) : isMobile ? (
             <div className="divide-y divide-slate-100">
-              {logs.map((r, i) => {
+              {sorted.map((r) => {
                 const meta = ACTION_LABELS[r.action] || { label: r.action, color: 'bg-slate-100 text-slate-600' };
                 const isDeletePending = deleteId === r.id;
                 return (
@@ -667,17 +675,17 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
                           className="w-3.5 h-3.5 accent-slate-700 cursor-pointer" />
                       </th>
                     )}
-                    <th className="px-4 py-2.5 text-left bg-slate-50">วันที่/เวลา</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-50">การดำเนินการ</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-50">ผู้ดำเนินการ</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-50">หน่วยงาน</th>
-                    <th className="px-4 py-2.5 text-right bg-slate-50">จำนวน</th>
+                    <SortableTh sortKey="created_at" label="วันที่/เวลา" sort={sort} onSort={toggleSort} className="px-4 py-2.5 bg-slate-50" activeColor="text-slate-700" />
+                    <SortableTh sortKey="action" label="การดำเนินการ" sort={sort} onSort={toggleSort} className="px-4 py-2.5 bg-slate-50" activeColor="text-slate-700" />
+                    <SortableTh sortKey="user_name" label="ผู้ดำเนินการ" sort={sort} onSort={toggleSort} className="px-4 py-2.5 bg-slate-50" activeColor="text-slate-700" />
+                    <SortableTh sortKey="department" label="หน่วยงาน" sort={sort} onSort={toggleSort} className="px-4 py-2.5 bg-slate-50" activeColor="text-slate-700" />
+                    <SortableTh sortKey="record_count" label="จำนวน" align="right" sort={sort} onSort={toggleSort} className="px-4 py-2.5 bg-slate-50" activeColor="text-slate-700" />
                     <th className="px-4 py-2.5 text-left bg-slate-50">รายละเอียด</th>
                     <th className="px-4 py-2.5 text-center bg-slate-50">จัดการ</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {logs.map((r, i) => {
+                  {sorted.map((r, i) => {
                     const meta = ACTION_LABELS[r.action] || { label: r.action, color: 'bg-slate-100 text-slate-600' };
                     const isEditing = editId === r.id;
                     const isDeletePending = deleteId === r.id;
