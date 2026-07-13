@@ -34,7 +34,7 @@ test.describe('ระบบคืนยา (ReturnApp)', () => {
     await expect(page.getByText('จัดเป็นกลุ่ม')).toBeVisible();
   });
 
-  test('บันทึกการคืนยาสำเร็จ', async ({ authenticatedPage: page }) => {
+  test('ส่งคำขอคืนยาสำเร็จ (status pending)', async ({ authenticatedPage: page }) => {
     await goToReturn(page);
 
     // เลือกหน่วยงานก่อน (เพื่อปลดล็อก dropdown สาเหตุ + ผ่าน validation)
@@ -57,7 +57,7 @@ test.describe('ระบบคืนยา (ReturnApp)', () => {
     const insertRes = waitForSupabase(page, { table: 'return_logs', method: 'POST' });
     await page.getByRole('button', { name: 'บันทึกการคืนยา' }).click();
     await insertRes;
-    await expect(page.getByText('บันทึกการคืนยาสำเร็จ')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/รอเจ้าหน้าที่คลังยืนยันรับคืน/)).toBeVisible({ timeout: 10_000 });
   });
 
   test('หลัง submit มีปุ่มพิมพ์ / PDF', async ({ authenticatedPage: page }) => {
@@ -80,7 +80,7 @@ test.describe('ระบบคืนยา (ReturnApp)', () => {
     const insertRes = waitForSupabase(page, { table: 'return_logs', method: 'POST' });
     await page.getByRole('button', { name: 'บันทึกการคืนยา' }).click();
     await insertRes;
-    await page.waitForSelector('text=บันทึกการคืนยาสำเร็จ', { timeout: 10_000 });
+    await page.waitForSelector('text=รอเจ้าหน้าที่คลังยืนยันรับคืน', { timeout: 10_000 });
 
     await expect(page.getByRole('button', { name: /พิมพ์ \/ PDF/i })).toBeVisible();
   });
