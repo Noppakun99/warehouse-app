@@ -174,7 +174,8 @@ function ThaiDateInput({ value, onChange, ring = 'focus-within:ring-rose-400', s
       <input type="date"
         className="absolute inset-0 opacity-0 w-full cursor-pointer text-base"
         value={thaiToIso(value) || ''}
-        onChange={e => onChange(isoToThai(e.target.value))} />
+        onChange={e => onChange(isoToThai(e.target.value))}
+        onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }} />
     </div>
   );
 }
@@ -260,6 +261,7 @@ const DISPENSE_EXCEL_COLS = [
   { header: 'ราคา/หน่วย',       key: 'price_per_unit' },
   { header: 'Lot Number',         key: 'lot' },
   { header: 'Exp',                key: 'exp' },
+  { header: 'วันที่ใกล้exp',     key: 'near_exp_date' },
   { header: 'ชนิดรายการ',        key: 'item_type' },
   { header: 'คงเหลือก่อนเบิก',  key: 'qty_before' },
   { header: 'ปริมาณ (ออก)',      key: 'qty_out' },

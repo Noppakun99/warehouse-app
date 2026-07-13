@@ -11,16 +11,20 @@ import {
   ShieldCheck, Link2, Filter,
 } from 'lucide-react';
 
+// คอลัมน์ตาม CSV master ต้นทาง (ยอดคลังยา_master_69.csv) เฉพาะ field ที่ inventory เก็บจริง
+// ไม่รวมคอลมูลค่ารายเดือน/aggregate ของ master ที่คำนวณสดใน Excel (ไม่มีใน DB)
 const INVENTORY_EXCEL_COLS = [
+  { header: 'MainLog',          key: 'mainLog' },
   { header: 'ตำแหน่งจัดเก็บ',  key: 'location' },
   { header: 'รหัสยา',           key: 'code' },
-  { header: 'ชื่อยา',           key: 'name' },
-  { header: 'ประเภท',           key: 'type' },
+  { header: 'ชนิด',             key: 'type' },
+  { header: 'รายการยา',         key: 'name' },
   { header: 'หน่วย',            key: 'unit' },
   { header: 'Lot Number',       key: 'lot' },
   { header: 'Exp',              key: 'exp' },
-  { header: 'คงเหลือ',          key: 'qty' },
   { header: 'ชนิดรายการ',       key: 'itemType' },
+  { header: 'คงเหลือ',          key: 'qty' },
+  { header: 'เลขที่บิลซื้อ',    key: 'invoice' },
   { header: 'สถานะรับยา',       key: 'receiveStatus' },
   { header: 'Safety Stock',     key: 'safetyStock' },
 ];

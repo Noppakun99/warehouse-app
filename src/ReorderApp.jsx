@@ -963,13 +963,21 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, months }) 
   const exportCsv = async () => {
     setExporting(true);
     try {
+      // breakdown เบิกรายเดือน — index ตรงกับ monthlyUsage (จัดตาม months ที่ตัด excludedMonth แล้ว)
+      const monthCols = (months || []).map((mm, i) => ({
+        header: `เบิก ${thaiMonthLabel(mm)}`,
+        value: r => Math.round(r.monthlyUsage?.[i] || 0),
+      }));
       await exportToExcel(sorted, [
         { header: 'รหัส',  key: 'code' },
+        { header: 'ชนิด', key: 'type' },
         { header: 'ชื่อยา', key: 'name' },
         { header: 'VEN',  value: r => venLetter(r.riskGroup) },
         { header: 'หน่วยซื้อ', key: 'unit' },
         { header: 'บริษัทล่าสุด', key: 'supplier' },
         { header: 'วันรับล่าสุด', value: r => fmtThaiDate(r.receiveDate) },
+        ...monthCols,
+        { header: 'รวมทุกเดือน', value: r => Math.round((r.monthlyUsage || []).reduce((a, b) => a + b, 0)) },
         { header: 'Max',   value: r => Math.round(r.max) },
         { header: 'Avg/mo', value: r => Math.round(r.avgMonth) },
         { header: 'Avg/d',  value: r => Math.round(r.avgDay * 100) / 100 },

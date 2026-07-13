@@ -1737,12 +1737,12 @@ function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEn
                   <span className="text-xs font-semibold text-amber-600 shrink-0">{Math.round(r.ratio * 100)}% ของ SS</span>
                 </div>
                 <p className="text-xs text-slate-500 mt-1">
-                  คงเหลือ <span className="font-bold text-red-600">{Number(r.qty).toLocaleString()}</span> <span className="text-slate-400">{r.unit}</span> / SS {Number(r.safety_stock).toLocaleString()} {r.unit}
+                  คงเหลือ <span className="font-bold text-red-600">{Number(r.qty).toLocaleString()}</span>{r.unit ? <span className="text-slate-400"> ({r.unit})</span> : ''} / SS {Number(r.safety_stock).toLocaleString()}{r.unit ? ` (${r.unit})` : ''}
                 </p>
                 {r.usageWeeks > 0 && (
                   <p className="text-xs text-slate-500 mt-0.5">
                     <span className="text-slate-400">เบิก</span> <span className="font-semibold text-slate-600">{r.usageWeeks}/13 สัปดาห์</span>
-                    <span className="text-slate-400"> · รวม </span><span className="font-semibold text-slate-600">{Number(r.usage3m).toLocaleString()} {r.unit}</span>
+                    <span className="text-slate-400"> · รวม </span><span className="font-semibold text-slate-600">{Number(r.usage3m).toLocaleString()}{r.unit ? ` (${r.unit})` : ''}</span>
                   </p>
                 )}
               </div>

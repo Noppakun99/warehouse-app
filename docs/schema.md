@@ -74,8 +74,21 @@ const swapFromCsv = [getVal(row,'swap_condition'), getVal(row,'swap_items')].fil
 
 ## Excel Export — Column Order
 
+**หลักการ**: export ให้ครอบ**ทุก field ที่ DB เก็บจริง** (ลำดับคอลัมน์อิงไฟล์ CSV ต้นทางใน `csvfile/` เพื่อ round-trip / re-import ได้) — **ไม่ recompute** คอลัมน์ derived/aggregate ที่ Excel ต้นทางคำนวณสด (เช่น มูลค่ารายเดือนใน master, ตัวคูณ SS ที่เป็น business input) เพราะจะได้เลขไม่ตรงต้นฉบับ + ไม่รวมคอลัมน์ helper (packsize/qty_base/_key). ไม่ export internal-only: id/created_at/updated_at + AP workflow metadata (`ap_*`, `inspect_meta`, `acknowledged_*`)
+
 ### DispenseLogApp (`DISPENSE_EXCEL_COLS`)
-วันที่เบิก | MainLog | DetailedLog | รหัส | ชนิด | รายการยา | หน่วย | ราคา/หน่วย | Lot Number | Exp | ชนิดรายการ | คงเหลือก่อนเบิก | ปริมาณ (ออก) | คงเหลือหลังจ่าย | หน่วยงานที่เบิก | หมายเหตุ
+วันที่เบิก | MainLog | DetailedLog | รหัส | ชนิด | รายการยา | หน่วย | ราคา/หน่วย | Lot Number | Exp | **วันที่ใกล้exp** | ชนิดรายการ | คงเหลือก่อนเบิก | ปริมาณ (ออก) | คงเหลือหลังจ่าย | หน่วยงานที่เบิก | หมายเหตุ
 
 ### RequisitionApp (`REQUISITION_EXCEL_COLS`)
 ใช้คอลัมน์เดียวกับ DispenseLogApp เพื่อ paste-compatible — `exportReqExcel()` ทำ async lookup `receive_logs` เพื่อ auto-fill MainLog, DetailedLog, ชนิดรายการ ก่อน export
+
+### ReceiveLogApp (`RECEIVE_EXCEL_COLS`)
+วันที่แจ้งสั่ง | รหัสยา | รูปแบบ | ชื่อยา | ประเภทการซื้อ | Lot | Exp | หมายเหตุหมดอายุ | เลขที่บิล | เลขที่ PO | จำนวนรับ | หน่วย | หน่วย/บิล | ราคา/หน่วย | ราคารวมภาษี (บาท) | วันที่รับ | ผลการพิจารณา | วันที่ตรวจรับ | ระยะตรวจรับ | บริษัท | บริษัทก่อนหน้า | เปลี่ยนบริษัท | leadtime | MainLog | DetailedLog | ชนิดรายการ | Safety Stock | หมายเหตุ | เงื่อนไขแลกเปลี่ยนยา
+
+### App (แผนผังคลังยา — `INVENTORY_EXCEL_COLS`)
+MainLog | ตำแหน่งจัดเก็บ | รหัสยา | ชนิด | รายการยา | หน่วย | Lot Number | Exp | ชนิดรายการ | คงเหลือ | เลขที่บิลซื้อ | สถานะรับยา | Safety Stock
+— ตรงกับ `ยอดคลังยา_master_69.csv` เฉพาะ field ที่ `inventory` เก็บ (ไม่รวม 30+ คอลมูลค่ารายเดือนที่ master คำนวณสดใน Excel)
+
+### ReorderApp (วิเคราะห์สั่งซื้อ — inline ใน `exportCsv`)
+รหัส | ชนิด | ชื่อยา | VEN | หน่วยซื้อ | บริษัทล่าสุด | วันรับล่าสุด | **เบิก \<เดือน\>… (dynamic ตาม `months`)** | รวมทุกเดือน | Max | Avg/mo | Avg/d | คงเหลือ | คงอยู่ได้อีก | SS | ROP | คงเหลือ−ROP | Lead Time | ต้องซื้อ(หน่วยซื้อ) | ต้องซื้อ(เม็ด) | ราคา/หน่วยซื้อ | มูลค่า | สถานะ | หมดอายุ (วัน)
+— คอลัมน์ `เบิก <เดือน>` สร้าง dynamic จาก prop `months` (= `monthsInRange` ตัด `excludedMonth`) index ตรงกับ `r.monthlyUsage`
