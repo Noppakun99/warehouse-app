@@ -30,9 +30,11 @@ npm run test:unit      # Golden tests สำหรับ src/unitParser.js — �
 npm run test:alloc     # Golden tests สำหรับ src/lib/lotAllocation.js — FEFO auto-split (เบิกระดับยา B-base)
 npm run test:ledger     # Golden tests สำหรับ src/lib/ledgerRollover.js — สมการคงคลัง + ขึ้นเดือนใหม่ (ADR-0007)
 npm run test:ledgerseed # Golden tests สำหรับ src/lib/ledgerSeed.js — seed master CSV → ledger row (ADR-0007)
+npm run test:swappolicy # Golden tests สำหรับ src/lib/swapPolicy.js — parse นโยบายคืนยา + deadline (31 assertions)
+npm run test:consistency # Golden tests สำหรับ src/lib/consistencyCheck.js — ตรวจความสอดคล้อง CSV→DB (26 assertions)
 ```
 
-ไม่มี test runner ทั่วไป — golden tests เป็น standalone `node` (ไม่มี framework): `src/unitParser.test.js` (`npm run test:unit`), `src/lib/reorder.test.js` (`npm run test:reorder`), `src/lib/billGroup.test.js` (`npm run test:billgroup`), `src/lib/lotAllocation.test.js` (`npm run test:alloc`), `src/ledgerRollover.test.js` (`npm run test:ledger`), `src/ledgerSeed.test.js` (`npm run test:ledgerseed`). **กฎ**: logic ที่ test แบบนี้ได้ต้องเป็น pure module ไม่ import `supabase` (เพราะ `supabase.js` ใช้ `import.meta.env` ที่ node รันไม่ได้) — ดู `billGroup.js`/`lotAllocation.js`/`ledgerRollover.js`/`ledgerSeed.js` แยกจาก `db.js` ด้วยเหตุนี้. **หมายเหตุ layout**: source module ของ ledger อยู่ใน `src/lib/` แต่ test file (`ledgerRollover.test.js`/`ledgerSeed.test.js`) อยู่ที่ `src/` root — ต่างจาก golden test อื่นที่วาง test ข้าง source
+ไม่มี test runner ทั่วไป — golden tests เป็น standalone `node` (ไม่มี framework): `src/unitParser.test.js` (`npm run test:unit`), `src/lib/reorder.test.js` (`npm run test:reorder`), `src/lib/billGroup.test.js` (`npm run test:billgroup`), `src/lib/lotAllocation.test.js` (`npm run test:alloc`), `src/ledgerRollover.test.js` (`npm run test:ledger`), `src/ledgerSeed.test.js` (`npm run test:ledgerseed`), `src/lib/swapPolicy.test.js` (`npm run test:swappolicy`), `src/lib/consistencyCheck.test.js` (`npm run test:consistency`). **กฎ**: logic ที่ test แบบนี้ได้ต้องเป็น pure module ไม่ import `supabase` (เพราะ `supabase.js` ใช้ `import.meta.env` ที่ node รันไม่ได้) — ดู `billGroup.js`/`lotAllocation.js`/`ledgerRollover.js`/`ledgerSeed.js` แยกจาก `db.js` ด้วยเหตุนี้. **หมายเหตุ layout**: source module ของ ledger อยู่ใน `src/lib/` แต่ test file (`ledgerRollover.test.js`/`ledgerSeed.test.js`) อยู่ที่ `src/` root — ต่างจาก golden test อื่นที่วาง test ข้าง source
 
 **E2E**: Playwright (`tests/01-11`) — `npx playwright test` — ครอบคลุม login, dashboard, requisition, return, staff flow, validation, permissions, **AP workflow UX, ทุก sub-app smoke, mobile responsive 375px, a11y, ระบบวิเคราะห์การสั่งซื้อยา** ดู [docs/testing.md](docs/testing.md)
 
@@ -53,7 +55,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 - **Submenu deep-link เข้า sub-tab ผ่าน `initialTab`**: submenu children เป็น leaf ที่ `page` เป็น page key เฉพาะ (เช่น `receive-scan`, `reorder-supplier`) — `AppRoot` route map page key นั้นเป็น sub-app เดิม + ส่ง `initialTab` prop (เช่น `<ReceiveLogApp initialTab="scan"/>`). ปัจจุบัน `NAV_GROUPS` มี submenu `key: 'receive'` (ประวัติรับยา ▸ ส่งบัญชี/สแกนบิล) + `key: 'reorder'` (วิเคราะห์สั่งซื้อ ▸ ตาราง/แยกบริษัท/verify/history). ⚠️ **`AppShell` render submenu แค่ 1 ชั้น** (`children.map(renderLeaf)` — `renderLeaf` รองรับแค่ `page`/`action` ไม่รองรับ nested children) → ห้ามซ้อน submenu ใน submenu. **child ที่เป็น staff-only ต้องตั้ง `roles: ['staff','admin']` เอง** (parent submenu แสดงถ้า role parent ผ่าน OR มี child ที่ `canSee` — ดู `canSee`/filter ใน [AppShell.jsx](src/AppShell.jsx))
 
 **Sub-apps (component แยกอิสระ):**
-- `App.jsx` — Inventory map, CSV upload, drug grid (ดู [docs/features/inventory-map.md](docs/features/inventory-map.md))
+- `App.jsx` — Inventory map, CSV upload, drug grid + **แจ้งเตือนเปลี่ยน/คืนยาก่อนพ้นเงื่อนไขบริษัท** (โมดอลใกล้หมดอายุ: badge "คืนบริษัท" + banner + ปุ่มแจ้งหัวหน้า; deadline = exp − นโยบายเดือน ผ่าน `swapPolicy.js` + ตาราง `swap_return_policy`) — popup เด้งอัตโนมัติหน้า Dashboard ([AppRoot.jsx](src/AppRoot.jsx)) ตอน staff/admin login ด้วย `fetchSwapReturnDue()` (ดู [docs/features/inventory-map.md](docs/features/inventory-map.md), [docs/features/swap-return.md](docs/features/swap-return.md))
 - `RequisitionApp.jsx` — เบิกยา (ระดับยา/หน่วยย่อยสุด ซ่อน lot) + auto-split FEFO ผ่าน `src/lib/lotAllocation.js` (เก็บผลใน `picked_allocation` jsonb) + picking workflow + **ใบ lot คุม** (`printLotControl` — แนวนอน 16 คอลัมน์แบบ HosXP, snapshot `onhand` ตอนจัด, หมายเหตุอัตโนมัติ; `staff_note` ต้องรัน `staff_note_migration.sql`) + **ใบปะหน้า** (`printCoverForm` — ฟอร์มราชการ+สายลายเซ็น, ข้อความ pre-printed ใน const `COVER_FORM`) (ดู [docs/features/picking-workflow.md](docs/features/picking-workflow.md), ADR-0004, CONTEXT.md §ใบ lot คุม/§ใบปะหน้า)
 - `DispenseLogApp.jsx` — ประวัติเบิกจ่าย
 - `ReceiveLogApp.jsx` — ประวัติรับยา + สแกนบิล AI (ดู [docs/features/invoice-scanner.md](docs/features/invoice-scanner.md))
@@ -74,7 +76,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 
 **Reusable:** `DrugSearchBar.jsx`, `SearchableSelect.jsx`
 
-**Pure modules (no `supabase` import → golden-testable):** `src/lib/reorder.js`, `src/lib/billGroup.js`, `src/lib/lotAllocation.js` (FEFO allocation), `src/lib/unitParser.js`, `src/lib/ledgerRollover.js` (สมการคงคลัง + rollover), `src/lib/ledgerSeed.js` (RFC-4180 parser + map master→ledger) — แยกออกจาก `db.js` โดยเจตนาเพื่อให้รันใน node ได้ (ดู section Commands)
+**Pure modules (no `supabase` import → golden-testable):** `src/lib/reorder.js`, `src/lib/billGroup.js`, `src/lib/lotAllocation.js` (FEFO allocation), `src/lib/unitParser.js`, `src/lib/ledgerRollover.js` (สมการคงคลัง + rollover), `src/lib/ledgerSeed.js` (RFC-4180 parser + map master→ledger), `src/lib/swapPolicy.js` (parse นโยบายคืนยา free-text → เดือน + คำนวณ deadline), `src/lib/consistencyCheck.js` (ตรวจความสอดคล้อง CSV→DB — referential + range-guard) — แยกออกจาก `db.js` โดยเจตนาเพื่อให้รันใน node ได้ (ดู section Commands)
 
 ## Documentation Index
 
