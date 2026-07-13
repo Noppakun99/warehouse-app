@@ -23,7 +23,9 @@ function IsoDateInput({ value, onChange, className = '' }) {
   return (
     <div className={`relative flex items-center bg-white border border-slate-300 rounded-lg focus-within:ring-2 focus-within:ring-blue-400 ${className}`}>
       <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
-      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)} className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
+        onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }}
+        className="absolute inset-0 opacity-0 w-full cursor-pointer" />
     </div>
   )
 }
