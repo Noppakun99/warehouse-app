@@ -1,15 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   RotateCcw, Search, CheckCircle,
-  AlertCircle, FileText, ChevronDown, ChevronUp, FileDown, Printer,
+  AlertCircle, FileText, ChevronDown, ChevronRight, FileDown, Printer,
   Pencil, Trash2, X, MapPin, Pill, UserCheck,
-  Package, Hash, Layers, ArrowRight,
+  Package, Hash, Layers, ArrowRight, Clock, PackageCheck,
 } from 'lucide-react'
-import { fetchReturnLogs, insertReturnLog, deleteReturnLog, updateReturnLog, fetchAllInventoryRows } from './lib/db'
+import { fetchReturnLogs, insertReturnLog, deleteReturnLog, updateReturnLog, confirmReturnReceived, fetchAllInventoryRows } from './lib/db'
 import { exportToExcel } from './lib/exportExcel'
 import { supabase } from './lib/supabase'
 import SearchableSelect from './SearchableSelect'
+import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar'
 import BackButton from './BackButton'
+import { useSort, SortableTh } from './SortableTable'
 
 // ============================================================
 // Constants
@@ -42,14 +44,14 @@ const RETURN_REASONS = [
   { key: 'expired',       label: 'ยาหมดอายุ',               short: 'ยาหมดอายุ', sources: ['ward', 'or', 'er', 'opd', 'vendor'], badgeBg: 'bg-red-100',    badgeText: 'text-red-800'    },
   { key: 'recall',        label: 'Lot เรียกคืน (Recall)',   short: 'Recall',     sources: ['vendor'],                  badgeBg: 'bg-rose-100',   badgeText: 'text-rose-800'   },
   { key: 'vendor_return', label: 'ส่งคืนตามสัญญา',         short: 'คืนบริษัท', sources: ['vendor'],                  badgeBg: 'bg-purple-100', badgeText: 'text-purple-800' },
+  { key: 'other',         label: 'อื่นๆ (ระบุในหมายเหตุ)',  short: 'อื่นๆ',      sources: ['ward', 'or', 'er', 'opd', 'vendor'], badgeBg: 'bg-slate-100', badgeText: 'text-slate-700' },
 ]
 const REASON_MAP = Object.fromEntries(RETURN_REASONS.map(r => [r.key, r]))
 
-// ── helper: คืน badge info สำหรับแสดงผล ──
-function getReturnBadge(log) {
-  if (!log.return_source) return LEGACY_MAP[log.return_type] || { label: log.return_type || '-', badgeBg: 'bg-slate-100', badgeText: 'text-slate-600', border: 'border-slate-200' }
-  const src = SOURCE_MAP[log.return_source]
-  return src || { label: log.return_source, badgeBg: 'bg-slate-100', badgeText: 'text-slate-600', border: 'border-slate-200' }
+// ── helper: badge ของ "สาเหตุการคืน" (reason) — ตารางประวัติเลิกโชว์ source กลุ่มแล้ว ──
+function getReasonBadge(log) {
+  const rsn = REASON_MAP[log.return_type] || (log.return_source ? null : LEGACY_MAP[log.return_type])
+  return rsn || { label: log.return_type || '-', badgeBg: 'bg-slate-100', badgeText: 'text-slate-600' }
 }
 function getReturnLabel(log) {
   if (!log.return_source) {
@@ -69,6 +71,24 @@ function getReturnShort(log) {
   const src = SOURCE_MAP[log.return_source]
   return src?.short || log.return_source || '-'
 }
+
+// ── สถานะคืนยา (ADR-0009): null = แถวเก่า = ถือเป็น received ──
+function returnStatus(log) {
+  return log.status === 'pending' ? 'pending' : 'received'
+}
+const STATUS_META = {
+  pending:  { label: 'รอรับคืน', icon: Clock,        badgeBg: 'bg-amber-100',   badgeText: 'text-amber-800'   },
+  received: { label: 'รับแล้ว',  icon: PackageCheck, badgeBg: 'bg-emerald-100', badgeText: 'text-emerald-700' },
+}
+
+// ผลการดำเนินการหลัง staff ตรวจรับ (ADR-0012) — บันทึกผลอย่างเดียว ไม่แตะ inventory.qty
+const DISPOSITION_META = {
+  restock:   { label: 'รับเข้าคลัง',  icon: PackageCheck, badgeBg: 'bg-emerald-100', badgeText: 'text-emerald-700', desc: 'ยาสภาพดี — บันทึกว่ารับกลับเข้าคลัง' },
+  dispose:   { label: 'ทำลาย/ตัดจำหน่าย', icon: Trash2,   badgeBg: 'bg-red-100',     badgeText: 'text-red-700',     desc: 'หมดอายุ/เสียหาย — ตัดจำหน่าย' },
+  to_vendor: { label: 'ส่งคืนบริษัท',  icon: ArrowRight,   badgeBg: 'bg-sky-100',     badgeText: 'text-sky-700',     desc: 'ส่งคืนบริษัท (recall/เปลี่ยน)' },
+  rejected:  { label: 'ปฏิเสธการคืน',  icon: X,            badgeBg: 'bg-slate-200',   badgeText: 'text-slate-600',   desc: 'ไม่รับคืน — ระบุเหตุผล' },
+}
+const DISPOSITION_ORDER = ['restock', 'dispose', 'to_vendor', 'rejected']
 
 // ── ยังคง RETURN_TYPES ไว้ให้ backward compat (EditReturnModal legacy) ──
 const RETURN_TYPES = LEGACY_TYPES
@@ -102,7 +122,10 @@ function IsoDateInput({ value, onChange, className = '', ring = 'focus-within:ri
   return (
     <div className={`relative flex items-center bg-white border border-slate-300 rounded-xl focus-within:ring-2 ${ring} ${className}`}>
       <span className={`px-3 py-2 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
-      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)} className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+      {/* onClick + showPicker guarded (Rule #3): เสริมเปิดปฏิทินตอนคลิกบน desktop; mobile แตะเปิด native ตามปกติ */}
+      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
+        onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }}
+        className="absolute inset-0 opacity-0 w-full cursor-pointer" />
     </div>
   )
 }
@@ -252,6 +275,14 @@ function printReturnLog(r) {
 // ============================================================
 export default function ReturnApp({ onRefresh, auth, onGoBack, canGoBack }) {
   const [tab, setTab] = useState('record')
+  const isStaff = auth?.role === 'staff' || auth?.role === 'admin'
+
+  // แท็บ "ตรวจสอบรายการ" = staff/admin เท่านั้น (เคลียร์งานคืนที่รอตรวจ)
+  const tabs = [
+    { key: 'record',  label: 'บันทึกรายการ' },
+    ...(isStaff ? [{ key: 'review', label: 'ตรวจสอบรายการ' }] : []),
+    { key: 'history', label: 'ประวัติ' },
+  ]
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans">
@@ -265,7 +296,7 @@ export default function ReturnApp({ onRefresh, auth, onGoBack, canGoBack }) {
           </button>
         </div>
         <div className="max-w-4xl mx-auto px-4 flex gap-2 pb-2.5">
-          {[{ key: 'record', label: 'บันทึกรายการ' }, { key: 'history', label: 'ประวัติ' }].map(t => (
+          {tabs.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
               className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
                 tab === t.key ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-500 bg-slate-100 hover:bg-slate-200'
@@ -278,7 +309,8 @@ export default function ReturnApp({ onRefresh, auth, onGoBack, canGoBack }) {
 
       <div className="max-w-4xl mx-auto px-4 py-5">
         {tab === 'record'  && <RecordTab  auth={auth} />}
-        {tab === 'history' && <HistoryTab auth={auth} />}
+        {tab === 'review'  && <HistoryTab auth={auth} mode="review" />}
+        {tab === 'history' && <HistoryTab auth={auth} mode="history" />}
       </div>
     </div>
   )
@@ -303,7 +335,7 @@ function RecordTab({ auth }) {
     drug_unit:     '-',
     department:    '',
     returned_by:   '',
-    received_by:   auth?.name || '',
+    received_by:   '-',   // เติมตอนคลังยืนยันรับคืน (ADR-0009) — ไม่ให้ผู้ส่งกรอกเอง
     note:          '',
   })
 
@@ -314,10 +346,8 @@ function RecordTab({ auth }) {
   const [lastSubmitted, setLastSubmitted] = useState(null)
   const [drugNames, setDrugNames]   = useState([])   // [{ name, code, type, unit, lots: [{ lot, exp, qty }] }]
   const [drugSearch, setDrugSearch] = useState('')
-  const [showDrug, setShowDrug]     = useState(false)
   const [lotOptions, setLotOptions] = useState([])   // lot ของยาที่เลือก (จากคลัง)
   const [manualLot, setManualLot]   = useState(false) // true = พิมพ์ lot เอง (ไม่มีในคลัง)
-  const drugRef = useRef(null)
 
   // โหลดยาจาก inventory (paginated — เลี่ยง 1000-row limit) + group lot ต่อชื่อยา
   useEffect(() => {
@@ -336,16 +366,6 @@ function RecordTab({ auth }) {
       })
       .catch(() => {})
   }, [])
-
-  useEffect(() => {
-    const handle = (e) => { if (drugRef.current && !drugRef.current.contains(e.target)) setShowDrug(false) }
-    document.addEventListener('mousedown', handle)
-    return () => document.removeEventListener('mousedown', handle)
-  }, [])
-
-  const filteredDrugs = drugSearch.trim().length >= 1
-    ? drugNames.filter(d => d.name.toLowerCase().includes(drugSearch.toLowerCase())).slice(0, 10)
-    : []
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -370,7 +390,6 @@ function RecordTab({ auth }) {
       lot: '-',
       exp: '-',
     }))
-    setShowDrug(false)
   }
 
   // เลือก lot จาก dropdown → เติม exp อัตโนมัติ
@@ -380,7 +399,6 @@ function RecordTab({ auth }) {
     if (opt) setForm(f => ({ ...f, lot: opt.lot, exp: opt.exp || '-' }))
   }
 
-  const srcInfo = form.return_source ? SOURCE_MAP[form.return_source] : null
   const reasonInfo = form.return_type ? REASON_MAP[form.return_type] : null
 
   const handleSubmit = async (e) => {
@@ -388,6 +406,7 @@ function RecordTab({ auth }) {
     setError('')
     if (!form.department)                                         { setError('กรุณาเลือกหน่วยงาน / แหล่งที่คืน'); return }
     if (!form.return_type)                                        { setError('กรุณาเลือกสาเหตุการคืน'); return }
+    if (form.return_type === 'other' && !form.note.trim())        { setError('กรุณาระบุสาเหตุในช่องหมายเหตุ'); return }
     if (!form.drug_name.trim())                                   { setError('กรุณากรอกชื่อยา'); return }
     if (!form.qty_returned || parseFloat(form.qty_returned) <= 0) { setError('กรุณากรอกจำนวนที่ถูกต้อง'); return }
 
@@ -406,16 +425,16 @@ function RecordTab({ auth }) {
         return_type:   form.return_type,
         department:    form.department || '-',
         returned_by:   form.returned_by || '-',
-        received_by:   form.received_by || '-',
+        received_by:   '-',              // เติมตอนคลังยืนยัน (ADR-0009)
+        status:        'pending',        // คำขอใหม่ = รอคลังยืนยันรับคืน
         note:          form.note        || null,
       }, auth)
       setLastSubmitted({ ...form })
-      setSuccess(true)
+      setSuccess(true)   // เปิด popup ยืนยัน — ผู้ใช้กดปิดเอง
       setForm(emptyForm())
       setDrugSearch('')
       setLotOptions([])
       setManualLot(false)
-      setTimeout(() => setSuccess(false), 8000)
     } catch (err) {
       setError('เกิดข้อผิดพลาด: ' + err.message)
     } finally {
@@ -428,17 +447,32 @@ function RecordTab({ auth }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {success && (
-        <div className="flex items-center justify-between gap-2 bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3">
-          <div className="flex items-center gap-2 text-emerald-700 font-semibold text-sm">
-            <CheckCircle size={16} className="text-emerald-600" /> บันทึกการคืนยาสำเร็จ
+      {/* ── Popup ยืนยันบันทึกสำเร็จ ── */}
+      {success && lastSubmitted && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setSuccess(false)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center" onClick={e => e.stopPropagation()}>
+            <div className="mx-auto w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mb-3">
+              <CheckCircle size={30} className="text-emerald-600" />
+            </div>
+            <p className="text-base font-bold text-slate-800 mb-1">บันทึกการคืนยาเรียบร้อยแล้ว</p>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              คืนยา <span className="font-semibold text-slate-800">{lastSubmitted.drug_name}</span>
+              {lastSubmitted.qty_returned && <> จำนวน <span className="font-semibold text-violet-700">{Number(lastSubmitted.qty_returned).toLocaleString()} {lastSubmitted.drug_unit && lastSubmitted.drug_unit !== '-' ? lastSubmitted.drug_unit : 'หน่วย'}</span></>}
+              <br />หน่วยงาน <span className="font-semibold text-slate-800">{lastSubmitted.department}</span>
+            </p>
+            <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mt-3">รอเจ้าหน้าที่คลังยืนยันรับคืน</p>
+            <div className="flex gap-2 mt-5">
+              <button type="button" onClick={() => printReturnLog(lastSubmitted)}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-colors">
+                <Printer size={15} /> พิมพ์ / PDF
+              </button>
+              <button type="button" onClick={() => setSuccess(false)}
+                className="flex-1 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-semibold transition-colors">
+                ปิด
+              </button>
+            </div>
           </div>
-          {lastSubmitted && (
-            <button type="button" onClick={() => printReturnLog(lastSubmitted)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-semibold transition-colors">
-              <Printer size={13} /> พิมพ์ / PDF
-            </button>
-          )}
         </div>
       )}
       {error && (
@@ -448,8 +482,9 @@ function RecordTab({ auth }) {
       )}
 
       {/* ── STEP 1: แหล่งที่คืน + สาเหตุ ── */}
-      <section className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="flex items-center gap-2.5 px-5 py-3.5 bg-gradient-to-r from-violet-50 to-white border-b border-slate-100">
+      {/* overflow-visible: ให้ dropdown ของ SearchableSelect ("คืนจากไหน") ล้นออกนอกการ์ดได้ ไม่โดน overflow-hidden ตัด */}
+      <section className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-visible">
+        <div className="flex items-center gap-2.5 px-5 py-3.5 bg-gradient-to-r from-violet-50 to-white border-b border-slate-100 rounded-t-2xl">
           <div className="p-1.5 rounded-lg bg-violet-600 text-white shrink-0"><MapPin size={15} /></div>
           <p className="text-sm font-bold text-slate-800">แหล่งที่คืน &amp; สาเหตุ</p>
           <span className="ml-auto text-[11px] font-bold text-violet-600 bg-violet-100 rounded-full w-6 h-6 flex items-center justify-center">1</span>
@@ -468,12 +503,6 @@ function RecordTab({ auth }) {
                 options={SOURCE_DEPARTMENTS}
                 placeholder="-- เลือกหน่วยงาน / แหล่งที่คืน --"
               />
-              {srcInfo && (
-                <div className="flex items-center gap-1.5 mt-2 text-xs text-slate-500">
-                  <span>จัดเป็นกลุ่ม</span>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold ${srcInfo.badgeBg} ${srcInfo.badgeText}`}>{srcInfo.short}</span>
-                </div>
-              )}
             </div>
             <div>
               <label className={labelCls}>สาเหตุการคืน *</label>
@@ -490,48 +519,41 @@ function RecordTab({ auth }) {
                   เลือกหน่วยงานก่อน
                 </div>
               )}
+              {form.return_type === 'other' && (
+                <div>
+                  <textarea value={form.note} onChange={e => set('note', e.target.value)}
+                    placeholder="ระบุสาเหตุการคืน..." rows={2} autoFocus
+                    className={`${inputCls} resize-none mt-2 ring-2 ring-violet-300 border-violet-400`} />
+                  <p className="text-[11px] text-violet-600 mt-1">ระบุสาเหตุการคืนที่ไม่มีในตัวเลือก (บันทึกในหมายเหตุ)</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
       </section>
 
       {/* ── STEP 2: ข้อมูลยา ── */}
-      <section className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="flex items-center gap-2.5 px-5 py-3.5 bg-gradient-to-r from-sky-50 to-white border-b border-slate-100">
+      {/* overflow-visible: ให้ dropdown DrugSearchBar ("ชื่อยา") ล้นออกนอกการ์ดได้ */}
+      <section className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-visible">
+        <div className="flex items-center gap-2.5 px-5 py-3.5 bg-gradient-to-r from-sky-50 to-white border-b border-slate-100 rounded-t-2xl">
           <div className="p-1.5 rounded-lg bg-sky-500 text-white shrink-0"><Pill size={15} /></div>
           <p className="text-sm font-bold text-slate-800">ข้อมูลยา</p>
           <span className="ml-auto text-[11px] font-bold text-sky-600 bg-sky-100 rounded-full w-6 h-6 flex items-center justify-center">2</span>
         </div>
         <div className="p-5 space-y-4">
-          {/* ค้นหายา (เต็มแถว) */}
-          <div ref={drugRef} className="relative">
+          {/* ค้นหายา (เต็มแถว) — DrugSearchBar (autocomplete + badge ชนิดยา) */}
+          <div>
             <label className={labelCls}>ชื่อยา *</label>
-            <div className="relative">
-              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <input type="text" value={drugSearch || form.drug_name}
-                onChange={e => { setDrugSearch(e.target.value); set('drug_name', e.target.value); setShowDrug(true); setLotOptions([]); setManualLot(true) }}
-                onFocus={() => { if ((drugSearch || form.drug_name).trim()) setShowDrug(true) }}
-                placeholder="พิมพ์เพื่อค้นหายาในคลัง..." required
-                className={`${inputCls} pl-10`} />
-            </div>
-            {showDrug && filteredDrugs.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-lg z-20 overflow-hidden max-h-52 overflow-y-auto">
-                {filteredDrugs.map(d => (
-                  <button key={d.name} type="button" onMouseDown={e => { e.preventDefault(); selectDrug(d) }}
-                    className="w-full text-left px-3.5 py-2.5 hover:bg-violet-50 text-sm border-b border-slate-100 last:border-0 flex items-center justify-between gap-2">
-                    <span className="min-w-0">
-                      <span className="font-medium text-slate-800 block truncate">{d.name}</span>
-                      {d.code && d.code !== '-' && <span className="text-xs text-slate-400">{d.code}</span>}
-                    </span>
-                    {d.lots.length > 0 && (
-                      <span className="shrink-0 inline-flex items-center gap-1 text-[10px] text-violet-600 bg-violet-50 rounded-full px-2 py-0.5 font-semibold">
-                        <Layers size={11} /> {d.lots.length} lot
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
+            <DrugSearchBar
+              value={drugSearch || form.drug_name}
+              onChange={v => { setDrugSearch(v); set('drug_name', v); setLotOptions([]); setManualLot(true) }}
+              onSelect={name => { const d = drugNames.find(x => x.name === name); if (d) selectDrug(d) }}
+              options={drugNames}
+              placeholder="พิมพ์เพื่อค้นหายาในคลัง..."
+              ringClass="focus:ring-violet-400"
+              hoverClass="hover:bg-violet-50"
+              maxResults={10}
+            />
           </div>
 
           {/* แถวที่ 1: รหัส / ชนิด */}
@@ -627,24 +649,21 @@ function RecordTab({ auth }) {
           <span className="ml-auto text-[11px] font-bold text-emerald-600 bg-emerald-100 rounded-full w-6 h-6 flex items-center justify-center">3</span>
         </div>
         <div className="p-5 space-y-4">
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div>
-              <label className={labelCls}>ชื่อผู้คืน / ผู้แจ้ง</label>
-              <input type="text" value={form.returned_by} onChange={e => set('returned_by', e.target.value)}
-                placeholder="ชื่อ-สกุล" className={inputCls} />
-            </div>
-            <div>
-              <label className={labelCls}>เจ้าหน้าที่ผู้รับคืน / บันทึก</label>
-              <input type="text" value={form.received_by} onChange={e => set('received_by', e.target.value)}
-                placeholder="ชื่อ-สกุล" className={inputCls} />
-            </div>
-          </div>
           <div>
-            <label className={labelCls}>หมายเหตุ</label>
-            <textarea value={form.note} onChange={e => set('note', e.target.value)}
-              placeholder="รายละเอียดเพิ่มเติม..." rows={2}
-              className={`${inputCls} resize-none`} />
+            <label className={labelCls}>ชื่อผู้คืน / ผู้แจ้ง</label>
+            <input type="text" value={form.returned_by} onChange={e => set('returned_by', e.target.value)}
+              placeholder="ชื่อ-สกุล" className={inputCls} />
+            <p className="text-[11px] text-slate-400 mt-1.5">เจ้าหน้าที่ผู้รับคืนจะถูกเติมอัตโนมัติเมื่อคลังกดยืนยันรับคืน</p>
           </div>
+          {/* เมื่อเลือก 'อื่นๆ' ช่องหมายเหตุ (= form.note) ถูกยกไปไว้ใต้ dropdown สาเหตุใน STEP 1 แล้ว — ซ่อนที่นี่กันซ้ำ */}
+          {form.return_type !== 'other' && (
+            <div>
+              <label className={labelCls}>หมายเหตุ</label>
+              <textarea value={form.note} onChange={e => set('note', e.target.value)}
+                placeholder="รายละเอียดเพิ่มเติม..." rows={2}
+                className={`${inputCls} resize-none`} />
+            </div>
+          )}
         </div>
       </section>
 
@@ -654,7 +673,7 @@ function RecordTab({ auth }) {
           <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 mb-2 px-1">
             <span className="font-semibold text-slate-700 truncate max-w-[200px]">{form.drug_name}</span>
             {form.qty_returned && <span className="text-violet-700 font-bold">{Number(form.qty_returned).toLocaleString()} {form.drug_unit !== '-' ? form.drug_unit : 'หน่วย'}</span>}
-            {srcInfo && <><ArrowRight size={12} /><span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold ${srcInfo.badgeBg} ${srcInfo.badgeText}`}>{srcInfo.short}</span></>}
+            {form.department && <><ArrowRight size={12} /><span className="text-slate-500 truncate max-w-[140px]">{form.department}</span></>}
             {reasonInfo && <span className="text-slate-400">· {reasonInfo.short}</span>}
           </div>
         )}
@@ -679,8 +698,12 @@ const RETURN_EXCEL_COLS = [
   { header: 'จำนวน',           key: 'qty_returned' },
   { header: 'หน่วย',           key: 'drug_unit' },
   { header: 'หน่วยงานที่คืน',  key: 'department' },
+  { header: 'สถานะ',           value: r => STATUS_META[returnStatus(r)]?.label || '-' },
+  { header: 'ผลการดำเนินการ',  value: r => r.disposition ? (DISPOSITION_META[r.disposition]?.label || r.disposition) : '-' },
+  { header: 'หมายเหตุการดำเนินการ', value: r => r.disposition_note || '-' },
   { header: 'ผู้คืน',          key: 'returned_by' },
   { header: 'ผู้รับ',          key: 'received_by' },
+  { header: 'ผู้ดำเนินการ',    value: r => r.disposition_by || '-' },
   { header: 'หมายเหตุ',        key: 'note' },
 ]
 
@@ -794,19 +817,24 @@ function EditReturnModal({ log, auth, onClose, onSaved }) {
 // ============================================================
 // HistoryTab — ประวัติการคืนยา
 // ============================================================
-function HistoryTab({ auth = {} }) {
+function HistoryTab({ auth = {}, mode = 'history' }) {
+  const isReview = mode === 'review'   // แท็บ "ตรวจสอบรายการ" = แสดงเฉพาะที่รอตรวจ (pending)
   const [logs, setLogs]         = useState([])
   const [loading, setLoading]   = useState(false)
-  const [filterType, setFilterType] = useState('all')
+  const [filterDept, setFilterDept] = useState('')   // '' = ทุกหน่วยงาน; อื่น = ชื่อหน่วยงานจริง
   const [search, setSearch]     = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo]     = useState('')
-  const [expanded, setExpanded] = useState(null)
   const [isMobile, setIsMobile]     = useState(() => window.innerWidth < 768)
-  const [mobileDetail, setMobileDetail] = useState(null)
   const [editLog, setEditLog]       = useState(null)   // log object กำลัง edit
-  const [deletingId, setDeletingId] = useState(null)   // id รอ confirm ลบ
+  const [confirmingId, setConfirmingId] = useState(null)   // id กำลังยืนยันรับคืน
+  const [dispositionLog, setDispositionLog] = useState(null)   // log object กำลังเลือกผลการดำเนินการ (ADR-0012)
+  const [detailLog, setDetailLog] = useState(null)   // log object เปิดหน้ารายละเอียดเต็มจอ (เหมือนใบเบิก)
   const isAdmin = auth?.role === 'admin'
+
+  // เรียงตารางฝั่ง client (logs โหลดครบใน state) — default = ลำดับจาก server (return_date ล่าสุด)
+  const { sorted, sort, toggleSort } = useSort(logs, { numericKeys: ['qty_returned'] })
+  const isStaff = auth?.role === 'staff' || auth?.role === 'admin'   // เจ้าหน้าที่คลัง — กดยืนยันรับคืนได้
 
   useEffect(() => {
     const fn = () => setIsMobile(window.innerWidth < 768)
@@ -817,14 +845,12 @@ function HistoryTab({ auth = {} }) {
   const load = async () => {
     setLoading(true)
     try {
-      // แยก filter: key ใน RETURN_SOURCES → returnSource, อื่น → returnType (legacy)
-      const srcKeys = new Set(RETURN_SOURCES.map(s => s.key))
       const data = await fetchReturnLogs({
-        dateFrom:     dateFrom   || undefined,
-        dateTo:       dateTo     || undefined,
-        returnSource: filterType !== 'all' && srcKeys.has(filterType) ? filterType : undefined,
-        returnType:   filterType !== 'all' && !srcKeys.has(filterType) ? filterType : undefined,
-        drugName:     search.trim() || undefined,
+        dateFrom:   dateFrom || undefined,
+        dateTo:     dateTo   || undefined,
+        department: filterDept || undefined,   // '' = ทุกหน่วยงาน
+        drugName:   search.trim() || undefined,
+        status:     isReview ? 'pending' : undefined,   // ตรวจสอบรายการ = เฉพาะที่รอตรวจ
       })
       setLogs(data)
     } catch (err) {
@@ -834,32 +860,69 @@ function HistoryTab({ auth = {} }) {
     }
   }
 
-  useEffect(() => { load() }, [filterType, dateFrom, dateTo])
-
-  const countOf = (key) => {
-    if (key === 'all') return logs.length
-    const srcKeys = new Set(RETURN_SOURCES.map(s => s.key))
-    if (srcKeys.has(key)) {
-      // แท็บ source: นับทั้งข้อมูลใหม่ (return_source) และ legacy mapping
-      if (key === 'ward')   return logs.filter(l => l.return_source === 'ward' || (!l.return_source && l.return_type === 'ward_return')).length
-      if (key === 'vendor') return logs.filter(l => l.return_source === 'vendor' || (!l.return_source && l.return_type === 'vendor_return')).length
-      return logs.filter(l => l.return_source === key).length
-    }
-    // legacy key
-    return logs.filter(l => l.return_type === key).length
-  }
+  useEffect(() => { load() }, [filterDept, dateFrom, dateTo, isReview])
 
   const handleDelete = async (id) => {
     try {
       await deleteReturnLog(id, auth)
-      setDeletingId(null)
-      setMobileDetail(null)
+      setDetailLog(null)
       load()
     } catch (e) { console.error(e) }
   }
 
+  // staff/admin ยืนยันรับคืน → status='received' + เติมชื่อผู้รับ (ADR-0009)
+  const receiverName = (auth?.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : (auth?.username || '-')
+  // ยืนยันรับคืนพร้อมระบุผลการดำเนินการ (ADR-0012) — เรียกจาก DispositionModal
+  const handleConfirmWithDisposition = async (id, disposition, note) => {
+    setConfirmingId(id)
+    try {
+      await confirmReturnReceived(id, receiverName, auth, disposition, note)
+      setDispositionLog(null)
+      setDetailLog(null)   // ปิดหน้ารายละเอียดกลับประวัติ — เห็นผลใน list ทันที
+      load()
+    } catch (e) { console.error(e) } finally { setConfirmingId(null) }
+  }
+
+  // หน้ารายละเอียดเต็มจอ (เหมือนใบเบิก) — คลิกรายการ → เปิด ReturnDetail
+  if (detailLog) {
+    return (
+      <ReturnDetail
+        log={detailLog}
+        auth={auth}
+        isStaff={isStaff}
+        isAdmin={isAdmin}
+        busy={confirmingId === detailLog.id}
+        onBack={() => setDetailLog(null)}
+        onDispose={() => setDispositionLog(detailLog)}
+        onEdit={() => setEditLog(detailLog)}
+        onPrint={() => printReturnLog(detailLog)}
+        onDelete={() => handleDelete(detailLog.id)}
+        editModal={editLog && editLog.id === detailLog.id ? (
+          <EditReturnModal log={editLog} auth={auth}
+            onClose={() => setEditLog(null)}
+            onSaved={(updated) => { setEditLog(null); if (updated) setDetailLog(updated); load() }} />
+        ) : null}
+        dispositionModal={dispositionLog && dispositionLog.id === detailLog.id ? (
+          <DispositionModal log={dispositionLog} busy={confirmingId === dispositionLog.id}
+            onClose={() => setDispositionLog(null)}
+            onConfirm={(disp, note) => handleConfirmWithDisposition(dispositionLog.id, disp, note)} />
+        ) : null}
+      />
+    )
+  }
+
   return (
     <div className="space-y-4">
+      {isReview && (
+        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+          <Clock size={18} className="text-amber-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-amber-800">รายการคืนยาที่รอตรวจสอบ</p>
+            <p className="text-xs text-amber-700">คลิกรายการเพื่อตรวจรับและเลือกผลการดำเนินการ (รับเข้าคลัง / ทำลาย / ส่งคืนบริษัท / ปฏิเสธ)</p>
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
         <div className="flex gap-2 flex-wrap">
@@ -885,86 +948,19 @@ function HistoryTab({ auth = {} }) {
           </button>
         </div>
 
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={() => setFilterType('all')}
-            className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${filterType === 'all' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-            ทั้งหมด ({countOf('all')})
-          </button>
-          {RETURN_SOURCES.map(s => (
-            <button key={s.key} onClick={() => setFilterType(s.key)}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
-                filterType === s.key ? `${s.badgeBg} ${s.badgeText} ${s.border}` : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-              }`}>
-              {s.short} ({countOf(s.key)})
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-semibold text-slate-500">หน่วยงาน</span>
+          <SearchableSelect
+            value={filterDept}
+            onChange={setFilterDept}
+            options={SOURCE_DEPARTMENTS}
+            emptyLabel="ทุกหน่วยงาน"
+            placeholder="ทุกหน่วยงาน"
+            className="w-56"
+          />
         </div>
       </div>
 
-      {/* ── Mobile bottom sheet detail ── */}
-      {mobileDetail && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setMobileDetail(null)}>
-          <div className="absolute inset-0 bg-black/40" />
-          <div className="relative bg-white rounded-t-2xl shadow-2xl max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mt-3 mb-1" />
-            <div className="px-4 pb-3 border-b border-slate-100">
-              <p className="font-bold text-slate-900 text-base leading-tight">{mobileDetail.drug_name}</p>
-              <p className="text-xs text-slate-500 mt-0.5">{mobileDetail.drug_code && mobileDetail.drug_code !== '-' ? mobileDetail.drug_code + ' · ' : ''}{isoToThai(mobileDetail.return_date)}</p>
-            </div>
-            <div className="p-4 space-y-3">
-              {(() => {
-                const b = getReturnBadge(mobileDetail)
-                return (
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-violet-50 rounded-xl p-2.5 text-center col-span-1">
-                      <p className="text-lg font-bold text-violet-700">{Number(mobileDetail.qty_returned).toLocaleString()}</p>
-                      <p className="text-[10px] text-violet-500">{mobileDetail.drug_unit && mobileDetail.drug_unit !== '-' ? mobileDetail.drug_unit : 'หน่วย'}</p>
-                    </div>
-                    <div className="flex flex-col items-center justify-center gap-1">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${b.badgeBg} ${b.badgeText}`}>{b.label}</span>
-                      {mobileDetail.return_source && REASON_MAP[mobileDetail.return_type] && (
-                        <span className="text-[10px] text-slate-500">{REASON_MAP[mobileDetail.return_type].label}</span>
-                      )}
-                    </div>
-                  </div>
-                )
-              })()}
-              <div className="space-y-2">
-                {[
-                  ['ชนิดยา',     mobileDetail.drug_type],
-                  ['Lot',        mobileDetail.lot !== '-' ? mobileDetail.lot : null],
-                  ['Exp',        mobileDetail.exp !== '-' ? mobileDetail.exp : null],
-                  ['หน่วยงาน',   mobileDetail.department !== '-' ? mobileDetail.department : null],
-                  ['ผู้คืน',     mobileDetail.returned_by !== '-' ? mobileDetail.returned_by : null],
-                  ['ผู้รับ',     mobileDetail.received_by !== '-' ? mobileDetail.received_by : null],
-                  ['หมายเหตุ',   mobileDetail.note],
-                ].filter(([, val]) => val != null && val !== '').map(([label, val]) => (
-                  <div key={label} className="flex justify-between items-start gap-2 py-1.5 border-b border-slate-100 last:border-0">
-                    <span className="text-xs text-slate-400 shrink-0">{label}</span>
-                    <span className="text-sm text-slate-700 font-medium text-right">{val}</span>
-                  </div>
-                ))}
-              </div>
-              <button onClick={e => { e.stopPropagation(); printReturnLog(mobileDetail); setMobileDetail(null) }}
-                className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-colors">
-                <Printer size={15} /> พิมพ์ / PDF
-              </button>
-              {isAdmin && (
-                <div className="grid grid-cols-2 gap-2">
-                  <button onClick={e => { e.stopPropagation(); setEditLog(mobileDetail); setMobileDetail(null) }}
-                    className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-amber-50 border border-amber-300 text-amber-700 rounded-xl text-sm font-semibold transition-colors">
-                    <Pencil size={15}/> แก้ไข
-                  </button>
-                  <button onClick={e => { e.stopPropagation(); handleDelete(mobileDetail.id) }}
-                    className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-red-50 border border-red-200 text-red-600 rounded-xl text-sm font-semibold transition-colors">
-                    <Trash2 size={15}/> ลบ
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Table */}
       {loading ? (
@@ -972,19 +968,24 @@ function HistoryTab({ auth = {} }) {
       ) : logs.length === 0 ? (
         <div className="text-center text-slate-400 py-16">
           <FileText size={40} className="mx-auto mb-2 opacity-30" />
-          <p className="text-sm">ไม่พบข้อมูล</p>
+          <p className="text-sm">{isReview ? 'ไม่มีรายการรอตรวจสอบ' : 'ไม่พบข้อมูล'}</p>
         </div>
       ) : isMobile ? (
         <div className="space-y-2">
-          {logs.map((l) => {
-            const b = getReturnBadge(l)
+          {sorted.map((l) => {
+            const b = getReasonBadge(l)
             return (
-              <div key={l.id} onClick={() => setMobileDetail(l)}
+              <div key={l.id} onClick={() => setDetailLog(l)}
                 className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm active:bg-violet-50 transition-colors cursor-pointer">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-slate-900 truncate text-sm">{l.drug_name}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">{isoToThai(l.return_date)}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {returnStatus(l) === 'pending' && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800"><Clock size={9} />รอรับคืน</span>
+                      )}
+                      <p className="text-xs text-slate-400">{isoToThai(l.return_date)}</p>
+                    </div>
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-bold text-violet-700">{Number(l.qty_returned).toLocaleString()}</p>
@@ -994,9 +995,6 @@ function HistoryTab({ auth = {} }) {
                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-semibold shrink-0 ${b.badgeBg} ${b.badgeText}`}>{b.label}</span>
-                    {l.return_source && REASON_MAP[l.return_type] && (
-                      <span className="text-[10px] text-slate-400 truncate">{REASON_MAP[l.return_type].short}</span>
-                    )}
                   </div>
                   <span className="text-xs text-slate-500 truncate ml-2 shrink-0">{l.department !== '-' ? l.department : ''}</span>
                 </div>
@@ -1007,98 +1005,65 @@ function HistoryTab({ auth = {} }) {
       ) : (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[700px]">
+            <table className="w-full text-sm min-w-[1100px]">
               <thead>
                 <tr className="text-xs text-slate-500 font-semibold bg-slate-50 border-b border-slate-200 uppercase tracking-wide">
-                  <th className="px-4 py-3 text-left">วันที่</th>
-                  <th className="px-4 py-3 text-left">ชื่อยา</th>
-                  <th className="px-4 py-3 text-left">ประเภท</th>
-                  <th className="px-4 py-3 text-right">จำนวน</th>
-                  <th className="px-4 py-3 text-left">Lot / Exp</th>
-                  <th className="px-4 py-3 text-left">หน่วยงาน</th>
-                  <th className="px-4 py-3 text-left">ผู้คืน / รับ</th>
-                  <th className="px-4 py-3 text-left w-8"></th>
+                  <SortableTh sortKey="return_date" label="วันที่" sort={sort} onSort={toggleSort} className="px-3 py-3" activeColor="text-violet-600" />
+                  <SortableTh sortKey="drug_name" label="ชื่อยา" sort={sort} onSort={toggleSort} className="px-3 py-3" activeColor="text-violet-600" />
+                  <th className="px-3 py-3 text-left">ชนิดยา</th>
+                  <th className="px-3 py-3 text-left">สาเหตุ</th>
+                  <SortableTh sortKey="qty_returned" label="จำนวน" align="right" sort={sort} onSort={toggleSort} className="px-3 py-3" activeColor="text-violet-600" />
+                  <th className="px-3 py-3 text-left">หน่วย</th>
+                  <th className="px-3 py-3 text-left">Lot</th>
+                  <th className="px-3 py-3 text-left">Exp</th>
+                  <SortableTh sortKey="department" label="หน่วยงาน" sort={sort} onSort={toggleSort} className="px-3 py-3" activeColor="text-violet-600" />
+                  <th className="px-3 py-3 text-left">สถานะ</th>
+                  <th className="px-3 py-3 text-left">ผู้คืน</th>
+                  <th className="px-3 py-3 text-left">ผู้รับ</th>
+                  <th className="px-3 py-3 text-left w-8"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {logs.map((l) => {
-                  const b = getReturnBadge(l)
-                  const isOpen = expanded === l.id
+                {sorted.map((l) => {
+                  const b = getReasonBadge(l)
                   return (
                     <React.Fragment key={l.id}>
-                      <tr onClick={() => setExpanded(isOpen ? null : l.id)}
-                        className={`cursor-pointer transition-colors ${isOpen ? 'bg-violet-50' : 'hover:bg-slate-50'}`}>
-                        <td className="px-4 py-2.5 text-slate-700 whitespace-nowrap font-medium">{isoToThai(l.return_date)}</td>
-                        <td className="px-4 py-2.5 font-semibold text-slate-800 max-w-[200px]">
+                      <tr onClick={() => setDetailLog(l)}
+                        className="cursor-pointer transition-colors hover:bg-slate-50">
+                        <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap font-medium">{isoToThai(l.return_date)}</td>
+                        <td className="px-3 py-2.5 font-semibold text-slate-800 max-w-[200px]">
                           <span className="block truncate">{l.drug_name}</span>
                           {l.drug_code && l.drug_code !== '-' && <span className="text-xs text-slate-400 font-normal">{l.drug_code}</span>}
                         </td>
-                        <td className="px-4 py-2.5">
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          {l.drug_type && l.drug_type !== '-' ? <DrugTypeBadge type={l.drug_type} /> : <span className="text-slate-300">-</span>}
+                        </td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">
                           <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${b.badgeBg} ${b.badgeText}`}>{b.label}</span>
-                          {l.return_source && REASON_MAP[l.return_type] && (
-                            <div className="text-[10px] text-slate-400 mt-0.5">{REASON_MAP[l.return_type].label}</div>
-                          )}
                         </td>
-                        <td className="px-4 py-2.5 text-right font-bold text-violet-700">
-                          {Number(l.qty_returned).toLocaleString()}
-                          {l.drug_unit && l.drug_unit !== '-' && <span className="text-xs font-normal text-slate-500 ml-1">{l.drug_unit}</span>}
+                        <td className="px-3 py-2.5 text-right font-bold text-violet-700 whitespace-nowrap">{Number(l.qty_returned).toLocaleString()}</td>
+                        <td className="px-3 py-2.5 text-slate-600 text-xs whitespace-nowrap">{l.drug_unit && l.drug_unit !== '-' ? l.drug_unit : '-'}</td>
+                        <td className="px-3 py-2.5 text-slate-600 text-xs whitespace-nowrap">{l.lot && l.lot !== '-' ? l.lot : '-'}</td>
+                        <td className="px-3 py-2.5 text-slate-600 text-xs whitespace-nowrap">{l.exp && l.exp !== '-' ? l.exp : '-'}</td>
+                        <td className="px-3 py-2.5 text-slate-600 text-xs">{l.department !== '-' ? l.department : '-'}</td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          <div className="flex flex-col gap-1">
+                            {(() => {
+                              const st = returnStatus(l), sm = STATUS_META[st], SIcon = sm.icon
+                              return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${sm.badgeBg} ${sm.badgeText}`}><SIcon size={10} />{sm.label}</span>
+                            })()}
+                            {l.disposition && DISPOSITION_META[l.disposition] && (() => {
+                              const dm = DISPOSITION_META[l.disposition], DIcon = dm.icon
+                              return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${dm.badgeBg} ${dm.badgeText}`}><DIcon size={10} />{dm.label}</span>
+                            })()}
+                          </div>
                         </td>
-                        <td className="px-4 py-2.5 text-slate-500 text-xs">
-                          {l.lot !== '-' && <div>Lot: {l.lot}</div>}
-                          {l.exp !== '-' && <div>Exp: {l.exp}</div>}
-                        </td>
-                        <td className="px-4 py-2.5 text-slate-600 text-xs">{l.department !== '-' ? l.department : '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-500 text-xs">
-                          {l.returned_by !== '-' && <div>คืน: {l.returned_by}</div>}
-                          {l.received_by !== '-' && <div>รับ: {l.received_by}</div>}
-                        </td>
-                        <td className="px-4 py-2.5 text-slate-400">
-                          {isOpen ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                        <td className="px-3 py-2.5 text-slate-600 text-xs">{l.returned_by !== '-' ? l.returned_by : '-'}</td>
+                        <td className="px-3 py-2.5 text-slate-600 text-xs">{l.received_by !== '-' ? l.received_by : '-'}</td>
+                        <td className="px-3 py-2.5 text-slate-400">
+                          <ChevronRight size={14}/>
                         </td>
                       </tr>
-                      {isOpen && (
-                        <tr className="bg-violet-50 border-b border-violet-100">
-                          <td colSpan={8} className="px-6 py-3">
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs text-slate-600 flex-1">
-                                <div><span className="font-semibold text-slate-500">ชนิดยา:</span> {l.drug_type || '-'}</div>
-                                <div><span className="font-semibold text-slate-500">Lot:</span> {l.lot || '-'}</div>
-                                <div><span className="font-semibold text-slate-500">Exp:</span> {l.exp || '-'}</div>
-                                <div><span className="font-semibold text-slate-500">หมายเหตุ:</span> {l.note || '-'}</div>
-                              </div>
-                              <div className="flex items-center gap-1.5 flex-shrink-0">
-                                <button onClick={e => { e.stopPropagation(); printReturnLog(l) }}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-semibold transition-colors whitespace-nowrap">
-                                  <Printer size={13} /> พิมพ์ / PDF
-                                </button>
-                                {isAdmin && (<>
-                                  <button onClick={e => { e.stopPropagation(); setEditLog(l); setDeletingId(null) }}
-                                    className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap">
-                                    <Pencil size={12}/> แก้ไข
-                                  </button>
-                                  {deletingId === l.id ? (
-                                    <div className="flex items-center gap-1">
-                                      <button onClick={e => { e.stopPropagation(); handleDelete(l.id) }}
-                                        className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold transition-colors whitespace-nowrap">
-                                        ยืนยัน?
-                                      </button>
-                                      <button onClick={e => { e.stopPropagation(); setDeletingId(null) }}
-                                        className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors">
-                                        <X size={13}/>
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <button onClick={e => { e.stopPropagation(); setDeletingId(l.id) }}
-                                      className="flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap">
-                                      <Trash2 size={12}/> ลบ
-                                    </button>
-                                  )}
-                                </>)}
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
                     </React.Fragment>
                   )
                 })}
@@ -1119,6 +1084,194 @@ function HistoryTab({ auth = {} }) {
           onSaved={() => { setEditLog(null); load() }}
         />
       )}
+
+      {dispositionLog && (
+        <DispositionModal
+          log={dispositionLog}
+          busy={confirmingId === dispositionLog.id}
+          onClose={() => setDispositionLog(null)}
+          onConfirm={(disp, note) => handleConfirmWithDisposition(dispositionLog.id, disp, note)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ============================================================
+// DispositionModal — staff ตรวจรับ + เลือกผลการดำเนินการ (ADR-0012)
+// ============================================================
+function DispositionModal({ log, busy, onClose, onConfirm }) {
+  const [disp, setDisp] = useState('restock')
+  const [note, setNote] = useState('')
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/50" />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="bg-emerald-600 text-white px-5 py-4 rounded-t-2xl flex items-center gap-2">
+          <PackageCheck size={20} />
+          <div className="min-w-0">
+            <p className="font-bold text-base leading-tight">ตรวจรับ & ดำเนินการ</p>
+            <p className="text-emerald-100 text-xs truncate">{log.drug_name} · {Number(log.qty_returned).toLocaleString()} {log.drug_unit && log.drug_unit !== '-' ? log.drug_unit : 'หน่วย'}</p>
+          </div>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <p className="text-sm font-semibold text-slate-600 mb-2">เลือกผลการดำเนินการ *</p>
+            <div className="space-y-2">
+              {DISPOSITION_ORDER.map(key => {
+                const dm = DISPOSITION_META[key], DIcon = dm.icon, active = disp === key
+                return (
+                  <button key={key} type="button" onClick={() => setDisp(key)}
+                    className={`w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-colors ${active ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-400' : 'border-slate-200 hover:bg-slate-50'}`}>
+                    <span className={`p-1.5 rounded-lg shrink-0 ${dm.badgeBg} ${dm.badgeText}`}><DIcon size={16} /></span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-slate-800">{dm.label}</span>
+                      <span className="block text-xs text-slate-400">{dm.desc}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div>
+            <label className="text-sm font-semibold text-slate-600">หมายเหตุ / เหตุผล{disp === 'rejected' ? ' *' : ''}</label>
+            <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
+              placeholder={disp === 'rejected' ? 'ระบุเหตุผลที่ไม่รับคืน...' : 'เพิ่มเติม (ถ้ามี)'}
+              className="mt-1 w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+          </div>
+        </div>
+        <div className="flex gap-2 px-5 pb-5">
+          <button onClick={onClose} disabled={busy}
+            className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors disabled:opacity-50">
+            ยกเลิก
+          </button>
+          <button
+            onClick={() => onConfirm(disp, note.trim() || null)}
+            disabled={busy || (disp === 'rejected' && !note.trim())}
+            className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition-colors">
+            <CheckCircle size={15} /> {busy ? 'กำลังบันทึก...' : 'ยืนยัน'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// ReturnDetail — หน้ารายละเอียดคำขอคืนยาเต็มจอ (เหมือนใบเบิก)
+// คลิกรายการในประวัติ → เข้ามาดู + ตรวจรับ/ดำเนินการ/พิมพ์/แก้ไข ในหน้าเดียว
+// ============================================================
+function ReturnDetail({ log, isStaff, isAdmin, busy, onBack, onDispose, onEdit, onPrint, onDelete, editModal, dispositionModal }) {
+  const [confirmDel, setConfirmDel] = useState(false)
+  const st = returnStatus(log), sm = STATUS_META[st], SIcon = sm.icon
+  const rb = getReasonBadge(log)
+  const dm = log.disposition ? DISPOSITION_META[log.disposition] : null
+  const DIcon = dm?.icon
+  const isPending = st === 'pending'
+
+  const rows = [
+    ['รหัสยา',        log.drug_code && log.drug_code !== '-' ? log.drug_code : null],
+    ['ชนิดยา',        log.drug_type && log.drug_type !== '-' ? log.drug_type : null],
+    ['Lot',           log.lot && log.lot !== '-' ? log.lot : null],
+    ['วันหมดอายุ',    log.exp && log.exp !== '-' ? log.exp : null],
+    ['หน่วยงานที่คืน', log.department && log.department !== '-' ? log.department : null],
+    ['สาเหตุการคืน',  getReturnLabel(log)],
+    ['ผู้คืน',        log.returned_by && log.returned_by !== '-' ? log.returned_by : null],
+    ['ผู้รับคืน',      log.received_by && log.received_by !== '-' ? log.received_by : null],
+    ['วันที่รับคืน',   log.received_at ? isoToThai(log.received_at.slice(0, 10)) : null],
+    ['ผู้ดำเนินการ',   log.disposition_by && log.disposition_by !== '-' ? log.disposition_by : null],
+    ['หมายเหตุ',      log.note && log.note !== '-' ? log.note : null],
+  ].filter(([, v]) => v != null && v !== '')
+
+  return (
+    <div className="min-h-screen bg-slate-50 -m-4 sm:-m-6">
+      {/* Header bar */}
+      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center gap-3">
+        <button onClick={onBack}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition-colors">
+          <RotateCcw size={15} className="rotate-[135deg]" /> ย้อนกลับ
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="font-bold text-slate-900 text-base leading-tight truncate">{log.drug_name}</p>
+          <p className="text-xs text-slate-400">คืนวันที่ {isoToThai(log.return_date)}</p>
+        </div>
+      </div>
+
+      <div className="max-w-2xl mx-auto p-4 space-y-4">
+        {/* สรุปสถานะ + จำนวน */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${sm.badgeBg} ${sm.badgeText}`}><SIcon size={12} />{sm.label}</span>
+            <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-bold ${rb.badgeBg} ${rb.badgeText}`}>{rb.label}</span>
+            {dm && <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${dm.badgeBg} ${dm.badgeText}`}><DIcon size={12} />{dm.label}</span>}
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-bold text-violet-700">{Number(log.qty_returned).toLocaleString()}</span>
+            <span className="text-sm text-slate-500">{log.drug_unit && log.drug_unit !== '-' ? log.drug_unit : 'หน่วย'}</span>
+          </div>
+          {dm && log.disposition_note && (
+            <div className={`flex items-start gap-2 rounded-xl p-2.5 ${dm.badgeBg}`}>
+              <DIcon size={15} className={`${dm.badgeText} mt-0.5 shrink-0`} />
+              <p className="text-xs text-slate-600">{log.disposition_note}</p>
+            </div>
+          )}
+        </div>
+
+        {/* ข้อมูลละเอียด */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+          <p className="text-sm font-bold text-slate-700 mb-2">ข้อมูลการคืน</p>
+          <div className="space-y-1">
+            {rows.map(([label, val]) => (
+              <div key={label} className="flex justify-between items-start gap-3 py-1.5 border-b border-slate-50 last:border-0">
+                <span className="text-xs text-slate-400 shrink-0">{label}</span>
+                <span className="text-sm text-slate-700 font-medium text-right min-w-0">{val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ปุ่มดำเนินการ */}
+        <div className="space-y-2">
+          {isStaff && isPending && (
+            <button onClick={onDispose} disabled={busy}
+              className="w-full flex items-center justify-center gap-1.5 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl text-sm font-bold transition-colors">
+              <PackageCheck size={16} /> ตรวจรับ & ดำเนินการ
+            </button>
+          )}
+          <button onClick={onPrint}
+            className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-colors">
+            <Printer size={15} /> พิมพ์ / PDF
+          </button>
+          {isAdmin && (
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={onEdit}
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300 rounded-xl text-sm font-semibold transition-colors">
+                <Pencil size={14} /> แก้ไข
+              </button>
+              {confirmDel ? (
+                <div className="flex items-center gap-1.5">
+                  <button onClick={onDelete}
+                    className="flex-1 px-3 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition-colors">
+                    ยืนยันลบ?
+                  </button>
+                  <button onClick={() => setConfirmDel(false)}
+                    className="p-2.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors">
+                    <X size={15} />
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmDel(true)}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl text-sm font-semibold transition-colors">
+                  <Trash2 size={14} /> ลบ
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {editModal}
+      {dispositionModal}
     </div>
   )
 }

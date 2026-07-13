@@ -1,5 +1,51 @@
 # ReturnApp — ระบบคืนยา
 
+## แท็บ "ตรวจสอบรายการ" (review) — staff/admin
+
+ReturnApp มี 3 แท็บ: **บันทึกรายการ** (ทุก role) · **ตรวจสอบรายการ** (staff/admin เท่านั้น) · **ประวัติ** (ทุก role).
+- **ตรวจสอบรายการ** = worklist แสดง**เฉพาะรายการรอตรวจ** (`status='pending'`) — staff เข้ามาเคลียร์งาน: คลิก→เปิด `ReturnDetail`→ตรวจรับ & เลือกผลการดำเนินการ. มี banner สีเหลืองอธิบาย + empty state "ไม่มีรายการรอตรวจสอบ".
+- ทั้ง review + history ใช้ component `HistoryTab` เดียวกัน ต่างที่ prop `mode` (`review` บังคับ `status='pending'` ผ่าน `isReview`).
+- **filter chips "ผลการดำเนินการ" ถูกลบออกจากประวัติ** (เดิมอยู่ใน history) — การกรอง pending ย้ายไป logic ของแท็บ review แทน. ประวัติแสดงทุกสถานะ (ตรวจสอบย้อนหลัง). `fetchReturnLogs` ยังรับ param `disposition` ไว้ (ไม่ได้ลบจาก db.js — เผื่อใช้ภายหลัง).
+
+## หน้ารายละเอียดเต็มจอ (ReturnDetail)
+
+ประวัติคืนยาใช้ pattern เดียวกับใบเบิก (`RequisitionDetail`): คลิกรายการในตาราง/card → เปิด **`ReturnDetail` เต็มจอ** (ไม่ใช่ expanded row/bottom sheet — ลบทิ้งแล้ว) แสดงข้อมูลครบ + ปุ่มดำเนินการในหน้าเดียว: **ตรวจรับ & ดำเนินการ** (staff, เฉพาะ pending) / พิมพ์ PDF / แก้ไข + ลบ (admin, confirm 2-click ใน `confirmDel` state).
+- state `detailLog` ใน HistoryTab — `if (detailLog) return <ReturnDetail>` early-return (เหมือน `if (selected) return <RequisitionDetail>`)
+- หลัง confirm/delete สำเร็จ → `setDetailLog(null)` กลับ list + `load()` เห็นผลใน list ทันที
+- `DispositionModal`/`EditReturnModal` render ผ่าน prop `dispositionModal`/`editModal` (guard ด้วย `id === detailLog.id` กัน modal ค้างข้ามรายการ)
+- คลิกแถว desktop / card mobile = `setDetailLog(l)` (เดิม toggle expanded / เปิด bottom sheet)
+
+## Workflow ผลการดำเนินการ (Disposition) — ADR-0013
+
+staff ตรวจรับคืนพร้อม**ตัดสินผลการดำเนินการในขั้นเดียว** — ปุ่ม "ตรวจรับ & ดำเนินการ" (เดิม "ยืนยันรับคืน") เปิด `DispositionModal` เลือก 1 ใน 4 ผล:
+
+| `disposition` | ความหมาย | badge |
+|---|---|---|
+| `restock` | รับเข้าคลัง (ยาสภาพดี) | เขียว |
+| `dispose` | ทำลาย/ตัดจำหน่าย (หมดอายุ/เสียหาย) | แดง |
+| `to_vendor` | ส่งคืนบริษัท (recall/เปลี่ยน) | ฟ้า |
+| `rejected` | ปฏิเสธการคืน (**บังคับระบุเหตุผล**) | เทา |
+
+- **`confirmReturnReceived(id, receiver, auth, disposition, note)`** (db.js) — set `status='received'` + `disposition/disposition_note/disposition_at/disposition_by` พร้อมกัน. `disposition` optional (ไม่ส่ง = รับคืนเฉยๆ แบบเดิม). audit action `confirm_return` เดิม (disposition อยู่ใน `details`) — **ไม่สร้าง action ใหม่**.
+- **ไม่แตะ `inventory.qty`** — `restock` = บันทึกผลอย่างเดียว ไม่บวก stock (กัน double-count กับ CSV import; ยาเข้าคลังจริงผ่าน import ปกติ). คงหลัก append-only.
+- **`DISPOSITION_META` / `DISPOSITION_ORDER`** (ReturnApp.jsx) — label/icon/สี/desc. badge แสดง 3 ที่: ตาราง desktop (ใต้ status badge), mobile detail (แถบสี + หมายเหตุ), Excel export (คอลัมน์ "ผลการดำเนินการ" + "หมายเหตุการดำเนินการ" + "ผู้ดำเนินการ").
+- **filter tab** ใน HistoryTab: ทั้งหมด / ยังไม่ตัดสิน (`disposition='none'` = null) / 4 ผล — `fetchReturnLogs({ disposition })`.
+- **requester เห็นผลของตัวเอง**: ใช้ notification scope ADR-0010 (requester เห็น return แผนกตัวเอง) + badge disposition ในประวัติ — ไม่เพิ่ม query.
+- **AuditLog**: case `confirm_return` โชว์ "ผล: <label> · (<หมายเหตุ>)" ผ่าน inline `DISP_LABEL` map.
+- **migration**: `return_disposition_migration.sql` (รันแล้ว) — 4 column + index.
+
+## Workflow ส่ง→รับ (Return Status) — ADR-0009
+
+lifecycle 2 สถานะ (`return_logs.status`): `pending` (รอรับคืน) → `received` (รับแล้ว) — ดู [docs/adr/0009](../adr/0009-return-submit-confirm-workflow.md).
+
+- **สร้างคำขอ (RecordTab)**: ทุก role กรอก → `insertReturnLog` set `status='pending'`, `received_by='-'` (ซ่อนช่องผู้รับคืนตอนกรอก). success banner = "ส่งคำขอคืนยาแล้ว — รอเจ้าหน้าที่คลังยืนยันรับคืน". audit `insert_return`.
+- **ยืนยันรับคืน (HistoryTab)**: ปุ่ม "ยืนยันรับคืน" แสดงเฉพาะ `pending` + `isStaff` (staff/admin) → `confirmReturnReceived(id, receiverName, auth)` set `status='received'` + `received_by` (ชื่อคนกดยืนยัน) + `received_at`. audit `confirm_return`.
+- **แถวเก่า (`status = null`)** → `returnStatus(log)` คืน `'received'` (ไม่ backfill). `fetchReturnLogs({status:'received'})` รวม null ด้วย OR-filter.
+- **ไม่แตะ `inventory.qty`** — Return = append-only (CONTEXT.md §Return / [[สถานะคืนยา]]).
+- **`returnStatus(log)`** helper + `STATUS_META` (label/icon/badge) ที่ต้นไฟล์ `ReturnApp.jsx`. badge แสดงในตาราง desktop (คอลัมน์ผู้คืน/รับ), mobile card (chip "รอรับคืน" เฉพาะ pending), mobile detail header. Excel เพิ่มคอลัมน์ "สถานะ".
+- **Notification & Audit sync** (กฎ #12): `confirm_return` เพิ่มครบ 3 ที่ — `NOTIF_LABELS`+`notifMessage` (AppRoot), `NOTIFY_ACTIONS` (db.js), `ACTION_LABELS`+detail case+filter (AuditLogApp). `insert_return` label เปลี่ยนเป็น "ส่งคำขอคืนยา".
+- **migration**: `return_status_migration.sql` (เพิ่ม `status` + `received_at` + index) — ต้องรันใน Supabase Dashboard ก่อน deploy.
+
 ## Return Type 2-Level Selection
 
 ### โครงสร้างประเภทการคืนยา

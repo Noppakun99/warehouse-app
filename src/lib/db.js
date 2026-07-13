@@ -750,7 +750,7 @@ export async function fetchChartMonthRange() {
 
 // --- Return Logs ---
 
-export async function fetchReturnLogs({ dateFrom, dateTo, returnSource, returnType, drugName, status, department } = {}) {
+export async function fetchReturnLogs({ dateFrom, dateTo, returnSource, returnType, drugName, status, department, disposition } = {}) {
   if (!supabase) return []
 
   let q = supabase
@@ -761,6 +761,9 @@ export async function fetchReturnLogs({ dateFrom, dateTo, returnSource, returnTy
 
   if (dateFrom) q = q.gte('return_date', dateFrom)
   if (dateTo)   q = q.lte('return_date', dateTo)
+  // ผลการดำเนินการ (ADR-0012): 'none' = ยังไม่ตัดสิน (disposition null)
+  if (disposition === 'none') q = q.is('disposition', null)
+  else if (disposition && disposition !== 'all') q = q.eq('disposition', disposition)
   // กรองตามหน่วยงานจริง (return_logs.department ตรงๆ)
   if (department && department !== 'all') q = q.eq('department', department)
   // สถานะ (ADR-0009): แถวเก่า status=null ถือเป็น received → รวม null เมื่อกรอง received
@@ -841,18 +844,28 @@ export async function insertReturnLog(log, auth = {}) {
 }
 
 // staff/admin กดยืนยันรับคืน → status='received' + เติม received_by + received_at (ADR-0009)
+// ตรวจรับพร้อมตัดสินผลการดำเนินการ (disposition) ในขั้นเดียว — ADR-0012
+//   disposition: restock|dispose|to_vendor|rejected (optional — ถ้าไม่ส่ง = รับคืนเฉยๆ แบบเดิม)
 // ไม่แตะ inventory.qty (Return = append-only log — CONTEXT.md §Return)
-export async function confirmReturnReceived(id, receivedBy, auth = {}) {
+export async function confirmReturnReceived(id, receivedBy, auth = {}, disposition = null, dispositionNote = null) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const receiver = receivedBy || resolveUserName(auth)
+  const fields = { status: 'received', received_by: receiver, received_at: new Date().toISOString() }
+  if (disposition) {
+    fields.disposition      = disposition
+    fields.disposition_note = dispositionNote || null
+    fields.disposition_at   = new Date().toISOString()
+    fields.disposition_by   = receiver
+  }
   const { error } = await supabase
     .from('return_logs')
-    .update({ status: 'received', received_by: receivedBy || resolveUserName(auth), received_at: new Date().toISOString() })
+    .update(fields)
     .eq('id', id)
   if (error) throw error
   await insertAuditLog({
     action: 'confirm_return', table_name: 'return_logs',
     user_name: resolveUserName(auth), department: auth?.department || '-',
-    details: { return_log_id: id, received_by: receivedBy || resolveUserName(auth) },
+    details: { return_log_id: id, received_by: receiver, disposition: disposition || null, disposition_note: dispositionNote || null },
   })
 }
 

@@ -242,11 +242,16 @@ function formatDetails(action, details, recordCount) {
       ].filter(Boolean).join(' · ') || '-';
     }
 
-    case 'confirm_return':
+    case 'confirm_return': {
+      // ผลการดำเนินการ (ADR-0012) — inline map (DISPOSITION_META อยู่ใน ReturnApp)
+      const DISP_LABEL = { restock: 'รับเข้าคลัง', dispose: 'ทำลาย/ตัดจำหน่าย', to_vendor: 'ส่งคืนบริษัท', rejected: 'ปฏิเสธการคืน' };
       return [
         d.received_by && `ผู้รับคืน: ${d.received_by}`,
+        d.disposition && `ผล: ${DISP_LABEL[d.disposition] || d.disposition}`,
+        d.disposition_note && `(${d.disposition_note})`,
         d.return_log_id && `รายการ #${d.return_log_id}`,
       ].filter(Boolean).join(' · ') || '-';
+    }
 
     case 'flag_swap_return':
       return [
