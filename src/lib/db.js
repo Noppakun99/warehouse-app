@@ -959,10 +959,19 @@ export async function seedSwapPolicies(auth = {}) {
 export async function fetchSwapReturnDue() {
   if (!supabase) return []
 
-  const [policies, inv, usageRates] = await Promise.all([
+  // เรทเบิกเฉลี่ย/เดือน (หน่วยย่อยสุด/เม็ด) — ใช้ 6 เดือนเต็มที่จบแล้ว
+  // (ตัดเดือนปัจจุบันที่ยังครึ่งใบ — concept เดียวกับ Rule "ตัดเดือนล่าสุด")
+  const _now = new Date()
+  const _lastFull = new Date(_now.getFullYear(), _now.getMonth(), 0)          // วันสุดท้ายของเดือนก่อน
+  const _from6 = new Date(_lastFull.getFullYear(), _lastFull.getMonth() - 5, 1) // ย้อน 6 เดือนเต็ม
+  const rateFrom = _from6.toISOString().slice(0, 10)
+  const rateTo = _lastFull.toISOString().slice(0, 10)
+
+  const [policies, inv, usageRates, monthlyUsage] = await Promise.all([
     fetchSwapPolicies(),
     fetchAllInventoryRows('code, name, unit, lot, exp, qty, location, receive_status'),
     fetchUsageRates(6),   // avgPerDay ต่อรหัสยา (หน่วยย่อยสุด, เม็ด) — สำหรับ coverage
+    fetchMonthlyDispenseUsage(rateFrom, rateTo),   // เบิกรายเดือน (เม็ด) ต่อรหัสยา — สำหรับเรท/เดือน
   ])
   if (!inv || Object.keys(policies).length === 0) return []
 
@@ -1009,6 +1018,16 @@ export async function fetchSwapReturnDue() {
   }
   const usageKey = (c) => String(c || '').trim().toLowerCase().replace(/^0+(\d)/, '$1')
 
+  // เรทเบิกเฉลี่ย/เดือน = หน่วยย่อยสุด (เม็ด) ต่อรหัสยา
+  // fetchMonthlyDispenseUsage คืน months เป็นเม็ดแล้ว (qty_out × factor) → avg = Σ ÷ จำนวนเดือน
+  const monthCount = 6   // ช่วง rateFrom..rateTo = 6 เดือนเต็ม
+  const avgBaseUnitByCode = {}   // usageKey → เบิกเฉลี่ย(เม็ด)/เดือน (null = ไม่มีการเบิก)
+  for (const [rawCode, u] of Object.entries(monthlyUsage || {})) {
+    const totalBase = Object.values(u.months || {}).reduce((a, b) => a + b, 0)
+    if (totalBase <= 0) continue
+    avgBaseUnitByCode[usageKey(rawCode)] = totalBase / monthCount
+  }
+
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const out = []
   const rows = Object.values(inv).flat()
@@ -1034,10 +1053,12 @@ export async function fetchSwapReturnDue() {
 
     out.push({
       code: item.code, name: item.name, lot: item.lot, exp: item.exp, location: item.location,
-      qty: item.qty, company, returnMonths: pol.returnMonths,
+      qty: item.qty, unit: item.unit, company, returnMonths: pol.returnMonths,
       status, deadline: deadline ? deadline.toISOString().slice(0, 10) : null, daysToDeadline,
       policyText: policyTextByLot[lotKey(code, item.lot)] || null,   // นโยบายเต็มของ lot นั้น (raw)
       avgPerDay: avgPerDay || null, coverageDays, willDeplete,
+      avgBaseUnit: avgBaseUnitByCode[usageKey(code)] ?? null,   // เบิกเฉลี่ย(เม็ด)/เดือน
+      baseUnit: parseUnitFactor(item.unit).base,                // หน่วยย่อยสุด (เม็ด) สำหรับ label เรท
     })
   }
   // ต้องคืนจริง (ไม่ willDeplete) ก่อน → ในกลุ่มเดียวกัน overdue/เหลือน้อยก่อน

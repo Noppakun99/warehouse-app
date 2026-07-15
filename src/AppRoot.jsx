@@ -10,7 +10,7 @@ import {
   ShieldCheck,
   ChevronRight, Activity, Database, Clock,
   AlertTriangle, ChevronDown, ChevronUp, ClipboardList,
-  Eye, EyeOff, X, Bell, Search, RefreshCcw, FileDown,
+  Eye, EyeOff, X, Bell, Search, RefreshCcw, FileDown, Printer,
   Boxes, ShoppingCart, ArrowRight,
 } from 'lucide-react';
 import App                from './App';
@@ -650,14 +650,43 @@ function Dashboard({ auth, onNavigate }) {
 }
 
 // ---- Popup ยาต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด (เด้งตอน login) ----
+// deadline เก็บเป็น ISO YYYY-MM-DD → DD/MM/YYYY (พ.ศ.)
+const swapFmtDeadline = (iso) => {
+  if (!iso) return '-';
+  const [y, m, d] = String(iso).split('-').map(Number);
+  return (y && m && d) ? `${d}/${m}/${y + 543}` : String(iso);
+};
+// exp เก็บเป็น D/M/YYYY (ค.ศ.) ใน inventory — แปลงเป็น พ.ศ. (คนละ format กับ deadline)
+const swapFmtExp = (raw) => {
+  if (!raw) return '-';
+  const [d, m, y] = String(raw).split('/').map(Number);
+  return (d && m && y) ? `${d}/${m}/${y + 543}` : String(raw);
+};
+const swapStatusText = (r) => r.status === 'overdue' ? 'พ้นกำหนดแล้ว' : `เหลือ ${r.daysToDeadline} วัน`;
+const swapRateText = (r) => r.avgBaseUnit ? `~${Math.round(r.avgBaseUnit).toLocaleString()} ${r.baseUnit || 'หน่วย'}/เดือน` : 'ไม่มีการเบิก';
+
+// column def สำหรับ Excel export (reuse header เดียวกับตาราง print)
+const SWAP_RETURN_EXCEL_COLS = [
+  { header: 'สถานะ',            value: swapStatusText },
+  { header: 'ชื่อยา',            key: 'name' },
+  { header: 'รหัสยา',            key: 'code' },
+  { header: 'Lot',               key: 'lot' },
+  { header: 'ที่เก็บ',           key: 'location' },
+  { header: 'วันหมดอายุ',       value: r => swapFmtExp(r.exp) },
+  { header: 'คงเหลือ',           key: 'qty' },
+  { header: 'หน่วย',             key: 'unit' },
+  { header: 'บริษัท',            key: 'company' },
+  { header: 'ต้องคืนภายใน',     value: r => swapFmtDeadline(r.deadline) },
+  { header: 'เบิกเฉลี่ย/เดือน (6ด.)', value: swapRateText },
+  { header: 'นโยบายเปลี่ยน/คืน', value: r => r.policyText || '-' },
+];
+
 function SwapReturnPopup({ rows = [], auth, onClose }) {
   const [flagged, setFlagged] = React.useState({});
+  const [exporting, setExporting] = React.useState(false);
   const keyOf = (r) => `${r.code}|${r.lot}|${r.location}`;
-  const fmtThai = (iso) => {
-    if (!iso) return '-';
-    const [y, m, d] = iso.split('-').map(Number);
-    return `${d}/${m}/${y + 543}`;
-  };
+  const fmtThai = swapFmtDeadline;
+  const fmtExp = swapFmtExp;
   const overdue = rows.filter(r => r.status === 'overdue');
   const due = rows.filter(r => r.status === 'due');
   const handleFlag = async (r) => {
@@ -668,6 +697,63 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
       }, auth);
       setFlagged(prev => ({ ...prev, [keyOf(r)]: true }));
     } catch { /* เงียบ — ไม่บล็อกการใช้งาน */ }
+  };
+  const handleExport = async () => {
+    if (exporting || rows.length === 0) return;
+    setExporting(true);
+    try {
+      await exportToExcel(rows, SWAP_RETURN_EXCEL_COLS, 'ยาต้องเปลี่ยนคืน',
+        `ยาต้องเปลี่ยนคืน_${new Date().toISOString().slice(0, 10)}.xlsx`, auth);
+    } catch { /* เงียบ */ }
+    finally { setExporting(false); }
+  };
+  const handlePrint = () => {
+    const esc = (s) => String(s ?? '-').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const today = swapFmtDeadline(new Date().toISOString().slice(0, 10));
+    const section = (title, list, tone) => !list.length ? '' : `
+      <h2 style="color:${tone};margin:14px 0 4px">${title} (${list.length})</h2>
+      <table><thead><tr>
+        <th>สถานะ</th><th>ชื่อยา</th><th>รหัสยา</th><th>Lot</th><th>ที่เก็บ</th><th>EXP</th>
+        <th>คงเหลือ</th><th>บริษัท</th><th>ต้องคืนภายใน</th><th>เบิก/เดือน</th><th>นโยบาย</th>
+      </tr></thead><tbody>
+      ${list.map(r => `<tr>
+        <td>${esc(swapStatusText(r))}</td><td>${esc(r.name)}</td><td>${esc(r.code)}</td>
+        <td>${esc(r.lot)}</td><td>${esc(r.location)}</td><td>${esc(swapFmtExp(r.exp))}</td>
+        <td style="text-align:right">${esc(r.qty)}${r.unit ? ` (${esc(r.unit)})` : ''}</td>
+        <td>${esc(r.company)}</td><td>${esc(swapFmtDeadline(r.deadline))}</td>
+        <td style="text-align:right">${esc(swapRateText(r))}</td>
+        <td style="font-size:10px">${esc(r.policyText || '-')}</td>
+      </tr>`).join('')}
+      </tbody></table>`;
+    const html = `<!DOCTYPE html><html lang="th"><head><meta charset="utf-8">
+      <title>ยาต้องเปลี่ยน/คืนบริษัท</title>
+      <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+      <style>
+        *{font-family:'Sarabun',sans-serif;box-sizing:border-box}
+        body{margin:20px;color:#1e293b}
+        h1{font-size:18px;margin:0 0 2px}
+        .sub{color:#64748b;font-size:12px;margin:0 0 8px}
+        table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px}
+        th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:top}
+        th{background:#f1f5f9;font-weight:700}
+        @media print{body{margin:0}}
+      </style></head><body>
+      <h1>ยาต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด</h1>
+      <p class="sub">พิมพ์เมื่อ ${today} · ทั้งหมด ${rows.length} รายการ${overdue.length ? ` (พ้นกำหนดแล้ว ${overdue.length})` : ''}</p>
+      ${section('พ้นกำหนดคืนแล้ว', overdue, '#be123c')}
+      ${section('ใกล้พ้นกำหนด', due, '#b45309')}
+      <script>window.onload=function(){window.print()}</script>
+      </body></html>`;
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, '_blank');
+    if (win === null) {
+      // In-app WebView (LINE/FB) บล็อก window.open → นำทางผ่าน <a> click แทน (Rule #4)
+      const a = document.createElement('a');
+      a.href = url; a.target = '_blank'; a.rel = 'noopener';
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
   const Row = (r) => {
     const isFlagged = flagged[keyOf(r)];
@@ -680,6 +766,8 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
           </span>
           <span className="text-sm font-semibold text-slate-800 truncate min-w-0">{r.name}</span>
           <span className="text-[11px] text-slate-500 shrink-0">Lot {r.lot} · {r.location}</span>
+          <span className="text-[11px] text-slate-500 shrink-0">EXP {fmtExp(r.exp)}</span>
+          <span className="text-[11px] font-semibold text-slate-700 shrink-0">คงเหลือ {r.qty}{r.unit ? ` (${r.unit})` : ''}</span>
           <span className="text-[11px] text-slate-500 shrink-0">{r.company}</span>
           <span className="text-[11px] text-slate-500 shrink-0">ต้องคืนภายใน {fmtThai(r.deadline)}</span>
           {isFlagged ? (
@@ -691,6 +779,10 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
             </button>
           )}
         </div>
+        <p className="text-[11px] text-slate-500 mt-1">
+          <span className="font-semibold text-slate-600">เบิกเฉลี่ย/เดือน (6 ด.ล่าสุด):</span>{' '}
+          {r.avgBaseUnit ? `~${Math.round(r.avgBaseUnit).toLocaleString()} ${r.baseUnit || 'หน่วย'}/เดือน` : 'ไม่มีการเบิก'}
+        </p>
         {r.willDeplete && (
           <p className="text-[11px] text-emerald-700 mt-1 flex items-center gap-1">
             <span className="font-semibold">คาดว่าจะหมดเองก่อน</span>
@@ -737,11 +829,21 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
             </>
           )}
         </div>
-        <div className="bg-white p-3 border-t border-amber-200 flex justify-between items-center shrink-0 rounded-b-2xl">
-          <p className="text-[11px] text-slate-500">ดูรายละเอียดเพิ่มเติมได้ที่ระบบแผนผัง ▸ ใกล้หมดอายุ</p>
-          <button onClick={onClose} className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-sm font-medium transition-colors">
-            รับทราบ
-          </button>
+        <div className="bg-white p-3 border-t border-amber-200 flex justify-between items-center gap-2 shrink-0 rounded-b-2xl flex-wrap">
+          <p className="text-[11px] text-slate-500 min-w-0">ดูรายละเอียดเพิ่มเติมได้ที่ระบบแผนผัง ▸ ใกล้หมดอายุ</p>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={handlePrint} disabled={rows.length === 0}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
+              <Printer size={15}/> พิมพ์
+            </button>
+            <button onClick={handleExport} disabled={exporting || rows.length === 0}
+              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
+              {exporting ? <RefreshCcw size={15} className="animate-spin"/> : <FileDown size={15}/>} Excel
+            </button>
+            <button onClick={onClose} className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-sm font-medium transition-colors">
+              รับทราบ
+            </button>
+          </div>
         </div>
       </div>
     </div>
