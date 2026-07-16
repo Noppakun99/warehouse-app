@@ -4,7 +4,7 @@ import SearchableSelect from './SearchableSelect';
 import {
   ArrowLeft, Search, Plus, Minus, Trash2, Send, Pencil,
   CheckCircle, XCircle, Package, FileText,
-  Printer, RefreshCcw, ChevronRight, Bell,
+  Printer, RefreshCcw, ChevronRight, ChevronDown, ChevronUp, Bell,
   Check, X, AlertCircle, Clock, FileDown,
   SlidersHorizontal, MapPin,
 } from 'lucide-react';
@@ -305,12 +305,19 @@ export default function RequisitionApp({ onBack, onRefresh, prefilledUser = null
     prefilledUser ? 'requester' :
     'home'
   );
+  // proxy = staff/admin สร้างใบเบิกแทนหน่วยงาน (เปิด RequesterRoot จากหน้า staff โดยไม่ prefill → เลือก ward เอง)
+  const [proxy, setProxy] = useState(false);
+
   return (
     <RefreshCtx.Provider value={onRefresh}>
       <div className="min-h-screen text-slate-800 font-sans" style={{background:'#F0F8FF'}}>
         {view === 'home'      && <HomeView      onSelect={setView} onBack={onBack} />}
         {view === 'requester' && <RequesterRoot onBack={() => prefilledUser ? onBack() : setView('home')} prefilledUser={prefilledUser} initialStep={initialStep} auth={auth} />}
-        {view === 'staff'     && <StaffRoot     onBack={() => startAsStaff  ? onBack() : setView('home')} alreadyAuthed={startAsStaff} auth={auth} />}
+        {view === 'staff' && (
+          proxy
+            ? <RequesterRoot onBack={() => { try { sessionStorage.removeItem(CART_KEY); } catch { /* ignore */ } setProxy(false); }} prefilledUser={null} initialStep={null} auth={auth} />
+            : <StaffRoot onBack={() => startAsStaff ? onBack() : setView('home')} alreadyAuthed={startAsStaff} auth={auth} onProxyRequest={() => { try { sessionStorage.removeItem(CART_KEY); } catch { /* ignore */ } setProxy(true); }} />
+        )}
       </div>
     </RefreshCtx.Provider>
   );
@@ -381,7 +388,7 @@ function RequesterRoot({ onBack, prefilledUser, initialStep = null, auth = {} })
 
   if (step === 'login')   return <RequesterLogin onLogin={v => { setInfo(v); setStep('search'); }} onBack={onBack} />;
   if (step === 'search')  return <DrugSearch info={info} cart={cart} setCart={setCart} onCart={() => setStep('cart')} onHistory={() => setStep('history')} onBack={onBack} />;
-  if (step === 'cart')    return <CartView info={info} cart={cart} setCart={setCart} onBack={() => setStep('search')} onSubmitted={() => { clearCart(); setStep('history'); }} />;
+  if (step === 'cart')    return <CartView info={info} cart={cart} setCart={setCart} onBack={() => setStep('search')} onSubmitted={() => { clearCart(); setStep('history'); }} auth={auth} />;
   if (step === 'history') return <RequisitionHistory info={info} onBack={() => setStep('search')} auth={auth} />;
   return null;
 }
@@ -523,6 +530,15 @@ const allocPackLabel = (a, unit) => {
   return size > 1 ? `${packs.toLocaleString()} กล่อง × ${size.toLocaleString()}${unit || ''}` : `${packs.toLocaleString()} ${unit || ''}`.trim();
 };
 
+// บรรจุภัณฑ์ราย lot ในการ์ดเบิก → "N กล่อง × size หน่วย" (จาก packs/packSize ที่หัก reservation แล้ว)
+//   ผู้เบิกดูเพื่อวางแผนที่เก็บ (กล่องใหญ่แค่ไหน) — packs อาจเป็นเศษหลังหักจอง จึงปัดขึ้นเป็นกล่อง
+const lotPackLabel = (l) => {
+  const size = l.packSize || 1;
+  const packs = Math.ceil(l.packs || 0);
+  return size > 1 ? `${packs.toLocaleString()} กล่อง × ${size.toLocaleString()} ${l.unit || l.baseUnit || ''}`.trim()
+                  : `${packs.toLocaleString()} ${l.unit || l.baseUnit || ''}`.trim();
+};
+
 // แสดงคงเหลือราย lot เป็น "กล่อง × หน่วยย่อย" ให้ staff นับของจริงง่าย
 //   on = ข้อมูล lot จาก inventory สด { packs, packSize, unit }, pickedPacks = กล่องที่จ่ายไป
 //   คืน { remainPacks, label, before, out } — label/before/out เป็นข้อความ "กล่อง × หน่วย"
@@ -568,7 +584,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
         const base = packs * (packSize || 1);
         totalBaseRaw += base;
         if (baseUnit && baseUnit !== '-') baseUnitCount[baseUnit] = (baseUnitCount[baseUnit] || 0) + packs;
-        if (packs > 0) fefoLots.push({ lot: lot.lot, exp: lot.exp, unit: lot.unit, packSize: packSize || 1, packs, base, baseUnit });
+        if (packs > 0) fefoLots.push({ lot: lot.lot, exp: lot.exp, unit: lot.unit, packSize: packSize || 1, packs, base, baseUnit, location: lot.location || '', supplier: lot.supplier || '' });
       });
       fefoLots.sort((a, b) => {
         const da = parseExp(a.exp), db = parseExp(b.exp);
@@ -594,6 +610,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
     }), [rawResults, reservedMap]);
   const [qtyMap, setQtyMap]    = useState({});   // key = code+name+lot
   const [warnMap, setWarnMap]  = useState({});   // key = lotKey → warning msg
+  const [expandedMap, setExpandedMap] = useState({}); // drugKey → กางรายละเอียด lot ไหม
   const [drugNames, setDrugNames]   = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [toast, setToast] = useState(null);
@@ -758,7 +775,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
         const isExpired = expDate && expDate < today;
         const detail = getDetail(row);
         if (!grouped[key].type && detail.drugType && detail.drugType !== '-') grouped[key].type = detail.drugType;
-        grouped[key].lots.push({ lot: row.lot, exp: row.exp, qty: rowQty, rawQty: row.qty, unit: row.unit, drugType: detail.drugType || '', pending: isPending, expired: isExpired });
+        grouped[key].lots.push({ lot: row.lot, exp: row.exp, qty: rowQty, rawQty: row.qty, unit: row.unit, drugType: detail.drugType || '', location: row.location || '', supplier: detail.supplier || '', pending: isPending, expired: isExpired });
       });
 
       setRawResults(Object.values(grouped));
@@ -988,6 +1005,42 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
                     </div>
                   )}
 
+                  {/* รายละเอียดราย lot — บรรจุภัณฑ์/exp/ที่เก็บ/บริษัท (กดขยาย, ประมาณการ FEFO) */}
+                  {!outOfStock && drug.fefoLots?.length > 0 && (
+                    <div className="mt-2">
+                      <button type="button"
+                        onClick={() => setExpandedMap(p => ({ ...p, [drugKey]: !p[drugKey] }))}
+                        className="flex items-center gap-1 text-xs font-semibold text-[#1E90FF] hover:text-[#1a7fe0]">
+                        {expandedMap[drugKey] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        {expandedMap[drugKey] ? 'ซ่อนรายละเอียด lot' : `ดูรายละเอียด lot (${drug.fefoLots.length})`}
+                      </button>
+                      {expandedMap[drugKey] && (
+                        <div className="mt-2 space-y-1.5">
+                          {drug.fefoLots.map((l, li) => {
+                            const near = isNearExpiry(l.exp);
+                            return (
+                              <div key={`${l.lot}-${li}`} className="text-xs bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-2">
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                  <span className="font-bold text-slate-700">{lotPackLabel(l)}</span>
+                                  <span className={`font-medium ${near ? 'text-amber-600' : 'text-slate-400'}`}>
+                                    {near && <AlertCircle size={11} className="inline mr-0.5 -mt-0.5" />}
+                                    EXP {l.exp || '-'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap text-slate-500 mt-1">
+                                  <span>Lot: <span className="font-mono text-slate-600">{l.lot || '-'}</span></span>
+                                  {l.location && <span>ที่เก็บ: <span className="text-slate-600">{l.location}</span></span>}
+                                  {l.supplier && <span>บริษัท: <span className="text-slate-600">{l.supplier}</span></span>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <p className="text-[11px] text-slate-400 italic">* ประมาณการตามลำดับ FEFO — lot ที่จ่ายจริงคำนวณอีกครั้งตอนคลังจัดยา</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Add to cart */}
                   {!outOfStock && (
                     <div className="flex items-center gap-2 flex-wrap mt-3">
@@ -1029,7 +1082,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
 }
 
 // ---- Cart ----
-function CartView({ info, cart, setCart, onBack, onSubmitted }) {
+function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
   const [doneInfo, setDoneInfo] = useState(null);
@@ -1102,11 +1155,16 @@ function CartView({ info, cart, setCart, onBack, onSubmitted }) {
           }))
         );
         if (e2) throw e2;
+        // ผู้กดจริง (staff/admin ที่ login) — ต่างจากผู้เบิก proxy (info.name) เมื่อ staff เบิกแทนหน่วยงาน (Critical Rule #1)
+        // ถ้าไม่มี auth จริง (เช่น requester ที่ไม่ผ่าน app login) → ใช้ info.name เป็น actor เดิม
+        const resolved = resolveAuditUserName(auth);
+        const actorName = resolved !== '-' ? resolved : info.name;
+        const onBehalfOf = actorName !== info.name ? info.name : undefined;
         insertAuditLog({
           action: 'submit_requisition', table_name: 'requisitions',
-          user_name: info.name, department: info.department,
+          user_name: actorName, department: info.department,
           record_count: cart.length,
-          details: { req_number: req.req_number, requisition_id: req.id },
+          details: { req_number: req.req_number, requisition_id: req.id, ...(onBehalfOf ? { on_behalf_of: onBehalfOf } : {}) },
         });
         const d = new Date();
         setDoneInfo({
@@ -2506,7 +2564,7 @@ function VerifyModal({ req, auth, onClose, onDone }) {
   );
 }
 
-function StaffRoot({ onBack, alreadyAuthed = false, auth = {} }) {
+function StaffRoot({ onBack, alreadyAuthed = false, auth = {}, onProxyRequest }) {
   const [authed, setAuthed]     = useState(alreadyAuthed);
   const [selected, setSelected] = useState(null);
   // tab/date filter ยกขึ้นมาที่นี่ — กันรีเซ็ตเมื่อเปิดดูรายละเอียดใบเบิกแล้วกดย้อนกลับ
@@ -2534,11 +2592,11 @@ function StaffRoot({ onBack, alreadyAuthed = false, auth = {} }) {
     );
   }
   if (selected) return <RequisitionDetail req={selected} onBack={() => setSelected(null)} onDone={() => setSelected(null)} auth={auth} />;
-  return <StaffDashboard onLogout={() => alreadyAuthed ? onBack() : setAuthed(false)} onSelect={setSelected} auth={auth} filter={filter} setFilter={setFilter} dateFilter={dateFilter} setDateFilter={setDateFilter} />;
+  return <StaffDashboard onLogout={() => alreadyAuthed ? onBack() : setAuthed(false)} onSelect={setSelected} auth={auth} filter={filter} setFilter={setFilter} dateFilter={dateFilter} setDateFilter={setDateFilter} onProxyRequest={onProxyRequest} />;
 }
 
 // ---- Staff Dashboard ----
-function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, dateFilter, setDateFilter }) {
+function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, dateFilter, setDateFilter, onProxyRequest }) {
   const [list, setList]         = useState([]);
   const [loading, setLoading]   = useState(true);
   const [deleteId, setDeleteId] = useState(null);
@@ -2678,6 +2736,12 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
           <span className="flex items-center gap-1 bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
             <Bell size={11}/> {pendingCount}
           </span>
+        )}
+        {onProxyRequest && (
+          <button onClick={onProxyRequest}
+            className="flex items-center gap-1.5 bg-[#1E90FF] hover:bg-[#1a7fe0] text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-colors shadow-sm whitespace-nowrap">
+            <Plus size={14}/> <span className="hidden sm:inline">สร้างใบเบิกแทนหน่วยงาน</span><span className="sm:hidden">สร้างใบเบิก</span>
+          </button>
         )}
         <button onClick={load} className="text-white/70 hover:text-white p-1 transition-colors"><RefreshCcw size={18}/></button>
       </PageHeader>
