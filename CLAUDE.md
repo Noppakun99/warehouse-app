@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 1. **คิดเป็นระบบ ไม่ใช่เป็นไฟล์** — แก้ฟีเจอร์ใหม่ต้องตรวจให้ครบ: DB layer (`db.js`) + UI + audit log + notification + permission + mobile + E2E test
 2. **Cross-cutting concerns ต้องครอบคลุมทุก sub-app**:
    - **Audit log**: ทุก mutation (INSERT/UPDATE/DELETE) ต้องเรียก `insertAuditLog` พร้อม `auth` ครบ
-   - **Notification bell**: action สำคัญที่ staff ต้องรู้ → เพิ่มใน `NOTIF_LABELS` ใน [AppRoot.jsx](src/AppRoot.jsx) + handler ใน `notifMessage()`
+   - **Notification bell**: action สำคัญที่ staff ต้องรู้ → เพิ่มใน `NOTIF_LABELS` + handler `notifMessage()` ใน [NotificationBell.jsx](src/NotificationBell.jsx) (ดู Critical Rule #12 — ต้อง sync 3 ที่)
    - **Permission**: action ใหม่ต้องเช็คว่า role ไหนทำได้ (`SYSTEM_ACCESS` ใน [UserManagementApp.jsx](src/UserManagementApp.jsx))
 3. **Verify ก่อนสรุปเสมอ** — `npm run lint` + reproduce ปัญหา + ตรวจ side-effect ในไฟล์อื่น (ดู section "Verify ก่อนสรุป" ด้านล่าง)
 4. **คุณภาพมากกว่าความเร็ว** — เจอ gap ระหว่างทาง (เช่น label หายไปใน UI) ให้ flag กับ user ก่อนเสมอ ไม่เงียบ
@@ -26,7 +26,7 @@ npm run lint         # Run ESLint
 npm run preview      # Preview production build
 npm run test:reorder   # Golden tests สำหรับ src/lib/reorder.js (35 assertions)
 npm run test:billgroup # Golden tests สำหรับ src/lib/billGroup.js — AP bill grouping (24 assertions)
-npm run test:unit      # Golden tests สำหรับ src/unitParser.js — แปลงหน่วยซื้อ/เบิก
+npm run test:unit      # Golden tests สำหรับ src/lib/unitParser.js — แปลงหน่วยซื้อ/เบิก (test อยู่ที่ src/unitParser.test.js)
 npm run test:alloc     # Golden tests สำหรับ src/lib/lotAllocation.js — FEFO auto-split (เบิกระดับยา B-base)
 npm run test:ledger     # Golden tests สำหรับ src/lib/ledgerRollover.js — สมการคงคลัง + ขึ้นเดือนใหม่ (ADR-0007)
 npm run test:ledgerseed # Golden tests สำหรับ src/lib/ledgerSeed.js — seed master CSV → ledger row (ADR-0007)
@@ -57,6 +57,9 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 **Sub-apps (component แยกอิสระ):**
 - `App.jsx` — Inventory map, CSV upload, drug grid + **แจ้งเตือนเปลี่ยน/คืนยาก่อนพ้นเงื่อนไขบริษัท** (โมดอลใกล้หมดอายุ: badge "คืนบริษัท" + banner + ปุ่มแจ้งหัวหน้า; deadline = exp − นโยบายเดือน ผ่าน `swapPolicy.js` + ตาราง `swap_return_policy`) — popup เด้งอัตโนมัติหน้า Dashboard ([AppRoot.jsx](src/AppRoot.jsx)) ตอน staff/admin login ด้วย `fetchSwapReturnDue()` (ดู [docs/features/inventory-map.md](docs/features/inventory-map.md), [docs/features/swap-return.md](docs/features/swap-return.md))
 - `RequisitionApp.jsx` — เบิกยา (ระดับยา/หน่วยย่อยสุด ซ่อน lot) + auto-split FEFO ผ่าน `src/lib/lotAllocation.js` (เก็บผลใน `picked_allocation` jsonb) + picking workflow + **ใบ lot คุม** (`printLotControl` — แนวนอน 16 คอลัมน์แบบ HosXP, snapshot `onhand` ตอนจัด, หมายเหตุอัตโนมัติ; `staff_note` ต้องรัน `staff_note_migration.sql`) + **ใบปะหน้า** (`printCoverForm` — ฟอร์มราชการ+สายลายเซ็น, ข้อความ pre-printed ใน const `COVER_FORM`) (ดู [docs/features/picking-workflow.md](docs/features/picking-workflow.md), ADR-0004, CONTEXT.md §ใบ lot คุม/§ใบปะหน้า)
+  - **โครงสร้าง 3 view** (`RequisitionApp` route ด้วย state `view`): `HomeView` (role picker — dead code ใน live app เพราะ AppRoot บังคับ `startAsStaff` สำหรับ staff/admin) · `RequesterRoot` (สร้างใบเบิก: login → search → cart → history) · `StaffRoot` (อนุมัติ/จัด/จ่าย). staff/admin เข้า `StaffRoot` ตรงผ่าน [AppRoot.jsx](src/AppRoot.jsx) `startAsStaff`
+  - **โหมด proxy (staff เบิกแทนหน่วยงาน):** ปุ่ม "สร้างใบเบิกแทนหน่วยงาน" ใน `StaffDashboard` header → state `proxy` ใน `RequisitionApp` → เปิด `RequesterRoot` แบบ **`prefilledUser={null}`** (staff เลือก ward เอง ผ่าน `RequesterLogin`). audit ตอน submit stamp **`user_name` = staff จริง** (`resolveAuditUserName(auth)`) + **`details.on_behalf_of` = ชื่อผู้เบิก proxy** (Rule #1) — แถว `requisitions` ยังเก็บ `requester_name` = proxy (ใบพิมพ์/ประวัติถูก). ⚠️ `CART_KEY` (`req_cart_draft`) เป็น **sessionStorage key เดียวทั้งระบบ** — proxy `removeItem(CART_KEY)` ทั้งตอนเข้า (`onProxyRequest`) และออก (`onBack`) กันตะกร้ารั่วข้าม ward/ข้ามผู้เบิกจริง
+  - **breakdown ราย lot ในการ์ดค้นหา (informational):** `DrugSearch` มีปุ่ม "ดูรายละเอียด lot" กางแสดง บรรจุภัณฑ์(กล่อง×หน่วย)/exp/ที่เก็บ/บริษัท ราย lot — **read-only เพื่อวางแผนที่เก็บ ไม่ย้อน ADR-0004** (ยังขอระดับยา). ค่า = หลังหักจอง (available) + ประมาณการ FEFO. `location`/`supplier` ต้อง carry จาก `grouped.lots.push` → `fefoLots.push` (เดิมถูกทิ้ง). ดู CONTEXT.md §"คงเหลือรวม (ระดับยา)"
 - `DispenseLogApp.jsx` — ประวัติเบิกจ่าย
 - `ReceiveLogApp.jsx` — ประวัติรับยา + สแกนบิล AI (ดู [docs/features/invoice-scanner.md](docs/features/invoice-scanner.md))
 - `ReturnApp.jsx` — บันทึกคืนยา (ดู [docs/features/return.md](docs/features/return.md))
@@ -174,7 +177,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 - 1 commit = 1 logical change
 
 **ก่อน commit ทุกครั้ง**:
-1. lint **เฉพาะไฟล์ที่คุณแก้** ผ่าน (`npx eslint <ไฟล์>`) — ⚠️ `npm run lint` ทั้ง repo **ไม่ใช่ 0**: มี error ค้างเดิม ~48 ตัว (55 problems รวม warning) ในไฟล์ committed (ReceiveLog/Requisition/Dispense/Return/Analytics + tests จาก `use()` ใน try/catch และ `process` undefined ใน test) ที่ไม่เกี่ยวกับงานคุณ — ห้ามไป "แก้" error เหล่านั้นเว้นแต่ถูกขอ และอย่าตกใจว่าตัวเองทำพัง
+1. lint **เฉพาะไฟล์ที่คุณแก้** ผ่าน (`npx eslint <ไฟล์>`) — ⚠️ `npm run lint` ทั้ง repo **ไม่ใช่ 0**: มี error ค้างเดิม ~53 ตัว (63 problems รวม warning ณ 2026-07-15) ในไฟล์ committed (ReceiveLog/Requisition/Dispense/Return/Analytics + tests — set-state-in-effect, empty block, `use()` ใน try/catch, `process` undefined ใน test) ที่ไม่เกี่ยวกับงานคุณ — ห้ามไป "แก้" error เหล่านั้นเว้นแต่ถูกขอ และอย่าตกใจว่าตัวเองทำพัง. **เทียบ baseline ก่อนโทษตัวเอง**: `git stash && npx eslint <ไฟล์> ; git stash pop` แล้วนับ error ก่อน/หลัง — ถ้าจำนวนเท่าเดิม = ไม่ได้ทำพัง
 2. ตรวจ `git diff` — ไม่มีไฟล์/secret ที่ไม่ตั้งใจ commit (`.env`, `test-results/`, `supabase/.temp/`)
 3. ห้าม `--no-verify` หรือ skip pre-commit hook
 
@@ -304,3 +307,5 @@ null + acknowledged_at=null  →  null + acknowledged_at!=null  →  'inspected'
 - **อย่าตัด "เบิกเพิ่มจากความผิดพลาด" / "คืนยา" ออกจากตารางเบิก** — ค่าเหล่านี้ยังต้องแสดงในตาราง เพราะเป็น record จริงที่ต้องตรวจสอบได้ ตัดออกเฉพาะจาก dropdown หน่วยงาน + กราฟ aggregate เท่านั้น
 - **อย่าลบ returnDate state ทิ้งทั้งหมด**: `returnDate` ใน [ReceiveLogApp.jsx](src/ReceiveLogApp.jsx) ยังใช้ใน `markBillsInspected()` (เป็น `inspected_at` timestamp) — ลบได้เฉพาะ setter/prop ที่ไม่มี consumer แต่ state ต้องคงไว้
 - **อย่า match header CSV ด้วย `includes()` คำสั้นๆ เมื่อไฟล์มีหลายคอลัมน์ชื่อคล้ายกัน**: ไฟล์ master (45 คอล) มี "คงเหลือ" หลายคอลัมน์ (`คงเหลือ พ.ค.`, `คงเหลือหลังจ่าย`, `มูลค่าคงเหลือ`) — `findIndex(h => h.includes('คงเหลือ'))` จับคอลัมน์แรกซึ่งผิด. ต้อง match ชื่อเจาะจงก่อนแล้วค่อย fallback + exclude คำที่รู้ว่าคนละความหมาย (เช่น `มูลค่า`) — ดู `qtyIdx` ใน [App.jsx](src/App.jsx) (แก้ 2026-07-04)
+- **อย่าใช้ `text-white` / `bg-white/xx` กับ children ของ `PageHeader` ใน [RequisitionApp.jsx](src/RequisitionApp.jsx)**: `PageHeader` ([L280](src/RequisitionApp.jsx)) เป็น **`bg-white`** (title bar ขาว) — ปุ่ม/ไอคอน `text-white` จะ **ล่องหน (ขาวบนขาว)**. ใช้ `bg-[#1E90FF] text-white` (ปุ่มฟ้า) หรือ `text-slate-*` แทน. **สับสนกับ top bar สีฟ้าของ [AppShell.jsx](src/AppShell.jsx)** ที่ `text-white` เหมาะ — copy สไตล์ข้ามกันไม่ได้ (เหตุการณ์ 2026-07-14: ปุ่ม "สร้างใบเบิกแทนหน่วยงาน" มองไม่เห็นเพราะ copy สไตล์จาก blue top-bar มาใส่ header ขาว)
+- **UI "แก้แล้วไม่เห็นผล" → สงสัย stale dev server ก่อนสงสัยโค้ด**: background dev server ตายข้าม session หรือมีหลาย Vite ต่างพอร์ต (5173/5174) → browser เสิร์ฟ bundle เก่า. **verify ที่ server จริงก่อนแก้โค้ด**: `Invoke-WebRequest http://localhost:5173/src/<file>.jsx` แล้ว grep **ASCII marker** (ชื่อ class/prop ไม่ใช่ข้อความไทย — `Invoke-WebRequest` mangle UTF-8 → false negative). ถ้า server มี code ใหม่แต่ browser ไม่เห็น = cache: kill process ตามพอร์ต (`Get-NetTCPConnection -LocalPort 5173`) + restart + DevTools "Empty Cache and Hard Reload" (เหตุการณ์ 2026-07-14)
