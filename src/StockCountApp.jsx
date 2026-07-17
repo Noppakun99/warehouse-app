@@ -1,13 +1,14 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
-  ClipboardCheck, Plus, X, Printer, Save, CheckCircle, AlertTriangle,
-  ChevronDown, ChevronUp, Search, Package, Pencil, Trash2, Calendar,
+  ClipboardCheck, X, Printer, Save, CheckCircle, AlertTriangle,
+  ChevronDown, ChevronUp, Search, Package, Pencil, Trash2, Calendar, Eye,
 } from 'lucide-react'
 import {
   fetchInventoryNameCodeMap, fetchLotsForCount, createStockCount,
   fetchStockCountSessions, fetchStockCountItems, fetchInventoryLocations,
-  updateStockCountItem, deleteStockCountSession, fetchAllStockCountItems,
+  updateStockCountItem, updateStockCountSession, deleteStockCountSession, fetchAllStockCountItems,
 } from './lib/db'
+import { dimStatus, diffLabel, computeCountMatch } from './lib/countMatch'
 import DrugSearchBar from './DrugSearchBar'
 import BackButton from './BackButton'
 
@@ -28,6 +29,11 @@ const fmtThaiDateTime = (iso) => {
   return `${fmtThaiDate(iso)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} น.`
 }
 const toNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0 }
+// วันนี้ตามเวลาท้องถิ่น — ห้ามใช้ toISOString().slice(0,10) (UTC: ช่วง 00:00-07:00 น. ไทยจะได้วันก่อนหน้า)
+const todayLocalIso = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 // date input ที่แสดง DD/MM/YYYY (พ.ศ.) ทับ hidden <input type="date"> — ตาม pattern AuditLog (Rule #3/#14)
 function IsoDateInput({ value, onChange, className = '' }) {
@@ -55,6 +61,80 @@ function FieldTick({ active, onClick }) {
 }
 // แสดงคงเหลือเป็น "จำนวน × หน่วย" (เช่น 2 × 1000เม็ด) — unit ฝัง packsize ไว้แล้ว
 const qtyUnit = (qty, unit) => `${toNum(qty)} × ${unit || '-'}`
+
+// ช่อง "ที่เก็บจริง" — พิมพ์เองได้ + suggestion ตาม segment สุดท้าย (คั่น comma)
+// เลือกจาก dropdown ซ้ำ = append ต่อท้าย ไม่ทับค่าเดิม (ยาวางหลายชั้น — ADR-0008 2026-07-16 ข้อ 4)
+function LocationInput({ value, onChange, locations, className = '', placeholder = '— ที่เก็บจริง —' }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+  const parts = String(value || '').split(',')
+  const last = parts[parts.length - 1].trim()
+  // segment สุดท้ายเป็น location สมบูรณ์แล้ว → การเลือกครั้งถัดไปคือ "เพิ่มชั้น" (append)
+  const lastComplete = !!last && locations.some(l => l.toLowerCase() === last.toLowerCase())
+  const base = (lastComplete ? parts : parts.slice(0, -1)).map(s => s.trim()).filter(Boolean)
+  const term = lastComplete ? '' : last.toLowerCase()
+  const chosen = new Set(base.map(s => s.toLowerCase()))
+  const sugg = (open ? locations : []).filter(l => !chosen.has(l.toLowerCase()) && (!term || l.toLowerCase().includes(term))).slice(0, 8)
+  const pick = (loc) => {
+    onChange([...base, loc].join(' ,'))
+    setOpen(false)
+  }
+  return (
+    <div ref={ref} className="relative">
+      <input type="text" value={value}
+        onChange={e => { onChange(e.target.value); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        placeholder={placeholder} className={className} />
+      {sugg.length > 0 && (
+        <div className="absolute top-full left-0 mt-1 min-w-full w-max max-w-[14rem] bg-white border border-slate-200 rounded-lg shadow-lg z-20 max-h-40 overflow-y-auto">
+          {sugg.map(loc => (
+            <button key={loc} type="button" onMouseDown={e => { e.preventDefault(); pick(loc) }}
+              className="w-full text-left px-2.5 py-1.5 text-xs text-slate-700 hover:bg-emerald-50 border-b border-slate-50 last:border-0">
+              {loc}{base.length > 0 ? <span className="text-slate-300"> (เพิ่มต่อท้าย)</span> : null}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ผลตรวจของแถวประวัติ — derive สดจาก snapshot (ไม่เชื่อคอลัมน์ match ที่ persist)
+// เหตุผล: แถวเก่าก่อนเปลี่ยนกติกา set equality เก็บ match=false จาก false positive
+// (เช่น ที่เก็บสลับลำดับ comma) — คำนวณสดทำให้ badge/แถว/timeline สอดคล้องกันโดยไม่ต้อง migrate
+const liveMatch = (it) => computeCountMatch(it).match
+
+// สถานะ 1 มิติในประวัติ: ไม่ได้ตรวจ (เทา) / ตรง (เขียว) / ไม่ตรง (ส้ม + ค่าที่นับได้)
+function DimLine({ label, st, val }) {
+  if (st === 'unchecked') return <p className="text-[10px] text-slate-300">{label}: ไม่ได้ตรวจ</p>
+  if (st === 'ok') return <p className="text-[10px] text-emerald-600">{label}: ตรง</p>
+  return <p className="text-[10px] text-amber-600 font-semibold">{label}: {val || '-'}</p>
+}
+
+// ป้ายส่วนต่าง "ขาด N / เกิน N" — สีตามทิศ (ขาด = แดง, เกิน = ส้ม)
+function DiffCell({ it }) {
+  const lbl = diffLabel(it.system_qty, it.counted_qty)
+  const cls = lbl === '-' ? 'text-slate-300'
+    : lbl === 'ตรง' ? 'text-slate-400'
+    : lbl.startsWith('ขาด') ? 'text-red-600'
+    : 'text-amber-600'
+  return <span className={`font-semibold ${cls}`}>{lbl}</span>
+}
+
+// chip "นับล่าสุด" ต่อยา — ให้คนนับรู้ว่าตัวนี้เพิ่งนับไปหรือยัง
+function LastCountChip({ info }) {
+  if (!info) return <p className="text-[10px] mt-0.5 text-slate-300">ไม่เคยนับ</p>
+  return (
+    <p className={`text-[10px] mt-0.5 ${info.mismatch ? 'text-amber-600' : 'text-emerald-600'}`}>
+      นับล่าสุด {info.label} · {info.mismatch ? 'ไม่ตรง' : 'ตรง'}
+    </p>
+  )
+}
 
 // ใบเดินนับ (พิมพ์) — Blob URL (iOS-safe)
 function printCountSheet(items, { counterName, dateLabel }) {
@@ -102,8 +182,13 @@ function printCountSheet(items, { counterName, dateLabel }) {
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const win = window.open(url, '_blank')
-  if (win) setTimeout(() => URL.revokeObjectURL(url), 30000)
-  else URL.revokeObjectURL(url)
+  if (win) { setTimeout(() => URL.revokeObjectURL(url), 30000); return }
+  // fallback: in-app WebView (LINE/FB) บล็อก window.open('_blank') → คืน null
+  // นำทางผ่าน <a> click แทน (WebView ยอมให้คลิกลิงก์ แต่บล็อก popup) — Rule #4
+  const a = document.createElement('a')
+  a.href = url; a.target = '_blank'; a.rel = 'noopener'
+  document.body.appendChild(a); a.click(); a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 30000)
 }
 
 // ============================================================
@@ -147,45 +232,114 @@ export default function StockCountApp({ onRefresh, auth, onGoBack, canGoBack }) 
 // CountTab — เลือกยา → กรอก 3 มิติ → save
 // ============================================================
 function CountTab({ auth }) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayLocalIso()
+  const draftKey = `stockcount_draft_${auth?.username || 'anon'}`
   const [nameMap, setNameMap] = useState({ names: [], byName: {}, options: [] })
   const [pickName, setPickName] = useState('')
-  const [lines, setLines] = useState([])       // บรรทัดนับ (1 ต่อ code+lot)
-  const [addedCodes, setAddedCodes] = useState(new Set())
+  const [lines, setLines] = useState([])           // บรรทัดนับ (1 ต่อ code+lot)
+  const [addedDrugs, setAddedDrugs] = useState([]) // [{code,name}] ตามลำดับที่เพิ่ม — แทน Set เดิม (ต้องมี name ไว้แสดง placeholder ยาที่ไม่มีบรรทัด)
+  const [zeroLots, setZeroLots] = useState({})     // { code: [lot ที่ระบบคงเหลือ 0] } — ซ่อนจนกด "แสดงเพื่อนับ" (phantom stock)
+  const [countDate, setCountDate] = useState(today)
   const [loading, setLoading] = useState(false)
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(null)
   const [locations, setLocations] = useState([])
+  const [lastCount, setLastCount] = useState({})   // { code: { t, label, mismatch } } — นับล่าสุดต่อยา
+  // draft ค้างจาก session ก่อน — แสดง banner ให้เลือกกู้คืน/ทิ้ง (ไม่ auto-restore เงียบ, ADR-0008 2026-07-03 ข้อ 5)
+  const [pendingDraft, setPendingDraft] = useState(() => {
+    try {
+      const raw = localStorage.getItem(`stockcount_draft_${auth?.username || 'anon'}`)
+      const d = raw ? JSON.parse(raw) : null
+      return d && (d.lines?.length || d.addedDrugs?.length) ? d : null
+    } catch { return null }
+  })
+
+  const addedSet = new Set(addedDrugs.map(d => d.code))
 
   useEffect(() => {
     fetchInventoryNameCodeMap().then(m =>
       setNameMap({ ...m, options: (m.names || []).map(name => ({ name, type: m.typeByName?.[name] || '' })) }))
     fetchInventoryLocations().then(setLocations)
+    // นับล่าสุดต่อยา — session ล่าสุด (ตาม created_at) ที่มี code นั้น + มีรายการไม่ตรงไหม
+    Promise.all([fetchStockCountSessions(), fetchAllStockCountItems()]).then(([sess, map]) => {
+      const byId = {}
+      sess.forEach(s => { byId[s.id] = s })
+      const best = {}
+      for (const [sid, items] of Object.entries(map)) {
+        const s = byId[sid]
+        if (!s) continue
+        const t = String(s.created_at || s.counted_at || '')
+        const perCode = {}
+        items.forEach(it => { (perCode[it.code] ||= []).push(it) })
+        for (const [code, its] of Object.entries(perCode)) {
+          if (!best[code] || t > best[code].t)
+            best[code] = { t, label: fmtThaiDate(s.counted_at || s.created_at), mismatch: its.some(x => !liveMatch(x)) }
+        }
+      }
+      setLastCount(best)
+    })
   }, [])
+
+  // เก็บงานค้างลง localStorage ต่อ user — ห้ามเขียน/ล้างก่อนผู้ใช้ตัดสินใจกับ draft เดิม
+  // (mount แรก lines ว่าง ถ้าไม่ guard จะลบ draft ทิ้งก่อนได้กู้คืน)
+  useEffect(() => {
+    if (pendingDraft) return
+    try {
+      if (lines.length || addedDrugs.length)
+        localStorage.setItem(draftKey, JSON.stringify({ lines, addedDrugs, zeroLots, note, countDate, savedAt: new Date().toISOString() }))
+      else localStorage.removeItem(draftKey)
+    } catch { /* quota เต็ม/private mode — ไม่ block งานนับ */ }
+  }, [lines, addedDrugs, zeroLots, note, countDate, pendingDraft, draftKey])
+
+  const restoreDraft = () => {
+    // กันทับงานปัจจุบัน — ผู้ใช้อาจเริ่มนับรอบใหม่ไปแล้วโดยยังไม่ตอบ banner
+    if (lines.length && !window.confirm('กู้คืนงานค้างจะแทนที่รายการที่กำลังนับอยู่ — ดำเนินการต่อ?')) return
+    setLines(pendingDraft.lines || [])
+    setAddedDrugs(pendingDraft.addedDrugs || [])
+    setZeroLots(pendingDraft.zeroLots || {})
+    setNote(pendingDraft.note || '')
+    setCountDate(pendingDraft.countDate || today)
+    setPendingDraft(null)
+  }
+  const discardDraft = () => {
+    try { localStorage.removeItem(draftKey) } catch { /* noop */ }
+    setPendingDraft(null)
+  }
+
+  const initLine = (l) => ({ ...l, counted_qty: '', counted_exp: '', counted_location: '', item_note: '', _selected: true })
 
   const addDrug = async (name) => {
     const code = nameMap.byName[name]
-    if (!code || addedCodes.has(code)) { setPickName(''); return }
+    if (!code || addedSet.has(code)) { setPickName(''); return }
     setLoading(true)
     try {
       const lots = await fetchLotsForCount([code])
-      const newLines = lots.map(l => ({
-        ...l, counted_qty: '', counted_exp: '', counted_location: '', item_note: '', _selected: true,
-      }))
-      setLines(prev => [...prev, ...newLines])
-      setAddedCodes(prev => new Set(prev).add(code))
+      const live = lots.filter(l => toNum(l.system_qty) > 0)
+      const zero = lots.filter(l => toNum(l.system_qty) <= 0)
+      setLines(prev => [...prev, ...live.map(initLine)])
+      if (zero.length) setZeroLots(prev => ({ ...prev, [code]: zero }))
+      // เพิ่มเข้ารายการเสมอ (แม้ทุก lot = 0) — แสดง placeholder + เอาออกได้ ไม่ล็อกรหัสเงียบๆ
+      setAddedDrugs(prev => [...prev, { code, name }])
     } finally { setLoading(false); setPickName('') }
+  }
+
+  // เผย lot ที่ระบบคงเหลือ 0 เข้าตารางนับ (บันทึก phantom stock — ADR-0008 2026-07-16 ข้อ 5)
+  const revealZero = (code) => {
+    const zs = zeroLots[code] || []
+    setLines(prev => [...prev, ...zs.map(l => ({ ...initLine(l), _zero: true }))])
+    setZeroLots(prev => { const n = { ...prev }; delete n[code]; return n })
   }
 
   const updateLine = (idx, field, val) =>
     setLines(prev => prev.map((l, i) => i === idx ? { ...l, [field]: val } : l))
 
-  // ค่าที่ถือว่า "ตรงระบบ" ของแต่ละช่อง
+  // ค่าที่ถือว่า "ตรงระบบ" ของแต่ละช่อง — '-' = ระบบไม่มีข้อมูลมิตินั้น
+  // → เติม '' (คงสถานะไม่ได้ตรวจ) ไม่ใช่เติม '-' ซึ่งจะกลายเป็น "ตรวจแล้วตรง" ปลอม
   const sysVal = (l, field) =>
     field === 'counted_qty' ? String(toNum(l.system_qty))
-      : field === 'counted_exp' ? (l.system_exp || '')
-      : (l.system_location || '')
+      : field === 'counted_exp' ? (l.system_exp && l.system_exp !== '-' ? l.system_exp : '')
+      : (l.system_location && l.system_location !== '-' ? l.system_location : '')
 
   // เติม/ล้าง 1 ช่อง ให้ตรงระบบ (toggle) — autofill รายช่อง
   const toggleField = (idx, field) =>
@@ -205,21 +359,23 @@ function CountTab({ auth }) {
       return { ...l, counted_exp: val, _expCustom: false }
     }))
 
-  // กดทีเดียว = ตรงทั้งหมด (เติมนับได้/ที่เก็บ/exp = ค่าระบบ); กดซ้ำ = ล้าง (toggle)
+  // กดทีเดียว = ตรงทั้งหมด (เติมนับได้/ที่เก็บ/exp = ค่าระบบ); กดซ้ำเมื่อครบ 3 มิติ = ล้าง (toggle)
   const markLineAllMatch = (idx) =>
     setLines(prev => prev.map((l, i) => {
       if (i !== idx) return l
-      const isAll = lineMatch(l).all
-      return isAll
+      const m = lineMatch(l)
+      const complete = m.all && m.checked >= m.fillable
+      return complete
         ? { ...l, counted_qty: '', counted_exp: '', counted_location: '', _expCustom: false }
-        : { ...l, counted_qty: String(toNum(l.system_qty)), counted_exp: l.system_exp || '', counted_location: l.system_location || '', _expCustom: false }
+        : { ...l, counted_qty: String(toNum(l.system_qty)), counted_exp: sysVal(l, 'counted_exp'), counted_location: sysVal(l, 'counted_location'), _expCustom: false }
     }))
 
-  // X = เอายาออก "ทั้งตัว" (ทุก lot ของ code เดียวกัน) + ปลดให้เลือกยาตัวนี้ใหม่ได้
+  // X = เอายาออก "ทั้งตัว" (ทุก lot ของ code เดียวกัน + lot 0 ที่ซ่อน) + ปลดให้เลือกยาตัวนี้ใหม่ได้
   // ต่างจาก checkbox ที่แค่ข้าม lot รายตัวโดยยังเห็นในจอ
   const removeDrug = (code) => {
     setLines(prev => prev.filter(l => l.code !== code))
-    setAddedCodes(prev => { const s = new Set(prev); s.delete(code); return s })
+    setZeroLots(prev => { const n = { ...prev }; delete n[code]; return n })
+    setAddedDrugs(prev => prev.filter(d => d.code !== code))
   }
 
   // ติ๊กเลือก lot ที่จะนับ (default ติ๊กหมด) — save เฉพาะที่ติ๊ก
@@ -227,25 +383,32 @@ function CountTab({ auth }) {
     setLines(prev => prev.map((l, i) => i === idx ? { ...l, _selected: !l._selected } : l))
   const selectedCount = lines.filter(l => l._selected).length
 
+  // 3 สถานะต่อมิติ (unchecked/ok/diff) — logic กลางใน countMatch.js (set equality สำหรับ ที่เก็บ/exp)
+  // fillable = จำนวนมิติที่ระบบมีข้อมูลให้เทียบ (qty เสมอ; exp/loc เว้น '-') — ใช้ตัดสินว่า autofill "ครบ" แล้ว
   const lineMatch = (l) => {
-    const cnt = l.counted_qty === '' ? null : toNum(l.counted_qty)
-    const qtyOk = cnt != null && cnt - toNum(l.system_qty) === 0
-    const expOk = !l.counted_exp || l.counted_exp.trim() === String(l.system_exp || '').trim()
-    const locOk = !l.counted_location || l.counted_location.trim() === String(l.system_location || '').trim()
-    return { qtyOk, expOk, locOk, all: qtyOk && expOk && locOk, counted: cnt != null }
+    const d = dimStatus(l)
+    const fillable = 1 + (l.system_exp && l.system_exp !== '-' ? 1 : 0) + (l.system_location && l.system_location !== '-' ? 1 : 0)
+    return { ...d, fillable, all: d.qty === 'ok' && !d.anyDiff, counted: d.qty !== 'unchecked' }
   }
 
   const handleSave = async () => {
     const toSave = lines.filter(l => l._selected)
     if (!toSave.length) return
+    // จำนวนเป็นมิติบังคับ (ADR-0008 2026-07-16 ข้อ 2) — กันบรรทัดผี "ไม่ตรง" จากการลืมกรอก
+    const missing = toSave.filter(l => l.counted_qty === '' || l.counted_qty == null)
+    if (missing.length) {
+      const names = missing.slice(0, 3).map(l => `${l.name} (lot ${l.lot})`).join(', ')
+      alert(`ยังไม่ได้กรอกจำนวนนับ ${missing.length} รายการ: ${names}${missing.length > 3 ? ' ...' : ''}\nกรอกจำนวนให้ครบ หรือเอาติ๊กออกจากรายการที่ไม่ได้นับ`)
+      return
+    }
     setSaving(true)
     try {
       const res = await createStockCount(
-        { counted_at: today, note, status: 'done' },
+        { counted_at: countDate || today, note, status: 'done' },
         toSave, auth,
       )
       setSaved(res)
-      setLines([]); setAddedCodes(new Set()); setNote('')
+      setLines([]); setAddedDrugs([]); setZeroLots({}); setNote('')
     } catch (e) {
       alert('บันทึกไม่สำเร็จ: ' + (e?.message || e))
     } finally { setSaving(false) }
@@ -253,8 +416,26 @@ function CountTab({ auth }) {
 
   const counterName = auth?.name || auth?.username || '-'
 
+  // index บรรทัดแรกของแต่ละ code — ใช้วาง chip "นับล่าสุด" ครั้งเดียวต่อยา
+  const firstIdxByCode = {}
+  lines.forEach((l, i) => { if (!(l.code in firstIdxByCode)) firstIdxByCode[l.code] = i })
+
+  // ยาที่มีของให้แจ้งใน strip: มี lot 0 ซ่อนอยู่ หรือไม่มีบรรทัดในตารางเลย (ทุก lot = 0)
+  const stripDrugs = addedDrugs.filter(d => (zeroLots[d.code]?.length || 0) > 0 || !lines.some(l => l.code === d.code))
+
   return (
     <div className="space-y-4">
+      {pendingDraft && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex flex-wrap items-center gap-2 text-sm text-amber-800">
+          <AlertTriangle size={17} className="shrink-0" />
+          <span>มีงานนับค้างจาก {fmtThaiDateTime(pendingDraft.savedAt)} ({(pendingDraft.lines || []).length} รายการ)</span>
+          <div className="ml-auto flex gap-2">
+            <button onClick={restoreDraft} className="px-3 py-1 rounded-lg bg-amber-500 text-white text-xs font-semibold hover:bg-amber-600">กู้คืน</button>
+            <button onClick={discardDraft} className="px-3 py-1 rounded-lg bg-white border border-amber-300 text-amber-700 text-xs font-semibold hover:bg-amber-100">ทิ้ง</button>
+          </div>
+        </div>
+      )}
+
       {saved && (
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center gap-2 text-sm text-emerald-800">
           <CheckCircle size={18} />
@@ -281,10 +462,37 @@ function CountTab({ auth }) {
         {loading && <p className="text-xs text-slate-400 mt-2">กำลังโหลด lot...</p>}
       </div>
 
-      {/* suggestion ที่เก็บ (ใช้ร่วม input list ทุกช่อง) — พิมพ์เองได้ถ้าเจอจุดที่ไม่มีในรายการ */}
-      <datalist id="stock-locations">
-        {locations.map(loc => <option key={loc} value={loc} />)}
-      </datalist>
+      {/* strip แจ้ง lot ที่ระบบคงเหลือ 0 (ซ่อนอยู่) + ยาที่ทุก lot = 0 */}
+      {stripDrugs.length > 0 && (
+        <div className="space-y-2">
+          {stripDrugs.map(d => {
+            const zs = zeroLots[d.code] || []
+            const hasLines = lines.some(l => l.code === d.code)
+            return (
+              <div key={d.code} className="bg-white rounded-xl border border-slate-200 px-3 py-2 flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-medium text-slate-700">{d.name}</span>
+                {zs.length > 0 ? (
+                  <>
+                    <span className={hasLines ? 'text-slate-400' : 'text-amber-600 font-semibold'}>
+                      {hasLines ? `ซ่อน ${zs.length} lot ที่ระบบคงเหลือ 0` : `ทุก lot ของยานี้ระบบคงเหลือ 0 (${zs.length} lot)`}
+                    </span>
+                    <button onClick={() => revealZero(d.code)}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold hover:bg-emerald-100 transition-colors">
+                      <Eye size={12} /> แสดงเพื่อนับ
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-slate-400">ไม่พบ lot ในระบบ</span>
+                )}
+                {!hasLines && (
+                  <button onClick={() => removeDrug(d.code)} title="เอายาตัวนี้ออก"
+                    className="ml-auto text-slate-300 hover:text-red-500"><X size={14} /></button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {/* ตารางนับ */}
       {lines.length > 0 ? (
@@ -313,6 +521,7 @@ function CountTab({ auth }) {
               <tbody>
                 {lines.map((l, i) => {
                   const m = lineMatch(l)
+                  const complete = m.all && m.checked >= m.fillable
                   const expCustom = !!l._expCustom
                   return (
                     <tr key={i} className={`border-t border-slate-50 transition-colors ${l._selected ? 'hover:bg-emerald-50/40' : 'bg-slate-50/60 opacity-60'}`}>
@@ -324,12 +533,14 @@ function CountTab({ auth }) {
                       <td className="px-3 py-3 align-top">
                         <p className="font-medium text-slate-800 truncate">{l.name}</p>
                         <p className="text-xs text-slate-400">{l.code}</p>
+                        {firstIdxByCode[l.code] === i && <LastCountChip info={lastCount[l.code]} />}
                         <input type="text" value={l.item_note} placeholder="+ หมายเหตุรายการนี้"
                           onChange={e => updateLine(i, 'item_note', e.target.value)}
                           className="w-full mt-1 px-2 py-1 border border-slate-200 rounded-lg text-xs placeholder-slate-300 focus:border-slate-300 focus:ring-1 focus:ring-emerald-200" />
                       </td>
                       <td className="text-center px-2 py-3 align-top">
                         <span className="inline-flex items-center rounded-md bg-slate-100 text-slate-600 font-mono text-xs px-2 py-0.5">{l.lot || '-'}</span>
+                        {l._zero && <span className="block mt-1 mx-auto w-max rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5 text-[9px] font-semibold">ระบบว่า 0</span>}
                       </td>
                       <td className="text-center px-2 py-3 text-xs text-slate-500 align-top">
                         <span className="font-semibold text-slate-700 tabular-nums">{qtyUnit(l.system_qty, l.unit)}</span><br />
@@ -340,24 +551,23 @@ function CountTab({ auth }) {
                         <div className="flex items-center justify-center gap-1">
                           <input type="number" inputMode="decimal" value={l.counted_qty}
                             onChange={e => updateLine(i, 'counted_qty', e.target.value)}
-                            className={`w-16 px-2 py-1 border rounded-lg text-center ${m.counted && !m.qtyOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
+                            className={`w-16 px-2 py-1 border rounded-lg text-center ${m.qty === 'diff' ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
                           <span className="text-xs text-slate-400 whitespace-nowrap">× {l.unit}</span>
                         </div>
-                        <FieldTick active={m.counted && m.qtyOk} onClick={() => toggleField(i, 'counted_qty')} />
+                        <FieldTick active={m.qty === 'ok'} onClick={() => toggleField(i, 'counted_qty')} />
                       </td>
-                      {/* ที่เก็บจริง — พิมพ์เองได้ (เจอยาที่จุดที่ระบบยังไม่รู้ก็เลือกได้) */}
+                      {/* ที่เก็บจริง — พิมพ์เอง/เลือกซ้ำเพื่อเพิ่มหลายชั้น */}
                       <td className="px-2 py-2 align-top">
-                        <input list="stock-locations" value={l.counted_location}
-                          onChange={e => updateLine(i, 'counted_location', e.target.value)}
-                          placeholder="— ที่เก็บจริง —"
-                          className={`w-full px-2 py-1 border rounded-lg text-center text-xs ${l.counted_location && !m.locOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
-                        <FieldTick active={!!l.counted_location && m.locOk} onClick={() => toggleField(i, 'counted_location')} />
+                        <LocationInput value={l.counted_location} locations={locations}
+                          onChange={v => updateLine(i, 'counted_location', v)}
+                          className={`w-full px-2 py-1 border rounded-lg text-center text-xs ${m.loc === 'diff' ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
+                        <FieldTick active={m.loc === 'ok'} onClick={() => toggleField(i, 'counted_location')} />
                       </td>
                       {/* exp จริง — dropdown (ค่าระบบ / อื่นๆ→พิมพ์เอง) */}
                       <td className="px-2 py-2 align-top">
                         <select value={expCustom ? '__custom__' : l.counted_exp}
                           onChange={e => pickExp(i, e.target.value)}
-                          className={`w-full px-2 py-1 border rounded-lg text-center text-xs ${l.counted_exp && !m.expOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}>
+                          className={`w-full px-2 py-1 border rounded-lg text-center text-xs ${m.exp === 'diff' ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}>
                           <option value="">— exp จริง —</option>
                           {(l.system_exp && l.system_exp !== '-') && <option value={l.system_exp}>{l.system_exp} (ตามระบบ)</option>}
                           <option value="__custom__">อื่นๆ (พิมพ์เอง)</option>
@@ -367,17 +577,17 @@ function CountTab({ auth }) {
                             onChange={e => updateLine(i, 'counted_exp', e.target.value)}
                             className="w-full mt-1 px-2 py-1 border border-amber-400 bg-amber-50 rounded-lg text-center text-xs" />
                         )}
-                        <FieldTick active={!!l.counted_exp && m.expOk} onClick={() => toggleField(i, 'counted_exp')} />
+                        <FieldTick active={m.exp === 'ok'} onClick={() => toggleField(i, 'counted_exp')} />
                       </td>
                       {/* ตรงทั้งหมด */}
                       <td className="text-center px-2 py-2 align-top">
                         <button onClick={() => markLineAllMatch(i)}
-                          title={m.all ? 'ล้างค่าที่กรอก' : 'ตรงทั้งหมด (เติมค่าตามระบบ)'}
+                          title={complete ? 'ล้างค่าที่กรอก' : 'ตรงทั้งหมด (เติมค่าตามระบบครบ 3 มิติ)'}
                           className={`inline-flex items-center justify-center w-8 h-8 rounded-full border transition-colors ${
-                            m.all ? 'bg-emerald-500 border-emerald-500 text-white'
-                            : m.counted ? 'border-amber-300 text-amber-500 hover:bg-amber-50'
+                            complete ? 'bg-emerald-500 border-emerald-500 text-white'
+                            : m.anyDiff ? 'border-amber-300 text-amber-500 hover:bg-amber-50'
                             : 'border-slate-300 text-slate-400 hover:bg-emerald-50 hover:text-emerald-500 hover:border-emerald-300'}`}>
-                          {m.counted && !m.all ? <AlertTriangle size={16} /> : <CheckCircle size={16} />}
+                          {m.anyDiff ? <AlertTriangle size={16} /> : <CheckCircle size={16} />}
                         </button>
                       </td>
                       <td className="px-2 py-2 text-center align-top">
@@ -394,6 +604,7 @@ function CountTab({ auth }) {
           <div className="md:hidden space-y-3">
             {lines.map((l, i) => {
               const m = lineMatch(l)
+              const complete = m.all && m.checked >= m.fillable
               const expCustom = !!l._expCustom
               return (
                 <div key={i} className={`bg-white rounded-2xl border p-3 shadow-sm transition-colors ${l._selected ? 'border-slate-200' : 'border-slate-200 bg-slate-50/60 opacity-60'}`}>
@@ -404,7 +615,11 @@ function CountTab({ auth }) {
                         className="w-4 h-4 mt-0.5 accent-emerald-600 cursor-pointer shrink-0" />
                       <div className="min-w-0">
                         <p className="font-medium text-slate-800 text-sm truncate">{l.name}</p>
-                        <p className="text-xs text-slate-400">{l.code} · <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">Lot {l.lot}</span></p>
+                        <p className="text-xs text-slate-400">
+                          {l.code} · <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">Lot {l.lot}</span>
+                          {l._zero && <span className="ml-1 inline-flex rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5 text-[9px] font-semibold">ระบบว่า 0</span>}
+                        </p>
+                        {firstIdxByCode[l.code] === i && <LastCountChip info={lastCount[l.code]} />}
                       </div>
                     </div>
                     <button onClick={() => removeDrug(l.code)} title="เอายาตัวนี้ออกทั้งหมด (ทุก lot)" className="text-slate-300 hover:text-red-500 shrink-0"><X size={16} /></button>
@@ -418,18 +633,20 @@ function CountTab({ auth }) {
                       <label className="text-xs text-slate-500 w-14 shrink-0">นับได้</label>
                       <input type="number" inputMode="decimal" value={l.counted_qty} placeholder="จำนวน"
                         onChange={e => updateLine(i, 'counted_qty', e.target.value)}
-                        className={`flex-1 min-w-0 px-2 py-1.5 border rounded-lg text-center text-sm ${m.counted && !m.qtyOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
+                        className={`flex-1 min-w-0 px-2 py-1.5 border rounded-lg text-center text-sm ${m.qty === 'diff' ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
                       <span className="text-[10px] text-slate-400 shrink-0">× {l.unit}</span>
-                      <FieldTick active={m.counted && m.qtyOk} onClick={() => toggleField(i, 'counted_qty')} />
+                      <FieldTick active={m.qty === 'ok'} onClick={() => toggleField(i, 'counted_qty')} />
                     </div>
                     {/* ที่เก็บจริง */}
                     <div className="flex items-center gap-2">
                       <label className="text-xs text-slate-500 w-14 shrink-0">ที่เก็บ</label>
-                      <input list="stock-locations" value={l.counted_location}
-                        onChange={e => updateLine(i, 'counted_location', e.target.value)}
-                        placeholder="— เลือก/พิมพ์ที่เก็บ —"
-                        className={`flex-1 min-w-0 px-2 py-1.5 border rounded-lg text-center text-xs ${l.counted_location && !m.locOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
-                      <FieldTick active={!!l.counted_location && m.locOk} onClick={() => toggleField(i, 'counted_location')} />
+                      <div className="flex-1 min-w-0">
+                        <LocationInput value={l.counted_location} locations={locations}
+                          onChange={v => updateLine(i, 'counted_location', v)}
+                          placeholder="— เลือก/พิมพ์ที่เก็บ —"
+                          className={`w-full px-2 py-1.5 border rounded-lg text-center text-xs ${m.loc === 'diff' ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
+                      </div>
+                      <FieldTick active={m.loc === 'ok'} onClick={() => toggleField(i, 'counted_location')} />
                     </div>
                     {/* exp จริง — dropdown */}
                     <div className="flex items-center gap-2">
@@ -437,7 +654,7 @@ function CountTab({ auth }) {
                       <div className="flex-1 min-w-0">
                         <select value={expCustom ? '__custom__' : l.counted_exp}
                           onChange={e => pickExp(i, e.target.value)}
-                          className={`w-full px-2 py-1.5 border rounded-lg text-center text-xs ${l.counted_exp && !m.expOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}>
+                          className={`w-full px-2 py-1.5 border rounded-lg text-center text-xs ${m.exp === 'diff' ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}>
                           <option value="">— เลือก exp —</option>
                           {(l.system_exp && l.system_exp !== '-') && <option value={l.system_exp}>{l.system_exp} (ตามระบบ)</option>}
                           <option value="__custom__">อื่นๆ (พิมพ์เอง)</option>
@@ -448,7 +665,7 @@ function CountTab({ auth }) {
                             className="w-full mt-1 px-2 py-1.5 border border-amber-400 bg-amber-50 rounded-lg text-center text-xs" />
                         )}
                       </div>
-                      <FieldTick active={!!l.counted_exp && m.expOk} onClick={() => toggleField(i, 'counted_exp')} />
+                      <FieldTick active={m.exp === 'ok'} onClick={() => toggleField(i, 'counted_exp')} />
                     </div>
                     {/* หมายเหตุรายการนี้ */}
                     <div className="flex items-center gap-2">
@@ -461,13 +678,14 @@ function CountTab({ auth }) {
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <div className="text-xs">
                       {!m.counted ? <span className="text-slate-400">ยังไม่กรอก</span>
-                        : m.all ? <span className="text-emerald-600 flex items-center gap-1"><CheckCircle size={14} /> ตรงระบบ</span>
-                        : <span className="text-amber-600 flex items-center gap-1"><AlertTriangle size={14} /> ไม่ตรง</span>}
+                        : m.anyDiff ? <span className="text-amber-600 flex items-center gap-1"><AlertTriangle size={14} /> ไม่ตรง</span>
+                        : m.checked === 3 ? <span className="text-emerald-600 flex items-center gap-1"><CheckCircle size={14} /> ตรงระบบ</span>
+                        : <span className="text-emerald-600 flex items-center gap-1"><CheckCircle size={14} /> ตรงตามที่ตรวจ {m.checked}/3</span>}
                     </div>
                     <button onClick={() => markLineAllMatch(i)}
                       className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors ${
-                        m.all ? 'bg-emerald-500 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}>
-                      <CheckCircle size={13} /> {m.all ? 'ล้าง' : 'ตรงทั้งหมด'}
+                        complete ? 'bg-emerald-500 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}>
+                      <CheckCircle size={13} /> {complete ? 'ล้าง' : 'ตรงทั้งหมด'}
                     </button>
                   </div>
                 </div>
@@ -475,14 +693,18 @@ function CountTab({ auth }) {
             })}
           </div>
 
-          {/* note + actions */}
+          {/* note + วันที่ + actions */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-3">
-            <input type="text" value={note} onChange={e => setNote(e.target.value)}
-              placeholder="หมายเหตุรอบนี้ (ไม่บังคับ)"
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-500 flex items-center gap-1"><Calendar size={14} /> วันที่ตรวจนับ</span>
+              <IsoDateInput value={countDate} onChange={setCountDate} className="w-40" />
+              <input type="text" value={note} onChange={e => setNote(e.target.value)}
+                placeholder="หมายเหตุรอบนี้ (ไม่บังคับ)"
+                className="flex-1 min-w-[12rem] px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-slate-500">เลือกนับ <span className="font-semibold text-emerald-700">{selectedCount}</span> / {lines.length} lot</span>
-              <button onClick={() => printCountSheet(lines.filter(l => l._selected), { counterName, dateLabel: fmtThaiDate(today) })}
+              <button onClick={() => printCountSheet(lines.filter(l => l._selected), { counterName, dateLabel: fmtThaiDate(countDate || today) })}
                 className="flex items-center gap-1.5 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-sm font-semibold hover:bg-emerald-100 transition-colors ml-auto">
                 <Printer size={16} /> พิมพ์ใบเดินนับ
               </button>
@@ -493,12 +715,12 @@ function CountTab({ auth }) {
             </div>
           </div>
         </>
-      ) : (
+      ) : addedDrugs.length === 0 ? (
         <div className="text-center py-12 text-slate-400">
           <Package size={40} className="mx-auto mb-2 opacity-40" />
           <p className="text-sm">เลือกรหัสยาด้านบนเพื่อเริ่มตรวจนับ</p>
         </div>
-      )}
+      ) : null}
     </div>
   )
 }
@@ -515,11 +737,12 @@ function HistoryTab({ auth }) {
   const [editId, setEditId] = useState(null)        // item id ที่กำลังแก้
   const [editVal, setEditVal] = useState({})
   const [busy, setBusy] = useState(false)
-  const [allItems, setAllItems] = useState({})      // { session_id: [items] } ทุกรอบ — ใช้ค้นยา/lot
+  const [allItems, setAllItems] = useState({})      // { session_id: [items] } ทุกรอบ — ใช้ค้นยา/lot + timeline
   const [dateFrom, setDateFrom] = useState('')      // filter ช่วงวันที่ตรวจนับ (ISO)
   const [dateTo, setDateTo] = useState('')
   const [drugQ, setDrugQ] = useState('')            // ค้นชื่อยา/รหัส/lot
   const [drugOpts, setDrugOpts] = useState([])
+  const [sessEdit, setSessEdit] = useState(null)    // { id, counted_at, note } — แก้ header รอบ
 
   useEffect(() => {
     fetchStockCountSessions().then(s => { setSessions(s); setLoading(false) })
@@ -551,6 +774,19 @@ function HistoryTab({ auth }) {
     return true
   })
 
+  // timeline รายยา: ทุกครั้งที่เคยนับรายการที่ตรงคำค้น เรียงใหม่สุดก่อน (ADR-0008 2026-07-16 ข้อ 7)
+  const sessById = {}
+  sessions.forEach(s => { sessById[s.id] = s })
+  const timeline = []
+  if (drugQ.trim()) {
+    for (const [sid, its] of Object.entries(allItems)) {
+      const s = sessById[sid]
+      if (!s) continue
+      for (const it of its) if (itemMatchesQ(it, drugQ)) timeline.push({ it, s })
+    }
+    timeline.sort((a, b) => String(b.s.created_at || b.s.counted_at || '').localeCompare(String(a.s.created_at || a.s.counted_at || '')))
+  }
+
   // group ตามวันที่ตรวจนับ (counted_at) — sessions เรียงใหม่สุดก่อนอยู่แล้ว
   const groupedByDate = filteredSessions.reduce((acc, s) => {
     (acc[s.counted_at] ||= []).push(s)
@@ -579,11 +815,11 @@ function HistoryTab({ auth }) {
     })
   }
 
-  // ค่าที่ถือว่า "ตรงระบบ" ของแต่ละช่อง (อ้าง snapshot ระบบจาก it)
+  // ค่าที่ถือว่า "ตรงระบบ" ของแต่ละช่อง (อ้าง snapshot ระบบจาก it) — '-' = ไม่มีข้อมูล → เติม ''
   const sysValEdit = (it, field) =>
     field === 'counted_qty' ? String(toNum(it.system_qty))
-      : field === 'counted_exp' ? (it.system_exp || '')
-      : (it.system_location || '')
+      : field === 'counted_exp' ? (it.system_exp && it.system_exp !== '-' ? it.system_exp : '')
+      : (it.system_location && it.system_location !== '-' ? it.system_location : '')
 
   // autofill รายช่องในโหมดแก้ไข (toggle เติม/ล้าง)
   const tickEdit = (it, field) =>
@@ -600,15 +836,9 @@ function HistoryTab({ auth }) {
       ? { ...v, _expCustom: true }
       : { ...v, counted_exp: val, _expCustom: false })
 
-  // ตรวจว่าช่องตรงระบบไหม (ใช้ไฮไลต์ FieldTick) — logic เดียวกับ computeCountMatch
-  const editMatch = (it) => {
-    const cnt = editVal.counted_qty === '' ? null : toNum(editVal.counted_qty)
-    return {
-      qtyOk: cnt != null && cnt - toNum(it.system_qty) === 0,
-      expOk: !editVal.counted_exp || String(editVal.counted_exp).trim() === String(it.system_exp || '').trim(),
-      locOk: !editVal.counted_location || String(editVal.counted_location).trim() === String(it.system_location || '').trim(),
-    }
-  }
+  // สถานะต่อมิติของค่าที่กำลังแก้ (set equality เดียวกับตอนนับ) — ใช้ไฮไลต์ FieldTick/กรอบแดง
+  const editMatch = (it) =>
+    dimStatus({ ...editVal, system_qty: it.system_qty, system_exp: it.system_exp, system_location: it.system_location })
 
   const saveEdit = async (it) => {
     setBusy(true)
@@ -619,7 +849,18 @@ function HistoryTab({ auth }) {
       }, auth)
       const data = await fetchStockCountItems(it.session_id)   // reload รอบนั้น
       setItems(prev => ({ ...prev, [it.session_id]: data }))
+      setAllItems(prev => ({ ...prev, [it.session_id]: data })) // sync badge/timeline ให้ตรงกับที่แก้
       setEditId(null)
+    } catch (e) { alert('แก้ไขไม่สำเร็จ: ' + (e?.message || e)) }
+    finally { setBusy(false) }
+  }
+
+  const saveSessEdit = async () => {
+    setBusy(true)
+    try {
+      await updateStockCountSession(sessEdit.id, { counted_at: sessEdit.counted_at, note: sessEdit.note }, auth)
+      setSessions(prev => prev.map(s => s.id === sessEdit.id ? { ...s, counted_at: sessEdit.counted_at, note: sessEdit.note } : s))
+      setSessEdit(null)
     } catch (e) { alert('แก้ไขไม่สำเร็จ: ' + (e?.message || e)) }
     finally { setBusy(false) }
   }
@@ -670,6 +911,50 @@ function HistoryTab({ auth }) {
         )}
       </div>
 
+      {/* timeline รายยา — ทุกครั้งที่เคยนับรายการที่ค้น (ไม่ต้องไล่กางทีละรอบ) */}
+      {timeline.length > 0 && (
+        <div className="bg-white rounded-xl border border-emerald-200 p-3">
+          <p className="text-xs font-bold text-emerald-700 mb-2 flex items-center gap-1.5">
+            <ClipboardCheck size={14} /> ประวัติการนับของรายการที่ค้น ({timeline.length} ครั้ง)
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-slate-500">
+                <tr className="border-b border-slate-100">
+                  <th className="text-left py-1.5 pr-2">นับเมื่อ</th>
+                  <th className="text-left px-2">ยา / Lot</th>
+                  <th className="text-center px-2">ระบบ</th>
+                  <th className="text-center px-2">นับได้</th>
+                  <th className="text-center px-2">ส่วนต่าง</th>
+                  <th className="text-center px-2">ผล</th>
+                </tr>
+              </thead>
+              <tbody>
+                {timeline.slice(0, 30).map(({ it, s }) => {
+                  const d = dimStatus(it)
+                  const ok = liveMatch(it)
+                  return (
+                    <tr key={it.id} className={`border-b border-slate-50 ${!ok ? 'bg-amber-50/50' : ''}`}>
+                      <td className="py-1.5 pr-2 whitespace-nowrap text-slate-600">{s.created_at ? fmtThaiDateTime(s.created_at) : fmtThaiDate(s.counted_at)}</td>
+                      <td className="px-2">{it.name}<span className="text-slate-400"> · {it.lot}</span></td>
+                      <td className="text-center px-2">{qtyUnit(it.system_qty, it.unit)}</td>
+                      <td className="text-center px-2">{it.counted_qty == null ? '-' : `${toNum(it.counted_qty)} × ${it.unit}`}</td>
+                      <td className="text-center px-2"><DiffCell it={it} /></td>
+                      <td className="text-center px-2">
+                        {!ok ? <AlertTriangle size={14} className="text-amber-500 inline" />
+                          : d.checked === 3 ? <CheckCircle size={14} className="text-emerald-500 inline" />
+                          : <span className="text-[10px] font-semibold text-emerald-600">ตรง {d.checked}/3</span>}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {timeline.length > 30 && <p className="text-[11px] text-slate-400 mt-1">แสดง 30 จาก {timeline.length} ครั้ง — ระบุคำค้นให้แคบลง</p>}
+        </div>
+      )}
+
       {!filteredSessions.length ? (
         <p className="text-slate-400 text-sm text-center py-10">ไม่พบประวัติที่ตรงกับตัวกรอง</p>
       ) : dateKeys.map(dateKey => (
@@ -683,10 +968,12 @@ function HistoryTab({ auth }) {
           </div>
           {groupedByDate[dateKey].map(s => {
         const its = items[s.id] || []
-        const mismatch = its.filter(i => !i.match).length
+        const mismatch = its.filter(i => !liveMatch(i)).length
         // นับ "ไม่ตรง" จาก allItems (โหลดครบทุกรอบตั้งแต่แรก) เพื่อโชว์ badge บนหัวรอบโดยไม่ต้องกาง
         const allIts = allItems[s.id]
-        const headMismatch = allIts ? allIts.filter(i => !i.match).length : null
+        const headMismatch = allIts ? allIts.filter(i => !liveMatch(i)).length : null
+        // "ตรงทั้งหมด" อ้างได้เฉพาะเมื่อทุกรายการตรวจครบ 3 มิติ — ไม่งั้นเป็น "ตรงตามที่ตรวจ" (ADR-0008 2026-07-16 ข้อ 3)
+        const fullyChecked = allIts ? allIts.every(i => dimStatus(i).checked === 3) : true
         return (
           <div key={s.id} className={`bg-white rounded-xl border overflow-hidden ${headMismatch ? 'border-amber-300' : 'border-slate-200'}`}>
             <div className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50">
@@ -697,16 +984,17 @@ function HistoryTab({ auth }) {
                     <p className="font-semibold text-sm text-slate-800">{s.created_at ? fmtThaiDateTime(s.created_at) : fmtThaiDate(s.counted_at)}</p>
                     {headMismatch != null && (headMismatch > 0
                       ? <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-[11px] font-semibold"><AlertTriangle size={11} /> ไม่ตรง {headMismatch} รายการ</span>
-                      : <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-[11px] font-semibold">ตรงทั้งหมด</span>
+                      : fullyChecked
+                        ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-[11px] font-semibold">ตรงทั้งหมด</span>
+                        : <span title="บางรายการตรวจไม่ครบ 3 มิติ (จำนวน/ที่เก็บ/exp)" className="inline-flex items-center gap-1 rounded-full bg-emerald-50/70 text-emerald-600 px-2 py-0.5 text-[11px] font-semibold">ตรงตามที่ตรวจ</span>
                     )}
                   </div>
                   <p className="text-xs text-slate-400">ผู้นับ: {s.counter_name}{s.note ? ` · ${s.note}` : ''}</p>
-                  {drugQ.trim() && (allItems[s.id] || []).filter(it => itemMatchesQ(it, drugQ)).slice(0, 3).map(it => (
-                    <p key={it.id} className="text-xs text-emerald-700 mt-0.5">
-                      พบ: {it.name} · lot {it.lot} · นับได้ {it.counted_qty == null ? '-' : `${toNum(it.counted_qty)} × ${it.unit}`}
-                    </p>
-                  ))}
                 </div>
+              </button>
+              <button onClick={() => setSessEdit(sessEdit?.id === s.id ? null : { id: s.id, counted_at: s.counted_at, note: s.note || '' })}
+                title="แก้วันที่/หมายเหตุรอบ" className="p-2 rounded-lg text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 transition-colors">
+                <Pencil size={15} />
               </button>
               <button onClick={() => deleteSession(s)} disabled={busy}
                 title="ลบรอบนี้" className="p-2 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50">
@@ -716,6 +1004,18 @@ function HistoryTab({ auth }) {
                 {openId === s.id ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
               </button>
             </div>
+            {sessEdit?.id === s.id && (
+              <div className="border-t border-slate-100 bg-emerald-50/40 px-4 py-2 flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-slate-500">วันที่ตรวจนับ</span>
+                <IsoDateInput value={sessEdit.counted_at} onChange={v => setSessEdit(e => ({ ...e, counted_at: v }))} className="w-36" />
+                <input type="text" value={sessEdit.note} onChange={e => setSessEdit(x => ({ ...x, note: e.target.value }))}
+                  placeholder="หมายเหตุรอบ" className="flex-1 min-w-[10rem] px-2 py-1.5 border border-slate-300 rounded-lg" />
+                <button onClick={saveSessEdit} disabled={busy}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500 text-white font-semibold hover:bg-emerald-600 disabled:opacity-50">บันทึก</button>
+                <button onClick={() => setSessEdit(null)}
+                  className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-500 hover:bg-slate-50">ยกเลิก</button>
+              </div>
+            )}
             {openId === s.id && (
               <div className="border-t border-slate-100 px-4 py-3">
                 {items[s.id] == null ? <p className="text-xs text-slate-400">กำลังโหลด...</p> : (
@@ -739,8 +1039,10 @@ function HistoryTab({ auth }) {
                         <tbody>
                           {its.map(it => {
                             const editing = editId === it.id
+                            const d = dimStatus(it)
+                            const ok = liveMatch(it)
                             return (
-                              <tr key={it.id} className={`border-b border-slate-50 ${editing ? 'bg-emerald-50/60' : !it.match ? 'bg-amber-50/50' : ''}`}>
+                              <tr key={it.id} className={`border-b border-slate-50 ${editing ? 'bg-emerald-50/60' : !ok ? 'bg-amber-50/50' : ''}`}>
                                 <td className="py-1.5 pr-2 align-top">
                                   {it.name}<span className="text-slate-400"> · {it.lot}</span>
                                   {editing ? (
@@ -759,22 +1061,19 @@ function HistoryTab({ auth }) {
                                     <td className="text-center px-2 align-top">
                                       <input type="number" inputMode="decimal" value={editVal.counted_qty}
                                         onChange={e => setEditVal(v => ({ ...v, counted_qty: e.target.value }))}
-                                        className={`w-16 px-1.5 py-1 border rounded text-center ${editVal.counted_qty !== '' && !em.qtyOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
-                                      <FieldTick active={editVal.counted_qty !== '' && em.qtyOk} onClick={() => tickEdit(it, 'counted_qty')} />
+                                        className={`w-16 px-1.5 py-1 border rounded text-center ${em.qty === 'diff' ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
+                                      <FieldTick active={em.qty === 'ok'} onClick={() => tickEdit(it, 'counted_qty')} />
                                     </td>
                                     <td className="text-center px-2 text-slate-300 align-top">—</td>
                                     <td className="text-center px-2 align-top">
-                                      <input list="stock-locations-edit" value={editVal.counted_location}
-                                        onChange={e => setEditVal(v => ({ ...v, counted_location: e.target.value }))}
+                                      <LocationInput value={editVal.counted_location} locations={locations}
+                                        onChange={v => setEditVal(x => ({ ...x, counted_location: v }))}
                                         placeholder="— ที่เก็บ —"
-                                        className={`w-28 px-1 py-1 border rounded text-center text-[11px] ${editVal.counted_location && !em.locOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
-                                      <datalist id="stock-locations-edit">
-                                        {locations.map(loc => <option key={loc} value={loc} />)}
-                                      </datalist>
-                                      <FieldTick active={!!editVal.counted_location && em.locOk} onClick={() => tickEdit(it, 'counted_location')} />
+                                        className={`w-28 px-1 py-1 border rounded text-center text-[11px] ${em.loc === 'diff' ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
+                                      <FieldTick active={em.loc === 'ok'} onClick={() => tickEdit(it, 'counted_location')} />
                                       <select value={editVal._expCustom ? '__custom__' : editVal.counted_exp}
                                         onChange={e => pickExpEdit(e.target.value)}
-                                        className={`w-28 mt-1 px-1 py-1 border rounded text-center text-[11px] ${editVal.counted_exp && !em.expOk ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}>
+                                        className={`w-28 mt-1 px-1 py-1 border rounded text-center text-[11px] ${em.exp === 'diff' ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}>
                                         <option value="">— exp จริง —</option>
                                         {(it.system_exp && it.system_exp !== '-') && <option value={it.system_exp}>{it.system_exp} (ตามระบบ)</option>}
                                         <option value="__custom__">อื่นๆ (พิมพ์เอง)</option>
@@ -784,7 +1083,7 @@ function HistoryTab({ auth }) {
                                           onChange={e => setEditVal(v => ({ ...v, counted_exp: e.target.value }))}
                                           className="w-28 mt-1 px-1.5 py-1 border border-amber-400 bg-amber-50 rounded text-center text-[11px]" />
                                       )}
-                                      <FieldTick active={!!editVal.counted_exp && em.expOk} onClick={() => tickEdit(it, 'counted_exp')} />
+                                      <FieldTick active={em.exp === 'ok'} onClick={() => tickEdit(it, 'counted_exp')} />
                                     </td>
                                     <td className="text-center px-2 align-top">
                                       <div className="flex items-center justify-center gap-1">
@@ -800,16 +1099,15 @@ function HistoryTab({ auth }) {
                                 })() : (
                                   <>
                                     <td className="text-center px-2">{it.counted_qty == null ? '-' : `${toNum(it.counted_qty)} × ${it.unit}`}</td>
-                                    <td className={`text-center px-2 font-semibold ${toNum(it.diff_qty) !== 0 ? 'text-red-600' : 'text-slate-400'}`}>
-                                      {it.counted_qty == null ? '-' : (toNum(it.diff_qty) > 0 ? '+' : '') + (toNum(it.system_qty) - toNum(it.counted_qty))}
-                                    </td>
-                                    <td className="text-center px-2 text-slate-500">
-                                      {it.counted_location && it.counted_location !== it.system_location ? `↪${it.counted_location}` : ''}
-                                      {it.counted_exp && it.counted_exp !== it.system_exp ? ` exp:${it.counted_exp}` : ''}
-                                      {(!it.counted_location || it.counted_location === it.system_location) && (!it.counted_exp || it.counted_exp === it.system_exp) ? '✓' : ''}
+                                    <td className="text-center px-2"><DiffCell it={it} /></td>
+                                    <td className="text-center px-2">
+                                      <DimLine label="ที่เก็บ" st={d.loc} val={it.counted_location} />
+                                      <DimLine label="exp" st={d.exp} val={it.counted_exp} />
                                     </td>
                                     <td className="text-center px-2">
-                                      {it.match ? <CheckCircle size={14} className="text-emerald-500 inline" /> : <AlertTriangle size={14} className="text-amber-500 inline" />}
+                                      {!ok ? <AlertTriangle size={14} className="text-amber-500 inline" />
+                                        : d.checked === 3 ? <CheckCircle size={14} className="text-emerald-500 inline" />
+                                        : <span className="text-[10px] font-semibold text-emerald-600" title="มิติที่ตรวจตรงหมด แต่ตรวจไม่ครบ 3 มิติ">ตรง {d.checked}/3</span>}
                                     </td>
                                     <td className="text-center px-2">
                                       <button onClick={() => startEdit(it)} title="แก้ไข" className="text-slate-300 hover:text-emerald-600"><Pencil size={14} /></button>

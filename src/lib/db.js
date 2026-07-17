@@ -2,6 +2,7 @@ import { supabase } from './supabase'
 import { computeClosing, ADJUST_TYPE } from './ledgerRollover'
 import { buildConsistencyReport } from './consistencyCheck'
 import { parseReturnPolicy, computeReturnStatus } from './swapPolicy'
+import { computeCountMatch } from './countMatch'
 
 const CHUNK_SIZE = 500
 
@@ -2694,8 +2695,9 @@ export async function fetchLotsForCount(codes) {
     if (r.exp) row.exps.add(String(r.exp))
     if (r.location) row.locs.add(String(r.location))
   }
+  // คืนทุก lot รวมที่ระบบคงเหลือ 0 — UI เป็นคนซ่อน lot 0 เป็น default + เรียกดูได้
+  // (phantom stock: ระบบว่า 0 แต่ของจริงมี ต้องบันทึกได้ — ADR-0008 เพิ่มเติม 2026-07-16 ข้อ 5)
   return [...byKey.values()]
-    .filter(row => row.system_qty > 0)   // ซ่อน lot ที่ระบบคงเหลือ 0 — ไม่ต้องเดินนับ
     .map(row => ({
       code: row.code, name: row.name, lot: row.lot, unit: row.unit,
       system_qty: row.system_qty,
@@ -2737,18 +2739,14 @@ export async function createStockCount(session, items, auth = {}) {
   if (sErr) throw sErr
 
   const payload = (items || []).map(it => {
-    const sysQty = toNum(it.system_qty)
-    const cntQty = it.counted_qty === '' || it.counted_qty == null ? null : toNum(it.counted_qty)
-    const diff = cntQty == null ? 0 : sysQty - cntQty
-    const qtyMatch = cntQty != null && diff === 0
-    const expMatch = !it.counted_exp || String(it.counted_exp).trim() === String(it.system_exp || '').trim()
-    const locMatch = !it.counted_location || String(it.counted_location).trim() === String(it.system_location || '').trim()
+    // เทียบด้วย set equality (ที่เก็บ/exp สลับลำดับ comma = ตรง) — countMatch.js (ADR-0008 2026-07-16)
+    const { counted_qty, diff_qty, match } = computeCountMatch(it)
     return {
       session_id: sess.id,
       code: it.code || '-', name: it.name || '-', lot: it.lot || '-', unit: it.unit || '-',
-      system_qty: sysQty, system_exp: it.system_exp || '-', system_location: it.system_location || '-',
-      counted_qty: cntQty, counted_exp: it.counted_exp || '', counted_location: it.counted_location || '',
-      diff_qty: diff, match: qtyMatch && expMatch && locMatch,
+      system_qty: toNum(it.system_qty), system_exp: it.system_exp || '-', system_location: it.system_location || '-',
+      counted_qty, counted_exp: it.counted_exp || '', counted_location: it.counted_location || '',
+      diff_qty, match,
       item_note: it.item_note || '',
     }
   })
@@ -2804,62 +2802,71 @@ export async function fetchAllStockCountItems() {
   return bySession
 }
 
-// คำนวณ diff_qty + match ใหม่จากค่านับ (ใช้ตอนแก้ไข item) — เทียบกับ snapshot ระบบที่ freeze ไว้
-function computeCountMatch(item) {
-  const sysQty = toNum(item.system_qty)
-  const cntQty = item.counted_qty === '' || item.counted_qty == null ? null : toNum(item.counted_qty)
-  const diff = cntQty == null ? 0 : sysQty - cntQty
-  const qtyMatch = cntQty != null && diff === 0
-  const expMatch = !item.counted_exp || String(item.counted_exp).trim() === String(item.system_exp || '').trim()
-  const locMatch = !item.counted_location || String(item.counted_location).trim() === String(item.system_location || '').trim()
-  return { counted_qty: cntQty, diff_qty: diff, match: qtyMatch && expMatch && locMatch }
-}
-
 // แก้ไขแถวที่นับ (counted_qty/exp/location) — recompute diff+match จาก snapshot เดิม (ไม่แตะค่าระบบ)
+// match/diff คำนวณผ่าน computeCountMatch (countMatch.js) — audit เก็บ before→after เพื่อตรวจย้อนหลัง
 export async function updateStockCountItem(itemId, fields, auth = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { data: before } = await supabase.from('stock_count_item')
+    .select('counted_qty, counted_exp, counted_location, item_note, code, lot')
+    .eq('id', itemId).single()
   const { counted_qty, diff_qty, match } = computeCountMatch(fields)
+  const after = {
+    counted_qty,
+    counted_exp: fields.counted_exp || '',
+    counted_location: fields.counted_location || '',
+    ...(fields.item_note != null ? { item_note: fields.item_note } : {}),
+  }
   const { error } = await supabase.from('stock_count_item')
-    .update({
-      counted_qty,
-      counted_exp: fields.counted_exp || '',
-      counted_location: fields.counted_location || '',
-      diff_qty, match,
-      ...(fields.item_note != null ? { item_note: fields.item_note } : {}),
-    })
+    .update({ ...after, diff_qty, match })
     .eq('id', itemId)
   if (error) throw error
   await insertAuditLog({
     action: 'update_stock_count', table_name: 'stock_count_item',
     user_name: resolveAuditUserName(auth), department: auth?.department || '-',
-    details: { item_id: itemId, counted_qty, match },
+    details: {
+      item_id: itemId, code: before?.code, lot: before?.lot, match,
+      before: before ? { counted_qty: before.counted_qty, counted_exp: before.counted_exp, counted_location: before.counted_location, item_note: before.item_note } : null,
+      after,
+    },
   })
 }
 
-// แก้ไข header ของรอบ (วันที่/หมายเหตุ)
+// แก้ไข header ของรอบ (วันที่/หมายเหตุ) — audit เก็บ before→after
 export async function updateStockCountSession(sessionId, fields, auth = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
   const patch = {}
   if (fields.counted_at) patch.counted_at = fields.counted_at
   if (fields.note != null) patch.note = fields.note
+  const { data: before } = await supabase.from('stock_count_session')
+    .select('counted_at, note').eq('id', sessionId).single()
   const { error } = await supabase.from('stock_count_session').update(patch).eq('id', sessionId)
   if (error) throw error
   await insertAuditLog({
     action: 'update_stock_count', table_name: 'stock_count_session',
     user_name: resolveAuditUserName(auth), department: auth?.department || '-',
-    details: { session_id: sessionId, ...patch },
+    details: { session_id: sessionId, before: before || null, after: patch },
   })
 }
 
 // ลบทั้งรอบ (items ถูกลบ cascade ผ่าน FK ON DELETE CASCADE)
+// audit เก็บสรุปรอบก่อนลบ (วันที่/ผู้นับ/จำนวนรายการ/ไม่ตรง) — หลัง cascade ข้อมูลหายหมด ตรวจย้อนหลังได้จาก log เท่านั้น
 export async function deleteStockCountSession(sessionId, auth = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { data: sess } = await supabase.from('stock_count_session')
+    .select('counted_at, counter_name, note').eq('id', sessionId).single()
+  const { data: items } = await supabase.from('stock_count_item')
+    .select('match').eq('session_id', sessionId)
   const { error } = await supabase.from('stock_count_session').delete().eq('id', sessionId)
   if (error) throw error
   await insertAuditLog({
     action: 'delete_stock_count', table_name: 'stock_count_session',
     user_name: resolveAuditUserName(auth), department: auth?.department || '-',
-    details: { session_id: sessionId },
+    record_count: items?.length || 0,
+    details: {
+      session_id: sessionId,
+      counted_at: sess?.counted_at, counter_name: sess?.counter_name, note: sess?.note,
+      items: items?.length || 0, mismatches: (items || []).filter(i => !i.match).length,
+    },
   })
 }
 
