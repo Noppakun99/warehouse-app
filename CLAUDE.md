@@ -37,7 +37,7 @@ npm run test:countmatch  # Golden tests สำหรับ src/lib/countMatch.js
 
 ไม่มี test runner ทั่วไป — golden tests เป็น standalone `node` (ไม่มี framework): `src/unitParser.test.js` (`npm run test:unit`), `src/lib/reorder.test.js` (`npm run test:reorder`), `src/lib/billGroup.test.js` (`npm run test:billgroup`), `src/lib/lotAllocation.test.js` (`npm run test:alloc`), `src/ledgerRollover.test.js` (`npm run test:ledger`), `src/ledgerSeed.test.js` (`npm run test:ledgerseed`), `src/lib/swapPolicy.test.js` (`npm run test:swappolicy`), `src/lib/consistencyCheck.test.js` (`npm run test:consistency`). **กฎ**: logic ที่ test แบบนี้ได้ต้องเป็น pure module ไม่ import `supabase` (เพราะ `supabase.js` ใช้ `import.meta.env` ที่ node รันไม่ได้) — ดู `billGroup.js`/`lotAllocation.js`/`ledgerRollover.js`/`ledgerSeed.js` แยกจาก `db.js` ด้วยเหตุนี้. **หมายเหตุ layout**: source module ของ ledger อยู่ใน `src/lib/` แต่ test file (`ledgerRollover.test.js`/`ledgerSeed.test.js`) อยู่ที่ `src/` root — ต่างจาก golden test อื่นที่วาง test ข้าง source
 
-**E2E**: Playwright (`tests/01-11`) — `npx playwright test` — ครอบคลุม login, dashboard, requisition, return, staff flow, validation, permissions, **AP workflow UX, ทุก sub-app smoke, mobile responsive 375px, a11y, ระบบวิเคราะห์การสั่งซื้อยา** ดู [docs/testing.md](docs/testing.md)
+**E2E**: Playwright (`tests/01-12`) — `npx playwright test` — ครอบคลุม login, dashboard, requisition, return, staff flow, validation, permissions, **AP workflow UX, ทุก sub-app smoke, mobile responsive 375px, a11y, ระบบวิเคราะห์การสั่งซื้อยา, โมดอลใกล้หมดอายุ/คืนบริษัท (ประวัติรับยา+scope+deadline+ตัวกรองพับ)** ดู [docs/testing.md](docs/testing.md)
 
 ## Architecture
 
@@ -247,6 +247,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 - **`resolveAuditUserName(auth)`** (db.js) — fallback chain: `auth.name || auth.username || '-'`
 - **`fetchInventoryLocations()`** (db.js) — distinct ที่เก็บสำหรับ dropdown ตรวจนับ — **split ค่าที่คั่น comma** (1 ช่อง inventory อาจเก็บหลายที่เก็บ เช่น `"E-1-4 ,E-1-5"`) แล้ว dedupe + sort numeric — ไม่งั้นที่เก็บที่ปนช่องเดียวกันหายจาก dropdown
 - **`billMatchesQuery(bill, q)`** (ReceiveLogApp.jsx) — match บิลกับคำค้น ค้นได้ทั้ง เลขบิล / บริษัท / ชื่อยา / รหัสยา / lot — ใช้ทุก tab ของ AP workflow เพื่อผลลัพธ์สอดคล้องกัน
+- **`matchReceiveDetails(drugDetails, item)`** ([AppRoot.jsx](src/AppRoot.jsx)) — ประวัติรับยา (จาก `fetchDrugDetails`) ที่ match item — **scope แคบ→กว้าง**: `code_lot_exp` (แคบสุด) → `code_lot` → `code_only` (lot ไม่มีใน log). คืน `{ rows, scope }`; `ReceiveHistoryDetail` แสดง note เตือนเมื่อ scope = `code_only` (ข้อมูลระดับรหัส ไม่ใช่ lot นี้). ใช้ร่วม **ทั้งโมดอลใกล้หมดอายุ (ExpiryAlertSection) และ popup คืนบริษัท (SwapReturnPopup)** — ประวัติรับยาชุดเดียวกันทุกจุด. `normExpDate` normalize exp ข้าม format (`14/8/2026` vs `14/08/2026`) ก่อนเทียบ. **deadline คืนบริษัทต้องตรงกันทั้ง popup (fetchSwapReturnDue) และ banner (computeReturnStatus ฝั่ง client)** — `subMonths` ต้อง clamp วันสิ้นเดือน (31/7 − 3 ด. = 30/4 ไม่ spillover) + db.js format deadline ด้วย local date parts (ไม่ใช่ `toISOString` — เลื่อน 1 วันบน UTC+7)
 
 ### AP Workflow stages (`receive_logs.ap_stage`)
 
