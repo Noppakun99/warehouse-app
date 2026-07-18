@@ -11,7 +11,7 @@ import {
   ChevronRight, Activity, Database, Clock,
   AlertTriangle, ChevronDown, ChevronUp, ClipboardList,
   Eye, EyeOff, X, Bell, Search, RefreshCcw, FileDown, Printer,
-  Boxes, ShoppingCart, ArrowRight,
+  Boxes, ShoppingCart, ArrowRight, Filter,
 } from 'lucide-react';
 import App                from './App';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
@@ -20,7 +20,8 @@ import RequisitionApp     from './RequisitionApp';
 import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
-import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows, fetchSwapReturnDue, flagSwapReturn } from './lib/db';
+import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies } from './lib/db';
+import { computeReturnStatus } from './lib/swapPolicy';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
@@ -665,6 +666,38 @@ const swapFmtExp = (raw) => {
 const swapStatusText = (r) => r.status === 'overdue' ? 'พ้นกำหนดแล้ว' : `เหลือ ${r.daysToDeadline} วัน`;
 const swapRateText = (r) => r.avgBaseUnit ? `~${Math.round(r.avgBaseUnit).toLocaleString()} ${r.baseUnit || 'หน่วย'}/เดือน` : 'ไม่มีการเบิก';
 
+// normalize วันหมดอายุ (DD/MM/YYYY, DD/M/YYYY, ISO) → YYYY-MM-DD เพื่อเทียบข้าม format
+// (inventory เก็บ "14/8/2026" แต่ receive_logs เก็บ "14/08/2026" — เทียบดิบไม่ตรง)
+function normExpDate(raw) {
+  const s = (raw || '').trim();
+  if (!s || s === '-') return '';
+  const dmy = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  const iso = s.match(/^(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})$/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+  return s;
+}
+
+// บิลใน receive_logs ที่ match item — scope แคบ→กว้าง: (1) รหัส+lot+exp (2) รหัส+lot (3) รหัส
+// helper กลาง ใช้ร่วมกันทั้งโมดอลใกล้หมดอายุ (ExpiryAlertSection) และ popup คืนบริษัท (SwapReturnPopup)
+// เพื่อให้ "ประวัติรับยา" กับการแจ้งเตือนอ้างข้อมูลชุดเดียวกันทุกจุด
+// คืน { rows, scope } — scope บอกว่าข้อมูลตรง lot จริง หรือระดับรหัส (lot ไม่มีใน log)
+function matchReceiveDetails(drugDetails, item) {
+  if (!drugDetails) return { rows: [], scope: 'none' };
+  const code = (item.code || '-').trim().toLowerCase();
+  const lot  = (item.lot  || '-').trim().toLowerCase();
+  const exp  = normExpDate(item.exp);
+  const all  = Object.values(drugDetails);
+  const byCodeLot = all.filter(d => (d._code || '').toLowerCase() === code && (d._lot || '').toLowerCase() === lot);
+  if (byCodeLot.length) {
+    const byExp = exp ? byCodeLot.filter(d => normExpDate(d._exp) === exp) : [];
+    if (byExp.length) return { rows: byExp, scope: 'code_lot_exp' };
+    return { rows: byCodeLot, scope: 'code_lot' };
+  }
+  const byCode = all.filter(d => (d._code || '').toLowerCase() === code);
+  return { rows: byCode, scope: byCode.length ? 'code_only' : 'none' };
+}
+
 // column def สำหรับ Excel export (reuse header เดียวกับตาราง print)
 const SWAP_RETURN_EXCEL_COLS = [
   { header: 'สถานะ',            value: swapStatusText },
@@ -685,6 +718,11 @@ const SWAP_RETURN_EXCEL_COLS = [
 function SwapReturnPopup({ rows = [], auth, onClose }) {
   const [flagged, setFlagged] = React.useState({});
   const [exporting, setExporting] = React.useState(false);
+  const [drugDetails, setDrugDetails] = React.useState(null); // receive_logs — คลิกรายการดูประวัติรับยา (ชุดเดียวกับโมดอลใกล้หมดอายุ)
+  const [expandedKey, setExpandedKey] = React.useState(null);
+  React.useEffect(() => {
+    fetchDrugDetails().then(setDrugDetails).catch(() => setDrugDetails(null));
+  }, []);
   const keyOf = (r) => `${r.code}|${r.lot}|${r.location}`;
   const fmtThai = swapFmtDeadline;
   const fmtExp = swapFmtExp;
@@ -758,44 +796,54 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
   };
   const Row = (r) => {
     const isFlagged = flagged[keyOf(r)];
+    const isOpen = expandedKey === keyOf(r);
+    const det = matchReceiveDetails(drugDetails, r); // ประวัติรับยา — helper กลางชุดเดียวกับโมดอลใกล้หมดอายุ
     // willDeplete = ของจะหมดเองก่อนถึง deadline (ตามเรทเบิก) → ไม่ต้องคืน (flag จาง ไม่ซ่อน — ดู CONTEXT.md §ความจำเป็นต้องคืน)
     return (
-      <div key={keyOf(r)} className={`rounded-lg px-3 py-2 border ${r.willDeplete ? 'bg-slate-50 border-slate-200 opacity-80' : 'bg-white border-amber-200'}`}>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.status === 'overdue' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
-            {r.status === 'overdue' ? 'พ้นกำหนด' : `เหลือ ${r.daysToDeadline} วัน`}
-          </span>
-          <span className="text-sm font-semibold text-slate-800 truncate min-w-0">{r.name}</span>
-          <span className="text-[11px] text-slate-500 shrink-0">Lot {r.lot} · {r.location}</span>
-          {r.receiveDate && <span className="text-[11px] text-slate-500 shrink-0">คลังรับ {fmtThai(r.receiveDate)}</span>}
-          <span className="text-[11px] text-slate-500 shrink-0">EXP {fmtExp(r.exp)}</span>
-          <span className="text-[11px] font-semibold text-slate-700 shrink-0">คงเหลือ {r.qty}{r.unit ? ` (${r.unit})` : ''}</span>
-          <span className="text-[11px] text-slate-500 shrink-0">{r.company}</span>
-          <span className="text-[11px] text-slate-500 shrink-0">ต้องคืนภายใน {fmtThai(r.deadline)}</span>
-          {isFlagged ? (
-            <span className="ml-auto text-[11px] font-semibold text-emerald-600 shrink-0">แจ้งหัวหน้าแล้ว</span>
-          ) : (
-            <button onClick={() => handleFlag(r)}
-              className="ml-auto text-[11px] font-semibold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded-md transition-colors shrink-0">
-              แจ้งหัวหน้า
-            </button>
+      <div key={keyOf(r)} className={`rounded-lg border overflow-hidden ${r.willDeplete ? 'bg-slate-50 border-slate-200 opacity-80' : 'bg-white border-amber-200'}`}>
+        <div onClick={() => setExpandedKey(isOpen ? null : keyOf(r))} className="px-3 py-2 cursor-pointer hover:bg-amber-50/60">
+          <div className="flex items-center gap-2 flex-wrap">
+            <ChevronDown size={13} className={`text-amber-600 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+            <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.status === 'overdue' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+              {r.status === 'overdue' ? 'พ้นกำหนด' : `เหลือ ${r.daysToDeadline} วัน`}
+            </span>
+            <span className="text-sm font-semibold text-slate-800 truncate min-w-0">{r.name}</span>
+            <span className="text-[11px] text-slate-500 shrink-0">Lot {r.lot} · {r.location}</span>
+            {r.receiveDate && <span className="text-[11px] text-slate-500 shrink-0">คลังรับ {fmtThai(r.receiveDate)}</span>}
+            <span className="text-[11px] text-slate-500 shrink-0">EXP {fmtExp(r.exp)}</span>
+            <span className="text-[11px] font-semibold text-slate-700 shrink-0">คงเหลือ {r.qty}{r.unit ? ` (${r.unit})` : ''}</span>
+            <span className="text-[11px] text-slate-500 shrink-0">{r.company}</span>
+            <span className="text-[11px] text-slate-500 shrink-0">ต้องคืนภายใน {fmtThai(r.deadline)}</span>
+            {isFlagged ? (
+              <span className="ml-auto text-[11px] font-semibold text-emerald-600 shrink-0">แจ้งหัวหน้าแล้ว</span>
+            ) : (
+              <button onClick={(e) => { e.stopPropagation(); handleFlag(r); }}
+                className="ml-auto text-[11px] font-semibold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded-md transition-colors shrink-0">
+                แจ้งหัวหน้า
+              </button>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1">
+            <span className="font-semibold text-slate-600">เบิกเฉลี่ย/เดือน (6 ด.ล่าสุด):</span>{' '}
+            {r.avgBaseUnit ? `~${Math.round(r.avgBaseUnit).toLocaleString()} ${r.baseUnit || 'หน่วย'}/เดือน` : 'ไม่มีการเบิก'}
+          </p>
+          {r.willDeplete && (
+            <p className="text-[11px] text-emerald-700 mt-1 flex items-center gap-1">
+              <span className="font-semibold">คาดว่าจะหมดเองก่อน</span>
+              (ใช้ ~{Math.round(r.avgPerDay)}/วัน · คงเหลือพอ ~{r.coverageDays} วัน) — อาจไม่ต้องคืน
+            </p>
           )}
+          {r.policyText && (
+            <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+              <span className="font-semibold text-slate-600">นโยบาย:</span> {r.policyText}
+            </p>
+          )}
+          <p className="text-[11px] font-semibold text-amber-700 mt-1 flex items-center gap-1">
+            <ChevronDown size={12} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+            {isOpen ? 'ซ่อนประวัติรับยา' : 'ดูประวัติรับยา'}
+          </p>
         </div>
-        <p className="text-[11px] text-slate-500 mt-1">
-          <span className="font-semibold text-slate-600">เบิกเฉลี่ย/เดือน (6 ด.ล่าสุด):</span>{' '}
-          {r.avgBaseUnit ? `~${Math.round(r.avgBaseUnit).toLocaleString()} ${r.baseUnit || 'หน่วย'}/เดือน` : 'ไม่มีการเบิก'}
-        </p>
-        {r.willDeplete && (
-          <p className="text-[11px] text-emerald-700 mt-1 flex items-center gap-1">
-            <span className="font-semibold">คาดว่าจะหมดเองก่อน</span>
-            (ใช้ ~{Math.round(r.avgPerDay)}/วัน · คงเหลือพอ ~{r.coverageDays} วัน) — อาจไม่ต้องคืน
-          </p>
-        )}
-        {r.policyText && (
-          <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-            <span className="font-semibold text-slate-600">นโยบาย:</span> {r.policyText}
-          </p>
-        )}
+        {isOpen && <div className="px-3 border-t border-amber-100"><ReceiveHistoryDetail details={det.rows} scope={det.scope} /></div>}
       </div>
     );
   };
@@ -867,6 +915,58 @@ const EXPIRY_EXCEL_COLS = [
   { header: 'หน่วย',       key: 'unit' },
 ];
 
+// รายละเอียดจากประวัติรับยา (receive_logs) — กางใต้ card/row ในโมดอลใกล้หมดอายุ
+// details = แถว receive_logs ที่ match (จาก fetchDrugDetails); scope บอกความแคบของ match
+// scope: code_lot_exp (ตรง lot+exp นี้) / code_lot (lot นี้ ทุก exp) / code_only (ระดับรหัส — lot ไม่มีใน log)
+function ReceiveHistoryDetail({ details = [], scope = 'code_lot' }) {
+  const fmtDate = (iso) => {
+    if (!iso || iso === '-') return '-';
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+    return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()+543}`;
+  };
+  if (!details.length) {
+    return <p className="text-[11px] text-slate-400 italic py-2.5">ไม่พบข้อมูลในประวัติรับยา</p>;
+  }
+  const scopeNote = scope === 'code_lot_exp' ? null
+    : scope === 'code_lot' ? 'ตรงตาม lot (ทุกวันหมดอายุ)'
+    : 'ไม่พบ lot นี้ใน log — แสดงระดับรหัสยา';
+  return (
+    <div className="py-2.5 space-y-2.5">
+      <p className="text-[11px] font-bold text-teal-700 uppercase tracking-wide">
+        ประวัติรับยา (จาก Log คลัง)
+        {scopeNote && <span className="ml-1.5 font-normal normal-case text-amber-600">· {scopeNote}</span>}
+      </p>
+      {details.map((d, idx) => (
+        <div key={idx} className="rounded-lg border border-teal-100 bg-teal-50/50 p-2.5">
+          {details.length > 1 && (
+            <p className="text-[11px] text-teal-600 font-medium mb-1.5">บิล {idx + 1}/{details.length} — {d._invoice || '-'}</p>
+          )}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1.5 text-[11px]">
+            {[
+              { label: 'วันที่รับยา',     val: fmtDate(d.receive_date) },
+              { label: 'จำนวนที่รับ',     val: d.qty_received != null ? String(d.qty_received) : '-' },
+              { label: 'เลขที่บิล',       val: d._invoice || '-' },
+              { label: 'เลขที่ PO',       val: d.po_number || '-' },
+              { label: 'บริษัทปัจจุบัน',  val: d.supplier_current || d._company || '-' },
+              { label: 'บริษัทก่อนหน้า',  val: d.supplier_prev || '-' },
+              { label: 'ราคา/หน่วย',      val: d.price_per_unit != null ? String(d.price_per_unit) : '-' },
+              { label: 'สถานะตรวจรับ',    val: d.receive_status || '-' },
+              { label: 'วันที่ตรวจรับ',   val: fmtDate(d.inspect_date) },
+              { label: 'สถานะการซื้อ',    val: d.purchase_type || '-' },
+            ].map(({ label, val }) => (
+              <div key={label} className="flex flex-col">
+                <span className="text-[10px] font-semibold text-teal-600">{label}</span>
+                <span className="text-slate-700">{val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ExpiryAlertSection({ expiring = [], onClose, auth }) {
   const [filter, setFilter]     = React.useState('all'); // all | expired | soon30 | soon90 | soon180 | soon16m
   const [zoneFilter, setZoneFilter] = React.useState('all'); // โซนที่เก็บ A/B/C ... (จาก location prefix)
@@ -874,6 +974,12 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
   const [expanded, setExpanded] = React.useState(false);
   const [exporting, setExporting] = React.useState(false);
   const [drugDetails, setDrugDetails] = React.useState(null); // receive_logs detail — เติมบริษัท/นโยบายเปลี่ยนยา (เหมือนโมดอลระบบแผนผัง)
+  const [swapPolicies, setSwapPolicies] = React.useState({}); // นโยบายคืนยาต่อบริษัท — คิด deadline คืนบริษัท (เหมือนโมดอลระบบแผนผัง)
+  const [returnBannerOpen, setReturnBannerOpen] = React.useState(false); // banner "ต้องเปลี่ยน/คืนบริษัท" กาง/ยุบ
+  const [timePillsOpen, setTimePillsOpen] = React.useState(false); // พับ pill กรองช่วงเวลาไว้ก่อน คลิกแล้วกาง (ลดความรก — pattern เดียวกับโมดอลระบบแผนผัง)
+  const [zonePillsOpen, setZonePillsOpen] = React.useState(false); // พับ pill กรองโซนไว้ก่อน
+  const [swapFlagged, setSwapFlagged] = React.useState({});   // { [flagKey]: true } — lot ที่กด "แจ้งหัวหน้า" แล้ว (กันกดซ้ำในเซสชัน)
+  const [expandedRow, setExpandedRow] = React.useState(null); // flagKey ของ card ที่กางดูประวัติรับยา (คลิกทีละใบ)
   const [isMobile, setIsMobile] = React.useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
 
   React.useEffect(() => {
@@ -882,9 +988,10 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
     return () => window.removeEventListener('resize', fn);
   }, []);
 
-  // โหลด drugDetails ตอนเปิดโมดอลเท่านั้น (query receive_logs ทั้งหมด — หนัก จึง lazy)
+  // โหลด drugDetails + นโยบายคืนยา ตอนเปิดโมดอลเท่านั้น (query receive_logs ทั้งหมด — หนัก จึง lazy)
   React.useEffect(() => {
     fetchDrugDetails().then(setDrugDetails).catch(() => setDrugDetails(null));
+    fetchSwapPolicies().then(setSwapPolicies).catch(() => setSwapPolicies({}));
   }, []);
 
   if (expiring.length === 0) return null;
@@ -912,9 +1019,43 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
     const m = (r.location || '').trim().toUpperCase().match(/^([A-Z]+)/);
     return m ? m[1] : '-';
   };
+  // ประวัติรับยา — ใช้ helper กลาง matchReceiveDetails (ชุดเดียวกับ SwapReturnPopup)
+  // เพื่อให้ข้อมูลประวัติรับสัมพันธ์กับการแจ้งเตือนทุกจุด
+  const allDetailsFor = (item) => matchReceiveDetails(drugDetails, item);
+  // บริษัทของ lot นี้ (unique) — ใช้คิด deadline; กำกวม (lot เดียวคนละบริษัท) → คืน '' ไม่ประเมิน
+  const supplierForLot = (item) => {
+    const dets = allDetailsFor(item).rows;
+    let found = '';
+    for (const d of dets) {
+      const co = (d.supplier_current || d._company || '').trim();
+      if (!co || co === '-') continue;
+      if (!found) found = co;
+      else if (found !== co) return '';
+    }
+    return found;
+  };
+  // นโยบายคืนยา: บริษัทของ lot → policy → deadline ต้องคืนก่อนหมดอายุ (ADR-0012, ตรรกะเดียวกับ App.jsx)
+  const buildReturnInfo = (lotSupplier, item) => {
+    const pol = lotSupplier ? swapPolicies[lotSupplier] : null;
+    if (!pol) return null;
+    const exp = item.expDate instanceof Date ? item.expDate : null;
+    if (!exp || isNaN(exp)) return { ...pol, status: 'no_policy', deadline: null, daysToDeadline: null };
+    const r = computeReturnStatus({ exp, months: pol.returnMonths, today: new Date() });
+    return { ...pol, ...r };
+  };
   const enriched = expiring.map(item => {
     const d = lookupDetail(item);
-    return { ...item, supplier: d?.supplier_current || d?._company || '', swapPolicy: buildSwapPolicy(d), zone: zoneOf(item) };
+    const lotSupplier = supplierForLot(item);
+    const det = allDetailsFor(item);
+    return {
+      ...item,
+      supplier: d?.supplier_current || d?._company || '',
+      swapPolicy: buildSwapPolicy(d),
+      zone: zoneOf(item),
+      returnInfo: buildReturnInfo(lotSupplier, item),
+      details: det.rows,
+      detailScope: det.scope,
+    };
   });
 
   // ค้นชื่อยา / รหัส / เลขบิล (invoice ไม่มีใน expiring — ค้นจาก name/code)
@@ -975,6 +1116,35 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
     return `อีก ${daysLeft} วัน`;
   };
 
+  // ── นโยบายคืนยา (ADR-0012): badge + banner + แจ้งหัวหน้า — ตรรกะเดียวกับโมดอลระบบแผนผัง ──
+  const flagKeyOf = (r) => `${(r.code||'-')}|${(r.lot||'-')}|${(r.location||'-')}`;
+  const returnBadge = (ri) => {
+    if (!ri) return null;
+    if (ri.differsByItem) return { text: 'ต้องเช็กเอกสาร', cls: 'bg-slate-100 text-slate-600 border-slate-200' };
+    if (ri.canReturn === false) return { text: 'บริษัทไม่รับคืน', cls: 'bg-slate-100 text-slate-500 border-slate-200' };
+    if (ri.status === 'overdue') return { text: 'พ้นกำหนดคืน', cls: 'bg-rose-100 text-rose-700 border-rose-200' };
+    if (ri.status === 'due')     return { text: `ต้องคืนใน ${ri.daysToDeadline} วัน`, cls: 'bg-amber-100 text-amber-800 border-amber-300' };
+    if (ri.status === 'ok' && ri.returnMonths != null) return { text: `คืนก่อน ${ri.returnMonths} ด.`, cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+    return null;
+  };
+  // รายการที่ต้องเด้ง banner = due/overdue (คืนได้ + ไม่กำกวม)
+  const dueReturns = enriched.filter(r =>
+    r.returnInfo && !r.returnInfo.differsByItem && r.returnInfo.canReturn !== false &&
+    (r.returnInfo.status === 'due' || r.returnInfo.status === 'overdue')
+  );
+  const fmtThaiDate = (d) => d ? `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()+543}` : '-';
+  const handleFlagReturn = async (r) => {
+    const ri = r.returnInfo;
+    try {
+      await flagSwapReturn({
+        drugCode: r.code, drugName: r.name, lot: r.lot, company: r.supplier,
+        returnMonths: ri?.returnMonths, deadline: ri?.deadline ? ri.deadline.toISOString().slice(0,10) : null,
+        daysLeft: ri?.daysToDeadline,
+      }, auth);
+      setSwapFlagged(prev => ({ ...prev, [flagKeyOf(r)]: true }));
+    } catch { /* เงียบ — banner ยังคงอยู่ ผู้ใช้ลองใหม่ได้ */ }
+  };
+
   const displayed = expanded ? filtered : filtered.slice(0, 8);
 
   const handleExport = async () => {
@@ -1010,6 +1180,64 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
         </div>
       </div>
 
+      {/* Banner: ต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด (ADR-0012) — เหมือนโมดอลระบบแผนผัง */}
+      {dueReturns.length > 0 && (
+        <div className="px-5 py-2.5 bg-amber-50 border-b border-amber-200 shrink-0">
+          <button onClick={() => setReturnBannerOpen(v => !v)} className="w-full flex items-center gap-2.5 text-left">
+            <AlertTriangle size={18} className="text-amber-600 shrink-0" />
+            <span className="text-sm font-bold text-amber-800 min-w-0 flex-1">
+              มี {dueReturns.length} รายการต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด
+              <span className="font-normal text-amber-700"> — แจ้งหัวหน้าให้ดำเนินการก่อนตกหล่น</span>
+            </span>
+            <span className="text-xs font-semibold text-amber-700 shrink-0">{returnBannerOpen ? 'ซ่อน' : 'ดูรายการ'}</span>
+            <ChevronDown size={16} className={`text-amber-600 shrink-0 transition-transform ${returnBannerOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {returnBannerOpen && (
+            <div className="mt-2 space-y-1.5 max-h-52 overflow-auto">
+              {dueReturns.slice(0, 30).map((r) => {
+                const flagged = swapFlagged[flagKeyOf(r)];
+                const isOpen = expandedRow === flagKeyOf(r);
+                return (
+                  <div key={flagKeyOf(r)} className="bg-white/70 rounded-lg border border-amber-200 overflow-hidden">
+                    <div onClick={() => setExpandedRow(isOpen ? null : flagKeyOf(r))}
+                      className="flex items-center gap-2 flex-wrap px-2.5 py-1.5 cursor-pointer hover:bg-amber-50/60">
+                      <ChevronDown size={13} className={`text-amber-600 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                      <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.returnInfo.status === 'overdue' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+                        {r.returnInfo.status === 'overdue' ? 'พ้นกำหนด' : `เหลือ ${r.returnInfo.daysToDeadline} วัน`}
+                      </span>
+                      <span className="text-xs font-semibold text-slate-700 truncate">{r.name}</span>
+                      <span className="text-[11px] text-slate-500 shrink-0">Lot {r.lot} · {r.location || '-'}</span>
+                      {(() => {
+                        // คลังรับ = วันที่รับล่าสุดจากประวัติที่ match — ไม่โชว์ถ้าเป็นข้อมูลระดับรหัส (คนละ lot)
+                        if (r.detailScope === 'code_only') return null;
+                        const ts = r.details.map(d => Date.parse(d.receive_date)).filter(t => !isNaN(t));
+                        return ts.length ? <span className="text-[11px] text-slate-500 shrink-0">คลังรับ {fmtThaiDate(new Date(Math.max(...ts)))}</span> : null;
+                      })()}
+                      {r.exp && r.exp !== '-' && <span className="text-[11px] text-slate-500 shrink-0">EXP {swapFmtExp(r.exp)}</span>}
+                      <span className="text-[11px] font-semibold text-slate-700 shrink-0">คงเหลือ {r.qty}{r.unit ? ` (${r.unit})` : ''}</span>
+                      <span className="text-[11px] text-slate-500 shrink-0">{r.supplier || 'ไม่ทราบบริษัท'}</span>
+                      <span className="text-[11px] text-slate-500 shrink-0">ต้องคืนภายใน {fmtThaiDate(r.returnInfo.deadline)}</span>
+                      {flagged ? (
+                        <span className="ml-auto text-[11px] font-semibold text-emerald-600 shrink-0">แจ้งหัวหน้าแล้ว</span>
+                      ) : (
+                        <button onClick={(e) => { e.stopPropagation(); handleFlagReturn(r); }}
+                          className="ml-auto text-[11px] font-semibold bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1 rounded-md transition-colors shrink-0">
+                          แจ้งหัวหน้า
+                        </button>
+                      )}
+                    </div>
+                    {isOpen && <div className="px-2.5 border-t border-amber-200"><ReceiveHistoryDetail details={r.details} scope={r.detailScope} /></div>}
+                  </div>
+                );
+              })}
+              {dueReturns.length > 30 && (
+                <p className="text-[11px] text-amber-700 pt-1">และอีก {dueReturns.length - 30} รายการ (ดูในตารางด้านล่าง)</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Search bar */}
       <div className="px-5 pt-3">
         <DrugSearchBar
@@ -1028,86 +1256,130 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
         />
       </div>
 
-      {/* Filter tabs (ช่วงเวลา) */}
-      <div className="flex gap-2 px-5 pt-3 pb-1 overflow-x-auto">
-        {[
+      {/* ตัวกรอง (ช่วงเวลา + โซน) — พับเป็นปุ่มเลือก คลิกแล้วค่อยกาง (ลดความรก — pattern เดียวกับโมดอลระบบแผนผัง) */}
+      {(() => {
+        const TIME_TABS = [
           { key: 'all',     label: 'ทั้งหมด',          count: allCount,         active: 'bg-slate-700 text-white' },
           { key: 'expired', label: 'หมดอายุแล้ว',       count: expiredCount,     active: 'bg-red-600 text-white' },
           { key: 'soon30',  label: 'ภายใน 30 วัน',      count: soon30Count,      active: 'bg-orange-500 text-white' },
           { key: 'soon90',  label: '1–3 เดือน',          count: soon90Count,      active: 'bg-yellow-500 text-white' },
           { key: 'soon180', label: '3–6 เดือน',          count: soon180Count,     active: 'bg-lime-500 text-white' },
           { key: 'soon16m', label: '6–16 เดือน',         count: soon16mCount,     active: 'bg-blue-500 text-white' },
-        ].map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => { setFilter(tab.key); setExpanded(false); }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
-              filter === tab.key
-                ? tab.active + ' border-transparent shadow-sm'
-                : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-            }`}
-          >
-            {tab.label}
-            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-              filter === tab.key ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'
-            }`}>{tab.count}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Filter tabs (โซนที่เก็บ) */}
-      {zoneGroups.length > 1 && (
-        <div className="flex gap-2 px-5 pt-1 pb-1 overflow-x-auto">
-          <button onClick={() => { setZoneFilter('all'); setExpanded(false); }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
-              zoneFilter === 'all' ? 'bg-red-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-            }`}>
-            ทั้งหมด
-            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter === 'all' ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{searched.length}</span>
-          </button>
-          {zoneGroups.map(([zone, n]) => (
-            <button key={zone} onClick={() => { setZoneFilter(zone); setExpanded(false); }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
-                zoneFilter === zone ? 'bg-red-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-              }`}>
-              {zone}
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter === zone ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{n}</span>
-            </button>
-          ))}
-        </div>
-      )}
+        ];
+        const curTime = TIME_TABS.find(t => t.key === filter) || TIME_TABS[0];
+        return (
+          <>
+            <div className="flex flex-wrap gap-2 px-5 pt-3 pb-1">
+              <button onClick={() => setTimePillsOpen(o => !o)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border bg-white text-slate-600 border-slate-200 hover:border-slate-300 transition-colors">
+                <Filter size={13} />
+                ช่วงเวลา
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${filter !== 'all' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
+                  {curTime.label} · {curTime.count}
+                </span>
+                {timePillsOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+              </button>
+              {zoneGroups.length > 1 && (
+                <button onClick={() => setZonePillsOpen(o => !o)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border bg-white text-slate-600 border-slate-200 hover:border-slate-300 transition-colors">
+                  <Filter size={13} />
+                  กรองตามโซน
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter !== 'all' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
+                    {zoneFilter === 'all' ? 'ทั้งหมด' : zoneFilter}
+                  </span>
+                  {zonePillsOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                </button>
+              )}
+            </div>
+            {timePillsOpen && (
+              <div className="flex gap-2 px-5 pt-1 pb-1 overflow-x-auto">
+                {TIME_TABS.map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => { setFilter(tab.key); setExpanded(false); }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
+                      filter === tab.key
+                        ? tab.active + ' border-transparent shadow-sm'
+                        : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    {tab.label}
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                      filter === tab.key ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'
+                    }`}>{tab.count}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {zonePillsOpen && zoneGroups.length > 1 && (
+              <div className="flex gap-2 px-5 pt-1 pb-1 overflow-x-auto">
+                <button onClick={() => { setZoneFilter('all'); setExpanded(false); }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
+                    zoneFilter === 'all' ? 'bg-red-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                  }`}>
+                  ทั้งหมด
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter === 'all' ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{searched.length}</span>
+                </button>
+                {zoneGroups.map(([zone, n]) => (
+                  <button key={zone} onClick={() => { setZoneFilter(zone); setExpanded(false); }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
+                      zoneFilter === zone ? 'bg-red-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                    }`}>
+                    {zone}
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter === zone ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{n}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {/* Table (desktop) / Card list (mobile) */}
       {filtered.length === 0 ? (
         <p className="text-center text-slate-400 text-sm py-6">ไม่มีรายการในหมวดนี้</p>
       ) : isMobile ? (
         <div className="overflow-y-auto p-3 space-y-2" style={{ maxHeight: onClose ? 'calc(90vh - 200px)' : 'calc(100vh - 420px)' }}>
-          {displayed.map((r, i) => (
+          {displayed.map((r, i) => {
+            const rb = returnBadge(r.returnInfo);
+            const isOpen = expandedRow === flagKeyOf(r);
+            return (
             <div key={i} className={`border rounded-xl p-3 ${rowColor(r.daysLeft)}`}>
-              <div className="flex items-start justify-between gap-2 mb-1.5">
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-slate-800 text-sm leading-tight">{r.name || '-'}</p>
-                  {r.code && r.code !== '-' && <p className="text-[11px] text-slate-400 mt-0.5">{r.code}</p>}
+              <button type="button" onClick={() => setExpandedRow(isOpen ? null : flagKeyOf(r))} className="w-full text-left">
+                <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-slate-800 text-sm leading-tight">{r.name || '-'}</p>
+                    {r.code && r.code !== '-' && <p className="text-[11px] text-slate-400 mt-0.5">{r.code}</p>}
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeColor(r.daysLeft)}`}>
+                      {daysLabel(r.daysLeft)}
+                    </span>
+                    {rb && <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${rb.cls}`}>{rb.text}</span>}
+                  </div>
                 </div>
-                <span className={`shrink-0 inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeColor(r.daysLeft)}`}>
-                  {daysLabel(r.daysLeft)}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] mt-2 pt-2 border-t border-slate-200/60">
-                <div><span className="text-slate-400">ชนิด:</span> <span className="text-slate-700 font-medium">{r.type || '-'}</span></div>
-                <div><span className="text-slate-400">ตำแหน่ง:</span> <span className="text-slate-700 font-medium">{r.location || '-'}</span></div>
-                <div><span className="text-slate-400">Lot:</span> <span className="text-slate-700">{r.lot || '-'}</span></div>
-                <div><span className="text-slate-400">Exp:</span> <span className="text-slate-700">{fmtExp(r.exp)}</span></div>
-                <div className="col-span-2"><span className="text-slate-400">คงเหลือ:</span> <span className="text-slate-800 font-bold">{r.qty || '-'}</span> <span className="text-slate-500">{r.unit || ''}</span></div>
-                {r.supplier && (
-                  <div className="col-span-2"><span className="text-slate-400">บริษัท:</span> <span className="text-slate-700">{r.supplier}</span></div>
-                )}
-                {r.swapPolicy && (
-                  <div className="col-span-2"><span className="text-slate-400">นโยบายเปลี่ยนยา:</span> <span className="text-slate-700">{r.swapPolicy}</span></div>
-                )}
-              </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] mt-2 pt-2 border-t border-slate-200/60">
+                  <div><span className="text-slate-400">ชนิด:</span> <span className="text-slate-700 font-medium">{r.type || '-'}</span></div>
+                  <div><span className="text-slate-400">ตำแหน่ง:</span> <span className="text-slate-700 font-medium">{r.location || '-'}</span></div>
+                  <div><span className="text-slate-400">Lot:</span> <span className="text-slate-700">{r.lot || '-'}</span></div>
+                  <div><span className="text-slate-400">Exp:</span> <span className="text-slate-700">{fmtExp(r.exp)}</span></div>
+                  <div className="col-span-2"><span className="text-slate-400">คงเหลือ:</span> <span className="text-slate-800 font-bold">{r.qty || '-'}</span> <span className="text-slate-500">{r.unit || ''}</span></div>
+                  {r.supplier && (
+                    <div className="col-span-2"><span className="text-slate-400">บริษัท:</span> <span className="text-slate-700">{r.supplier}</span></div>
+                  )}
+                  {r.swapPolicy && (
+                    <div className="col-span-2"><span className="text-slate-400">นโยบายเปลี่ยนยา:</span> <span className="text-slate-700">{r.swapPolicy}</span></div>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 mt-1.5 text-[11px] font-semibold text-red-600">
+                  <ChevronDown size={13} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                  {isOpen ? 'ซ่อนประวัติรับยา' : 'ดูประวัติรับยา'}
+                </div>
+              </button>
+              {isOpen && <ReceiveHistoryDetail details={r.details} scope={r.detailScope} />}
             </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="overflow-auto" style={{ maxHeight: onClose ? 'calc(90vh - 200px)' : 'calc(100vh - 420px)' }}>
@@ -1127,12 +1399,20 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
               </tr>
             </thead>
             <tbody>
-              {displayed.map((r, i) => (
-                <tr key={i} className={`border-b ${rowColor(r.daysLeft)}`}>
+              {displayed.map((r, i) => {
+                const rb = returnBadge(r.returnInfo);
+                const isOpen = expandedRow === flagKeyOf(r);
+                return (
+                <React.Fragment key={i}>
+                <tr onClick={() => setExpandedRow(isOpen ? null : flagKeyOf(r))}
+                  className={`border-b cursor-pointer hover:brightness-95 ${rowColor(r.daysLeft)}`}>
                   <td className="px-4 py-2.5 font-semibold text-slate-800 max-w-[200px]">
-                    <span className="block truncate">{r.name || '-'}</span>
+                    <span className="flex items-center gap-1">
+                      <ChevronDown size={13} className={`text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                      <span className="truncate">{r.name || '-'}</span>
+                    </span>
                     {r.code && r.code !== '-' && (
-                      <span className="text-slate-400 font-normal">{r.code}</span>
+                      <span className="text-slate-400 font-normal pl-[18px] block">{r.code}</span>
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-slate-500">{r.type || '-'}</td>
@@ -1140,9 +1420,12 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                   <td className="px-4 py-2.5 text-slate-500">{r.lot || '-'}</td>
                   <td className="px-4 py-2.5 text-center font-medium text-slate-700">{fmtExp(r.exp)}</td>
                   <td className="px-4 py-2.5 text-center">
-                    <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${badgeColor(r.daysLeft)}`}>
-                      {daysLabel(r.daysLeft)}
-                    </span>
+                    <div className="flex flex-col items-center gap-1">
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${badgeColor(r.daysLeft)}`}>
+                        {daysLabel(r.daysLeft)}
+                      </span>
+                      {rb && <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${rb.cls}`}>{rb.text}</span>}
+                    </div>
                   </td>
                   <td className="px-4 py-2.5 text-slate-700 text-xs max-w-[160px] truncate" title={r.supplier || '-'}>{r.supplier || '-'}</td>
                   <td className="px-4 py-2.5 text-slate-600 text-xs max-w-[220px]" title={r.swapPolicy || '-'}>
@@ -1151,7 +1434,16 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                   <td className="px-4 py-2.5 text-right font-bold text-slate-700">{r.qty || '-'}</td>
                   <td className="px-4 py-2.5 text-slate-500">{r.unit || '-'}</td>
                 </tr>
-              ))}
+                {isOpen && (
+                  <tr className="border-b border-slate-100">
+                    <td colSpan={10} className="px-4 py-0 bg-slate-50">
+                      <ReceiveHistoryDetail details={r.details} scope={r.detailScope} />
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

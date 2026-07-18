@@ -181,6 +181,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   const [modalTimeFilter, setModalTimeFilter] = useState('all'); // all | expired | soon30 | soon90 | soon180 | soon16m
   const [modalLogFilter, setModalLogFilter] = useState('all');   // 'all' | <invoice>
   const [zonePillsOpen, setZonePillsOpen] = useState(false);     // ซ่อน pill กรองโซนไว้ก่อน คลิกแล้วกาง
+  const [timePillsOpen, setTimePillsOpen] = useState(false);     // ซ่อน pill กรองช่วงเวลาไว้ก่อน คลิกแล้วกาง (ลดความรก)
   const [modalExporting, setModalExporting] = useState(false);
   const [returnBannerOpen, setReturnBannerOpen] = useState(false); // แถบเตือนคืนยา (พับได้ ให้ตารางมีที่อ่าน)
   const [isMobileExpiry, setIsMobileExpiry] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
@@ -2352,26 +2353,46 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                 maxResults={20}
                 inputClassName="py-2.5 bg-slate-50"
               />
-              {isExpiryMode && (
-                <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
-                  {[
-                    { key: 'all',     label: 'ทั้งหมด',      active: 'bg-slate-700 text-white' },
-                    { key: 'expired', label: 'หมดอายุแล้ว',   active: 'bg-red-600 text-white' },
-                    { key: 'soon30',  label: 'ภายใน 30 วัน',  active: 'bg-orange-500 text-white' },
-                    { key: 'soon90',  label: '1–3 เดือน',     active: 'bg-yellow-500 text-white' },
-                    { key: 'soon180', label: '3–6 เดือน',     active: 'bg-lime-500 text-white' },
-                    { key: 'soon16m', label: '6–16 เดือน',    active: 'bg-blue-500 text-white' },
-                  ].map(tab => (
-                    <button key={tab.key} onClick={() => setModalTimeFilter(tab.key)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
-                        modalTimeFilter === tab.key ? tab.active + ' border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-                      }`}>
-                      {tab.label}
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${modalTimeFilter === tab.key ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{counts[tab.key]}</span>
+              {isExpiryMode && (() => {
+                const TIME_TABS = [
+                  { key: 'all',     label: 'ทั้งหมด',      active: 'bg-slate-700 text-white' },
+                  { key: 'expired', label: 'หมดอายุแล้ว',   active: 'bg-red-600 text-white' },
+                  { key: 'soon30',  label: 'ภายใน 30 วัน',  active: 'bg-orange-500 text-white' },
+                  { key: 'soon90',  label: '1–3 เดือน',     active: 'bg-yellow-500 text-white' },
+                  { key: 'soon180', label: '3–6 เดือน',     active: 'bg-lime-500 text-white' },
+                  { key: 'soon16m', label: '6–16 เดือน',    active: 'bg-blue-500 text-white' },
+                ];
+                const curLabel = TIME_TABS.find(t => t.key === modalTimeFilter)?.label || 'ทั้งหมด';
+                return (
+                  <div>
+                    {/* ปุ่มกาง/พับ pill กรองช่วงเวลา — pattern เดียวกับ "กรองตามโซน" (ลดความรก) */}
+                    <button
+                      onClick={() => setTimePillsOpen(o => !o)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border bg-white text-slate-600 border-slate-200 hover:border-slate-300 transition-colors"
+                    >
+                      <Filter size={13} />
+                      ช่วงเวลา
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${modalTimeFilter !== 'all' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                        {curLabel} · {counts[modalTimeFilter]}
+                      </span>
+                      {timePillsOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                     </button>
-                  ))}
-                </div>
-              )}
+                    {timePillsOpen && (
+                      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 mt-2">
+                        {TIME_TABS.map(tab => (
+                          <button key={tab.key} onClick={() => setModalTimeFilter(tab.key)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
+                              modalTimeFilter === tab.key ? tab.active + ' border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                            }`}>
+                            {tab.label}
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${modalTimeFilter === tab.key ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{counts[tab.key]}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               {logGroups.length > 0 && (
                 <div>
                   {/* ปุ่มกาง/พับ pill กรองโซน — ซ่อนไว้ก่อน คลิกแล้วค่อยเปิด */}
