@@ -65,10 +65,13 @@ function diffDays(a, b) {
 }
 
 // ลบ N เดือนจากวันหมดอายุ → วัน deadline ที่ต้องคืนภายใน
+// clamp วันสิ้นเดือน: 31/7 − 3 เดือน = 30/4 (ไม่ใช่ spillover เป็น 1/5) — conservative เตือนเร็วกว่า
+// (บั๊กเดิม: setMonth spillover ทำ deadline ฝั่ง client เพี้ยน +1 วัน ไม่ตรง popup — แก้ 2026-07-18)
 function subMonths(date, months) {
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  d.setMonth(d.getMonth() - months)
-  return d
+  const y = date.getFullYear()
+  const m = date.getMonth() - months
+  const lastDay = new Date(y, m + 1, 0).getDate()   // วันสุดท้ายของเดือนเป้าหมาย
+  return new Date(y, m, Math.min(date.getDate(), lastDay))
 }
 
 // computeReturnStatus({ exp, months, today, bufferDays })

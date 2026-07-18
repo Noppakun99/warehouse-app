@@ -105,6 +105,23 @@ section('Test 4: computeReturnStatus')
     assertEq(r.daysToDeadline, 60, 'deadline = วันนี้ + 60 พอดี')
     assertEq(r.status, 'due', 'เหลือ = buffer พอดี → due (ขอบ inclusive)')
   }
+  // clamp วันสิ้นเดือน (แก้บั๊ก spillover 2026-07-18): 31/7 − 3 เดือน = 30/4 ไม่ใช่ 1/5
+  {
+    const r = computeReturnStatus({ exp: new Date(2026, 6, 31), months: 3, today: new Date(2026, 6, 18) })
+    assertEq(r.deadline.getDate(), 30, 'exp 31/7 − 3 ด. → วันที่ 30 (clamp สิ้นเดือน)')
+    assertEq(r.deadline.getMonth(), 3, 'exp 31/7 − 3 ด. → เม.ย. (ไม่ spillover เป็น พ.ค.)')
+  }
+  // วันที่มีจริงในเดือนเป้าหมาย → ไม่ clamp
+  {
+    const r = computeReturnStatus({ exp: new Date(2026, 7, 31), months: 3, today: new Date(2026, 6, 18) })
+    assertEq(r.deadline.getDate(), 31, 'exp 31/8 − 3 ด. → 31/5 (มีจริง ไม่ clamp)')
+    assertEq(r.deadline.getMonth(), 4, 'exp 31/8 − 3 ด. → พ.ค.')
+  }
+  // ก.พ. ปีไม่ leap: 29/3/2026 − 1 เดือน = 28/2
+  {
+    const r = computeReturnStatus({ exp: new Date(2026, 2, 29), months: 1, today: new Date(2026, 0, 1) })
+    assertEq(r.deadline.getDate(), 28, 'exp 29/3/2026 − 1 ด. → 28/2 (ก.พ. ไม่ leap)')
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────

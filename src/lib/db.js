@@ -1059,7 +1059,8 @@ export async function fetchSwapReturnDue() {
     out.push({
       code: item.code, name: item.name, lot: item.lot, exp: item.exp, location: item.location,
       qty: item.qty, unit: item.unit, company, returnMonths: pol.returnMonths,
-      status, deadline: deadline ? deadline.toISOString().slice(0, 10) : null, daysToDeadline,
+      // format ด้วย local parts — toISOString() บนเครื่อง UTC+7 เลื่อนวันถอยหลัง 1 วัน (local midnight → UTC = เมื่อวาน)
+      status, deadline: deadline ? `${deadline.getFullYear()}-${String(deadline.getMonth() + 1).padStart(2, '0')}-${String(deadline.getDate()).padStart(2, '0')}` : null, daysToDeadline,
       policyText: policyTextByLot[lotKey(code, item.lot)] || null,   // นโยบายเต็มของ lot นั้น (raw)
       receiveDate: receiveDateByLot[lotKey(code, item.lot)] || null, // วันที่คลังรับ lot นี้ล่าสุด (ISO)
       avgPerDay: avgPerDay || null, coverageDays, willDeplete,
