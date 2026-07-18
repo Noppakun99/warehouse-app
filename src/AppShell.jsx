@@ -157,7 +157,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
   );
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-200">
       {/* ── Desktop sidebar (fixed) ── */}
       <aside className={`hidden lg:flex fixed inset-y-0 left-0 z-40 ${collapsed ? 'w-16' : 'w-60'} bg-white border-r border-slate-200 flex-col transition-all duration-200`}>
         {renderSidebar(collapsed)}
