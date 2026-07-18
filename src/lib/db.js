@@ -981,6 +981,7 @@ export async function fetchSwapReturnDue() {
   const lotKey = (code, lot) => `${(code || '').trim().toLowerCase()}|${(lot || '-').trim().toLowerCase()}`
   const supplierByLot = {}     // code|lot → บริษัท (หรือ null ถ้าชนหลายบริษัท)
   const policyTextByLot = {}   // code|lot → นโยบายดิบของบริษัทนั้น
+  const receiveDateByLot = {}  // code|lot → วันที่คลังรับล่าสุด (ISO) — แถวเรียง receive_date DESC แถวแรกของ key = ล่าสุด
   let offset = 0
   const BATCH = 1000
   while (true) {
@@ -992,9 +993,12 @@ export async function fetchSwapReturnDue() {
     if (error || !data || data.length === 0) break
     for (const r of data) {
       const code = (r.drug_code || '').trim()
+      if (!code) continue
+      const rKey = lotKey(code, r.lot)
+      if (!(rKey in receiveDateByLot) && r.receive_date) receiveDateByLot[rKey] = r.receive_date
       const co = (r.supplier_current || '').trim()
-      if (!code || !co || co === '-') continue
-      const key = lotKey(code, r.lot)
+      if (!co || co === '-') continue
+      const key = rKey
       if (!(key in supplierByLot)) {
         supplierByLot[key] = co
         const pol = (r.drug_swap_policy || '').trim()
@@ -1057,6 +1061,7 @@ export async function fetchSwapReturnDue() {
       qty: item.qty, unit: item.unit, company, returnMonths: pol.returnMonths,
       status, deadline: deadline ? deadline.toISOString().slice(0, 10) : null, daysToDeadline,
       policyText: policyTextByLot[lotKey(code, item.lot)] || null,   // นโยบายเต็มของ lot นั้น (raw)
+      receiveDate: receiveDateByLot[lotKey(code, item.lot)] || null, // วันที่คลังรับ lot นี้ล่าสุด (ISO)
       avgPerDay: avgPerDay || null, coverageDays, willDeplete,
       avgBaseUnit: avgBaseUnitByCode[usageKey(code)] ?? null,   // เบิกเฉลี่ย(เม็ด)/เดือน
       baseUnit: parseUnitFactor(item.unit).base,                // หน่วยย่อยสุด (เม็ด) สำหรับ label เรท

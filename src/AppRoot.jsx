@@ -672,6 +672,7 @@ const SWAP_RETURN_EXCEL_COLS = [
   { header: 'รหัสยา',            key: 'code' },
   { header: 'Lot',               key: 'lot' },
   { header: 'ที่เก็บ',           key: 'location' },
+  { header: 'วันที่คลังรับ',     value: r => swapFmtDeadline(r.receiveDate) },
   { header: 'วันหมดอายุ',       value: r => swapFmtExp(r.exp) },
   { header: 'คงเหลือ',           key: 'qty' },
   { header: 'หน่วย',             key: 'unit' },
@@ -713,12 +714,12 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
     const section = (title, list, tone) => !list.length ? '' : `
       <h2 style="color:${tone};margin:14px 0 4px">${title} (${list.length})</h2>
       <table><thead><tr>
-        <th>สถานะ</th><th>ชื่อยา</th><th>รหัสยา</th><th>Lot</th><th>ที่เก็บ</th><th>EXP</th>
+        <th>สถานะ</th><th>ชื่อยา</th><th>รหัสยา</th><th>Lot</th><th>ที่เก็บ</th><th>วันที่คลังรับ</th><th>EXP</th>
         <th>คงเหลือ</th><th>บริษัท</th><th>ต้องคืนภายใน</th><th>เบิก/เดือน</th><th>นโยบาย</th>
       </tr></thead><tbody>
       ${list.map(r => `<tr>
         <td>${esc(swapStatusText(r))}</td><td>${esc(r.name)}</td><td>${esc(r.code)}</td>
-        <td>${esc(r.lot)}</td><td>${esc(r.location)}</td><td>${esc(swapFmtExp(r.exp))}</td>
+        <td>${esc(r.lot)}</td><td>${esc(r.location)}</td><td>${esc(swapFmtDeadline(r.receiveDate))}</td><td>${esc(swapFmtExp(r.exp))}</td>
         <td style="text-align:right">${esc(r.qty)}${r.unit ? ` (${esc(r.unit)})` : ''}</td>
         <td>${esc(r.company)}</td><td>${esc(swapFmtDeadline(r.deadline))}</td>
         <td style="text-align:right">${esc(swapRateText(r))}</td>
@@ -766,6 +767,7 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
           </span>
           <span className="text-sm font-semibold text-slate-800 truncate min-w-0">{r.name}</span>
           <span className="text-[11px] text-slate-500 shrink-0">Lot {r.lot} · {r.location}</span>
+          {r.receiveDate && <span className="text-[11px] text-slate-500 shrink-0">คลังรับ {fmtThai(r.receiveDate)}</span>}
           <span className="text-[11px] text-slate-500 shrink-0">EXP {fmtExp(r.exp)}</span>
           <span className="text-[11px] font-semibold text-slate-700 shrink-0">คงเหลือ {r.qty}{r.unit ? ` (${r.unit})` : ''}</span>
           <span className="text-[11px] text-slate-500 shrink-0">{r.company}</span>

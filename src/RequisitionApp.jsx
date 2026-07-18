@@ -140,7 +140,7 @@ const REQUISITION_EXCEL_COLS = [
   { header: 'ปริมาณ (ออก)',      value: (r) => r._out ?? '' },
   { header: 'คงเหลือหลังจ่าย',  value: (r) => r._after ?? '' },
   { header: 'หน่วยงานที่เบิก',  value: (r) => r.department || '' },
-  { header: 'หมายเหตุ',          value: (r) => [r._item?.item_note, r._item?.staff_note].filter(Boolean).join(' ') || r.note || '' },
+  { header: 'หมายเหตุ',          value: (r) => [r._item?.item_note, r._item?.staff_note, r._over_note].filter(Boolean).join(' ') || r.note || '' },
 ];
 
 // คำนวณ allocation ต่อ item.id สำหรับ print/Excel:
@@ -157,9 +157,20 @@ async function computeReqAllocations(reqs) {
   const supplierChangedLots = new Set(); // "code|lot" ที่บิลรับ flag เปลี่ยนบริษัท
   if (supabase && codes.length) {
     // ไม่ filter qty>0 ที่ SQL — ต้องเห็นแถว qty=0/ตัดออก เพื่อ status map; FEFO มี guard packs>0 อยู่แล้ว
-    const [{ data: inv }, { data: rl }] = await Promise.all([
-      supabase.from('inventory').select('code, lot, exp, qty, unit, main_log, location, item_type, receive_status').in('code', codes).limit(3000),
-      supabase.from('receive_logs').select('drug_code, lot, price_per_unit, receive_status, supplier_changed').in('drug_code', codes).limit(5000),
+    // paginate จริง — Supabase cap 1000 แถว/request (limit 3000 เดิมได้จริงแค่ 1000 → export หลายใบข้อมูลหาย, Rule #2)
+    const fetchPaged = async (table, cols, col) => {
+      const all = [];
+      for (let off = 0; ; off += 1000) {
+        const { data } = await supabase.from(table).select(cols).in(col, codes).range(off, off + 999);
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < 1000) break;
+      }
+      return all;
+    };
+    const [inv, rl] = await Promise.all([
+      fetchPaged('inventory', 'code, lot, exp, qty, unit, main_log, location, item_type, receive_status', 'code'),
+      fetchPaged('receive_logs', 'drug_code, lot, price_per_unit, receive_status, supplier_changed', 'drug_code'),
     ]);
     (inv || []).forEach(r => {
       const code = String(r.code||'').trim();
@@ -170,6 +181,8 @@ async function computeReqAllocations(reqs) {
       const packs = parseFloat(r.qty) || 0;
       if (packs > 0) (fefoByCode[code] = fefoByCode[code] || []).push({ lot: r.lot, exp: r.exp, unit: r.unit, location: r.location, packSize: packSize || 1, packs, base: packs * (packSize || 1) });
     });
+    // แถวซ้ำ lot เดียวกัน → บวกรวมก่อนเรียง FEFO (คงเหลือราย lot ต้องเต็มจำนวน)
+    Object.keys(fefoByCode).forEach(c => { fefoByCode[c] = mergeSameLotEntries(fefoByCode[c]); });
     Object.values(fefoByCode).forEach(lots => lots.sort((a, b) => {
       const da = parseExp(a.exp), db = parseExp(b.exp);
       if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
@@ -205,8 +218,9 @@ async function computeReqAllocations(reqs) {
       allocByItem[item.id] = item.picked_allocation.map(a => withPrice(item.drug_code, a));
     } else {
       const wantQty = item.approved_qty ?? item.requested_qty ?? 0;
-      const lots = fefoByCode[String(item.drug_code||'').trim()];
-      if (wantQty > 0 && lots && lots.length) {
+      // lot หมดอายุห้ามเข้า allocation (FEFO เรียง exp เก่าสุดก่อน — ถ้าไม่กรองจะหยิบ lot หมดอายุเป็นอันดับแรก)
+      const lots = (fefoByCode[String(item.drug_code||'').trim()] || []).filter(lotNotExpired);
+      if (wantQty > 0 && lots.length) {
         allocByItem[item.id] = allocateFefo(wantQty, lots).allocation.map(a => withPrice(item.drug_code, a));
       }
     }
@@ -220,7 +234,11 @@ const flattenReqs = (reqs, allocByItem = {}) =>
   reqs.flatMap(req =>
     (req.requisition_items?.length ? req.requisition_items : [{}]).flatMap(item => {
       const alloc = allocByItem[item.id] || (Array.isArray(item.picked_allocation) ? item.picked_allocation : null);
-      if (alloc && alloc.length) return alloc.map(a => ({ ...req, _item: item, _alloc: a }));
+      // _ai = ลำดับ lot ในรายการ (หมายเหตุระดับรายการใส่เฉพาะแถวแรก), _outTotal = ยอดจ่ายรวมทุก lot ของรายการ
+      if (alloc && alloc.length) {
+        const outTotal = alloc.reduce((s, a) => s + (Number(a.base) || 0), 0);
+        return alloc.map((a, ai) => ({ ...req, _item: item, _alloc: a, _ai: ai, _outTotal: outTotal }));
+      }
       return [{ ...req, _item: item, _alloc: null }];
     })
   );
@@ -238,7 +256,11 @@ async function exportReqExcel(reqs, auth) {
     // ไม่มี allocation และไม่มี lot ที่จัด = จ่าย 0 (ห้ามใช้ยอดที่ขอเป็นยอดออก)
     const out = r._alloc?.base ?? (lotOf(r) ? (r._item?.picked_qty ?? r._item?.approved_qty ?? r._item?.requested_qty ?? 0) : 0);
     const { before, after } = lotBeforeAfter(r, r._item?.drug_code, lotOf(r), out, r._alloc?.onhand ?? null, onHandByLot, lastImportAt);
-    return { ...r, _out: out, _before: before, _after: after, _item: { ...r._item, _main_log: ref.main_log || '', _detail_log: ref.detail_log || '', _item_type_ref: ref.item_type || r._item?.item_type || '' } };
+    // หมายเหตุจ่ายเกิน (จ่ายเต็มกล่อง) — เลขต้องตรงกับใบพิมพ์ (Rule #6); ใส่เฉพาะแถว lot แรกของรายการ
+    const want = Number(r._item?.approved_qty ?? r._item?.requested_qty) || 0;
+    const overNote = (r._ai == null || r._ai === 0) && r._outTotal != null && want > 0 && r._outTotal > want
+      ? `ขอ ${want.toLocaleString()} จ่าย ${r._outTotal.toLocaleString()} — จ่ายเต็มกล่อง` : '';
+    return { ...r, _out: out, _before: before, _after: after, _over_note: overNote, _item: { ...r._item, _main_log: ref.main_log || '', _detail_log: ref.detail_log || '', _item_type_ref: ref.item_type || r._item?.item_type || '' } };
   });
   const d = new Date();
   const date = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
@@ -480,6 +502,91 @@ const fmtExp = (raw) => {
 // marker นำหน้าบรรทัดหมายเหตุที่ระบบเติมอัตโนมัติ (จ่ายเกิน) — ใช้หา/ตัดออกกัน duplicate ตอน save ซ้ำ
 const MARK_OVER = '[จ่ายเกิน]';
 
+// inventory มีแถวซ้ำ code+lot เดียวกันหลายแถวได้ (CSV import แยกแถว) — ทุกจุดอ่านต้อง "บวกรวม" ห้าม drop/ทับ
+// (บัค 2026-07-18: Baclofen lot 260301 มี 2 แถว 3+30 กล่อง — dedupe เดิมทิ้งเหลือ 600 เม็ดจากจริง 6,600)
+const mergeSameLotEntries = (lots) => {
+  const map = new Map();
+  for (const l of lots) {
+    const k = `${String(l.lot || '').trim()}|${String(l.exp || '').trim()}`;
+    const prev = map.get(k);
+    if (prev) { prev.packs += l.packs || 0; prev.base += l.base || 0; }
+    else map.set(k, { ...l });
+  }
+  return [...map.values()];
+};
+
+// escape user-content ก่อนฉีดลง HTML ใบพิมพ์ — ชื่อยา/หมายเหตุ/ชื่อคน มาจาก input ผู้ใช้และ CSV (กัน stored XSS ในหน้าปริ้น)
+const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// คงเหลือรวมต่อรหัส (หน่วยย่อยสุด) — ใช้ re-validate ตอนส่ง/แก้ใบเบิก (สูตรเดียวกับ availableBase ใน DrugSearch)
+async function fetchInvBaseByCode(codes) {
+  if (!supabase || !codes.length) return {};
+  const { data } = await supabase.from('inventory').select('code, qty, unit').in('code', codes);
+  const map = {};
+  (data || []).forEach(r => {
+    const { packSize } = parseUnit(r.unit);
+    const k = codeKey(r.code);
+    map[k] = (map[k] || 0) + (parseFloat(r.qty) || 0) * (packSize || 1);
+  });
+  return map;
+}
+
+// ยอดจองต่อรหัส (หน่วยย่อยสุด) — นับทุกใบที่ของ "ยังไม่ถูกตัดออกจาก inventory จริง":
+//   pending/approved → ตามที่อนุมัติ/ขอ · picking/ready → ตามที่จัดจริง
+//   dispensed/received → ตามที่จัด จนกว่า import inventory รอบใหม่จะสะท้อนการตัดสต็อก (concept เดียวกับ qtyIsPostDispense)
+// (แอปไม่หัก qty เอง — ตัดจริงใน HosXP แล้ว re-import; เดิมนับแค่ pending/approved → ใบที่เริ่มจัดปล่อยจองคืนทั้งที่ของยังไม่ตัด = ช่องเบิกเกิน)
+// excludeReqId = ไม่นับใบตัวเอง (ตอน requester แก้ใบเดิม — ไม่งั้นยอดเก่าของตัวเองบล็อกการแก้)
+async function fetchReservedBase(codes, { excludeReqId = null } = {}) {
+  if (!supabase || !codes.length) return {};
+  const lastImportAt = await fetchLastInventoryImportAt();
+  const { data } = await supabase
+    .from('requisition_items')
+    .select('drug_code, requisition_id, requested_qty, approved_qty, picked_qty, picked_allocation, requisitions!inner(status, dispensed_at, updated_at)')
+    .in('drug_code', codes)
+    .in('requisitions.status', ['pending', 'approved', 'picking', 'ready', 'dispensed', 'received']);
+  const map = {};
+  (data || []).forEach(item => {
+    if (!item.drug_code) return;
+    if (excludeReqId != null && item.requisition_id === excludeReqId) return;
+    const st = item.requisitions?.status;
+    let qty = 0;
+    if (st === 'pending' || st === 'approved') {
+      qty = Number(item.approved_qty ?? item.requested_qty) || 0;
+    } else {
+      if (st === 'dispensed' || st === 'received') {
+        const dispensedAt = item.requisitions?.dispensed_at || item.requisitions?.updated_at;
+        if (dispensedAt && lastImportAt && new Date(lastImportAt) > new Date(dispensedAt)) return; // ตัดสต็อกแล้ว
+      }
+      qty = Array.isArray(item.picked_allocation) && item.picked_allocation.length
+        ? item.picked_allocation.reduce((s, a) => s + (Number(a.base) || 0), 0)
+        : Number(item.picked_qty ?? item.approved_qty ?? item.requested_qty) || 0;
+    }
+    if (qty <= 0) return;
+    const k = codeKey(item.drug_code);
+    map[k] = (map[k] || 0) + qty;
+  });
+  return map;
+}
+
+// เปิดหน้าปริ้นจาก Blob URL — LINE/FB in-app WebView บล็อก window.open → คืน null → นำทางผ่าน <a> click แทน (Rule #4)
+function openPrintUrl(url, preopenedWin) {
+  if (preopenedWin && !preopenedWin.closed) { preopenedWin.location.href = url; return preopenedWin; }
+  const w = window.open(url, '_blank');
+  if (w) return w;
+  const a = document.createElement('a');
+  a.href = url; a.target = '_blank'; a.rel = 'noopener';
+  document.body.appendChild(a); a.click(); a.remove();
+  return null;
+}
+
+// lot ที่หมดอายุแล้วห้ามเข้า FEFO allocation (ฝั่งค้นหาผู้เบิกกรองอยู่แล้ว — ฝั่งจัดยา/ใบพิมพ์ต้องกรองให้ตรงกัน)
+const lotNotExpired = (l) => {
+  const d = parseExp(l.exp);
+  if (!d) return true;
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  return d >= t;
+};
+
 // วลีหมายเหตุคลังที่ใช้บ่อย (จาก vocabulary ใบจริงของคลัง) — chip กดเติมลง staff_note ตอนจัดยา แก้ข้อความต่อได้
 // (เคส "รอตรวจรับ/ยาหมดรอของส่ง/เปลี่ยนบริษัท/มีXlot/ใกล้exp" ระบบเติมอัตโนมัติในใบ lot คุม ไม่ต้องมี chip)
 const STAFF_NOTE_PRESETS = ['จ่ายlotเก่าให้หมด', 'ตัดยอดยาเสพติด', 'รถกู้ชีพ', 'เบิกห้องยา'];
@@ -535,8 +642,9 @@ const allocPackLabel = (a, unit) => {
 const lotPackLabel = (l) => {
   const size = l.packSize || 1;
   const packs = Math.ceil(l.packs || 0);
-  return size > 1 ? `${packs.toLocaleString()} กล่อง × ${size.toLocaleString()} ${l.unit || l.baseUnit || ''}`.trim()
-                  : `${packs.toLocaleString()} ${l.unit || l.baseUnit || ''}`.trim();
+  // ใช้ baseUnit (หน่วยย่อยล้วน) — l.unit เต็มมีตัวเลข packSize ปน จะได้ "× 200 200เม็ด" ซ้ำ
+  return size > 1 ? `${packs.toLocaleString()} กล่อง × ${size.toLocaleString()} ${l.baseUnit || l.unit || ''}`.trim()
+                  : `${packs.toLocaleString()} ${l.baseUnit || l.unit || ''}`.trim();
 };
 
 // แสดงคงเหลือราย lot เป็น "กล่อง × หน่วยย่อย" ให้ staff นับของจริงง่าย
@@ -586,7 +694,9 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
         if (baseUnit && baseUnit !== '-') baseUnitCount[baseUnit] = (baseUnitCount[baseUnit] || 0) + packs;
         if (packs > 0) fefoLots.push({ lot: lot.lot, exp: lot.exp, unit: lot.unit, packSize: packSize || 1, packs, base, baseUnit, location: lot.location || '', supplier: lot.supplier || '' });
       });
-      fefoLots.sort((a, b) => {
+      // แถวซ้ำ lot เดียวกัน (จาก DB) → บวกรวมเป็น entry เดียวก่อนเรียง FEFO
+      const fefoUnique = mergeSameLotEntries(fefoLots);
+      fefoUnique.sort((a, b) => {
         const da = parseExp(a.exp), db = parseExp(b.exp);
         if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
         return da - db;
@@ -599,7 +709,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
       // เพื่อให้ allocation preview ในตะกร้าตรงกับ availableBase (ไม่ preview ของที่ถูกจอง)
       let toReserve = reservedBase;
       const availLots = [];
-      for (const l of fefoLots) {
+      for (const l of fefoUnique) {
         if (toReserve <= 0) { availLots.push(l); continue; }
         if (toReserve >= l.base) { toReserve -= l.base; continue; } // lot นี้ถูกจองหมด
         const leftBase = l.base - toReserve;
@@ -689,25 +799,28 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
     if (supabase) {
       // Separate queries to avoid comma in term breaking PostgREST or() syntax
       const [{ data: byName }, { data: byCode }] = await Promise.all([
-        supabase.from('inventory').select('code, name, unit, qty, lot, exp, location, invoice').ilike('name', `%${term}%`).order('name').limit(300),
-        supabase.from('inventory').select('code, name, unit, qty, lot, exp, location, invoice').ilike('code', `%${term}%`).order('name').limit(300),
+        supabase.from('inventory').select('id, code, name, unit, qty, lot, exp, location, invoice').ilike('name', `%${term}%`).order('name').limit(300),
+        supabase.from('inventory').select('id, code, name, unit, qty, lot, exp, location, invoice').ilike('code', `%${term}%`).order('name').limit(300),
       ]);
+      // dedupe ด้วย row id เท่านั้น (แถวเดิมโผล่ทั้ง byName+byCode) — ห้าม key ด้วย code|name|lot
+      // เพราะ inventory มีแถวซ้ำ lot เดียวกันหลายแถวจริง (qty แยกกัน) จะกลืนคงเหลือหาย
       const seen = new Set();
       const merged = [];
       [...(byName || []), ...(byCode || [])].forEach(r => {
-        const k = `${r.code}|${r.name}|${r.lot}`;
+        const k = r.id ?? `${r.code}|${r.name}|${r.lot}|${r.qty}|${r.location}`;
         if (!seen.has(k)) { seen.add(k); merged.push(r); }
       });
 
-      // Check receive_logs for รอตรวจรับ status
+      // Check receive_logs for รอตรวจรับ status — key ด้วย code|lot เท่านั้น
+      // (ห้าม key ด้วย lot เดี่ยว: lot ซ้ำข้ามตัวยาได้ โดยเฉพาะ lot "-" ของเวชภัณฑ์ → เหมาผิดตัว "หมดสต็อก" ปลอม)
       const uniqueLots = [...new Set(merged.map(r => r.lot).filter(Boolean))];
-      let pendingLotSet = new Set();
+      let pendingLotSet = new Set(); // "codeKey|lot"
       if (uniqueLots.length > 0) {
         const { data: rl } = await supabase.from('receive_logs')
-          .select('lot, receive_status')
+          .select('drug_code, lot, receive_status')
           .in('lot', uniqueLots);
         (rl || []).forEach(r => {
-          if (r.lot && String(r.receive_status || '').includes('รอ')) pendingLotSet.add(r.lot);
+          if (r.lot && String(r.receive_status || '').includes('รอ')) pendingLotSet.add(`${codeKey(r.drug_code)}|${r.lot}`);
         });
       }
 
@@ -716,20 +829,8 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
 
       // หัก qty ที่มี requisition pending/approved อยู่ (reserved) ออกจาก available — ต่อรหัสยา (B-base, ADR-0004)
       // requested_qty เป็นหน่วยย่อยสุดอยู่แล้ว จึงรวมต่อ code ได้ตรงๆ
-      const reservedQtyMap = {}; // drug_code (normalized) → total reserved (หน่วยย่อยสุด)
-      if (uniqueCodes.length > 0) {
-        const { data: ri } = await supabase
-          .from('requisition_items')
-          .select('drug_code, requested_qty, requisitions(status)')
-          .in('drug_code', uniqueCodes);
-        (ri || []).forEach(item => {
-          const status = item.requisitions?.status;
-          if ((status === 'pending' || status === 'approved') && item.drug_code) {
-            const k = codeKey(item.drug_code);
-            reservedQtyMap[k] = (reservedQtyMap[k] || 0) + (item.requested_qty || 0);
-          }
-        });
-      }
+      // ยอดจองครบวงจร (pending→dispensed จนกว่า import) — ดู fetchReservedBase
+      const reservedQtyMap = await fetchReservedBase(uniqueCodes);
       const supplierMap = {}; // "code|lot|invoice" → entry (exact), "code|lot" → fallback
       if (uniqueCodes.length > 0) {
         const CHUNK = 500;
@@ -770,7 +871,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
         const key = `${row.code}||${row.name}`;
         if (!grouped[key]) grouped[key] = { code: row.code, name: row.name, unit: row.unit, type: '', lots: [] };
         const rowQty = parseFloat(row.qty) || 0;
-        const isPending = pendingLotSet.has(row.lot);
+        const isPending = pendingLotSet.has(`${codeKey(row.code)}|${row.lot}`);
         const expDate = parseExp(row.exp);
         const isExpired = expDate && expDate < today;
         const detail = getDetail(row);
@@ -796,19 +897,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
     if (allCodes.length === 0) return;
 
     const fetchReserved = async () => {
-      const { data: ri } = await supabase
-        .from('requisition_items')
-        .select('drug_code, requested_qty, requisitions(status)')
-        .in('drug_code', allCodes);
-      const map = {};
-      (ri || []).forEach(item => {
-        const status = item.requisitions?.status;
-        if ((status === 'pending' || status === 'approved') && item.drug_code) {
-          const k = codeKey(item.drug_code);
-          map[k] = (map[k] || 0) + (item.requested_qty || 0);
-        }
-      });
-      setReservedMap(map);
+      setReservedMap(await fetchReservedBase(allCodes));
     };
 
     const channel = supabase
@@ -1088,12 +1177,14 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
   const [doneInfo, setDoneInfo] = useState(null);
   const [search, setSearch]   = useState('');
   const [openNotes, setOpenNotes] = useState({}); // index → เปิดช่องหมายเหตุ
+  const submittingRef = useRef(false); // กัน double-click ก่อน state loading ทัน re-render → ใบซ้ำ
 
   const updateQty   = (i, v) => setCart(p => { const u=[...p]; u[i]={...u[i], requestedQty: Math.min(Math.max(1, parseInt(v)||1), u[i].availableBase || 99999)}; return u; });
   const updateNote  = (i, v) => setCart(p => { const u=[...p]; u[i]={...u[i], note: v}; return u; });
 
   const submit = async () => {
-    if (!cart.length) return;
+    if (!cart.length || submittingRef.current) return;
+    submittingRef.current = true;
     setLoading(true); setError('');
     try {
       if (supabase) {
@@ -1101,26 +1192,10 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
         // คงเหลือ = Σ(lot.qty × packSize) แปลงเป็นหน่วยย่อย; หัก reservation ต่อ code
         const codes = [...new Set(cart.map(i => i.code).filter(Boolean))];
         if (codes.length > 0) {
-          const [{ data: invData }, { data: riData }] = await Promise.all([
-            supabase.from('inventory').select('code, qty, unit').in('code', codes),
-            supabase.from('requisition_items')
-              .select('drug_code, requested_qty, requisitions(status)')
-              .in('drug_code', codes),
+          const [invBaseMap, reservedNow] = await Promise.all([
+            fetchInvBaseByCode(codes),
+            fetchReservedBase(codes),
           ]);
-          const invBaseMap = {}; // code → คงเหลือรวม (หน่วยย่อยสุด)
-          (invData || []).forEach(r => {
-            const { packSize } = parseUnit(r.unit);
-            const k = codeKey(r.code);
-            invBaseMap[k] = (invBaseMap[k] || 0) + (parseFloat(r.qty) || 0) * (packSize || 1);
-          });
-          const reservedNow = {}; // code → จองแล้ว (หน่วยย่อยสุด) — รวมทุกใบ pending/approved
-          (riData || []).forEach(item => {
-            const status = item.requisitions?.status;
-            if ((status === 'pending' || status === 'approved') && item.drug_code) {
-              const k = codeKey(item.drug_code);
-              reservedNow[k] = (reservedNow[k] || 0) + (item.requested_qty || 0);
-            }
-          });
           const conflicts = cart.filter(item => {
             const k = codeKey(item.code);
             const effective = Math.max(0, (invBaseMap[k] ?? 0) - (reservedNow[k] ?? 0));
@@ -1138,10 +1213,15 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
           }
         }
 
-        const { data: req, error: e1 } = await supabase.from('requisitions')
-          .insert({ req_number: genReqNumber(), department: info.department, requester_name: info.name, status: 'pending' })
-          .select().single();
-        if (e1) throw e1;
+        // เลขใบเบิกสุ่ม 4 หลัก ชนกันในวันเดียวได้ (req_number UNIQUE) → retry เลขใหม่ ไม่โยน error ดิบใส่ผู้ใช้
+        let req = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const { data, error: e1 } = await supabase.from('requisitions')
+            .insert({ req_number: genReqNumber(), department: info.department, requester_name: info.name, status: 'pending' })
+            .select().single();
+          if (!e1) { req = data; break; }
+          if (e1.code !== '23505' || attempt === 2) throw e1;
+        }
         // เบิกระดับยา: ไม่ระบุ lot/exp/ราคา — คลังจัดสรร lot (FEFO) ตอน picking (ADR-0004)
         const { error: e2 } = await supabase.from('requisition_items').insert(
           cart.map(item => ({
@@ -1178,7 +1258,7 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
       } else {
         onSubmitted();
       }
-    } catch (e) { setError(e.message); } finally { setLoading(false); }
+    } catch (e) { setError(e.message); } finally { setLoading(false); submittingRef.current = false; }
   };
 
   if (doneInfo) return (
@@ -1343,17 +1423,19 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
 // preopenedWin = หน้าต่างเปล่าที่เปิดไว้ตั้งแต่ตอนคลิก (กัน popup blocker บน mobile — ต้องเปิดใน user gesture ก่อน await)
 async function printReq(req, preopenedWin) {
   const { allocByItem, onHandByLot, logMap } = await computeReqAllocations([req]);
+  const lastImportAt = await fetchLastInventoryImportAt();
   const d = new Date(req.created_at);
   const dateStr = d.toLocaleString('th-TH', { dateStyle: 'long', timeStyle: 'short' });
   const allItems = req.requisition_items || [];
   const items = req.status === 'partial'
     ? allItems.filter(item => item.approved_qty != null && item.approved_qty > 0)
     : allItems;
-  // คงเหลือหลังจ่ายราย lot = คงเหลือสดของ lot นั้น − จำนวนที่จ่ายจาก lot นั้น
-  const remainLot = (code, lot, out) => {
-    const onHand = onHandByLot[`${String(code || '').trim()}|${String(lot || '').trim()}`];
-    if (onHand == null) return '-';
-    return Math.max(0, onHand - (Number(out) || 0)).toLocaleString();
+  // คงเหลือหลังจ่ายราย lot — ใช้ lotBeforeAfter ตัวเดียวกับใบ lot คุม/Excel (snapshot → live±out ตามรอบ import)
+  // ห้ามคำนวณ live−out ตรงๆ: ใบที่จ่ายแล้ว+import ใหม่แล้วจะหักซ้ำสองรอบ และเลขจะไม่ตรงเอกสารอื่น (Rule #6)
+  const remainLot = (code, lot, out, snap = null) => {
+    const key = `${String(code || '').trim()}|${String(lot || '').trim()}`;
+    if (snap == null && onHandByLot[key] == null) return '-';
+    return lotBeforeAfter(req, code, lot, out, snap, onHandByLot, lastImportAt).after.toLocaleString();
   };
   // exp + ระยะถึงหมดอายุ (อีกกี่ปี/เดือน/วัน)
   const expCell = (raw) => {
@@ -1366,11 +1448,11 @@ async function printReq(req, preopenedWin) {
     const want = Number(item.approved_qty ?? item.requested_qty) || 0;
     const out = (alloc && alloc.length) ? alloc.reduce((s, a) => s + (Number(a.base) || 0), 0) : 0;
     const over = out - want;
-    const u = item.drug_unit || '';
+    const u = escHtml(item.drug_unit || '');
     const overTxt = over > 0
       ? `<span style="color:#b45309">ขอ ${want.toLocaleString()} จ่าย ${out.toLocaleString()} ${u} — เนื่องจากจ่ายเต็มกล่อง (ไม่แกะกล่อง เกิน ${over.toLocaleString()})</span>`
       : '';
-    const note = item.item_note || '';
+    const note = escHtml(item.item_note || '');
     return [note, overTxt].filter(Boolean).join('<br>');
   };
   // 1 รายการ → หลายแถวตาม lot ที่จะจ่าย; ไม่มี allocation → แถวเดียว (ค่าที่ขอ)
@@ -1381,15 +1463,15 @@ async function printReq(req, preopenedWin) {
       return alloc.map((a, ai) => `
     <tr>
       <td style="text-align:center">${i + 1}</td>
-      <td style="text-align:center">${item.drug_code || '-'}</td>
-      <td style="text-align:center">${item.drug_type || '-'}</td>
-      <td>${item.drug_name || '-'}</td>
-      <td style="text-align:center">${item.drug_unit || '-'}</td>
+      <td style="text-align:center">${escHtml(item.drug_code || '-')}</td>
+      <td style="text-align:center">${escHtml(item.drug_type || '-')}</td>
+      <td>${escHtml(item.drug_name || '-')}</td>
+      <td style="text-align:center">${escHtml(item.drug_unit || '-')}</td>
       <td style="text-align:center">${Number(a.base).toLocaleString()}</td>
-      <td style="text-align:center">${a.lot || '-'}</td>
-      <td style="text-align:center">${a.location && a.location !== '-' ? a.location : '-'}</td>
+      <td style="text-align:center">${escHtml(a.lot || '-')}</td>
+      <td style="text-align:center">${a.location && a.location !== '-' ? escHtml(a.location) : '-'}</td>
       <td style="text-align:center">${expCell(a.exp)}</td>
-      <td style="text-align:center">${remainLot(item.drug_code, a.lot, a.base)}</td>
+      <td style="text-align:center">${remainLot(item.drug_code, a.lot, a.base, a.onhand ?? null)}</td>
       <td>${ai === 0 ? note : ''}</td>
     </tr>`).join('');
     }
@@ -1400,13 +1482,13 @@ async function printReq(req, preopenedWin) {
     return `
     <tr>
       <td style="text-align:center">${i + 1}</td>
-      <td style="text-align:center">${item.drug_code || '-'}</td>
-      <td style="text-align:center">${item.drug_type || '-'}</td>
-      <td>${item.drug_name || '-'}</td>
-      <td style="text-align:center">${item.drug_unit || '-'}</td>
+      <td style="text-align:center">${escHtml(item.drug_code || '-')}</td>
+      <td style="text-align:center">${escHtml(item.drug_type || '-')}</td>
+      <td>${escHtml(item.drug_name || '-')}</td>
+      <td style="text-align:center">${escHtml(item.drug_unit || '-')}</td>
       <td style="text-align:center">${Number(outQty).toLocaleString()}</td>
-      <td style="text-align:center">${lot || '-'}</td>
-      <td style="text-align:center">${loc && loc !== '-' ? loc : '-'}</td>
+      <td style="text-align:center">${escHtml(lot || '-')}</td>
+      <td style="text-align:center">${loc && loc !== '-' ? escHtml(loc) : '-'}</td>
       <td style="text-align:center">${exp ? expCell(exp) : '-'}</td>
       <td style="text-align:center">${remainLot(item.drug_code, lot, outQty)}</td>
       <td>${note}</td>
@@ -1448,11 +1530,11 @@ async function printReq(req, preopenedWin) {
       .sig-block p { margin: 0; }
       @media print { body { margin: 10mm 12mm; } }
     </style></head><body>
-    <h2>ใบเบิกยา : ${req.department}</h2>
+    <h2>ใบเบิกยา : ${escHtml(req.department)}</h2>
     <div class="meta">
-      เลขที่: <strong>${req.req_number}</strong> &nbsp;|&nbsp;
-      หน่วยงาน: <strong>${req.department}</strong> &nbsp;|&nbsp;
-      ผู้เบิก: <strong>${req.requester_name || '-'}</strong> &nbsp;|&nbsp;
+      เลขที่: <strong>${escHtml(req.req_number)}</strong> &nbsp;|&nbsp;
+      หน่วยงาน: <strong>${escHtml(req.department)}</strong> &nbsp;|&nbsp;
+      ผู้เบิก: <strong>${escHtml(req.requester_name || '-')}</strong> &nbsp;|&nbsp;
       วันที่: <strong>${dateStr}</strong>
     </div>
     <table>
@@ -1471,7 +1553,7 @@ async function printReq(req, preopenedWin) {
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    ${req.note ? `<p style="margin-top:12px;color:#64748b;font-size:14px">หมายเหตุ: ${req.note}</p>` : ''}
+    ${req.note ? `<p style="margin-top:12px;color:#64748b;font-size:14px">หมายเหตุ: ${escHtml(req.note)}</p>` : ''}
     ${sigBlock}
     <div style="clear:both"></div>
     <script>window.onload=()=>{window.print();}</script>
@@ -1479,10 +1561,9 @@ async function printReq(req, preopenedWin) {
 
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
-  // ใช้หน้าต่างที่เปิดไว้ตอนคลิก (mobile) ถ้ามี ไม่งั้นเปิดใหม่ (desktop ไม่โดนบล็อก)
-  const w = preopenedWin && !preopenedWin.closed ? (preopenedWin.location.href = url, preopenedWin) : window.open(url, '_blank');
-  if (w) setTimeout(() => URL.revokeObjectURL(url), 30000);
-  else   URL.revokeObjectURL(url);
+  // preopenedWin = หน้าต่างที่เปิดตอนคลิก (กัน popup blocker); ไม่มี/โดนบล็อก → openPrintUrl มี <a> fallback สำหรับ LINE WebView
+  openPrintUrl(url, preopenedWin);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 // จ่ายออกแล้ว + มี import inventory CSV รอบใหม่หลังจ่าย → qty สดสะท้อน "หลังจ่าย" แล้ว
@@ -1582,21 +1663,21 @@ async function printLotControl(req, preopenedWin) {
   const rows = rowObjs.map(r => `
     <tr>
       <td class="c">${dateCol}</td>
-      <td class="c">${r.mainLog || '-'}</td>
-      <td class="c">${r.detailLog || '-'}</td>
-      <td class="c">${r.code}</td>
-      <td class="c">${r.drugType}</td>
-      <td>${r.name}</td>
-      <td class="c">${r.unit}</td>
+      <td class="c">${escHtml(r.mainLog || '-')}</td>
+      <td class="c">${escHtml(r.detailLog || '-')}</td>
+      <td class="c">${escHtml(r.code)}</td>
+      <td class="c">${escHtml(r.drugType)}</td>
+      <td>${escHtml(r.name)}</td>
+      <td class="c">${escHtml(r.unit)}</td>
       <td class="r">${r.price != null ? Number(r.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
-      <td class="c">${r.lot}</td>
+      <td class="c">${escHtml(r.lot)}</td>
       <td class="c${r.exp && isNearExpiry(r.exp) ? ' exp-near' : ''}">${r.exp ? fmtExp(r.exp) : '-'}</td>
-      <td class="c">${r.itemType}</td>
+      <td class="c">${escHtml(r.itemType)}</td>
       <td class="r">${r.before.toLocaleString()}</td>
       <td class="r">${r.out.toLocaleString()}</td>
       <td class="r">${r.after.toLocaleString()}</td>
-      <td class="c">${req.department || '-'}</td>
-      <td>${r.note}</td>
+      <td class="c">${escHtml(req.department || '-')}</td>
+      <td>${escHtml(r.note)}</td>
     </tr>`).join('');
 
   const html = `<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
@@ -1617,13 +1698,13 @@ async function printLotControl(req, preopenedWin) {
       td.exp-near { background: #f87171; font-weight: 600; }
     </style></head><body>
     <div class="head">
-      <span>${req.department || '-'}</span>
+      <span>${escHtml(req.department || '-')}</span>
       <span>${fmtDateCE(now)} เวลา:${pad(now.getHours())}:${pad(now.getMinutes())}</span>
     </div>
     <div class="meta">
-      ใบ lot คุม — เลขที่: <strong>${req.req_number}</strong>
-      &nbsp;|&nbsp; ผู้เบิก: ${req.requester_name || '-'}
-      ${req.picker_name ? `&nbsp;|&nbsp; ผู้จัดยา: ${req.picker_name}` : ''}
+      ใบ lot คุม — เลขที่: <strong>${escHtml(req.req_number)}</strong>
+      &nbsp;|&nbsp; ผู้เบิก: ${escHtml(req.requester_name || '-')}
+      ${req.picker_name ? `&nbsp;|&nbsp; ผู้จัดยา: ${escHtml(req.picker_name)}` : ''}
       &nbsp;|&nbsp; สถานะ: ${STATUS_CONFIG[req.status]?.label || req.status}
       ${!isPicked ? ' <strong style="color:#b45309">(ประมาณการ FEFO — ยังไม่จัดยา)</strong>' : ''}
     </div>
@@ -1641,9 +1722,8 @@ async function printLotControl(req, preopenedWin) {
 
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
-  const w = preopenedWin && !preopenedWin.closed ? (preopenedWin.location.href = url, preopenedWin) : window.open(url, '_blank');
-  if (w) setTimeout(() => URL.revokeObjectURL(url), 30000);
-  else   URL.revokeObjectURL(url);
+  openPrintUrl(url, preopenedWin);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 // ============================================================
@@ -1682,8 +1762,8 @@ async function printCoverForm(req, preopenedWin) {
       const after = out != null ? Math.max(0, before - out) : null;
       return `<tr>
         <td class="c">${i + 1}</td>
-        <td>${item.drug_name || '-'}</td>
-        <td class="c">${item.drug_unit || '-'}</td>
+        <td>${escHtml(item.drug_name || '-')}</td>
+        <td class="c">${escHtml(item.drug_unit || '-')}</td>
         <td class="r">${before.toLocaleString()}</td>
         <td class="r">${want.toLocaleString()}</td>
         <td class="r">${out != null ? out.toLocaleString() : ''}</td>
@@ -1719,13 +1799,13 @@ async function printCoverForm(req, preopenedWin) {
       .indent { margin-left: 16px; }
       .sig-center { text-align: center; }
     </style></head><body>
-    <p class="num">เลขที่เบิก <span class="dot" style="min-width:120px;text-align:center;font-weight:600">&nbsp;${req.req_number}&nbsp;</span></p>
+    <p class="num">เลขที่เบิก <span class="dot" style="min-width:120px;text-align:center;font-weight:600">&nbsp;${escHtml(req.req_number)}&nbsp;</span></p>
     <h2>ใบเบิกเวชภัณฑ์ยา</h2>
     <div class="hosp"><strong>${COVER_FORM.hospital}</strong><br>วันที่ <span class="dot" style="min-width:110px;text-align:center">&nbsp;${thaiDate}&nbsp;</span></div>
     <p>เรียน ผู้อำนวยการ${COVER_FORM.hospital}</p>
-    <p>ข้าพเจ้า <span class="dot" style="min-width:200px;text-align:center">&nbsp;${req.requester_name || ''}&nbsp;</span>
+    <p>ข้าพเจ้า <span class="dot" style="min-width:200px;text-align:center">&nbsp;${escHtml(req.requester_name || '')}&nbsp;</span>
        ตำแหน่ง ${dotted(220)}</p>
-    <p>หน่วยงานผู้เบิก(ฝ่าย) <span class="dot" style="min-width:240px;text-align:center">&nbsp;${req.department || ''}&nbsp;</span>
+    <p>หน่วยงานผู้เบิก(ฝ่าย) <span class="dot" style="min-width:240px;text-align:center">&nbsp;${escHtml(req.department || '')}&nbsp;</span>
        มีความประสงค์จะขอเบิกวัสดุเพื่อใช้ในรายการต่อไปนี้</p>
     <table>
       <thead><tr>
@@ -1740,7 +1820,7 @@ async function printCoverForm(req, preopenedWin) {
         <div class="blk">
           <p><strong>เรียน หัวหน้ากลุ่มงาน / หน่วยงาน</strong></p>
           <p class="indent">- เพื่อเห็นชอบให้เบิกวัสดุเพื่อใช้ในงานราชการ</p>
-          <p>ในหน่วยงาน <span class="dot" style="min-width:220px;text-align:center">&nbsp;${req.department || ''}&nbsp;</span></p>
+          <p>ในหน่วยงาน <span class="dot" style="min-width:220px;text-align:center">&nbsp;${escHtml(req.department || '')}&nbsp;</span></p>
           <p>ลงชื่อ ${dotted(200)} (ผู้เขียนคำขอ)</p>
           <p>ตำแหน่ง ${dotted(230)}</p>
           <p>${dateLine}</p>
@@ -1782,9 +1862,8 @@ async function printCoverForm(req, preopenedWin) {
 
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
-  const w = preopenedWin && !preopenedWin.closed ? (preopenedWin.location.href = url, preopenedWin) : window.open(url, '_blank');
-  if (w) setTimeout(() => URL.revokeObjectURL(url), 30000);
-  else   URL.revokeObjectURL(url);
+  openPrintUrl(url, preopenedWin);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 // ---- Requisition History ----
@@ -1794,6 +1873,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
   const [expanded, setExpanded]   = useState(null);
   const [confirmModal, setConfirmModal] = useState(null); // { type:'delete'|'edit', req }
   const [editDraft, setEditDraft]       = useState(null); // { note, items:[{id,requested_qty,note,...}] }
+  const [editError, setEditError]       = useState(''); // error validate คงเหลือตอนแก้ใบเบิก
   const [saving, setSaving]             = useState(false);
   const [actionMsg, setActionMsg]       = useState('');
   const [itemSearch, setItemSearch]     = useState('');
@@ -1825,6 +1905,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
     setEditDraft({ note: req.note || '', items: req.requisition_items.map(i => ({ ...i, requested_qty: i.requested_qty })) });
     setConfirmModal({ type: 'edit', req });
     setItemSearch('');
+    setEditError('');
   };
 
   const handleDelete = async () => {
@@ -1850,8 +1931,28 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
   };
 
   const handleEdit = async () => {
-    setSaving(true);
+    setSaving(true); setEditError('');
     try {
+      // re-validate คงเหลือ−จอง ก่อนบันทึก (ปุ่ม +/− ในโมดอลไม่มี cap) — ไม่นับยอดจองของใบตัวเอง
+      const codes = [...new Set((editDraft?.items || []).map(i => i.drug_code).filter(Boolean))];
+      if (supabase && codes.length > 0) {
+        const [invBaseMap, reservedOther] = await Promise.all([
+          fetchInvBaseByCode(codes),
+          fetchReservedBase(codes, { excludeReqId: confirmModal.req.id }),
+        ]);
+        const effectiveOf = (it) => {
+          const k = codeKey(it.drug_code);
+          return Math.max(0, (invBaseMap[k] ?? 0) - (reservedOther[k] ?? 0));
+        };
+        const conflicts = (editDraft?.items || []).filter(it => (Number(it.requested_qty) || 0) > effectiveOf(it));
+        if (conflicts.length > 0) {
+          setEditError('บันทึกไม่ได้ — เกินคงเหลือในคลัง: ' + conflicts.map(it =>
+            `${it.drug_name} ขอ ${Number(it.requested_qty).toLocaleString()} แต่เบิกได้ ${effectiveOf(it).toLocaleString()} ${it.drug_unit || ''}`.trim()
+          ).join(' · '));
+          setSaving(false);
+          return;
+        }
+      }
       await updateRequesterRequisition(confirmModal.req.id, editDraft, auth);
       setActionMsg('แก้ไขใบเบิกสำเร็จ — เจ้าหน้าที่คลังยารับทราบแล้ว');
       setConfirmModal(null);
@@ -1935,8 +2036,10 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
           const isPending = req.status === 'pending';
           return (
             <div key={req.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-              <button className="w-full p-4 text-left flex items-start justify-between gap-3"
-                onClick={() => setExpanded(expanded===req.id ? null : req.id)}>
+              {/* div ไม่ใช่ button — ข้างในมีปุ่มพิมพ์/แก้/ลบ (button ซ้อน button = invalid HTML, hydration error) */}
+              <div role="button" tabIndex={0} className="w-full p-4 text-left flex items-start justify-between gap-3 cursor-pointer"
+                onClick={() => setExpanded(expanded===req.id ? null : req.id)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(expanded===req.id ? null : req.id); } }}>
                 <div className="min-w-0">
                   <p className="font-mono text-xs text-slate-400">{req.req_number}</p>
                   <p className="font-semibold text-slate-800 mt-0.5">{req.department}</p>
@@ -1976,7 +2079,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                   </>)}
                   <ChevronRight size={16} className={`text-slate-400 transition-transform ${expanded===req.id?'rotate-90':''}`} />
                 </div>
-              </button>
+              </div>
               {expanded===req.id && (
                 <div className="border-t border-slate-100 p-4 space-y-2 bg-slate-50">
                   {req.requisition_items?.map(item => (
@@ -2118,6 +2221,11 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                       placeholder="หมายเหตุ (ถ้ามี)"
                       className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
+                  {editError && (
+                    <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 flex items-start gap-1.5">
+                      <AlertCircle size={13} className="shrink-0 mt-0.5"/> {editError}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -2240,18 +2348,26 @@ function PickingModal({ req, auth, onClose, onDone }) {
       // คำนวณ FEFO allocation สดจากของจริง ณ ตอนนี้ (ADR-0005) — approved_qty เป็นเม็ด
       setItemStates(prev => prev.map(item => {
         const lots = map[String(item.drug_code || '').trim()] || [];
-        const fefoLots = lots.map(l => {
+        // บวกรวมแถวซ้ำ lot เดียวกันก่อน — ห้ามปล่อยซ้ำเข้า allocation/onhand (บัคแถวซ้ำ 2026-07-18)
+        const fefoLots = mergeSameLotEntries(lots.map(l => {
           const { packSize, baseUnit } = parseUnit(l.unit);
           const packs = parseFloat(l.qty) || 0;
           // unit = หน่วยเต็ม (แสดง packs × unit), baseUnit = หน่วยย่อยล้วน (เม็ด/amp/ขวด) สำหรับ label คงเหลือ
           return { lot: l.lot, exp: l.exp, unit: l.unit, location: l.location, baseUnit: baseUnit || l.unit, packSize: packSize || 1, packs, base: packs * (packSize || 1) };
-        });
-        const alloc = allocateFefo(item.approved_qty, fefoLots);
+        }));
+        // lot หมดอายุห้ามจัด (FEFO จะหยิบ exp เก่าสุดก่อน = หมดอายุก่อน) — ให้ตรงกับฝั่งค้นหาผู้เบิก
+        const alloc = allocateFefo(item.approved_qty, fefoLots.filter(lotNotExpired));
         const first = alloc.allocation[0];
         // คงเหลือกล่องสดราย lot (lot → { packs, packSize, unit }) — แสดง "คงเหลือก่อน/หลังจ่าย" เป็นกล่อง
         // unit ใช้ baseUnit (หน่วยย่อยล้วน) กัน label เพี้ยน เช่น "× 1000เม็ด" ไม่ใช่ "× 10001000เม็ด"
+        // บวกสะสม (+=) เหมือน VerifyModal — ห้าม assign ทับ ไม่งั้น lot เดียวกันคนละ exp โดนทับ snapshot ผิด
         const lotOnHand = {};
-        fefoLots.forEach(l => { lotOnHand[String(l.lot || '').trim()] = { packs: l.packs, packSize: l.packSize, unit: l.baseUnit }; });
+        fefoLots.forEach(l => {
+          const k = String(l.lot || '').trim();
+          const prev2 = lotOnHand[k] || { packs: 0, packSize: l.packSize, unit: l.baseUnit };
+          prev2.packs += l.packs;
+          lotOnHand[k] = prev2;
+        });
         return { ...item, allocation: alloc.allocation, shortfallBase: alloc.shortfallBase, allocatedBase: alloc.allocatedBase, overBase: alloc.overBase, lotOnHand,
           picked_lot: first?.lot || '', picked_exp: first?.exp || '', picked_qty: alloc.allocatedBase };
       }));
@@ -2911,8 +3027,10 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
           const isPending = req.status === 'pending';
           return (
             <div key={req.id} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-              {/* Card body — clickable to detail */}
-              <button onClick={() => onSelect(req)} className="w-full text-left p-4 hover:bg-slate-50 transition-colors">
+              {/* Card body — clickable to detail (div ไม่ใช่ button — ข้างในมี checkbox, input ใน button = invalid HTML) */}
+              <div role="button" tabIndex={0} onClick={() => onSelect(req)}
+                onKeyDown={e => { if (e.key === 'Enter') onSelect(req); }}
+                className="w-full text-left p-4 hover:bg-slate-50 transition-colors cursor-pointer">
                 <div className="flex items-start gap-3">
                   <div className="pt-1 shrink-0" onClick={e => toggleSelect(e, req.id)}>
                     <input type="checkbox" readOnly checked={selected.has(req.id)}
@@ -2937,7 +3055,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
                     <ChevronRight size={14} className="text-slate-300"/>
                   </div>
                 </div>
-              </button>
+              </div>
               {/* Card footer — action buttons */}
               <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-t border-slate-100">
                 <div className="flex items-center gap-1">
@@ -3074,6 +3192,8 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         if (packs <= 0) return;
         (map[code] = map[code] || []).push({ lot: row.lot, exp: row.exp, unit: row.unit, location: row.location, packSize: packSize || 1, packs, base: packs * (packSize || 1) });
       });
+      // map นี้ใช้ preview allocation เท่านั้น → บวกรวมแถวซ้ำ + ตัด lot หมดอายุตั้งแต่ต้นทาง
+      Object.keys(map).forEach(c => { map[c] = mergeSameLotEntries(map[c]).filter(lotNotExpired); });
       Object.values(map).forEach(lots => lots.sort((a, b) => {
         const da = parseExp(a.exp), db = parseExp(b.exp);
         if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;

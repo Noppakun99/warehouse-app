@@ -106,6 +106,29 @@ export function checkRangeGuards(inventoryRows) {
 }
 
 /**
+ * แถวคลังซ้ำ: code+lot เดียวกันหลายแถว (CSV ต้นทางแยกแถว) — informational
+ * แอปบวกรวมให้แล้วทุกจุดอ่าน (ยอดถูก = ผลรวมทุกแถว) แต่ควรเห็นว่าต้นทางมีซ้ำ
+ * เหตุการณ์ 2026-07-18: จุดอ่านที่ dedupe/ทับแถวซ้ำ ทำคงเหลือระบบเบิกเพี้ยน (600 จากจริง 6,600)
+ * @param inventoryRows [{ code, name, lot, qty, location }]
+ * @returns duplicates: [{ code, name, lot, rows, totalQty, qtys }]
+ */
+export function checkDuplicateLotRows(inventoryRows) {
+  const groups = new Map()
+  for (const row of inventoryRows || []) {
+    const code = String(row.code ?? '').trim().toLowerCase()
+    if (!code) continue
+    const key = `${code}|${normLot(row.lot)}`
+    const g = groups.get(key) || { code: row.code, name: row.name || '-', lot: row.lot ?? '-', rows: 0, totalQty: 0, qtys: [] }
+    g.rows += 1
+    const qty = toNum(row.qty)
+    if (qty != null) { g.totalQty += qty; g.qtys.push(qty) }
+    else g.qtys.push(row.qty)
+    groups.set(key, g)
+  }
+  return [...groups.values()].filter(g => g.rows > 1)
+}
+
+/**
  * รวมทุกตรวจเป็น report เดียว
  * @param inventoryRows  จาก fetchAllInventoryRows
  * @param receiveRows    [{ drug_code, lot }] จาก receive_logs (paginated)
@@ -115,6 +138,7 @@ export function buildConsistencyReport(inventoryRows, receiveRows) {
   const receiveKeySet = buildReceiveKeySet(receiveRows)
   const referential = checkInventoryOrphans(inventoryRows, receiveKeySet)
   const guards = checkRangeGuards(inventoryRows)
+  const duplicates = checkDuplicateLotRows(inventoryRows)
   return {
     counts: {
       inventoryRows: (inventoryRows || []).length,
@@ -122,5 +146,6 @@ export function buildConsistencyReport(inventoryRows, receiveRows) {
     },
     referential,   // { hasReceiveData, orphans }
     guards,        // { ssTooHigh, qtyNegative }
+    duplicates,    // [{ code, name, lot, rows, totalQty, qtys }] — แถวซ้ำ code+lot
   }
 }

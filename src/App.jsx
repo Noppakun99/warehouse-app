@@ -1530,11 +1530,12 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
 
       {/* Consistency Check Modal */}
       {consistency && (() => {
-        const { error, counts, referential, guards } = consistency;
+        const { error, counts, referential, guards, duplicates: dupRows } = consistency;
         const orphans = referential?.orphans || [];
         const ssTooHigh = guards?.ssTooHigh || [];
         const qtyNegative = guards?.qtyNegative || [];
-        const totalIssues = orphans.length + ssTooHigh.length + qtyNegative.length;
+        const duplicates = dupRows || [];
+        const totalIssues = orphans.length + ssTooHigh.length + qtyNegative.length + duplicates.length;
         const allClear = !error && referential?.hasReceiveData && totalIssues === 0;
         return (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -1608,6 +1609,29 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                           <span className="font-semibold text-slate-800">{r.name}</span>
                           {r.code && r.code !== '-' && <span className="text-slate-400 ml-2 text-xs">[{r.code}]</span>}
                           <span className="bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full text-xs ml-2">คงเหลือติดลบ = {r.qty}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* แถวซ้ำ code+lot — informational (แอปบวกรวมให้แล้ว แต่ต้นทาง CSV มีซ้ำ) */}
+                {!error && duplicates.length > 0 && (
+                  <div>
+                    <p className="text-sm font-bold text-slate-700 flex items-center gap-1.5 mb-2">
+                      <AlertTriangle size={15} className="text-amber-500"/> แถวคลังซ้ำ — รหัส+lot เดียวกันหลายแถว
+                      <span className="text-xs font-normal text-slate-400">({duplicates.length} กลุ่ม)</span>
+                    </p>
+                    <p className="text-xs text-slate-500 mb-2">ระบบรวมยอดให้อัตโนมัติแล้ว (คงเหลือที่ถูก = ผลรวมทุกแถว) — ควรตรวจไฟล์ต้นทางว่าแยกแถวโดยตั้งใจหรือไม่</p>
+                    <div className="space-y-1.5">
+                      {duplicates.map((d, i) => (
+                        <div key={`dup${i}`} className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-sm flex gap-3 items-start">
+                          <span className="font-mono bg-amber-200 text-amber-900 px-2 py-0.5 rounded text-xs font-bold shrink-0">lot {d.lot}</span>
+                          <div className="flex-1">
+                            <span className="font-semibold text-slate-800">{d.name}</span>
+                            {d.code && d.code !== '-' && <span className="text-slate-400 ml-2 text-xs">[{d.code}]</span>}
+                            <span className="text-slate-500 ml-2 text-xs">{d.rows} แถว ({d.qtys.join(' + ')}) = รวม {Number(d.totalQty).toLocaleString()}</span>
+                          </div>
                         </div>
                       ))}
                     </div>

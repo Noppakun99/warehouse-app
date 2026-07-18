@@ -6,7 +6,7 @@
 
 import {
   normLot, isBlankLot, buildReceiveKeySet, checkInventoryOrphans,
-  checkRangeGuards, buildConsistencyReport, GUARD,
+  checkRangeGuards, checkDuplicateLotRows, buildConsistencyReport, GUARD,
 } from './consistencyCheck.js'
 
 let pass = 0, fail = 0
@@ -85,7 +85,30 @@ check('SS = MAX พอดี → ไม่ flag (ใช้ >)', !g.ssTooHigh.som
 check('qty ติดลบ → flag', g.qtyNegative.length === 1 && g.qtyNegative[0].code === 'C')
 
 // ============================================================
-// 5. buildConsistencyReport — รวม
+// 5. checkDuplicateLotRows — แถวซ้ำ code+lot (เหตุการณ์ 2026-07-18)
+// ============================================================
+console.log('\n=== checkDuplicateLotRows ===\n')
+const invDup = [
+  { code: '1480702', name: 'Baclofen 10mg', lot: '260301', qty: '3', location: 'A-3-4' },
+  { code: '1480702', name: 'Baclofen 10mg', lot: '260301', qty: '30', location: 'A-3-4' },  // ซ้ำ → รวม 33
+  { code: '1480702', name: 'Baclofen 10mg', lot: '251205', qty: '5', location: 'A-3-4' },   // lot อื่น → ไม่ซ้ำ
+  { code: 'S011', name: 'ถุงซิบ', lot: '-', qty: '92', location: 'คลังถุง' },
+  { code: 'S011', name: 'ถุงซิบ', lot: '-', qty: '100', location: 'คลังถุง' },              // lot '-' ซ้ำ → ก็ flag (ยอดต้องรวม)
+  { code: '1000047', name: 'ยา E', lot: '90736 ', qty: '1', location: 'D-1' },
+  { code: '1000047', name: 'ยา E', lot: '90736', qty: '2', location: 'D-1' },               // lot เดียวกันต่างแค่ space → normalize แล้วซ้ำ
+]
+const dups = checkDuplicateLotRows(invDup)
+check('พบ 3 กลุ่มซ้ำ (Baclofen 260301 / S011 "-" / 90736)', dups.length === 3)
+const dBac = dups.find(d => d.code === '1480702')
+check('Baclofen 260301: 2 แถว รวม 33', dBac?.rows === 2 && dBac?.totalQty === 33)
+check('lot อื่นของรหัสเดียวกันไม่ถูก flag', !dups.some(d => d.lot === '251205'))
+const dSpace = dups.find(d => d.code === '1000047')
+check('lot ต่างแค่ space → นับเป็นกลุ่มเดียว รวม 3', dSpace?.rows === 2 && dSpace?.totalQty === 3)
+check('ไม่มีแถวซ้ำ → []', checkDuplicateLotRows([{ code: 'A', lot: 'L1', qty: '1' }]).length === 0)
+check('input null → ไม่ throw', checkDuplicateLotRows(null).length === 0)
+
+// ============================================================
+// 6. buildConsistencyReport — รวม
 // ============================================================
 console.log('\n=== buildConsistencyReport ===\n')
 const report = buildConsistencyReport(inv, recv)
@@ -93,6 +116,7 @@ check('counts.inventoryRows = 4', report.counts.inventoryRows === 4)
 check('counts.receiveKeys = 2', report.counts.receiveKeys === 2)
 check('referential.orphans มี 1', report.referential.orphans.length === 1)
 check('guards มีทั้ง ssTooHigh + qtyNegative keys', 'ssTooHigh' in report.guards && 'qtyNegative' in report.guards)
+check('report มี duplicates key (inv ตัวอย่างมีแถว 1650017 สองแถวแต่คนละ lot → 0 กลุ่ม)', Array.isArray(report.duplicates) && report.duplicates.length === 0)
 
 // null-safe
 const empty = buildConsistencyReport(null, null)
