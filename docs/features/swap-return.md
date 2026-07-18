@@ -24,6 +24,7 @@
 ## Data layer ([db.js](../../src/lib/db.js))
 
 - **`fetchSwapPolicies()`** → `{ [company]: { returnMonths, canReturn, differsByItem, rawNote } }`
+- **`fetchSwapReturnDue()`** — แต่ละ row มี `receiveDate` (ISO) = **วันที่คลังรับ lot นั้นล่าสุด** จาก `receive_logs` (แถวเรียง `receive_date` DESC อยู่แล้ว — แถวแรกต่อ code|lot คือล่าสุด) — แสดงเป็น chip "คลังรับ" ใน `SwapReturnPopup` ([AppRoot.jsx](../../src/AppRoot.jsx)) + คอลัมน์ "วันที่คลังรับ" ในใบพิมพ์และ Excel
 - **`seedSwapPolicies(auth)`** — derive นโยบายต่อบริษัท (most-frequent) จาก `receive_logs` ผ่าน `parseReturnPolicy` → upsert (ไม่แตะแถว `source='manual'`); audit `seed_swap_policy`
 - **`flagSwapReturn({...}, auth)`** — audit `flag_swap_return` (ไม่แตะ inventory — แค่ flag ติดตามงาน)
 
