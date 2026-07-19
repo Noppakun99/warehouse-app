@@ -970,7 +970,7 @@ export async function fetchSwapReturnDue() {
 
   const [policies, inv, usageRates, monthlyUsage] = await Promise.all([
     fetchSwapPolicies(),
-    fetchAllInventoryRows('code, name, unit, lot, exp, qty, location, receive_status'),
+    fetchAllInventoryRows('id, code, name, unit, lot, exp, qty, location, receive_status'),
     fetchUsageRates(6),   // avgPerDay ต่อรหัสยา (หน่วยย่อยสุด, เม็ด) — สำหรับ coverage
     fetchMonthlyDispenseUsage(rateFrom, rateTo),   // เบิกรายเดือน (เม็ด) ต่อรหัสยา — สำหรับเรท/เดือน
   ])
@@ -1057,6 +1057,7 @@ export async function fetchSwapReturnDue() {
     const willDeplete = coverageDays != null && daysToDeadline != null && coverageDays < daysToDeadline
 
     out.push({
+      id: item.id,   // row id ของ inventory — React key/flag state (inventory มีแถวซ้ำ code+lot+location จริง ห้าม key ด้วย business key)
       code: item.code, name: item.name, lot: item.lot, exp: item.exp, location: item.location,
       qty: item.qty, unit: item.unit, company, returnMonths: pol.returnMonths,
       // format ด้วย local parts — toISOString() บนเครื่อง UTC+7 เลื่อนวันถอยหลัง 1 วัน (local midnight → UTC = เมื่อวาน)
@@ -1640,6 +1641,28 @@ export async function deleteScannedBillRows(ids, auth = {}, details = {}) {
   return ids.length
 }
 
+// เช็คเลขบิลซ้ำก่อนบันทึกบิลสแกน — คืน map bill_number → { count, lastDate, suppliers }
+// key ระดับเลขบิลโดยเจตนา (ไม่รวม supplier): ชื่อบริษัทที่ AI อ่านสะกดต่างจากใน log ได้ → ใช้เตือน ไม่ใช่ block
+export async function checkExistingBills(billNumbers) {
+  if (!supabase) return {}
+  const bills = [...new Set((billNumbers || []).map(b => String(b || '').trim()).filter(b => b && b !== '-'))]
+  if (!bills.length) return {}
+  const { data, error } = await supabase.from('receive_logs')
+    .select('bill_number, supplier_current, receive_date')
+    .in('bill_number', bills)
+  if (error) throw error
+  const map = {}
+  for (const r of (data || [])) {
+    const k = String(r.bill_number || '').trim()
+    const g = (map[k] = map[k] || { count: 0, lastDate: null, suppliers: [] })
+    g.count++
+    if (r.receive_date && (!g.lastDate || r.receive_date > g.lastDate)) g.lastDate = r.receive_date
+    const s = String(r.supplier_current || '').trim()
+    if (s && s !== '-' && !g.suppliers.includes(s)) g.suppliers.push(s)
+  }
+  return map
+}
+
 // อัพโหลดภาพบิลไปยัง Supabase Storage → return public URL
 export async function uploadInvoiceImage(file, fileName) {
   if (!supabase) throw new Error('Supabase not configured')
@@ -1786,9 +1809,19 @@ export async function fetchStockSummary() {
     });
 
     const totalInMain = mainParsed.factor > 0 ? totalSmallest / mainParsed.factor : totalSmallest;
-    // ราย lot คงเหลือ (qty>0 อยู่แล้ว) เรียง FEFO — ให้ผู้ใช้กางดูแต่ละ lot ในโมดอล
-    const lots = drug.lots
-      .map(l => ({ lot: (l.lot && l.lot !== '-') ? l.lot : '', exp: (l.exp && l.exp !== '-') ? l.exp : '', qty: l.qty, unit: l.unit }))
+    // ราย lot คงเหลือ (qty>0 อยู่แล้ว) — รวมแถวซ้ำ (lot+exp+หน่วยตรงกัน) เข้าด้วยกันก่อน
+    // inventory มีแถวซ้ำ code+lot จริง (CSV แยกแถว) — โดยเฉพาะ lot '-' เวชภัณฑ์; ไม่รวม → โชว์หลายบรรทัด lot '-'
+    // key รวมหน่วย เพราะ lot เดียวกันคนละหน่วยรวม qty ตรงๆ ไม่ได้ (ดู Rule: ห้าม dedupe drop แถว inventory)
+    const lotMap = new Map();
+    drug.lots.forEach(l => {
+      const lot = (l.lot && l.lot !== '-') ? l.lot : '';
+      const exp = (l.exp && l.exp !== '-') ? l.exp : '';
+      const k = `${lot}|${exp}|${l.unit}`;
+      const prev = lotMap.get(k);
+      if (prev) prev.qty += l.qty;
+      else lotMap.set(k, { lot, exp, qty: l.qty, unit: l.unit });
+    });
+    const lots = [...lotMap.values()]
       .sort((a, b) => {
         const da = _parseExpDate(a.exp), db_ = _parseExpDate(b.exp);
         if (da && db_) return da - db_;
@@ -1804,7 +1837,7 @@ export async function fetchStockSummary() {
       totalQty: Math.ceil(totalInMain),
       hasMultipleUnits,
       units: uniqueUnits,
-      lotCount: drug.lots.length,
+      lotCount: lots.length,
       lots,
     };
   })

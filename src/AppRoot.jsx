@@ -695,7 +695,7 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
   React.useEffect(() => {
     fetchDrugDetails().then(setDrugDetails).catch(() => setDrugDetails(null));
   }, []);
-  const keyOf = (r) => `${r.code}|${r.lot}|${r.location}`;
+  const keyOf = (r) => r.id ?? `${r.code}|${r.lot}|${r.location}`; // id = inventory row id — business key ซ้ำได้จริง (แถวซ้ำ code+lot+location) ทำ React key ชน
   const fmtThai = swapFmtDeadline;
   const fmtExp = swapFmtExp;
   const overdue = rows.filter(r => r.status === 'overdue');
@@ -1593,6 +1593,74 @@ const STOCK_EXCEL_COLS = [
   { header: 'จำนวน Lot',   key: 'lotCount' },
 ];
 
+// พิมพ์รายการคงเหลือในคลัง — Blob URL (iOS-safe) + fallback <a> click (WebView LINE/FB) ตาม Critical Rule #4
+function printStockSummary(rows, uploadInfo) {
+  const esc = (s) => String(s ?? '-').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const d = new Date();
+  const today = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()+543}`;
+  const uploadTxt = uploadInfo?.updated_at
+    ? new Date(uploadInfo.updated_at).toLocaleString('th-TH', { day:'numeric', month:'short', year:'2-digit', hour:'2-digit', minute:'2-digit' })
+    : '-';
+  const body = rows.map((r, i) => `
+    <tr>
+      <td class="c">${i + 1}</td>
+      <td class="c">${esc(r.code && r.code !== '-' ? r.code : '')}</td>
+      <td>${esc(r.name)}</td>
+      <td class="c">${esc(r.type)}</td>
+      <td class="r">${Number(r.totalQty || 0).toLocaleString()}</td>
+      <td>${esc(r.mainUnit)}${r.hasMultipleUnits ? ' *' : ''}</td>
+      <td class="c">${Number(r.lotCount || 0)}</td>
+    </tr>`).join('');
+
+  const html = `<!DOCTYPE html><html lang="th"><head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>รายการคงเหลือในคลัง</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #1e293b; background: #fff; padding: 16px 24px; }
+  @page { size: A4 portrait; margin: 10mm; }
+  .h-row { text-align: center; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 6px; }
+  h1 { font-size: 20px; font-weight: 700; }
+  .sub { font-size: 12px; color: #334155; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  th { background: #f1f5f9; font-weight: 700; padding: 5px 6px; text-align: center; border: 1px solid #000; }
+  td { padding: 4px 6px; border: 1px solid #94a3b8; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  td.c { text-align: center; } td.r { text-align: right; font-weight: 700; }
+  thead { display: table-header-group; }
+  .foot { margin-top: 10px; font-size: 11px; color: #64748b; }
+</style></head><body>
+<div class="h-row">
+  <h1>รายการคงเหลือในคลัง</h1>
+  <p class="sub">ทั้งหมด ${rows.length} รายการ · ข้อมูลอัพโหลด ${esc(uploadTxt)}</p>
+</div>
+<table>
+  <thead><tr>
+    <th style="width:5%;">ลำดับ</th>
+    <th style="width:12%;">รหัสยา</th>
+    <th style="width:38%;">ชื่อยา</th>
+    <th style="width:12%;">ประเภท</th>
+    <th style="width:12%;">คงเหลือ</th>
+    <th style="width:13%;">หน่วย</th>
+    <th style="width:8%;">Lot</th>
+  </tr></thead>
+  <tbody>${body}</tbody>
+</table>
+<p class="foot">พิมพ์เมื่อ ${today} · * = มีหลายหน่วย (ปัดเศษขึ้น) · ยาตัดออกจากบัญชีไม่แสดง</p>
+</body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const win  = window.open(url, '_blank');
+  if (win) { setTimeout(() => URL.revokeObjectURL(url), 30000); return; }
+  const a = document.createElement('a');
+  a.href = url; a.target = '_blank'; a.rel = 'noopener';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
 // ---- Stock Summary Modal ----
 function StockSummaryModal({ onClose, auth = {} }) {
   const [rows, setRows]             = React.useState([]);
@@ -1713,6 +1781,10 @@ function StockSummaryModal({ onClose, auth = {} }) {
             )}
           </div>
           <div className="flex items-center gap-1.5">
+            <button onClick={() => printStockSummary(sortedFiltered, uploadInfo)} disabled={filtered.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition-colors">
+              <Printer size={12}/> พิมพ์
+            </button>
             <button onClick={handleExport} disabled={exporting || filtered.length === 0}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition-colors">
               {exporting ? <RefreshCcw size={12} className="animate-spin"/> : <Database size={12}/>}
@@ -2108,11 +2180,11 @@ function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEn
                   <td className="px-4 py-2.5 text-right font-bold text-red-600 whitespace-nowrap">{Number(r.qty).toLocaleString()}</td>
                   <td className="px-4 py-2.5 text-left text-slate-500 text-xs whitespace-nowrap">{r.unit || '-'}</td>
                   <td className="px-4 py-2.5 text-right text-slate-600 whitespace-nowrap">{Number(r.safety_stock).toLocaleString()}</td>
-                  <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap" title="มีการเบิกกี่สัปดาห์ จาก 13 สัปดาห์ล่าสุด · และยอดรวมที่ใช้ไป">
                     {r.usageWeeks > 0 ? (
                       <>
-                        <span className="font-semibold text-slate-700">{r.usageWeeks}</span><span className="text-slate-400 text-xs">/13 สัปดาห์</span>
-                        <span className="block text-[11px] text-slate-400">{Number(r.usage3m).toLocaleString()}</span>
+                        <span className="font-semibold text-slate-700">เบิก {r.usageWeeks}/13 สัปดาห์</span>
+                        <span className="block text-slate-500">รวม {Number(r.usage3m).toLocaleString()}</span>
                       </>
                     ) : <span className="text-slate-300">—</span>}
                   </td>
