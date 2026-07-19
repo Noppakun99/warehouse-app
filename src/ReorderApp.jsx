@@ -131,6 +131,22 @@ function isoPrevMonthEnd() {
   return d.toISOString().slice(0, 10);
 }
 
+// วันที่ 1 ของ N เดือนเต็มที่จบแล้ว (นับย้อนจากเดือนก่อนหน้า) — คู่กับ isoPrevMonthEnd
+// n=3 → 3 เดือนเต็มก่อนเดือนปัจจุบัน (เช่น ก.ค. → 01/04); n='all' → null (ให้ backend ใช้ทั้งหมด)
+function isoMonthStartBack(n) {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - n); // ถอย n เดือน จากวันที่ 1 เดือนปัจจุบัน = วันที่ 1 ของ n เดือนก่อน
+  return d.toISOString().slice(0, 10);
+}
+
+// ตัวเลือกช่วงเร็ว — set statsFrom/statsTo ทีเดียว (ถึง = สิ้นเดือนก่อนเสมอ)
+const QUICK_RANGES = [
+  { months: 3,  label: '3 เดือน' },
+  { months: 6,  label: '6 เดือน' },
+  { months: 12, label: '12 เดือน' },
+];
+
 function listMonthYM(fromIso, toIso) {
   const out = [];
   const start = new Date(fromIso); start.setDate(1);
@@ -162,7 +178,13 @@ function fmtDateTimeThai(iso) {
 
 // ISO date input — overlay pattern แสดง DD/MM/YYYY (พ.ศ.) ตาม docs/patterns.md
 // ห้ามใช้ plain <input type="date"> เพราะ browser US locale แสดง MM/DD/YYYY
-function IsoDateInput({ value, onChange, className = '' }) {
+// resetValue: ถ้ากำหนด → ปุ่มมุมขวา = reset กลับค่า default (แสดงเมื่อ value ต่างจาก default);
+//             ถ้าไม่กำหนด → ปุ่ม = ล้างเป็นว่าง (แสดงเมื่อมีค่า)
+function IsoDateInput({ value, onChange, className = '', resetValue }) {
+  const hasReset = resetValue !== undefined;
+  const showBtn = hasReset ? value !== resetValue : !!value;
+  const btnTitle = hasReset ? 'คืนค่าวันที่เริ่มต้น' : 'ล้างวันที่';
+  const onBtn = () => onChange(hasReset ? resetValue : '');
   const display = (iso) => {
     if (!iso) return null;
     const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -178,9 +200,9 @@ function IsoDateInput({ value, onChange, className = '' }) {
       <input type="date" value={value || ''} onChange={(e) => onChange(e.target.value)}
         onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch { /* noop */ } }}
         className="absolute inset-0 opacity-0 w-full cursor-pointer"/>
-      {/* ปุ่มล้างค่า — z-10 เพื่ออยู่เหนือ input ที่ซ้อนเต็มพื้นที่; แสดงเมื่อมีค่าเท่านั้น */}
-      {value
-        ? <button type="button" onClick={() => onChange('')} title="ล้างวันที่"
+      {/* ปุ่ม reset/ล้าง — z-10 เพื่ออยู่เหนือ input ที่ซ้อนเต็มพื้นที่ */}
+      {showBtn
+        ? <button type="button" onClick={onBtn} title={btnTitle}
             className="absolute right-2 z-10 p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"><X size={14}/></button>
         : <Calendar size={15} className="absolute right-2.5 text-slate-400 pointer-events-none"/>}
     </div>
@@ -743,17 +765,32 @@ function ControlBar({ statsFrom, setStatsFrom, statsTo, setStatsTo, excludedMont
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         <div>
           <label className="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Calendar size={11}/> ช่วงสถิติ (จาก)</label>
-          <IsoDateInput value={statsFrom} onChange={setStatsFrom} className="w-full"/>
+          <IsoDateInput value={statsFrom} onChange={setStatsFrom} resetValue={isoMonthsAgo(4)} className="w-full"/>
         </div>
         <div>
           <label className="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Calendar size={11}/> ถึง</label>
-          <IsoDateInput value={statsTo} onChange={setStatsTo} className="w-full"/>
+          <IsoDateInput value={statsTo} onChange={setStatsTo} resetValue={isoPrevMonthEnd()} className="w-full"/>
         </div>
         <div>
           <label className="block text-xs font-semibold text-slate-500 mb-1">Lead Time default (วัน)</label>
           <input type="number" min="1" step="0.5" value={leadDefault} onChange={(e) => setLeadDefault(parseFloat(e.target.value) || DEFAULT_LEAD_TIME)}
             className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"/>
         </div>
+      </div>
+
+      {/* ช่วงเวลาเร็ว — กดแล้วเซ็ต จาก/ถึง ทีเดียว (ถึง = สิ้นเดือนก่อน, จาก = ย้อน N เดือนเต็ม) */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-xs text-slate-400 mr-0.5">ช่วงด่วน:</span>
+        {QUICK_RANGES.map(({ months, label }) => {
+          const active = statsFrom === isoMonthStartBack(months) && statsTo === isoPrevMonthEnd();
+          return (
+            <button key={months} type="button"
+              onClick={() => { setStatsFrom(isoMonthStartBack(months)); setStatsTo(isoPrevMonthEnd()); }}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${active ? 'bg-orange-600 text-white border-orange-600' : 'bg-white text-slate-600 border-slate-200 hover:border-orange-300 hover:bg-orange-50'}`}>
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
