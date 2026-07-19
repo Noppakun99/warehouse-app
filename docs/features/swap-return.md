@@ -28,6 +28,17 @@
 - **`seedSwapPolicies(auth)`** — derive นโยบายต่อบริษัท (most-frequent) จาก `receive_logs` ผ่าน `parseReturnPolicy` → upsert (ไม่แตะแถว `source='manual'`); audit `seed_swap_policy`
 - **`flagSwapReturn({...}, auth)`** — audit `flag_swap_return` (ไม่แตะ inventory — แค่ flag ติดตามงาน)
 
+## ประวัติรับยาในโมดอล = strict display (บิลอ้างอิงของ lot)
+
+`ReceiveHistoryDetail` ([AppRoot.jsx](../../src/AppRoot.jsx)) แสดง**การ์ดบิลเต็มเฉพาะ scope `code_lot_exp`** (รหัส+lot+EXP ตรงทั้งสาม — ดู CONTEXT.md §บิลอ้างอิงของ lot) เพราะใช้เป็นหลักฐานแจ้งหัวหน้าเปลี่ยน/คืนยา — ข้อมูลผิดบิลอันตรายกว่าไม่มีข้อมูล (2026-07-19):
+
+- **ตรงเป๊ะ** → การ์ดบิล + note เขียว "ตรงกับ lot + EXP รายการนี้" (`ShieldCheck`) + ช่อง **Lot (ตาม log)** / **EXP (ตาม log)** (พ.ศ. ผ่าน `swapFmtExp`) ให้ผู้ใช้พิสูจน์เองได้
+- **scope `code_lot`** (lot ตรง EXP ไม่ตรง/ไม่ระบุ = บิลใกล้เคียง) → ไม่โชว์การ์ด แต่ขึ้น "ไม่พบบิลของ lot/EXP รายการนี้" + กล่องใบ้ **เลขที่บิล + EXP ตาม log + วันที่รับ** (cap 5 ใบ — lot `-` เวชภัณฑ์บิลเยอะ) ให้ไป verify เองในระบบประวัติรับยา
+- **scope `code_only`/`none`** → "ไม่พบบิล/ไม่พบข้อมูล" เฉยๆ — **ห้ามโชว์บิลระดับรหัสยาเสมือนเป็นบิลของ lot นี้**
+- ⚠️ `matchReceiveDetails` **ยังคง fallback แคบ→กว้างเหมือนเดิม** — strict เฉพาะชั้นแสดงผล เพราะ `supplierForLot`/การเติมบริษัท-นโยบายใน `ExpiryAlertSection` ต้องพึ่ง fallback ระดับรหัส (ถ้า strict ทั้ง helper → banner เตือนคืนบริษัทหายทั้งแผง). helper + `normExpDate` ย้ายไป pure module [src/lib/receiveMatch.js](../../src/lib/receiveMatch.js) (App.jsx import จาก AppRoot ไม่ได้ — circular)
+- **โมดอลแผนผัง ([App.jsx](../../src/App.jsx) `renderItemCard`) strict แล้ว (2026-07-19)** — `allMatchedDetails` (fallback 4 ชั้นเดิม) คงไว้เลี้ยง `hasReceiveMatch`/waitTime รอตรวจรับ; ชั้นแสดงผลใช้ `strictDetails`: เลขบิลตรง (`exactMatch` code|lot|invoice — inventory ฝั่งแผนผังมีเลขบิล) หรือถ้า inventory ไม่มีเลขบิล (`-`) → รหัส+lot+EXP ตรงทั้งสาม; ไม่ตรง → "ไม่พบบิลเลขที่ X" + กล่องใบ้บิลใกล้เคียง (cap 5)
+- E2E: [tests/12-expiry-swap-return.spec.js](../../tests/12-expiry-swap-return.spec.js) (แผนผังไม่มี E2E ถาวร — verify ด้วย spec ชั่วคราวแล้ว 19/07)
+
 ## Schema
 
 `swap_return_policy` (PK = `company`): `return_months numeric`, `can_return bool`, `differs_by_item bool`, `raw_note text`, `source text ('auto'|'manual')` — migration: `swap_return_policy_migration.sql`

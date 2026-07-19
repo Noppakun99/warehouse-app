@@ -22,6 +22,7 @@ import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
 import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies } from './lib/db';
 import { computeReturnStatus } from './lib/swapPolicy';
+import { matchReceiveDetails } from './lib/receiveMatch';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
@@ -666,37 +667,8 @@ const swapFmtExp = (raw) => {
 const swapStatusText = (r) => r.status === 'overdue' ? 'พ้นกำหนดแล้ว' : `เหลือ ${r.daysToDeadline} วัน`;
 const swapRateText = (r) => r.avgBaseUnit ? `~${Math.round(r.avgBaseUnit).toLocaleString()} ${r.baseUnit || 'หน่วย'}/เดือน` : 'ไม่มีการเบิก';
 
-// normalize วันหมดอายุ (DD/MM/YYYY, DD/M/YYYY, ISO) → YYYY-MM-DD เพื่อเทียบข้าม format
-// (inventory เก็บ "14/8/2026" แต่ receive_logs เก็บ "14/08/2026" — เทียบดิบไม่ตรง)
-function normExpDate(raw) {
-  const s = (raw || '').trim();
-  if (!s || s === '-') return '';
-  const dmy = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
-  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
-  const iso = s.match(/^(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})$/);
-  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
-  return s;
-}
-
-// บิลใน receive_logs ที่ match item — scope แคบ→กว้าง: (1) รหัส+lot+exp (2) รหัส+lot (3) รหัส
-// helper กลาง ใช้ร่วมกันทั้งโมดอลใกล้หมดอายุ (ExpiryAlertSection) และ popup คืนบริษัท (SwapReturnPopup)
-// เพื่อให้ "ประวัติรับยา" กับการแจ้งเตือนอ้างข้อมูลชุดเดียวกันทุกจุด
-// คืน { rows, scope } — scope บอกว่าข้อมูลตรง lot จริง หรือระดับรหัส (lot ไม่มีใน log)
-function matchReceiveDetails(drugDetails, item) {
-  if (!drugDetails) return { rows: [], scope: 'none' };
-  const code = (item.code || '-').trim().toLowerCase();
-  const lot  = (item.lot  || '-').trim().toLowerCase();
-  const exp  = normExpDate(item.exp);
-  const all  = Object.values(drugDetails);
-  const byCodeLot = all.filter(d => (d._code || '').toLowerCase() === code && (d._lot || '').toLowerCase() === lot);
-  if (byCodeLot.length) {
-    const byExp = exp ? byCodeLot.filter(d => normExpDate(d._exp) === exp) : [];
-    if (byExp.length) return { rows: byExp, scope: 'code_lot_exp' };
-    return { rows: byCodeLot, scope: 'code_lot' };
-  }
-  const byCode = all.filter(d => (d._code || '').toLowerCase() === code);
-  return { rows: byCode, scope: byCode.length ? 'code_only' : 'none' };
-}
+// normExpDate + matchReceiveDetails ย้ายไป src/lib/receiveMatch.js (ใช้ร่วมกับโมดอลแผนผัง App.jsx
+// โดยไม่ชน circular import) — import ไว้ที่หัวไฟล์
 
 // column def สำหรับ Excel export (reuse header เดียวกับตาราง print)
 const SWAP_RETURN_EXCEL_COLS = [
@@ -917,7 +889,9 @@ const EXPIRY_EXCEL_COLS = [
 
 // รายละเอียดจากประวัติรับยา (receive_logs) — กางใต้ card/row ในโมดอลใกล้หมดอายุ
 // details = แถว receive_logs ที่ match (จาก fetchDrugDetails); scope บอกความแคบของ match
-// scope: code_lot_exp (ตรง lot+exp นี้) / code_lot (lot นี้ ทุก exp) / code_only (ระดับรหัส — lot ไม่มีใน log)
+// strict display: การ์ดบิลเต็มเฉพาะ scope 'code_lot_exp' (บิลของ ยา+lot+EXP นี้จริง — ใช้อ้างอิงแจ้งหัวหน้าได้)
+// scope กว้างกว่า = ไม่ใช่หลักฐานของ lot นี้ → บอก "ไม่พบ" ตรงๆ; ถ้า lot ตรงแต่ EXP ไม่ตรง/ไม่ระบุ
+// ใบ้เลขที่บิลให้ผู้ใช้ไป verify เองในระบบประวัติรับยา (ข้อมูลผิดบิลอันตรายกว่าไม่มีข้อมูล)
 function ReceiveHistoryDetail({ details = [], scope = 'code_lot' }) {
   const fmtDate = (iso) => {
     if (!iso || iso === '-') return '-';
@@ -925,19 +899,21 @@ function ReceiveHistoryDetail({ details = [], scope = 'code_lot' }) {
     if (isNaN(d)) return iso;
     return `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()+543}`;
   };
-  if (!details.length) {
-    return <p className="text-[11px] text-slate-400 italic py-2.5">ไม่พบข้อมูลในประวัติรับยา</p>;
-  }
-  const scopeNote = scope === 'code_lot_exp' ? null
-    : scope === 'code_lot' ? 'ตรงตาม lot (ทุกวันหมดอายุ)'
-    : 'ไม่พบ lot นี้ใน log — แสดงระดับรหัสยา';
+  // EXP ตาม log — แสดง พ.ศ. ให้เทียบกับ EXP บนรายการได้ทันที; ว่าง = "ไม่ระบุ"
+  const fmtLogExp = (raw) => (raw && String(raw).trim() && raw !== '-') ? swapFmtExp(raw) : 'ไม่ระบุ';
+  const exact = scope === 'code_lot_exp' && details.length > 0;
+  const NEAR_MISS_CAP = 5; // lot '-' (เวชภัณฑ์) บิลเยอะ — ใบ้พอให้ตามหา ไม่ flood
   return (
     <div className="py-2.5 space-y-2.5">
-      <p className="text-[11px] font-bold text-teal-700 uppercase tracking-wide">
+      <p className="text-[11px] font-bold text-teal-700 uppercase tracking-wide flex items-center gap-1.5 flex-wrap">
         ประวัติรับยา (จาก Log คลัง)
-        {scopeNote && <span className="ml-1.5 font-normal normal-case text-amber-600">· {scopeNote}</span>}
+        {exact && (
+          <span className="font-semibold normal-case text-emerald-600 inline-flex items-center gap-1">
+            <ShieldCheck size={12} /> ตรงกับ lot + EXP รายการนี้
+          </span>
+        )}
       </p>
-      {details.map((d, idx) => (
+      {exact ? details.map((d, idx) => (
         <div key={idx} className="rounded-lg border border-teal-100 bg-teal-50/50 p-2.5">
           {details.length > 1 && (
             <p className="text-[11px] text-teal-600 font-medium mb-1.5">บิล {idx + 1}/{details.length} — {d._invoice || '-'}</p>
@@ -947,6 +923,8 @@ function ReceiveHistoryDetail({ details = [], scope = 'code_lot' }) {
               { label: 'วันที่รับยา',     val: fmtDate(d.receive_date) },
               { label: 'จำนวนที่รับ',     val: d.qty_received != null ? String(d.qty_received) : '-' },
               { label: 'เลขที่บิล',       val: d._invoice || '-' },
+              { label: 'Lot (ตาม log)',   val: d._lot || '-' },
+              { label: 'EXP (ตาม log)',   val: fmtLogExp(d._exp) },
               { label: 'เลขที่ PO',       val: d.po_number || '-' },
               { label: 'บริษัทปัจจุบัน',  val: d.supplier_current || d._company || '-' },
               { label: 'บริษัทก่อนหน้า',  val: d.supplier_prev || '-' },
@@ -962,7 +940,30 @@ function ReceiveHistoryDetail({ details = [], scope = 'code_lot' }) {
             ))}
           </div>
         </div>
-      ))}
+      )) : (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-semibold text-rose-600">
+            {details.length ? 'ไม่พบบิลของ lot/EXP รายการนี้ในประวัติรับยา' : 'ไม่พบข้อมูลในประวัติรับยา'}
+          </p>
+          {scope === 'code_lot' && details.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 space-y-1">
+              <p className="text-[11px] text-amber-800">
+                พบบิลของ lot นี้ {details.length} ใบ แต่ EXP ใน log ไม่ตรง/ไม่ระบุ — โปรดตรวจสอบบิลในระบบประวัติรับยาก่อนใช้อ้างอิง
+              </p>
+              <ul className="space-y-0.5">
+                {details.slice(0, NEAR_MISS_CAP).map((d, idx) => (
+                  <li key={idx} className="text-[11px] text-slate-700">
+                    เลขที่บิล <span className="font-semibold">{d._invoice || '-'}</span> · EXP ใน log: {fmtLogExp(d._exp)} · รับ {fmtDate(d.receive_date)}
+                  </li>
+                ))}
+                {details.length > NEAR_MISS_CAP && (
+                  <li className="text-[11px] text-slate-500">… และอีก {details.length - NEAR_MISS_CAP} ใบ</li>
+                )}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

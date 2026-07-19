@@ -28,7 +28,8 @@ test('popup ส้ม: คลิกรายการ → กางประว�
 
   await page.getByText('ดูประวัติรับยา').first().click();
   await expect(page.getByText('ประวัติรับยา (จาก Log คลัง)').first()).toBeVisible({ timeout: 5000 });
-  await expect(page.getByText('เลขที่บิล').first()).toBeVisible({ timeout: 3000 });
+  // strict display: ตรงเป๊ะ = การ์ดบิล (มี "เลขที่บิล") / ใกล้เคียง = ใบ้เลขที่บิล / ไม่มี = บอกไม่พบ
+  await expect(page.getByText(/เลขที่บิล|ไม่พบบิลของ|ไม่พบข้อมูลในประวัติรับยา/).first()).toBeVisible({ timeout: 3000 });
 });
 
 test('โมดอลชมพู: banner คืนบริษัท + คลิกรายการดูประวัติรับยา', async ({ page }) => {
@@ -43,26 +44,29 @@ test('โมดอลชมพู: banner คืนบริษัท + คล�
   await page.getByRole('button', { name: /ต้องเปลี่ยน\/คืนบริษัทก่อนพ้นกำหนด/ }).click();
   await page.locator('div.cursor-pointer', { hasText: /พ้นกำหนด|เหลือ \d+ วัน/ }).first().click();
   await expect(page.getByText('ประวัติรับยา (จาก Log คลัง)').first()).toBeVisible({ timeout: 5000 });
-  await expect(page.getByText('เลขที่บิล').first()).toBeVisible({ timeout: 3000 });
+  await expect(page.getByText(/เลขที่บิล|ไม่พบบิลของ|ไม่พบข้อมูลในประวัติรับยา/).first()).toBeVisible({ timeout: 3000 });
 });
 
-test('ประวัติรับยา scope: lot ตรง = บิลเดียว, lot ไม่มีใน log = note ระดับรหัส', async ({ page }) => {
+test('ประวัติรับยา strict: lot+exp ตรง = การ์ดบิล + note เขียว, lot ไม่มีใน log = ไม่พบบิล', async ({ page }) => {
   await login(page, 'Kao_9', '96409999');
   await dismissSwapPopup(page);
   await openExpiryModal(page);
   const modal = page.locator('div.bg-white', { has: page.getByText('แจ้งเตือนยาใกล้หมดอายุ') }).last();
 
-  // (1) Budesonide 1670031 lot 330638 — lot+exp ตรงใน receive_logs → บิลเดียว (ไม่ปนหลาย lot)
+  // (1) Budesonide 1670031 lot 330638 — lot+exp ตรงใน receive_logs → การ์ดบิล + ยืนยันเขียว + Lot/EXP ตาม log
   await modal.getByText('BudesonidenebuliserPul', { exact: false }).first().click();
   await expect(page.getByText('ประวัติรับยา (จาก Log คลัง)').first()).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText('ตรงกับ lot + EXP รายการนี้').first()).toBeVisible({ timeout: 3000 });
+  await expect(page.getByText('Lot (ตาม log)').first()).toBeVisible({ timeout: 3000 });
   expect(await page.getByText(/บิล 2\//).count()).toBe(0);
 
-  // (2) Amoxicillin 1000028 lot N670219 — lot ไม่มีใน receive_logs → note "ระดับรหัสยา"
+  // (2) Amoxicillin 1000028 lot N670219 — lot ไม่มีใน receive_logs → strict: ไม่โชว์บิลระดับรหัส บอกไม่พบตรงๆ
   await modal.getByText('BudesonidenebuliserPul', { exact: false }).first().click(); // ปิดอันเดิม
   await page.locator('input[placeholder*="ค้นหา"]').first().fill('Amoxicillin trihydrate');
   await page.waitForTimeout(800);
   await modal.locator('tr', { hasText: 'N670219' }).first().locator('td').first().click();
-  await expect(page.getByText(/ไม่พบ lot นี้ใน log|ระดับรหัสยา/).first()).toBeVisible({ timeout: 4000 });
+  await expect(page.getByText(/ไม่พบบิลของ lot\/EXP รายการนี้|ไม่พบข้อมูลในประวัติรับยา/).first()).toBeVisible({ timeout: 4000 });
+  expect(await page.getByText('ตรงกับ lot + EXP รายการนี้').count()).toBe(0); // ต้องไม่มี note เขียวหลอก
 });
 
 test('deadline ต้องคืน: popup ส้ม = banner ชมพู (clamp สิ้นเดือน, ไม่ spillover)', async ({ page }) => {

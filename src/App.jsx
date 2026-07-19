@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { fetchInventory, saveInventory, fetchDrugDetails, fetchUploadMeta, saveUploadMeta, normalizeLotSearch, fetchConsistencyReport, fetchSwapPolicies, flagSwapReturn } from './lib/db';
 import { computeReturnStatus } from './lib/swapPolicy';
+import { normExpDate } from './lib/receiveMatch';
 import BackButton from './BackButton';
 import { exportToExcel } from './lib/exportExcel';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
@@ -911,6 +912,17 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
 
     const hasReceiveMatch = allMatchedDetails.length > 0;
 
+    // strict display (CONTEXT.md §บิลอ้างอิงของ lot): การ์ดบิลเต็มเฉพาะ "บิลของรายการนี้จริง" —
+    // เลขบิลตรง (exactMatch) หรือถ้า inventory ไม่มีเลขบิล → ยึด รหัส+lot+EXP ตรงทั้งสาม.
+    // fallback อื่น = บิลใกล้เคียง → ใบ้เลขบิลให้คน verify เอง (ไม่แตะ hasReceiveMatch/waitTime — ใช้ fallback เดิม)
+    const invoiceKnown = lookupInvoice && lookupInvoice !== '-';
+    const expNorm = normExpDate(item.exp);
+    const strictDetails = exactMatch ? [exactMatch]
+      : (!invoiceKnown && expNorm)
+        ? allMatchedDetails.filter(d => (d._code || '').toLowerCase() === lookupCode && normExpDate(d._exp) === expNorm)
+        : [];
+    const isStrictMatch = strictDetails.length > 0;
+
     const expDate = parseDateString(item.exp);
     let expColorClass = "text-slate-700 font-medium";
     let expBgClass = "bg-slate-50 border-slate-100";
@@ -1036,22 +1048,30 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
               <div className="mt-4">
                 <div className="bg-teal-50/50 rounded-xl p-4 border border-teal-100 relative overflow-hidden">
                   <div className="absolute -right-4 -top-4 text-teal-100/50 opacity-50"><Database size={100} /></div>
-                  <h5 className="font-bold text-teal-800 flex items-center gap-2 mb-3 relative z-10 border-b border-teal-200/50 pb-2">
+                  <h5 className="font-bold text-teal-800 flex items-center gap-2 mb-3 relative z-10 border-b border-teal-200/50 pb-2 flex-wrap">
                     <FileText size={18} /> ข้อมูลอ้างอิงจากประวัติรับยา
                     {!hasReceiveMatch && (
                       <span className="ml-1 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">ไม่พบใน receive log</span>
                     )}
+                    {isStrictMatch && (
+                      <span className="ml-1 text-xs font-semibold text-emerald-600 inline-flex items-center gap-1">
+                        <ShieldCheck size={13} /> {exactMatch ? 'เลขที่บิลตรงกับรายการนี้' : 'ตรงกับ lot + EXP รายการนี้'}
+                      </span>
+                    )}
                   </h5>
                   <div className="relative z-10 space-y-3">
-                    {hasReceiveMatch ? allMatchedDetails.map((d, idx) => (
+                    {isStrictMatch ? strictDetails.map((d, idx) => (
                       <div key={idx}>
-                        {allMatchedDetails.length > 1 && (
-                          <p className="text-xs text-teal-600 font-medium mb-2">บิล {idx + 1}/{allMatchedDetails.length} — {normalizeNumericText(d._invoice) || '-'}</p>
+                        {strictDetails.length > 1 && (
+                          <p className="text-xs text-teal-600 font-medium mb-2">บิล {idx + 1}/{strictDetails.length} — {normalizeNumericText(d._invoice) || '-'}</p>
                         )}
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-6 gap-y-3">
                           {[
                             { label: 'วันที่รับยา',      val: isoToThai(d.receive_date) },
                             { label: 'จำนวนที่รับ',      val: d.qty_received != null ? String(d.qty_received) : null },
+                            { label: 'เลขที่บิล',        val: normalizeNumericText(d._invoice) },
+                            { label: 'Lot (ตาม log)',    val: d._lot },
+                            { label: 'EXP (ตาม log)',    val: (d._exp && d._exp !== '-') ? formatDateDisplay(d._exp) : 'ไม่ระบุ' },
                             { label: 'บริษัทปัจจุบัน',  val: d.supplier_current || d._company },
                             { label: 'บริษัทก่อนหน้า',  val: d.supplier_prev },
                             { label: 'สถานะตรวจรับ',    val: d.receive_status },
@@ -1065,7 +1085,32 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                           ))}
                         </div>
                       </div>
-                    )) : (
+                    )) : hasReceiveMatch ? (
+                      <div className="space-y-1.5">
+                        <p className="text-sm font-semibold text-rose-600">
+                          {invoiceKnown
+                            ? `ไม่พบบิลเลขที่ ${normalizeNumericText(item.invoice) || '-'} ของรายการนี้ในประวัติรับยา`
+                            : 'ไม่พบบิลของ lot/EXP รายการนี้ในประวัติรับยา'}
+                        </p>
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 space-y-1">
+                          <p className="text-xs text-amber-800">
+                            พบบิลใกล้เคียงของ lot นี้ {allMatchedDetails.length} ใบ — โปรดตรวจสอบบิลในระบบประวัติรับยาก่อนใช้อ้างอิง
+                          </p>
+                          <ul className="space-y-0.5">
+                            {allMatchedDetails.slice(0, 5).map((d, idx) => (
+                              <li key={idx} className="text-xs text-slate-700">
+                                เลขที่บิล <span className="font-semibold">{normalizeNumericText(d._invoice) || '-'}</span>
+                                {' '}· EXP ใน log: {(d._exp && d._exp !== '-') ? formatDateDisplay(d._exp) : 'ไม่ระบุ'}
+                                {' '}· รับ {isoToThai(d.receive_date) || '-'}
+                              </li>
+                            ))}
+                            {allMatchedDetails.length > 5 && (
+                              <li className="text-xs text-slate-500">… และอีก {allMatchedDetails.length - 5} ใบ</li>
+                            )}
+                          </ul>
+                        </div>
+                      </div>
+                    ) : (
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3">
                         <div className="flex flex-col">
                           <span className="text-[11px] font-bold text-teal-600 uppercase tracking-wide">บริษัท</span>
