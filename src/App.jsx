@@ -2303,6 +2303,20 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           if (d === 0) return 'หมดอายุวันนี้';
           return `อีก ${d} วัน`;
         };
+        // ── รอตรวจรับ: badge สีตามความนานที่รอ (ยิ่งนานยิ่งเร่ง) + chip สถานะรับ ──
+        const waitBadge = (d) => {
+          if (d == null) return { text: 'ไม่ทราบวันรับ', cls: 'bg-slate-100 text-slate-500 border-slate-200' };
+          const text = d === 0 ? 'รับวันนี้' : `รอมา ${d} วัน`;
+          if (d > 7) return { text, cls: 'bg-rose-100 text-rose-700 border-rose-200' };
+          if (d > 3) return { text, cls: 'bg-amber-100 text-amber-800 border-amber-300' };
+          return { text, cls: 'bg-sky-100 text-sky-700 border-sky-200' };
+        };
+        const statusChipCls = (s) => {
+          if (s.includes('รอตรวจรับ')) return 'bg-amber-50 text-amber-700 border-amber-200';
+          if (s.includes('ตรวจรับแล้ว')) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+          return 'bg-slate-100 text-slate-600 border-slate-200';
+        };
+        const statusChips = (s) => String(s || '').split('|').map(x => x.trim()).filter(Boolean);
         // ── นโยบายคืนยา (เฟส 1): badge + รายการที่ต้องเตือน ──
         const flagKeyOf = (r) => `${(r.code||'-')}|${(r.lot||'-')}|${(r.location||'-')}`;
         // สรุปสถานะคืนยาเป็น badge: due/overdue = ต้องดำเนินการ, differs = เช็กเอกสาร
@@ -2529,23 +2543,74 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                 <p className="text-center text-slate-400 py-10 text-sm">ไม่พบรายการ</p>
               ) : isMobileExpiry ? (
                 <div className="p-3 space-y-2">
-                  {timeFiltered.map((r, i) => (
+                  {timeFiltered.map((r, i) => !isExpiryMode ? (
+                    /* ── การ์ดรอตรวจรับ: detail-card ขาว + กล่องย่อยสี (ดู /ui-style-guide) ── */
+                    <div key={i} className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-sm hover:shadow-md hover:border-sky-300 transition-all">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 rounded-xl bg-sky-50 text-sky-600 shrink-0"><Package size={20} /></div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-slate-800 text-sm leading-tight">{r.name || '-'}</p>
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            {r.code && r.code !== '-' && <span className="text-[11px] text-slate-400 font-mono">{r.code}</span>}
+                            {r.type && <DrugTypeBadge type={r.type} />}
+                          </div>
+                        </div>
+                        {(() => { const b = waitBadge(r.waitDays); return (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${b.cls}`}>
+                            <Clock size={10} />{b.text}
+                          </span>
+                        ); })()}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 mt-3">
+                        <div className="bg-indigo-50/70 px-2.5 py-2 rounded-xl border border-indigo-100">
+                          <div className="text-[10px] text-indigo-500 uppercase font-bold tracking-wider mb-0.5 flex items-center gap-1"><MapPin size={10} />ตำแหน่ง</div>
+                          <div className="text-sm font-black text-indigo-700">{r.location || '-'}</div>
+                        </div>
+                        <div className="bg-sky-50 px-2.5 py-2 rounded-xl border border-sky-100">
+                          <div className="text-[10px] text-sky-600 uppercase font-bold tracking-wider mb-0.5">คงเหลือ</div>
+                          <div className="text-sm font-black text-sky-700 tabular-nums">{fmtQty(r)}</div>
+                        </div>
+                        <div className="bg-slate-50 px-2.5 py-2 rounded-xl border border-slate-100 min-w-0">
+                          <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">Lot</div>
+                          <div className="text-xs font-mono font-semibold text-slate-700 truncate">{r.lot || '-'}</div>
+                        </div>
+                        <div className="bg-slate-50 px-2.5 py-2 rounded-xl border border-slate-100">
+                          <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">Exp</div>
+                          <div className="text-xs font-semibold text-slate-700">{r.exp || '-'}</div>
+                        </div>
+                      </div>
+                      <div className="mt-2.5 pt-2.5 border-t border-slate-100 space-y-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+                          <span className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 font-semibold px-2 py-0.5 rounded-full border border-indigo-100">
+                            <FileText size={10} />บิล {normalizeNumericText(r.invoice) || '-'}
+                          </span>
+                          {r.po && r.po !== '-' && (
+                            <span className="inline-flex items-center bg-violet-50 text-violet-700 font-semibold px-2 py-0.5 rounded-full border border-violet-100">PO {r.po}</span>
+                          )}
+                          {statusChips(r.receiveStatus).map((s, j) => (
+                            <span key={j} className={`inline-flex items-center px-2 py-0.5 rounded-full font-semibold border ${statusChipCls(s)}`}>{s}</span>
+                          ))}
+                        </div>
+                        {r.supplier && (
+                          <p className="text-[11px] text-slate-500"><span className="font-bold text-teal-600">บริษัท</span> {r.supplier}</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
                     <div key={i} className={`border rounded-xl p-3 ${rowColor(r.daysLeft)}`}>
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <div className="min-w-0 flex-1">
                           <p className="font-semibold text-slate-800 text-sm leading-tight">{r.name || '-'}</p>
                           {r.code && r.code !== '-' && <p className="text-[11px] text-slate-400 mt-0.5">{r.code}</p>}
                         </div>
-                        {isExpiryMode && (
-                          <div className="flex flex-col items-end gap-1 shrink-0">
-                            <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeColor(r.daysLeft)}`}>
-                              {daysLabel(r.daysLeft)}
-                            </span>
-                            {(() => { const b = returnBadge(r.returnInfo); return b ? (
-                              <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${b.cls}`}>{b.text}</span>
-                            ) : null; })()}
-                          </div>
-                        )}
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeColor(r.daysLeft)}`}>
+                            {daysLabel(r.daysLeft)}
+                          </span>
+                          {(() => { const b = returnBadge(r.returnInfo); return b ? (
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${b.cls}`}>{b.text}</span>
+                          ) : null; })()}
+                        </div>
                       </div>
                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] mt-2 pt-2 border-t border-slate-200/60">
                         <div><span className="text-slate-400">ชนิด:</span> {r.type ? <DrugTypeBadge type={r.type} /> : <span className="text-slate-700 font-medium">-</span>}</div>
@@ -2553,18 +2618,6 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                         <div><span className="text-slate-400">Lot:</span> <span className="text-slate-700">{r.lot || '-'}</span></div>
                         <div><span className="text-slate-400">Exp:</span> <span className="text-slate-700">{r.exp || '-'}</span></div>
                         <div className="col-span-2"><span className="text-slate-400">คงเหลือ:</span> <span className="text-slate-800 font-bold">{fmtQty(r)}</span></div>
-                        {!isExpiryMode && (
-                          <div className="col-span-2"><span className="text-slate-400">รอตรวจรับมา:</span> <span className="text-sky-700 font-semibold">{r.waitDays != null ? `${r.waitDays} วัน` : '-'}</span></div>
-                        )}
-                        {!isExpiryMode && r.receiveStatus && (
-                          <div className="col-span-2"><span className="text-slate-400">สถานะ:</span> <span className="text-slate-700">{r.receiveStatus}</span></div>
-                        )}
-                        {!isExpiryMode && (
-                          <div><span className="text-slate-400">บิลยา:</span> <span className="text-indigo-700 font-medium">{normalizeNumericText(r.invoice) || '-'}</span></div>
-                        )}
-                        {!isExpiryMode && (
-                          <div><span className="text-slate-400">PO:</span> <span className="text-slate-700">{r.po || '-'}</span></div>
-                        )}
                         {r.supplier && (
                           <div className="col-span-2"><span className="text-slate-400">บริษัท:</span> <span className="text-slate-700">{r.supplier}</span></div>
                         )}
@@ -2597,19 +2650,31 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                   </thead>
                   <tbody>
                     {timeFiltered.map((r, i) => (
-                      <tr key={i} className={`border-b ${rowColor(r.daysLeft)}`}>
+                      <tr key={i} className={`border-b ${isExpiryMode ? rowColor(r.daysLeft) : 'border-slate-100 bg-white hover:bg-sky-50/50 transition-colors'}`}>
                         <td className="px-3 py-2.5 font-semibold text-slate-800 max-w-[200px]">
                           <span className="block truncate">{r.name || '-'}</span>
                           {r.code && r.code !== '-' && <span className="text-slate-400 font-normal">{r.code}</span>}
                         </td>
                         <td className="px-3 py-2.5">{r.type ? <DrugTypeBadge type={r.type} /> : <span className="text-slate-500">-</span>}</td>
                         <td className="px-3 py-2.5 text-slate-600 font-medium whitespace-nowrap">{r.location || '-'}</td>
-                        <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">{r.lot || '-'}</td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          {isExpiryMode ? <span className="text-slate-500">{r.lot || '-'}</span>
+                            : r.lot ? <span className="font-mono text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">{r.lot}</span>
+                            : <span className="text-slate-400">-</span>}
+                        </td>
                         {!isExpiryMode && (
-                          <td className="px-3 py-2.5 text-indigo-700 font-medium whitespace-nowrap">{normalizeNumericText(r.invoice) || '-'}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            {normalizeNumericText(r.invoice)
+                              ? <span className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 font-semibold px-2 py-0.5 rounded-full text-[11px] border border-indigo-100"><FileText size={10} />{normalizeNumericText(r.invoice)}</span>
+                              : <span className="text-slate-400">-</span>}
+                          </td>
                         )}
                         {!isExpiryMode && (
-                          <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{r.po || '-'}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            {r.po && r.po !== '-'
+                              ? <span className="inline-flex items-center bg-violet-50 text-violet-700 font-semibold px-2 py-0.5 rounded-full text-[11px] border border-violet-100">{r.po}</span>
+                              : <span className="text-slate-400">-</span>}
+                          </td>
                         )}
                         {isExpiryMode && (
                           <td className="px-3 py-2.5 text-center font-medium text-slate-700 whitespace-nowrap">{r.exp || '-'}</td>
@@ -2623,15 +2688,23 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                         )}
                         {!isExpiryMode && (
                           <td className="px-3 py-2.5 text-center">
-                            {r.waitDays != null ? (
-                              <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border bg-sky-100 text-sky-700 border-sky-200">
-                                {r.waitDays} วัน
+                            {(() => { const b = waitBadge(r.waitDays); return (
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border whitespace-nowrap ${b.cls}`}>
+                                <Clock size={10} />{b.text}
                               </span>
-                            ) : <span className="text-slate-400">-</span>}
+                            ); })()}
                           </td>
                         )}
                         {!isExpiryMode && (
-                          <td className="px-3 py-2.5 text-slate-600 text-xs max-w-[160px] truncate">{r.receiveStatus || '-'}</td>
+                          <td className="px-3 py-2.5 max-w-[180px]">
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {statusChips(r.receiveStatus).length > 0
+                                ? statusChips(r.receiveStatus).map((s, j) => (
+                                    <span key={j} className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border whitespace-nowrap ${statusChipCls(s)}`}>{s}</span>
+                                  ))
+                                : <span className="text-slate-400">-</span>}
+                            </div>
+                          </td>
                         )}
                         <td className="px-3 py-2.5 text-slate-700 text-xs max-w-[160px] truncate" title={r.supplier || '-'}>{r.supplier || '-'}</td>
                         {isExpiryMode && (
@@ -2646,7 +2719,11 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                             <span className="line-clamp-2 leading-snug">{r.swapPolicy || '-'}</span>
                           </td>
                         )}
-                        <td className="px-3 py-2.5 text-right font-bold text-slate-700 whitespace-nowrap">{fmtQty(r)}</td>
+                        <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                          {isExpiryMode
+                            ? <span className="font-bold text-slate-700">{fmtQty(r)}</span>
+                            : <span className="inline-flex items-center rounded-full bg-sky-50 text-sky-700 font-bold px-2.5 py-0.5 text-[11px] tabular-nums border border-sky-100">{fmtQty(r)}</span>}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
