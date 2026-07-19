@@ -2092,6 +2092,7 @@ function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEn
               <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
                 <th className="px-4 py-2 font-semibold">ชื่อยา</th>
                 <th className="px-4 py-2 font-semibold text-right">คงเหลือ</th>
+                <th className="px-4 py-2 font-semibold text-left">หน่วย</th>
                 <th className="px-4 py-2 font-semibold text-right">Safety Stock</th>
                 <th className="px-4 py-2 font-semibold text-right">เบิก 3 เดือน</th>
                 <th className="px-4 py-2 font-semibold text-right">% ของ SS</th>
@@ -2104,13 +2105,14 @@ function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEn
                     <p className="font-semibold text-slate-700 leading-tight">{r.name || r.code}</p>
                     <p className="text-xs text-slate-400">{r.code}</p>
                   </td>
-                  <td className="px-4 py-2.5 text-right font-bold text-red-600 whitespace-nowrap">{Number(r.qty).toLocaleString()} <span className="font-normal text-slate-400 text-xs">{r.unit}</span></td>
-                  <td className="px-4 py-2.5 text-right text-slate-600 whitespace-nowrap">{Number(r.safety_stock).toLocaleString()} <span className="text-slate-400 text-xs">{r.unit}</span></td>
+                  <td className="px-4 py-2.5 text-right font-bold text-red-600 whitespace-nowrap">{Number(r.qty).toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-left text-slate-500 text-xs whitespace-nowrap">{r.unit || '-'}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-600 whitespace-nowrap">{Number(r.safety_stock).toLocaleString()}</td>
                   <td className="px-4 py-2.5 text-right whitespace-nowrap">
                     {r.usageWeeks > 0 ? (
                       <>
                         <span className="font-semibold text-slate-700">{r.usageWeeks}</span><span className="text-slate-400 text-xs">/13 สัปดาห์</span>
-                        <span className="block text-[11px] text-slate-400">{Number(r.usage3m).toLocaleString()} {r.unit}</span>
+                        <span className="block text-[11px] text-slate-400">{Number(r.usage3m).toLocaleString()}</span>
                       </>
                     ) : <span className="text-slate-300">—</span>}
                   </td>

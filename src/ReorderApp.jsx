@@ -174,11 +174,15 @@ function IsoDateInput({ value, onChange, className = '' }) {
       <span className={`pl-3 pr-8 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
         {display(value) || 'dd/mm/yyyy'}
       </span>
-      <Calendar size={15} className="absolute right-2.5 text-slate-400 pointer-events-none"/>
       {/* type=date: คลิก = showPicker (desktop) guarded ด้วย try/catch + ?. → mobile แตะเปิด native ได้ตามปกติ */}
       <input type="date" value={value || ''} onChange={(e) => onChange(e.target.value)}
         onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch { /* noop */ } }}
         className="absolute inset-0 opacity-0 w-full cursor-pointer"/>
+      {/* ปุ่มล้างค่า — z-10 เพื่ออยู่เหนือ input ที่ซ้อนเต็มพื้นที่; แสดงเมื่อมีค่าเท่านั้น */}
+      {value
+        ? <button type="button" onClick={() => onChange('')} title="ล้างวันที่"
+            className="absolute right-2 z-10 p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"><X size={14}/></button>
+        : <Calendar size={15} className="absolute right-2.5 text-slate-400 pointer-events-none"/>}
     </div>
   );
 }
@@ -504,6 +508,7 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
   const monthsInRange = useMemo(() => listMonthYM(statsFrom, statsTo), [statsFrom, statsTo]);
 
   const runAnalysis = useCallback(async () => {
+    if (!statsFrom || !statsTo) { setRunError('กรุณาเลือกช่วงสถิติให้ครบทั้งวันเริ่มและวันสิ้นสุด'); return; }
     if (statsFrom > statsTo) { setRunError('ช่วงสถิติไม่ถูกต้อง'); return; }
     setRunning(true); setRunError('');
     try {
@@ -900,7 +905,8 @@ function DrugDetailPanel({ r, months, onClose }) {
 
           {/* รายละเอียด */}
           <div>
-            <DetailField label="ใช้เฉลี่ย/เดือน">{fmtNum(Math.round(r.avgMonth || 0))} {r.unit}</DetailField>
+            <DetailField label="ใช้เฉลี่ย/เดือน">{fmtNum(Math.round(r.avgMonth || 0))}</DetailField>
+            <DetailField label="หน่วย">{r.unit || '—'}</DetailField>
             <DetailField label="คงอยู่ได้อีก">{fmtCoverage(r.stock, r.avgDay)}</DetailField>
             <DetailField label="ต้องซื้อ">
               {r.orderQty > 0 ? <>{fmtNum(r.orderQty)} {r.unit}{(r.packFactor||1)>1 && <span className="text-slate-400"> = {fmtNum(r.orderQty*r.packFactor)} {base}</span>}</> : '—'}
