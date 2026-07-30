@@ -1,0 +1,193 @@
+// golden test: src/lib/stockCard.js — การ์ดคลัง lot (Stock Card)
+// รัน: npm run test:stockcard   (standalone node ไม่มี framework ตาม convention repo)
+// fixture อ้างอิงข้อมูลจริงจาก DB + สูตร Excel §45.5/§46.2 (Context.csv)
+
+import { buildStockCard, filterStockCard, NO_DEDUCT, lotOf, dateSortKey } from './stockCard.js'
+
+let pass = 0, fail = 0
+function eq(actual, expected, label) {
+  const a = JSON.stringify(actual), e = JSON.stringify(expected)
+  if (a === e) { pass++ }
+  else { fail++; console.error(`  ✗ ${label}\n      คาดหวัง: ${e}\n      ได้: ${a}`) }
+}
+function section(name) { console.log(`\n=== ${name} ===`) }
+
+// ── Test 1: เคสจริงจาก DB — Fluconazole 200mg lot K675202 ──
+// receive_logs 0 แถว → opening = qty_before ของแถวเบิกแรก = 72 → 72 − 10 = 62 = inventory.qty
+section('Test 1: Fluconazole K675202 (lot ไม่มีประวัติรับ → opening = qty_before)')
+{
+  const r = buildStockCard({
+    receiveRows: [],
+    dispenseRows: [{ dispense_date: '2026-03-16', lot: 'K675202', item_type: 'ยกยอด', qty_out: '10.00', qty_before: '72.00', department: 'ห้องยาG' }],
+    pricePerUnit: 190,
+  })
+  eq(r.rows.length, 1, 'มี 1 movement')
+  eq(r.rows[0].balance, 62, 'balance = 72 − 10 = 62 (ตรง inventory.qty จริง)')
+  eq(r.lots[0].opening, 72, 'opening = 72')
+  eq(r.lots[0].hasReceipt, false, 'ไม่มีประวัติรับเข้า')
+  eq(r.lots[0].negative, false, 'ไม่ติดลบ')
+  eq(r.rows[0].value, 1900, 'มูลค่า = 10 × 190')
+}
+
+// ── Test 2: lot มีประวัติรับเข้า → opening = 0 ──
+section('Test 2: opening = 0 เมื่อ lot มีรับเข้า')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-10', lot: 'L1', item_type: 'ซื้อยา', qty_received: 100, supplier_current: 'บริษัทA', bill_number: 'B001' }],
+    dispenseRows: [{ dispense_date: '2026-02-01', lot: 'L1', item_type: 'ยกยอด', qty_out: 30, qty_before: 999, department: 'ห้องยา1' }],
+  })
+  eq(r.lots[0].opening, 0, 'opening = 0 (ไม่ใช้ qty_before ทั้งที่มีค่า 999)')
+  eq(r.rows.map(x => x.balance), [100, 70], 'balance ไล่ 100 → 70')
+}
+
+// ── Test 3: บันทึกเท่านั้น / แก้ไขระบบ ไม่หัก balance (Excel §46.3, §46.7) ──
+section('Test 3: NO_DEDUCT ไม่หัก balance')
+{
+  eq(NO_DEDUCT.has('บันทึกเท่านั้น'), true, 'บันทึกเท่านั้น อยู่ใน NO_DEDUCT')
+  eq(NO_DEDUCT.has('แก้ไขระบบ'), true, 'แก้ไขระบบ อยู่ใน NO_DEDUCT')
+  eq(NO_DEDUCT.has('คืนยา'), false, 'คืนยา หักปกติ (ยึด Excel)')
+  eq(NO_DEDUCT.has('ยืมยา'), false, 'ยืมยา หักปกติ')
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-01', lot: 'L2', item_type: 'ซื้อยา', qty_received: 50 }],
+    dispenseRows: [
+      { dispense_date: '2026-01-05', lot: 'L2', item_type: 'บันทึกเท่านั้น', qty_out: 10, qty_before: 50 },
+      { dispense_date: '2026-01-06', lot: 'L2', item_type: 'แก้ไขระบบ', qty_out: 5, qty_before: 50 },
+      { dispense_date: '2026-01-07', lot: 'L2', item_type: 'ยกยอด', qty_out: 20, qty_before: 50 },
+    ],
+  })
+  eq(r.rows.map(x => x.balance), [50, 50, 50, 30], 'หักเฉพาะ ยกยอด → 50 − 20 = 30')
+  eq(r.rows[1].qtyOut, 10, 'qtyOut ยังเก็บไว้แสดง (Excel: E ยังโชว์ 10 แต่ F ไม่หัก)')
+  eq(r.rows[1].noDeduct, true, 'flag noDeduct ให้ UI ทำ CF ได้')
+}
+
+// ── Test 4: หลาย lot ไม่ปนกัน + เรียง lot ASC → date ASC ──
+section('Test 4: running balance แยกต่อ lot')
+{
+  const r = buildStockCard({
+    receiveRows: [
+      { receive_date: '2026-01-01', lot: 'B', item_type: 'ซื้อยา', qty_received: 10 },
+      { receive_date: '2026-01-01', lot: 'A', item_type: 'ซื้อยา', qty_received: 100 },
+    ],
+    dispenseRows: [
+      { dispense_date: '2026-02-01', lot: 'A', item_type: 'ยกยอด', qty_out: 40, qty_before: 100 },
+      { dispense_date: '2026-02-01', lot: 'B', item_type: 'ยกยอด', qty_out: 3, qty_before: 10 },
+    ],
+  })
+  eq(r.rows.map(x => x.lot), ['A', 'A', 'B', 'B'], 'เรียง lot ASC')
+  eq(r.rows.map(x => x.balance), [100, 60, 10, 7], 'balance แยกต่อ lot ไม่ปนกัน')
+  eq(r.summary.lotCount, 2, 'นับ 2 lot')
+}
+
+// ── Test 5: ติดลบได้ (data gap) ไม่ throw ──
+section('Test 5: balance ติดลบ = data gap ไม่ใช่บั๊ก')
+{
+  const r = buildStockCard({
+    receiveRows: [],
+    dispenseRows: [
+      { dispense_date: '2026-01-01', lot: 'X', item_type: 'ยกยอด', qty_out: 50, qty_before: 20 },
+    ],
+  })
+  eq(r.rows[0].balance, -30, 'opening 20 − 50 = −30')
+  eq(r.lots[0].negative, true, 'flag negative')
+  eq(r.summary.negativeLots, 1, 'นับ lot ติดลบ')
+}
+
+// ── Test 6: lot='-' (เวชภัณฑ์ไม่มีเลข lot) ──
+section("Test 6: lot ว่าง/'-' normalize เป็น '-'")
+{
+  eq(lotOf(''), '-', "lot ว่าง → '-'")
+  eq(lotOf('  '), '-', "lot ช่องว่าง → '-'")
+  eq(lotOf('-'), '-', "'-' คงเดิม")
+  eq(lotOf(' L9 '), 'L9', 'trim')
+  eq(lotOf(null), '-', "null → '-'")
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-01', lot: '', item_type: 'ซื้อยา', qty_received: 200 }],
+    dispenseRows: [{ dispense_date: '2026-01-09', lot: '-', item_type: 'ยกยอด', qty_out: 80, qty_before: 200 }],
+  })
+  eq(r.summary.lotCount, 1, "lot ว่างกับ '-' = lot เดียวกัน")
+  eq(r.rows.map(x => x.balance), [200, 120], 'balance ต่อเนื่อง')
+}
+
+// ── Test 7: ขาเข้าก่อนขาออกในวันเดียวกัน ──
+section('Test 7: วันเดียวกัน — รับเข้าก่อนเบิกออก')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-03-01', lot: 'S', item_type: 'ซื้อยา', qty_received: 60 }],
+    dispenseRows: [{ dispense_date: '2026-03-01', lot: 'S', item_type: 'ยกยอด', qty_out: 25, qty_before: 60 }],
+  })
+  eq(r.rows.map(x => x.side), ['in', 'out'], 'in มาก่อน out')
+  eq(r.rows.map(x => x.balance), [60, 35], 'ไม่ติดลบชั่วคราว')
+}
+
+// ── Test 8: คืนยา 2 ทิศทาง (CONTEXT.md §คืนยา) ──
+section('Test 8: คืนยา ฝั่งรับ = เข้า, ฝั่งเบิก = ออก')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-07-16', lot: 'J690081', item_type: 'คืนยา', qty_received: 30, supplier_current: 'องค์การเภสัชกรรม', bill_number: 'ใบคืนยา' }],
+    dispenseRows: [{ dispense_date: '2026-07-20', lot: 'J690081', item_type: 'คืนยา', qty_out: 5, qty_before: 30, department: 'ห้องยา1' }],
+  })
+  eq(r.rows[0].qtyIn, 30, 'ฝั่งรับ = qtyIn')
+  eq(r.rows[1].qtyOut, 5, 'ฝั่งเบิก = qtyOut')
+  eq(r.rows.map(x => x.balance), [30, 25], 'คืนยา หักปกติฝั่งออก')
+  eq(r.rows[0].ref, 'ใบคืนยา', 'ref = เลขบิลฝั่งรับ')
+  eq(r.rows[1].party, 'ห้องยา1', 'party = หน่วยงานฝั่งเบิก')
+}
+
+// ── Test 9: dateSortKey รองรับ ISO + DD/MM/YYYY + พ.ศ. ──
+section('Test 9: dateSortKey')
+{
+  eq(dateSortKey('2026-03-16'), Date.UTC(2026, 2, 16), 'ISO')
+  eq(dateSortKey('16/3/2026'), Date.UTC(2026, 2, 16), 'DD/MM/YYYY ค.ศ.')
+  eq(dateSortKey('16/3/2569'), Date.UTC(2026, 2, 16), 'พ.ศ. → ค.ศ.')
+  eq(dateSortKey(''), 0, 'ว่าง → 0')
+  eq(dateSortKey('ขยะ'), 0, 'parse ไม่ได้ → 0')
+}
+
+// ── Test 10: qty_before null → opening 0 ──
+section('Test 10: qty_before null (112 แถวจริงใน DB)')
+{
+  const r = buildStockCard({
+    receiveRows: [],
+    dispenseRows: [{ dispense_date: '2026-01-01', lot: 'N', item_type: 'ยกยอด', qty_out: 5, qty_before: null }],
+  })
+  eq(r.lots[0].opening, 0, 'opening fallback 0')
+  eq(r.rows[0].balance, -5, 'balance ติดลบ (data gap ที่ถูกต้อง)')
+}
+
+// ── Test 11: filterStockCard (เฟส ข) ──
+section('Test 11: filter แยกจาก build')
+{
+  const { rows } = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-01', lot: 'A', item_type: 'ซื้อยา', qty_received: 10 }],
+    dispenseRows: [
+      { dispense_date: '2026-02-15', lot: 'A', item_type: 'ยกยอด', qty_out: 2, qty_before: 10 },
+      { dispense_date: '2026-03-20', lot: 'B', item_type: 'บันทึกเท่านั้น', qty_out: 1, qty_before: 5 },
+    ],
+  })
+  eq(filterStockCard(rows, { lot: 'A' }).length, 2, 'กรอง lot')
+  eq(filterStockCard(rows, { kind: 'บันทึกเท่านั้น' }).length, 1, 'กรองชนิดรายการ')
+  eq(filterStockCard(rows, { from: '2026-02-01' }).length, 2, 'กรองวันที่เริ่ม')
+  eq(filterStockCard(rows, { from: '2026-02-01', to: '2026-02-28' }).length, 1, 'กรองช่วงวันที่')
+  eq(filterStockCard(rows, {}).length, 3, 'ไม่กรอง = ครบ')
+}
+
+// ── Test 12: summary + qty มี comma ──
+section('Test 12: summary + parse comma')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-01', lot: 'C', item_type: 'ซื้อยา', qty_received: '1,200' }],
+    dispenseRows: [{ dispense_date: '2026-01-02', lot: 'C', item_type: 'ยกยอด', qty_out: '200', qty_before: '1,200' }],
+  })
+  eq(r.summary.totalIn, 1200, 'parse "1,200" → 1200')
+  eq(r.summary.totalOut, 200, 'totalOut')
+  eq(r.rows[1].balance, 1000, 'balance = 1200 − 200')
+}
+
+console.log('\n' + '─'.repeat(50))
+if (fail === 0) {
+  console.log(`✓ ผ่านทั้งหมด ${pass} assertions`)
+} else {
+  console.error(`✗ ไม่ผ่าน ${fail} จาก ${pass + fail} assertions`)
+  // throw แทน process.exit → node จบด้วย exit code ≠ 0 เหมือนกัน แต่ไม่ต้องใช้ global process (eslint browser env)
+  throw new Error(`stockCard golden test failed: ${fail}/${pass + fail}`)
+}
