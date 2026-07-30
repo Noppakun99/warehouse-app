@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Search, Plus, Pencil, Trash2, X,
   User, Shield, ShieldCheck, Eye, EyeOff, RefreshCcw,
-  CheckCircle, XCircle, KeyRound, Users, ShieldPlus,
+  CheckCircle, XCircle, KeyRound, Users, ShieldPlus, MoreVertical,
 } from 'lucide-react';
 import {
   fetchAppUsers, createAppUser, updateAppUser,
@@ -24,35 +24,6 @@ const USER_TYPE = {
   admin:     { label: 'เจ้าหน้าที่คลังยา', color: 'bg-emerald-50 text-emerald-700 border border-emerald-200' },
 };
 
-// สิทธิ์ระบบตาม role
-const SYSTEM_ACCESS = {
-  requester: [
-    { name: 'แผนผังคลังยา',    color: 'bg-indigo-100 text-indigo-700' },
-    { name: 'เบิกยาออนไลน์',   color: 'bg-blue-100 text-blue-700' },
-  ],
-  staff: [
-    { name: 'แผนผังคลังยา',    color: 'bg-indigo-100 text-indigo-700' },
-    { name: 'เบิกยาออนไลน์',   color: 'bg-blue-100 text-blue-700' },
-    { name: 'ประวัติรับเข้าคลัง', color: 'bg-emerald-100 text-emerald-700' },
-    { name: 'ประวัติเบิกยา',   color: 'bg-rose-100 text-rose-700' },
-    { name: 'คืนยา',            color: 'bg-violet-100 text-violet-700' },
-    { name: 'วิเคราะห์การสั่งซื้อ', color: 'bg-orange-100 text-orange-700' },
-    { name: 'ตรวจนับคงคลัง',    color: 'bg-emerald-100 text-emerald-700' },
-    { name: 'Audit Log',        color: 'bg-slate-100 text-slate-600' },
-  ],
-  admin: [
-    { name: 'แผนผังคลังยา',    color: 'bg-indigo-100 text-indigo-700' },
-    { name: 'เบิกยาออนไลน์',   color: 'bg-blue-100 text-blue-700' },
-    { name: 'ประวัติรับเข้าคลัง', color: 'bg-emerald-100 text-emerald-700' },
-    { name: 'ประวัติเบิกยา',   color: 'bg-rose-100 text-rose-700' },
-    { name: 'คืนยา',            color: 'bg-violet-100 text-violet-700' },
-    { name: 'วิเคราะห์การสั่งซื้อ', color: 'bg-orange-100 text-orange-700' },
-    { name: 'ตรวจนับคงคลัง',    color: 'bg-emerald-100 text-emerald-700' },
-    { name: 'Audit Log',        color: 'bg-slate-100 text-slate-600' },
-    { name: 'จัดการผู้ใช้',    color: 'bg-violet-200 text-violet-800' },
-  ],
-};
-
 // ระบบที่ admin สามารถ grant เพิ่มให้ผู้ใช้แต่ละคนได้ (ยกเว้น users ที่เป็น admin-only)
 const GRANTABLE_SYSTEMS = [
   { key: 'inventory',  label: 'แผนผังคลังยา',        color: 'bg-indigo-100 text-indigo-700', defaultRoles: ['requester','staff','admin'] },
@@ -67,6 +38,26 @@ const GRANTABLE_SYSTEMS = [
   { key: 'stockcount', label: 'ตรวจนับคงคลัง',       color: 'bg-emerald-100 text-emerald-700', defaultRoles: ['staff','admin'] },
   { key: 'stockcard',  label: 'Stockcard',            color: 'bg-teal-100 text-teal-700',    defaultRoles: ['requester','staff','admin'] },
 ];
+
+// สรุปสิทธิ์ต่อ user — นับจาก GRANTABLE_SYSTEMS (แหล่งเดียวกับโมดอลสิทธิ์) ไม่ใช่ลิสต์แยก
+// admin เห็นทุกระบบอยู่แล้ว → บอกเป็นคำ ไม่นับเลข (จัดการผู้ใช้เป็น admin-only grant รายคนไม่ได้ จึงไม่อยู่ในลิสต์)
+function summarizeAccess(user) {
+  const base  = GRANTABLE_SYSTEMS.filter(s => s.defaultRoles.includes(user.role));
+  const extra = (user.permissions || [])
+    .map(key => GRANTABLE_SYSTEMS.find(s => s.key === key))
+    .filter(s => s && !s.defaultRoles.includes(user.role));
+  return {
+    baseLabel: user.role === 'admin' ? 'ทุกระบบ' : `สิทธิ์มาตรฐาน (${base.length} ระบบ)`,
+    extra,
+  };
+}
+
+// avatar ตัวอักษรแรก — app_users ไม่มีคอลัมน์รูป จึงใช้อักษรย่อ + สีตาม role
+const AVATAR_COLOR = {
+  requester: 'bg-sky-100 text-sky-700',
+  staff:     'bg-emerald-100 text-emerald-700',
+  admin:     'bg-violet-100 text-violet-700',
+};
 
 const DEPARTMENTS = [
   'คลังยา',
@@ -119,6 +110,8 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch]   = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
+  const [suspendedOnly, setSuspendedOnly] = useState(false);
+  const [toast, setToast] = useState('');
 
   // Modal state
   const [modal, setModal] = useState(null); // null | 'create' | 'edit' | 'password' | 'delete'
@@ -148,6 +141,8 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
     window.addEventListener('resize', fn);
     return () => window.removeEventListener('resize', fn);
   }, []);
+
+  const clearToast = useCallback(() => setToast(''), []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -187,7 +182,7 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
     setSaving(true); setError('');
     try {
       await createAppUser({ username: fUsername, password: fPassword, full_name: fFullName, department: fDepartment, role: fRole });
-      await load(); closeModal();
+      await load(); closeModal(); setToast(`สร้างบัญชี "${fUsername}" แล้ว`);
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   };
 
@@ -199,8 +194,9 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
     const suspendUntil = fSuspendMode === 'temp' ? new Date(fSuspendUntil).toISOString() : null;
     setSaving(true); setError('');
     try {
+      const name = target.username;
       await updateAppUser(target.id, { full_name: fFullName, department: fDepartment, role: fRole, is_active: isActive, suspend_until: suspendUntil });
-      await load(); closeModal();
+      await load(); closeModal(); setToast(`แก้ไข "${name}" แล้ว`);
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   };
 
@@ -218,16 +214,18 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
     if (target.id === auth.id) { setError('ไม่สามารถลบบัญชีของตัวเองได้'); return; }
     setSaving(true); setError('');
     try {
+      const name = target.username;
       await deleteAppUser(target.id);
-      await load(); closeModal();
+      await load(); closeModal(); setToast(`ลบบัญชี "${name}" แล้ว`);
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   };
 
   const handlePermissions = async () => {
     setSaving(true); setError('');
     try {
+      const name = target.username;
       await updateUserPermissions(target.id, fPermissions);
-      await load(); closeModal();
+      await load(); closeModal(); setToast(`บันทึกสิทธิ์ของ "${name}" แล้ว`);
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   };
 
@@ -247,8 +245,10 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
       u.full_name.toLowerCase().includes(search.toLowerCase()) ||
       (u.department || '').toLowerCase().includes(search.toLowerCase());
     const matchRole = roleFilter === 'all' || u.role === roleFilter;
-    return matchSearch && matchRole;
+    return matchSearch && matchRole && (!suspendedOnly || !u.is_active);
   });
+
+  const suspendedCount = users.filter(u => !u.is_active).length;
 
   // เรียงตารางฝั่ง client (users โหลดครบใน state) — default = ลำดับจาก server (created_at ล่าสุด)
   const { sorted, sort, toggleSort } = useSort(filtered, {});
@@ -290,22 +290,30 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
           </button>
         </div>
 
-        {/* Stats row */}
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: 'ทั้งหมด',        count: users.length,                              color: 'text-slate-700' },
-            { label: 'ใช้งานได้',      count: users.filter(u => u.is_active).length,     color: 'text-emerald-600' },
-            { label: 'ถูกระงับ',       count: users.filter(u => !u.is_active).length,    color: 'text-red-600' },
-          ].map(({ label, count, color }) => (
-            <div key={label} className="bg-white border border-slate-200 rounded-xl p-4 text-center shadow-sm">
-              <p className={`text-2xl font-bold ${color}`}>{count}</p>
-              <p className="text-xs text-slate-500 mt-0.5">{label}</p>
-            </div>
-          ))}
-        </div>
-
         {/* Table */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          {/* หัวตาราง: จำนวนผู้ใช้ + ป้ายระงับ (โผล่เมื่อมีจริง — กดกรองได้) */}
+          <div className="flex items-center gap-2.5 px-4 py-3.5 border-b border-slate-100">
+            <h2 className="text-base font-bold text-slate-800">ผู้ใช้ทั้งหมด</h2>
+            <span className="text-base font-semibold text-slate-400 tabular-nums">{users.length}</span>
+            {suspendedCount > 0 && (
+              <button type="button" onClick={() => setSuspendedOnly(v => !v)}
+                title={suspendedOnly ? 'แสดงผู้ใช้ทั้งหมด' : 'กรองเฉพาะที่ถูกระงับ'}
+                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors ${
+                  suspendedOnly
+                    ? 'bg-red-600 text-white'
+                    : 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
+                }`}>
+                <XCircle size={11}/> ระงับ {suspendedCount}
+              </button>
+            )}
+            {suspendedOnly && (
+              <button type="button" onClick={() => setSuspendedOnly(false)}
+                className="text-xs text-slate-500 hover:text-slate-700 underline">
+                ล้างตัวกรอง
+              </button>
+            )}
+          </div>
           {loading ? (
             <div className="text-center py-12 text-slate-400">กำลังโหลด...</div>
           ) : filtered.length === 0 ? (
@@ -320,16 +328,10 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                 return (
                   <div key={u.id} className={`p-4 space-y-2.5 ${!u.is_active ? 'opacity-60' : ''}`}>
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-mono font-semibold text-slate-800">{u.username}</span>
-                          {u.id === auth.id && <span className="text-[10px] bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full font-semibold">คุณ</span>}
-                        </div>
-                        {u.full_name && <p className="text-xs text-slate-500 mt-0.5">{u.full_name}</p>}
-                      </div>
-                      <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${t.color}`}>{t.label}</span>
+                      <UserCell user={u} isSelf={u.id === auth.id}/>
+                      <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap shrink-0 ${t.color}`}>{t.label}</span>
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
+                    <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
                       {u.department && <span>{u.department}</span>}
                       {u.is_active
                         ? <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full"><CheckCircle size={10}/>ใช้งานได้</span>
@@ -338,116 +340,80 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                           : <span className="inline-flex items-center gap-1 text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full"><XCircle size={10}/>ระงับถาวร</span>
                       }
                     </div>
-                    <div className="flex gap-2 flex-wrap">
+                    <AccessCell user={u}/>
+                    <div className="flex items-center gap-2">
                       <button onClick={() => openEdit(u)}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
-                        <Pencil size={11}/> แก้ไข
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-600 border border-slate-200 active:bg-slate-50">
+                        <Pencil size={12}/> แก้ไข
                       </button>
-                      <button onClick={() => openPermissions(u)}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        <ShieldPlus size={11}/> สิทธิ์
-                      </button>
-                      <button onClick={() => openPassword(u)}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                        <KeyRound size={11}/> รหัสผ่าน
-                      </button>
-                      <button onClick={() => openDelete(u)} disabled={u.id === auth.id}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-red-50 text-red-600 border border-red-200 disabled:opacity-30 disabled:cursor-not-allowed">
-                        <Trash2 size={11}/> ลบ
-                      </button>
+                      <RowMenu
+                        onPermissions={() => openPermissions(u)}
+                        onPassword={() => openPassword(u)}
+                        onDelete={() => openDelete(u)}
+                        disableDelete={u.id === auth.id}
+                      />
                     </div>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 380px)' }}>
+            <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 260px)' }}>
               <table className="w-full text-sm min-w-[900px]">
-                <thead>
-                  <tr className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                    <SortableTh sortKey="username" label="ชื่อผู้ใช้" sort={sort} onSort={toggleSort} className="px-4 py-3 bg-slate-50" activeColor="text-violet-600" />
-                    <SortableTh sortKey="full_name" label="ชื่อ-สกุล" sort={sort} onSort={toggleSort} className="px-4 py-3 bg-slate-50" activeColor="text-violet-600" />
-                    <SortableTh sortKey="department" label="หน่วยงาน" sort={sort} onSort={toggleSort} className="px-4 py-3 bg-slate-50" activeColor="text-violet-600" />
-                    <th className="px-4 py-3 text-center bg-slate-50">ประเภทผู้ใช้</th>
-                    <th className="px-4 py-3 text-left bg-slate-50">สิทธิ์ระบบ</th>
-                    <th className="px-4 py-3 text-center bg-slate-50">สถานะ</th>
-                    <SortableTh sortKey="created_at" label="วันที่สมัคร" align="center" sort={sort} onSort={toggleSort} className="px-4 py-3 bg-slate-50" activeColor="text-violet-600" />
-                    <th className="px-4 py-3 text-center bg-slate-50">จัดการ</th>
+                <thead className="sticky top-0 z-10">
+                  <tr className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                    <SortableTh sortKey="username" label="ผู้ใช้" sort={sort} onSort={toggleSort} className="px-4 py-3.5 bg-slate-50/95" activeColor="text-violet-600" />
+                    <SortableTh sortKey="department" label="หน่วยงาน" sort={sort} onSort={toggleSort} className="px-4 py-3.5 bg-slate-50/95" activeColor="text-violet-600" />
+                    <th className="px-4 py-3.5 text-center bg-slate-50/95">ประเภทผู้ใช้</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50/95">สิทธิ์ระบบ</th>
+                    <th className="px-4 py-3.5 text-center bg-slate-50/95">สถานะ</th>
+                    <SortableTh sortKey="created_at" label="วันที่สมัคร" align="center" sort={sort} onSort={toggleSort} className="px-4 py-3.5 bg-slate-50/95" activeColor="text-violet-600" />
+                    <th className="px-4 py-3.5 text-center bg-slate-50/95">จัดการ</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {sorted.map(u => (
-                    <tr key={u.id} className={`hover:bg-slate-50 transition-colors ${!u.is_active ? 'opacity-50' : ''}`}>
-                      <td className="px-4 py-3 font-mono text-slate-700 font-medium">{u.username}</td>
-                      <td className="px-4 py-3 font-medium text-slate-800">
-                        {u.full_name}
-                        {u.id === auth.id && (
-                          <span className="ml-1.5 text-[10px] bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full font-semibold">คุณ</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 text-xs">{u.department || '-'}</td>
+                <tbody>
+                  {sorted.map(u => {
+                    const t = USER_TYPE[u.role] || USER_TYPE.requester;
+                    return (
+                      <tr key={u.id} className={`border-b border-slate-50 hover:bg-violet-50/40 transition-colors ${!u.is_active ? 'opacity-60' : ''}`}>
+                        <td className="px-4 py-3"><UserCell user={u} isSelf={u.id === auth.id}/></td>
+                        <td className="px-4 py-3 text-slate-600 text-xs">{u.department || '-'}</td>
 
-                      {/* ประเภทผู้ใช้ */}
-                      <td className="px-4 py-3 text-center">
-                        {(() => {
-                          const t = USER_TYPE[u.role] || USER_TYPE.requester;
-                          return <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${t.color}`}>{t.label}</span>;
-                        })()}
-                      </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${t.color}`}>{t.label}</span>
+                        </td>
 
-                      {/* สิทธิ์ระบบ */}
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {(SYSTEM_ACCESS[u.role] || SYSTEM_ACCESS.requester).map(s => (
-                            <span key={s.name} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap ${s.color}`}>{s.name}</span>
-                          ))}
-                          {(u.permissions || []).filter(key => {
-                            const sys = GRANTABLE_SYSTEMS.find(g => g.key === key);
-                            return sys && !sys.defaultRoles.includes(u.role);
-                          }).map(key => {
-                            const sys = GRANTABLE_SYSTEMS.find(g => g.key === key);
-                            return sys ? (
-                              <span key={key} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap border border-dashed border-current ${sys.color}`}>+{sys.label}</span>
-                            ) : null;
-                          })}
-                        </div>
-                      </td>
+                        <td className="px-4 py-3"><AccessCell user={u}/></td>
 
-                      <td className="px-4 py-3 text-center">
-                        {u.is_active
-                          ? <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full"><CheckCircle size={11}/>ใช้งานได้</span>
-                          : u.suspend_until
-                            ? <div className="space-y-0.5">
-                                <span className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full"><XCircle size={11}/>ระงับชั่วคราว</span>
-                                <p className="text-[10px] text-amber-600 text-center">ถึง {fmtDate(u.suspend_until)}</p>
-                              </div>
-                            : <span className="inline-flex items-center gap-1 text-xs text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full"><XCircle size={11}/>ระงับถาวร</span>
-                        }
-                      </td>
-                      <td className="px-4 py-3 text-center text-slate-500 text-xs">{fmtDate(u.created_at)}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-center gap-1">
-                          <button onClick={() => openEdit(u)}
-                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="แก้ไข">
-                            <Pencil size={14}/>
-                          </button>
-                          <button onClick={() => openPermissions(u)}
-                            className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="กำหนดสิทธิ์ระบบ">
-                            <ShieldPlus size={14}/>
-                          </button>
-                          <button onClick={() => openPassword(u)}
-                            className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors" title="เปลี่ยนรหัสผ่าน">
-                            <KeyRound size={14}/>
-                          </button>
-                          <button onClick={() => openDelete(u)}
-                            disabled={u.id === auth.id}
-                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed" title="ลบ">
-                            <Trash2 size={14}/>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        <td className="px-4 py-3 text-center">
+                          {u.is_active
+                            ? <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full"><CheckCircle size={11}/>ใช้งานได้</span>
+                            : u.suspend_until
+                              ? <div className="space-y-0.5">
+                                  <span className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full"><XCircle size={11}/>ระงับชั่วคราว</span>
+                                  <p className="text-[10px] text-amber-600 text-center">ถึง {fmtDate(u.suspend_until)}</p>
+                                </div>
+                              : <span className="inline-flex items-center gap-1 text-xs text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full"><XCircle size={11}/>ระงับถาวร</span>
+                          }
+                        </td>
+                        <td className="px-4 py-3 text-center text-slate-500 text-xs whitespace-nowrap">{fmtDate(u.created_at)}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-center gap-1">
+                            <button onClick={() => openEdit(u)}
+                              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-600 border border-slate-200 hover:bg-white hover:border-slate-300 hover:text-slate-800 transition-colors" title="แก้ไข">
+                              <Pencil size={13}/> แก้ไข
+                            </button>
+                            <RowMenu
+                              onPermissions={() => openPermissions(u)}
+                              onPassword={() => openPassword(u)}
+                              onDelete={() => openDelete(u)}
+                              disableDelete={u.id === auth.id}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -703,11 +669,109 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
           </div>
         </div>
       )}
+
+      {toast && <Toast message={toast} onClose={clearToast} />}
     </div>
   );
 }
 
 // ---- Shared sub-components ----
+
+// คอลัมน์ผู้ใช้ — avatar + ชื่อ (fallback username) + username บรรทัดล่าง
+function UserCell({ user, isSelf }) {
+  // full_name ว่าง/'-' เยอะในระบบจริง → ใช้ username เป็นบรรทัดหลักแทน และไม่ซ้ำบรรทัดล่าง
+  const fullName = user.full_name && user.full_name !== '-' ? user.full_name : '';
+  const label = fullName || user.username;
+  return (
+    <div className="flex items-center gap-3 min-w-0">
+      <div className={`w-9 h-9 rounded-full grid place-items-center font-bold text-sm shrink-0 ${AVATAR_COLOR[user.role] || AVATAR_COLOR.requester}`}>
+        {(label[0] || '?').toUpperCase()}
+      </div>
+      <div className="min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className={`truncate ${fullName ? 'font-semibold text-slate-800' : 'font-mono font-semibold text-slate-800'}`}>{label}</span>
+          {isSelf && <span className="text-[10px] bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full font-semibold shrink-0">คุณ</span>}
+        </div>
+        {fullName && <p className="text-xs text-slate-400 font-mono truncate">{user.username}</p>}
+      </div>
+    </div>
+  );
+}
+
+// คอลัมน์สิทธิ์ระบบ — ป้ายสรุปฐาน + ป้าย grant เพิ่มเฉพาะที่มี (ไม่ไล่ชื่อทุกระบบ — แถวจะสูงเกินอ่าน)
+function AccessCell({ user }) {
+  const { baseLabel, extra } = summarizeAccess(user);
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 whitespace-nowrap">{baseLabel}</span>
+      {extra.map(s => (
+        <span key={s.key} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap border border-dashed border-current ${s.color}`}>
+          +{s.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// เมนู ⋮ ต่อแถว — action รอง (สิทธิ์/รหัสผ่าน/ลบ) ส่วน "แก้ไข" อยู่นอกเมนู
+function RowMenu({ onPermissions, onPassword, onDelete, disableDelete }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey  = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  const item = 'w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors';
+  const pick = (fn) => { setOpen(false); fn(); };
+
+  return (
+    <div className="relative" ref={ref}>
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="ตัวเลือกเพิ่มเติม">
+        <MoreVertical size={16}/>
+      </button>
+      {/* mobile กาง"ขวา"จากปุ่ม (ปุ่มอยู่ซ้ายจอ) — desktop กาง"ซ้าย" (ปุ่มอยู่ขวาสุดตาราง) กันล้นขอบ */}
+      {open && (
+        <div className="absolute left-0 md:left-auto md:right-0 top-full mt-1 z-20 w-48 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden py-1">
+          <button type="button" onClick={() => pick(onPermissions)} className={`${item} text-slate-700 hover:bg-emerald-50 hover:text-emerald-700`}>
+            <ShieldPlus size={14}/> กำหนดสิทธิ์ระบบ
+          </button>
+          <button type="button" onClick={() => pick(onPassword)} className={`${item} text-slate-700 hover:bg-amber-50 hover:text-amber-700`}>
+            <KeyRound size={14}/> เปลี่ยนรหัสผ่าน
+          </button>
+          <div className="border-t border-slate-100 my-1"/>
+          <button type="button" onClick={() => pick(onDelete)} disabled={disableDelete}
+            className={`${item} text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent`}>
+            <Trash2 size={14}/> ลบบัญชี
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Toast แจ้งผลสำเร็จ — มุมล่างขวา หายเองใน 2.5 วิ
+function Toast({ message, onClose }) {
+  // onClose ต้องเป็น callback เสถียร (useCallback ฝั่ง parent) ไม่งั้น timer reset ทุก render
+  useEffect(() => {
+    const t = setTimeout(onClose, 2500);
+    return () => clearTimeout(t);
+  }, [message, onClose]);
+  return (
+    <div className="fixed bottom-5 right-5 z-[60] flex items-center gap-2.5 bg-slate-800 text-white rounded-xl shadow-2xl pl-4 pr-3 py-3 text-sm max-w-sm">
+      <CheckCircle size={16} className="text-emerald-400 shrink-0"/>
+      <span className="flex-1">{message}</span>
+      <button type="button" onClick={onClose} className="text-slate-400 hover:text-white transition-colors"><X size={15}/></button>
+    </div>
+  );
+}
+
 function ModalHeader({ title, icon, onClose, danger = false }) {
   return (
     <div className={`flex items-center justify-between px-5 py-4 border-b border-slate-100 ${danger ? 'bg-red-50' : 'bg-slate-50'} rounded-t-2xl`}>
