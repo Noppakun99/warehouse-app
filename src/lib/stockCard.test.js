@@ -321,6 +321,51 @@ section('Test 20: ยอดตรงตลอด → 0 จุด')
   eq(r.summary.driftLots, 0, 'ไม่มี lot drift')
 }
 
+// ── Test 21: rowErr — ต้นทางกรอกผิดในแถวเดียวกัน (เคสจริง Naproxen F681020) ──
+// ก่อนเบิก 10 เบิก 40 แต่หลังเบิกยังเป็น 10 → Excel ไม่ได้ตัดยอด (พบจริง 55 แถวใน DB)
+section('Test 21: rowErr — ก่อน − ออก ≠ หลัง (คนกรอกผิด)')
+{
+  const r = buildStockCard({
+    receiveRows: [],
+    dispenseRows: [
+      { dispense_date: '2026-06-02', lot: 'F681020', item_type: 'ยกยอด', qty_out: 40, qty_before: 10, qty_after: 10 },
+    ],
+  })
+  const row = r.rows[0]
+  eq(row.qtyAfter, 10, 'เก็บ qty_after')
+  eq(row.rowErr, -40, 'rowErr = (10 − 40) − 10 = −40')
+  eq(row.hasRowErr, true, 'flag hasRowErr')
+  eq(r.summary.rowErrRows, 1, 'summary นับแถวกรอกผิด')
+}
+
+// ── Test 22: สมการในแถวถูก → ไม่ flag (แยกจาก drift) ──
+section('Test 22: แถวถูก แต่มี drift → flag แค่ drift')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2025-09-22', lot: '194584', item_type: 'ซื้อยา', qty_received: 100 }],
+    dispenseRows: [
+      { dispense_date: '2025-10-06', lot: '194584', item_type: 'ยกยอด', qty_out: 5, qty_before: 91, qty_after: 86 },
+    ],
+  })
+  const row = r.rows[1]
+  eq(row.rowErr, 0, 'สมการในแถวถูก: 91 − 5 = 86')
+  eq(row.hasRowErr, false, 'ไม่ flag กรอกผิด — การเบิกครั้งนี้ไม่ผิด')
+  eq(row.isDriftPoint, true, 'แต่ยอดตั้งต้นไม่ตรง → flag drift')
+  eq(r.summary.rowErrRows, 0, 'ไม่มีแถวกรอกผิด')
+  eq(r.summary.driftRows, 1, 'มี 1 จุด drift')
+}
+
+// ── Test 23: qty_after null → เทียบสมการไม่ได้ (1,243 แถวจริงใน DB) ──
+section('Test 23: qty_after null → rowErr = null')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-01', lot: 'Q', item_type: 'ซื้อยา', qty_received: 50 }],
+    dispenseRows: [{ dispense_date: '2026-01-05', lot: 'Q', item_type: 'ยกยอด', qty_out: 10, qty_before: 50, qty_after: null }],
+  })
+  eq(r.rows[1].rowErr, null, 'ไม่มี qty_after → เทียบไม่ได้')
+  eq(r.rows[1].hasRowErr, false, 'ไม่ flag (กัน false positive)')
+}
+
 console.log('\n' + '─'.repeat(50))
 if (fail === 0) {
   console.log(`✓ ผ่านทั้งหมด ${pass} assertions`)

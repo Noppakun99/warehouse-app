@@ -54,6 +54,7 @@ function toMovements(receiveRows = [], dispenseRows = []) {
       exp: r.exp || '',
       side: 'in',
       _qtyBefore: null,
+      _qtyAfter: null,
     })
   }
   for (const d of dispenseRows) {
@@ -69,6 +70,7 @@ function toMovements(receiveRows = [], dispenseRows = []) {
       side: 'out',
       // ยอดก่อนเบิก — ใช้หา opening ของ lot ที่ไม่มีประวัติรับเข้า (lot เก่าก่อนระบบ)
       _qtyBefore: d.qty_before == null || d.qty_before === '' ? null : toNum(d.qty_before),
+      _qtyAfter: d.qty_after == null || d.qty_after === '' ? null : toNum(d.qty_after),
     })
   }
   return mv
@@ -126,6 +128,13 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
     const driftDelta = drift == null ? null : drift - lastDriftByLot[m.lot]
     if (drift != null) lastDriftByLot[m.lot] = drift
 
+    // ตรวจสมการ "ในแถวเดียวกัน" ของต้นทาง: ก่อนเบิก − เบิกออก = หลังเบิก
+    // ไม่เท่า = คนกรอกผิด/Excel ไม่ได้ตัดยอด (คนละเรื่องกับ drift ที่เป็นช่องว่างระหว่างแถว)
+    // พบจริง 55 แถว เช่น ก่อนเบิก 10 เบิก 40 แต่หลังเบิกยังเป็น 10
+    const rowErr = (m.side === 'out' && m._qtyBefore != null && m._qtyAfter != null)
+      ? (m._qtyBefore - m.qtyOut) - m._qtyAfter
+      : null
+
     const deduct = NO_DEDUCT.has(m.kind) ? 0 : m.qtyOut
     balByLot[m.lot] += m.qtyIn - deduct
     rows.push({
@@ -147,6 +156,9 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
       hasDrift: drift != null && drift !== 0,
       driftDelta,                  // ของที่หาย/เกิน "ตรงจุดนี้" (drift − drift แถวก่อนของ lot เดียวกัน)
       isDriftPoint: driftDelta != null && driftDelta !== 0,   // จุดที่ของหายจริง → UI เตือนเฉพาะแถวนี้
+      qtyAfter: m._qtyAfter,       // ยอดหลังเบิกที่ต้นทางบันทึก
+      rowErr,                      // สมการในแถวของต้นทาง: (ก่อน − ออก) − หลัง · 0 = ถูก · ≠0 = กรอกผิด
+      hasRowErr: rowErr != null && rowErr !== 0,
     })
   }
 
@@ -176,6 +188,7 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
       negativeLots: lots.filter(l => l.negative).length,
       driftLots: lots.filter(l => l.driftCount > 0).length,
       driftRows: rows.filter(r => r.isDriftPoint).length,   // จำนวนจุดที่ของหายจริง
+      rowErrRows: rows.filter(r => r.hasRowErr).length,     // แถวที่ต้นทางกรอกผิด (ก่อน−ออก≠หลัง)
     },
   }
 }

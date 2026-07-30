@@ -150,6 +150,11 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                     <AlertTriangle size={13} /> ยอดไม่ตรงบันทึก {card.summary.driftLots} lot
                   </span>
                 )}
+                {card.summary.rowErrRows > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-700 border border-rose-300">
+                    <AlertTriangle size={13} /> แถวกรอกผิด {card.summary.rowErrRows} แถว
+                  </span>
+                )}
               </div>
               {card.summary.driftLots > 0 && (
                 <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -237,6 +242,16 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                         {/* ยอดที่ต้นทางบันทึกไว้ (qty_before) — ให้เห็นว่าไอคอนเทียบกับอะไร ไม่ต้องเปิดโมดอล */}
                         <td className={`px-3 py-2 text-right ${r.hasDrift ? 'text-amber-700 font-semibold' : 'text-slate-400'}`}>
                           {r.qtyBefore == null ? '-' : fmtNum(r.qtyBefore)}
+                          {/* กรอกผิดที่ต้นทาง (ก่อน−ออก≠หลัง) — คนละเรื่องกับ drift จึงใช้สีแดงแยก */}
+                          {r.hasRowErr && (
+                            <button
+                              onClick={() => setDriftRow(r)}
+                              className="ml-1 inline-flex items-center align-middle text-rose-600 hover:text-rose-700 hover:bg-rose-100 rounded p-0.5 transition-colors"
+                              aria-label="แถวนี้กรอกผิด"
+                            >
+                              <AlertTriangle size={13} />
+                            </button>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-slate-600 max-w-[180px] truncate" title={r.party}>{r.party || '-'}</td>
                         <td className="px-3 py-2 text-slate-500 text-xs max-w-[200px] truncate" title={r.ref}>{r.ref || '-'}</td>
@@ -346,44 +361,110 @@ function DriftModal({ row, onClose }) {
         </div>
 
         <div className="p-4 space-y-3">
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
-              <p className="text-[11px] text-slate-500">ยอดที่ระบบคำนวณ</p>
-              <p className="font-bold text-slate-800 text-lg">{fmtNum(calc)}</p>
-            </div>
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
-              <p className="text-[11px] text-slate-500">ยอดที่บันทึกไว้</p>
-              <p className="font-bold text-slate-800 text-lg">{fmtNum(recorded)}</p>
-            </div>
-          </div>
-
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
-            <p className="text-[11px] text-amber-700">ผลต่างสะสม</p>
-            <p className="font-bold text-amber-800 text-xl">{diff > 0 ? '+' : ''}{fmtNum(diff)}</p>
-            <p className="text-[11px] text-amber-700 mt-0.5">
-              {more ? 'ระบบคิดว่ามีมากกว่าที่บันทึก' : 'ระบบคิดว่ามีน้อยกว่าที่บันทึก'}
+          {/* แถวตามที่ต้นทาง (Excel) บันทึก — ให้เห็นว่าสมการในแถวถูกไหม */}
+          <div className="border border-slate-200 rounded-xl overflow-hidden">
+            <p className="text-[11px] font-semibold text-slate-500 bg-slate-50 px-3 py-1.5 border-b border-slate-200">
+              แถวนี้ตามที่บันทึกไว้ (จาก Excel)
             </p>
+            <table className="w-full text-sm">
+              <tbody>
+                <tr className={row.hasDrift ? 'border-b border-slate-100 bg-amber-50' : 'border-b border-slate-100'}>
+                  <td className="px-3 py-2 text-slate-500">
+                    คงเหลือก่อนเบิก
+                    {row.hasDrift && <span className="ml-1 text-[11px] font-bold text-amber-700">← ไม่ถูกต้อง</span>}
+                  </td>
+                  <td className={`px-3 py-2 text-right font-bold ${row.hasDrift ? 'text-amber-700' : 'text-slate-800'}`}>
+                    {fmtNum(recorded)}
+                    {row.hasDrift && <span className="block text-[11px] font-normal text-slate-500">ควรเป็น {fmtNum(calc)}</span>}
+                  </td>
+                </tr>
+                <tr className="border-b border-slate-100">
+                  <td className="px-3 py-2 text-slate-500">เบิกออก</td>
+                  <td className="px-3 py-2 text-right font-bold text-slate-800">− {fmtNum(row.qtyOut)}</td>
+                </tr>
+                <tr className={row.hasRowErr ? 'bg-rose-50' : 'bg-slate-50'}>
+                  <td className="px-3 py-2 text-slate-500">คงเหลือหลังเบิก</td>
+                  <td className={`px-3 py-2 text-right font-bold ${row.hasRowErr ? 'text-rose-700' : 'text-slate-800'}`}>
+                    {row.qtyAfter == null ? '(ไม่ได้บันทึก)' : fmtNum(row.qtyAfter)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            {row.hasRowErr ? (
+              <p className="text-[11px] text-rose-700 bg-rose-50 px-3 py-2 border-t border-rose-200">
+                <b>แถวนี้กรอกผิด</b> — {fmtNum(recorded)} − {fmtNum(row.qtyOut)} ควรได้ {fmtNum(recorded - row.qtyOut)}
+                {' '}แต่บันทึกไว้ {fmtNum(row.qtyAfter)} (ต่าง {fmtNum(Math.abs(row.rowErr))})
+              </p>
+            ) : row.qtyAfter != null ? (
+              <p className="text-[11px] text-emerald-700 bg-emerald-50 px-3 py-2 border-t border-emerald-200">
+                สมการในแถวนี้ถูกต้อง ({fmtNum(recorded)} − {fmtNum(row.qtyOut)} = {fmtNum(row.qtyAfter)})
+              </p>
+            ) : (
+              <p className="text-[11px] text-slate-500 bg-slate-50 px-3 py-2 border-t border-slate-200">
+                แถวนี้<b>ไม่ได้บันทึกยอดหลังเบิก</b> — ตรวจสมการในแถวไม่ได้
+              </p>
+            )}
           </div>
 
-          {/* delta = ของที่หายตรงจุดนี้ ต่างจากผลต่างสะสมที่อาจค้างมาจากจุดก่อน */}
-          {row.driftDelta != null && row.driftDelta !== diff && (
-            <div className="bg-white border border-amber-300 rounded-xl p-3 text-center">
-              <p className="text-[11px] text-slate-500">ของที่หาย/เกิน <b>เฉพาะจุดนี้</b></p>
-              <p className="font-bold text-amber-700 text-lg">{row.driftDelta > 0 ? '+' : ''}{fmtNum(row.driftDelta)}</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">ส่วนที่เหลือค้างมาจากช่องว่างก่อนหน้า</p>
-            </div>
-          )}
+          {/* เทียบยอดตั้งต้น: ระบบไล่จากบิลรับ vs ที่ต้นทางบันทึก */}
+          <div className="border border-amber-200 rounded-xl overflow-hidden">
+            <p className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-3 py-1.5 border-b border-amber-200">
+              ตรวจ &ldquo;คงเหลือก่อนเบิก&rdquo; — ไม่ตรงกับบิลรับเข้า
+            </p>
+            <table className="w-full text-sm">
+              <tbody>
+                <tr className="border-b border-slate-100">
+                  <td className="px-3 py-2 text-slate-500">ระบบไล่จากบิลรับเข้า</td>
+                  <td className="px-3 py-2 text-right font-bold text-slate-800">{fmtNum(calc)}</td>
+                </tr>
+                <tr className="border-b border-slate-100">
+                  <td className="px-3 py-2 text-slate-500">ต้นทางบันทึกว่าเหลือ</td>
+                  <td className="px-3 py-2 text-right font-bold text-slate-800">{fmtNum(recorded)}</td>
+                </tr>
+                <tr className="bg-amber-50">
+                  <td className="px-3 py-2 text-amber-700 font-semibold">ต่างกัน</td>
+                  <td className="px-3 py-2 text-right font-bold text-amber-800">{diff > 0 ? '+' : ''}{fmtNum(diff)}</td>
+                </tr>
+              </tbody>
+            </table>
+            {row.driftDelta != null && row.driftDelta !== diff && (
+              <p className="text-[11px] text-slate-500 px-3 py-2 border-t border-slate-100">
+                หายเฉพาะจุดนี้ <b className="text-amber-700">{fmtNum(Math.abs(row.driftDelta))}</b> ·
+                ที่เหลือค้างมาจากช่องว่างก่อนหน้า
+              </p>
+            )}
+          </div>
 
           <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3 leading-relaxed">
-            <p className="font-semibold text-slate-700 mb-1">หมายความว่าอะไร</p>
-            <p>
-              {more
-                ? 'มียาออกจาก lot นี้โดยไม่มีแถวเบิกรองรับ — เบิกจริงแต่ไม่ได้ลงบันทึก หรือถูกโอน/ปรับยอดนอกระบบ'
-                : 'มียาเข้า lot นี้โดยไม่มีแถวรับรองรับ — รับเข้าแต่ไม่ได้ลงบันทึก หรือยอดตั้งต้นไม่ครบ'}
-            </p>
+            <p className="font-semibold text-slate-700 mb-1">แปลว่าอะไร</p>
+            {row.hasRowErr ? (
+              <p>
+                <b className="text-rose-700">แถวนี้กรอกผิดที่ต้นทาง</b> — ตัวเลขก่อนเบิก/เบิกออก/หลังเบิก
+                ไม่สอดคล้องกันเอง ควรตรวจกับ sheet เบิกว่ากรอกตกหล่นหรือไม่ได้ตัดยอด
+              </p>
+            ) : (
+              <>
+                <p>
+                  <b className="text-amber-700">ค่า &ldquo;คงเหลือก่อนเบิก&rdquo; ({fmtNum(recorded)}) ไม่ถูกต้อง</b> —
+                  ควรเป็น {fmtNum(calc)} ตามบิลรับเข้า
+                  {more
+                    ? ' แปลว่ามีการเบิกไปก่อนหน้านี้แล้วไม่ได้ตัดใน sheet เบิก'
+                    : ' แปลว่ามีของเข้าเพิ่มโดยไม่มีบิลรับบันทึกไว้'}
+                </p>
+                <p className="mt-1.5">
+                  <b>ตัวเลข &ldquo;เบิกออก {fmtNum(row.qtyOut)}&rdquo; ไม่ได้ผิด</b> — ที่ผิดคือยอดตั้งต้นที่ยกมา
+                  {row.qtyAfter == null && ' (แถวนี้ไม่ได้บันทึกยอดหลังเบิก จึงตรวจสมการในแถวไม่ได้)'}
+                </p>
+              </>
+            )}
+            {String(row.ref || '').includes('unpivot') && (
+              <p className="mt-1.5 text-slate-500">
+                หมายเหตุแถวนี้เป็น <b>“นำเข้าจาก ต.ค.68”</b> — ประวัติการเบิกก่อนเดือน ต.ค. 68
+                ไม่ได้ถูกนำเข้าระบบ ช่องว่างนี้จึงเป็นเรื่องปกติของ lot ที่รับเข้าก่อนเริ่มใช้ระบบ
+              </p>
+            )}
             <p className="mt-1.5 text-slate-500">
-              เป็นปัญหา<b>ข้อมูลต้นทาง</b> ไม่ใช่การคำนวณผิด — ระบบไม่แก้ยอดให้อัตโนมัติ
-              เพราะต้องให้คนตรวจสอบว่าของหายไปไหนก่อน
+              ระบบ<b>ไม่แก้ยอดให้อัตโนมัติ</b> — เป็นข้อมูลต้นทางที่ต้องให้คนตรวจสอบก่อน
             </p>
           </div>
 
