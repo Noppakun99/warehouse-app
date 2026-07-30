@@ -12,7 +12,7 @@ import {
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
   TrendingUp, BarChart3, FileDown, ScanLine, CheckCircle2, HelpCircle,
   ImagePlus, Pencil, Trash2, Info, CalendarDays, Image as ImageIcon, AlertTriangle,
-  ClipboardList, Send, FileCheck2, History, Undo2, Printer, ArrowRight,
+  ClipboardList, Send, FileCheck2, History, Undo2, Printer, ArrowRight, ArrowLeftRight,
 } from 'lucide-react';
 import { exportToExcel } from './lib/exportExcel';
 import { insertAuditLog, resolveAuditUserName } from './lib/db';
@@ -2175,6 +2175,14 @@ function ReceiveView({ auth = {} }) {
                           <span className="text-slate-800 font-medium truncate block text-xs">
                             {getDetailSupplier(r) || r.supplier_current || '-'}
                           </span>
+                          {r.supplier_changed && r.supplier_changed !== '-' && (
+                            <span
+                              title={r.supplier_prev && r.supplier_prev !== '-' ? `เดิม: ${r.supplier_prev}` : 'เปลี่ยนบริษัทจากเดิม'}
+                              className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-100 text-orange-700 border border-orange-200"
+                            >
+                              <ArrowLeftRight size={10}/> เปลี่ยนบริษัท
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-slate-700 text-xs whitespace-nowrap">{r.bill_number || '-'}</td>
                         <td className="px-4 py-3 text-slate-400">
@@ -2195,13 +2203,12 @@ function ReceiveView({ auth = {} }) {
                                 ['สถานะตรวจรับ',      r.receive_status],
                                 ['รูปแบบ',            r.drug_type],
                                 ['บริษัทก่อนหน้า',    r.supplier_prev && r.supplier_prev !== '-' ? r.supplier_prev : null],
-                                ['เคยเปลี่ยนบริษัท',  r.supplier_changed && r.supplier_changed !== '-' ? r.supplier_changed : null],
                                 ['หมายเหตุหมดอายุ',   r.exp_note],
                                 ['ราคารวมภาษี/สูตร',  r.total_price_formula],
                               ].map(([label, val]) => val != null && val !== '-' && val !== '' ? (
                                 <div key={label}>
                                   <span className="text-slate-400 text-xs">{label}: </span>
-                                  <span className="text-slate-700 font-medium">{val}</span>
+                                  <span className={label === 'บริษัทก่อนหน้า' ? 'text-orange-700 font-medium' : 'text-slate-700 font-medium'}>{val}</span>
                                 </div>
                               ) : null)}
                             </div>
@@ -2281,6 +2288,11 @@ function ReceiveView({ auth = {} }) {
             <div className="px-4 pb-3 border-b border-slate-100">
               <p className="font-bold text-slate-900 text-base leading-tight">{mobileDetail.drug_name}</p>
               <p className="text-xs text-slate-500 mt-0.5">{mobileDetail.drug_code} · {fmtDate(mobileDetail.receive_date)}</p>
+              {mobileDetail.supplier_changed && mobileDetail.supplier_changed !== '-' && (
+                <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-orange-100 text-orange-700 border border-orange-200">
+                  <ArrowLeftRight size={11}/> เปลี่ยนบริษัท{mobileDetail.supplier_prev && mobileDetail.supplier_prev !== '-' ? ` (เดิม: ${mobileDetail.supplier_prev})` : ''}
+                </span>
+              )}
             </div>
             {/* body */}
             <div className="overflow-y-auto px-4 py-3 space-y-3">
@@ -2404,8 +2416,16 @@ function ReceiveView({ auth = {} }) {
                       <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>
                       <td className="px-4 py-2.5 text-slate-800 font-medium text-right whitespace-nowrap">{row.price_per_unit != null ? Number(row.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
                       <td className="px-4 py-2.5 text-amber-800 font-bold text-right whitespace-nowrap">{row.total_price_vat != null ? Number(row.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-800 max-w-[160px] truncate font-medium text-xs">
-                        {getDetailSupplier(row) || row.supplier_current || '-'}
+                      <td className="px-4 py-2.5 text-slate-800 max-w-[160px] font-medium text-xs">
+                        <span className="block truncate">{getDetailSupplier(row) || row.supplier_current || '-'}</span>
+                        {row.supplier_changed && row.supplier_changed !== '-' && (
+                          <span
+                            title={row.supplier_prev && row.supplier_prev !== '-' ? `เดิม: ${row.supplier_prev}` : 'เปลี่ยนบริษัทจากเดิม'}
+                            className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-100 text-orange-700 border border-orange-200"
+                          >
+                            <ArrowLeftRight size={10}/> เปลี่ยนบริษัท
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{row.bill_number || '-'}</td>
                       <td className="px-4 py-2.5 text-slate-500">
@@ -2425,14 +2445,13 @@ function ReceiveView({ auth = {} }) {
                               ['ประเภทการซื้อ',      row.purchase_type],
                               ['สถานะตรวจรับ',      row.receive_status],
                               ['รูปแบบ',            row.drug_type],
-                              ['บริษัทก่อนหน้า',    row.supplier_prev],
-                              ['เปลี่ยนบริษัท',     row.supplier_changed],
+                              ['บริษัทก่อนหน้า',    row.supplier_changed && row.supplier_changed !== '-' ? row.supplier_prev : null],
                               ['หมายเหตุหมดอายุ',   row.exp_note],
                               ['ราคารวมภาษี/สูตร',  row.total_price_formula],
                             ].map(([label, val]) => val != null && val !== '-' && val !== '' ? (
                               <div key={label}>
                                 <span className="text-slate-400 text-xs">{label}: </span>
-                                <span className="text-slate-700 font-medium">{val}</span>
+                                <span className={label === 'บริษัทก่อนหน้า' ? 'text-orange-700 font-medium' : 'text-slate-700 font-medium'}>{val}</span>
                               </div>
                             ) : null)}
                           </div>
