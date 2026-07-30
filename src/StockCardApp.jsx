@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { ScrollText, Package, AlertTriangle, TrendingUp, TrendingDown, Filter, X } from 'lucide-react'
 import { fetchInventoryNameCodeMap, fetchStockCard } from './lib/db'
 import { buildStockCard, filterStockCard } from './lib/stockCard'
@@ -23,6 +23,20 @@ const fmtNum = (n) => {
   return v.toLocaleString('th-TH', { maximumFractionDigits: 2 })
 }
 
+// date input แสดง DD/MM/YYYY (พ.ศ.) ทับ hidden <input type="date"> — Rule #3/#14
+// showPicker ต้อง guard เสมอ (bare showPicker พังบน mobile)
+function IsoDateInput({ value, onChange, className = '' }) {
+  const display = iso => { if (!iso) return null; const [y, m, d] = iso.split('-'); return `${d}/${m}/${Number(y) + 543}` }
+  return (
+    <div className={`relative flex items-center bg-white border border-slate-200 rounded-lg focus-within:ring-2 focus-within:ring-teal-400 ${className}`}>
+      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
+      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
+        onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }}
+        className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+    </div>
+  )
+}
+
 // badge ชนิดรายการ — สีตามความหมาย (เข้า=เขียว, ไม่หักยอด=เทา, ออก=ขาว)
 function KindBadge({ kind, side, noDeduct }) {
   const cls = noDeduct ? 'bg-slate-100 text-slate-500 border-slate-200'
@@ -40,8 +54,12 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
   const [error, setError] = useState('')
   const [lotFilter, setLotFilter] = useState('')
   const [kindFilter, setKindFilter] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [showFilter, setShowFilter] = useState(false)
   const [driftRow, setDriftRow] = useState(null)   // แถวที่กดดูรายละเอียด "ยอดไม่ตรงบันทึก"
+  const [flashKey, setFlashKey] = useState(null)   // แถวที่เพิ่งกระโดดไป — ไฮไลต์ชั่วคราว
+  const rowRefs = useRef({})                       // key แถว → element (สำหรับ scroll ไปหา)
 
   useEffect(() => {
     let alive = true
@@ -55,13 +73,21 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
     return () => { alive = false }
   }, [])
 
+  // ล้างทุกอย่างกลับ empty state — ใช้ตอนกด X ล้างชื่อยา (ตารางต้องหายไปด้วย)
+  const clearAll = () => {
+    setData(null); setError('')
+    setLotFilter(''); setKindFilter(''); setDateFrom(''); setDateTo('')
+    setDriftRow(null); setFlashKey(null)
+  }
+
   const loadCard = async (name) => {
     const code = nameToCode[name]
-    if (!code) { setData(null); return }
+    if (!code) { clearAll(); return }
     setLoading(true); setError('')
     try {
       setData(await fetchStockCard(code))
-      setLotFilter(''); setKindFilter('')
+      setLotFilter(''); setKindFilter(''); setDateFrom(''); setDateTo('')
+      setDriftRow(null); setFlashKey(null)
     } catch (e) { setError(e.message); setData(null) }
     finally { setLoading(false) }
   }
@@ -76,16 +102,39 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
   }, [data])
 
   const visibleRows = useMemo(
-    () => (card ? filterStockCard(card.rows, { lot: lotFilter || undefined, kind: kindFilter || undefined }) : []),
-    [card, lotFilter, kindFilter]
+    () => (card ? filterStockCard(card.rows, {
+      lot: lotFilter || undefined,
+      kind: kindFilter || undefined,
+      from: dateFrom || undefined,
+      to: dateTo || undefined,
+    }) : []),
+    [card, lotFilter, kindFilter, dateFrom, dateTo]
   )
+
+  // key แถวที่ stable ข้ามการกรอง (index เปลี่ยนเมื่อกรอง → ใช้เป็น ref key ไม่ได้)
+  const rowKey = (r) => `${r.lot}|${r.date}|${r.side}|${r.qtyIn}|${r.qtyOut}|${r.qtyBefore ?? ''}`
+
+  // กด badge → ล้างตัวกรองที่บังแถวนั้น แล้วเลื่อนไปหา + ไฮไลต์
+  const jumpToRow = (predicate) => {
+    if (!card) return
+    const target = card.rows.find(predicate)
+    if (!target) return
+    setLotFilter(''); setKindFilter(''); setDateFrom(''); setDateTo('')
+    const key = rowKey(target)
+    setFlashKey(key)
+    // รอ React render แถวที่เพิ่งถูกปลดกรองก่อนค่อย scroll
+    setTimeout(() => {
+      rowRefs.current[key]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 60)
+    setTimeout(() => setFlashKey(null), 2600)
+  }
   const kinds = useMemo(
     () => (card ? [...new Set(card.rows.map(r => r.kind).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'th')) : []),
     [card]
   )
 
   const meta = data?.meta
-  const hasFilter = !!(lotFilter || kindFilter)
+  const hasFilter = !!(lotFilter || kindFilter || dateFrom || dateTo)
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -107,7 +156,11 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
           <label className="block text-xs font-semibold text-slate-500 mb-1.5">เลือกยา</label>
           <DrugSearchBar
             value={drugName}
-            onChange={(v) => { setDrugName(v); if (nameToCode[v]) loadCard(v) }}
+            onChange={(v) => {
+              setDrugName(v)
+              if (nameToCode[v]) loadCard(v)
+              else if (!v.trim()) clearAll()   // กด X ล้างชื่อ → ตารางหายไปด้วย
+            }}
             options={drugOptions}
             placeholder="พิมพ์ชื่อยาเพื่อดูประวัติทุก lot..."
             ringClass="focus:ring-teal-400"
@@ -146,14 +199,22 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                   </span>
                 )}
                 {card.summary.driftLots > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+                  <button
+                    onClick={() => jumpToRow(r => r.isDriftPoint)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition-colors"
+                    title="ไปที่แถวแรกที่ยอดไม่ตรง"
+                  >
                     <AlertTriangle size={13} /> ยอดไม่ตรงบันทึก {card.summary.driftLots} lot
-                  </span>
+                  </button>
                 )}
                 {card.summary.rowErrRows > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-700 border border-rose-300">
+                  <button
+                    onClick={() => jumpToRow(r => r.hasRowErr)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-700 border border-rose-300 hover:bg-rose-200 transition-colors"
+                    title="ไปที่แถวแรกที่กรอกผิด"
+                  >
                     <AlertTriangle size={13} /> แถวกรอกผิด {card.summary.rowErrRows} แถว
-                  </span>
+                  </button>
                 )}
               </div>
               {card.summary.driftLots > 0 && (
@@ -194,8 +255,16 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                       {kinds.map(k => <option key={k} value={k}>{k}</option>)}
                     </select>
                   </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">ตั้งแต่วันที่</label>
+                    <IsoDateInput value={dateFrom} onChange={setDateFrom} className="w-36" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">ถึงวันที่</label>
+                    <IsoDateInput value={dateTo} onChange={setDateTo} className="w-36" />
+                  </div>
                   {hasFilter && (
-                    <button onClick={() => { setLotFilter(''); setKindFilter('') }}
+                    <button onClick={() => { setLotFilter(''); setKindFilter(''); setDateFrom(''); setDateTo('') }}
                       className="self-end flex items-center gap-1 px-3 py-1.5 text-sm text-slate-500 hover:text-slate-700">
                       <X size={14} /> ล้างตัวกรอง
                     </button>
@@ -216,8 +285,15 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleRows.map((r, i) => (
-                      <tr key={i} className={`border-b border-slate-100 ${r.qtyIn > 0 ? 'bg-emerald-50/60' : ''}`}>
+                    {visibleRows.map((r, i) => {
+                      const key = rowKey(r)
+                      const flash = flashKey === key
+                      return (
+                      <tr
+                        key={i}
+                        ref={el => { if (el) rowRefs.current[key] = el }}
+                        className={`border-b transition-colors ${flash ? 'bg-amber-100 ring-2 ring-amber-400 border-amber-300' : `border-slate-100 ${r.qtyIn > 0 ? 'bg-emerald-50/60' : ''}`}`}
+                      >
                         <td className="px-3 py-2 whitespace-nowrap text-slate-600">{fmtThai(r.date)}</td>
                         <td className="px-3 py-2 whitespace-nowrap font-medium text-slate-700">{r.lot}</td>
                         <td className="px-3 py-2 whitespace-nowrap"><KindBadge kind={r.kind} side={r.side} noDeduct={r.noDeduct} /></td>
@@ -258,7 +334,8 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                         <td className="px-3 py-2 text-right text-slate-600">{r.value ? fmtNum(r.value) : '-'}</td>
                         <td className="px-3 py-2 whitespace-nowrap text-slate-500 text-xs">{fmtThai(r.exp)}</td>
                       </tr>
-                    ))}
+                      )
+                    })}
                     {visibleRows.length === 0 && (
                       <tr><td colSpan={11} className="px-3 py-10 text-center text-slate-400">ไม่มีรายการตามตัวกรอง</td></tr>
                     )}
@@ -269,8 +346,15 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
 
             {/* card list (mobile < 768px — Rule #5) */}
             <div className="md:hidden space-y-2">
-              {visibleRows.map((r, i) => (
-                <div key={i} className={`bg-white rounded-xl border p-3 ${r.qtyIn > 0 ? 'border-emerald-200' : 'border-slate-200'}`}>
+              {visibleRows.map((r, i) => {
+                const key = rowKey(r)
+                const flash = flashKey === key
+                return (
+                <div
+                  key={i}
+                  ref={el => { if (el) rowRefs.current[key] = el }}
+                  className={`bg-white rounded-xl border p-3 transition-colors ${flash ? 'border-amber-400 ring-2 ring-amber-300 bg-amber-50' : (r.qtyIn > 0 ? 'border-emerald-200' : 'border-slate-200')}`}
+                >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs text-slate-500">{fmtThai(r.date)}</span>
                     <KindBadge kind={r.kind} side={r.side} noDeduct={r.noDeduct} />
@@ -313,7 +397,8 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                     {r.exp && r.exp !== '-' && <p>Exp: {fmtThai(r.exp)}</p>}
                   </div>
                 </div>
-              ))}
+                )
+              })}
               {visibleRows.length === 0 && (
                 <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-400 text-sm">ไม่มีรายการตามตัวกรอง</div>
               )}
