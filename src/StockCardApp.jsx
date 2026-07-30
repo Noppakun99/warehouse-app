@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { ScrollText, Package, AlertTriangle, TrendingUp, TrendingDown, Filter, X } from 'lucide-react'
+import { ScrollText, Package, AlertTriangle, TrendingUp, TrendingDown, Filter, X, FileDown, Printer } from 'lucide-react'
 import { fetchInventoryNameCodeMap, fetchStockCard } from './lib/db'
 import { buildStockCard, filterStockCard } from './lib/stockCard'
+import { exportToExcel } from './lib/exportExcel'
 import DrugSearchBar from './DrugSearchBar'
 import SearchableSelect from './SearchableSelect'
 import BackButton from './BackButton'
@@ -38,6 +39,87 @@ function IsoDateInput({ value, onChange, className = '' }) {
   )
 }
 
+// คอลัมน์ Excel — ตรงกับตารางที่ผู้ใช้เห็น (Rule #6: stat/export ต้องตรงกับตาราง)
+const STOCKCARD_EXCEL_COLS = [
+  { header: 'วันที่',            value: (r) => fmtThai(r.date) },
+  { header: 'Lot',              key: 'lot' },
+  { header: 'ชนิดรายการ',        key: 'kind' },
+  { header: 'รับเข้า',           value: (r) => (r.qtyIn > 0 ? r.qtyIn : '') },
+  { header: 'เบิกออก',           value: (r) => (r.qtyOut > 0 ? r.qtyOut : '') },
+  { header: 'คงเหลือ Lot',       value: (r) => r.balance },
+  { header: 'ยอดที่บันทึกไว้',    value: (r) => (r.qtyBefore == null ? '' : r.qtyBefore) },
+  { header: 'ยอดหลังเบิก (บันทึก)', value: (r) => (r.qtyAfter == null ? '' : r.qtyAfter) },
+  { header: 'ผลต่างสะสม',        value: (r) => (r.drift == null ? '' : r.drift) },
+  { header: 'ของหายจุดนี้',      value: (r) => (r.isDriftPoint ? r.driftDelta : '') },
+  { header: 'แถวกรอกผิด',        value: (r) => (r.hasRowErr ? `ผิด ${r.rowErr}` : '') },
+  { header: 'หน่วยงาน/บริษัท',    key: 'party' },
+  { header: 'หมายเหตุ/บิล',      key: 'ref' },
+  { header: 'มูลค่า',            value: (r) => (r.value ? r.value : '') },
+  { header: 'Exp',              value: (r) => fmtThai(r.exp) },
+]
+
+// เปิด print URL แบบ iOS/LINE-safe — WebView บล็อก window.open → fallback <a> click (Rule #4)
+function openPrintUrl(url) {
+  const w = window.open(url, '_blank')
+  if (w) return w
+  const a = document.createElement('a')
+  a.href = url; a.target = '_blank'; a.rel = 'noopener'
+  document.body.appendChild(a); a.click(); a.remove()
+  return null
+}
+
+// ใบพิมพ์การ์ดคลัง — Blob URL (ห้าม document.write: พังบน iOS Safari, Rule #4)
+function printStockCard(meta, rows, summary, filterLabel) {
+  const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
+  const body = rows.map(r => `<tr${r.qtyIn > 0 ? ' class="in"' : ''}>
+    <td>${esc(fmtThai(r.date))}</td><td>${esc(r.lot)}</td><td>${esc(r.kind)}</td>
+    <td class="n">${r.qtyIn > 0 ? fmtNum(r.qtyIn) : '-'}</td>
+    <td class="n">${r.qtyOut > 0 ? fmtNum(r.qtyOut) : '-'}</td>
+    <td class="n b${r.balance < 0 ? ' neg' : ''}">${fmtNum(r.balance)}${r.isDriftPoint ? ' *' : ''}</td>
+    <td class="n${r.hasDrift ? ' warn' : ''}">${r.qtyBefore == null ? '-' : fmtNum(r.qtyBefore)}</td>
+    <td>${esc(r.party)}</td><td class="sm">${esc(r.ref)}</td>
+    <td class="n">${r.value ? fmtNum(r.value) : '-'}</td><td class="sm">${esc(fmtThai(r.exp))}</td>
+  </tr>`).join('')
+
+  const html = `<!doctype html><html lang="th"><head><meta charset="utf-8">
+<title>การ์ดคลัง ${esc(meta.name)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{font-family:'Sarabun',sans-serif;margin:16px;color:#1e293b;font-size:12px}
+  h1{font-size:17px;margin:0 0 2px}
+  .meta{color:#475569;font-size:12px;margin-bottom:2px}
+  .sum{margin:8px 0;font-size:12px;color:#334155}
+  .sum b{color:#0f172a}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th{background:#e2e8f0;border:1px solid #cbd5e1;padding:5px 6px;text-align:left;font-weight:700;font-size:11px;white-space:nowrap}
+  td{border:1px solid #e2e8f0;padding:4px 6px;vertical-align:middle}
+  td.n{text-align:right;white-space:nowrap}
+  td.b{font-weight:700}
+  td.sm{font-size:10px;color:#475569}
+  tr.in td{background:#f0fdf4}
+  td.neg{color:#dc2626}
+  td.warn{color:#b45309;font-weight:600}
+  .note{margin-top:10px;font-size:10px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:6px}
+  @media print{@page{size:A4 landscape;margin:9mm} body{margin:0}}
+</style></head><body>
+<h1>การ์ดคลัง lot — ${esc(meta.name)}</h1>
+<div class="meta">รหัส ${esc(meta.code)} · หน่วย ${esc(meta.unit || '-')} · ราคา/หน่วย ${fmtNum(meta.pricePerUnit)} · จำนวน Lot ${summary.lotCount}</div>
+<div class="meta">พิมพ์เมื่อ ${fmtThai(new Date().toISOString().slice(0, 10))}${filterLabel ? ` · ${esc(filterLabel)}` : ''}</div>
+<div class="sum">รับเข้ารวม <b>${fmtNum(summary.totalIn)}</b> · เบิกออกรวม <b>${fmtNum(summary.totalOut)}</b>${
+  summary.driftRows > 0 ? ` · จุดยอดไม่ตรง <b>${summary.driftRows}</b>` : ''}${
+  summary.rowErrRows > 0 ? ` · แถวกรอกผิด <b>${summary.rowErrRows}</b>` : ''}</div>
+<table><thead><tr>
+${['วันที่', 'Lot', 'ชนิดรายการ', 'รับเข้า', 'เบิกออก', 'คงเหลือ Lot', 'ยอดที่บันทึกไว้', 'หน่วยงาน/บริษัท', 'หมายเหตุ/บิล', 'มูลค่า', 'Exp'].map(h => `<th>${h}</th>`).join('')}
+</tr></thead><tbody>${body}</tbody></table>
+<div class="note">* = จุดที่ยอดคำนวณไม่ตรงกับยอดที่บันทึกไว้ (มีการเคลื่อนไหวที่ไม่ถูกบันทึก) — ไม่ใช่การคำนวณผิด</div>
+</body></html>`
+
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+  openPrintUrl(url)
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
+}
+
 // badge ชนิดรายการ — สีตามความหมาย (เข้า=เขียว, ไม่หักยอด=เทา, ออก=ขาว)
 function KindBadge({ kind, side, noDeduct }) {
   const cls = noDeduct ? 'bg-slate-100 text-slate-500 border-slate-200'
@@ -46,7 +128,7 @@ function KindBadge({ kind, side, noDeduct }) {
   return <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold border ${cls}`}>{kind || '-'}</span>
 }
 
-export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
+export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {} }) {
   const [drugOptions, setDrugOptions] = useState([])
   const [nameToCode, setNameToCode] = useState({})
   const [drugName, setDrugName] = useState('')
@@ -150,6 +232,12 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
 
   const meta = data?.meta
   const hasFilter = !!(lotFilter || kindFilter || dateFrom || dateTo)
+  // บอกบนใบพิมพ์ว่ากรองอะไรอยู่ — กันเข้าใจผิดว่าเป็นข้อมูลครบทั้งหมด
+  const filterLabel = [
+    lotFilter && `Lot ${lotFilter}`,
+    kindFilter && `ชนิด ${kindFilter}`,
+    (dateFrom || dateTo) && `ช่วง ${dateFrom ? fmtThai(dateFrom) : '...'}–${dateTo ? fmtThai(dateTo) : '...'}`,
+  ].filter(Boolean).join(' · ')
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -194,7 +282,27 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
           <>
             {/* header ยา: รหัส / หน่วย / ราคา / จำนวน lot (ตาม Excel row 5) */}
             <div className="bg-white rounded-2xl border border-slate-200 p-4">
-              <p className="font-bold text-slate-800 text-lg leading-tight">{meta.name || '-'}</p>
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-bold text-slate-800 text-lg leading-tight">{meta.name || '-'}</p>
+                {/* export/print ใช้ visibleRows = ตรงกับที่ผู้ใช้เห็นหลังกรอง (Rule #6) */}
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => printStockCard(meta, visibleRows, card.summary, filterLabel)}
+                    className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                  >
+                    <Printer size={16} /> พิมพ์
+                  </button>
+                  <button
+                    onClick={() => exportToExcel(
+                      visibleRows, STOCKCARD_EXCEL_COLS, 'การ์ดคลัง lot',
+                      `stockcard_${meta.code}_${new Date().toISOString().slice(0, 10)}.xlsx`, auth
+                    )}
+                    className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                  >
+                    <FileDown size={16} /> Excel
+                  </button>
+                </div>
+              </div>
               <div className="flex flex-wrap gap-x-6 gap-y-1 mt-2 text-sm">
                 <span className="text-slate-500">รหัส: <b className="text-slate-700">{meta.code}</b></span>
                 <span className="text-slate-500">หน่วย: <b className="text-slate-700">{meta.unit || '-'}</b></span>

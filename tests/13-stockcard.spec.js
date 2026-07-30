@@ -79,6 +79,24 @@ test('ไอคอนเตือน กดแล้วเปิดโมดอ�
   await expect(page.getByText('ยอดไม่ตรงกับที่บันทึก')).toHaveCount(0)
 })
 
+test('Export Excel ดาวน์โหลดได้ + พิมพ์เปิดใบพร้อมข้อมูล', async ({ page, context }) => {
+  await openStockcard(page)
+  await selectDrug(page)
+
+  const dl = page.waitForEvent('download', { timeout: 15_000 })
+  await page.getByRole('button', { name: 'Excel' }).click()
+  const file = await dl
+  expect(file.suggestedFilename()).toMatch(/^stockcard_1000227_\d{4}-\d{2}-\d{2}\.xlsx$/)
+
+  const popupP = context.waitForEvent('page', { timeout: 10_000 }).catch(() => null)
+  await page.getByRole('button', { name: 'พิมพ์' }).click()
+  const popup = await popupP
+  expect(popup).not.toBeNull()
+  await popup.waitForLoadState('domcontentloaded')
+  expect(await popup.locator('table tbody tr').count()).toBeGreaterThan(0)
+  await popup.close()
+})
+
 test('ตัวกรอง: Lot dropdown พิมพ์ค้นได้ + ช่วงวันที่', async ({ page }) => {
   await openStockcard(page)
   await selectDrug(page)

@@ -185,7 +185,7 @@ export default function AppRoot() {
         content = <StockCountApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'stockcard':
-        content = <StockCardApp key={subKey} onRefresh={refreshPage} onGoBack={goBack} canGoBack={canGoBack} />;
+        content = <StockCardApp key={subKey} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       default:
         content = <Dashboard key={subKey} auth={auth} onNavigate={setPage} />;
@@ -591,23 +591,13 @@ function Dashboard({ auth, onNavigate }) {
     }
   }, [isStaff, auth.id]);
 
-  const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username;
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-200 via-slate-100 to-indigo-100 font-sans">
-      {/* แบรนด์ + user chip + กระดิ่ง อยู่บน top bar (แถบสีฟ้า) ของ AppShell — แสดงทุกหน้า */}
+      {/* กระดิ่ง + เมนูบัญชี + สลับธีม อยู่บน top bar (ขาว) ของ AppShell — แสดงทุกหน้า */}
 
-      {/* Welcome */}
+      {/* หัวหน้า — ชื่อหน้าอย่างเดียว (ชื่อผู้ใช้/บทบาทดูได้ที่เมนูบัญชีบน top bar) */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 pb-4">
-        <h2 className="text-2xl font-bold text-slate-800">
-          สวัสดี, {displayName}
-        </h2>
-        <p className="text-slate-500 mt-1 text-sm">
-          {isStaff
-            ? 'คุณมีสิทธิ์เข้าถึงระบบทั้งหมด — เลือกระบบที่ต้องการใช้งาน'
-            : `หน่วยงาน: ${auth.department} — เลือกระบบที่ต้องการ`
-          }
-        </p>
+        <h2 className="text-3xl font-bold text-slate-800">Dashboard</h2>
       </div>
 
       {/* Quick stats strip */}
