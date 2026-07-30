@@ -1,10 +1,10 @@
 // Supabase Edge Function: expiry-alert
 // ดึงข้อมูล inventory + receive_logs → สร้าง HTML report → ส่ง email ผ่าน Gmail SMTP
 // Deploy: supabase functions deploy expiry-alert
-// Secrets ที่ต้องตั้ง:
-//   supabase secrets set GMAIL_USER=noppakun.kao1234@gmail.com
-//   supabase secrets set GMAIL_APP_PASSWORD=xxxxxxxxxxxxxxxx   (App Password 16 หลัก ไม่ใช่ password Gmail ปกติ)
-//   supabase secrets set ALERT_EMAILS=noppakun.kao1234@gmail.com,nasamax2000gtr@gmail.com,lovelovetai1@gmail.com,angelmatsu888888@gmail.com
+// Secrets ที่ต้องตั้ง (ค่าอยู่ใน Supabase secrets — ไม่ hardcode ในไฟล์นี้):
+//   supabase secrets set GMAIL_USER=...
+//   supabase secrets set GMAIL_APP_PASSWORD=...   (App Password 16 หลัก ไม่ใช่ password Gmail ปกติ)
+//   supabase secrets set ALERT_EMAILS=a@example.com,b@example.com
 //   supabase secrets set WARNING_DAYS=400
 //
 // Trigger:
@@ -346,7 +346,7 @@ function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMa
     const td = `style="padding:9px 12px;border:1px solid #e2e8f0;background:${bg};font-size:14px;vertical-align:middle;"`;
 
     const code = String(row.code || "").trim().toLowerCase();
-    const lot  = String(row.lot  || "").trim().toLowerCase();
+    const lot  = String(row.lot  || "-").trim().toLowerCase() || "-";
     const d = detailMap[`${code}|${lot}`] || detailMap[`${code}|`] || ({} as DetailEntry);
 
     const supplier = d.supplier_current || row.supplier || "-";
@@ -443,7 +443,7 @@ function buildEmail(expired: AlertItem[], nearExpiry: AlertItem[], returnDue: Re
 // ============================================================
 function policyText(row: InvRow, detailMap: Record<string, DetailEntry>, maxLen = 80): string {
   const code = String(row.code || "").trim().toLowerCase();
-  const lot  = String(row.lot  || "").trim().toLowerCase();
+  const lot  = String(row.lot  || "-").trim().toLowerCase() || "-";
   const d = detailMap[`${code}|${lot}`] || detailMap[`${code}|`] || ({} as DetailEntry);
   const parts: string[] = [];
   if (d.drug_swap_policy && d.drug_swap_policy !== "-") parts.push(d.drug_swap_policy);
@@ -460,7 +460,7 @@ function lineBucket(items: AlertItem[], today: Date, isExpired: boolean, detailM
     const row = item.r;
     const days = daysLeft(item.expDate, today);
     const code = String(row.code || "").trim().toLowerCase();
-    const lot  = String(row.lot  || "").trim().toLowerCase();
+    const lot  = String(row.lot  || "-").trim().toLowerCase() || "-";
     // fallback chain เดียวกับ makeTable (email) + policyText — code|lot ก่อน แล้ว code|
     const d = detailMap[`${code}|${lot}`] || detailMap[`${code}|`] || ({} as DetailEntry);
     const supplier = d.supplier_current || row.supplier || "-";
@@ -543,10 +543,12 @@ Deno.serve(async (req) => {
     ]);
 
     // 2. สร้าง detailMap key="code|lot" + fallback "code|"
+    // lot ว่าง → '-' ให้ตรง lotKey ใน db.js (fetchSwapReturnDue) ไม่งั้น email กับแอปชี้คนละ entry
     const detailMap: Record<string, DetailEntry> = {};
+    const ambiguousLot = new Set<string>();   // code|lot ที่ชนหลายบริษัท → ไม่เตือน (ADR-0012)
     for (const r of recRows) {
       const code = String(r.drug_code || "").trim().toLowerCase();
-      const lot  = String(r.lot       || "").trim().toLowerCase();
+      const lot  = String(r.lot       || "-").trim().toLowerCase() || "-";
       if (!code) continue;
       const entry: DetailEntry = {
         supplier_current: r.supplier_current || "",
@@ -559,6 +561,12 @@ Deno.serve(async (req) => {
       const keyLot  = `${code}|${lot}`;
       const keyCode = `${code}|`;
       if (!detailMap[keyLot])  detailMap[keyLot]  = entry;
+      else {
+        // lot เดียวกันคนละบริษัท → กำกวม (ADR-0012: คืนผิดเจ้าอันตรายกว่าเตือนขาด)
+        const co = String(r.supplier_current || "").trim();
+        const prev = String(detailMap[keyLot].supplier_current || "").trim();
+        if (co && co !== "-" && prev && prev !== "-" && co !== prev) ambiguousLot.add(keyLot);
+      }
       if (!detailMap[keyCode]) detailMap[keyCode] = entry;
     }
 
@@ -627,8 +635,10 @@ Deno.serve(async (req) => {
       const exp = parseExpDate(row.exp);
       if (!exp) continue;
       const code = String(row.code || "").trim().toLowerCase();
-      const lot  = String(row.lot  || "").trim().toLowerCase();
-      const d = detailMap[`${code}|${lot}`] || detailMap[`${code}|`];
+      const lot  = String(row.lot  || "-").trim().toLowerCase() || "-";
+      const keyLot = `${code}|${lot}`;
+      if (ambiguousLot.has(keyLot)) continue;   // lot ชนหลายบริษัท → ไม่เตือน (ADR-0012, ตรง supplierByLot=null ในแอป)
+      const d = detailMap[keyLot] || detailMap[`${code}|`];
       if (!d) continue;
       const company = d.supplier_current || row.supplier || "";
       // finding #2: col27 "แตกต่างกัน แล้วแต่รายการ" (authoritative) → นโยบายรายยา เชื่อ tier รวมไม่ได้ → ไม่เตือน (ADR-0012)
