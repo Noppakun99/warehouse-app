@@ -3,6 +3,7 @@ import { ScrollText, Package, AlertTriangle, TrendingUp, TrendingDown, Filter, X
 import { fetchInventoryNameCodeMap, fetchStockCard } from './lib/db'
 import { buildStockCard, filterStockCard } from './lib/stockCard'
 import DrugSearchBar from './DrugSearchBar'
+import SearchableSelect from './SearchableSelect'
 import BackButton from './BackButton'
 
 // วันที่ ISO/DD-MM-YYYY → DD/MM/YYYY (พ.ศ.) ตาม Rule #14
@@ -74,10 +75,12 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
   }, [])
 
   // ล้างทุกอย่างกลับ empty state — ใช้ตอนกด X ล้างชื่อยา (ตารางต้องหายไปด้วย)
+  // ล้าง rowRefs ด้วย ไม่งั้น ref ของยาตัวก่อนค้าง → กระโดดไปหา element ที่หลุด DOM แล้ว
   const clearAll = () => {
     setData(null); setError('')
     setLotFilter(''); setKindFilter(''); setDateFrom(''); setDateTo('')
     setDriftRow(null); setFlashKey(null)
+    rowRefs.current = {}
   }
 
   const loadCard = async (name) => {
@@ -88,6 +91,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
       setData(await fetchStockCard(code))
       setLotFilter(''); setKindFilter(''); setDateFrom(''); setDateTo('')
       setDriftRow(null); setFlashKey(null)
+      rowRefs.current = {}   // ยาตัวใหม่ → ทิ้ง ref เก่าทั้งหมด
     } catch (e) { setError(e.message); setData(null) }
     finally { setLoading(false) }
   }
@@ -115,6 +119,9 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
   const rowKey = (r) => `${r.lot}|${r.date}|${r.side}|${r.qtyIn}|${r.qtyOut}|${r.qtyBefore ?? ''}`
 
   // กด badge → ล้างตัวกรองที่บังแถวนั้น แล้วเลื่อนไปหา + ไฮไลต์
+  // ⚠️ desktop <tr> กับ mobile card ใช้ key เดียวกัน — ต้องแยก ref เป็น 'd:'/'m:'
+  // ไม่งั้น card (render ทีหลัง) ทับ ref ของ tr แล้ว scrollIntoView ยิงใส่ element
+  // ที่ display:none บน desktop → ไม่เลื่อนไปไหน
   const jumpToRow = (predicate) => {
     if (!card) return
     const target = card.rows.find(predicate)
@@ -124,7 +131,15 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
     setFlashKey(key)
     // รอ React render แถวที่เพิ่งถูกปลดกรองก่อนค่อย scroll
     setTimeout(() => {
-      rowRefs.current[key]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      // เลือก element ที่มองเห็นจริง (offsetParent = null เมื่อ display:none)
+      const el = [rowRefs.current[`d:${key}`], rowRefs.current[`m:${key}`]]
+        .find(n => n && n.offsetParent !== null)
+      if (!el) return
+      // ตารางมี max-h-[70vh] = scroll container ของตัวเอง → scrollIntoView จัดกลางในกล่อง
+      // แต่ถ้ากล่องอยู่นอกจอ ผู้ใช้จะไม่เห็นอะไรเลย จึงเลื่อนหน้าไปหากล่องด้วย
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      const box = el.closest('.overflow-x-auto')
+      if (box) box.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }, 60)
     setTimeout(() => setFlashKey(null), 2600)
   }
@@ -239,13 +254,15 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
               </button>
               {showFilter && (
                 <div className="px-4 pb-4 flex flex-wrap gap-3 border-t border-slate-100 pt-3">
-                  <div>
+                  <div className="w-44">
                     <label className="block text-xs text-slate-500 mb-1">Lot</label>
-                    <select value={lotFilter} onChange={e => setLotFilter(e.target.value)}
-                      className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-teal-400 outline-none">
-                      <option value="">ทุก lot</option>
-                      {card.lots.map(l => <option key={l.lot} value={l.lot}>{l.lot}</option>)}
-                    </select>
+                    <SearchableSelect
+                      value={lotFilter}
+                      onChange={setLotFilter}
+                      options={card.lots.map(l => l.lot)}
+                      placeholder="ทุก lot"
+                      emptyLabel="ทุก lot"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">ชนิดรายการ</label>
@@ -291,7 +308,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                       return (
                       <tr
                         key={i}
-                        ref={el => { if (el) rowRefs.current[key] = el }}
+                        ref={el => { if (el) rowRefs.current[`d:${key}`] = el }}
                         className={`border-b transition-colors ${flash ? 'bg-amber-100 ring-2 ring-amber-400 border-amber-300' : `border-slate-100 ${r.qtyIn > 0 ? 'bg-emerald-50/60' : ''}`}`}
                       >
                         <td className="px-3 py-2 whitespace-nowrap text-slate-600">{fmtThai(r.date)}</td>
@@ -352,7 +369,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                 return (
                 <div
                   key={i}
-                  ref={el => { if (el) rowRefs.current[key] = el }}
+                  ref={el => { if (el) rowRefs.current[`m:${key}`] = el }}
                   className={`bg-white rounded-xl border p-3 transition-colors ${flash ? 'border-amber-400 ring-2 ring-amber-300 bg-amber-50' : (r.qtyIn > 0 ? 'border-emerald-200' : 'border-slate-200')}`}
                 >
                   <div className="flex items-center justify-between gap-2">
