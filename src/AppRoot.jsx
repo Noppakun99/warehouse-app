@@ -30,6 +30,7 @@ import AnalyticsApp       from './AnalyticsApp';
 import ReorderApp         from './ReorderApp';
 import StockLedgerApp     from './StockLedgerApp';
 import StockCountApp      from './StockCountApp';
+import StockCardApp       from './StockCardApp';
 import NotificationBell   from './NotificationBell';
 import DashboardV2Preview from './DashboardV2Preview'; // prototype ชั่วคราว — เปิดด้วย ?v2 (ลบได้ทั้งบรรทัด)
 import AppShell           from './AppShell';
@@ -182,6 +183,9 @@ export default function AppRoot() {
         break;
       case 'stockcount':
         content = <StockCountApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
+        break;
+      case 'stockcard':
+        content = <StockCardApp key={subKey} onRefresh={refreshPage} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       default:
         content = <Dashboard key={subKey} auth={auth} onNavigate={setPage} />;

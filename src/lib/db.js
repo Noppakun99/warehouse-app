@@ -1742,6 +1742,53 @@ export async function lookupDrugCodes(names) {
   return result
 }
 
+// ── การ์ดคลัง lot (Stock Card) — ประวัติ movement ของยา 1 รหัส ทุก lot ทุกเดือน ──
+// I/O อย่างเดียว: ดึง raw rows แล้วให้ buildStockCard (src/lib/stockCard.js) ประกอบ logic
+// paginate ทั้ง 2 ตาราง (Rule #2) — ยาบางรหัสมี movement เกิน 1000 แถว
+// return { receiveRows, dispenseRows, meta: { code, name, unit, pricePerUnit } }
+export async function fetchStockCard(drugCode) {
+  const code = String(drugCode || '').trim()
+  if (!supabase || !code) return { receiveRows: [], dispenseRows: [], meta: null }
+
+  const pageAll = async (table, select, dateCol) => {
+    const PAGE = 1000
+    const out = []
+    let off = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from(table).select(select)
+        .eq('drug_code', code)
+        .order(dateCol, { ascending: true, nullsFirst: false })
+        .range(off, off + PAGE - 1)
+      if (error) throw error
+      if (!data || data.length === 0) break
+      out.push(...data)
+      if (data.length < PAGE) break
+      off += PAGE
+    }
+    return out
+  }
+
+  const [receiveRows, dispenseRows] = await Promise.all([
+    pageAll('receive_logs', 'drug_code, drug_name, lot, exp, item_type, qty_received, supplier_current, bill_number, receive_date, price_per_unit, drug_unit', 'receive_date'),
+    pageAll('dispense_logs', 'drug_code, drug_name, lot, exp, item_type, qty_out, qty_before, qty_after, department, note, dispense_date, price_per_unit, drug_unit', 'dispense_date'),
+  ])
+
+  // meta: ชื่อ/หน่วย/ราคา — ราคาจาก inventory ก่อน (Master) แล้ว fallback แถวรับที่มีราคา > 0
+  // (ห้ามใช้ราคาในแถวเบิก — แถว 'ยกยอด' มี price=0 ตาม Excel §45.5 I8)
+  const { data: invRows } = await supabase
+    .from('inventory').select('code, name, unit').eq('code', code).limit(1)
+  const inv = invRows?.[0] || null
+  const priceRow = receiveRows.find(r => parseFloat(r.price_per_unit) > 0)
+  const meta = {
+    code,
+    name: inv?.name || receiveRows[0]?.drug_name || dispenseRows[0]?.drug_name || '',
+    unit: inv?.unit || receiveRows[0]?.drug_unit || dispenseRows[0]?.drug_unit || '',
+    pricePerUnit: priceRow ? parseFloat(priceRow.price_per_unit) : 0,
+  }
+  return { receiveRows, dispenseRows, meta }
+}
+
 // ดึง map ชื่อยา generic → code จาก inventory (ฐานข้อมูลคลังจาก HosXP/CSV)
 // ใช้เป็น source ของ dropdown "จับคู่ยาในระบบ" + เติม drug_code ตอนสแกนบิล
 // return { names: [ชื่อยา distinct เรียง], byName: { name → code }, typeByName: { name → ชนิดยา } }

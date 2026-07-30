@@ -109,6 +109,13 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
       openingByLot[m.lot] = opening
       balByLot[m.lot] = opening
     }
+    // drift = ยอดที่ระบบคำนวณ ≠ ยอดก่อนเบิกที่ต้นทางบันทึกไว้ → มี movement ที่ไม่ถูกบันทึก
+    // (Excel ทำ detect นี้ไม่ได้ — คลังเคยเจอเองแล้วเรียก "Group B Data Gap" 19 lots, Context.csv:1508)
+    // เช็คเฉพาะแถวขาออกที่มี qty_before จริง; ไม่ throw/ไม่แก้ยอด แค่ flag ให้คนดู
+    const drift = (m.side === 'out' && m._qtyBefore != null)
+      ? balByLot[m.lot] - m._qtyBefore
+      : null
+
     const deduct = NO_DEDUCT.has(m.kind) ? 0 : m.qtyOut
     balByLot[m.lot] += m.qtyIn - deduct
     rows.push({
@@ -124,16 +131,26 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
       value: (m.qtyIn + m.qtyOut) * price,
       side: m.side,
       noDeduct: NO_DEDUCT.has(m.kind),
+      qtyBefore: m._qtyBefore,
+      drift,                       // null = เทียบไม่ได้ · 0 = ตรง · ≠0 = มี movement ที่ไม่ถูกบันทึก
+      hasDrift: drift != null && drift !== 0,
     })
   }
 
-  const lots = Object.keys(balByLot).sort((a, b) => a.localeCompare(b, 'th')).map(lot => ({
-    lot,
-    opening: openingByLot[lot],
-    closing: balByLot[lot],
-    hasReceipt: hasReceipt.has(lot),
-    negative: balByLot[lot] < 0,
-  }))
+  const lots = Object.keys(balByLot).sort((a, b) => a.localeCompare(b, 'th')).map(lot => {
+    const lotRows = rows.filter(r => r.lot === lot)
+    const driftRows = lotRows.filter(r => r.hasDrift)
+    return {
+      lot,
+      opening: openingByLot[lot],
+      closing: balByLot[lot],
+      hasReceipt: hasReceipt.has(lot),
+      negative: balByLot[lot] < 0,
+      driftCount: driftRows.length,
+      // drift ล่าสุดของ lot — ใช้บอกขนาดของช่องว่าง (บวก = ระบบคิดว่ามีมากกว่าที่บันทึก)
+      lastDrift: driftRows.length ? driftRows[driftRows.length - 1].drift : 0,
+    }
+  })
 
   return {
     rows,
@@ -143,6 +160,8 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
       totalOut: rows.reduce((s, r) => s + r.qtyOut, 0),
       lotCount: lots.length,
       negativeLots: lots.filter(l => l.negative).length,
+      driftLots: lots.filter(l => l.driftCount > 0).length,
+      driftRows: rows.filter(r => r.hasDrift).length,
     },
   }
 }

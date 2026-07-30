@@ -65,6 +65,7 @@ const GRANTABLE_SYSTEMS = [
   { key: 'reorder',    label: 'วิเคราะห์การสั่งซื้อ', color: 'bg-orange-100 text-orange-700', defaultRoles: ['staff','admin'] },
   { key: 'ledger',     label: 'ทะเบียนคงคลัง',       color: 'bg-teal-100 text-teal-700',    defaultRoles: ['admin'] },
   { key: 'stockcount', label: 'ตรวจนับคงคลัง',       color: 'bg-emerald-100 text-emerald-700', defaultRoles: ['staff','admin'] },
+  { key: 'stockcard',  label: 'การ์ดคลัง lot',        color: 'bg-teal-100 text-teal-700',    defaultRoles: ['requester','staff','admin'] },
 ];
 
 const DEPARTMENTS = [

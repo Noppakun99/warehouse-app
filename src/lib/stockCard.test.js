@@ -183,6 +183,59 @@ section('Test 12: summary + parse comma')
   eq(r.rows[1].balance, 1000, 'balance = 1200 − 200')
 }
 
+// ── Test 13: drift detection — เคสจริง Atorvastatin 40mg lot CH553 ──
+// รับ 5,000+100 แต่แถวเบิกแรกบันทึก qty_before=2,400 → หาย 2,700 โดยไม่มีแถวเบิก
+// = "Group B Data Gap" ที่คลังเจอเองใน Excel (Context.csv:1508) — Excel detect ไม่ได้ แอปทำได้
+section('Test 13: drift detection (Atorvastatin CH553 — data gap จริง)')
+{
+  const r = buildStockCard({
+    receiveRows: [
+      { receive_date: '2025-08-18', lot: 'CH553', item_type: 'ซื้อยา', qty_received: 5000 },
+      { receive_date: '2025-08-18', lot: 'CH553', item_type: 'ซื้อยา', qty_received: 100 },
+    ],
+    dispenseRows: [
+      { dispense_date: '2025-10-06', lot: 'CH553', item_type: 'ยกยอด', qty_out: 400, qty_before: 2400 },
+    ],
+  })
+  const out = r.rows.find(x => x.side === 'out')
+  eq(out.qtyBefore, 2400, 'เก็บ qty_before ที่ต้นทางบันทึก')
+  eq(out.drift, 2700, 'drift = 5100 (คำนวณ) − 2400 (บันทึก) = 2700')
+  eq(out.hasDrift, true, 'flag hasDrift')
+  eq(r.lots[0].driftCount, 1, 'นับแถว drift ต่อ lot')
+  eq(r.lots[0].lastDrift, 2700, 'lastDrift = ขนาดช่องว่างล่าสุด')
+  eq(r.summary.driftLots, 1, 'summary นับ lot ที่มี drift')
+  eq(r.summary.driftRows, 1, 'summary นับแถว drift')
+}
+
+// ── Test 14: ไม่มี drift เมื่อยอดตรง + แถวรับไม่นับ drift ──
+section('Test 14: ยอดตรง → drift = 0, แถวรับ → drift = null')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-01', lot: 'OK', item_type: 'ซื้อยา', qty_received: 100 }],
+    dispenseRows: [
+      { dispense_date: '2026-01-05', lot: 'OK', item_type: 'ยกยอด', qty_out: 30, qty_before: 100 },
+      { dispense_date: '2026-01-09', lot: 'OK', item_type: 'ยกยอด', qty_out: 20, qty_before: 70 },
+    ],
+  })
+  eq(r.rows[0].drift, null, 'แถวรับเข้า → drift = null (เทียบไม่ได้)')
+  eq(r.rows[0].hasDrift, false, 'แถวรับไม่ flag')
+  eq(r.rows[1].drift, 0, 'เบิกแรก: 100 − 100 = 0')
+  eq(r.rows[2].drift, 0, 'เบิกสอง: 70 − 70 = 0')
+  eq(r.summary.driftLots, 0, 'ไม่มี lot drift')
+}
+
+// ── Test 15: qty_before null → ไม่ flag drift (กัน false positive 112 แถวจริง) ──
+section('Test 15: qty_before null → drift = null ไม่ใช่ 0')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-01', lot: 'Z', item_type: 'ซื้อยา', qty_received: 10 }],
+    dispenseRows: [{ dispense_date: '2026-01-02', lot: 'Z', item_type: 'ยกยอด', qty_out: 3, qty_before: null }],
+  })
+  eq(r.rows[1].drift, null, 'ไม่มี qty_before → เทียบไม่ได้ → null')
+  eq(r.rows[1].hasDrift, false, 'ไม่ flag เป็น drift (กัน false positive)')
+  eq(r.summary.driftRows, 0, 'ไม่นับเข้า summary')
+}
+
 console.log('\n' + '─'.repeat(50))
 if (fail === 0) {
   console.log(`✓ ผ่านทั้งหมด ${pass} assertions`)

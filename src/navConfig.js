@@ -7,7 +7,7 @@ import {
   Package, Database, RotateCcw, TrendingUp, TrendingDown,
   Activity, ShoppingCart, ClipboardList, Users, History, BarChart3, Layers,
   FileText, ClipboardCheck, Send, ScanLine, ListChecks, Building2, ShieldAlert,
-  Undo2, CalendarClock,
+  Undo2, CalendarClock, ScrollText,
 } from 'lucide-react';
 
 // โครงสร้างเมนู — รองรับ 3 แบบใน group.items / children:
@@ -37,6 +37,7 @@ export const NAV_GROUPS = [
       },
       { page: 'dispense', icon: TrendingDown, title: 'ประวัติเบิกจ่าย', c: 'rose', roles: ['requester', 'staff', 'admin'] },
       { page: 'analytics', icon: Activity, title: 'วิเคราะห์การเบิก', c: 'cyan', roles: ['requester', 'staff', 'admin'] },
+      { page: 'stockcard', icon: ScrollText, title: 'การ์ดคลัง lot', c: 'teal', roles: ['requester', 'staff', 'admin'] },
       {
         key: 'reorder', icon: ShoppingCart, title: 'วิเคราะห์สั่งซื้อ', roles: ['staff', 'admin'],
         children: [
