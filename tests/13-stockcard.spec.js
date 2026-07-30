@@ -94,6 +94,20 @@ test('ปุ่มตรวจหายาที่ยอดไม่ตรง �
   await expect(page.getByText(/ต้องตรวจ \d+ รายการ/)).toHaveCount(0)   // ลิสต์ปิดแล้ว
 })
 
+test('ปุ่มของรอคืนจากบริษัท → เห็นของลอย + คลิกเปิดการ์ดยานั้น', async ({ page }) => {
+  await openStockcard(page)
+
+  await page.getByRole('button', { name: /ของรอคืนจากบริษัท/ }).click()
+  await expect(page.getByText(/รอของคืนจากบริษัท \d+ รายการ|ไม่มีของค้างรอคืน/)).toBeVisible({ timeout: 60_000 })
+
+  const items = page.locator('button:has(span:text-matches("ค้าง \\\\d+ วัน"))')
+  if (await items.count() > 0) {
+    await items.first().click()
+    await expect(page.getByText('รหัส:')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('table')).toBeVisible()
+  }
+})
+
 test('Export Excel ดาวน์โหลดได้ + พิมพ์เปิดใบพร้อมข้อมูล', async ({ page, context }) => {
   await openStockcard(page)
   await selectDrug(page)

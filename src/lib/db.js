@@ -1847,6 +1847,50 @@ export async function fetchAllStockCardIssues() {
   return { byCode, meta }
 }
 
+// รอบเปลี่ยน/คืนบริษัท — ดึง raw rows ให้ buildVendorExchanges (vendorExchange.js) จับคู่
+// I/O อย่างเดียว: ไม่คำนวณ logic ที่นี่ (pure module ต้อง golden-test ได้)
+// supplierByLot มาจาก receive_logs เพราะ dispense_logs ไม่มีคอลัมน์บริษัท (ADR-0012 per-lot)
+export async function fetchVendorExchanges() {
+  if (!supabase) return { dispenseRows: [], receiveRows: [], supplierByLot: {} }
+
+  const pageAll = async (table, select, dateCol, filterFn) => {
+    const PAGE = 1000
+    const out = []
+    let off = 0
+    while (true) {
+      let q = supabase.from(table).select(select)
+      if (filterFn) q = filterFn(q)
+      const { data, error } = await q.order(dateCol, { ascending: true, nullsFirst: false }).range(off, off + PAGE - 1)
+      if (error) throw error
+      if (!data || data.length === 0) break
+      out.push(...data)
+      if (data.length < PAGE) break
+      off += PAGE
+    }
+    return out
+  }
+
+  const [dispenseRows, receiveAll] = await Promise.all([
+    // เฉพาะชนิดรายการรอบเปลี่ยนคืน — ไม่ต้องดึง 6,564 แถว
+    pageAll('dispense_logs', 'drug_code, drug_name, lot, item_type, qty_out, dispense_date, department, note', 'dispense_date',
+      q => q.in('item_type', ['แลกเปลี่ยนยา', 'คืนยา', 'คืนยา(2)', 'คืนยา(3)'])),
+    pageAll('receive_logs', 'drug_code, drug_name, lot, qty_received, receive_date, bill_number, supplier_current', 'receive_date'),
+  ])
+
+  // map บริษัทต่อ lot — lot ชนหลายบริษัท → null (ไม่ใช้ ตาม ADR-0012)
+  const supplierByLot = {}
+  for (const r of receiveAll) {
+    const key = `${String(r.drug_code || '').trim().toLowerCase()}|${String(r.lot || '-').trim().toLowerCase() || '-'}`
+    const co = String(r.supplier_current || '').trim()
+    if (!co || co === '-') continue
+    if (!(key in supplierByLot)) supplierByLot[key] = co
+    else if (supplierByLot[key] !== co) supplierByLot[key] = null
+  }
+  Object.keys(supplierByLot).forEach(k => { if (supplierByLot[k] == null) delete supplierByLot[k] })
+
+  return { dispenseRows, receiveRows: receiveAll, supplierByLot }
+}
+
 // ดึง map ชื่อยา generic → code จาก inventory (ฐานข้อมูลคลังจาก HosXP/CSV)
 // ใช้เป็น source ของ dropdown "จับคู่ยาในระบบ" + เติม drug_code ตอนสแกนบิล
 // return { names: [ชื่อยา distinct เรียง], byName: { name → code }, typeByName: { name → ชนิดยา } }

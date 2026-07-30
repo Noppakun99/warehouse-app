@@ -33,7 +33,8 @@ npm run test:ledgerseed # Golden tests สำหรับ src/lib/ledgerSeed.js 
 npm run test:swappolicy # Golden tests สำหรับ src/lib/swapPolicy.js — parse นโยบายคืนยา + deadline (88 assertions — V1 free-text + V2 structured tier % 6 หมวดฐานเวลา, ADR-0014)
 npm run test:consistency # Golden tests สำหรับ src/lib/consistencyCheck.js — ตรวจความสอดคล้อง CSV→DB (33 assertions)
 npm run test:countmatch  # Golden tests สำหรับ src/lib/countMatch.js — ตรวจนับ: 3 สถานะต่อมิติ + set equality ที่เก็บ/exp (33 assertions)
-npm run test:stockcard   # Golden tests สำหรับ src/lib/stockCard.js — การ์ดคลัง lot: running balance ต่อ lot + drift detection (65 assertions)
+npm run test:stockcard   # Golden tests สำหรับ src/lib/stockCard.js — การ์ดคลัง lot: running balance ต่อ lot + drift detection (105 assertions)
+npm run test:vendorexchange # Golden tests สำหรับ src/lib/vendorExchange.js — รอบเปลี่ยน/คืนบริษัท: จับคู่ขาส่ง↔ขารับ หา "ของลอย" (30 assertions)
 ```
 
 ไม่มี test runner ทั่วไป — golden tests เป็น standalone `node` (ไม่มี framework): `src/unitParser.test.js` (`npm run test:unit`), `src/lib/reorder.test.js` (`npm run test:reorder`), `src/lib/billGroup.test.js` (`npm run test:billgroup`), `src/lib/lotAllocation.test.js` (`npm run test:alloc`), `src/ledgerRollover.test.js` (`npm run test:ledger`), `src/ledgerSeed.test.js` (`npm run test:ledgerseed`), `src/lib/swapPolicy.test.js` (`npm run test:swappolicy`), `src/lib/consistencyCheck.test.js` (`npm run test:consistency`). **กฎ**: logic ที่ test แบบนี้ได้ต้องเป็น pure module ไม่ import `supabase` (เพราะ `supabase.js` ใช้ `import.meta.env` ที่ node รันไม่ได้) — ดู `billGroup.js`/`lotAllocation.js`/`ledgerRollover.js`/`ledgerSeed.js` แยกจาก `db.js` ด้วยเหตุนี้. **หมายเหตุ layout**: source module ของ ledger อยู่ใน `src/lib/` แต่ test file (`ledgerRollover.test.js`/`ledgerSeed.test.js`) อยู่ที่ `src/` root — ต่างจาก golden test อื่นที่วาง test ข้าง source
@@ -82,7 +83,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 
 **Reusable:** `DrugSearchBar.jsx`, `SearchableSelect.jsx`
 
-**Pure modules (no `supabase` import → golden-testable):** `src/lib/reorder.js`, `src/lib/billGroup.js`, `src/lib/lotAllocation.js` (FEFO allocation), `src/lib/unitParser.js`, `src/lib/ledgerRollover.js` (สมการคงคลัง + rollover), `src/lib/ledgerSeed.js` (RFC-4180 parser + map master→ledger), `src/lib/swapPolicy.js` (parse นโยบายคืนยา free-text → เดือน + คำนวณ deadline), `src/lib/consistencyCheck.js` (ตรวจความสอดคล้อง CSV→DB — referential + range-guard), `src/lib/stockCard.js` (การ์ดคลัง lot — running balance ต่อ lot + drift detection) — แยกออกจาก `db.js` โดยเจตนาเพื่อให้รันใน node ได้ (ดู section Commands)
+**Pure modules (no `supabase` import → golden-testable):** `src/lib/reorder.js`, `src/lib/billGroup.js`, `src/lib/lotAllocation.js` (FEFO allocation), `src/lib/unitParser.js`, `src/lib/ledgerRollover.js` (สมการคงคลัง + rollover), `src/lib/ledgerSeed.js` (RFC-4180 parser + map master→ledger), `src/lib/swapPolicy.js` (parse นโยบายคืนยา free-text → เดือน + คำนวณ deadline), `src/lib/consistencyCheck.js` (ตรวจความสอดคล้อง CSV→DB — referential + range-guard), `src/lib/stockCard.js` (การ์ดคลัง lot — running balance ต่อ lot + drift detection), `src/lib/vendorExchange.js` (รอบเปลี่ยน/คืนบริษัท — จับคู่ขาส่ง↔ขารับ หา "ของลอย") — แยกออกจาก `db.js` โดยเจตนาเพื่อให้รันใน node ได้ (ดู section Commands)
 
 ## Documentation Index
 

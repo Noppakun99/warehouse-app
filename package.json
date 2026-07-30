@@ -17,7 +17,8 @@
     "test:consistency": "node src/lib/consistencyCheck.test.js",
     "test:swappolicy": "node src/lib/swapPolicy.test.js",
     "test:countmatch": "node src/lib/countMatch.test.js",
-    "test:stockcard": "node src/lib/stockCard.test.js"
+    "test:stockcard": "node src/lib/stockCard.test.js",
+    "test:vendorexchange": "node src/lib/vendorExchange.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",

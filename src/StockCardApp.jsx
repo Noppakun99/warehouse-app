@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { ScrollText, Package, AlertTriangle, TrendingUp, TrendingDown, Filter, X, FileDown, Printer } from 'lucide-react'
-import { fetchInventoryNameCodeMap, fetchStockCard, fetchAllStockCardIssues } from './lib/db'
+import { ScrollText, Package, AlertTriangle, TrendingUp, TrendingDown, Filter, X, FileDown, Printer, RotateCcw } from 'lucide-react'
+import { fetchInventoryNameCodeMap, fetchStockCard, fetchAllStockCardIssues, fetchVendorExchanges } from './lib/db'
 import { buildStockCard, filterStockCard } from './lib/stockCard'
+import { buildVendorExchanges } from './lib/vendorExchange'
 import { exportToExcel } from './lib/exportExcel'
 import DrugSearchBar from './DrugSearchBar'
 import SearchableSelect from './SearchableSelect'
@@ -147,6 +148,9 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
   const [issues, setIssues] = useState(null)       // ผลสแกนทั้งระบบ: [{ code, name, driftPoints, rowErrs }]
   const [showIssues, setShowIssues] = useState(false)
   const [showMigration, setShowMigration] = useState(false)  // รวมยาที่ drift มาจากการย้ายข้อมูล Excel
+  const [exch, setExch] = useState(null)          // รอบเปลี่ยน/คืนบริษัท (ของลอย)
+  const [exchLoading, setExchLoading] = useState(false)
+  const [showExch, setShowExch] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -209,6 +213,17 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
       setIssues(found); setShowIssues(true)
     } catch (e) { setError(e.message) }
     finally { setScanning(false) }
+  }
+
+  // ของลอย — ส่งคืนบริษัทแล้วยังไม่ได้ของทดแทน (จับคู่จากข้อมูลที่มีอยู่ ไม่ต้องกรอกเพิ่ม)
+  const loadExchanges = async () => {
+    setExchLoading(true); setError('')
+    try {
+      const { dispenseRows, receiveRows, supplierByLot } = await fetchVendorExchanges()
+      setExch(buildVendorExchanges({ dispenseRows, receiveRows, supplierByLot, today: new Date() }))
+      setShowExch(true); setShowIssues(false)
+    } catch (e) { setError(e.message) }
+    finally { setExchLoading(false) }
   }
 
   // คลิกยาในผลสแกน → โหลดการ์ดของยานั้น + ปิดรายการ
@@ -315,14 +330,24 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
           <div className="flex items-center justify-between gap-3 mb-1.5">
             <label className="block text-xs font-semibold text-slate-500">เลือกยา</label>
-            <button
-              onClick={scanIssues}
-              disabled={scanning}
-              className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 disabled:opacity-60 text-amber-800 border border-amber-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
-            >
-              <AlertTriangle size={15} />
-              {scanning ? 'กำลังตรวจ...' : 'ตรวจหายาที่ยอดไม่ตรง'}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={loadExchanges}
+                disabled={exchLoading}
+                className="flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 disabled:opacity-60 text-orange-800 border border-orange-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+              >
+                <RotateCcw size={15} />
+                {exchLoading ? 'กำลังตรวจ...' : 'ของรอคืนจากบริษัท'}
+              </button>
+              <button
+                onClick={scanIssues}
+                disabled={scanning}
+                className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 disabled:opacity-60 text-amber-800 border border-amber-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+              >
+                <AlertTriangle size={15} />
+                {scanning ? 'กำลังตรวจ...' : 'ตรวจหายาที่ยอดไม่ตรง'}
+              </button>
+            </div>
           </div>
           <DrugSearchBar
             value={drugName}
@@ -337,6 +362,60 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
             hoverClass="hover:bg-teal-50"
           />
         </div>
+
+        {/* ของลอย — ส่งคืนบริษัทแล้วยังไม่ได้ของทดแทน */}
+        {showExch && exch && (
+          <div className="bg-white rounded-2xl border border-orange-300 overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 bg-orange-50 border-b border-orange-200">
+              <p className="font-bold text-orange-800 text-sm">
+                {exch.summary.openCount > 0
+                  ? `รอของคืนจากบริษัท ${exch.summary.openCount} รายการ (${fmtNum(exch.summary.openQty)} หน่วย)`
+                  : 'ไม่มีของค้างรอคืนจากบริษัท'}
+              </p>
+              <button onClick={() => setShowExch(false)} className="p-1 text-orange-700 hover:bg-orange-100 rounded-lg" aria-label="ปิดรายการ">
+                <X size={16} />
+              </button>
+            </div>
+            <p className="px-4 py-2 text-[11px] text-slate-500 border-b border-slate-100">
+              จับคู่อัตโนมัติจากประวัติเบิก/รับ (รหัสยา + บริษัท + ลำดับเวลา) —
+              <b> เป็นตัวช่วยเตือน ไม่ใช่ทะเบียนที่ถูก 100%</b> ควรตรวจกับเอกสารจริงก่อนทวงบริษัท
+            </p>
+            {exch.summary.openCount > 0 && (
+              <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                {exch.open.map((o, i) => (
+                  <button
+                    key={i}
+                    onClick={() => openDrugByCode(o.code, o.name)}
+                    className="w-full text-left px-4 py-2.5 hover:bg-orange-50 transition-colors flex items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-800 text-sm truncate">{o.name || o.code}</p>
+                      <p className="text-[11px] text-slate-400">
+                        lot {o.lot} · ส่งคืน {fmtThai(o.date)} · {o.kind}{o.company ? ` · ${o.company}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-sm font-bold text-slate-700">{fmtNum(o.qty)}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                        o.daysWaiting >= 90 ? 'bg-rose-100 text-rose-700 border-rose-300'
+                          : o.daysWaiting >= 30 ? 'bg-amber-100 text-amber-800 border-amber-300'
+                            : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                        ค้าง {o.daysWaiting} วัน
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+            {exch.summary.matchedCount > 0 && (
+              <p className="px-4 py-2 text-[11px] text-slate-400 border-t border-slate-100">
+                จับคู่ได้แล้ว {exch.summary.matchedCount} รอบ
+                {exch.summary.lotChangedCount > 0 && ` · lot เปลี่ยน ${exch.summary.lotChangedCount}`}
+                {exch.summary.qtyMismatchCount > 0 && ` · จำนวนไม่ตรง ${exch.summary.qtyMismatchCount}`}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* ผลสแกนทั้งระบบ — คลิกยา → เปิดการ์ดของยานั้นทันที */}
         {showIssues && issues && (
