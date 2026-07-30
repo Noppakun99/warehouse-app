@@ -95,8 +95,8 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
           <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
           <div className="p-2 bg-teal-100 text-teal-600 rounded-xl shrink-0"><ScrollText size={20} /></div>
           <button onClick={onRefresh} className="text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
-            <p className="font-bold text-sm leading-tight text-slate-800">การ์ดคลัง lot</p>
-            <p className="text-slate-400 text-xs">Stock Card — ประวัติทุก lot ทุกเดือน</p>
+            <p className="font-bold text-sm leading-tight text-slate-800">Stockcard</p>
+            <p className="text-slate-400 text-xs">ประวัติทุก lot ทุกเดือน</p>
           </button>
         </div>
       </div>

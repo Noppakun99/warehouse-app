@@ -37,7 +37,7 @@ export const NAV_GROUPS = [
       },
       { page: 'dispense', icon: TrendingDown, title: 'ประวัติเบิกจ่าย', c: 'rose', roles: ['requester', 'staff', 'admin'] },
       { page: 'analytics', icon: Activity, title: 'วิเคราะห์การเบิก', c: 'cyan', roles: ['requester', 'staff', 'admin'] },
-      { page: 'stockcard', icon: ScrollText, title: 'การ์ดคลัง lot', c: 'teal', roles: ['requester', 'staff', 'admin'] },
+      { page: 'stockcard', icon: ScrollText, title: 'Stockcard', c: 'teal', roles: ['requester', 'staff', 'admin'] },
       {
         key: 'reorder', icon: ShoppingCart, title: 'วิเคราะห์สั่งซื้อ', roles: ['staff', 'admin'],
         children: [
