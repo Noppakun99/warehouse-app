@@ -325,6 +325,7 @@ interface DetailEntry {
   supplier_changed: string;
   swap_tier_detail?: string;   // เฟส 2 (ADR-0014) — structured tier (V2)
   receive_date?: string;       // สำหรับ receive_threshold (Diltiazem)
+  swap_condition_am?: string;  // finding #2 — flag แตกต่างกัน/เดียวกัน
 }
 interface AlertItem { r: InvRow; expDate: Date; }
 
@@ -537,7 +538,7 @@ Deno.serve(async (req) => {
     const usageFromStr = usageFrom.toISOString().slice(0, 10);
     const [invRows, recRows, dispRows] = await Promise.all([
       fetchTable("inventory", "code,location,type,name,lot,exp,qty,unit,supplier,receive_status", "order=location"),
-      fetchTable("receive_logs", "drug_code,lot,bill_number,supplier_current,drug_swap_policy,swap_tier_detail,supplier_changed,receive_date", "order=receive_date.desc.nullslast"),
+      fetchTable("receive_logs", "drug_code,lot,bill_number,supplier_current,drug_swap_policy,swap_tier_detail,swap_condition_am,supplier_changed,receive_date", "order=receive_date.desc.nullslast"),
       fetchTable("dispense_logs", "drug_code,qty_out,dispense_date", `dispense_date=gte.${usageFromStr}`),
     ]);
 
@@ -553,6 +554,7 @@ Deno.serve(async (req) => {
         supplier_changed: r.supplier_changed || "",
         swap_tier_detail: r.swap_tier_detail || "",
         receive_date: r.receive_date || "",
+        swap_condition_am: r.swap_condition_am || "",
       };
       const keyLot  = `${code}|${lot}`;
       const keyCode = `${code}|`;
@@ -629,6 +631,8 @@ Deno.serve(async (req) => {
       const d = detailMap[`${code}|${lot}`] || detailMap[`${code}|`];
       if (!d) continue;
       const company = d.supplier_current || row.supplier || "";
+      // finding #2: col27 "แตกต่างกัน แล้วแต่รายการ" (authoritative) → นโยบายรายยา เชื่อ tier รวมไม่ได้ → ไม่เตือน (ADR-0012)
+      if (/แตกต่าง|แล้วแต่รายการ/.test(d.swap_condition_am || "")) continue;
       // เฟส 2 (ADR-0014): lot มี tier_detail → V2 (ต่อ lot); ไม่มี → fallback V1 (นโยบายบริษัท) — ตรง fetchSwapReturnDue
       let status: string, deadline: Date | null, daysToDeadline: number | null, returnPct: number | null = null, statusNote: string | null = null;
       const tierDetail = (d.swap_tier_detail || "").trim();

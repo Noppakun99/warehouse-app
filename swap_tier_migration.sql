@@ -7,3 +7,7 @@
 
 ALTER TABLE public.receive_logs ADD COLUMN IF NOT EXISTS swap_tier_detail text;
 ALTER TABLE public.receive_logs ADD COLUMN IF NOT EXISTS swap_return_pct  text;
+
+-- finding #2: เงื่อนไขบริษัท (Auto-Match) col27 = "เดียวกันทุกรายการ"/"แตกต่างกัน แล้วแต่รายการ"
+--   "แตกต่างกัน" (authoritative) → นโยบายรายยา เชื่อ tier รวมไม่ได้ → override เป็น review ไม่เตือน (ADR-0012)
+ALTER TABLE public.receive_logs ADD COLUMN IF NOT EXISTS swap_condition_am text;

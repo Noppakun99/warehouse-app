@@ -1472,6 +1472,7 @@ function ReceiveImport({ onDone, auth = {} }) {
             // เฟส 2 (ADR-0014): structured tier detail (col 28) + % คืน (col 29) — parseReturnPolicyV2 ใช้
             swap_tier_detail:     getVal(row, 'swap_automatch'),
             swap_return_pct:      getVal(row, 'swap_return_pct'),
+            swap_condition_am:    getVal(row, 'swap_condition_am'),   // finding #2
           }];
         });
 

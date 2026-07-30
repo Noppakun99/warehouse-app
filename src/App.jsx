@@ -2221,12 +2221,14 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           const lot  = (item.lot  || '-').trim().toLowerCase();
           const d = Object.values(drugDetails).find(x =>
             (x._code || '').toLowerCase() === code && (x._lot || '').toLowerCase() === lot);
-          return { tierDetail: d?._swap_tier_detail || null, receiveDate: d?.receive_date || null };
+          return { tierDetail: d?._swap_tier_detail || null, receiveDate: d?.receive_date || null, condAm: d?._swap_condition_am || '' };
         };
         // นโยบายคืนยา (ADR-0014 เฟส 2): lot มี tier_detail → V2 (ต่อ lot); ไม่มี → fallback V1 (นโยบายบริษัท)
         const buildReturnInfo = (lotSupplier, item) => {
           const exp = parseDateString(item.exp);
-          const { tierDetail, receiveDate } = lotMeta(item);
+          const { tierDetail, receiveDate, condAm } = lotMeta(item);
+          // finding #2: col27 "แตกต่างกัน แล้วแต่รายการ" (authoritative) → นโยบายรายยา เชื่อ tier รวมไม่ได้ → review
+          if (/แตกต่าง|แล้วแต่รายการ/.test(condAm)) return { status: 'review', differsByItem: true, deadline: null, daysToDeadline: null, returnPct: null, note: 'เงื่อนไขต่างรายการ — ตรวจเอกสาร' };
           if (tierDetail) {
             const policyV2 = parseReturnPolicyV2(tierDetail);
             const rDate = receiveDate ? parseDateString(receiveDate.split('T')[0]) : null;
