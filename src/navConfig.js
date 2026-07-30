@@ -28,7 +28,7 @@ export const NAV_GROUPS = [
     label: 'สรุปและรายงาน', dot: 'bg-blue-500',
     items: [
       {
-        key: 'receive', icon: TrendingUp, title: 'ประวัติรับยา', roles: ['requester', 'staff', 'admin'],
+        key: 'receive', icon: TrendingUp, title: 'ประวัติรับยา', c: 'emerald', roles: ['requester', 'staff', 'admin'],
         children: [
           { page: 'receive',      icon: TrendingUp, title: 'ประวัติรับยา', c: 'emerald', roles: ['requester', 'staff', 'admin'] },
           { page: 'receive-ap',   icon: Send,       title: 'ส่งบัญชี',      c: 'emerald', roles: ['staff', 'admin'] },
@@ -39,7 +39,7 @@ export const NAV_GROUPS = [
       { page: 'analytics', icon: Activity, title: 'วิเคราะห์การเบิก', c: 'cyan', roles: ['requester', 'staff', 'admin'] },
       { page: 'stockcard', icon: ScrollText, title: 'Stockcard', c: 'teal', roles: ['requester', 'staff', 'admin'] },
       {
-        key: 'reorder', icon: ShoppingCart, title: 'วิเคราะห์สั่งซื้อ', roles: ['staff', 'admin'],
+        key: 'reorder', icon: ShoppingCart, title: 'วิเคราะห์สั่งซื้อ', c: 'orange', roles: ['staff', 'admin'],
         children: [
           { page: 'reorder',          icon: ListChecks,  title: 'ตารางวิเคราะห์',    c: 'orange', roles: ['staff', 'admin'] },
           { page: 'reorder-supplier', icon: Building2,    title: 'ใบสั่งซื้อแยกบริษัท', c: 'orange', roles: ['staff', 'admin'] },
@@ -48,7 +48,7 @@ export const NAV_GROUPS = [
         ],
       },
       {
-        key: 'forms', icon: FileText, title: 'แบบฟอร์มต่างๆ', roles: ['requester', 'staff', 'admin'],
+        key: 'forms', icon: FileText, title: 'แบบฟอร์มต่างๆ', c: 'slate', roles: ['requester', 'staff', 'admin'],
         children: [
           { action: 'inspectWorksheet', icon: ClipboardCheck, title: 'ฟอร์มตรวจรับ', c: 'emerald', roles: ['requester', 'staff', 'admin'] },
           { action: 'returnForm',        icon: Undo2,         title: 'ฟอร์มคืนยา', c: 'violet', roles: ['requester', 'staff', 'admin'] },
@@ -75,15 +75,16 @@ export const NAV_ITEMS = NAV_GROUPS.flatMap(g =>
 ).filter(it => it.page);
 
 // Tailwind ต้องเห็น class เต็มตอน build → map ตรงต่อสี (ห้ามใช้ `bg-${c}-50` — purge ตัด)
+// hover = สี hover ของเมนู sidebar ตอนยังไม่ active (ต้องเขียนเต็ม — purge ตัด class ที่ประกอบด้วย template string)
 export const COLOR = {
-  blue:    { icon: 'bg-blue-100 text-blue-600',       activeBg: 'bg-blue-50 text-blue-700',       bar: 'bg-blue-500',    cardBg: 'bg-blue-50 hover:bg-blue-100 border-blue-200' },
-  indigo:  { icon: 'bg-indigo-100 text-indigo-600',   activeBg: 'bg-indigo-50 text-indigo-700',   bar: 'bg-indigo-500',  cardBg: 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200' },
-  violet:  { icon: 'bg-violet-100 text-violet-600',   activeBg: 'bg-violet-50 text-violet-700',   bar: 'bg-violet-500',  cardBg: 'bg-violet-50 hover:bg-violet-100 border-violet-200' },
-  emerald: { icon: 'bg-emerald-100 text-emerald-600', activeBg: 'bg-emerald-50 text-emerald-700', bar: 'bg-emerald-500', cardBg: 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200' },
-  rose:    { icon: 'bg-rose-100 text-rose-600',       activeBg: 'bg-rose-50 text-rose-700',       bar: 'bg-rose-500',    cardBg: 'bg-rose-50 hover:bg-rose-100 border-rose-200' },
-  cyan:    { icon: 'bg-cyan-100 text-cyan-600',       activeBg: 'bg-cyan-50 text-cyan-700',       bar: 'bg-cyan-500',    cardBg: 'bg-cyan-50 hover:bg-cyan-100 border-cyan-200' },
-  orange:  { icon: 'bg-orange-100 text-orange-600',   activeBg: 'bg-orange-50 text-orange-700',   bar: 'bg-orange-500',  cardBg: 'bg-orange-50 hover:bg-orange-100 border-orange-200' },
-  amber:   { icon: 'bg-amber-100 text-amber-600',     activeBg: 'bg-amber-50 text-amber-700',     bar: 'bg-amber-500',   cardBg: 'bg-amber-50 hover:bg-amber-100 border-amber-200' },
-  teal:    { icon: 'bg-teal-100 text-teal-600',       activeBg: 'bg-teal-50 text-teal-700',       bar: 'bg-teal-500',    cardBg: 'bg-teal-50 hover:bg-teal-100 border-teal-200' },
-  slate:   { icon: 'bg-slate-200 text-slate-600',     activeBg: 'bg-slate-100 text-slate-700',    bar: 'bg-slate-500',   cardBg: 'bg-slate-50 hover:bg-slate-100 border-slate-200' },
+  blue:    { icon: 'bg-blue-100 text-blue-600',       activeBg: 'bg-blue-50 text-blue-700',       bar: 'bg-blue-500',    hover: 'hover:bg-blue-50 hover:text-blue-700',       cardBg: 'bg-blue-50 hover:bg-blue-100 border-blue-200' },
+  indigo:  { icon: 'bg-indigo-100 text-indigo-600',   activeBg: 'bg-indigo-50 text-indigo-700',   bar: 'bg-indigo-500',  hover: 'hover:bg-indigo-50 hover:text-indigo-700',   cardBg: 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200' },
+  violet:  { icon: 'bg-violet-100 text-violet-600',   activeBg: 'bg-violet-50 text-violet-700',   bar: 'bg-violet-500',  hover: 'hover:bg-violet-50 hover:text-violet-700',   cardBg: 'bg-violet-50 hover:bg-violet-100 border-violet-200' },
+  emerald: { icon: 'bg-emerald-100 text-emerald-600', activeBg: 'bg-emerald-50 text-emerald-700', bar: 'bg-emerald-500', hover: 'hover:bg-emerald-50 hover:text-emerald-700', cardBg: 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200' },
+  rose:    { icon: 'bg-rose-100 text-rose-600',       activeBg: 'bg-rose-50 text-rose-700',       bar: 'bg-rose-500',    hover: 'hover:bg-rose-50 hover:text-rose-700',       cardBg: 'bg-rose-50 hover:bg-rose-100 border-rose-200' },
+  cyan:    { icon: 'bg-cyan-100 text-cyan-600',       activeBg: 'bg-cyan-50 text-cyan-700',       bar: 'bg-cyan-500',    hover: 'hover:bg-cyan-50 hover:text-cyan-700',       cardBg: 'bg-cyan-50 hover:bg-cyan-100 border-cyan-200' },
+  orange:  { icon: 'bg-orange-100 text-orange-600',   activeBg: 'bg-orange-50 text-orange-700',   bar: 'bg-orange-500',  hover: 'hover:bg-orange-50 hover:text-orange-700',   cardBg: 'bg-orange-50 hover:bg-orange-100 border-orange-200' },
+  amber:   { icon: 'bg-amber-100 text-amber-600',     activeBg: 'bg-amber-50 text-amber-700',     bar: 'bg-amber-500',   hover: 'hover:bg-amber-50 hover:text-amber-700',     cardBg: 'bg-amber-50 hover:bg-amber-100 border-amber-200' },
+  teal:    { icon: 'bg-teal-100 text-teal-600',       activeBg: 'bg-teal-50 text-teal-700',       bar: 'bg-teal-500',    hover: 'hover:bg-teal-50 hover:text-teal-700',       cardBg: 'bg-teal-50 hover:bg-teal-100 border-teal-200' },
+  slate:   { icon: 'bg-slate-200 text-slate-600',     activeBg: 'bg-slate-100 text-slate-700',    bar: 'bg-slate-500',   hover: 'hover:bg-slate-100 hover:text-slate-700',    cardBg: 'bg-slate-50 hover:bg-slate-100 border-slate-200' },
 };
