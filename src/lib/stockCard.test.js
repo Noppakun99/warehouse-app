@@ -266,6 +266,61 @@ section('Test 17: balanceBefore แถวหักปกติ')
   eq(row.hasDrift, false, 'ไม่ flag')
 }
 
+// ── Test 18: driftDelta — เตือนเฉพาะจุดที่ของหายจริง (เคสจริง lot 194584) ──
+// รับ 100 (22/09) แต่แถวเบิกแรก 06/10 บันทึก qty_before=91 → หาย 9 ตรงจุดนั้นจุดเดียว
+// แถวถัดๆ ไป qty_before ต่อกันเป๊ะ → drift ค้าง 9 เท่าเดิม ไม่ใช่ของหายซ้ำ → ต้องไม่เตือน
+section('Test 18: driftDelta — lot 194584 (ของหายจุดเดียว ไม่เตือนซ้ำ)')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2025-09-22', lot: '194584', item_type: 'ซื้อยา', qty_received: 100 }],
+    dispenseRows: [
+      { dispense_date: '2025-10-06', lot: '194584', item_type: 'ยกยอด', qty_out: 5, qty_before: 91 },
+      { dispense_date: '2025-10-06', lot: '194584', item_type: 'ยกยอด', qty_out: 1, qty_before: 86 },
+      { dispense_date: '2025-10-14', lot: '194584', item_type: 'ยกยอด', qty_out: 5, qty_before: 85 },
+      { dispense_date: '2025-10-20', lot: '194584', item_type: 'ยกยอด', qty_out: 10, qty_before: 80 },
+    ],
+  })
+  const outs = r.rows.filter(x => x.side === 'out')
+  eq(outs.map(x => x.drift), [9, 9, 9, 9], 'drift ค้าง 9 ทุกแถว (สะสม)')
+  eq(outs.map(x => x.driftDelta), [9, 0, 0, 0], 'driftDelta: หาย 9 แถวแรกจุดเดียว ที่เหลือ 0')
+  eq(outs.map(x => x.isDriftPoint), [true, false, false, false], 'เตือนแค่แถวแรก')
+  eq(r.summary.driftRows, 1, 'summary นับ 1 จุด (ไม่ใช่ 4 แถว)')
+  eq(r.lots[0].driftCount, 1, 'lot นับ 1 จุด')
+  eq(r.lots[0].lastDrift, 9, 'lastDrift = ช่องว่างสะสม 9')
+}
+
+// ── Test 19: drift หลายจุดใน lot เดียว → เตือนทุกจุดที่เปลี่ยน ──
+section('Test 19: ของหาย 2 จุด → เตือน 2 จุด')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-01', lot: 'M', item_type: 'ซื้อยา', qty_received: 100 }],
+    dispenseRows: [
+      { dispense_date: '2026-01-05', lot: 'M', item_type: 'ยกยอด', qty_out: 10, qty_before: 90 },  // หาย 10
+      { dispense_date: '2026-01-10', lot: 'M', item_type: 'ยกยอด', qty_out: 10, qty_before: 80 },  // ต่อเนื่อง
+      { dispense_date: '2026-01-15', lot: 'M', item_type: 'ยกยอด', qty_out: 5, qty_before: 65 },   // หายอีก 5
+    ],
+  })
+  const outs = r.rows.filter(x => x.side === 'out')
+  eq(outs.map(x => x.drift), [10, 10, 15], 'drift สะสม 10 → 10 → 15')
+  eq(outs.map(x => x.driftDelta), [10, 0, 5], 'delta: 10, ไม่หาย, หายอีก 5')
+  eq(outs.map(x => x.isDriftPoint), [true, false, true], 'เตือน 2 จุด')
+  eq(r.summary.driftRows, 2, 'summary นับ 2 จุด')
+}
+
+// ── Test 20: ยอดตรงตลอด → ไม่มีจุดเตือน ──
+section('Test 20: ยอดตรงตลอด → 0 จุด')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-01', lot: 'OK2', item_type: 'ซื้อยา', qty_received: 50 }],
+    dispenseRows: [
+      { dispense_date: '2026-01-05', lot: 'OK2', item_type: 'ยกยอด', qty_out: 20, qty_before: 50 },
+      { dispense_date: '2026-01-06', lot: 'OK2', item_type: 'ยกยอด', qty_out: 10, qty_before: 30 },
+    ],
+  })
+  eq(r.rows.filter(x => x.isDriftPoint).length, 0, 'ไม่มีจุดเตือน')
+  eq(r.summary.driftLots, 0, 'ไม่มี lot drift')
+}
+
 console.log('\n' + '─'.repeat(50))
 if (fail === 0) {
   console.log(`✓ ผ่านทั้งหมด ${pass} assertions`)

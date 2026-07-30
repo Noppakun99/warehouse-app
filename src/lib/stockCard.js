@@ -100,6 +100,7 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
 
   const openingByLot = {}
   const balByLot = {}
+  const lastDriftByLot = {}   // drift ครั้งก่อนของ lot — ใช้หา "จุดที่ของหายจริง" (drift เปลี่ยนค่า)
   const rows = []
 
   for (const m of mv) {
@@ -108,6 +109,7 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
       const opening = hasReceipt.has(m.lot) ? 0 : (m._qtyBefore ?? 0)
       openingByLot[m.lot] = opening
       balByLot[m.lot] = opening
+      lastDriftByLot[m.lot] = 0
     }
     // drift = ยอดที่ระบบคำนวณ ≠ ยอดก่อนเบิกที่ต้นทางบันทึกไว้ → มี movement ที่ไม่ถูกบันทึก
     // (Excel ทำ detect นี้ไม่ได้ — คลังเคยเจอเองแล้วเรียก "Group B Data Gap" 19 lots, Context.csv:1508)
@@ -118,6 +120,11 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
     const drift = (m.side === 'out' && m._qtyBefore != null)
       ? balanceBefore - m._qtyBefore
       : null
+
+    // driftDelta = drift "เพิ่มขึ้นเท่าไรจากแถวก่อน" = ของที่หายตรงจุดนี้จริงๆ
+    // drift ค้างเท่าเดิม (delta=0) = ผลพวงจากช่องว่างก่อนหน้า ไม่ใช่ของหายซ้ำ → ไม่ต้องเตือนซ้ำทุกแถว
+    const driftDelta = drift == null ? null : drift - lastDriftByLot[m.lot]
+    if (drift != null) lastDriftByLot[m.lot] = drift
 
     const deduct = NO_DEDUCT.has(m.kind) ? 0 : m.qtyOut
     balByLot[m.lot] += m.qtyIn - deduct
@@ -136,22 +143,25 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
       noDeduct: NO_DEDUCT.has(m.kind),
       qtyBefore: m._qtyBefore,
       balanceBefore,               // ยอดสะสมก่อนหักแถวนี้ — UI ใช้แสดงคู่กับ qtyBefore ตอนอธิบาย drift
-      drift,                       // null = เทียบไม่ได้ · 0 = ตรง · ≠0 = มี movement ที่ไม่ถูกบันทึก
+      drift,                       // null = เทียบไม่ได้ · 0 = ตรง · ≠0 = ยอดสะสมไม่ตรงบันทึก (ค้างมาได้)
       hasDrift: drift != null && drift !== 0,
+      driftDelta,                  // ของที่หาย/เกิน "ตรงจุดนี้" (drift − drift แถวก่อนของ lot เดียวกัน)
+      isDriftPoint: driftDelta != null && driftDelta !== 0,   // จุดที่ของหายจริง → UI เตือนเฉพาะแถวนี้
     })
   }
 
   const lots = Object.keys(balByLot).sort((a, b) => a.localeCompare(b, 'th')).map(lot => {
     const lotRows = rows.filter(r => r.lot === lot)
     const driftRows = lotRows.filter(r => r.hasDrift)
+    const driftPoints = lotRows.filter(r => r.isDriftPoint)
     return {
       lot,
       opening: openingByLot[lot],
       closing: balByLot[lot],
       hasReceipt: hasReceipt.has(lot),
       negative: balByLot[lot] < 0,
-      driftCount: driftRows.length,
-      // drift ล่าสุดของ lot — ใช้บอกขนาดของช่องว่าง (บวก = ระบบคิดว่ามีมากกว่าที่บันทึก)
+      driftCount: driftPoints.length,   // นับ "จุดที่ของหาย" ไม่ใช่ทุกแถวที่ drift ค้าง
+      // drift ล่าสุดของ lot — ใช้บอกขนาดของช่องว่างรวม (บวก = ระบบคิดว่ามีมากกว่าที่บันทึก)
       lastDrift: driftRows.length ? driftRows[driftRows.length - 1].drift : 0,
     }
   })
@@ -165,7 +175,7 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
       lotCount: lots.length,
       negativeLots: lots.filter(l => l.negative).length,
       driftLots: lots.filter(l => l.driftCount > 0).length,
-      driftRows: rows.filter(r => r.hasDrift).length,
+      driftRows: rows.filter(r => r.isDriftPoint).length,   // จำนวนจุดที่ของหายจริง
     },
   }
 }

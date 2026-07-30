@@ -153,8 +153,9 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
               </div>
               {card.summary.driftLots > 0 && (
                 <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                  พบ {card.summary.driftRows} แถวที่ยอดคำนวณไม่ตรงกับ &quot;คงเหลือก่อนเบิก&quot; ที่บันทึกไว้ —
-                  แปลว่ามีการเคลื่อนไหวที่ไม่ได้ถูกบันทึกในระบบ (ไม่ใช่การคำนวณผิด) ดูแถวที่มีเครื่องหมายเตือน
+                  พบ <b>{card.summary.driftRows} จุด</b> ที่ยอดคำนวณไม่ตรงกับ &quot;ยอดที่บันทึกไว้&quot; —
+                  แปลว่ามีการเคลื่อนไหวที่ไม่ได้ถูกบันทึกในระบบ (ไม่ใช่การคำนวณผิด)
+                  เครื่องหมายเตือนแสดงเฉพาะ<b>จุดที่ของหายจริง</b> แถวถัดไปที่ยอดต่างเท่าเดิมไม่เตือนซ้ำ
                 </p>
               )}
             </div>
@@ -204,7 +205,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 z-10">
                     <tr className="bg-slate-100 text-slate-600">
-                      {['วันที่', 'Lot', 'ชนิดรายการ', 'รับเข้า', 'เบิกออก', 'คงเหลือ Lot', 'หน่วยงาน/บริษัท', 'หมายเหตุ/บิล', 'มูลค่า', 'Exp'].map(h => (
+                      {['วันที่', 'Lot', 'ชนิดรายการ', 'รับเข้า', 'เบิกออก', 'คงเหลือ Lot', 'ยอดที่บันทึกไว้', 'หน่วยงาน/บริษัท', 'หมายเหตุ/บิล', 'มูลค่า', 'Exp'].map(h => (
                         <th key={h} className="px-3 py-2.5 text-left font-bold whitespace-nowrap border-b border-slate-200">{h}</th>
                       ))}
                     </tr>
@@ -222,7 +223,8 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                         </td>
                         <td className={`px-3 py-2 text-right font-bold ${r.balance < 0 ? 'text-rose-600' : 'text-slate-800'}`}>
                           {fmtNum(r.balance)}
-                          {r.hasDrift && (
+                          {/* เตือนเฉพาะ "จุดที่ของหายจริง" — แถวที่ drift ค้างมาไม่เตือนซ้ำ */}
+                          {r.isDriftPoint && (
                             <button
                               onClick={() => setDriftRow(r)}
                               className="ml-1 inline-flex items-center align-middle text-amber-600 hover:text-amber-700 hover:bg-amber-100 rounded p-0.5 transition-colors"
@@ -232,6 +234,10 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                             </button>
                           )}
                         </td>
+                        {/* ยอดที่ต้นทางบันทึกไว้ (qty_before) — ให้เห็นว่าไอคอนเทียบกับอะไร ไม่ต้องเปิดโมดอล */}
+                        <td className={`px-3 py-2 text-right ${r.hasDrift ? 'text-amber-700 font-semibold' : 'text-slate-400'}`}>
+                          {r.qtyBefore == null ? '-' : fmtNum(r.qtyBefore)}
+                        </td>
                         <td className="px-3 py-2 text-slate-600 max-w-[180px] truncate" title={r.party}>{r.party || '-'}</td>
                         <td className="px-3 py-2 text-slate-500 text-xs max-w-[200px] truncate" title={r.ref}>{r.ref || '-'}</td>
                         <td className="px-3 py-2 text-right text-slate-600">{r.value ? fmtNum(r.value) : '-'}</td>
@@ -239,7 +245,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                       </tr>
                     ))}
                     {visibleRows.length === 0 && (
-                      <tr><td colSpan={10} className="px-3 py-10 text-center text-slate-400">ไม่มีรายการตามตัวกรอง</td></tr>
+                      <tr><td colSpan={11} className="px-3 py-10 text-center text-slate-400">ไม่มีรายการตามตัวกรอง</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -272,14 +278,19 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                       <p className={`font-bold text-sm ${r.balance < 0 ? 'text-rose-700' : 'text-teal-700'}`}>{fmtNum(r.balance)}</p>
                     </div>
                   </div>
-                  {r.hasDrift && (
+                  {r.isDriftPoint && (
                     <button
                       onClick={() => setDriftRow(r)}
                       className="mt-2 w-full flex items-center gap-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 text-left active:bg-amber-100"
                     >
                       <AlertTriangle size={13} className="shrink-0" />
-                      <span>ยอดไม่ตรงบันทึก (ต่าง {fmtNum(r.drift)}) — แตะดูรายละเอียด</span>
+                      <span>ของหายตรงจุดนี้ {fmtNum(Math.abs(r.driftDelta))} — แตะดูรายละเอียด</span>
                     </button>
+                  )}
+                  {r.qtyBefore != null && (
+                    <p className="mt-1.5 text-[11px] text-slate-400">
+                      ยอดที่บันทึกไว้: <b className={r.hasDrift ? 'text-amber-700' : 'text-slate-500'}>{fmtNum(r.qtyBefore)}</b>
+                    </p>
                   )}
                   <div className="mt-2 text-xs text-slate-500 space-y-0.5">
                     {r.party && <p>{r.side === 'in' ? 'บริษัท' : 'หน่วยงาน'}: {r.party}</p>}
@@ -347,12 +358,21 @@ function DriftModal({ row, onClose }) {
           </div>
 
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
-            <p className="text-[11px] text-amber-700">ผลต่าง</p>
+            <p className="text-[11px] text-amber-700">ผลต่างสะสม</p>
             <p className="font-bold text-amber-800 text-xl">{diff > 0 ? '+' : ''}{fmtNum(diff)}</p>
             <p className="text-[11px] text-amber-700 mt-0.5">
               {more ? 'ระบบคิดว่ามีมากกว่าที่บันทึก' : 'ระบบคิดว่ามีน้อยกว่าที่บันทึก'}
             </p>
           </div>
+
+          {/* delta = ของที่หายตรงจุดนี้ ต่างจากผลต่างสะสมที่อาจค้างมาจากจุดก่อน */}
+          {row.driftDelta != null && row.driftDelta !== diff && (
+            <div className="bg-white border border-amber-300 rounded-xl p-3 text-center">
+              <p className="text-[11px] text-slate-500">ของที่หาย/เกิน <b>เฉพาะจุดนี้</b></p>
+              <p className="font-bold text-amber-700 text-lg">{row.driftDelta > 0 ? '+' : ''}{fmtNum(row.driftDelta)}</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">ส่วนที่เหลือค้างมาจากช่องว่างก่อนหน้า</p>
+            </div>
+          )}
 
           <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3 leading-relaxed">
             <p className="font-semibold text-slate-700 mb-1">หมายความว่าอะไร</p>
