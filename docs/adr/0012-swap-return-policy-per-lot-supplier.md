@@ -1,6 +1,6 @@
 # 0012. ผูกนโยบายเปลี่ยน/คืนยากับบริษัทของ lot นั้นจริงๆ — ไม่เดา
 
-- **Status:** Accepted
+- **Status:** Accepted (ส่วน *การผูก supplier ต่อ lot* ยังใช้อยู่; ส่วน *วิธีอ่านนโยบาย* "เฟส 1 ไม่ parse ตัวเลข" ถูก refine โดย [ADR-0014](0014-structured-return-policy-tier-percent.md) — เฟส 2 อ่าน structured tier %)
 - **Date:** 2026-07-12
 
 ## Context

@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 import { computeClosing, ADJUST_TYPE } from './ledgerRollover'
 import { buildConsistencyReport } from './consistencyCheck'
-import { parseReturnPolicy, computeReturnStatus } from './swapPolicy'
+import { parseReturnPolicy, computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './swapPolicy'
 import { computeCountMatch } from './countMatch'
 
 const CHUNK_SIZE = 500
@@ -117,7 +117,7 @@ export async function fetchDrugDetails() {
   while (true) {
     const { data, error } = await supabase
       .from('receive_logs')
-      .select('drug_code, drug_name, lot, bill_number, po_number, exp, supplier_current, supplier_prev, supplier_changed, drug_swap_policy, drug_type, safety_stock, leadtime, sum_of_lead_time, price_per_unit, receive_date, inspect_date, qty_received, receive_status, purchase_type')
+      .select('drug_code, drug_name, lot, bill_number, po_number, exp, supplier_current, supplier_prev, supplier_changed, drug_swap_policy, swap_tier_detail, swap_return_pct, drug_type, safety_stock, leadtime, sum_of_lead_time, price_per_unit, receive_date, inspect_date, qty_received, receive_status, purchase_type')
       .range(offset, offset + BATCH - 1)
 
     if (error) throw error
@@ -135,6 +135,8 @@ export async function fetchDrugDetails() {
           _exp: row.exp,
           _company: row.supplier_current,
           _drug_swap_policy: row.drug_swap_policy,
+          _swap_tier_detail: row.swap_tier_detail,   // เฟส 2 (ADR-0014) — structured tier (parseReturnPolicyV2)
+          _swap_return_pct: row.swap_return_pct,
           _drug_type: row.drug_type,
           safety_stock: row.safety_stock,
           leadtime: row.leadtime,
@@ -200,6 +202,9 @@ export const RECEIVE_COL_MAP = {
   // Auto-Match (คอลัมน์ Z–AD ในไฟล์รับยา) — รายละเอียดเงื่อนไขที่ระบบจับคู่ให้แล้ว
   // ใช้เสริม drug_swap_policy ให้ข้อความ "N เดือน" ครบขึ้น (parseReturnPolicy ดึงเดือนได้แม่นขึ้น)
   swap_automatch:      ['รายละเอียดเงื่อนไขการแลกเปลี่ยน (auto-match)','รายละเอียดเงื่อนไขการแลกเปลี่ยน','swap_automatch'],
+  // เฟส 2 (ADR-0014) — % คืนโดยประมาณ (Auto-Match) = enum "100%/50-100%/25-100%/0%/..." สำหรับ cross-check
+  // (swap_tier_detail = col 28 อ่านซ้ำจาก swap_automatch ใน importReceiveCSV — ไม่ต้อง alias แยก กันชน _matchHeader)
+  swap_return_pct:     ['% คืนโดยประมาณ (auto-match)','% คืนโดยประมาณ','swap_return_pct'],
 }
 
 function _parseCSVRow(str) {
@@ -351,6 +356,10 @@ export async function importReceiveLogs(csvText, auth = {}) {
         safety_stock:        parseFloat(String(getVal(row,'safety_stock')||'').replace(/,/g,''))||null,
         sum_of_lead_time:    getVal(row,'sum_of_lead_time')||null,
         drug_swap_policy:    swapFromCsv,
+        // เฟส 2 (ADR-0014): structured จากคอลัมน์ Auto-Match — parseReturnPolicyV2 อ่าน swap_tier_detail
+        // tier_detail = col 28 (อ่านซ้ำจาก swap_automatch — เก็บแยกให้ V2 ใช้เป็น primary source)
+        swap_tier_detail:    getVal(row,'swap_automatch'),
+        swap_return_pct:     getVal(row,'swap_return_pct'),
       }
     })
 
@@ -981,13 +990,15 @@ export async function fetchSwapReturnDue() {
   const lotKey = (code, lot) => `${(code || '').trim().toLowerCase()}|${(lot || '-').trim().toLowerCase()}`
   const supplierByLot = {}     // code|lot → บริษัท (หรือ null ถ้าชนหลายบริษัท)
   const policyTextByLot = {}   // code|lot → นโยบายดิบของบริษัทนั้น
+  const tierDetailByLot = {}   // code|lot → structured tier detail (col 28) — V2 อ่านตัวนี้ (ADR-0014)
+  const pctByLot = {}          // code|lot → % คืน (col 29) — cross-check
   const receiveDateByLot = {}  // code|lot → วันที่คลังรับล่าสุด (ISO) — แถวเรียง receive_date DESC แถวแรกของ key = ล่าสุด
   let offset = 0
   const BATCH = 1000
   while (true) {
     const { data, error } = await supabase
       .from('receive_logs')
-      .select('drug_code, lot, supplier_current, drug_swap_policy, receive_date')
+      .select('drug_code, lot, supplier_current, drug_swap_policy, swap_tier_detail, swap_return_pct, receive_date')
       .order('receive_date', { ascending: false, nullsFirst: false })
       .range(offset, offset + BATCH - 1)
     if (error || !data || data.length === 0) break
@@ -1003,6 +1014,9 @@ export async function fetchSwapReturnDue() {
         supplierByLot[key] = co
         const pol = (r.drug_swap_policy || '').trim()
         policyTextByLot[key] = (pol && pol !== '-') ? pol : null
+        const td = (r.swap_tier_detail || '').trim()
+        tierDetailByLot[key] = (td && td !== '-') ? td : null
+        pctByLot[key] = (r.swap_return_pct || '').trim() || null
       } else if (supplierByLot[key] !== null && supplierByLot[key] !== co) {
         supplierByLot[key] = null   // lot เดียวกันคนละบริษัท → กำกวม → ไม่ใช้
       }
@@ -1041,14 +1055,34 @@ export async function fetchSwapReturnDue() {
     if (!isNaN(qtyNum) && qtyNum === 0) continue
     if (String(item.receive_status || '').includes('ตัดออก')) continue
     const code = (item.code || '').trim()
+    const key = lotKey(code, item.lot)
     // นโยบายจากบริษัทของ lot นั้น (unique เท่านั้น) — null = ไม่เจอ/ชนหลายบริษัท → ข้าม (ADR-0012)
-    const company = supplierByLot[lotKey(code, item.lot)]
-    const pol = company ? policies[company] : null
-    if (!pol || pol.differsByItem || pol.returnMonths == null) continue
+    const company = supplierByLot[key]
+    if (!company) continue   // ไม่เจอ supplier/ชนหลายบริษัท → ไม่แสดง (ADR-0012)
     const exp = _parseExpDate(item.exp)
     if (!exp || isNaN(exp)) continue
-    const { status, deadline, daysToDeadline } = computeReturnStatus({ exp, months: pol.returnMonths, today })
-    if (status !== 'due' && status !== 'overdue') continue
+    const rDateIso = receiveDateByLot[key]
+    const rDate = rDateIso ? _parseExpDate(rDateIso.split('T')[0].split('-').reverse().join('/')) : null
+
+    // เฟส 2 (ADR-0014): ถ้า lot มี structured tier detail → ใช้ V2 (แม่นกว่า, ต่อ lot); ไม่มี → fallback V1 (นโยบายบริษัท)
+    let status, deadline, daysToDeadline, returnPct = null, statusNote = null, returnMonths = null
+    const tierDetail = tierDetailByLot[key]
+    if (tierDetail) {
+      const policyV2 = parseReturnPolicyV2(tierDetail)
+      const r = computeReturnStatusV2({ policy: policyV2, exp, receiveDate: rDate, today })
+      status = r.status; deadline = r.deadline; daysToDeadline = r.daysToDeadline; returnPct = r.percent; statusNote = r.note
+      returnMonths = policyV2.beforeExpMonths ?? policyV2.afterExpMonths ?? policyV2.receiveThresholdMonths ?? null
+      // V2 status ที่ต้องแจ้ง = due/overdue (เตือน) — no_return/review/ok ไม่เด้ง popup
+      if (status !== 'due' && status !== 'overdue') continue
+    } else {
+      // fallback V1: นโยบายต่อบริษัท (lot เก่าที่ยังไม่มี tier_detail)
+      const pol = policies[company]
+      if (!pol || pol.differsByItem || pol.returnMonths == null) continue
+      const r = computeReturnStatus({ exp, months: pol.returnMonths, today })
+      status = r.status; deadline = r.deadline; daysToDeadline = r.daysToDeadline
+      returnMonths = pol.returnMonths
+      if (status !== 'due' && status !== 'overdue') continue
+    }
 
     // coverage: คงเหลือรวม(เม็ด) ÷ เรท(เม็ด/วัน) → ของจะหมดในกี่วัน. ถ้าหมดก่อน deadline → ไม่ต้องคืน (flag)
     const avgPerDay = usageRates[usageKey(code)] || 0
@@ -1059,7 +1093,8 @@ export async function fetchSwapReturnDue() {
     out.push({
       id: item.id,   // row id ของ inventory — React key/flag state (inventory มีแถวซ้ำ code+lot+location จริง ห้าม key ด้วย business key)
       code: item.code, name: item.name, lot: item.lot, exp: item.exp, location: item.location,
-      qty: item.qty, unit: item.unit, company, returnMonths: pol.returnMonths,
+      qty: item.qty, unit: item.unit, company, returnMonths,
+      returnPct, statusNote,   // เฟส 2 (ADR-0014): % คืน + คำอธิบายสถานะ (V2) — null สำหรับ lot ที่ fallback V1
       // format ด้วย local parts — toISOString() บนเครื่อง UTC+7 เลื่อนวันถอยหลัง 1 วัน (local midnight → UTC = เมื่อวาน)
       status, deadline: deadline ? `${deadline.getFullYear()}-${String(deadline.getMonth() + 1).padStart(2, '0')}-${String(deadline.getDate()).padStart(2, '0')}` : null, daysToDeadline,
       policyText: policyTextByLot[lotKey(code, item.lot)] || null,   // นโยบายเต็มของ lot นั้น (raw)

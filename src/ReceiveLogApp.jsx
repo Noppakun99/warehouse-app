@@ -1469,6 +1469,9 @@ function ReceiveImport({ onDone, auth = {} }) {
             safety_stock:         parseFloat(String(getVal(row, 'safety_stock') || '').replace(/,/g,'')) || null,
             sum_of_lead_time:     getVal(row, 'sum_of_lead_time') || null,
             drug_swap_policy:     swapFromCsv,
+            // เฟส 2 (ADR-0014): structured tier detail (col 28) + % คืน (col 29) — parseReturnPolicyV2 ใช้
+            swap_tier_detail:     getVal(row, 'swap_automatch'),
+            swap_return_pct:      getVal(row, 'swap_return_pct'),
           }];
         });
 

@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { fetchInventory, saveInventory, fetchDrugDetails, fetchUploadMeta, saveUploadMeta, normalizeLotSearch, fetchConsistencyReport, fetchSwapPolicies, flagSwapReturn } from './lib/db';
-import { computeReturnStatus } from './lib/swapPolicy';
+import { computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './lib/swapPolicy';
 import { normExpDate } from './lib/receiveMatch';
 import BackButton from './BackButton';
 import { exportToExcel } from './lib/exportExcel';
@@ -2214,11 +2214,29 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           }
           return found;
         };
-        // นโยบายคืนยา: จับบริษัทของ lot → policy → คำนวณ deadline ต้องคืนก่อนหมดอายุ (เฟส 1, ADR-0012)
+        // structured tier detail + receiveDate ของ lot นั้น (strict code+lot, ADR-0012 — ไม่ fallback ระดับรหัส)
+        const lotMeta = (item) => {
+          if (!drugDetails) return {};
+          const code = (item.code || '').trim().toLowerCase();
+          const lot  = (item.lot  || '-').trim().toLowerCase();
+          const d = Object.values(drugDetails).find(x =>
+            (x._code || '').toLowerCase() === code && (x._lot || '').toLowerCase() === lot);
+          return { tierDetail: d?._swap_tier_detail || null, receiveDate: d?.receive_date || null };
+        };
+        // นโยบายคืนยา (ADR-0014 เฟส 2): lot มี tier_detail → V2 (ต่อ lot); ไม่มี → fallback V1 (นโยบายบริษัท)
         const buildReturnInfo = (lotSupplier, item) => {
-          const pol = lotSupplier ? swapPolicies[lotSupplier] : null;
-          if (!pol) return null; // ไม่มีบริษัท (ไม่เจอ/กำกวม) หรือไม่มีนโยบายในตาราง → ไม่ประเมิน
           const exp = parseDateString(item.exp);
+          const { tierDetail, receiveDate } = lotMeta(item);
+          if (tierDetail) {
+            const policyV2 = parseReturnPolicyV2(tierDetail);
+            const rDate = receiveDate ? parseDateString(receiveDate.split('T')[0]) : null;
+            if (!exp) return { status: 'review', deadline: null, daysToDeadline: null, needsReview: true, returnPct: null, note: null };
+            const r = computeReturnStatusV2({ policy: policyV2, exp, receiveDate: rDate, today: todayForDisplay });
+            return { returnMonths: policyV2.beforeExpMonths ?? policyV2.afterExpMonths ?? null, returnPct: r.percent, note: r.note, ...r };
+          }
+          // fallback V1
+          const pol = lotSupplier ? swapPolicies[lotSupplier] : null;
+          if (!pol) return null;
           if (!exp) return { ...pol, status: 'no_policy', deadline: null, daysToDeadline: null };
           const r = computeReturnStatus({ exp, months: pol.returnMonths, today: todayForDisplay });
           return { ...pol, ...r };
@@ -2323,13 +2341,16 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         const returnBadge = (ri) => {
           if (!ri) return null;
           if (ri.differsByItem) return { text: 'ต้องเช็กเอกสาร', cls: 'bg-slate-100 text-slate-600 border-slate-200' };
-          if (ri.canReturn === false) return { text: 'บริษัทไม่รับคืน', cls: 'bg-slate-100 text-slate-500 border-slate-200' };
-          if (ri.status === 'overdue') return { text: 'พ้นกำหนดคืน', cls: 'bg-rose-100 text-rose-700 border-rose-200' };
-          if (ri.status === 'due')     return { text: `ต้องคืนใน ${ri.daysToDeadline} วัน`, cls: 'bg-amber-100 text-amber-800 border-amber-300' };
+          // V2 (ADR-0014): no_return = บริษัทไม่รับ lot นี้; review = เงื่อนไขกำกวมให้คนดูเอกสาร
+          if (ri.status === 'no_return' || ri.canReturn === false) return { text: 'บริษัทไม่รับคืน', cls: 'bg-slate-100 text-slate-500 border-slate-200' };
+          if (ri.status === 'review')  return { text: 'ต้องเช็กเอกสาร', cls: 'bg-slate-100 text-slate-600 border-slate-200' };
+          const pct = ri.returnPct != null && ri.returnPct !== 100 ? ` (คืน ${ri.returnPct}%)` : '';
+          if (ri.status === 'overdue') return { text: `พ้นกำหนดคืน${pct}`, cls: 'bg-rose-100 text-rose-700 border-rose-200' };
+          if (ri.status === 'due')     return { text: `ต้องคืนใน ${ri.daysToDeadline} วัน${pct}`, cls: 'bg-amber-100 text-amber-800 border-amber-300' };
           if (ri.status === 'ok' && ri.returnMonths != null) return { text: `คืนก่อน ${ri.returnMonths} ด.`, cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
           return null;
         };
-        // รายการที่ต้องเด้ง popup = due/overdue (ยังไม่ถูก flag ในเซสชันนี้)
+        // รายการที่ต้องเด้ง popup = due/overdue เท่านั้น (no_return/review/ok ไม่เด้ง)
         const dueReturns = enriched.filter(r =>
           r.returnInfo && !r.returnInfo.differsByItem && r.returnInfo.canReturn !== false &&
           (r.returnInfo.status === 'due' || r.returnInfo.status === 'overdue')

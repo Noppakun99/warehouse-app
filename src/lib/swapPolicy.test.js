@@ -5,7 +5,7 @@
 // fixture ข้อความ = ค่าจริงจาก receive_logs.drug_swap_policy
 
 /* eslint-disable no-undef */
-import { parseReturnPolicy, computeReturnStatus, RETURN_ALERT_BUFFER_DAYS } from './swapPolicy.js'
+import { parseReturnPolicy, computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2, RETURN_ALERT_BUFFER_DAYS } from './swapPolicy.js'
 
 let pass = 0, fail = 0
 const fails = []
@@ -130,6 +130,147 @@ section('Test 4: computeReturnStatus')
 section('Test 5: buffer const')
 {
   assertEq(RETURN_ALERT_BUFFER_DAYS, 60, 'buffer default = 60 วัน')
+}
+
+// ════════════════════════════════════════════════════════════════════
+// เฟส 2 (ADR-0014) — parseReturnPolicyV2 + computeReturnStatusV2
+// fixture = 25 แบบจริงจากคอลัมน์ Auto-Match (col 28) ของ Excel แม่
+// ════════════════════════════════════════════════════════════════════
+const V = (t) => parseReturnPolicyV2(t)
+
+section('Test 6: V2 shape — จัดหมวด 25 แบบจริง')
+{
+  // หมวด 1 — หลัง exp
+  assertEq(V('เปลี่ยนคืนได้หลังจากหมดอายุไปแล้ว').shape, 'after_exp', 'หลัง exp ไม่จำกัด')
+  assertEq(V('รับคืนกรณียาสิ้นอายุ (หมดอายุ) ไปแล้วภายใน 3 เดือน').shape, 'after_exp', 'หลัง exp 3 เดือน')
+  assertEq(V('รับคืนกรณียาสิ้นอายุ (หมดอายุ) ไปแล้วภายใน 3 เดือน').afterExpMonths, 3, 'afterExpMonths=3')
+  assertEq(V('รับเปลี่ยนเมื่อหมดอายุ ตามจำนวนจริง (รายการยาที่ระบุไว้ตามหนังสือ)').shape, 'after_exp', 'เมื่อหมดอายุ ตามจำนวนจริง')
+
+  // หมวด 2 — ก่อน exp
+  assertEq(V('รับเปลี่ยนยาก่อนหมดอายุ 6 เดือน').shape, 'before_exp', 'ก่อน exp 6 เดือน')
+  assertEq(V('รับเปลี่ยนยาก่อนหมดอายุ 6 เดือน').beforeExpMonths, 6, 'beforeExpMonths=6')
+  assertEq(V('แลกเปลี่ยนได้ก่อนหมดอายุ 3 เดือน').beforeExpMonths, 3, 'ก่อน exp 3 เดือน')
+  assertEq(V('อายุยาจะต้องไม่ต่ำกว่า 6 เดือน').shape, 'before_exp', 'ไม่ต่ำกว่า 6 เดือน = ก่อน exp')
+  assertEq(V('อายุไม่น้อยกว่า 6 เดือนก่อนวันหมดอายุ').beforeExpMonths, 6, 'ไม่น้อยกว่า 6 เดือนก่อนหมดอายุ')
+  assertEq(V('1.แจ้งคืนยาก่อนหมดอายุ 60 วัน').beforeExpMonths, 2, '60 วัน → 2 เดือน')
+
+  // หมวด 3 — tier % อายุเหลือ
+  {
+    const p = V('อายุ > 2 ปี → คืน 100%\nอายุ 6 เดือน - 2 ปี → คืน 50%\nอายุ < 6 เดือน → คืน 25%')
+    assertEq(p.shape, 'age_tier', 'tier 3 ชั้น = age_tier')
+    assertEq(p.tiers.length, 3, 'มี 3 tier')
+    assertEq(p.tiers[0].percent, 100, 'tier บนสุด 100%')
+    assertEq(p.tiers[0].ageMonthsMin, 24, 'tier 100% min = 24 เดือน (>2ปี)')
+    assertEq(p.tiers[2].percent, 25, 'tier ล่าง 25%')
+  }
+  {
+    const p = V('อายุ > 6 เดือน → คืน 100%\nอายุ < 6 เดือน → คืน 50%\nไม่เต็มขวด/กล่อง → ไม่รับเปลี่ยน')
+    assertEq(p.shape, 'age_tier', '2 tier + เงื่อนไขเต็มขวด')
+    assertEq(p.tiers.length, 2, 'จับ 2 tier (บรรทัดไม่รับไม่มี %)')
+  }
+  {
+    const p = V('แจ้งก่อนหมดอายุ 1 ปี → เปลี่ยนเต็มจำนวน\nแจ้งก่อนหมดอายุ 6 เดือน → เปลี่ยนได้ 50%')
+    assertEq(p.tiers.length, 2, 'tier แจ้งก่อน 2 ชั้น')
+    assertEq(p.tiers[0].percent, 100, '"เต็มจำนวน" → 100%')
+    assertEq(p.tiers.find(t => t.percent === 50) != null, true, 'มี tier 50%')
+  }
+
+  // หมวด 4 — threshold อายุตอนรับ (Diltiazem)
+  {
+    const p = V('ไม่รับแลกเปลี่ยนคืน ยกเว้น บ.ส่งยาอายุสั้นต่ำกว่า 1 ปี ยินดีรับแลกเปลี่ยน')
+    assertEq(p.shape, 'receive_threshold', 'ยกเว้นอายุสั้น = receive_threshold')
+    assertEq(p.receiveThresholdMonths, 12, 'threshold = 12 เดือน')
+  }
+  assertEq(V('ไม่รับแลกเปลี่ยนคืน ยกเว้นล็อตอายุสั้นกว่า 1 ปี พิจารณาเป็นล็อตๆ ไป').shape, 'receive_threshold', 'ล็อตอายุสั้น = receive_threshold')
+
+  // หมวด 5 — binary
+  assertEq(V('ไม่รับแลกเปลี่ยนคืน').shape, 'binary', 'ไม่รับคืน = binary')
+  assertEq(V('ไม่รับแลกเปลี่ยนคืน').canReturn, false, 'binary canReturn=false')
+  assertEq(V('ยาขายขาด ไม่รับเปลี่ยน ไม่รับคืน').shape, 'binary', 'ขายขาด = binary')
+  assertEq(V('ไม่มีนโยบายแลกเปลี่ยนยา').shape, 'binary', 'ไม่มีนโยบาย = binary')
+
+  // หมวด 6 — กำกวม
+  assertEq(V('ไม่ระบุเงื่อนไขชัดเจน (เงื่อนไขแตกต่างกันแล้วแต่รายการ)').shape, 'ambiguous', 'ไม่ระบุชัดเจน = ambiguous')
+  assertEq(V('ไม่ระบุเงื่อนไขชัดเจน (เงื่อนไขแตกต่างกันแล้วแต่รายการ)').needsReview, true, 'ambiguous needsReview=true')
+  assertEq(V('').shape, 'ambiguous', 'ว่าง = ambiguous')
+  assertEq(V('-').needsReview, true, '"-" needsReview=true')
+
+  // หมวด 1 พิเศษ — "อายุยาไม่เกิน 6 เดือน" (รับแลกทุกกรณี) → หลัง/ระหว่าง ไม่ใช่ก่อน
+  // "รับแลกยาเปลี่ยนคืนทุกกรณี (อายุยาไม่เกิน 6 เดือน)" — คืนได้ ไม่ควร binary/ambiguous
+  assertEq(V('รับแลกยาเปลี่ยนคืนทุกกรณี (อายุยาไม่เกิน 6 เดือน)').canReturn !== false, true, 'รับทุกกรณี ≠ ไม่รับคืน')
+
+  // BLOCKER 1 (scrutinize) — "คืนภายใน/หลัง N" = window ก่อน exp ไม่ใช่ age_tier (66 บิล)
+  {
+    const p = V('คืนภายใน 6 เดือน → 100%\nคืนหลัง 6 เดือน → 50%\nไม่รับเปลี่ยนครั้งที่ 2\nแจ้งเปลี่ยนวันที่หมดอายุ เต็มจำนวนเท่านั้น')
+    assertEq(p.shape, 'before_exp', 'คืนภายใน N = before_exp (ไม่ใช่ age_tier)')
+    assertEq(p.beforeExpMonths, 6, 'window = 6 เดือน (คืนภายใน 6)')
+  }
+  // "หมดอายุ" มีคำ "อายุ" ปน — ต้องไม่ false-trigger age_tier gate
+  assertEq(V('รับเปลี่ยนเมื่อหมดอายุ ตามจำนวนจริง (รายการยาที่ระบุไว้ตามหนังสือ)').shape, 'after_exp', '"หมดอายุ" ไม่เข้า age_tier')
+}
+
+section('Test 7: V2 computeReturnStatusV2')
+{
+  const today = new Date(2026, 5, 11) // 11 มิ.ย. 2026
+
+  // Diltiazem: threshold 12 เดือน, รับ 16/7/2025, exp 16/1/2027 → อายุตอนรับ ~18 เดือน ≥ 12 → ไม่รับคืน
+  {
+    const p = V('ไม่รับแลกเปลี่ยนคืน ยกเว้น บ.ส่งยาอายุสั้นต่ำกว่า 1 ปี ยินดีรับแลกเปลี่ยน')
+    const r = computeReturnStatusV2({ policy: p, exp: new Date(2027, 0, 16), receiveDate: new Date(2025, 6, 16), today })
+    assertEq(r.status, 'no_return', 'Diltiazem อายุตอนรับ ≥1ปี → no_return')
+    assertEq(r.percent, 0, 'no_return percent=0')
+  }
+  // receive_threshold ผ่าน: รับตอนอายุเหลือ 8 เดือน < 12 → คืนได้
+  {
+    const p = V('ไม่รับแลกเปลี่ยนคืน ยกเว้น บ.ส่งยาอายุสั้นต่ำกว่า 1 ปี ยินดีรับแลกเปลี่ยน')
+    const r = computeReturnStatusV2({ policy: p, exp: new Date(2027, 0, 16), receiveDate: new Date(2026, 5, 16), today })
+    assertEq(r.status !== 'no_return', true, 'อายุตอนรับ 7 เดือน <1ปี → รับคืนได้')
+    assertEq(r.percent, 100, 'ผ่านเงื่อนไข → 100%')
+  }
+  // after_exp 3 เดือน: exp 1/5/2026 → deadline 1/8/2026 → เหลือ ~51 วัน = due
+  {
+    const p = V('รับคืนกรณียาสิ้นอายุ (หมดอายุ) ไปแล้วภายใน 3 เดือน')
+    const r = computeReturnStatusV2({ policy: p, exp: new Date(2026, 4, 1), today })
+    assertEq(r.deadline.getMonth(), 7, 'after_exp deadline = ส.ค. (exp พ.ค. + 3)')
+    assertEq(r.status, 'due', 'เหลือ ~51 วัน → due')
+  }
+  // binary → no_return
+  {
+    const r = computeReturnStatusV2({ policy: V('ไม่รับแลกเปลี่ยนคืน'), exp: new Date(2027, 0, 1), today })
+    assertEq(r.status, 'no_return', 'binary → no_return')
+  }
+  // ambiguous → review
+  {
+    const r = computeReturnStatusV2({ policy: V('ไม่ระบุเงื่อนไขชัดเจน'), exp: new Date(2027, 0, 1), today })
+    assertEq(r.status, 'review', 'ambiguous → review (ไม่เดา)')
+    assertEq(r.needsReview, true, 'review needsReview=true')
+  }
+  // age_tier: exp 1/1/2028, today 11/6/2026 → อายุเหลือ ~18.7 เดือน → tier "6ด-2ปี" = 50%
+  {
+    const p = V('อายุ > 2 ปี → คืน 100%\nอายุ 6 เดือน - 2 ปี → คืน 50%\nอายุ < 6 เดือน → คืน 25%')
+    const r = computeReturnStatusV2({ policy: p, exp: new Date(2028, 0, 1), today })
+    assertEq(r.percent, 50, 'อายุเหลือ ~18.7 เดือน → 50%')
+  }
+  // age_tier: อายุเหลือ > 2 ปี → 100%
+  {
+    const p = V('อายุ > 2 ปี → คืน 100%\nอายุ 6 เดือน - 2 ปี → คืน 50%\nอายุ < 6 เดือน → คืน 25%')
+    const r = computeReturnStatusV2({ policy: p, exp: new Date(2029, 0, 1), today })
+    assertEq(r.percent, 100, 'อายุเหลือ ~30 เดือน → 100%')
+  }
+  // NIT 4 (scrutinize): age_tier ยาหมดอายุแล้ว → overdue ไม่รับคืน (ไม่ใช่ 25% + note แปลก)
+  {
+    const p = V('อายุ > 2 ปี → คืน 100%\nอายุ 6 เดือน - 2 ปี → คืน 50%\nอายุ < 6 เดือน → คืน 25%')
+    const r = computeReturnStatusV2({ policy: p, exp: new Date(2026, 0, 1), today }) // หมดอายุแล้ว 5 เดือน
+    assertEq(r.status, 'overdue', 'ยาหมดอายุ age_tier → overdue')
+    assertEq(r.percent, null, 'หมดอายุ → percent null (ไม่ใช่ 25%)')
+  }
+  // MAJOR 3 (scrutinize): receive_threshold 1 ปีพอดี (365 วัน) — รับตอน exp−12เดือนพอดี = ขอบ
+  {
+    const p = V('ไม่รับแลกเปลี่ยนคืน ยกเว้น บ.ส่งยาอายุสั้นต่ำกว่า 1 ปี ยินดีรับแลกเปลี่ยน')
+    // รับ 1 วันหลัง (exp−12เดือน) = อายุตอนรับ < 1 ปี → ควรผ่าน (รับคืนได้)
+    const r = computeReturnStatusV2({ policy: p, exp: new Date(2027, 0, 1), receiveDate: new Date(2026, 0, 2), today })
+    assertEq(r.status !== 'no_return', true, 'รับหลัง exp−12ด. 1 วัน (อายุ <1ปี) → รับคืนได้')
+  }
 }
 
 // ── สรุป ──

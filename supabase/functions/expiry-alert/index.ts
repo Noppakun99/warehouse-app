@@ -158,9 +158,18 @@ function diffDaysD(a: Date, b: Date): number {
 }
 
 function subMonths(date: Date, months: number): Date {
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  d.setMonth(d.getMonth() - months);
-  return d;
+  // clamp วันสิ้นเดือน (ตรง swapPolicy.js) — 31/7 − 3 ด. = 30/4 ไม่ spillover
+  const y = date.getFullYear();
+  const mm = date.getMonth() - months;
+  const lastDay = new Date(y, mm + 1, 0).getDate();
+  return new Date(y, mm, Math.min(date.getDate(), lastDay));
+}
+
+function addMonths(date: Date, months: number): Date {
+  const y = date.getFullYear();
+  const mm = date.getMonth() + months;
+  const lastDay = new Date(y, mm + 1, 0).getDate();
+  return new Date(y, mm, Math.min(date.getDate(), lastDay));
 }
 
 // → { status: 'ok'|'due'|'overdue'|'no_policy', deadline, daysToDeadline } (ตรงกับ swapPolicy.js)
@@ -178,6 +187,131 @@ function computeReturnStatus(exp: Date, months: number | null, today: Date): { s
 }
 
 // ============================================================
+// เฟส 2 (ADR-0014): parseReturnPolicyV2 + computeReturnStatusV2 — sync จาก swapPolicy.js
+// อ่าน structured tier detail (col 28). แก้ที่ swapPolicy.js ต้อง copy มาที่นี่ด้วย (Deno import node ไม่ได้)
+// ============================================================
+function monthsIn(text: string): number | null {
+  const m = /(\d+(?:\.\d+)?)\s*(เดือน|ปี|วัน)/.exec(text || "");
+  return m ? monthsFromMatch(m[1], m[2]) : null;
+}
+interface Tier { ageMonthsMin: number | null; ageMonthsMax: number | null; percent: number; }
+interface PolicyV2 { shape: string; canReturn: boolean | null; tiers: Tier[]; afterExpMonths: number | null; beforeExpMonths: number | null; receiveThresholdMonths: number | null; differsByItem: boolean; needsReview: boolean; }
+
+function parseTiers(raw: string): Tier[] {
+  const tiers: Tier[] = [];
+  for (const line of raw.split(/[\n|]/)) {
+    const s = line.trim();
+    if (!s || /ไม่รับ/.test(s)) continue;
+    let percent: number | null = null;
+    const pm = /(\d+)\s*%/.exec(s);
+    if (pm) percent = parseInt(pm[1]);
+    else if (/เต็มจำนวน/.test(s)) percent = 100;
+    else if (/ครึ่งหนึ่ง|ครึ่ง/.test(s)) percent = 50;
+    if (percent == null) continue;
+    let min: number | null = null, max: number | null = null;
+    const range = /(\d+)\s*(เดือน|ปี)\s*[-–]\s*(\d+)\s*(เดือน|ปี)/.exec(s);
+    if (range) { min = monthsFromMatch(range[1], range[2]); max = monthsFromMatch(range[3], range[4]); }
+    else if (/[>≥]|มากกว่า|ไม่ต่ำกว่า|ไม่น้อยกว่า/.test(s)) { min = monthsIn(s); max = null; }
+    else if (/[<≤]|น้อยกว่า|ต่ำกว่า/.test(s)) { min = null; max = monthsIn(s); }
+    else { min = monthsIn(s); max = null; }
+    tiers.push({ ageMonthsMin: min, ageMonthsMax: max, percent });
+  }
+  return tiers.sort((a, b) => (b.ageMonthsMin ?? 0) - (a.ageMonthsMin ?? 0));
+}
+
+function parseReturnPolicyV2(detail: string): PolicyV2 {
+  const raw = (detail || "").trim();
+  const empty: PolicyV2 = { shape: "ambiguous", canReturn: null, tiers: [], afterExpMonths: null, beforeExpMonths: null, receiveThresholdMonths: null, differsByItem: false, needsReview: true };
+  if (!raw || raw === "-") return empty;
+  const differsByItem = /เงื่อนไข\s*แตกต่าง|แล้วแต่รายการ|ไม่ระบุ(เงื่อนไข)?ชัดเจน/.test(raw);
+  if (/ไม่ระบุ(เงื่อนไข)?ชัดเจน/.test(raw)) return { ...empty, differsByItem, needsReview: true };
+  const hasReceiveException = /ยกเว้น.*(อายุสั้น|อายุ\s*สั้น|ล็อต?อายุสั้น|บ\.?ส่งยาอายุสั้น)/.test(raw);
+  if (hasReceiveException) {
+    const th = monthsIn(raw);
+    return { shape: "receive_threshold", canReturn: null, tiers: [], afterExpMonths: null, beforeExpMonths: null, receiveThresholdMonths: th, differsByItem, needsReview: th == null };
+  }
+  if (/คืน\s*(ภายใน|ก่อน)\s*\d+\s*(เดือน|ปี)/.test(raw)) {
+    const first = /คืน\s*(?:ภายใน|ก่อน)\s*(\d+)\s*(เดือน|ปี)/.exec(raw);
+    const n = first ? monthsFromMatch(first[1], first[2]) : null;
+    if (n != null) return { shape: "before_exp", canReturn: true, tiers: parseTiers(raw), afterExpMonths: null, beforeExpMonths: n, receiveThresholdMonths: null, differsByItem, needsReview: false };
+  }
+  const hasAgeTierGate = /อายุ\s*(ยา)?\s*[<>≤≥]|อายุ\s*(ยา)?\s*(มากกว่า|น้อยกว่า|ต่ำกว่า)|แจ้งก่อน/.test(raw);
+  if (/\d+\s*%|เปลี่ยน(ให้|ได้|เต็มจำนวน)/.test(raw) && hasAgeTierGate) {
+    const tiers = parseTiers(raw);
+    if (tiers.length > 0) {
+      const isBeforeExp = /แจ้งก่อน(หมดอายุ)?/.test(raw) && !/อายุ\s*[<>]/.test(raw);
+      return { shape: isBeforeExp ? "before_exp" : "age_tier", canReturn: true, tiers, afterExpMonths: null, beforeExpMonths: isBeforeExp ? (tiers[0]?.ageMonthsMin ?? null) : null, receiveThresholdMonths: null, differsByItem, needsReview: false };
+    }
+  }
+  if (/ไม่รับ(แลก)?(เปลี่ยน|คืน)|ไม่มีนโยบาย|ขายขาด|สงวนสิทธิ์ไม่รับ/.test(raw)) {
+    return { shape: "binary", canReturn: false, tiers: [], afterExpMonths: null, beforeExpMonths: null, receiveThresholdMonths: null, differsByItem, needsReview: false };
+  }
+  if (/หลังจากหมดอายุ|หลังหมดอายุ|หมดอายุ(ไป)?แล้ว|เมื่อหมดอายุ|สิ้นอายุ/.test(raw)) {
+    return { shape: "after_exp", canReturn: true, tiers: [], afterExpMonths: monthsIn(raw), beforeExpMonths: null, receiveThresholdMonths: null, differsByItem, needsReview: false };
+  }
+  if (/ก่อน(วัน)?หมดอายุ|อายุ(ยา)?(จะต้อง)?ไม่(ต่ำ|น้อย)กว่า|อายุยาไม่เกิน/.test(raw)) {
+    const n = monthsIn(raw);
+    if (n != null) return { shape: "before_exp", canReturn: true, tiers: [], afterExpMonths: null, beforeExpMonths: n, receiveThresholdMonths: null, differsByItem, needsReview: false };
+  }
+  return { ...empty, differsByItem, needsReview: true };
+}
+
+function tierForAge(tiers: Tier[], ageMonths: number): Tier | null {
+  for (const t of tiers) {
+    const okMin = t.ageMonthsMin == null || ageMonths >= t.ageMonthsMin;
+    const okMax = t.ageMonthsMax == null || ageMonths < t.ageMonthsMax;
+    if (okMin && okMax) return t;
+  }
+  return null;
+}
+function tierDeadline(tiers: Tier[], exp: Date): Date | null {
+  const top = tiers.find((t) => t.percent === 100) || tiers[0];
+  if (!top || top.ageMonthsMin == null) return null;
+  return subMonths(exp, top.ageMonthsMin);
+}
+
+// → { status, deadline, daysToDeadline, percent, note } (ตรง computeReturnStatusV2 ใน swapPolicy.js)
+function computeReturnStatusV2(policy: PolicyV2, exp: Date, receiveDate: Date | null, today: Date):
+  { status: string; deadline: Date | null; daysToDeadline: number | null; percent: number | null; note: string | null } {
+  const nil = { status: "review", deadline: null, daysToDeadline: null, percent: null, note: null };
+  if (!policy || isNaN(exp.getTime()) || isNaN(today.getTime())) return nil;
+  const mkStatus = (dl: Date) => { const d = diffDaysD(dl, today); return d <= 0 ? "overdue" : d <= RETURN_ALERT_BUFFER_DAYS ? "due" : "ok"; };
+  switch (policy.shape) {
+    case "binary":
+      return { status: "no_return", deadline: null, daysToDeadline: null, percent: 0, note: "บริษัทไม่รับคืน" };
+    case "receive_threshold": {
+      if (policy.receiveThresholdMonths == null || !receiveDate || isNaN(receiveDate.getTime())) return nil;
+      const thresholdDate = subMonths(exp, policy.receiveThresholdMonths);
+      if (receiveDate <= thresholdDate) return { status: "no_return", deadline: null, daysToDeadline: null, percent: 0, note: `บริษัทไม่รับคืน (ส่งมาอายุ ≥ ${policy.receiveThresholdMonths} เดือน)` };
+      const d = diffDaysD(exp, today);
+      return { status: d <= 0 ? "overdue" : d <= RETURN_ALERT_BUFFER_DAYS ? "due" : "ok", deadline: exp, daysToDeadline: d, percent: 100, note: "รับคืน (ส่งมาอายุสั้น)" };
+    }
+    case "after_exp": {
+      const dl = policy.afterExpMonths != null ? addMonths(exp, policy.afterExpMonths) : exp;
+      const d = diffDaysD(dl, today);
+      return { status: d <= 0 ? "overdue" : d <= RETURN_ALERT_BUFFER_DAYS ? "due" : "ok", deadline: dl, daysToDeadline: d, percent: policy.afterExpMonths != null ? null : 100, note: policy.afterExpMonths != null ? `คืนได้ถึง ${policy.afterExpMonths} เดือนหลังหมดอายุ` : "คืนได้หลังหมดอายุ" };
+    }
+    case "before_exp": {
+      if (policy.beforeExpMonths == null) return nil;
+      const dl = subMonths(exp, policy.beforeExpMonths);
+      const d = diffDaysD(dl, today);
+      return { status: mkStatus(dl), deadline: dl, daysToDeadline: d, percent: policy.tiers?.[0]?.percent ?? 100, note: `แจ้งก่อนหมดอายุ ${policy.beforeExpMonths} เดือน` };
+    }
+    case "age_tier": {
+      const ageMonths = diffDaysD(exp, today) / 30;
+      if (ageMonths < 0) return { status: "overdue", deadline: tierDeadline(policy.tiers, exp), daysToDeadline: null, percent: null, note: "ยาหมดอายุแล้ว — พ้นสิทธิ์คืนตามอายุ" };
+      const tier = tierForAge(policy.tiers, ageMonths);
+      const dl = tierDeadline(policy.tiers, exp);
+      const d = dl ? diffDaysD(dl, today) : null;
+      const status = d == null ? "ok" : d <= 0 ? "overdue" : d <= RETURN_ALERT_BUFFER_DAYS ? "due" : "ok";
+      return { status, deadline: dl, daysToDeadline: d, percent: tier ? tier.percent : null, note: tier ? `คืนได้ ${tier.percent}% (อายุเหลือ ~${Math.round(ageMonths)} เดือน)` : "อายุเหลือน้อย — ตรวจ tier" };
+    }
+    default:
+      return nil;
+  }
+}
+
+// ============================================================
 // สร้าง HTML email
 // ============================================================
 interface InvRow {
@@ -189,6 +323,8 @@ interface DetailEntry {
   supplier_current: string;
   drug_swap_policy: string;
   supplier_changed: string;
+  swap_tier_detail?: string;   // เฟส 2 (ADR-0014) — structured tier (V2)
+  receive_date?: string;       // สำหรับ receive_threshold (Diltiazem)
 }
 interface AlertItem { r: InvRow; expDate: Date; }
 
@@ -241,13 +377,14 @@ function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMa
 interface ReturnDueItem {
   r: InvRow; company: string; deadline: Date; daysToDeadline: number; overdue: boolean;
   policyText: string; avgPerDay: number; coverageDays: number | null; willDeplete: boolean;
+  returnPct?: number | null; statusNote?: string | null;   // เฟส 2 (ADR-0014)
 }
 
 function makeReturnDueTable(items: ReturnDueItem[]): string {
   const th = `style="background:#ffedd5;padding:10px 12px;text-align:left;border:1px solid #fdba74;font-size:14px;font-weight:bold;color:#9a3412;white-space:nowrap;"`;
   let html = `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:20px;">`;
   html += "<thead><tr>";
-  ["สถานะ","ชื่อยา","Lot","บริษัท","Exp","ต้องคืนภายใน","นโยบาย (เต็ม)"].forEach(h => { html += `<th ${th}>${h}</th>`; });
+  ["สถานะ","ชื่อยา","Lot","บริษัท","Exp","ต้องคืนภายใน","% คืน","นโยบาย (เต็ม)"].forEach(h => { html += `<th ${th}>${h}</th>`; });
   html += "</tr></thead><tbody>";
   for (const it of items) {
     // willDeplete = คาดว่าจะหมดเองก่อน deadline (ตามเรทเบิก) → แถวจาง เตือนว่าอาจไม่ต้องคืน
@@ -266,6 +403,8 @@ function makeReturnDueTable(items: ReturnDueItem[]): string {
     html += `<td ${td}>${it.company || "-"}</td>`;
     html += `<td ${td}>${fmtDate(parseExpDate(it.r.exp) || new Date())}</td>`;
     html += `<td style="padding:9px 12px;border:1px solid ${border};background:${bg};font-weight:bold;color:${statusColor};white-space:nowrap;vertical-align:middle;">${fmtDate(it.deadline)}</td>`;
+    const pctLabel = it.returnPct != null ? `${it.returnPct}%` : (it.statusNote ? "—" : "-");
+    html += `<td ${td}>${pctLabel}${it.statusNote ? `<br><span style="font-size:11px;color:#94a3b8;">${it.statusNote}</span>` : ""}</td>`;
     html += `<td style="padding:9px 12px;border:1px solid ${border};background:${bg};font-size:12px;color:#475569;vertical-align:middle;">${it.policyText || "-"}</td>`;
     html += "</tr>";
   }
@@ -398,7 +537,7 @@ Deno.serve(async (req) => {
     const usageFromStr = usageFrom.toISOString().slice(0, 10);
     const [invRows, recRows, dispRows] = await Promise.all([
       fetchTable("inventory", "code,location,type,name,lot,exp,qty,unit,supplier,receive_status", "order=location"),
-      fetchTable("receive_logs", "drug_code,lot,bill_number,supplier_current,drug_swap_policy,supplier_changed,receive_date", "order=receive_date.desc.nullslast"),
+      fetchTable("receive_logs", "drug_code,lot,bill_number,supplier_current,drug_swap_policy,swap_tier_detail,supplier_changed,receive_date", "order=receive_date.desc.nullslast"),
       fetchTable("dispense_logs", "drug_code,qty_out,dispense_date", `dispense_date=gte.${usageFromStr}`),
     ]);
 
@@ -412,6 +551,8 @@ Deno.serve(async (req) => {
         supplier_current: r.supplier_current || "",
         drug_swap_policy: r.drug_swap_policy || "",
         supplier_changed: r.supplier_changed || "",
+        swap_tier_detail: r.swap_tier_detail || "",
+        receive_date: r.receive_date || "",
       };
       const keyLot  = `${code}|${lot}`;
       const keyCode = `${code}|`;
@@ -488,9 +629,20 @@ Deno.serve(async (req) => {
       const d = detailMap[`${code}|${lot}`] || detailMap[`${code}|`];
       if (!d) continue;
       const company = d.supplier_current || row.supplier || "";
-      const pol = parseReturnPolicy(d.drug_swap_policy);
-      if (pol.differsByItem || pol.months == null) continue; // ผูกระดับบริษัทไม่ได้ / ไม่มีเดือน → ข้าม (ตรงกับแอป)
-      const { status, deadline, daysToDeadline } = computeReturnStatus(exp, pol.months, today);
+      // เฟส 2 (ADR-0014): lot มี tier_detail → V2 (ต่อ lot); ไม่มี → fallback V1 (นโยบายบริษัท) — ตรง fetchSwapReturnDue
+      let status: string, deadline: Date | null, daysToDeadline: number | null, returnPct: number | null = null, statusNote: string | null = null;
+      const tierDetail = (d.swap_tier_detail || "").trim();
+      if (tierDetail && tierDetail !== "-") {
+        const policyV2 = parseReturnPolicyV2(tierDetail);
+        const rDate = d.receive_date ? new Date(d.receive_date) : null;
+        const r = computeReturnStatusV2(policyV2, exp, rDate && !isNaN(rDate.getTime()) ? rDate : null, today);
+        status = r.status; deadline = r.deadline; daysToDeadline = r.daysToDeadline; returnPct = r.percent; statusNote = r.note;
+      } else {
+        const pol = parseReturnPolicy(d.drug_swap_policy);
+        if (pol.differsByItem || pol.months == null) continue;
+        const r = computeReturnStatus(exp, pol.months, today);
+        status = r.status; deadline = r.deadline; daysToDeadline = r.daysToDeadline;
+      }
       if ((status !== "due" && status !== "overdue") || !deadline) continue;
       // coverage: คงเหลือรวม(เม็ด) ÷ เรท(เม็ด/วัน) → ของจะหมดในกี่วัน. หมดก่อน deadline → willDeplete (flag ไม่ตัดออก)
       const avgPerDay = avgPerDayByCode[usageKey(row.code)] || 0;
@@ -500,6 +652,7 @@ Deno.serve(async (req) => {
       returnDue.push({
         r: row, company, deadline, daysToDeadline: daysToDeadline ?? 0, overdue: status === "overdue",
         policyText: (d.drug_swap_policy || "").trim(), avgPerDay, coverageDays, willDeplete,
+        returnPct, statusNote,   // เฟส 2 (ADR-0014) — % คืน + คำอธิบาย (V2)
       });
     }
     // ต้องคืนจริง (ไม่ willDeplete) ก่อน → ในกลุ่มเดียวกัน เหลือน้อยสุดก่อน (ตรงกับ fetchSwapReturnDue)
