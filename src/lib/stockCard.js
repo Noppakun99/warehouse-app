@@ -11,6 +11,10 @@
 // บันทึกเท่านั้น = O=M ไม่ตัดยอด · แก้ไขระบบ = แถวปรับยอด ไม่ใช่ movement จริง
 export const NO_DEDUCT = new Set(['บันทึกเท่านั้น', 'แก้ไขระบบ'])
 
+// note ของแถวที่ย้ายมาจาก Excel ตอนเริ่มใช้ระบบ (เช่น "นำเข้าจาก ต.ค.68 (unpivot)")
+// drift ของแถวกลุ่มนี้ = ประวัติก่อนหน้าไม่ได้ถูกนำเข้า ไม่ใช่ของหายจริง
+const MIGRATION_RE = /unpivot|นำเข้าจาก/
+
 const toNum = (v) => {
   const n = parseFloat(String(v ?? '').replace(/,/g, ''))
   return Number.isFinite(n) ? n : 0
@@ -159,6 +163,9 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
       qtyAfter: m._qtyAfter,       // ยอดหลังเบิกที่ต้นทางบันทึก
       rowErr,                      // สมการในแถวของต้นทาง: (ก่อน − ออก) − หลัง · 0 = ถูก · ≠0 = กรอกผิด
       hasRowErr: rowErr != null && rowErr !== 0,
+      // แถวที่ย้ายมาจาก Excel ตอนเริ่มใช้ระบบ — ประวัติก่อนหน้าไม่ครบเป็นเรื่องปกติ
+      // ไม่ใช่ของหายจริง (52% ของ drift ทั้งระบบมาจากกลุ่มนี้) → แยกออกจากรายการที่ต้องตรวจ
+      fromMigration: MIGRATION_RE.test(m.ref || ''),
     })
   }
 
@@ -187,7 +194,10 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
       lotCount: lots.length,
       negativeLots: lots.filter(l => l.negative).length,
       driftLots: lots.filter(l => l.driftCount > 0).length,
-      driftRows: rows.filter(r => r.isDriftPoint).length,   // จำนวนจุดที่ของหายจริง
+      driftRows: rows.filter(r => r.isDriftPoint).length,   // จำนวนจุดที่ของหายจริง (รวม migration)
+      // แยกจุดที่ "ต้องตรวจจริง" ออกจากจุดที่เกิดตอนย้ายข้อมูล Excel
+      driftRowsReal: rows.filter(r => r.isDriftPoint && !r.fromMigration).length,
+      driftRowsMigration: rows.filter(r => r.isDriftPoint && r.fromMigration).length,
       rowErrRows: rows.filter(r => r.hasRowErr).length,     // แถวที่ต้นทางกรอกผิด (ก่อน−ออก≠หลัง)
     },
   }

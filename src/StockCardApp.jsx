@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { ScrollText, Package, AlertTriangle, TrendingUp, TrendingDown, Filter, X, FileDown, Printer } from 'lucide-react'
-import { fetchInventoryNameCodeMap, fetchStockCard } from './lib/db'
+import { fetchInventoryNameCodeMap, fetchStockCard, fetchAllStockCardIssues } from './lib/db'
 import { buildStockCard, filterStockCard } from './lib/stockCard'
 import { exportToExcel } from './lib/exportExcel'
 import DrugSearchBar from './DrugSearchBar'
@@ -143,6 +143,10 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
   const [driftRow, setDriftRow] = useState(null)   // แถวที่กดดูรายละเอียด "ยอดไม่ตรงบันทึก"
   const [flashKey, setFlashKey] = useState(null)   // แถวที่เพิ่งกระโดดไป — ไฮไลต์ชั่วคราว
   const rowRefs = useRef({})                       // key แถว → element (สำหรับ scroll ไปหา)
+  const [scanning, setScanning] = useState(false)
+  const [issues, setIssues] = useState(null)       // ผลสแกนทั้งระบบ: [{ code, name, driftPoints, rowErrs }]
+  const [showIssues, setShowIssues] = useState(false)
+  const [showMigration, setShowMigration] = useState(false)  // รวมยาที่ drift มาจากการย้ายข้อมูล Excel
 
   useEffect(() => {
     let alive = true
@@ -177,6 +181,59 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
     } catch (e) { setError(e.message); setData(null) }
     finally { setLoading(false) }
   }
+
+  // สแกนทั้งระบบหายาที่ยอดไม่ตรง — ดึงครั้งเดียวแล้ว buildStockCard ต่อทุกรหัส
+  const scanIssues = async () => {
+    setScanning(true); setError('')
+    try {
+      const { byCode, meta: metaMap } = await fetchAllStockCardIssues()
+      const found = []
+      for (const [code, rows] of Object.entries(byCode)) {
+        const c = buildStockCard({ receiveRows: rows.receiveRows, dispenseRows: rows.dispenseRows })
+        const driftPoints = c.summary.driftRowsReal          // ไม่นับที่เกิดตอนย้ายข้อมูล Excel
+        const migrationPoints = c.summary.driftRowsMigration
+        const rowErrs = c.summary.rowErrRows
+        if (driftPoints > 0 || rowErrs > 0 || migrationPoints > 0) {
+          found.push({
+            code,
+            name: metaMap[code]?.name || code,
+            driftPoints,
+            migrationPoints,
+            rowErrs,
+            lots: c.lots.filter(l => l.driftCount > 0).map(l => l.lot),
+          })
+        }
+      }
+      // เรียงตามความรุนแรง: กรอกผิดก่อน (ต้องแก้ที่ต้นทาง) แล้วค่อยยอดไม่ตรงจริง
+      found.sort((a, b) => (b.rowErrs - a.rowErrs) || (b.driftPoints - a.driftPoints))
+      setIssues(found); setShowIssues(true)
+    } catch (e) { setError(e.message) }
+    finally { setScanning(false) }
+  }
+
+  // คลิกยาในผลสแกน → โหลดการ์ดของยานั้น + ปิดรายการ
+  const openDrugByCode = async (code, name) => {
+    setDrugName(name)
+    setShowIssues(false)
+    setLoading(true); setError('')
+    try {
+      setData(await fetchStockCard(code))
+      setLotFilter(''); setKindFilter(''); setDateFrom(''); setDateTo('')
+      setDriftRow(null); setFlashKey(null)
+      rowRefs.current = {}
+    } catch (e) { setError(e.message); setData(null) }
+    finally { setLoading(false) }
+  }
+
+  // แยกยาที่ "ต้องตรวจจริง" ออกจากยาที่ต่างเพราะย้ายข้อมูล Excel (52% ของ drift ทั้งระบบ)
+  const visibleIssues = useMemo(
+    () => (issues || []).filter(it => showMigration || it.rowErrs > 0 || it.driftPoints > 0),
+    [issues, showMigration]
+  )
+  const migrationOnlyCount = useMemo(
+    () => (issues || []).filter(it => it.rowErrs === 0 && it.driftPoints === 0 && it.migrationPoints > 0).length,
+    [issues]
+  )
 
   const card = useMemo(() => {
     if (!data) return null
@@ -256,7 +313,17 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
       <div className="max-w-7xl mx-auto px-4 py-5 space-y-4">
         {/* เลือกยา */}
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
-          <label className="block text-xs font-semibold text-slate-500 mb-1.5">เลือกยา</label>
+          <div className="flex items-center justify-between gap-3 mb-1.5">
+            <label className="block text-xs font-semibold text-slate-500">เลือกยา</label>
+            <button
+              onClick={scanIssues}
+              disabled={scanning}
+              className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 disabled:opacity-60 text-amber-800 border border-amber-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+            >
+              <AlertTriangle size={15} />
+              {scanning ? 'กำลังตรวจ...' : 'ตรวจหายาที่ยอดไม่ตรง'}
+            </button>
+          </div>
           <DrugSearchBar
             value={drugName}
             onChange={(v) => {
@@ -270,6 +337,71 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
             hoverClass="hover:bg-teal-50"
           />
         </div>
+
+        {/* ผลสแกนทั้งระบบ — คลิกยา → เปิดการ์ดของยานั้นทันที */}
+        {showIssues && issues && (
+          <div className="bg-white rounded-2xl border border-amber-300 overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 bg-amber-50 border-b border-amber-200">
+              <p className="font-bold text-amber-800 text-sm">
+                {visibleIssues.length > 0
+                  ? `ต้องตรวจ ${visibleIssues.length} รายการ`
+                  : 'ตรวจแล้ว — ไม่พบยาที่ต้องตรวจ'}
+              </p>
+              <button onClick={() => setShowIssues(false)} className="p-1 text-amber-700 hover:bg-amber-100 rounded-lg" aria-label="ปิดรายการ">
+                <X size={16} />
+              </button>
+            </div>
+            {migrationOnlyCount > 0 && (
+              <label className="flex items-start gap-2 px-4 py-2 bg-slate-50 border-b border-slate-100 cursor-pointer">
+                <input type="checkbox" checked={showMigration} onChange={e => setShowMigration(e.target.checked)} className="mt-0.5" />
+                <span className="text-[11px] text-slate-600">
+                  แสดงอีก <b>{migrationOnlyCount}</b> รายการที่ยอดต่างเพราะ<b>ประวัติก่อนเริ่มใช้ระบบไม่ครบ</b>
+                  <span className="text-slate-400"> (ย้ายมาจาก Excel — ไม่ใช่ของหายจริง)</span>
+                </span>
+              </label>
+            )}
+            {visibleIssues.length > 0 && (
+              <>
+                <p className="px-4 py-2 text-[11px] text-slate-500 border-b border-slate-100">
+                  คลิกที่ยาเพื่อเปิดการ์ดคลังของยานั้น แล้วกด badge เพื่อไปยังแถวที่มีปัญหา
+                </p>
+                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                  {visibleIssues.map(it => (
+                    <button
+                      key={it.code}
+                      onClick={() => openDrugByCode(it.code, it.name)}
+                      className="w-full text-left px-4 py-2.5 hover:bg-amber-50 transition-colors flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-800 text-sm truncate">{it.name}</p>
+                        <p className="text-[11px] text-slate-400">
+                          รหัส {it.code}{it.lots.length > 0 ? ` · lot ${it.lots.slice(0, 3).join(', ')}${it.lots.length > 3 ? ` +${it.lots.length - 3}` : ''}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex gap-1.5 shrink-0">
+                        {it.rowErrs > 0 && (
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700 border border-rose-300">
+                            กรอกผิด {it.rowErrs}
+                          </span>
+                        )}
+                        {it.driftPoints > 0 && (
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                            ยอดไม่ตรง {it.driftPoints}
+                          </span>
+                        )}
+                        {it.migrationPoints > 0 && (
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+                            ข้อมูลเก่า {it.migrationPoints}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {error && (
           <div className="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl px-4 py-3 text-sm">{error}</div>

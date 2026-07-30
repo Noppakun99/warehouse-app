@@ -79,6 +79,21 @@ test('ไอคอนเตือน กดแล้วเปิดโมดอ�
   await expect(page.getByText('ยอดไม่ตรงกับที่บันทึก')).toHaveCount(0)
 })
 
+test('ปุ่มตรวจหายาที่ยอดไม่ตรง → คลิกยาแล้วเปิดการ์ดของยานั้น', async ({ page }) => {
+  await openStockcard(page)
+
+  await page.getByRole('button', { name: /ตรวจหายาที่ยอดไม่ตรง/ }).click()
+  await expect(page.getByText(/ต้องตรวจ \d+ รายการ|ไม่พบยาที่ต้องตรวจ/)).toBeVisible({ timeout: 60_000 })
+
+  const items = page.locator('button:has(span:text-matches("กรอกผิด|ยอดไม่ตรง"))')
+  expect(await items.count()).toBeGreaterThan(0)
+
+  await items.first().click()
+  await expect(page.getByText('รหัส:')).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('table')).toBeVisible()
+  await expect(page.getByText(/ต้องตรวจ \d+ รายการ/)).toHaveCount(0)   // ลิสต์ปิดแล้ว
+})
+
 test('Export Excel ดาวน์โหลดได้ + พิมพ์เปิดใบพร้อมข้อมูล', async ({ page, context }) => {
   await openStockcard(page)
   await selectDrug(page)

@@ -1797,6 +1797,56 @@ export async function fetchStockCard(drugCode) {
   return { receiveRows, dispenseRows, meta }
 }
 
+// สแกนทั้งระบบหายาที่มี "ยอดไม่ตรง" — ดึงทุกแถวครั้งเดียวแล้ว group ต่อรหัสยา
+// I/O อย่างเดียว: คืน raw rows จัดกลุ่มแล้ว ให้ caller เรียก buildStockCard ต่อ (logic อยู่ใน pure module)
+// paginate ทั้ง 2 ตาราง (Rule #2) — dispense_logs 6,564 แถว เกิน 1000 แน่นอน
+export async function fetchAllStockCardIssues() {
+  if (!supabase) return { byCode: {}, meta: {} }
+
+  const pageAll = async (table, select, dateCol) => {
+    const PAGE = 1000
+    const out = []
+    let off = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from(table).select(select)
+        .order(dateCol, { ascending: true, nullsFirst: false })
+        .range(off, off + PAGE - 1)
+      if (error) throw error
+      if (!data || data.length === 0) break
+      out.push(...data)
+      if (data.length < PAGE) break
+      off += PAGE
+    }
+    return out
+  }
+
+  const [recv, disp] = await Promise.all([
+    pageAll('receive_logs', 'drug_code, drug_name, lot, exp, item_type, qty_received, supplier_current, bill_number, receive_date, price_per_unit, drug_unit', 'receive_date'),
+    pageAll('dispense_logs', 'drug_code, drug_name, lot, exp, item_type, qty_out, qty_before, qty_after, department, note, dispense_date, price_per_unit, drug_unit', 'dispense_date'),
+  ])
+
+  const byCode = {}
+  const meta = {}
+  const put = (code, key, row) => {
+    if (!code) return
+    if (!byCode[code]) byCode[code] = { receiveRows: [], dispenseRows: [] }
+    byCode[code][key].push(row)
+  }
+  for (const r of recv) {
+    const code = String(r.drug_code || '').trim()
+    put(code, 'receiveRows', r)
+    if (code && !meta[code]) meta[code] = { code, name: r.drug_name || '', unit: r.drug_unit || '' }
+  }
+  for (const d of disp) {
+    const code = String(d.drug_code || '').trim()
+    put(code, 'dispenseRows', d)
+    if (code && !meta[code]) meta[code] = { code, name: d.drug_name || '', unit: d.drug_unit || '' }
+    else if (code && meta[code] && !meta[code].name) meta[code].name = d.drug_name || ''
+  }
+  return { byCode, meta }
+}
+
 // ดึง map ชื่อยา generic → code จาก inventory (ฐานข้อมูลคลังจาก HosXP/CSV)
 // ใช้เป็น source ของ dropdown "จับคู่ยาในระบบ" + เติม drug_code ตอนสแกนบิล
 // return { names: [ชื่อยา distinct เรียง], byName: { name → code }, typeByName: { name → ชนิดยา } }

@@ -366,6 +366,38 @@ section('Test 23: qty_after null → rowErr = null')
   eq(r.rows[1].hasRowErr, false, 'ไม่ flag (กัน false positive)')
 }
 
+// ── Test 24: แยก drift ที่มาจากการย้ายข้อมูล Excel ออกจากของหายจริง ──
+// 52% ของ drift ทั้งระบบ (181/347 lots) มาจาก note "unpivot" = ประวัติก่อน ต.ค.68 ไม่ครบ
+section('Test 24: fromMigration แยกออกจาก driftRowsReal')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2025-09-22', lot: 'M1', item_type: 'ซื้อยา', qty_received: 100 }],
+    dispenseRows: [
+      { dispense_date: '2025-10-06', lot: 'M1', item_type: 'ยกยอด', qty_out: 5, qty_before: 91, note: 'นำเข้าจาก ต.ค.68 (unpivot)' },
+    ],
+  })
+  const row = r.rows[1]
+  eq(row.fromMigration, true, 'note มี unpivot → fromMigration')
+  eq(row.isDriftPoint, true, 'ยังนับเป็นจุด drift')
+  eq(r.summary.driftRows, 1, 'driftRows นับรวม')
+  eq(r.summary.driftRowsReal, 0, 'driftRowsReal ไม่นับ (ไม่ใช่ของหายจริง)')
+  eq(r.summary.driftRowsMigration, 1, 'driftRowsMigration นับ')
+}
+
+// ── Test 25: drift ที่ไม่ใช่ migration → นับเป็นของจริง ──
+section('Test 25: drift ปกติ (ไม่มี note migration) → driftRowsReal')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-01', lot: 'R1', item_type: 'ซื้อยา', qty_received: 100 }],
+    dispenseRows: [
+      { dispense_date: '2026-02-01', lot: 'R1', item_type: 'ยกยอด', qty_out: 5, qty_before: 90, note: null },
+    ],
+  })
+  eq(r.rows[1].fromMigration, false, 'ไม่มี note migration')
+  eq(r.summary.driftRowsReal, 1, 'นับเป็นของหายจริง')
+  eq(r.summary.driftRowsMigration, 0, 'ไม่นับเป็น migration')
+}
+
 console.log('\n' + '─'.repeat(50))
 if (fail === 0) {
   console.log(`✓ ผ่านทั้งหมด ${pass} assertions`)
