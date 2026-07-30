@@ -185,7 +185,9 @@ export const RECEIVE_COL_MAP = {
   supplier_changed:    ['เปลี่ยนบริษัท','supplier_changed','change','เปลี่ยน'],
   lot:                 ['lot','lot.','lot number','lot no','เลขที่ lot'],
   exp:                 ['exp','exp.','exp date','วันหมดอายุ'],
-  note:                ['หมายเหตุ','note','notes','remark','หมายเหตุรับ'],
+  // 'หมายเหตุ' เปล่า (substring) เคยจับผิดคอลัมน์ 'รายการที่จับคู่ / หมายเหตุ (Auto-Match)' ผ่าน pass-2 includes
+  // → note รับยาปนขยะ Auto-Match. รับ.csv ไม่มีคอลัมน์หมายเหตุรับยาจริง → ใช้ alias เจาะจง 'หมายเหตุรับ' แทน
+  note:                ['หมายเหตุรับ','หมายเหตุการรับ','note','notes','remark'],
   exp_note:            ['หมายเหตุหมดอายุ','exp_note','exp note','expiry note'],
   qty_received:        ['จำนวนที่รับ','qty_received','quantity','จำนวนรับ','จำนวน'],
   unit_per_bill:       ['หน่วย/บิล','unit_per_bill','unit per bill','หน่วยบิล'],
