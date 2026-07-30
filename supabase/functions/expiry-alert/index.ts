@@ -641,16 +641,21 @@ Deno.serve(async (req) => {
       const d = detailMap[keyLot] || detailMap[`${code}|`];
       if (!d) continue;
       const company = d.supplier_current || row.supplier || "";
-      // finding #2: col27 "แตกต่างกัน แล้วแต่รายการ" (authoritative) → นโยบายรายยา เชื่อ tier รวมไม่ได้ → ไม่เตือน (ADR-0012)
-      if (/แตกต่าง|แล้วแต่รายการ/.test(d.swap_condition_am || "")) continue;
+      // col27 "แตกต่างกัน แล้วแต่รายการ" = flag ระดับ**บริษัท**
+      // ADR-0015: ไม่ override tier ที่ระบุชัดราย lot — ข้อมูลเจาะจงกว่าชนะ
+      const differsByCompany = /แตกต่าง|แล้วแต่รายการ/.test(d.swap_condition_am || "");
       // เฟส 2 (ADR-0014): lot มี tier_detail → V2 (ต่อ lot); ไม่มี → fallback V1 (นโยบายบริษัท) — ตรง fetchSwapReturnDue
       let status: string, deadline: Date | null, daysToDeadline: number | null, returnPct: number | null = null, statusNote: string | null = null;
       const tierDetail = (d.swap_tier_detail || "").trim();
-      if (tierDetail && tierDetail !== "-") {
-        const policyV2 = parseReturnPolicyV2(tierDetail);
+      const policyV2 = (tierDetail && tierDetail !== "-") ? parseReturnPolicyV2(tierDetail) : null;
+      const hasExplicitTier = !!policyV2 && policyV2.shape !== "ambiguous" && !policyV2.needsReview;
+      if (differsByCompany && !hasExplicitTier) continue;   // ไม่มี tier ชัด + บริษัทเงื่อนไขต่าง → ไม่เดา
+      if (hasExplicitTier) {
         const rDate = d.receive_date ? new Date(d.receive_date) : null;
         const r = computeReturnStatusV2(policyV2, exp, rDate && !isNaN(rDate.getTime()) ? rDate : null, today);
         status = r.status; deadline = r.deadline; daysToDeadline = r.daysToDeadline; returnPct = r.percent; statusNote = r.note;
+      } else if (tierDetail && tierDetail !== "-") {
+        continue;   // มี tier แต่กำกวม → review ไม่เดา
       } else {
         const pol = parseReturnPolicy(d.drug_swap_policy);
         if (pol.differsByItem || pol.months == null) continue;

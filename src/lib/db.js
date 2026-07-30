@@ -1073,20 +1073,28 @@ export async function fetchSwapReturnDue() {
     const rDateIso = receiveDateByLot[key]
     const rDate = rDateIso ? _parseExpDate(rDateIso.split('T')[0].split('-').reverse().join('/')) : null
 
-    // finding #2: col27 "แตกต่างกัน แล้วแต่รายการ" = นโยบายรายยา (authoritative) → เชื่อ tier รวมไม่ได้ → ไม่เด้ง (ADR-0012)
+    // col27 "แตกต่างกัน แล้วแต่รายการ" = flag ระดับ**บริษัท** ว่าให้เงื่อนไขไม่เท่ากันทุกรายการ
+    // ADR-0015: ไม่ override tier ที่ระบุชัดราย lot — ข้อมูลเจาะจงกว่าชนะ
+    // (เดิม continue ทิ้งก่อนอ่าน tier → 118 แถวที่คืนได้จริงหายจากการเตือน)
     const condAm = condAmByLot[key] || ''
-    if (/แตกต่าง|แล้วแต่รายการ/.test(condAm)) continue
+    const differsByCompany = /แตกต่าง|แล้วแต่รายการ/.test(condAm)
 
     // เฟส 2 (ADR-0014): ถ้า lot มี structured tier detail → ใช้ V2 (แม่นกว่า, ต่อ lot); ไม่มี → fallback V1 (นโยบายบริษัท)
     let status, deadline, daysToDeadline, returnPct = null, statusNote = null, returnMonths = null
     const tierDetail = tierDetailByLot[key]
-    if (tierDetail) {
-      const policyV2 = parseReturnPolicyV2(tierDetail)
+    const policyV2 = tierDetail ? parseReturnPolicyV2(tierDetail) : null
+    // tier ที่ "ระบุชัด" = parse ได้เป็นหมวดจริง ไม่ใช่ ambiguous/ต้อง review
+    const hasExplicitTier = !!policyV2 && policyV2.shape !== 'ambiguous' && !policyV2.needsReview
+    if (differsByCompany && !hasExplicitTier) continue   // ไม่มี tier ชัด + บริษัทเงื่อนไขต่าง → ไม่เดา
+
+    if (hasExplicitTier) {
       const r = computeReturnStatusV2({ policy: policyV2, exp, receiveDate: rDate, today })
       status = r.status; deadline = r.deadline; daysToDeadline = r.daysToDeadline; returnPct = r.percent; statusNote = r.note
       returnMonths = policyV2.beforeExpMonths ?? policyV2.afterExpMonths ?? policyV2.receiveThresholdMonths ?? null
       // V2 status ที่ต้องแจ้ง = due/overdue (เตือน) — no_return/review/ok ไม่เด้ง popup
       if (status !== 'due' && status !== 'overdue') continue
+    } else if (tierDetail) {
+      continue   // มี tier แต่กำกวม → review ไม่เดา (ตรงกับ ADR-0014)
     } else {
       // fallback V1: นโยบายต่อบริษัท (lot เก่าที่ยังไม่มี tier_detail)
       const pol = policies[company]

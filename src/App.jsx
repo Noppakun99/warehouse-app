@@ -2227,10 +2227,12 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         const buildReturnInfo = (lotSupplier, item) => {
           const exp = parseDateString(item.exp);
           const { tierDetail, receiveDate, condAm } = lotMeta(item);
-          // finding #2: col27 "แตกต่างกัน แล้วแต่รายการ" (authoritative) → นโยบายรายยา เชื่อ tier รวมไม่ได้ → review
-          if (/แตกต่าง|แล้วแต่รายการ/.test(condAm)) return { status: 'review', differsByItem: true, deadline: null, daysToDeadline: null, returnPct: null, note: 'เงื่อนไขต่างรายการ — ตรวจเอกสาร' };
+          // col27 "แตกต่างกัน แล้วแต่รายการ" = flag ระดับบริษัท — ADR-0015: ไม่ override tier ราย lot ที่ระบุชัด
+          const differsByCompany = /แตกต่าง|แล้วแต่รายการ/.test(condAm);
+          const policyV2 = tierDetail ? parseReturnPolicyV2(tierDetail) : null;
+          const hasExplicitTier = !!policyV2 && policyV2.shape !== 'ambiguous' && !policyV2.needsReview;
+          if (differsByCompany && !hasExplicitTier) return { status: 'review', differsByItem: true, deadline: null, daysToDeadline: null, returnPct: null, note: 'เงื่อนไขต่างรายการ — ตรวจเอกสาร' };
           if (tierDetail) {
-            const policyV2 = parseReturnPolicyV2(tierDetail);
             const rDate = receiveDate ? parseDateString(receiveDate.split('T')[0]) : null;
             if (!exp) return { status: 'review', deadline: null, daysToDeadline: null, needsReview: true, returnPct: null, note: null };
             const r = computeReturnStatusV2({ policy: policyV2, exp, receiveDate: rDate, today: todayForDisplay });
