@@ -236,6 +236,36 @@ section('Test 15: qty_before null → drift = null ไม่ใช่ 0')
   eq(r.summary.driftRows, 0, 'ไม่นับเข้า summary')
 }
 
+// ── Test 16: balanceBefore ต้องถูกแม้แถว NO_DEDUCT (bug ที่เจอตอน /scrutinize) ──
+// แถว บันทึกเท่านั้น ไม่ถูกหัก → balance+qtyOut จะเกินไป qtyOut → โมดอลแสดงเลขผิด
+section('Test 16: balanceBefore vs balance+qtyOut (NO_DEDUCT)')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-01', lot: 'A', item_type: 'ซื้อยา', qty_received: 100 }],
+    dispenseRows: [{ dispense_date: '2026-01-05', lot: 'A', item_type: 'บันทึกเท่านั้น', qty_out: 10, qty_before: 60 }],
+  })
+  const row = r.rows[1]
+  eq(row.balanceBefore, 100, 'balanceBefore = ยอดก่อนแถวนี้จริง (100)')
+  eq(row.balance, 100, 'balance ไม่ถูกหัก (NO_DEDUCT)')
+  eq(row.balance + row.qtyOut, 110, 'balance+qtyOut = 110 → ผิด ห้ามใช้สูตรนี้ใน UI')
+  eq(row.drift, 40, 'drift = 100 − 60 = 40 (ตรงกับ balanceBefore ไม่ใช่ 110)')
+  eq(row.balanceBefore - row.qtyBefore, row.drift, 'ตัวเลขในโมดอล reconcile กับ drift ได้')
+}
+
+// ── Test 17: balanceBefore ของแถวหักปกติ ──
+section('Test 17: balanceBefore แถวหักปกติ')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-01', lot: 'B', item_type: 'ซื้อยา', qty_received: 100 }],
+    dispenseRows: [{ dispense_date: '2026-01-05', lot: 'B', item_type: 'ยกยอด', qty_out: 30, qty_before: 100 }],
+  })
+  const row = r.rows[1]
+  eq(row.balanceBefore, 100, 'balanceBefore = 100')
+  eq(row.balance, 70, 'balance = 100 − 30')
+  eq(row.balanceBefore - row.qtyBefore, 0, 'ยอดตรง → drift 0')
+  eq(row.hasDrift, false, 'ไม่ flag')
+}
+
 console.log('\n' + '─'.repeat(50))
 if (fail === 0) {
   console.log(`✓ ผ่านทั้งหมด ${pass} assertions`)

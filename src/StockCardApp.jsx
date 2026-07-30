@@ -41,6 +41,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
   const [lotFilter, setLotFilter] = useState('')
   const [kindFilter, setKindFilter] = useState('')
   const [showFilter, setShowFilter] = useState(false)
+  const [driftRow, setDriftRow] = useState(null)   // แถวที่กดดูรายละเอียด "ยอดไม่ตรงบันทึก"
 
   useEffect(() => {
     let alive = true
@@ -222,10 +223,13 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                         <td className={`px-3 py-2 text-right font-bold ${r.balance < 0 ? 'text-rose-600' : 'text-slate-800'}`}>
                           {fmtNum(r.balance)}
                           {r.hasDrift && (
-                            <span className="ml-1 inline-flex items-center align-middle text-amber-600"
-                              title={`ยอดคำนวณ ${fmtNum(r.balance + r.qtyOut)} แต่บันทึกไว้ ${fmtNum(r.qtyBefore)} — ต่าง ${fmtNum(r.drift)}`}>
+                            <button
+                              onClick={() => setDriftRow(r)}
+                              className="ml-1 inline-flex items-center align-middle text-amber-600 hover:text-amber-700 hover:bg-amber-100 rounded p-0.5 transition-colors"
+                              aria-label="ดูรายละเอียดยอดไม่ตรง"
+                            >
                               <AlertTriangle size={13} />
-                            </span>
+                            </button>
                           )}
                         </td>
                         <td className="px-3 py-2 text-slate-600 max-w-[180px] truncate" title={r.party}>{r.party || '-'}</td>
@@ -269,9 +273,13 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
                     </div>
                   </div>
                   {r.hasDrift && (
-                    <p className="mt-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-                      ยอดไม่ตรงบันทึก (ต่าง {fmtNum(r.drift)}) — มีการเคลื่อนไหวที่ไม่ถูกบันทึก
-                    </p>
+                    <button
+                      onClick={() => setDriftRow(r)}
+                      className="mt-2 w-full flex items-center gap-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 text-left active:bg-amber-100"
+                    >
+                      <AlertTriangle size={13} className="shrink-0" />
+                      <span>ยอดไม่ตรงบันทึก (ต่าง {fmtNum(r.drift)}) — แตะดูรายละเอียด</span>
+                    </button>
                   )}
                   <div className="mt-2 text-xs text-slate-500 space-y-0.5">
                     {r.party && <p>{r.side === 'in' ? 'บริษัท' : 'หน่วยงาน'}: {r.party}</p>}
@@ -293,6 +301,78 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh }) {
             <p className="mt-3 text-slate-500 text-sm">เลือกยาเพื่อดูประวัติการเคลื่อนไหวทุก lot ทุกเดือน</p>
           </div>
         )}
+      </div>
+
+      {driftRow && <DriftModal row={driftRow} onClose={() => setDriftRow(null)} />}
+    </div>
+  )
+}
+
+// โมดอลอธิบาย "ยอดไม่ตรงบันทึก" — แทน tooltip title ที่แตะไม่ได้บนมือถือ (Rule #5 + ผู้ใช้เปิดผ่าน LINE)
+function DriftModal({ row, onClose }) {
+  const calc = row.balanceBefore             // ยอดสะสมก่อนหักแถวนี้ (จาก stockCard.js — ไม่คำนวณเองใน UI)
+  const recorded = row.qtyBefore             // ยอดก่อนเบิกที่ต้นทางบันทึก
+  const diff = row.drift
+  const more = diff > 0                      // บวก = ระบบคิดว่ามีมากกว่าที่บันทึก (ของหายไปโดยไม่มีแถว)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={onClose}>
+      <div
+        className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[85vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 p-4 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-amber-100 text-amber-600 rounded-xl shrink-0"><AlertTriangle size={18} /></div>
+            <div>
+              <p className="font-bold text-slate-800 text-sm leading-tight">ยอดไม่ตรงกับที่บันทึก</p>
+              <p className="text-slate-400 text-xs">Lot {row.lot} · {fmtThai(row.date)}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg shrink-0" aria-label="ปิด">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+              <p className="text-[11px] text-slate-500">ยอดที่ระบบคำนวณ</p>
+              <p className="font-bold text-slate-800 text-lg">{fmtNum(calc)}</p>
+            </div>
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
+              <p className="text-[11px] text-slate-500">ยอดที่บันทึกไว้</p>
+              <p className="font-bold text-slate-800 text-lg">{fmtNum(recorded)}</p>
+            </div>
+          </div>
+
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+            <p className="text-[11px] text-amber-700">ผลต่าง</p>
+            <p className="font-bold text-amber-800 text-xl">{diff > 0 ? '+' : ''}{fmtNum(diff)}</p>
+            <p className="text-[11px] text-amber-700 mt-0.5">
+              {more ? 'ระบบคิดว่ามีมากกว่าที่บันทึก' : 'ระบบคิดว่ามีน้อยกว่าที่บันทึก'}
+            </p>
+          </div>
+
+          <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3 leading-relaxed">
+            <p className="font-semibold text-slate-700 mb-1">หมายความว่าอะไร</p>
+            <p>
+              {more
+                ? 'มียาออกจาก lot นี้โดยไม่มีแถวเบิกรองรับ — เบิกจริงแต่ไม่ได้ลงบันทึก หรือถูกโอน/ปรับยอดนอกระบบ'
+                : 'มียาเข้า lot นี้โดยไม่มีแถวรับรองรับ — รับเข้าแต่ไม่ได้ลงบันทึก หรือยอดตั้งต้นไม่ครบ'}
+            </p>
+            <p className="mt-1.5 text-slate-500">
+              เป็นปัญหา<b>ข้อมูลต้นทาง</b> ไม่ใช่การคำนวณผิด — ระบบไม่แก้ยอดให้อัตโนมัติ
+              เพราะต้องให้คนตรวจสอบว่าของหายไปไหนก่อน
+            </p>
+          </div>
+
+          <div className="text-xs text-slate-500 space-y-1 border-t border-slate-100 pt-3">
+            <p>ชนิดรายการ: <b className="text-slate-700">{row.kind || '-'}</b></p>
+            {row.party && <p>{row.side === 'in' ? 'บริษัท' : 'หน่วยงาน'}: <b className="text-slate-700">{row.party}</b></p>}
+            {row.ref && <p>อ้างอิง: <b className="text-slate-700">{row.ref}</b></p>}
+          </div>
+        </div>
       </div>
     </div>
   )

@@ -112,8 +112,11 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
     // drift = ยอดที่ระบบคำนวณ ≠ ยอดก่อนเบิกที่ต้นทางบันทึกไว้ → มี movement ที่ไม่ถูกบันทึก
     // (Excel ทำ detect นี้ไม่ได้ — คลังเคยเจอเองแล้วเรียก "Group B Data Gap" 19 lots, Context.csv:1508)
     // เช็คเฉพาะแถวขาออกที่มี qty_before จริง; ไม่ throw/ไม่แก้ยอด แค่ flag ให้คนดู
+    // balanceBefore = ยอดสะสม "ก่อน" หักแถวนี้ — เก็บไว้ให้ UI แสดงตรงๆ
+    // (คำนวณจาก balance+qtyOut ไม่ได้ เพราะแถว NO_DEDUCT ไม่ได้ถูกหัก → จะเกินไป qtyOut)
+    const balanceBefore = balByLot[m.lot]
     const drift = (m.side === 'out' && m._qtyBefore != null)
-      ? balByLot[m.lot] - m._qtyBefore
+      ? balanceBefore - m._qtyBefore
       : null
 
     const deduct = NO_DEDUCT.has(m.kind) ? 0 : m.qtyOut
@@ -132,6 +135,7 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
       side: m.side,
       noDeduct: NO_DEDUCT.has(m.kind),
       qtyBefore: m._qtyBefore,
+      balanceBefore,               // ยอดสะสมก่อนหักแถวนี้ — UI ใช้แสดงคู่กับ qtyBefore ตอนอธิบาย drift
       drift,                       // null = เทียบไม่ได้ · 0 = ตรง · ≠0 = มี movement ที่ไม่ถูกบันทึก
       hasDrift: drift != null && drift !== 0,
     })
