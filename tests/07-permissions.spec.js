@@ -8,11 +8,11 @@
  *   TEST_STAFF_USER=staff TEST_STAFF_PASS=444444 npx playwright test
  *   ถ้าไม่มี account → tests จะ skip อัตโนมัติ
  */
-import { test, expect } from './fixtures.js';
+import { test, expect, waitForAppShell } from './fixtures.js';
 
 /** รอ Dashboard โหลดหลัง sessionStorage restore */
 async function waitForDashboard(page) {
-  await page.waitForSelector('text=สวัสดี,', { timeout: 8_000 });
+  await waitForAppShell(page);
 }
 
 // ── requester tests ───────────────────────────────────────────────────────────

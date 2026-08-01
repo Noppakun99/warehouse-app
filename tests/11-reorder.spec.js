@@ -8,11 +8,11 @@
  *  4. Mobile (375px) แสดง card layout แทน table
  *  5. Filter ด้วย Status chip ใช้งานได้
  */
-import { test, expect } from './fixtures.js';
+import { test, expect, waitForAppShell } from './fixtures.js';
 
 async function gotoReorder(page) {
   await page.goto('/');
-  await page.waitForSelector('text=สวัสดี,', { timeout: 10_000 });
+  await waitForAppShell(page);
   // Dashboard → คลิก card "Stock ต่ำกว่ากำหนด" → เปิด modal แจ้งเตือน
   await page.getByRole('button', { name: /Stock ต่ำกว่ากำหนด/ }).first().click();
   // ใน modal มีปุ่ม "เปิดระบบวิเคราะห์การสั่งซื้อ" (desktop) → คลิกเข้า ReorderApp

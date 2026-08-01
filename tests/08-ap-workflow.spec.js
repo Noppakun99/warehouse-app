@@ -12,11 +12,11 @@
  *
  * ต้องใช้ role=staff (requester เห็นแท็บนี้ไม่ได้)
  */
-import { test, expect } from './fixtures.js';
+import { test, expect, waitForAppShell } from './fixtures.js';
 
 async function gotoApTab(page) {
   await page.goto('/');
-  await page.waitForSelector('text=สวัสดี,', { timeout: 8_000 });
+  await waitForAppShell(page);
   await page.getByText('ประวัติการรับยาเข้าคลัง').click();
   await page.waitForSelector('text=ส่งบัญชี', { timeout: 8_000 });
   await page.getByRole('button', { name: /ส่งบัญชี/ }).first().click();

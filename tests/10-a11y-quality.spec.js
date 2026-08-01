@@ -8,7 +8,7 @@
  *   4. ไม่มี <img alt=""> ที่ไม่มี role=presentation (skip — ระบบนี้ใช้ SVG ทั้งหมด)
  *   5. ภาษาไทยใน UI label หลัก — ไม่มี string ภาษาอังกฤษเปลือยที่ไม่ใช่ technical term
  */
-import { test, expect } from './fixtures.js';
+import { test, expect, waitForAppShell } from './fixtures.js';
 
 test.describe('A11y & UX quality', () => {
   test('Login form: password input มี type=password และ autoComplete ถูกต้อง', async ({ page }) => {
@@ -30,19 +30,19 @@ test.describe('A11y & UX quality', () => {
   });
 
   test('Submit form ด้วย Enter (keyboard accessible)', async ({ page }) => {
-    const user = process.env.TEST_STAFF_USER || 'test2';
-    const pass = process.env.TEST_STAFF_PASS || '555555';
+    const user = process.env.TEST_STAFF_USER || 'Kao_9';
+    const pass = process.env.TEST_STAFF_PASS || '96409999';
     await page.goto('/');
     await page.getByPlaceholder('กรอกชื่อผู้ใช้').fill(user);
     await page.getByPlaceholder('รหัสผ่าน').fill(pass);
     await page.getByPlaceholder('รหัสผ่าน').press('Enter');
-    await expect(page.getByText('สวัสดี,')).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByRole('button', { name: 'หน้าหลัก' }).first()).toBeVisible({ timeout: 8_000 });
   });
 
   test('Dashboard: ทุกการ์ดระบบเป็น <button> (focusable, keyboard accessible)', async ({ authenticatedPage: page }) => {
     if (!page) test.skip();
     await page.goto('/');
-    await page.waitForSelector('text=สวัสดี,', { timeout: 8_000 });
+    await waitForAppShell(page);
     // การ์ด "ระบบเบิกยาออนไลน์" ต้องเป็น button role
     const btn = page.getByRole('button', { name: /ระบบเบิกยาออนไลน์/ }).first();
     await expect(btn).toBeVisible();
@@ -51,7 +51,7 @@ test.describe('A11y & UX quality', () => {
   test('ปุ่มไอคอนใน header มี title attribute (ไม่ใช่ปุ่มลึกลับ)', async ({ authenticatedPage: page }) => {
     if (!page) test.skip();
     await page.goto('/');
-    await page.waitForSelector('text=สวัสดี,', { timeout: 8_000 });
+    await waitForAppShell(page);
     // Bell button มี title="การแจ้งเตือน"
     const bell = page.locator('button[title="การแจ้งเตือน"]');
     const count = await bell.count();

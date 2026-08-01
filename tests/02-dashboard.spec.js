@@ -33,6 +33,6 @@ test.describe('Dashboard', () => {
     await page.getByText('ระบบคืนยา / ยาเสียหาย').click();
     await page.waitForSelector('text=บันทึกรายการ', { timeout: 8_000 });
     await page.getByRole('button').filter({ has: page.locator('svg') }).first().click();
-    await expect(page.getByText('สวัสดี,')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 5_000 });
   });
 });

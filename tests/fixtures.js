@@ -10,12 +10,15 @@
  */
 
 import { test as base, expect } from '@playwright/test';
-import { login } from './helpers/auth.js';
+import { login, waitForAppShell } from './helpers/auth.js';
+
+// re-export ให้ test file เรียกใช้ได้จาก fixtures โดยไม่ต้อง import helpers/auth เพิ่ม
+export { waitForAppShell };
 
 // ─── Credentials (override ด้วย env var ถ้ามี) ────────────────────────────
-// requester: test/444444  |  staff: test2/555555
-const STAFF_USER = process.env.TEST_STAFF_USER || 'test2';
-const STAFF_PASS = process.env.TEST_STAFF_PASS || '555555';
+// requester: test/111111  |  staff/admin: Kao_9/96409999
+const STAFF_USER = process.env.TEST_STAFF_USER || 'Kao_9';
+const STAFF_PASS = process.env.TEST_STAFF_PASS || '96409999';
 
 export const test = base.extend({
   // ─── Shared authenticated browser context (worker scope) ─────────────────

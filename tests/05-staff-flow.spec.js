@@ -5,14 +5,14 @@
  * Override: TEST_STAFF_USER=xxx TEST_STAFF_PASS=xxx npx playwright test
  * ถ้าไม่มี account → tests ทั้งหมดจะ skip อัตโนมัติ
  */
-import { test, expect, waitForSupabase } from './fixtures.js';
+import { test, expect, waitForSupabase, waitForAppShell } from './fixtures.js';
 
 test.describe('Staff Flow (ระบบเบิกยา — มุมมองเจ้าหน้าที่)', () => {
 
   test('staff login แล้วเห็น StaffDashboard', async ({ staffPage: page }) => {
     if (!page) test.skip();
     await page.goto('/');
-    await page.waitForSelector('text=สวัสดี,', { timeout: 8_000 });
+    await waitForAppShell(page);
     await page.getByText('ระบบเบิกยาออนไลน์').click();
     await expect(
       page.getByRole('button', { name: 'รอดำเนินการ' }).first()
@@ -22,7 +22,7 @@ test.describe('Staff Flow (ระบบเบิกยา — มุมมอง
   test('staff เห็น tab รอดำเนินการ และ ทั้งหมด', async ({ staffPage: page }) => {
     if (!page) test.skip();
     await page.goto('/');
-    await page.waitForSelector('text=สวัสดี,', { timeout: 8_000 });
+    await waitForAppShell(page);
     await page.getByText('ระบบเบิกยาออนไลน์').click();
     await page.waitForSelector('text=รอดำเนินการ', { timeout: 8_000 });
     await expect(page.getByRole('button', { name: 'รอดำเนินการ' }).first()).toBeVisible();
@@ -32,7 +32,7 @@ test.describe('Staff Flow (ระบบเบิกยา — มุมมอง
   test('staff เห็นรายการใบเบิก (มีข้อมูลหรือ empty state)', async ({ staffPage: page }) => {
     if (!page) test.skip();
     await page.goto('/');
-    await page.waitForSelector('text=สวัสดี,', { timeout: 8_000 });
+    await waitForAppShell(page);
     await page.getByText('ระบบเบิกยาออนไลน์').click();
     await page.waitForResponse(
       r => r.url().includes('requisitions') && r.status() < 400,
@@ -48,7 +48,7 @@ test.describe('Staff Flow (ระบบเบิกยา — มุมมอง
 
     // 1. requester ส่งใบเบิกก่อน
     await requesterPage.goto('/');
-    await requesterPage.waitForSelector('text=สวัสดี,', { timeout: 8_000 });
+    await waitForAppShell(requesterPage);
     await requesterPage.getByText('ระบบเบิกยาออนไลน์').click();
     await requesterPage.waitForSelector('text=ค้นหายาในคลัง', { timeout: 8_000 });
 
@@ -74,7 +74,7 @@ test.describe('Staff Flow (ระบบเบิกยา — มุมมอง
 
     // 2. staff reload แล้ว approve
     await page.goto('/');
-    await page.waitForSelector('text=สวัสดี,', { timeout: 8_000 });
+    await waitForAppShell(page);
     await page.getByText('ระบบเบิกยาออนไลน์').click();
     await page.waitForResponse(
       r => r.url().includes('requisitions') && r.status() < 400,
@@ -103,7 +103,7 @@ test.describe('Staff Flow (ระบบเบิกยา — มุมมอง
   test('staff เห็นปุ่ม อนุมัติที่เลือก หลังเลือก item', async ({ staffPage: page }) => {
     if (!page) test.skip();
     await page.goto('/');
-    await page.waitForSelector('text=สวัสดี,', { timeout: 8_000 });
+    await waitForAppShell(page);
     await page.getByText('ระบบเบิกยาออนไลน์').click();
     await page.waitForSelector('text=รอดำเนินการ', { timeout: 8_000 });
 
