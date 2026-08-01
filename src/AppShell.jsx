@@ -8,10 +8,11 @@
 // Mobile (< lg): sidebar = drawer overlay เปิดด้วย hamburger
 // ============================================================
 import React, { useState, useEffect, useRef } from 'react';
-import { Pill, LayoutDashboard, ChevronLeft, ChevronDown, Menu, X, LogOut, RefreshCcw, Shield, ShieldCheck, User, KeyRound, Eye, EyeOff, Check } from 'lucide-react';
+import { Pill, LayoutDashboard, ChevronLeft, ChevronDown, Menu, X, LogOut, RefreshCcw, Shield, ShieldCheck, User, KeyRound, Eye, EyeOff, Check, Sun, Moon, Search } from 'lucide-react';
 import { NAV_GROUPS, COLOR } from './navConfig';
 import { changeOwnPassword } from './lib/db';
 import NotificationBell from './NotificationBell';
+import CommandPalette from './CommandPalette';
 
 // submenu ที่มี active page อยู่ข้างใน → เปิดไว้ตั้งแต่แรก
 const submenuKeyOf = (pageKey) => {
@@ -27,6 +28,13 @@ const readCollapsed = () => {
   try { return localStorage.getItem(COLLAPSE_KEY) === '1'; } catch { return false; }
 };
 
+// ธีมสว่าง/มืด — default = สว่างเสมอ (ไม่ตาม prefers-color-scheme โดยเจตนา:
+// dark ครอบแค่ shell ถ้า auto-dark ผู้ใช้จะเจอแถบมืด+เนื้อหาสว่างโดยไม่ได้สั่ง)
+const THEME_KEY = 'theme';
+const readDark = () => {
+  try { return localStorage.getItem(THEME_KEY) === 'dark'; } catch { return false; }
+};
+
 export default function AppShell({ page, onNavigate, onFormAction, onRefresh, displayName, role, permissions, auth, onLogout, children, badges = {} }) {
   const isStaff = role === 'staff' || role === 'admin';
   // เมนูแสดงเมื่อ role อนุญาต หรือ admin grant permission รายคน (key = item.page)
@@ -38,6 +46,27 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
     return k ? { [k]: true } : {};
   });
   const [flyout, setFlyout] = useState(null); // { key, top, left } ของ submenu ที่กางอยู่ตอนแถบยุบ (desktop)
+  const [dark, setDark] = useState(readDark);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // ⌘K (Mac) / Ctrl+K (Windows) เปิดช่องค้นหาเมนู — ผูกเฉพาะตอน login แล้ว
+  useEffect(() => {
+    if (!auth) return;
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen(o => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [auth]);
+
+  // sync class 'dark' ที่ <html> — Tailwind darkMode:'class' อ่านจากตรงนี้
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    try { localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light'); } catch { /* localStorage ปิด — ธีมไม่ถูกจำ แต่ยังสลับได้ */ }
+  }, [dark]);
 
   const toggleCollapsed = () => setCollapsed(c => {
     const next = !c;
@@ -81,10 +110,10 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
         key={item.page || item.action}
         onClick={() => (isAction ? doAction(item.action) : go(item.page))}
         title={item.title}
-        className={`relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${mini ? 'justify-center' : ''} ${on ? `${col.activeBg} font-semibold` : `text-slate-600 ${col.hover}`}`}
+        className={`relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${mini ? 'justify-center' : ''} ${on ? `${col.activeBg} ${col.darkActive} font-semibold` : `text-slate-600 dark:text-slate-300 ${col.hover} dark:hover:bg-slate-800`}`}
       >
         {on && !mini && <span className={`absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full ${col.bar}`} />}
-        <span className={`p-1 rounded-md shrink-0 ${col.icon}`}><Icon size={15} /></span>
+        <span className={`p-1 rounded-md shrink-0 ${col.icon} ${col.darkIcon}`}><Icon size={15} /></span>
         {!mini && <span className="truncate">{item.title}</span>}
         {badge > 0 && (
           <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none ${mini ? 'absolute top-1 right-1' : 'ml-auto'}`}>
@@ -99,21 +128,21 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
   const renderSidebar = (mini) => (
     <>
       {/* Brand — ปุ่มยุบ/กางย้ายไปเป็นปุ่มลอยบนขอบขวาของ aside (ดูใน return) */}
-      <div className={`flex items-center gap-2.5 px-4 h-16 border-b border-slate-100 shrink-0 ${mini ? 'justify-center px-2' : ''}`}>
+      <div className={`flex items-center gap-2.5 px-4 h-16 border-b border-slate-100 dark:border-slate-800 shrink-0 ${mini ? 'justify-center px-2' : ''}`}>
         <div className="p-1.5 rounded-lg bg-gradient-to-br from-sky-500 to-blue-600 text-white shrink-0"><Pill size={18} /></div>
-        {!mini && <span className="font-black text-slate-800 tracking-tight">คลังยา</span>}
-        <button onClick={() => setDrawerOpen(false)} className="ml-auto p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 lg:hidden">
+        {!mini && <span className="font-black text-slate-800 dark:text-slate-100 tracking-tight truncate" title="ระบบบริหารคลังยา — Pharmacy Management System">คลังยา</span>}
+        <button onClick={() => setDrawerOpen(false)} className="ml-auto p-1 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-200 lg:hidden">
           <X size={18} />
         </button>
       </div>
 
       {/* Nav */}
       {/* แถบเลื่อนจาง — default ของ browser หนาและเข้มเกินไปบนแถบขาว */}
-      <nav className="flex-1 overflow-y-auto px-2.5 py-4 space-y-5 [scrollbar-width:thin] [scrollbar-color:theme(colors.slate.200)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-200 hover:[&::-webkit-scrollbar-thumb]:bg-slate-300">
+      <nav className="flex-1 overflow-y-auto px-2.5 py-4 space-y-5 [scrollbar-width:thin] [scrollbar-color:theme(colors.slate.200)_transparent] dark:[scrollbar-color:theme(colors.slate.700)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-200 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 hover:[&::-webkit-scrollbar-thumb]:bg-slate-300 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600">
         <button
           onClick={() => go('dashboard')}
           title="หน้าหลัก"
-          className={`relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-semibold transition-colors ${mini ? 'justify-center' : ''} ${page === 'dashboard' ? 'bg-sky-50 text-sky-700' : 'text-slate-600 hover:bg-sky-50 hover:text-sky-700'}`}
+          className={`relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-semibold transition-colors ${mini ? 'justify-center' : ''} ${page === 'dashboard' ? 'bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-slate-800 hover:text-sky-700 dark:hover:text-sky-300'}`}
         >
           {page === 'dashboard' && !mini && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full bg-sky-500" />}
           <span className="p-1 rounded-md shrink-0 bg-sky-100 text-sky-600"><LayoutDashboard size={15} /></span>
@@ -132,8 +161,8 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
               ) : (
                 <div className="flex items-center gap-2 px-2.5 mb-1.5">
                   <span className={`w-1.5 h-1.5 rounded-full ${group.dot} ring-2 ring-offset-1 ring-transparent`} />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{group.label}</span>
-                  <span className="flex-1 h-px bg-gradient-to-r from-slate-200 to-transparent" />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">{group.label}</span>
+                  <span className="flex-1 h-px bg-gradient-to-r from-slate-200 dark:from-slate-700 to-transparent" />
                 </div>
               )}
               <div className="space-y-0.5">
@@ -157,18 +186,18 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
                               setFlyout(f => (f?.key === item.key ? null : { key: item.key, top: r.top, left: r.right + 8 }));
                             }}
                             title={item.title}
-                            className={`relative w-full flex items-center justify-center px-2.5 py-2 rounded-lg text-sm transition-colors ${hasActive || fOpen ? 'bg-slate-100 text-slate-800' : `text-slate-600 ${subCol.hover}`}`}
+                            className={`relative w-full flex items-center justify-center px-2.5 py-2 rounded-lg text-sm transition-colors ${hasActive || fOpen ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100' : `text-slate-600 dark:text-slate-300 ${subCol.hover} dark:hover:bg-slate-800`}`}
                           >
-                            <span className={`p-1 rounded-md shrink-0 ${subCol.icon}`}><SubIcon size={15} /></span>
+                            <span className={`p-1 rounded-md shrink-0 ${subCol.icon} ${subCol.darkIcon}`}><SubIcon size={15} /></span>
                             {hasActive && <span className="absolute right-1 top-1 w-1.5 h-1.5 rounded-full bg-sky-500" />}
                           </button>
                           {/* fixed ไม่ใช่ absolute — nav เป็น overflow-y-auto จะ clip แผงที่ยื่นออกนอกแถบ */}
                           {fOpen && (
                             <div
                               style={{ top: flyout.top, left: flyout.left }}
-                              className="fixed w-56 bg-white rounded-xl shadow-2xl border border-slate-200 p-1.5 z-50"
+                              className="fixed w-56 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-1.5 z-50"
                             >
-                              <p className="px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">{item.title}</p>
+                              <p className="px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">{item.title}</p>
                               <div className="space-y-0.5">
                                 {children.map(c => renderLeaf(c, false))}
                               </div>
@@ -181,14 +210,14 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
                       <div key={item.key}>
                         <button
                           onClick={() => toggleMenu(item.key)}
-                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${hasActive && !open ? 'text-slate-800 font-semibold bg-slate-50' : `text-slate-600 ${subCol.hover}`}`}
+                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${hasActive && !open ? 'text-slate-800 dark:text-slate-100 font-semibold bg-slate-50 dark:bg-slate-800' : `text-slate-600 dark:text-slate-300 ${subCol.hover} dark:hover:bg-slate-800`}`}
                         >
-                          <span className={`p-1 rounded-md shrink-0 ${subCol.icon}`}><SubIcon size={15} /></span>
+                          <span className={`p-1 rounded-md shrink-0 ${subCol.icon} ${subCol.darkIcon}`}><SubIcon size={15} /></span>
                           <span className="truncate flex-1 text-left">{item.title}</span>
-                          <ChevronDown size={15} className={`shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+                          <ChevronDown size={15} className={`shrink-0 text-slate-400 dark:text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`} />
                         </button>
                         {open && (
-                          <div className="ml-5 mt-0.5 pl-3 border-l-2 border-slate-200 space-y-0.5">
+                          <div className="ml-5 mt-0.5 pl-3 border-l-2 border-slate-200 dark:border-slate-700 space-y-0.5">
                             {children.map(c => renderLeaf(c, false))}
                           </div>
                         )}
@@ -205,34 +234,34 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
       </nav>
 
       {/* Refresh + Logout */}
-      <div className="p-3 border-t border-slate-100 shrink-0 space-y-0.5">
+      <div className="p-3 border-t border-slate-100 dark:border-slate-800 shrink-0 space-y-0.5">
         {onRefresh && (
-          <button onClick={() => { onRefresh(); setDrawerOpen(false); }} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-slate-500 hover:bg-sky-50 hover:text-sky-700 transition-colors ${mini ? 'justify-center' : ''}`} title="โหลดหน้านี้ใหม่">
-            <span className="p-1 rounded-md shrink-0 bg-sky-100 text-sky-600"><RefreshCcw size={15} /></span>
+          <button onClick={() => { onRefresh(); setDrawerOpen(false); }} className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-slate-500 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-slate-800 hover:text-sky-700 dark:hover:text-sky-300 transition-colors ${mini ? 'justify-center' : ''}`} title="โหลดหน้านี้ใหม่">
+            <span className="p-1 rounded-md shrink-0 bg-sky-100 text-sky-600 dark:bg-sky-950 dark:text-sky-400"><RefreshCcw size={15} /></span>
             {!mini && 'โหลดหน้านี้ใหม่'}
           </button>
         )}
-        <button onClick={onLogout} title="ออกจากระบบ" className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-slate-500 hover:bg-red-50 hover:text-red-600 transition-colors ${mini ? 'justify-center' : ''}`}>
-          <span className="p-1 rounded-md shrink-0 bg-red-100 text-red-600"><LogOut size={15} /></span>
+        <button onClick={onLogout} title="ออกจากระบบ" className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-slate-500 dark:text-slate-300 hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 dark:hover:text-red-400 transition-colors ${mini ? 'justify-center' : ''}`}>
+          <span className="p-1 rounded-md shrink-0 bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400"><LogOut size={15} /></span>
           {!mini && 'ออกจากระบบ'}
         </button>
-        {!mini && displayName && <p className="text-[10px] text-slate-400 mt-1.5 px-2.5 truncate">{displayName}</p>}
+        {!mini && displayName && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5 px-2.5 truncate">{displayName}</p>}
       </div>
     </>
   );
 
   return (
-    <div className="min-h-screen bg-slate-200">
+    <div className="min-h-screen bg-slate-200 dark:bg-slate-950">
       {/* ── Desktop sidebar (fixed) ──
           ปุ่มยุบ/กาง = ปุ่มกลมลอยคร่อมขอบขวา (แสดงตลอด ไม่ใช่ hover-only) — ต้องเป็นลูกตรงของ aside
           ไม่ใช่ลูกของ nav ที่ overflow-y-auto ไม่งั้นโดน clip */}
-      <aside className={`hidden lg:flex fixed inset-y-0 left-0 z-40 ${collapsed ? 'w-16' : 'w-60'} bg-white border-r border-slate-200 flex-col transition-all duration-200`}>
+      <aside className={`hidden lg:flex fixed inset-y-0 left-0 z-40 ${collapsed ? 'w-16' : 'w-60'} bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex-col transition-all duration-200`}>
         {renderSidebar(collapsed)}
         <button
           onClick={toggleCollapsed}
           title={collapsed ? 'กางแถบเมนู' : 'ยุบแถบเมนู'}
           aria-label={collapsed ? 'กางแถบเมนู' : 'ยุบแถบเมนู'}
-          className="absolute -right-3 top-[72px] z-50 w-6 h-6 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-500 shadow-md hover:bg-sky-50 hover:text-sky-600 hover:border-sky-200 transition-colors"
+          className="absolute -right-3 top-[72px] z-50 w-6 h-6 flex items-center justify-center rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 shadow-md hover:bg-sky-50 dark:hover:bg-sky-950 hover:text-sky-600 dark:hover:text-sky-400 hover:border-sky-200 dark:hover:border-sky-800 transition-colors"
         >
           <ChevronLeft size={14} className={`transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`} />
         </button>
@@ -242,7 +271,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
       {drawerOpen && (
         <>
           <div className="lg:hidden fixed inset-0 z-40 bg-black/30" onClick={() => setDrawerOpen(false)} />
-          <aside className="lg:hidden fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 flex flex-col">
+          <aside className="lg:hidden fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col">
             {renderSidebar(false)}
           </aside>
         </>
@@ -253,39 +282,76 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
         {/* Top bar (แถบสีฟ้า) — ซ้าย: hamburger (mobile) · ขวา: user chip + กระดิ่ง.
             ไม่ sticky โดยเจตนา → เลื่อนหายไปกับหน้า ให้ header sticky ของ sub-app คุม top-0 เอง (กันชน) */}
         {auth && (
-          <div className="flex items-center gap-2.5 h-14 px-3 sm:px-5 bg-gradient-to-r from-sky-500 to-blue-600 shadow-md">
-            {/* ซ้าย: hamburger (mobile) + แบรนด์ชื่อระบบ */}
+          <div className="flex items-center gap-2.5 h-16 px-3 sm:px-5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+            {/* ซ้าย: hamburger + แบรนด์ (เฉพาะจอเล็ก — desktop เห็นแบรนด์ที่หัว sidebar อยู่แล้ว ไม่ต้องซ้ำ) */}
             <div className="flex items-center gap-2.5 min-w-0 mr-auto">
               <button
                 onClick={() => setDrawerOpen(true)}
-                className="lg:hidden p-2 -ml-1 rounded-xl text-indigo-100 hover:text-white hover:bg-white/10 transition-colors shrink-0"
+                className="lg:hidden p-2 -ml-1 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
                 aria-label="เปิดเมนู"
               >
                 <Menu size={22} />
               </button>
-              {/* โลโก้ = กลับหน้าหลัก (โหลดหน้านี้ใหม่ย้ายไปปุ่มใน sidebar footer + ปุ่มรีเฟรชของแต่ละ sub-app) */}
               <button
                 type="button"
                 onClick={() => go('dashboard')}
-                title="กลับหน้าหลัก"
-                className="flex items-center gap-2.5 min-w-0 rounded-xl -m-1 p-1 transition-colors hover:bg-white/10 cursor-pointer"
+                title="ระบบบริหารคลังยา — กลับหน้าหลัก"
+                className="lg:hidden flex items-center gap-2 min-w-0 rounded-xl p-1 -m-1 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
-                <div className="p-1.5 bg-white/20 text-white rounded-xl shrink-0"><Pill size={18} /></div>
-                <div className="min-w-0 text-left">
-                  <p className="font-bold text-white text-sm leading-tight truncate">ระบบบริหารคลังยา</p>
-                  <p className="hidden sm:block text-xs text-indigo-200 leading-tight truncate">Pharmacy Management System</p>
-                </div>
+                <div className="p-1.5 rounded-lg bg-gradient-to-br from-sky-500 to-blue-600 text-white shrink-0"><Pill size={16} /></div>
+                <span className="font-black text-slate-800 dark:text-slate-100 tracking-tight truncate">คลังยา</span>
+              </button>
+              {/* ช่องค้นหาเมนู — จอกว้างแสดงเป็นช่อง, จอเล็กเหลือไอคอนแว่นขยาย (ที่ไม่พอ) */}
+              <button
+                type="button"
+                onClick={() => setPaletteOpen(true)}
+                title="ค้นหาเมนู (Ctrl+K)"
+                className="hidden sm:flex items-center gap-2 w-56 lg:w-72 ml-1 lg:ml-3 px-3 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 transition-colors"
+              >
+                <Search size={15} className="shrink-0" />
+                <span className="text-sm truncate">ค้นหาเมนู...</span>
+                <kbd className="ml-auto text-[10px] font-sans font-semibold px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-400 dark:text-slate-400 shrink-0">Ctrl K</kbd>
               </button>
             </div>
-            {/* ขวา: กระดิ่ง → user chip (เรียงแบบ YouTube) */}
-            <div className="flex items-center gap-2 shrink-0">
-              <NotificationBell auth={auth} onNavigate={isStaff ? onNavigate : undefined} onBlue />
+            {/* ขวา: ค้นหา (จอเล็ก) → สลับธีม → กระดิ่ง → เมนูบัญชี */}
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setPaletteOpen(true)}
+                title="ค้นหาเมนู"
+                aria-label="ค้นหาเมนู"
+                className="sm:hidden p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <Search size={19} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setDark(d => !d)}
+                title={dark ? 'โหมดสว่าง' : 'โหมดมืด'}
+                aria-label={dark ? 'โหมดสว่าง' : 'โหมดมืด'}
+                className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                {dark ? <Sun size={19} /> : <Moon size={19} />}
+              </button>
+              <NotificationBell auth={auth} onNavigate={isStaff ? onNavigate : undefined} />
               <AccountMenu displayName={displayName} role={role} auth={auth} isStaff={isStaff} onLogout={onLogout} />
             </div>
           </div>
         )}
         {children}
       </div>
+
+      {/* ช่องค้นหาเมนู — เฉพาะตอน login แล้ว (กันเปิดด้วย Ctrl+K ตอนอยู่หน้า login) */}
+      {auth && (
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          onNavigate={go}
+          onFormAction={doAction}
+          role={role}
+          permissions={permissions}
+        />
+      )}
     </div>
   );
 }
@@ -296,7 +362,6 @@ function AccountMenu({ displayName, role, auth, isStaff, onLogout }) {
   const [pwModal, setPwModal] = useState(false);
   const ref = useRef(null);
   const RoleIcon = role === 'admin' ? ShieldCheck : isStaff ? Shield : User;
-  const roleColor = role === 'admin' ? 'text-violet-200' : 'text-indigo-100';
   const roleLabel = role === 'admin' ? 'ผู้ดูแลระบบ' : isStaff ? 'เจ้าหน้าที่คลังยา' : (auth.department || 'ผู้เบิก');
 
   // ปิดเมนูเมื่อคลิกนอก / กด Esc
@@ -311,31 +376,28 @@ function AccountMenu({ displayName, role, auth, isStaff, onLogout }) {
 
   return (
     <div className="relative" ref={ref}>
+      {/* ปุ่ม = avatar กลม (แบบภาพอ้างอิง) — ชื่อ/บทบาทย้ายไปอยู่ในเมนูที่กางออกมา */}
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 bg-white/15 border border-white/20 rounded-xl px-2.5 py-1.5 max-w-[200px] hover:bg-white/25 transition-colors"
-        title="บัญชีของฉัน"
+        className={`w-9 h-9 rounded-full bg-gradient-to-br from-sky-500 to-blue-600 text-white flex items-center justify-center shrink-0 ring-2 transition-all hover:brightness-110 ${open ? 'ring-sky-300 dark:ring-sky-700' : 'ring-transparent'}`}
+        title={`${displayName} · ${roleLabel}`}
+        aria-label="บัญชีของฉัน"
       >
-        <RoleIcon size={15} className={`${roleColor} shrink-0`} />
-        <div className="text-xs min-w-0 text-left">
-          <p className="font-semibold text-white leading-tight truncate">{displayName}</p>
-          <p className="text-indigo-100 leading-tight truncate">{roleLabel}</p>
-        </div>
-        <ChevronDown size={14} className={`text-indigo-100 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <RoleIcon size={17} />
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden text-slate-700">
+        <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden text-slate-700 dark:text-slate-200">
           {/* การ์ดข้อมูลผู้ใช้ (อ่านอย่างเดียว) */}
-          <div className="px-4 py-3 border-b border-slate-100 flex items-start gap-3">
+          <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-start gap-3">
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-500 to-blue-600 text-white flex items-center justify-center shrink-0">
               <RoleIcon size={18} />
             </div>
             <div className="min-w-0">
-              <p className="font-bold text-sm text-slate-800 truncate">{displayName}</p>
-              <p className="text-xs text-slate-400 truncate font-mono">@{auth.username}</p>
-              <p className="text-xs text-slate-500 mt-0.5 truncate">{roleLabel}{isStaff && auth.department ? ` · ${auth.department}` : ''}</p>
+              <p className="font-bold text-sm text-slate-800 dark:text-slate-100 truncate">{displayName}</p>
+              <p className="text-xs text-slate-400 dark:text-slate-500 truncate font-mono">@{auth.username}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{roleLabel}{isStaff && auth.department ? ` · ${auth.department}` : ''}</p>
             </div>
           </div>
           {/* actions */}
@@ -343,14 +405,14 @@ function AccountMenu({ displayName, role, auth, isStaff, onLogout }) {
             <button
               type="button"
               onClick={() => { setOpen(false); setPwModal(true); }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
             >
-              <KeyRound size={16} className="text-slate-400 shrink-0" /> เปลี่ยนรหัสผ่าน
+              <KeyRound size={16} className="text-slate-400 dark:text-slate-500 shrink-0" /> เปลี่ยนรหัสผ่าน
             </button>
             <button
               type="button"
               onClick={() => { setOpen(false); onLogout?.(); }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
             >
               <LogOut size={16} className="shrink-0" /> ออกจากระบบ
             </button>
