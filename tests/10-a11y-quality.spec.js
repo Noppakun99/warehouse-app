@@ -39,12 +39,12 @@ test.describe('A11y & UX quality', () => {
     await expect(page.getByRole('button', { name: 'หน้าหลัก' }).first()).toBeVisible({ timeout: 8_000 });
   });
 
-  test('Dashboard: ทุกการ์ดระบบเป็น <button> (focusable, keyboard accessible)', async ({ authenticatedPage: page }) => {
+  test('Sidebar: เมนูระบบเป็น <button> (focusable, keyboard accessible)', async ({ authenticatedPage: page }) => {
     if (!page) test.skip();
     await page.goto('/');
     await waitForAppShell(page);
-    // การ์ด "ระบบเบิกยาออนไลน์" ต้องเป็น button role
-    const btn = page.getByRole('button', { name: /ระบบเบิกยาออนไลน์/ }).first();
+    // เมนู "เบิกยาออนไลน์" ใน sidebar ต้องเป็น button role (การ์ดระบบถูกตัดออกแล้ว — commit 2b16aef)
+    const btn = page.getByRole('button', { name: 'เบิกยาออนไลน์', exact: true }).first();
     await expect(btn).toBeVisible();
   });
 

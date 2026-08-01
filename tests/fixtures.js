@@ -16,7 +16,13 @@ import { login, waitForAppShell } from './helpers/auth.js';
 export { waitForAppShell };
 
 // ─── Credentials (override ด้วย env var ถ้ามี) ────────────────────────────
-// requester: test/111111  |  staff/admin: Kao_9/96409999
+// ยืนยันกับ DB แล้ว (app_users + เทียบ sha256):
+//   test  = requester (111111 ใช้ได้)
+//   Kao_9 = admin     (96409999 ใช้ได้)
+//   test2 = staff แต่ **รหัสผ่านที่บันทึกไว้เดิม (555555) ใช้ไม่ได้แล้ว** → login ไม่ผ่าน
+// staffPage จึงใช้ Kao_9 (admin) — สิทธิ์ครอบคลุมของ staff ทั้งหมด
+// ⚠️ test ที่ยืนยันว่า "staff ไม่เห็นเมนูเฉพาะ admin" ใช้ fixture นี้ไม่ได้
+//    (admin เห็นทุกเมนูโดยถูกต้อง) — ต้องมี account role=staff ที่ login ได้ก่อน
 const STAFF_USER = process.env.TEST_STAFF_USER || 'Kao_9';
 const STAFF_PASS = process.env.TEST_STAFF_PASS || '96409999';
 

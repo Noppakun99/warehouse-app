@@ -18,4 +18,19 @@ export async function waitForAppShell(page, timeout = 15_000) {
     .or(page.getByRole('button', { name: 'เปิดเมนู' }))
     .first()
     .waitFor({ state: 'visible', timeout });
+  await dismissStartupPopup(page);
+}
+
+// popup "ยาต้องเปลี่ยน/คืนบริษัท" เด้งอัตโนมัติทุกครั้งที่ staff/admin เข้า Dashboard
+// → บังทั้ง sidebar และ StatsStrip ทำให้ assertion อ่านสถานะผิด ต้องปิดก่อนทุกครั้ง
+// (เด้งซ้ำทุก goto('/') ไม่ใช่แค่ตอน login — จึงเรียกจาก waitForAppShell ไม่ใช่ login)
+export async function dismissStartupPopup(page, appearTimeout = 4_000) {
+  const ack = page.getByRole('button', { name: 'รับทราบ' }).first();
+  // popup โผล่หลังโหลดข้อมูลเสร็จ → รอสั้นๆ ให้มันปรากฏก่อน (ถ้าไม่มีก็ผ่านไปเลย)
+  await ack.waitFor({ state: 'visible', timeout: appearTimeout }).catch(() => {});
+  for (let i = 0; i < 3; i++) {
+    if (!(await ack.isVisible().catch(() => false))) return;
+    await ack.click({ force: true }).catch(() => {});
+    await page.waitForTimeout(500);
+  }
 }
