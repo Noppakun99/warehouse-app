@@ -375,7 +375,7 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                   {sorted.map(u => {
                     const t = USER_TYPE[u.role] || USER_TYPE.requester;
                     return (
-                      <tr key={u.id} className={`border-b border-slate-50 hover:bg-violet-50 dark:hover:bg-violet-950/50/40 transition-colors ${!u.is_active ? 'opacity-60' : ''}`}>
+                      <tr key={u.id} className={`border-b border-slate-50 hover:bg-violet-50 dark:hover:bg-violet-950/50 transition-colors ${!u.is_active ? 'opacity-60' : ''}`}>
                         <td className="px-4 py-3"><UserCell user={u} isSelf={u.id === auth.id}/></td>
                         <td className="px-4 py-3 text-slate-600 dark:text-slate-300 text-xs">{u.department || '-'}</td>
 

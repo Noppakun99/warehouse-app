@@ -451,7 +451,7 @@ function DispenseImport({ onDone, auth = {} }) {
                 <p className="font-bold text-lg flex items-center gap-2"><AlertCircle size={20}/>พบ Row ที่ไม่ผ่านเงื่อนไข</p>
                 <p className="text-amber-100 text-sm">{uploadWarnings.type}: {uploadWarnings.fileName} — {uploadWarnings.rows.length} row มีปัญหา</p>
               </div>
-              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white dark:bg-slate-900/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={18}/></button>
+              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={18}/></button>
             </div>
             <div className="overflow-y-auto flex-1 p-4 space-y-2">
               {uploadWarnings.rows.map((r, i) => (
@@ -998,7 +998,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
         />
       )}
       {/* Filter card */}
-      <div className="bg-white dark:bg-slate-900/95 backdrop-blur border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
+      <div className="bg-white/95 backdrop-blur border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
         <div className="flex flex-wrap gap-2">
           <div className="relative flex-1 min-w-[180px]" ref={searchRef}>
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
@@ -1067,7 +1067,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                     <div className="flex flex-wrap gap-1.5 mt-2 items-center">
                       <span className="text-xs text-rose-200 font-semibold shrink-0">หน่วยงานที่เบิก:</span>
                       {depts.map(d => (
-                        <span key={d} className="text-xs bg-white dark:bg-slate-900/20 border border-white/30 text-white px-2 py-0.5 rounded-full">{d}</span>
+                        <span key={d} className="text-xs bg-white/20 border border-white/30 text-white px-2 py-0.5 rounded-full">{d}</span>
                       ))}
                     </div>
                   ) : null;
@@ -1096,7 +1096,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
               <p className="text-xs text-slate-300 dark:text-slate-500 mt-0.5">รายการ (กรอง)</p>
             </div>
             <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-3.5 text-center shadow-lg shadow-rose-300/60">
-              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white dark:bg-slate-900/25 blur-xl" />
+              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
               <p className="relative text-2xl font-bold text-white tabular-nums">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
               <p className="relative text-xs text-rose-50 mt-0.5">ปริมาณรวม (ออก)</p>
             </div>
@@ -1132,7 +1132,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                     <React.Fragment key={r.id}>
                       <tr
                         onClick={() => setExpandedDrug(expandedDrug === r.id ? null : r.id)}
-                        className={`border-b border-slate-100 dark:border-slate-800 cursor-pointer transition-colors ${expandedDrug === r.id ? 'bg-rose-50 dark:bg-rose-950/40' : 'hover:bg-rose-50 dark:hover:bg-rose-950/50/60'}`}
+                        className={`border-b border-slate-100 dark:border-slate-800 cursor-pointer transition-colors ${expandedDrug === r.id ? 'bg-rose-50 dark:bg-rose-950/40' : 'hover:bg-rose-50 dark:hover:bg-rose-950/50'}`}
                       >
                         <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDate(r.dispense_date)}</td>
                         <td className="px-4 py-2.5 text-rose-700 dark:text-rose-300 font-bold text-right whitespace-nowrap">{fmtQtyOut(r.qty_out)}</td>
@@ -1213,7 +1213,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
               <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
             </div>
             <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-3.5 text-center shadow-lg shadow-rose-300/60">
-              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white dark:bg-slate-900/25 blur-xl" />
+              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
               <p className="relative text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.drugCount.toLocaleString() : '...'}</p>
               <p className="relative text-xs text-rose-50 mt-0.5">จำนวนชนิดยา{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
             </div>
@@ -1348,7 +1348,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                   <React.Fragment key={row.id}>
                     <tr
                       onClick={() => setExpanded(expanded === row.id ? null : row.id)}
-                      className={`border-b border-slate-50 cursor-pointer transition-colors ${expanded === row.id ? 'bg-rose-50 dark:bg-rose-950/40' : 'hover:bg-rose-50 dark:hover:bg-rose-950/50/50'}`}
+                      className={`border-b border-slate-50 cursor-pointer transition-colors ${expanded === row.id ? 'bg-rose-50 dark:bg-rose-950/40' : 'hover:bg-rose-50 dark:hover:bg-rose-950/50'}`}
                     >
                       <td className="px-4 py-3 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDate(row.dispense_date)}</td>
                       <td className="px-4 py-3 font-semibold text-slate-900 dark:text-slate-50 max-w-[220px]">
@@ -1772,7 +1772,7 @@ function DispenseSummaryModal({ onClose }) {
           <h3 className="text-xl font-bold flex items-center gap-3">
             <BarChart3 size={22} className="text-rose-300" /> สรุปข้อมูลการเบิกจ่าย
           </h3>
-          <button onClick={onClose} className="text-white/70 hover:text-white bg-white dark:bg-slate-900/10 hover:bg-white/20 p-2 rounded-xl transition-colors"><X size={20}/></button>
+          <button onClick={onClose} className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-xl transition-colors"><X size={20}/></button>
         </div>
 
         {/* Tabs */}
@@ -1957,7 +1957,7 @@ function DispenseSummaryModal({ onClose }) {
                       {filteredMonthlyDrugs.length === 0 ? (
                         <tr><td colSpan={4 + (monthlyStats?.months?.length || 0)} className="text-center py-10 text-slate-400 dark:text-slate-500">ไม่พบยา</td></tr>
                       ) : filteredMonthlyDrugs.map((drug, i) => (
-                        <tr key={drug.name} className={`border-b border-slate-100 dark:border-slate-800 ${i % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50 dark:bg-slate-800/60'} hover:bg-rose-50 dark:hover:bg-rose-950/50/40 transition-colors`}>
+                        <tr key={drug.name} className={`border-b border-slate-100 dark:border-slate-800 ${i % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50 dark:bg-slate-800/60'} hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors`}>
                           <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-100 sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
                             <span className="block truncate max-w-[180px]" title={drug.name}>{drug.name}</span>
                             {drug.code && drug.code !== '-' && <span className="text-slate-400 dark:text-slate-500 font-normal">{drug.code}</span>}

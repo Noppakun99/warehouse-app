@@ -524,7 +524,7 @@ function CountTab({ auth }) {
                   const complete = m.all && m.checked >= m.fillable
                   const expCustom = !!l._expCustom
                   return (
-                    <tr key={i} className={`border-t border-slate-50 transition-colors ${l._selected ? 'hover:bg-emerald-50 dark:hover:bg-emerald-950/50/40' : 'bg-slate-50 dark:bg-slate-800/60 opacity-60'}`}>
+                    <tr key={i} className={`border-t border-slate-50 transition-colors ${l._selected ? 'hover:bg-emerald-50 dark:hover:bg-emerald-950/50' : 'bg-slate-50 dark:bg-slate-800/60 opacity-60'}`}>
                       <td className="text-center px-2 py-3 align-top">
                         <input type="checkbox" checked={!!l._selected} onChange={() => toggleSelect(i)}
                           title="เลือก lot นี้เข้าตรวจนับ"

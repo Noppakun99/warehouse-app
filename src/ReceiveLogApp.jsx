@@ -1500,7 +1500,7 @@ function ReceiveImport({ onDone, auth = {} }) {
                 <p className="font-bold text-lg flex items-center gap-2"><AlertCircle size={20}/>พบ Row ที่ไม่ผ่านเงื่อนไข</p>
                 <p className="text-amber-100 text-sm">{uploadWarnings.type}: {uploadWarnings.fileName} — {uploadWarnings.rows.length} row มีปัญหา</p>
               </div>
-              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white dark:bg-slate-900/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={18}/></button>
+              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={18}/></button>
             </div>
             <div className="overflow-y-auto flex-1 p-4 space-y-2">
               {uploadWarnings.rows.map((r, i) => (
@@ -1998,7 +1998,7 @@ function ReceiveView({ auth = {} }) {
   return (
     <div className="p-4 space-y-4 max-w-5xl mx-auto">
       {/* Filter card */}
-      <div className="bg-white dark:bg-slate-900/95 backdrop-blur border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
+      <div className="bg-white/95 backdrop-blur border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
         <div className="flex flex-wrap gap-2">
           <div className="relative flex-[2] min-w-[160px]" ref={searchRef}>
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
@@ -2106,7 +2106,7 @@ function ReceiveView({ auth = {} }) {
                     <div className="flex flex-wrap gap-1.5 mt-2 items-center">
                       <span className="text-xs text-emerald-200 font-semibold shrink-0">บริษัทที่เคยรับ:</span>
                       {suppliers.map(s => (
-                        <span key={s} className="text-xs bg-white dark:bg-slate-900/20 border border-white/30 text-white px-2 py-0.5 rounded-full">{s}</span>
+                        <span key={s} className="text-xs bg-white/20 border border-white/30 text-white px-2 py-0.5 rounded-full">{s}</span>
                       ))}
                     </div>
                   ) : null;
@@ -2123,7 +2123,7 @@ function ReceiveView({ auth = {} }) {
               <p className="text-xs text-slate-300 dark:text-slate-500 mt-0.5">รายการ (กรอง)</p>
             </div>
             <div className="relative overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-700 rounded-2xl p-3.5 text-center shadow-lg shadow-emerald-300/60">
-              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white dark:bg-slate-900/25 blur-xl" />
+              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
               <p className="relative text-2xl font-bold text-white tabular-nums">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
               <p className="relative text-xs text-emerald-50 mt-0.5">ปริมาณรับรวม</p>
             </div>
@@ -2160,7 +2160,7 @@ function ReceiveView({ auth = {} }) {
                     <React.Fragment key={r.id}>
                       <tr
                         onClick={() => setDrugExpanded(drugExpanded === r.id ? null : r.id)}
-                        className={`border-b border-slate-50 cursor-pointer transition-colors ${drugExpanded === r.id ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'hover:bg-emerald-50 dark:hover:bg-emerald-950/50/50'}`}
+                        className={`border-b border-slate-50 cursor-pointer transition-colors ${drugExpanded === r.id ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'hover:bg-emerald-50 dark:hover:bg-emerald-950/50'}`}
                       >
                         <td className="px-4 py-3 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDate(r.receive_date)}</td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">
@@ -2250,7 +2250,7 @@ function ReceiveView({ auth = {} }) {
             <p className="text-xs text-slate-300 dark:text-slate-500 mt-0.5">จำนวนรายการ{supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
           </div>
           <div className="relative overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-700 rounded-2xl p-3.5 text-center shadow-lg shadow-emerald-300/60">
-            <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white dark:bg-slate-900/25 blur-xl" />
+            <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
             <p className="relative text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.billCount.toLocaleString() : '...'}</p>
             <p className="relative text-xs text-emerald-50 mt-0.5">จำนวนบิล{supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
           </div>
@@ -2402,7 +2402,7 @@ function ReceiveView({ auth = {} }) {
                   <React.Fragment key={row.id}>
                     <tr
                       onClick={() => setExpanded(expanded === row.id ? null : row.id)}
-                      className={`border-b border-slate-100 dark:border-slate-800 cursor-pointer transition-colors ${expanded === row.id ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'hover:bg-emerald-50 dark:hover:bg-emerald-950/50/60'}`}
+                      className={`border-b border-slate-100 dark:border-slate-800 cursor-pointer transition-colors ${expanded === row.id ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'hover:bg-emerald-50 dark:hover:bg-emerald-950/50'}`}
                     >
                       <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDate(row.receive_date)}</td>
                       <td className="px-4 py-2.5 font-semibold text-slate-900 dark:text-slate-50 max-w-[220px]">
@@ -2635,7 +2635,7 @@ function ReceiveSummaryModal({ onClose }) {
           <h3 className="text-xl font-bold flex items-center gap-3">
             <BarChart3 size={22} className="text-emerald-300"/> สรุปข้อมูลการรับเข้าคลัง
           </h3>
-          <button onClick={onClose} className="text-white/70 hover:text-white bg-white dark:bg-slate-900/10 hover:bg-white/20 p-2 rounded-xl transition-colors"><X size={20}/></button>
+          <button onClick={onClose} className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-xl transition-colors"><X size={20}/></button>
         </div>
 
         <div className="p-5 space-y-5">
@@ -3678,7 +3678,7 @@ function ApWorkflow({ auth, onBack }) {
   const tabBtn = (key, label, count, icon) => (
     <button key={key} onClick={() => setSubTab(key)}
       className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab === key ? 'bg-emerald-600 text-white shadow' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 border border-slate-200 dark:border-slate-700'}`}>
-      {icon}{label} <span className={`ml-1 px-1.5 py-0.5 rounded text-xs ${subTab === key ? 'bg-white dark:bg-slate-900/20' : 'bg-slate-100 dark:bg-slate-800'}`}>{count}</span>
+      {icon}{label} <span className={`ml-1 px-1.5 py-0.5 rounded text-xs ${subTab === key ? 'bg-white/20' : 'bg-slate-100 dark:bg-slate-800'}`}>{count}</span>
     </button>
   );
 

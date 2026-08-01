@@ -368,7 +368,7 @@ function LoginPage({ onLogin }) {
     <div className="min-h-screen bg-gradient-to-br from-sky-400 via-blue-500 to-indigo-600 flex flex-col items-center justify-center p-4">
       {/* Brand */}
       <div className="text-center mb-8">
-        <div className="inline-flex items-center justify-center w-20 h-20 bg-white dark:bg-slate-900/20 backdrop-blur rounded-2xl shadow-xl mb-4 border border-white/30">
+        <div className="inline-flex items-center justify-center w-20 h-20 bg-white/20 backdrop-blur rounded-2xl shadow-xl mb-4 border border-white/30">
           <Pill size={40} className="text-white" />
         </div>
         <h1 className="text-3xl font-bold text-white drop-shadow">ระบบบริหารคลังยา</h1>
@@ -1193,7 +1193,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                 const flagged = swapFlagged[flagKeyOf(r)];
                 const isOpen = expandedRow === flagKeyOf(r);
                 return (
-                  <div key={flagKeyOf(r)} className="bg-white dark:bg-slate-900/70 rounded-lg border border-amber-200 dark:border-amber-900/60 overflow-hidden">
+                  <div key={flagKeyOf(r)} className="bg-white/70 rounded-lg border border-amber-200 dark:border-amber-900/60 overflow-hidden">
                     <div onClick={() => setExpandedRow(isOpen ? null : flagKeyOf(r))}
                       className="flex items-center gap-2 flex-wrap px-2.5 py-1.5 cursor-pointer hover:bg-amber-50/60 dark:hover:bg-amber-950/50">
                       <ChevronDown size={13} className={`text-amber-600 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -1300,7 +1300,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                   >
                     {tab.label}
                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                      filter === tab.key ? 'bg-white dark:bg-slate-900/30 text-inherit' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                      filter === tab.key ? 'bg-white/30 text-inherit' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
                     }`}>{tab.count}</span>
                   </button>
                 ))}
@@ -1313,7 +1313,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                     zoneFilter === 'all' ? 'bg-red-600 text-white border-transparent shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
                   }`}>
                   ทั้งหมด
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter === 'all' ? 'bg-white dark:bg-slate-900/30 text-inherit' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>{searched.length}</span>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter === 'all' ? 'bg-white/30 text-inherit' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>{searched.length}</span>
                 </button>
                 {zoneGroups.map(([zone, n]) => (
                   <button key={zone} onClick={() => { setZoneFilter(zone); setExpanded(false); }}
@@ -1321,7 +1321,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                       zoneFilter === zone ? 'bg-red-600 text-white border-transparent shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
                     }`}>
                     {zone}
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter === zone ? 'bg-white dark:bg-slate-900/30 text-inherit' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>{n}</span>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter === zone ? 'bg-white/30 text-inherit' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>{n}</span>
                   </button>
                 ))}
               </div>
