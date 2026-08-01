@@ -16,6 +16,27 @@ const esc = (v) => String(v ?? '-')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
+// วันที่รับเข้าเก็บเป็น ISO — แสดงเป็น DD/MM/YYYY พ.ศ. ให้ตรงรูปแบบวันที่ทั้งระบบ
+const fmtThaiFromIso = (iso) => {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d)) return '-';
+  return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear() + 543}`;
+};
+
+// ข้อความเดียวกับ badge "รอมา N วัน" ในโมดอล (waitBadge ใน App.jsx) — คนอ่านกระดาษกับจอต้องเห็นตรงกัน
+const fmtWaitDays = (d) => {
+  if (d == null) return 'ไม่ทราบวันรับ';
+  return d === 0 ? 'รับวันนี้' : `${d} วัน`;
+};
+
+// receiveStatus เก็บรวม 2 ค่าเป็น "<สถานะตรวจรับ>|<ผลการพิจารณา>" (ดู import ใน App.jsx)
+// บนกระดาษเอาเฉพาะสถานะตรวจรับ — ผลการพิจารณา (คงไว้/ตัดออก) คนละเรื่องกัน ทำให้ช่องแคบต้องตัดขึ้นบรรทัดใหม่
+const fmtReceiveStatus = (s) => {
+  const first = String(s ?? '').split('|')[0].trim();
+  return first || '-';
+};
+
 // แสดง '-' เมื่อค่าว่าง เพื่อให้ช่องไม่โล่ง (ต่างจาก '' ที่อ่านแล้วไม่รู้ว่าไม่มีข้อมูลหรือลืมกรอก)
 const cell = (v) => {
   const s = String(v ?? '').trim();
@@ -34,18 +55,19 @@ export function printTrackingList(rows, { title, isExpiryMode = false, filterNot
   const cols = [
     { header: 'ลำดับ',   get: (_r, i) => i + 1, cls: 'c w-no' },
     { header: 'ชื่อยา',  get: r => r.name },
-    { header: 'รหัสยา',  get: r => r.code, cls: 'c' },
     { header: 'ชนิด',    get: r => r.type, cls: 'c' },
     { header: 'ตำแหน่ง', get: r => r.location, cls: 'c' },
     { header: 'Lot',     get: r => r.lot, cls: 'c' },
     ...(isExpiryMode ? [] : [
       { header: 'บิลยา', get: r => r.invoice, cls: 'c' },
       { header: 'PO',    get: r => r.po, cls: 'c' },
+      { header: 'วันที่รับเข้า',      get: r => fmtThaiFromIso(r._receiveDate), cls: 'c' },
+      { header: 'รอตรวจรับมาแล้ว',   get: r => fmtWaitDays(r.waitDays), cls: 'c' },
     ]),
     { header: 'วันหมดอายุ', get: r => r.exp, cls: 'c' },
     { header: 'คงเหลือ',    get: r => r.qty, cls: 'c' },
     { header: 'หน่วย',      get: r => r.unit, cls: 'c' },
-    { header: 'สถานะตรวจรับ', get: r => r.receiveStatus, cls: 'c' },
+    { header: 'สถานะตรวจรับ', get: r => fmtReceiveStatus(r.receiveStatus), cls: 'c nowrap' },
     { header: 'บริษัท',     get: r => r.supplier },
   ];
 
@@ -72,6 +94,7 @@ export function printTrackingList(rows, { title, isExpiryMode = false, filterNot
   th { background: #f1f5f9; font-weight: 700; padding: 5px 6px; text-align: center; border: 1px solid #000; }
   td { padding: 4px 6px; border: 1px solid #94a3b8; vertical-align: middle; }
   td.c { text-align: center; }
+  td.nowrap { white-space: nowrap; }
   th.w-no, td.w-no { width: 34px; }
   tbody tr:nth-child(even) { background: #f8fafc; }
   td.empty { padding: 18px; color: #64748b; }
