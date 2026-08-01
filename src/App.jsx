@@ -4,12 +4,13 @@ import { computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from 
 import { normExpDate } from './lib/receiveMatch';
 import BackButton from './BackButton';
 import { exportToExcel } from './lib/exportExcel';
+import { printTrackingList } from './lib/trackingPrint';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
 import {
   Search, Package, MapPin, X, UploadCloud, FileSpreadsheet,
   AlertCircle, BarChart3, Layers, Pill, FileText,
   ChevronUp, ChevronDown, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw, FileDown, Eye, EyeOff,
-  ShieldCheck, Link2, Filter,
+  ShieldCheck, Link2, Filter, Printer,
 } from 'lucide-react';
 
 // คอลัมน์ตาม CSV master ต้นทาง (ยอดคลังยา_master_69.csv) เฉพาะ field ที่ inventory เก็บจริง
@@ -105,6 +106,7 @@ const normalizeCode = (val) => {
 };
 
 // แปลง scientific notation → ตัวเลขเต็ม (เช่น 1.12512E+11 → "112512000000")
+// ⚠️ ห้ามใช้กับ lot — lot เป็นรหัส ไม่ใช่จำนวน (ดู normalizeLot)
 const normalizeNumericText = (val) => {
   if (!val) return '-';
   const v = String(val).trim();
@@ -113,6 +115,15 @@ const normalizeNumericText = (val) => {
     return isFinite(n) ? BigInt(Math.round(n)).toString() : v;
   }
   return v || '-';
+};
+
+// lot = "รหัส" ไม่ใช่ตัวเลข → เก็บตามที่พิมพ์มาเสมอ ห้ามแปลง scientific notation
+// lot จริงในระบบรูปแบบ <ปี><เดือนเป็นตัวอักษร><ลำดับ> เช่น 26E266 / 26D172 / 26F116
+// ซึ่ง regex ของ normalizeNumericText มองเป็น 26×10^266 → parseFloat ปัดทศนิยม float64
+// → BigInt ขยายเป็นเลข 269 หลัก lot หายถาวร (เหตุการณ์ import 29/07/2569 เสีย 6 แถว)
+const normalizeLot = (val) => {
+  if (!val && val !== 0) return '-';
+  return String(val).trim() || '-';
 };
 
 const isoToThai = (iso) => {
@@ -640,7 +651,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
             name,
             type: typeIdx !== -1 && row[typeIdx] ? row[typeIdx] : '-',
             unit: unitIdx !== -1 && row[unitIdx] ? row[unitIdx] : '-',
-            lot: lotIdx !== -1 && row[lotIdx] ? normalizeNumericText(row[lotIdx]) : '-',
+            lot: lotIdx !== -1 && row[lotIdx] ? normalizeLot(row[lotIdx]) : '-',
             exp: normalizeDateStr(expIdx !== -1 ? row[expIdx] : '-'),
             qty: qtyStr,
             qtyReceived: qtyReceivedIdx !== -1 && row[qtyReceivedIdx] ? normalizeNumericText(row[qtyReceivedIdx]) : null,
@@ -1362,13 +1373,14 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
               {/* Legend — ระดับการใช้พื้นที่ (ตาม % ของ slot ที่มีของ) */}
               <div className="hidden sm:flex items-center gap-3 text-[11px] text-slate-500">
                 <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-500" /> ว่าง/น้อย (&lt;60%)</span>
-                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-500" /> ค่อนข้างเต็ม (60–85%)</span>
-                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-rose-500" /> เกือบเต็ม (≥85%)</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-400" /> ค่อนข้างเต็ม (60–85%)</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-600" /> เกือบเต็ม (≥85%)</span>
               </div>
             </div>
             <div className="divide-y divide-slate-50">
               {sectionUsage.map(({ cab, used, total, pct }) => {
-                const barColor = pct >= 85 ? 'bg-rose-500' : pct >= 60 ? 'bg-amber-500' : 'bg-indigo-500';
+                // สีต้องตรงกับ legend ด้านบน (แก้ที่นี่ต้องแก้ legend ด้วย)
+                const barColor = pct >= 85 ? 'bg-orange-600' : pct >= 60 ? 'bg-yellow-400' : 'bg-indigo-500';
                 const isActive = !searchTerm && activeZoneKey === cab;
                 return (
                   <button key={cab} onClick={() => setActiveZone(cab)}
@@ -2399,6 +2411,22 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
             await exportToExcel(timeFiltered, cols, tabLabel, `${tabLabel}_${new Date().toISOString().slice(0,10)}.xlsx`, auth);
           } finally { setModalExporting(false); }
         };
+        // พิมพ์จาก timeFiltered ชุดเดียวกับตาราง/Excel (Rule #6) + ระบุตัวกรองที่ใช้บนหัวกระดาษ
+        // ไม่งั้นกระดาษที่พิมพ์ตอนกรองอยู่ ดูเหมือนเป็นรายการทั้งหมด
+        const handleModalPrint = () => {
+          const notes = [];
+          if (modalSearch) notes.push(`คำค้น "${modalSearch}"`);
+          if (modalLogFilter !== 'all') notes.push(`โซน ${modalLogFilter}`);
+          if (isExpiryMode && modalTimeFilter !== 'all') {
+            notes.push(`ช่วงเวลา ${({ expired: 'หมดอายุแล้ว', soon30: 'ภายใน 30 วัน', soon90: '1–3 เดือน', soon180: '3–6 เดือน', soon16m: '6–16 เดือน' })[modalTimeFilter] || modalTimeFilter}`);
+          }
+          printTrackingList(timeFiltered, {
+            title: trackingModal.title,
+            isExpiryMode,
+            filterNote: notes.length ? `ตัวกรอง: ${notes.join(' · ')}` : '',
+            printedBy: auth?.name || auth?.username || '',
+          });
+        };
         return (
         <div className="fixed inset-0 bg-slate-900/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col animate-in fade-in zoom-in duration-200">
@@ -2409,6 +2437,12 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                 <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full shrink-0">{trackingModal.list.length}</span>
               </h3>
               <div className="flex items-center gap-1.5 shrink-0">
+                <button onClick={handleModalPrint} disabled={timeFiltered.length === 0}
+                  title="พิมพ์รายการที่กรองอยู่"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition-colors">
+                  <Printer size={12}/>
+                  <span className="hidden sm:inline">พิมพ์</span>
+                </button>
                 <button onClick={handleModalExport} disabled={modalExporting || timeFiltered.length === 0}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition-colors">
                   {modalExporting ? <RefreshCcw size={12} className="animate-spin"/> : <FileDown size={12}/>}
