@@ -76,7 +76,7 @@ function SortTh({ col, sort, onSort }) {
         title="คลิกเพื่อเรียงลำดับ"
       >
         <span>{col.label}</span>
-        <Icon size={13} className={active ? 'text-teal-300' : 'text-slate-400'} />
+        <Icon size={13} className={active ? 'text-teal-300' : 'text-slate-400 dark:text-slate-500'} />
       </button>
     </th>
   );
@@ -126,76 +126,76 @@ function SeedModal({ open, onClose, onSeeded, auth }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-          <h2 className="text-base font-bold text-slate-800">นำเข้างวดจาก Master CSV</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+          <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">นำเข้างวดจาก Master CSV</h2>
+          <button onClick={onClose} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"><X size={20} /></button>
         </div>
 
         <div className="p-5 space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">งวดบัญชี (YYYY-MM)</label>
+            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">งวดบัญชี (YYYY-MM)</label>
             <input
               type="text" value={period} onChange={(e) => setPeriod(e.target.value.trim())}
               placeholder="2026-06"
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
             />
-            <p className="text-xs text-slate-400 mt-1">งวดที่นำเข้า (เช่น 2026-07 = ก.ค. 2569). ถ้างวดนี้มีอยู่แล้วและยังเปิดอยู่ → นำเข้าทับทั้งงวด; งวดที่ล็อกแล้วต้องปลดล็อกก่อน</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">งวดที่นำเข้า (เช่น 2026-07 = ก.ค. 2569). ถ้างวดนี้มีอยู่แล้วและยังเปิดอยู่ → นำเข้าทับทั้งงวด; งวดที่ล็อกแล้วต้องปลดล็อกก่อน</p>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">ไฟล์ master (.csv)</label>
+            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">ไฟล์ master (.csv)</label>
             <input
               type="file" accept=".csv"
               onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-              className="block w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100"
+              className="block w-full text-sm text-slate-600 dark:text-slate-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100"
             />
           </div>
 
-          {parsing && <p className="text-sm text-slate-500">กำลังอ่านไฟล์…</p>}
+          {parsing && <p className="text-sm text-slate-500 dark:text-slate-400">กำลังอ่านไฟล์…</p>}
 
           {error && (
-            <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-start gap-2">
+            <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-lg px-3 py-2 flex items-start gap-2">
               <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" /> {error}
             </p>
           )}
 
           {preview && (
-            <div className="bg-slate-50 rounded-xl border border-slate-200 p-3 space-y-2">
-              <p className="text-sm font-semibold text-slate-700">ตรวจสอบยอดก่อนนำเข้า (tie-out)</p>
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2">
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">ตรวจสอบยอดก่อนนำเข้า (tie-out)</p>
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <div className="bg-white rounded-lg border border-slate-200 px-3 py-2">
-                  <p className="text-xs text-slate-500">จำนวนแถว</p>
-                  <p className="font-bold text-slate-800">{fmtNum(preview.rows.length)} <span className="text-xs font-normal text-slate-400">(ตัด summary {preview.skipped}{preview.merged > 0 ? `, รวมซ้ำ ${preview.merged}` : ''})</span></p>
+                <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">จำนวนแถว</p>
+                  <p className="font-bold text-slate-800 dark:text-slate-100">{fmtNum(preview.rows.length)} <span className="text-xs font-normal text-slate-400 dark:text-slate-500">(ตัด summary {preview.skipped}{preview.merged > 0 ? `, รวมซ้ำ ${preview.merged}` : ''})</span></p>
                 </div>
-                <div className="bg-white rounded-lg border border-slate-200 px-3 py-2">
-                  <p className="text-xs text-slate-500">มูลค่าคงคลังรวม</p>
-                  <p className="font-bold text-slate-800">{fmtBaht(preview.tieOut.total)}</p>
+                <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">มูลค่าคงคลังรวม</p>
+                  <p className="font-bold text-slate-800 dark:text-slate-100">{fmtBaht(preview.tieOut.total)}</p>
                 </div>
-                <div className="bg-white rounded-lg border border-slate-200 px-3 py-2">
-                  <p className="text-xs text-slate-500">เวชภัณฑ์ยา</p>
-                  <p className="font-bold text-teal-700">{fmtBaht(preview.tieOut.drug)}</p>
+                <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">เวชภัณฑ์ยา</p>
+                  <p className="font-bold text-teal-700 dark:text-teal-300">{fmtBaht(preview.tieOut.drug)}</p>
                 </div>
-                <div className="bg-white rounded-lg border border-slate-200 px-3 py-2">
-                  <p className="text-xs text-slate-500">เวชภัณฑ์มิใช่ยา</p>
-                  <p className="font-bold text-teal-700">{fmtBaht(preview.tieOut.nonDrug)}</p>
+                <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">เวชภัณฑ์มิใช่ยา</p>
+                  <p className="font-bold text-teal-700 dark:text-teal-300">{fmtBaht(preview.tieOut.nonDrug)}</p>
                 </div>
-                <div className="bg-white rounded-lg border border-slate-200 px-3 py-2">
-                  <p className="text-xs text-slate-500">บริจาค+สนับสนุน</p>
+                <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">บริจาค+สนับสนุน</p>
                   <p className="font-bold text-amber-600">{fmtBaht(preview.tieOut.donation)}</p>
                 </div>
-                <div className="bg-white rounded-lg border border-slate-200 px-3 py-2">
-                  <p className="text-xs text-slate-500">ยาโครงการ</p>
+                <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">ยาโครงการ</p>
                   <p className="font-bold text-amber-600">{fmtBaht(preview.tieOut.project)}</p>
                 </div>
               </div>
-              <p className="text-xs text-slate-500">⚠️ ตรวจยอดแยก 4 หมวด (ยา/มิใช่ยา/บริจาค/โครงการ) ให้ตรงไฟล์ส่งบัญชีก่อนยืนยัน — งวดที่ล็อกแล้วแก้ไม่ได้</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">⚠️ ตรวจยอดแยก 4 หมวด (ยา/มิใช่ยา/บริจาค/โครงการ) ให้ตรงไฟล์ส่งบัญชีก่อนยืนยัน — งวดที่ล็อกแล้วแก้ไม่ได้</p>
             </div>
           )}
         </div>
 
-        <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-200">
-          <button onClick={onClose} className="bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl py-2 px-4 font-medium text-sm transition-colors">ยกเลิก</button>
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-200 dark:border-slate-700">
+          <button onClick={onClose} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2 px-4 font-medium text-sm transition-colors">ยกเลิก</button>
           <button
             onClick={handleConfirm} disabled={!preview || saving}
             className="bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white rounded-xl py-2 px-5 font-semibold text-sm transition-colors shadow-sm disabled:opacity-50"
@@ -241,66 +241,66 @@ function AdjustModal({ open, period, onClose, onAdded, auth }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-          <h2 className="text-base font-bold text-slate-800">เพิ่มแถวปรับยอด — {periodLabel(period)}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+          <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">เพิ่มแถวปรับยอด — {periodLabel(period)}</h2>
+          <button onClick={onClose} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"><X size={20} /></button>
         </div>
 
         <div className="p-5 space-y-4">
-          <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+          <p className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">
             แถวปรับยอด (ชนิดรายการ <span className="font-semibold">แก้ไขระบบ</span>) มีผลต่อยอดคงคลังของงวดนี้เท่านั้น ไม่แตะข้อมูลรับ/เบิก และจะถูกลบอัตโนมัติเมื่อปิดงวด
           </p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">รหัสยา *</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">รหัสยา *</label>
               <input type="text" value={form.drug_code} onChange={set('drug_code')} placeholder="เช่น 1000001"
-                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Lot</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">Lot</label>
               <input type="text" value={form.lot} onChange={set('lot')} placeholder="-"
-                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
             <div className="col-span-2">
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">ชื่อยา</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">ชื่อยา</label>
               <input type="text" value={form.drug_name} onChange={set('drug_name')} placeholder="(ไม่บังคับ)"
-                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">หมวด</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">หมวด</label>
               <select value={form.med_category} onChange={set('med_category')}
-                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
                 <option value="ยา">เวชภัณฑ์ยา</option>
                 <option value="เวชภัณฑ์มิใช่ยา">เวชภัณฑ์มิใช่ยา</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">ราคา/หน่วย</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">ราคา/หน่วย</label>
               <input type="number" value={form.price_per_unit} onChange={set('price_per_unit')} placeholder="0"
-                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">จำนวนปรับ (+/−)</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">จำนวนปรับ (+/−)</label>
               <input type="number" value={form.adjust_qty} onChange={set('adjust_qty')} placeholder="0"
-                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">มูลค่าปรับ (+/−)</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">มูลค่าปรับ (+/−)</label>
               <input type="number" value={form.adjust_value} onChange={set('adjust_value')} placeholder="0"
-                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
           </div>
 
           {error && (
-            <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-start gap-2">
+            <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-lg px-3 py-2 flex items-start gap-2">
               <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" /> {error}
             </p>
           )}
         </div>
 
-        <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-200">
-          <button onClick={onClose} className="bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl py-2 px-4 font-medium text-sm transition-colors">ยกเลิก</button>
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-200 dark:border-slate-700">
+          <button onClick={onClose} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2 px-4 font-medium text-sm transition-colors">ยกเลิก</button>
           <button
             onClick={handleConfirm} disabled={saving}
             className="bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white rounded-xl py-2 px-5 font-semibold text-sm transition-colors shadow-sm disabled:opacity-50"
@@ -435,30 +435,30 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 font-sans text-slate-800 pb-20">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-800 font-sans text-slate-800 dark:text-slate-100 pb-20">
       {/* Title bar */}
-      <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 sticky top-0 z-30">
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 sticky top-0 z-30">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">
             <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
-            <div className="p-1.5 rounded-lg bg-teal-100 text-teal-600 shrink-0"><Layers size={18} /></div>
+            <div className="p-1.5 rounded-lg bg-teal-100 dark:bg-teal-950/60 text-teal-600 shrink-0"><Layers size={18} /></div>
             <button onClick={onRefresh} className="text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
-              <h1 className="text-base sm:text-lg font-bold leading-tight text-slate-800">ทะเบียนคงคลังรายเดือน</h1>
-              <p className="text-xs text-slate-400">มูลค่าคงคลัง · นำเข้า master รายเดือน · ADR-0007</p>
+              <h1 className="text-base sm:text-lg font-bold leading-tight text-slate-800 dark:text-slate-100">ทะเบียนคงคลังรายเดือน</h1>
+              <p className="text-xs text-slate-400 dark:text-slate-500">มูลค่าคงคลัง · นำเข้า master รายเดือน · ADR-0007</p>
             </button>
           </div>
           {isAdmin && (
             <div className="flex items-center gap-2 flex-wrap">
               {period && rows.length > 0 && (
-                <button onClick={handleExport} className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
+                <button onClick={handleExport} className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
                   <FileDown size={14} /> ส่งบัญชี (Excel)
                 </button>
               )}
-              <button onClick={() => setSeedOpen(true)} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
+              <button onClick={() => setSeedOpen(true)} className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
                 <Upload size={14} /> นำเข้างวด (master CSV)
               </button>
               {period && status === 'open' && (
-                <button onClick={() => setAdjustOpen(true)} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
+                <button onClick={() => setAdjustOpen(true)} className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
                   <PlusCircle size={14} /> เพิ่มแถวปรับยอด
                 </button>
               )}
@@ -479,68 +479,68 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
 
       <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-4 space-y-4">
         {msg && (
-          <div className="flex items-center gap-2 bg-teal-50 border border-teal-200 rounded-xl px-4 py-3 text-teal-800 text-sm font-medium">
+          <div className="flex items-center gap-2 bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-900/60 rounded-xl px-4 py-3 text-teal-800 dark:text-teal-300 text-sm font-medium">
             <CheckCircle size={16} className="text-teal-600 shrink-0" /> {msg}
           </div>
         )}
 
         {!loading && !period && (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center">
-            <Layers size={32} className="mx-auto text-slate-300 mb-2" />
-            <p className="text-slate-600 font-medium">ยังไม่มีงวดในระบบ</p>
-            <p className="text-sm text-slate-400 mt-1">{isAdmin ? 'กด "นำเข้างวดตั้งต้น" เพื่อ seed จาก Excel master sheet' : 'รอ admin นำเข้างวดตั้งต้น'}</p>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8 text-center">
+            <Layers size={32} className="mx-auto text-slate-300 dark:text-slate-500 mb-2" />
+            <p className="text-slate-600 dark:text-slate-300 font-medium">ยังไม่มีงวดในระบบ</p>
+            <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">{isAdmin ? 'กด "นำเข้างวดตั้งต้น" เพื่อ seed จาก Excel master sheet' : 'รอ admin นำเข้างวดตั้งต้น'}</p>
           </div>
         )}
 
         {period && (
           <>
             {/* งวด + สถานะ + tie-out */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <div className="flex items-center gap-3">
                   <div>
-                    <p className="text-xs text-slate-500">งวดปัจจุบัน</p>
-                    <p className="text-xl font-bold text-slate-800">{periodLabel(period)}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">งวดปัจจุบัน</p>
+                    <p className="text-xl font-bold text-slate-800 dark:text-slate-100">{periodLabel(period)}</p>
                   </div>
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${status === 'closed' ? 'bg-slate-100 text-slate-600 border border-slate-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'}`}>
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${status === 'closed' ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60'}`}>
                     {status === 'closed' ? 'ปิดงวดแล้ว' : 'เปิดอยู่'}
                   </span>
-                  <button onClick={() => loadPeriod(period)} className="text-slate-400 hover:text-slate-600" title="โหลดใหม่"><RefreshCw size={15} /></button>
+                  <button onClick={() => loadPeriod(period)} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300" title="โหลดใหม่"><RefreshCw size={15} /></button>
                 </div>
                 <div className="flex gap-4 text-right flex-wrap justify-end">
                   <div>
-                    <p className="text-xs text-slate-500">เวชภัณฑ์ยา</p>
-                    <p className="text-base font-bold text-teal-700">{fmtBaht(tieOut.drug)}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">เวชภัณฑ์ยา</p>
+                    <p className="text-base font-bold text-teal-700 dark:text-teal-300">{fmtBaht(tieOut.drug)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500">มิใช่ยา</p>
-                    <p className="text-base font-bold text-teal-700">{fmtBaht(tieOut.nonDrug)}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">มิใช่ยา</p>
+                    <p className="text-base font-bold text-teal-700 dark:text-teal-300">{fmtBaht(tieOut.nonDrug)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500">บริจาค+สนับสนุน</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">บริจาค+สนับสนุน</p>
                     <p className="text-base font-bold text-amber-600">{fmtBaht(tieOut.donation)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500">ยาโครงการ</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">ยาโครงการ</p>
                     <p className="text-base font-bold text-amber-600">{fmtBaht(tieOut.project)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500">รวม ({fmtNum(rows.length)} แถว)</p>
-                    <p className="text-base font-bold text-slate-800">{fmtBaht(tieOut.total)}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">รวม ({fmtNum(rows.length)} แถว)</p>
+                    <p className="text-base font-bold text-slate-800 dark:text-slate-100">{fmtBaht(tieOut.total)}</p>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* ตาราง ledger */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-              <div className="px-4 py-3 border-b border-slate-200">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700">
                 <div className="relative max-w-sm">
-                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
                   <input
                     type="text" value={search} onChange={(e) => setSearch(e.target.value)}
                     placeholder="ค้นหา ชื่อยา / รหัส / lot…"
-                    className="w-full border border-slate-300 rounded-xl pl-9 pr-4 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-9 pr-4 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
               </div>
@@ -553,27 +553,27 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {loading ? (
-                      <tr><td colSpan={14} className="px-3 py-8 text-center text-slate-400">กำลังโหลด…</td></tr>
+                      <tr><td colSpan={14} className="px-3 py-8 text-center text-slate-400 dark:text-slate-500">กำลังโหลด…</td></tr>
                     ) : sorted.length === 0 ? (
-                      <tr><td colSpan={14} className="px-3 py-8 text-center text-slate-400">ไม่พบรายการ</td></tr>
+                      <tr><td colSpan={14} className="px-3 py-8 text-center text-slate-400 dark:text-slate-500">ไม่พบรายการ</td></tr>
                     ) : sorted.map((r) => (
-                      <tr key={r.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{r.drug_code}</td>
-                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.drug_type}</td>
-                        <td className="px-3 py-2 text-slate-800">{r.drug_name}</td>
-                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.lot}</td>
-                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.item_type}</td>
-                        <td className="px-3 py-2 text-right text-slate-600 whitespace-nowrap">{fmtBaht(r.price_per_unit)}</td>
-                        <td className="px-3 py-2 text-right text-slate-500 whitespace-nowrap bg-slate-50">{fmtNum(r.opening_qty)}</td>
-                        <td className="px-3 py-2 text-right text-emerald-700 whitespace-nowrap bg-slate-50">{fmtNum(r.in_qty)}</td>
-                        <td className="px-3 py-2 text-right text-rose-600 whitespace-nowrap bg-slate-50">{fmtNum(r.out_qty)}</td>
-                        <td className="px-3 py-2 text-right text-slate-700 font-medium whitespace-nowrap bg-slate-50">{fmtNum(r.closing_qty)}</td>
-                        <td className="px-3 py-2 text-right text-slate-500 whitespace-nowrap">{fmtBaht(r.carry_in_value)}</td>
-                        <td className="px-3 py-2 text-right text-emerald-700 whitespace-nowrap">{fmtBaht(r.in_value)}</td>
+                      <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-300 whitespace-nowrap">{r.drug_code}</td>
+                        <td className="px-3 py-2 text-slate-500 dark:text-slate-400 whitespace-nowrap">{r.drug_type}</td>
+                        <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{r.drug_name}</td>
+                        <td className="px-3 py-2 text-slate-500 dark:text-slate-400 whitespace-nowrap">{r.lot}</td>
+                        <td className="px-3 py-2 text-slate-500 dark:text-slate-400 whitespace-nowrap">{r.item_type}</td>
+                        <td className="px-3 py-2 text-right text-slate-600 dark:text-slate-300 whitespace-nowrap">{fmtBaht(r.price_per_unit)}</td>
+                        <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400 whitespace-nowrap bg-slate-50 dark:bg-slate-800">{fmtNum(r.opening_qty)}</td>
+                        <td className="px-3 py-2 text-right text-emerald-700 dark:text-emerald-300 whitespace-nowrap bg-slate-50 dark:bg-slate-800">{fmtNum(r.in_qty)}</td>
+                        <td className="px-3 py-2 text-right text-rose-600 whitespace-nowrap bg-slate-50 dark:bg-slate-800">{fmtNum(r.out_qty)}</td>
+                        <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-200 font-medium whitespace-nowrap bg-slate-50 dark:bg-slate-800">{fmtNum(r.closing_qty)}</td>
+                        <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400 whitespace-nowrap">{fmtBaht(r.carry_in_value)}</td>
+                        <td className="px-3 py-2 text-right text-emerald-700 dark:text-emerald-300 whitespace-nowrap">{fmtBaht(r.in_value)}</td>
                         <td className="px-3 py-2 text-right text-rose-600 whitespace-nowrap">{fmtBaht(r.out_value)}</td>
-                        <td className={`px-3 py-2 text-right font-medium whitespace-nowrap ${Number(r.closing_value) < 0 ? 'text-red-600' : 'text-slate-800'}`}>{fmtBaht(r.closing_value)}</td>
+                        <td className={`px-3 py-2 text-right font-medium whitespace-nowrap ${Number(r.closing_value) < 0 ? 'text-red-600' : 'text-slate-800 dark:text-slate-100'}`}>{fmtBaht(r.closing_value)}</td>
                       </tr>
                     ))}
                   </tbody>

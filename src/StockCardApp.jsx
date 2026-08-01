@@ -31,8 +31,8 @@ const fmtNum = (n) => {
 function IsoDateInput({ value, onChange, className = '' }) {
   const display = iso => { if (!iso) return null; const [y, m, d] = iso.split('-'); return `${d}/${m}/${Number(y) + 543}` }
   return (
-    <div className={`relative flex items-center bg-white border border-slate-200 rounded-lg focus-within:ring-2 focus-within:ring-teal-400 ${className}`}>
-      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
+    <div className={`relative flex items-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus-within:ring-2 focus-within:ring-teal-400 ${className}`}>
+      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>{display(value) || 'dd/mm/yyyy'}</span>
       <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
         onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }}
         className="absolute inset-0 opacity-0 w-full cursor-pointer" />
@@ -123,9 +123,9 @@ ${['วันที่', 'Lot', 'ชนิดรายการ', 'รับเ�
 
 // badge ชนิดรายการ — สีตามความหมาย (เข้า=เขียว, ไม่หักยอด=เทา, ออก=ขาว)
 function KindBadge({ kind, side, noDeduct }) {
-  const cls = noDeduct ? 'bg-slate-100 text-slate-500 border-slate-200'
-    : side === 'in' ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-      : 'bg-white text-slate-600 border-slate-200'
+  const cls = noDeduct ? 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+    : side === 'in' ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60'
+      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
   return <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold border ${cls}`}>{kind || '-'}</span>
 }
 
@@ -312,29 +312,29 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
   ].filter(Boolean).join(' · ')
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-800">
       {/* title bar ขาวบาง + ไอคอนสีประจำระบบ (teal) */}
-      <div className="bg-white border-b border-slate-200 sticky top-0 z-20">
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
           <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
-          <div className="p-2 bg-teal-100 text-teal-600 rounded-xl shrink-0"><ScrollText size={20} /></div>
+          <div className="p-2 bg-teal-100 dark:bg-teal-950/60 text-teal-600 rounded-xl shrink-0"><ScrollText size={20} /></div>
           <button onClick={onRefresh} className="text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
-            <p className="font-bold text-sm leading-tight text-slate-800">Stockcard</p>
-            <p className="text-slate-400 text-xs">ประวัติทุก lot ทุกเดือน</p>
+            <p className="font-bold text-sm leading-tight text-slate-800 dark:text-slate-100">Stockcard</p>
+            <p className="text-slate-400 dark:text-slate-500 text-xs">ประวัติทุก lot ทุกเดือน</p>
           </button>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-5 space-y-4">
         {/* เลือกยา */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
           <div className="flex items-center justify-between gap-3 mb-1.5">
-            <label className="block text-xs font-semibold text-slate-500">เลือกยา</label>
+            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400">เลือกยา</label>
             <div className="flex gap-2">
               <button
                 onClick={loadExchanges}
                 disabled={exchLoading}
-                className="flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 disabled:opacity-60 text-orange-800 border border-orange-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                className="flex items-center gap-1.5 bg-orange-50 dark:bg-orange-950/40 hover:bg-orange-100 dark:hover:bg-orange-950/70 disabled:opacity-60 text-orange-800 dark:text-orange-300 border border-orange-300 dark:border-orange-800/60 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
               >
                 <RotateCcw size={15} />
                 {exchLoading ? 'กำลังตรวจ...' : 'ของรอคืนจากบริษัท'}
@@ -342,7 +342,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
               <button
                 onClick={scanIssues}
                 disabled={scanning}
-                className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 disabled:opacity-60 text-amber-800 border border-amber-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                className="flex items-center gap-1.5 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/70 disabled:opacity-60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
               >
                 <AlertTriangle size={15} />
                 {scanning ? 'กำลังตรวจ...' : 'ตรวจหายาที่ยอดไม่ตรง'}
@@ -359,47 +359,47 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
             options={drugOptions}
             placeholder="พิมพ์ชื่อยาเพื่อดูประวัติทุก lot..."
             ringClass="focus:ring-teal-400"
-            hoverClass="hover:bg-teal-50"
+            hoverClass="hover:bg-teal-50 dark:hover:bg-teal-950/50"
           />
         </div>
 
         {/* ของลอย — ส่งคืนบริษัทแล้วยังไม่ได้ของทดแทน */}
         {showExch && exch && (
-          <div className="bg-white rounded-2xl border border-orange-300 overflow-hidden">
-            <div className="flex items-center justify-between gap-3 px-4 py-3 bg-orange-50 border-b border-orange-200">
-              <p className="font-bold text-orange-800 text-sm">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-orange-300 dark:border-orange-800/60 overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 bg-orange-50 dark:bg-orange-950/40 border-b border-orange-200 dark:border-orange-900/60">
+              <p className="font-bold text-orange-800 dark:text-orange-300 text-sm">
                 {exch.summary.openCount > 0
                   ? `รอของคืนจากบริษัท ${exch.summary.openCount} รายการ (${fmtNum(exch.summary.openQty)} หน่วย)`
                   : 'ไม่มีของค้างรอคืนจากบริษัท'}
               </p>
-              <button onClick={() => setShowExch(false)} className="p-1 text-orange-700 hover:bg-orange-100 rounded-lg" aria-label="ปิดรายการ">
+              <button onClick={() => setShowExch(false)} className="p-1 text-orange-700 dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-orange-950/70 rounded-lg" aria-label="ปิดรายการ">
                 <X size={16} />
               </button>
             </div>
-            <p className="px-4 py-2 text-[11px] text-slate-500 border-b border-slate-100">
+            <p className="px-4 py-2 text-[11px] text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
               จับคู่อัตโนมัติจากประวัติเบิก/รับ (รหัสยา + บริษัท + ลำดับเวลา) —
               <b> เป็นตัวช่วยเตือน ไม่ใช่ทะเบียนที่ถูก 100%</b> ควรตรวจกับเอกสารจริงก่อนทวงบริษัท
             </p>
             {exch.summary.openCount > 0 && (
-              <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+              <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
                 {exch.open.map((o, i) => (
                   <button
                     key={i}
                     onClick={() => openDrugByCode(o.code, o.name)}
-                    className="w-full text-left px-4 py-2.5 hover:bg-orange-50 transition-colors flex items-center justify-between gap-3"
+                    className="w-full text-left px-4 py-2.5 hover:bg-orange-50 dark:hover:bg-orange-950/50 transition-colors flex items-center justify-between gap-3"
                   >
                     <div className="min-w-0">
-                      <p className="font-semibold text-slate-800 text-sm truncate">{o.name || o.code}</p>
-                      <p className="text-[11px] text-slate-400">
+                      <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm truncate">{o.name || o.code}</p>
+                      <p className="text-[11px] text-slate-400 dark:text-slate-500">
                         lot {o.lot} · ส่งคืน {fmtThai(o.date)} · {o.kind}{o.company ? ` · ${o.company}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-sm font-bold text-slate-700">{fmtNum(o.qty)}</span>
+                      <span className="text-sm font-bold text-slate-700 dark:text-slate-200">{fmtNum(o.qty)}</span>
                       <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
-                        o.daysWaiting >= 90 ? 'bg-rose-100 text-rose-700 border-rose-300'
-                          : o.daysWaiting >= 30 ? 'bg-amber-100 text-amber-800 border-amber-300'
-                            : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                        o.daysWaiting >= 90 ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800/60'
+                          : o.daysWaiting >= 30 ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800/60'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'}`}>
                         ค้าง {o.daysWaiting} วัน
                       </span>
                     </div>
@@ -408,7 +408,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
               </div>
             )}
             {exch.summary.matchedCount > 0 && (
-              <p className="px-4 py-2 text-[11px] text-slate-400 border-t border-slate-100">
+              <p className="px-4 py-2 text-[11px] text-slate-400 dark:text-slate-500 border-t border-slate-100 dark:border-slate-800">
                 จับคู่ได้แล้ว {exch.summary.matchedCount} รอบ
                 {exch.summary.lotChangedCount > 0 && ` · lot เปลี่ยน ${exch.summary.lotChangedCount}`}
                 {exch.summary.qtyMismatchCount > 0 && ` · จำนวนไม่ตรง ${exch.summary.qtyMismatchCount}`}
@@ -419,57 +419,57 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
 
         {/* ผลสแกนทั้งระบบ — คลิกยา → เปิดการ์ดของยานั้นทันที */}
         {showIssues && issues && (
-          <div className="bg-white rounded-2xl border border-amber-300 overflow-hidden">
-            <div className="flex items-center justify-between gap-3 px-4 py-3 bg-amber-50 border-b border-amber-200">
-              <p className="font-bold text-amber-800 text-sm">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-amber-300 dark:border-amber-800/60 overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60">
+              <p className="font-bold text-amber-800 dark:text-amber-300 text-sm">
                 {visibleIssues.length > 0
                   ? `ต้องตรวจ ${visibleIssues.length} รายการ`
                   : 'ตรวจแล้ว — ไม่พบยาที่ต้องตรวจ'}
               </p>
-              <button onClick={() => setShowIssues(false)} className="p-1 text-amber-700 hover:bg-amber-100 rounded-lg" aria-label="ปิดรายการ">
+              <button onClick={() => setShowIssues(false)} className="p-1 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/70 rounded-lg" aria-label="ปิดรายการ">
                 <X size={16} />
               </button>
             </div>
             {migrationOnlyCount > 0 && (
-              <label className="flex items-start gap-2 px-4 py-2 bg-slate-50 border-b border-slate-100 cursor-pointer">
+              <label className="flex items-start gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-800 border-b border-slate-100 dark:border-slate-800 cursor-pointer">
                 <input type="checkbox" checked={showMigration} onChange={e => setShowMigration(e.target.checked)} className="mt-0.5" />
-                <span className="text-[11px] text-slate-600">
+                <span className="text-[11px] text-slate-600 dark:text-slate-300">
                   แสดงอีก <b>{migrationOnlyCount}</b> รายการที่ยอดต่างเพราะ<b>ประวัติก่อนเริ่มใช้ระบบไม่ครบ</b>
-                  <span className="text-slate-400"> (ย้ายมาจาก Excel — ไม่ใช่ของหายจริง)</span>
+                  <span className="text-slate-400 dark:text-slate-500"> (ย้ายมาจาก Excel — ไม่ใช่ของหายจริง)</span>
                 </span>
               </label>
             )}
             {visibleIssues.length > 0 && (
               <>
-                <p className="px-4 py-2 text-[11px] text-slate-500 border-b border-slate-100">
+                <p className="px-4 py-2 text-[11px] text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
                   คลิกที่ยาเพื่อเปิดการ์ดคลังของยานั้น แล้วกด badge เพื่อไปยังแถวที่มีปัญหา
                 </p>
-                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
                   {visibleIssues.map(it => (
                     <button
                       key={it.code}
                       onClick={() => openDrugByCode(it.code, it.name)}
-                      className="w-full text-left px-4 py-2.5 hover:bg-amber-50 transition-colors flex items-center justify-between gap-3"
+                      className="w-full text-left px-4 py-2.5 hover:bg-amber-50 dark:hover:bg-amber-950/50 transition-colors flex items-center justify-between gap-3"
                     >
                       <div className="min-w-0">
-                        <p className="font-semibold text-slate-800 text-sm truncate">{it.name}</p>
-                        <p className="text-[11px] text-slate-400">
+                        <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm truncate">{it.name}</p>
+                        <p className="text-[11px] text-slate-400 dark:text-slate-500">
                           รหัส {it.code}{it.lots.length > 0 ? ` · lot ${it.lots.slice(0, 3).join(', ')}${it.lots.length > 3 ? ` +${it.lots.length - 3}` : ''}` : ''}
                         </p>
                       </div>
                       <div className="flex gap-1.5 shrink-0">
                         {it.rowErrs > 0 && (
-                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700 border border-rose-300">
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800/60">
                             กรอกผิด {it.rowErrs}
                           </span>
                         )}
                         {it.driftPoints > 0 && (
-                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60">
                             ยอดไม่ตรง {it.driftPoints}
                           </span>
                         )}
                         {it.migrationPoints > 0 && (
-                          <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
                             ข้อมูลเก่า {it.migrationPoints}
                           </span>
                         )}
@@ -483,23 +483,23 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
         )}
 
         {error && (
-          <div className="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl px-4 py-3 text-sm">{error}</div>
+          <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 rounded-xl px-4 py-3 text-sm">{error}</div>
         )}
         {loading && (
-          <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400 text-sm">กำลังโหลด...</div>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-400 dark:text-slate-500 text-sm">กำลังโหลด...</div>
         )}
 
         {!loading && card && meta && (
           <>
             {/* header ยา: รหัส / หน่วย / ราคา / จำนวน lot (ตาม Excel row 5) */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-4">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
               <div className="flex items-start justify-between gap-3">
-                <p className="font-bold text-slate-800 text-lg leading-tight">{meta.name || '-'}</p>
+                <p className="font-bold text-slate-800 dark:text-slate-100 text-lg leading-tight">{meta.name || '-'}</p>
                 {/* export/print ใช้ visibleRows = ตรงกับที่ผู้ใช้เห็นหลังกรอง (Rule #6) */}
                 <div className="flex gap-2 shrink-0">
                   <button
                     onClick={() => printStockCard(meta, visibleRows, card.summary, filterLabel)}
-                    className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                    className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
                   >
                     <Printer size={16} /> พิมพ์
                   </button>
@@ -508,34 +508,34 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                       visibleRows, STOCKCARD_EXCEL_COLS, 'การ์ดคลัง lot',
                       `stockcard_${meta.code}_${new Date().toISOString().slice(0, 10)}.xlsx`, auth
                     )}
-                    className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                    className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
                   >
                     <FileDown size={16} /> Excel
                   </button>
                 </div>
               </div>
               <div className="flex flex-wrap gap-x-6 gap-y-1 mt-2 text-sm">
-                <span className="text-slate-500">รหัส: <b className="text-slate-700">{meta.code}</b></span>
-                <span className="text-slate-500">หน่วย: <b className="text-slate-700">{meta.unit || '-'}</b></span>
-                <span className="text-slate-500">ราคา/หน่วย: <b className="text-slate-700">{fmtNum(meta.pricePerUnit)}</b></span>
-                <span className="text-slate-500">จำนวน Lot: <b className="text-slate-700">{card.summary.lotCount}</b></span>
+                <span className="text-slate-500 dark:text-slate-400">รหัส: <b className="text-slate-700 dark:text-slate-200">{meta.code}</b></span>
+                <span className="text-slate-500 dark:text-slate-400">หน่วย: <b className="text-slate-700 dark:text-slate-200">{meta.unit || '-'}</b></span>
+                <span className="text-slate-500 dark:text-slate-400">ราคา/หน่วย: <b className="text-slate-700 dark:text-slate-200">{fmtNum(meta.pricePerUnit)}</b></span>
+                <span className="text-slate-500 dark:text-slate-400">จำนวน Lot: <b className="text-slate-700 dark:text-slate-200">{card.summary.lotCount}</b></span>
               </div>
               <div className="flex flex-wrap gap-2 mt-3">
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60">
                   <TrendingUp size={13} /> รับเข้ารวม {fmtNum(card.summary.totalIn)}
                 </span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60">
                   <TrendingDown size={13} /> เบิกออกรวม {fmtNum(card.summary.totalOut)}
                 </span>
                 {card.summary.negativeLots > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-700 border border-rose-300">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800/60">
                     <AlertTriangle size={13} /> คงเหลือติดลบ {card.summary.negativeLots} lot
                   </span>
                 )}
                 {card.summary.driftLots > 0 && (
                   <button
                     onClick={() => jumpToRow(r => r.isDriftPoint)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 transition-colors"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60 hover:bg-amber-200 transition-colors"
                     title="ไปที่แถวแรกที่ยอดไม่ตรง"
                   >
                     <AlertTriangle size={13} /> ยอดไม่ตรงบันทึก {card.summary.driftLots} lot
@@ -544,7 +544,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                 {card.summary.rowErrRows > 0 && (
                   <button
                     onClick={() => jumpToRow(r => r.hasRowErr)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-700 border border-rose-300 hover:bg-rose-200 transition-colors"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800/60 hover:bg-rose-200 transition-colors"
                     title="ไปที่แถวแรกที่กรอกผิด"
                   >
                     <AlertTriangle size={13} /> แถวกรอกผิด {card.summary.rowErrRows} แถว
@@ -552,7 +552,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                 )}
               </div>
               {card.summary.driftLots > 0 && (
-                <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <p className="mt-2 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-lg px-3 py-2">
                   พบ <b>{card.summary.driftRows} จุด</b> ที่ยอดคำนวณไม่ตรงกับ &quot;ยอดที่บันทึกไว้&quot; —
                   แปลว่ามีการเคลื่อนไหวที่ไม่ได้ถูกบันทึกในระบบ (ไม่ใช่การคำนวณผิด)
                   เครื่องหมายเตือนแสดงเฉพาะ<b>จุดที่ของหายจริง</b> แถวถัดไปที่ยอดต่างเท่าเดิมไม่เตือนซ้ำ
@@ -561,20 +561,20 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
             </div>
 
             {/* ตัวกรอง (พับได้) */}
-            <div className="bg-white rounded-2xl border border-slate-200">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700">
               <button
                 onClick={() => setShowFilter(v => !v)}
-                className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 rounded-2xl transition-colors"
+                className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-colors"
               >
                 <span className="flex items-center gap-2"><Filter size={15} /> ตัวกรอง
-                  {hasFilter && <span className="px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 text-[11px]">กำลังกรอง</span>}
+                  {hasFilter && <span className="px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 text-[11px]">กำลังกรอง</span>}
                 </span>
-                <span className="text-xs text-slate-400">{visibleRows.length} / {card.rows.length} รายการ</span>
+                <span className="text-xs text-slate-400 dark:text-slate-500">{visibleRows.length} / {card.rows.length} รายการ</span>
               </button>
               {showFilter && (
-                <div className="px-4 pb-4 flex flex-wrap gap-3 border-t border-slate-100 pt-3">
+                <div className="px-4 pb-4 flex flex-wrap gap-3 border-t border-slate-100 dark:border-slate-800 pt-3">
                   <div className="w-44">
-                    <label className="block text-xs text-slate-500 mb-1">Lot</label>
+                    <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Lot</label>
                     <SearchableSelect
                       value={lotFilter}
                       onChange={setLotFilter}
@@ -584,24 +584,24 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1">ชนิดรายการ</label>
+                    <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">ชนิดรายการ</label>
                     <select value={kindFilter} onChange={e => setKindFilter(e.target.value)}
-                      className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-teal-400 outline-none">
+                      className="border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-teal-400 outline-none">
                       <option value="">ทุกชนิด</option>
                       {kinds.map(k => <option key={k} value={k}>{k}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1">ตั้งแต่วันที่</label>
+                    <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">ตั้งแต่วันที่</label>
                     <IsoDateInput value={dateFrom} onChange={setDateFrom} className="w-36" />
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1">ถึงวันที่</label>
+                    <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">ถึงวันที่</label>
                     <IsoDateInput value={dateTo} onChange={setDateTo} className="w-36" />
                   </div>
                   {hasFilter && (
                     <button onClick={() => { setLotFilter(''); setKindFilter(''); setDateFrom(''); setDateTo('') }}
-                      className="self-end flex items-center gap-1 px-3 py-1.5 text-sm text-slate-500 hover:text-slate-700">
+                      className="self-end flex items-center gap-1 px-3 py-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
                       <X size={14} /> ล้างตัวกรอง
                     </button>
                   )}
@@ -610,13 +610,13 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
             </div>
 
             {/* ตาราง (desktop) */}
-            <div className="hidden md:block bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="hidden md:block bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
               <div className="overflow-x-auto max-h-[70vh]">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 z-10">
-                    <tr className="bg-slate-100 text-slate-600">
+                    <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
                       {['วันที่', 'Lot', 'ชนิดรายการ', 'รับเข้า', 'เบิกออก', 'คงเหลือ Lot', 'ยอดที่บันทึกไว้', 'หน่วยงาน/บริษัท', 'หมายเหตุ/บิล', 'มูลค่า', 'Exp'].map(h => (
-                        <th key={h} className="px-3 py-2.5 text-left font-bold whitespace-nowrap border-b border-slate-200">{h}</th>
+                        <th key={h} className="px-3 py-2.5 text-left font-bold whitespace-nowrap border-b border-slate-200 dark:border-slate-700">{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -628,23 +628,23 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                       <tr
                         key={i}
                         ref={el => { if (el) rowRefs.current[`d:${key}`] = el }}
-                        className={`border-b transition-colors ${flash ? 'bg-amber-100 ring-2 ring-amber-400 border-amber-300' : `border-slate-100 ${r.qtyIn > 0 ? 'bg-emerald-50/60' : ''}`}`}
+                        className={`border-b transition-colors ${flash ? 'bg-amber-100 dark:bg-amber-950/60 ring-2 ring-amber-400 border-amber-300 dark:border-amber-800/60' : `border-slate-100 dark:border-slate-800 ${r.qtyIn > 0 ? 'bg-emerald-50 dark:bg-emerald-950/40' : ''}`}`}
                       >
-                        <td className="px-3 py-2 whitespace-nowrap text-slate-600">{fmtThai(r.date)}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-medium text-slate-700">{r.lot}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-slate-600 dark:text-slate-300">{fmtThai(r.date)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap font-medium text-slate-700 dark:text-slate-200">{r.lot}</td>
                         <td className="px-3 py-2 whitespace-nowrap"><KindBadge kind={r.kind} side={r.side} noDeduct={r.noDeduct} /></td>
-                        <td className="px-3 py-2 text-right text-emerald-700 font-semibold">{r.qtyIn > 0 ? fmtNum(r.qtyIn) : '-'}</td>
-                        <td className="px-3 py-2 text-right text-slate-700">
+                        <td className="px-3 py-2 text-right text-emerald-700 dark:text-emerald-300 font-semibold">{r.qtyIn > 0 ? fmtNum(r.qtyIn) : '-'}</td>
+                        <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-200">
                           {r.qtyOut > 0 ? fmtNum(r.qtyOut) : '-'}
-                          {r.noDeduct && r.qtyOut > 0 && <span className="ml-1 text-[10px] text-slate-400">(ไม่หัก)</span>}
+                          {r.noDeduct && r.qtyOut > 0 && <span className="ml-1 text-[10px] text-slate-400 dark:text-slate-500">(ไม่หัก)</span>}
                         </td>
-                        <td className={`px-3 py-2 text-right font-bold ${r.balance < 0 ? 'text-rose-600' : 'text-slate-800'}`}>
+                        <td className={`px-3 py-2 text-right font-bold ${r.balance < 0 ? 'text-rose-600' : 'text-slate-800 dark:text-slate-100'}`}>
                           {fmtNum(r.balance)}
                           {/* เตือนเฉพาะ "จุดที่ของหายจริง" — แถวที่ drift ค้างมาไม่เตือนซ้ำ */}
                           {r.isDriftPoint && (
                             <button
                               onClick={() => setDriftRow(r)}
-                              className="ml-1 inline-flex items-center align-middle text-amber-600 hover:text-amber-700 hover:bg-amber-100 rounded p-0.5 transition-colors"
+                              className="ml-1 inline-flex items-center align-middle text-amber-600 hover:text-amber-700 hover:bg-amber-100 dark:hover:bg-amber-950/70 rounded p-0.5 transition-colors"
                               aria-label="ดูรายละเอียดยอดไม่ตรง"
                             >
                               <AlertTriangle size={13} />
@@ -652,28 +652,28 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                           )}
                         </td>
                         {/* ยอดที่ต้นทางบันทึกไว้ (qty_before) — ให้เห็นว่าไอคอนเทียบกับอะไร ไม่ต้องเปิดโมดอล */}
-                        <td className={`px-3 py-2 text-right ${r.hasDrift ? 'text-amber-700 font-semibold' : 'text-slate-400'}`}>
+                        <td className={`px-3 py-2 text-right ${r.hasDrift ? 'text-amber-700 dark:text-amber-300 font-semibold' : 'text-slate-400 dark:text-slate-500'}`}>
                           {r.qtyBefore == null ? '-' : fmtNum(r.qtyBefore)}
                           {/* กรอกผิดที่ต้นทาง (ก่อน−ออก≠หลัง) — คนละเรื่องกับ drift จึงใช้สีแดงแยก */}
                           {r.hasRowErr && (
                             <button
                               onClick={() => setDriftRow(r)}
-                              className="ml-1 inline-flex items-center align-middle text-rose-600 hover:text-rose-700 hover:bg-rose-100 rounded p-0.5 transition-colors"
+                              className="ml-1 inline-flex items-center align-middle text-rose-600 hover:text-rose-700 hover:bg-rose-100 dark:hover:bg-rose-950/70 rounded p-0.5 transition-colors"
                               aria-label="แถวนี้กรอกผิด"
                             >
                               <AlertTriangle size={13} />
                             </button>
                           )}
                         </td>
-                        <td className="px-3 py-2 text-slate-600 max-w-[180px] truncate" title={r.party}>{r.party || '-'}</td>
-                        <td className="px-3 py-2 text-slate-500 text-xs max-w-[200px] truncate" title={r.ref}>{r.ref || '-'}</td>
-                        <td className="px-3 py-2 text-right text-slate-600">{r.value ? fmtNum(r.value) : '-'}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-slate-500 text-xs">{fmtThai(r.exp)}</td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-300 max-w-[180px] truncate" title={r.party}>{r.party || '-'}</td>
+                        <td className="px-3 py-2 text-slate-500 dark:text-slate-400 text-xs max-w-[200px] truncate" title={r.ref}>{r.ref || '-'}</td>
+                        <td className="px-3 py-2 text-right text-slate-600 dark:text-slate-300">{r.value ? fmtNum(r.value) : '-'}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-slate-500 dark:text-slate-400 text-xs">{fmtThai(r.exp)}</td>
                       </tr>
                       )
                     })}
                     {visibleRows.length === 0 && (
-                      <tr><td colSpan={11} className="px-3 py-10 text-center text-slate-400">ไม่มีรายการตามตัวกรอง</td></tr>
+                      <tr><td colSpan={11} className="px-3 py-10 text-center text-slate-400 dark:text-slate-500">ไม่มีรายการตามตัวกรอง</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -689,45 +689,45 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                 <div
                   key={i}
                   ref={el => { if (el) rowRefs.current[`m:${key}`] = el }}
-                  className={`bg-white rounded-xl border p-3 transition-colors ${flash ? 'border-amber-400 ring-2 ring-amber-300 bg-amber-50' : (r.qtyIn > 0 ? 'border-emerald-200' : 'border-slate-200')}`}
+                  className={`bg-white dark:bg-slate-900 rounded-xl border p-3 transition-colors ${flash ? 'border-amber-400 ring-2 ring-amber-300 bg-amber-50 dark:bg-amber-950/40' : (r.qtyIn > 0 ? 'border-emerald-200 dark:border-emerald-900/60' : 'border-slate-200 dark:border-slate-700')}`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-slate-500">{fmtThai(r.date)}</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">{fmtThai(r.date)}</span>
                     <KindBadge kind={r.kind} side={r.side} noDeduct={r.noDeduct} />
                   </div>
                   <div className="mt-1.5 flex items-center gap-2">
-                    <Package size={14} className="text-slate-400 shrink-0" />
-                    <span className="font-semibold text-slate-700 text-sm">Lot {r.lot}</span>
+                    <Package size={14} className="text-slate-400 dark:text-slate-500 shrink-0" />
+                    <span className="font-semibold text-slate-700 dark:text-slate-200 text-sm">Lot {r.lot}</span>
                   </div>
                   <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-                    <div className="bg-emerald-50 rounded-lg py-1.5">
+                    <div className="bg-emerald-50 dark:bg-emerald-950/40 rounded-lg py-1.5">
                       <p className="text-[10px] text-emerald-600">รับเข้า</p>
-                      <p className="font-bold text-emerald-700 text-sm">{r.qtyIn > 0 ? fmtNum(r.qtyIn) : '-'}</p>
+                      <p className="font-bold text-emerald-700 dark:text-emerald-300 text-sm">{r.qtyIn > 0 ? fmtNum(r.qtyIn) : '-'}</p>
                     </div>
-                    <div className="bg-slate-50 rounded-lg py-1.5">
-                      <p className="text-[10px] text-slate-500">เบิกออก</p>
-                      <p className="font-bold text-slate-700 text-sm">{r.qtyOut > 0 ? fmtNum(r.qtyOut) : '-'}</p>
+                    <div className="bg-slate-50 dark:bg-slate-800 rounded-lg py-1.5">
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400">เบิกออก</p>
+                      <p className="font-bold text-slate-700 dark:text-slate-200 text-sm">{r.qtyOut > 0 ? fmtNum(r.qtyOut) : '-'}</p>
                     </div>
-                    <div className={`rounded-lg py-1.5 ${r.balance < 0 ? 'bg-rose-50' : 'bg-teal-50'}`}>
+                    <div className={`rounded-lg py-1.5 ${r.balance < 0 ? 'bg-rose-50 dark:bg-rose-950/40' : 'bg-teal-50 dark:bg-teal-950/40'}`}>
                       <p className={`text-[10px] ${r.balance < 0 ? 'text-rose-600' : 'text-teal-600'}`}>คงเหลือ</p>
-                      <p className={`font-bold text-sm ${r.balance < 0 ? 'text-rose-700' : 'text-teal-700'}`}>{fmtNum(r.balance)}</p>
+                      <p className={`font-bold text-sm ${r.balance < 0 ? 'text-rose-700 dark:text-rose-300' : 'text-teal-700 dark:text-teal-300'}`}>{fmtNum(r.balance)}</p>
                     </div>
                   </div>
                   {r.isDriftPoint && (
                     <button
                       onClick={() => setDriftRow(r)}
-                      className="mt-2 w-full flex items-center gap-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 text-left active:bg-amber-100"
+                      className="mt-2 w-full flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded px-2 py-1.5 text-left active:bg-amber-100"
                     >
                       <AlertTriangle size={13} className="shrink-0" />
                       <span>ของหายตรงจุดนี้ {fmtNum(Math.abs(r.driftDelta))} — แตะดูรายละเอียด</span>
                     </button>
                   )}
                   {r.qtyBefore != null && (
-                    <p className="mt-1.5 text-[11px] text-slate-400">
-                      ยอดที่บันทึกไว้: <b className={r.hasDrift ? 'text-amber-700' : 'text-slate-500'}>{fmtNum(r.qtyBefore)}</b>
+                    <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+                      ยอดที่บันทึกไว้: <b className={r.hasDrift ? 'text-amber-700 dark:text-amber-300' : 'text-slate-500 dark:text-slate-400'}>{fmtNum(r.qtyBefore)}</b>
                     </p>
                   )}
-                  <div className="mt-2 text-xs text-slate-500 space-y-0.5">
+                  <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 space-y-0.5">
                     {r.party && <p>{r.side === 'in' ? 'บริษัท' : 'หน่วยงาน'}: {r.party}</p>}
                     {r.ref && <p className="truncate">อ้างอิง: {r.ref}</p>}
                     {r.exp && r.exp !== '-' && <p>Exp: {fmtThai(r.exp)}</p>}
@@ -736,16 +736,16 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                 )
               })}
               {visibleRows.length === 0 && (
-                <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-400 text-sm">ไม่มีรายการตามตัวกรอง</div>
+                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-400 dark:text-slate-500 text-sm">ไม่มีรายการตามตัวกรอง</div>
               )}
             </div>
           </>
         )}
 
         {!loading && !card && !error && (
-          <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center">
-            <ScrollText size={40} className="mx-auto text-slate-300" />
-            <p className="mt-3 text-slate-500 text-sm">เลือกยาเพื่อดูประวัติการเคลื่อนไหวทุก lot ทุกเดือน</p>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-10 text-center">
+            <ScrollText size={40} className="mx-auto text-slate-300 dark:text-slate-500" />
+            <p className="mt-3 text-slate-500 dark:text-slate-400 text-sm">เลือกยาเพื่อดูประวัติการเคลื่อนไหวทุก lot ทุกเดือน</p>
           </div>
         )}
       </div>
@@ -765,108 +765,108 @@ function DriftModal({ row, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={onClose}>
       <div
-        className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[85vh] overflow-y-auto"
+        className="bg-white dark:bg-slate-900 w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[85vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-3 p-4 border-b border-slate-100">
+        <div className="flex items-start justify-between gap-3 p-4 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-2">
-            <div className="p-2 bg-amber-100 text-amber-600 rounded-xl shrink-0"><AlertTriangle size={18} /></div>
+            <div className="p-2 bg-amber-100 dark:bg-amber-950/60 text-amber-600 rounded-xl shrink-0"><AlertTriangle size={18} /></div>
             <div>
-              <p className="font-bold text-slate-800 text-sm leading-tight">ยอดไม่ตรงกับที่บันทึก</p>
-              <p className="text-slate-400 text-xs">Lot {row.lot} · {fmtThai(row.date)}</p>
+              <p className="font-bold text-slate-800 dark:text-slate-100 text-sm leading-tight">ยอดไม่ตรงกับที่บันทึก</p>
+              <p className="text-slate-400 dark:text-slate-500 text-xs">Lot {row.lot} · {fmtThai(row.date)}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg shrink-0" aria-label="ปิด">
+          <button onClick={onClose} className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg shrink-0" aria-label="ปิด">
             <X size={18} />
           </button>
         </div>
 
         <div className="p-4 space-y-3">
           {/* แถวตามที่ต้นทาง (Excel) บันทึก — ให้เห็นว่าสมการในแถวถูกไหม */}
-          <div className="border border-slate-200 rounded-xl overflow-hidden">
-            <p className="text-[11px] font-semibold text-slate-500 bg-slate-50 px-3 py-1.5 border-b border-slate-200">
+          <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 border-b border-slate-200 dark:border-slate-700">
               แถวนี้ตามที่บันทึกไว้ (จาก Excel)
             </p>
             <table className="w-full text-sm">
               <tbody>
-                <tr className={row.hasDrift ? 'border-b border-slate-100 bg-amber-50' : 'border-b border-slate-100'}>
-                  <td className="px-3 py-2 text-slate-500">
+                <tr className={row.hasDrift ? 'border-b border-slate-100 dark:border-slate-800 bg-amber-50 dark:bg-amber-950/40' : 'border-b border-slate-100 dark:border-slate-800'}>
+                  <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
                     คงเหลือก่อนเบิก
-                    {row.hasDrift && <span className="ml-1 text-[11px] font-bold text-amber-700">← ไม่ถูกต้อง</span>}
+                    {row.hasDrift && <span className="ml-1 text-[11px] font-bold text-amber-700 dark:text-amber-300">← ไม่ถูกต้อง</span>}
                   </td>
-                  <td className={`px-3 py-2 text-right font-bold ${row.hasDrift ? 'text-amber-700' : 'text-slate-800'}`}>
+                  <td className={`px-3 py-2 text-right font-bold ${row.hasDrift ? 'text-amber-700 dark:text-amber-300' : 'text-slate-800 dark:text-slate-100'}`}>
                     {fmtNum(recorded)}
-                    {row.hasDrift && <span className="block text-[11px] font-normal text-slate-500">ควรเป็น {fmtNum(calc)}</span>}
+                    {row.hasDrift && <span className="block text-[11px] font-normal text-slate-500 dark:text-slate-400">ควรเป็น {fmtNum(calc)}</span>}
                   </td>
                 </tr>
-                <tr className="border-b border-slate-100">
-                  <td className="px-3 py-2 text-slate-500">เบิกออก</td>
-                  <td className="px-3 py-2 text-right font-bold text-slate-800">− {fmtNum(row.qtyOut)}</td>
+                <tr className="border-b border-slate-100 dark:border-slate-800">
+                  <td className="px-3 py-2 text-slate-500 dark:text-slate-400">เบิกออก</td>
+                  <td className="px-3 py-2 text-right font-bold text-slate-800 dark:text-slate-100">− {fmtNum(row.qtyOut)}</td>
                 </tr>
-                <tr className={row.hasRowErr ? 'bg-rose-50' : 'bg-slate-50'}>
-                  <td className="px-3 py-2 text-slate-500">คงเหลือหลังเบิก</td>
-                  <td className={`px-3 py-2 text-right font-bold ${row.hasRowErr ? 'text-rose-700' : 'text-slate-800'}`}>
+                <tr className={row.hasRowErr ? 'bg-rose-50 dark:bg-rose-950/40' : 'bg-slate-50 dark:bg-slate-800'}>
+                  <td className="px-3 py-2 text-slate-500 dark:text-slate-400">คงเหลือหลังเบิก</td>
+                  <td className={`px-3 py-2 text-right font-bold ${row.hasRowErr ? 'text-rose-700 dark:text-rose-300' : 'text-slate-800 dark:text-slate-100'}`}>
                     {row.qtyAfter == null ? '(ไม่ได้บันทึก)' : fmtNum(row.qtyAfter)}
                   </td>
                 </tr>
               </tbody>
             </table>
             {row.hasRowErr ? (
-              <p className="text-[11px] text-rose-700 bg-rose-50 px-3 py-2 border-t border-rose-200">
+              <p className="text-[11px] text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 px-3 py-2 border-t border-rose-200 dark:border-rose-900/60">
                 <b>แถวนี้กรอกผิด</b> — {fmtNum(recorded)} − {fmtNum(row.qtyOut)} ควรได้ {fmtNum(recorded - row.qtyOut)}
                 {' '}แต่บันทึกไว้ {fmtNum(row.qtyAfter)} (ต่าง {fmtNum(Math.abs(row.rowErr))})
               </p>
             ) : row.qtyAfter != null ? (
-              <p className="text-[11px] text-emerald-700 bg-emerald-50 px-3 py-2 border-t border-emerald-200">
+              <p className="text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-2 border-t border-emerald-200 dark:border-emerald-900/60">
                 สมการในแถวนี้ถูกต้อง ({fmtNum(recorded)} − {fmtNum(row.qtyOut)} = {fmtNum(row.qtyAfter)})
               </p>
             ) : (
-              <p className="text-[11px] text-slate-500 bg-slate-50 px-3 py-2 border-t border-slate-200">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 px-3 py-2 border-t border-slate-200 dark:border-slate-700">
                 แถวนี้<b>ไม่ได้บันทึกยอดหลังเบิก</b> — ตรวจสมการในแถวไม่ได้
               </p>
             )}
           </div>
 
           {/* เทียบยอดตั้งต้น: ระบบไล่จากบิลรับ vs ที่ต้นทางบันทึก */}
-          <div className="border border-amber-200 rounded-xl overflow-hidden">
-            <p className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-3 py-1.5 border-b border-amber-200">
+          <div className="border border-amber-200 dark:border-amber-900/60 rounded-xl overflow-hidden">
+            <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-1.5 border-b border-amber-200 dark:border-amber-900/60">
               ตรวจ &ldquo;คงเหลือก่อนเบิก&rdquo; — ไม่ตรงกับบิลรับเข้า
             </p>
             <table className="w-full text-sm">
               <tbody>
-                <tr className="border-b border-slate-100">
-                  <td className="px-3 py-2 text-slate-500">ระบบไล่จากบิลรับเข้า</td>
-                  <td className="px-3 py-2 text-right font-bold text-slate-800">{fmtNum(calc)}</td>
+                <tr className="border-b border-slate-100 dark:border-slate-800">
+                  <td className="px-3 py-2 text-slate-500 dark:text-slate-400">ระบบไล่จากบิลรับเข้า</td>
+                  <td className="px-3 py-2 text-right font-bold text-slate-800 dark:text-slate-100">{fmtNum(calc)}</td>
                 </tr>
-                <tr className="border-b border-slate-100">
-                  <td className="px-3 py-2 text-slate-500">ต้นทางบันทึกว่าเหลือ</td>
-                  <td className="px-3 py-2 text-right font-bold text-slate-800">{fmtNum(recorded)}</td>
+                <tr className="border-b border-slate-100 dark:border-slate-800">
+                  <td className="px-3 py-2 text-slate-500 dark:text-slate-400">ต้นทางบันทึกว่าเหลือ</td>
+                  <td className="px-3 py-2 text-right font-bold text-slate-800 dark:text-slate-100">{fmtNum(recorded)}</td>
                 </tr>
-                <tr className="bg-amber-50">
-                  <td className="px-3 py-2 text-amber-700 font-semibold">ต่างกัน</td>
-                  <td className="px-3 py-2 text-right font-bold text-amber-800">{diff > 0 ? '+' : ''}{fmtNum(diff)}</td>
+                <tr className="bg-amber-50 dark:bg-amber-950/40">
+                  <td className="px-3 py-2 text-amber-700 dark:text-amber-300 font-semibold">ต่างกัน</td>
+                  <td className="px-3 py-2 text-right font-bold text-amber-800 dark:text-amber-300">{diff > 0 ? '+' : ''}{fmtNum(diff)}</td>
                 </tr>
               </tbody>
             </table>
             {row.driftDelta != null && row.driftDelta !== diff && (
-              <p className="text-[11px] text-slate-500 px-3 py-2 border-t border-slate-100">
-                หายเฉพาะจุดนี้ <b className="text-amber-700">{fmtNum(Math.abs(row.driftDelta))}</b> ·
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 px-3 py-2 border-t border-slate-100 dark:border-slate-800">
+                หายเฉพาะจุดนี้ <b className="text-amber-700 dark:text-amber-300">{fmtNum(Math.abs(row.driftDelta))}</b> ·
                 ที่เหลือค้างมาจากช่องว่างก่อนหน้า
               </p>
             )}
           </div>
 
-          <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3 leading-relaxed">
-            <p className="font-semibold text-slate-700 mb-1">แปลว่าอะไร</p>
+          <div className="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 leading-relaxed">
+            <p className="font-semibold text-slate-700 dark:text-slate-200 mb-1">แปลว่าอะไร</p>
             {row.hasRowErr ? (
               <p>
-                <b className="text-rose-700">แถวนี้กรอกผิดที่ต้นทาง</b> — ตัวเลขก่อนเบิก/เบิกออก/หลังเบิก
+                <b className="text-rose-700 dark:text-rose-300">แถวนี้กรอกผิดที่ต้นทาง</b> — ตัวเลขก่อนเบิก/เบิกออก/หลังเบิก
                 ไม่สอดคล้องกันเอง ควรตรวจกับ sheet เบิกว่ากรอกตกหล่นหรือไม่ได้ตัดยอด
               </p>
             ) : (
               <>
                 <p>
-                  <b className="text-amber-700">ค่า &ldquo;คงเหลือก่อนเบิก&rdquo; ({fmtNum(recorded)}) ไม่ถูกต้อง</b> —
+                  <b className="text-amber-700 dark:text-amber-300">ค่า &ldquo;คงเหลือก่อนเบิก&rdquo; ({fmtNum(recorded)}) ไม่ถูกต้อง</b> —
                   ควรเป็น {fmtNum(calc)} ตามบิลรับเข้า
                   {more
                     ? ' แปลว่ามีการเบิกไปก่อนหน้านี้แล้วไม่ได้ตัดใน sheet เบิก'
@@ -879,20 +879,20 @@ function DriftModal({ row, onClose }) {
               </>
             )}
             {String(row.ref || '').includes('unpivot') && (
-              <p className="mt-1.5 text-slate-500">
+              <p className="mt-1.5 text-slate-500 dark:text-slate-400">
                 หมายเหตุแถวนี้เป็น <b>“นำเข้าจาก ต.ค.68”</b> — ประวัติการเบิกก่อนเดือน ต.ค. 68
                 ไม่ได้ถูกนำเข้าระบบ ช่องว่างนี้จึงเป็นเรื่องปกติของ lot ที่รับเข้าก่อนเริ่มใช้ระบบ
               </p>
             )}
-            <p className="mt-1.5 text-slate-500">
+            <p className="mt-1.5 text-slate-500 dark:text-slate-400">
               ระบบ<b>ไม่แก้ยอดให้อัตโนมัติ</b> — เป็นข้อมูลต้นทางที่ต้องให้คนตรวจสอบก่อน
             </p>
           </div>
 
-          <div className="text-xs text-slate-500 space-y-1 border-t border-slate-100 pt-3">
-            <p>ชนิดรายการ: <b className="text-slate-700">{row.kind || '-'}</b></p>
-            {row.party && <p>{row.side === 'in' ? 'บริษัท' : 'หน่วยงาน'}: <b className="text-slate-700">{row.party}</b></p>}
-            {row.ref && <p>อ้างอิง: <b className="text-slate-700">{row.ref}</b></p>}
+          <div className="text-xs text-slate-500 dark:text-slate-400 space-y-1 border-t border-slate-100 dark:border-slate-800 pt-3">
+            <p>ชนิดรายการ: <b className="text-slate-700 dark:text-slate-200">{row.kind || '-'}</b></p>
+            {row.party && <p>{row.side === 'in' ? 'บริษัท' : 'หน่วยงาน'}: <b className="text-slate-700 dark:text-slate-200">{row.party}</b></p>}
+            {row.ref && <p>อ้างอิง: <b className="text-slate-700 dark:text-slate-200">{row.ref}</b></p>}
           </div>
         </div>
       </div>

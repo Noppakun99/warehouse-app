@@ -22,8 +22,8 @@ import DrugSearchBar from './DrugSearchBar';
 function IsoDateInput({ value, onChange, className = '', ring = 'focus-within:ring-[#1E90FF]' }) {
   const display = iso => { if (!iso) return null; const [y,m,d] = iso.split('-'); return `${d}/${m}/${Number(y)+543}`; }
   return (
-    <div className={`relative flex items-center bg-white border border-slate-300 rounded-xl focus-within:ring-2 ${ring} ${className}`}>
-      <span className={`px-3 py-2 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
+    <div className={`relative flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl focus-within:ring-2 ${ring} ${className}`}>
+      <span className={`px-3 py-2 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>{display(value) || 'dd/mm/yyyy'}</span>
       <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
         onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }}
         className="absolute inset-0 opacity-0 w-full cursor-pointer" />
@@ -53,26 +53,26 @@ const RefreshCtx = React.createContext(null);
 function DrugTypeBadge({ type }) {
   if (!type || type === '-') return null;
   const t = type.trim().toLowerCase();
-  let cls = 'bg-slate-100 text-slate-600';
-  if (t.includes('เม็ด') || t.includes('tablet') || t.includes('cap')) cls = 'bg-blue-100 text-blue-700';
-  else if (t.includes('น้ำ') || t.includes('syrup') || t.includes('liquid') || t.includes('sol')) cls = 'bg-emerald-100 text-emerald-700';
-  else if (t.includes('ฉีด') || t.includes('inject') || t.includes('iv') || t.includes('im')) cls = 'bg-rose-100 text-rose-700';
-  else if (t.includes('apply') || t.includes('cream') || t.includes('oint') || t.includes('ทา')) cls = 'bg-amber-100 text-amber-700';
-  else if (t.includes('inhale') || t.includes('สูด') || t.includes('spray')) cls = 'bg-purple-100 text-purple-700';
+  let cls = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
+  if (t.includes('เม็ด') || t.includes('tablet') || t.includes('cap')) cls = 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300';
+  else if (t.includes('น้ำ') || t.includes('syrup') || t.includes('liquid') || t.includes('sol')) cls = 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300';
+  else if (t.includes('ฉีด') || t.includes('inject') || t.includes('iv') || t.includes('im')) cls = 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300';
+  else if (t.includes('apply') || t.includes('cream') || t.includes('oint') || t.includes('ทา')) cls = 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300';
+  else if (t.includes('inhale') || t.includes('สูด') || t.includes('spray')) cls = 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300';
   return (
     <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>{type}</span>
   );
 }
 
 const STATUS_CONFIG = {
-  pending:   { label: 'รอดำเนินการ',    badge: 'bg-amber-100  text-amber-700  border border-amber-300'   },
-  approved:  { label: 'อนุมัติแล้ว',    badge: 'bg-green-100  text-green-700  border border-green-300'   },
-  partial:   { label: 'อนุมัติบางส่วน', badge: 'bg-orange-100 text-orange-700 border border-orange-300'  },
-  rejected:  { label: 'ไม่อนุมัติ',     badge: 'bg-red-100    text-red-700    border border-red-300'     },
-  picking:   { label: 'กำลังจัดยา',    badge: 'bg-purple-100 text-purple-700 border border-purple-300'  },
-  ready:     { label: 'รอตรวจนับ',     badge: 'bg-indigo-100 text-indigo-700 border border-indigo-300'  },
-  dispensed: { label: 'จ่ายยาแล้ว',    badge: 'bg-blue-100   text-blue-700   border border-blue-300'    },
-  received:  { label: 'รับยาแล้ว',     badge: 'bg-teal-100   text-teal-700   border border-teal-300'    },
+  pending:   { label: 'รอดำเนินการ',    badge: 'bg-amber-100 dark:bg-amber-950/60  text-amber-700 dark:text-amber-300  border border-amber-300 dark:border-amber-800/60'   },
+  approved:  { label: 'อนุมัติแล้ว',    badge: 'bg-green-100 dark:bg-green-950/60  text-green-700 dark:text-green-300  border border-green-300 dark:border-green-800/60'   },
+  partial:   { label: 'อนุมัติบางส่วน', badge: 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-800/60'  },
+  rejected:  { label: 'ไม่อนุมัติ',     badge: 'bg-red-100 dark:bg-red-950/60    text-red-700 dark:text-red-300    border border-red-300 dark:border-red-800/60'     },
+  picking:   { label: 'กำลังจัดยา',    badge: 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800/60'  },
+  ready:     { label: 'รอตรวจนับ',     badge: 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800/60'  },
+  dispensed: { label: 'จ่ายยาแล้ว',    badge: 'bg-blue-100 dark:bg-blue-950/60   text-blue-700 dark:text-blue-300   border border-blue-300 dark:border-blue-800/60'    },
+  received:  { label: 'รับยาแล้ว',     badge: 'bg-teal-100 dark:bg-teal-950/60   text-teal-700 dark:text-teal-300   border border-teal-300 dark:border-teal-800/60'    },
 };
 
 const exportCSV = (reqs, filename) => {
@@ -299,16 +299,16 @@ const drugPreview = (items) => {
 function PageHeader({ onBack, title, subtitle, children }) {
   const onRefresh = React.useContext(RefreshCtx);
   return (
-    <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-3">
-      <button onClick={onBack} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors">
+    <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center gap-3">
+      <button onClick={onBack} className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">
         <ArrowLeft size={20} />
       </button>
       <div
         className={`flex-1 min-w-0${onRefresh ? ' hover:opacity-70 transition-opacity cursor-pointer' : ''}`}
         onClick={onRefresh}
       >
-        {title    && <p className="font-bold text-slate-800 truncate text-lg leading-tight">{title}</p>}
-        {subtitle && <p className="text-slate-500 truncate text-sm">{subtitle}</p>}
+        {title    && <p className="font-bold text-slate-800 dark:text-slate-100 truncate text-lg leading-tight">{title}</p>}
+        {subtitle && <p className="text-slate-500 dark:text-slate-400 truncate text-sm">{subtitle}</p>}
       </div>
       {children}
     </div>
@@ -332,7 +332,7 @@ export default function RequisitionApp({ onBack, onRefresh, prefilledUser = null
 
   return (
     <RefreshCtx.Provider value={onRefresh}>
-      <div className="min-h-screen text-slate-800 font-sans" style={{background:'#F0F8FF'}}>
+      <div className="min-h-screen text-slate-800 dark:text-slate-100 font-sans" style={{background:'#F0F8FF'}}>
         {view === 'home'      && <HomeView      onSelect={setView} onBack={onBack} />}
         {view === 'requester' && <RequesterRoot onBack={() => prefilledUser ? onBack() : setView('home')} prefilledUser={prefilledUser} initialStep={initialStep} auth={auth} />}
         {view === 'staff' && (
@@ -351,32 +351,32 @@ export default function RequisitionApp({ onBack, onRefresh, prefilledUser = null
 function HomeView({ onSelect, onBack }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 relative">
-      <button onClick={onBack} className="absolute top-5 left-5 flex items-center gap-1.5 text-slate-500 hover:text-[#1E90FF] text-sm transition-colors">
+      <button onClick={onBack} className="absolute top-5 left-5 flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-[#1E90FF] text-sm transition-colors">
         <ArrowLeft size={16} /> กลับหน้าหลัก
       </button>
       <div className="text-center mb-10">
-        <div className="inline-flex items-center justify-center w-20 h-20 bg-indigo-100 rounded-2xl mb-4">
+        <div className="inline-flex items-center justify-center w-20 h-20 bg-indigo-100 dark:bg-indigo-950/60 rounded-2xl mb-4">
           <Package size={40} className="text-[#1E90FF]" />
         </div>
-        <h1 className="text-3xl font-bold text-slate-800">ระบบเบิกยาออนไลน์</h1>
-        <p className="text-slate-500 mt-2">เลือกบทบาทของคุณเพื่อเข้าใช้งาน</p>
+        <h1 className="text-3xl font-bold text-slate-800 dark:text-slate-100">ระบบเบิกยาออนไลน์</h1>
+        <p className="text-slate-500 dark:text-slate-400 mt-2">เลือกบทบาทของคุณเพื่อเข้าใช้งาน</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-md">
         <button onClick={() => onSelect('requester')}
-          className="group bg-white border-2 border-slate-200 hover:border-blue-400 rounded-2xl p-8 text-center transition-all shadow-sm hover:shadow-md">
-          <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+          className="group bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 hover:border-blue-400 rounded-2xl p-8 text-center transition-all shadow-sm hover:shadow-md">
+          <div className="w-14 h-14 bg-blue-100 dark:bg-blue-950/60 rounded-xl flex items-center justify-center mx-auto mb-3">
             <Package size={32} className="text-blue-600" />
           </div>
-          <div className="font-bold text-lg text-slate-800">ผู้เบิก</div>
-          <div className="text-slate-500 text-sm mt-1">หน่วยงาน</div>
+          <div className="font-bold text-lg text-slate-800 dark:text-slate-100">ผู้เบิก</div>
+          <div className="text-slate-500 dark:text-slate-400 text-sm mt-1">หน่วยงาน</div>
         </button>
         <button onClick={() => onSelect('staff')}
-          className="group bg-white border-2 border-slate-200 hover:border-emerald-400 rounded-2xl p-8 text-center transition-all shadow-sm hover:shadow-md">
-          <div className="w-14 h-14 bg-emerald-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+          className="group bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 hover:border-emerald-400 rounded-2xl p-8 text-center transition-all shadow-sm hover:shadow-md">
+          <div className="w-14 h-14 bg-emerald-100 dark:bg-emerald-950/60 rounded-xl flex items-center justify-center mx-auto mb-3">
             <CheckCircle size={32} className="text-emerald-600" />
           </div>
-          <div className="font-bold text-lg text-slate-800">เจ้าหน้าที่คลังยา</div>
-          <div className="text-slate-500 text-sm mt-1">อนุมัติ / จ่ายยา</div>
+          <div className="font-bold text-lg text-slate-800 dark:text-slate-100">เจ้าหน้าที่คลังยา</div>
+          <div className="text-slate-500 dark:text-slate-400 text-sm mt-1">อนุมัติ / จ่ายยา</div>
         </button>
       </div>
     </div>
@@ -441,24 +441,24 @@ function RequesterLogin({ onLogin, onBack }) {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 relative">
-      <button onClick={onBack} className="absolute top-5 left-5 flex items-center gap-1.5 text-slate-500 hover:text-[#1E90FF] text-sm transition-colors">
+      <button onClick={onBack} className="absolute top-5 left-5 flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-[#1E90FF] text-sm transition-colors">
         <ArrowLeft size={16} /> กลับ
       </button>
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
+      <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8">
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 bg-blue-100 rounded-xl mb-3">
+          <div className="inline-flex items-center justify-center w-14 h-14 bg-blue-100 dark:bg-blue-950/60 rounded-xl mb-3">
             <Package size={28} className="text-blue-600" />
           </div>
-          <h2 className="text-xl font-bold text-slate-800">ข้อมูลผู้เบิก</h2>
+          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">ข้อมูลผู้เบิก</h2>
         </div>
         <form onSubmit={e => { e.preventDefault(); if (name.trim() && dept) onLogin({ name: name.trim(), department: dept }); }} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">ชื่อ-สกุล ผู้เบิก</label>
+            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">ชื่อ-สกุล ผู้เบิก</label>
             <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="กรอกชื่อ-สกุล" required
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF] focus:border-transparent" />
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF] focus:border-transparent" />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">หน่วยงาน</label>
+            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">หน่วยงาน</label>
             <SearchableSelect value={dept} onChange={setDept}
               options={departments} placeholder="-- เลือกหน่วยงาน --"
               className="w-full" />
@@ -947,7 +947,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-100">
+    <div className="min-h-screen flex flex-col bg-slate-100 dark:bg-slate-800">
       {/* Toast notification */}
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-green-600 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 max-w-sm w-full mx-4">
@@ -960,7 +960,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
       )}
 
       <PageHeader onBack={onBack} title={info.name} subtitle={info.department}>
-        <button onClick={onHistory} className="transition-colors px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 hover:border-slate-400 flex items-center gap-1.5 text-slate-700">
+        <button onClick={onHistory} className="transition-colors px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-400 flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
           <FileText size={16} strokeWidth={2} />
           <span className="text-sm font-medium">ประวัติการเบิก</span>
         </button>
@@ -969,9 +969,9 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
       {/* Pending notification */}
       {pendingCount > 0 && (
         <button onClick={onHistory}
-          className="w-full flex items-center gap-2 px-4 py-3 bg-amber-50 border-b border-amber-200 text-left hover:bg-amber-100 transition-colors">
+          className="w-full flex items-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 text-left hover:bg-amber-100 dark:hover:bg-amber-950/70 transition-colors">
           <Clock size={15} className="text-amber-500 shrink-0" />
-          <span className="text-sm text-amber-800 font-medium">
+          <span className="text-sm text-amber-800 dark:text-amber-300 font-medium">
             มี <span className="font-bold">{pendingCount}</span> ใบเบิกรอดำเนินการ
           </span>
           <ChevronRight size={14} className="text-amber-400 ml-auto" />
@@ -979,25 +979,25 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
       )}
 
       {/* Search Area */}
-      <div className="bg-white border-b border-slate-200 px-4 pt-4 pb-5">
-        <p className="text-slate-500 text-sm mb-2 font-medium">ค้นหายาในคลัง</p>
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 pt-4 pb-5">
+        <p className="text-slate-500 dark:text-slate-400 text-sm mb-2 font-medium">ค้นหายาในคลัง</p>
         <div className="relative" ref={searchRef}>
-          <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" />
+          <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 z-10" />
           <input type="text" value={q}
             onChange={e => { setQ(e.target.value); setShowDropdown(true); }}
             onFocus={() => { if (q.trim()) setShowDropdown(true); }}
             placeholder="ชื่อยาหรือรหัสยา..." autoFocus
-            className="w-full bg-slate-100 rounded-xl pl-11 pr-10 py-3.5 text-slate-800 placeholder-slate-400 text-base focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white border border-slate-200" />
+            className="w-full bg-slate-100 dark:bg-slate-800 rounded-xl pl-11 pr-10 py-3.5 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-base focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white border border-slate-200 dark:border-slate-700" />
           {q && (
-            <button onClick={() => { setQ(''); setRawResults([]); }} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+            <button onClick={() => { setQ(''); setRawResults([]); }} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
               <X size={18} />
             </button>
           )}
           {showDropdown && filteredSuggestions.length > 0 && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden">
+            <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 overflow-hidden">
               {filteredSuggestions.map(({ name, type }) => (
                 <button key={name} onMouseDown={e => { e.preventDefault(); setQ(name); setShowDropdown(false); }}
-                  className="w-full text-left px-4 py-3 text-base text-slate-700 hover:bg-[#F0F8FF] hover:text-[#1E90FF] transition-colors border-b border-slate-100 last:border-0">
+                  className="w-full text-left px-4 py-3 text-base text-slate-700 dark:text-slate-200 hover:bg-[#F0F8FF] hover:text-[#1E90FF] transition-colors border-b border-slate-100 dark:border-slate-800 last:border-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span>{name}</span>
                     {type && <DrugTypeBadge type={type} />}
@@ -1017,32 +1017,32 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
       {/* Results list */}
       <div className="flex-1 px-4 pt-4 pb-28 space-y-3">
         {loading && (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+          <div className="flex flex-col items-center justify-center py-16 text-slate-400 dark:text-slate-500">
             <div className="w-8 h-8 border-4 border-[#1E90FF] border-t-transparent rounded-full animate-spin mb-3" />
             <p className="text-sm">กำลังค้นหา...</p>
           </div>
         )}
 
         {!loading && q && results.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+          <div className="flex flex-col items-center justify-center py-16 text-slate-400 dark:text-slate-500">
             <Search size={48} className="mb-3 opacity-20" />
-            <p className="font-semibold text-slate-500">ไม่พบยาที่ค้นหา</p>
+            <p className="font-semibold text-slate-500 dark:text-slate-400">ไม่พบยาที่ค้นหา</p>
             <p className="text-sm mt-1">ลองใช้ชื่อสั้นกว่านี้ หรือค้นด้วยรหัสยา</p>
           </div>
         )}
 
         {/* Empty state — welcome */}
         {!q && (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 flex flex-col items-center text-center mt-1">
-            <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center mb-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8 flex flex-col items-center text-center mt-1">
+            <div className="w-16 h-16 rounded-2xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center mb-4">
               <Package size={32} className="text-[#1E90FF]" />
             </div>
-            <h3 className="font-bold text-lg text-slate-700 mb-1">ยินดีต้อนรับ</h3>
-            <p className="text-slate-400 text-sm mb-5">พิมพ์ชื่อยาหรือรหัสยาในช่องด้านบน<br />เพื่อค้นหาและเพิ่มรายการยาเข้าตะกร้า</p>
+            <h3 className="font-bold text-lg text-slate-700 dark:text-slate-200 mb-1">ยินดีต้อนรับ</h3>
+            <p className="text-slate-400 dark:text-slate-500 text-sm mb-5">พิมพ์ชื่อยาหรือรหัสยาในช่องด้านบน<br />เพื่อค้นหาและเพิ่มรายการยาเข้าตะกร้า</p>
             <div className="flex flex-wrap gap-2 justify-center text-xs">
-              <span className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full font-medium">ค้นด้วยชื่อยา</span>
-              <span className="px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-full font-medium">ค้นด้วยรหัสยา</span>
-              <span className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-full font-medium">กรอกจำนวนที่ต้องการเบิก</span>
+              <span className="px-3 py-1.5 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 rounded-full font-medium">ค้นด้วยชื่อยา</span>
+              <span className="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded-full font-medium">ค้นด้วยรหัสยา</span>
+              <span className="px-3 py-1.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 rounded-full font-medium">กรอกจำนวนที่ต้องการเบิก</span>
             </div>
           </div>
         )}
@@ -1061,35 +1061,35 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
             const outOfStock = drug.availableBase <= 0;
             const remaining = Math.max(0, drug.availableBase - (inCart?.requestedQty || 0));
             return (
-              <div key={drugKey} className={`bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200 ${outOfStock ? 'opacity-60' : ''}`}
+              <div key={drugKey} className={`bg-white dark:bg-slate-900 rounded-xl overflow-hidden shadow-sm border border-slate-200 dark:border-slate-700 ${outOfStock ? 'opacity-60' : ''}`}
                 style={{ borderLeft: `4px solid ${outOfStock ? '#CBD5E1' : accentColor}` }}>
                 <div className="px-4 py-3.5">
                   <div className="flex items-start gap-2 flex-wrap">
-                    <p className="font-bold text-lg text-slate-800 leading-snug flex-1">{drug.name}</p>
+                    <p className="font-bold text-lg text-slate-800 dark:text-slate-100 leading-snug flex-1">{drug.name}</p>
                     {drug.type && drug.type !== '-' && <DrugTypeBadge type={drug.type} />}
                   </div>
                   <div className="flex items-center gap-3 mt-1 flex-wrap">
-                    <span className="text-sm text-slate-400">รหัส: {drug.code}</span>
-                    {inCart && <span className="text-sm text-[#1E90FF] font-bold bg-blue-50 px-2 py-0.5 rounded-full">ในตะกร้า: {inCart.requestedQty.toLocaleString()}</span>}
+                    <span className="text-sm text-slate-400 dark:text-slate-500">รหัส: {drug.code}</span>
+                    {inCart && <span className="text-sm text-[#1E90FF] font-bold bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-full">ในตะกร้า: {inCart.requestedQty.toLocaleString()}</span>}
                   </div>
 
                   {/* คงเหลือรวมระดับยา — base unit เด่น + สรุปกล่องแยก packsize */}
                   {outOfStock ? (
-                    <span className="inline-flex items-center gap-1.5 mt-2.5 px-3 py-1.5 rounded-full bg-red-50 text-red-600 text-sm font-bold border border-red-200">
+                    <span className="inline-flex items-center gap-1.5 mt-2.5 px-3 py-1.5 rounded-full bg-red-50 dark:bg-red-950/40 text-red-600 text-sm font-bold border border-red-200 dark:border-red-900/60">
                       <AlertCircle size={14} /> หมดสต็อก
                     </span>
                   ) : (
                     <div className="mt-2.5">
                       <p className="text-base">
-                        <span className="text-slate-500">คงเหลือในคลัง </span>
+                        <span className="text-slate-500 dark:text-slate-400">คงเหลือในคลัง </span>
                         <span className="font-extrabold text-emerald-600">{remaining.toLocaleString()}</span>
-                        <span className="text-slate-500"> {drug.baseUnit}</span>
+                        <span className="text-slate-500 dark:text-slate-400"> {drug.baseUnit}</span>
                         {drug.reservedBase > 0 && (
-                          <span className="ml-1.5 text-xs text-slate-400">(จองแล้ว {drug.reservedBase.toLocaleString()})</span>
+                          <span className="ml-1.5 text-xs text-slate-400 dark:text-slate-500">(จองแล้ว {drug.reservedBase.toLocaleString()})</span>
                         )}
                       </p>
                       {packSummary(drug.fefoLots) && (
-                        <p className="text-xs text-slate-400 mt-0.5">= {packSummary(drug.fefoLots)}</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">= {packSummary(drug.fefoLots)}</p>
                       )}
                     </div>
                   )}
@@ -1108,23 +1108,23 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
                           {drug.fefoLots.map((l, li) => {
                             const near = isNearExpiry(l.exp);
                             return (
-                              <div key={`${l.lot}-${li}`} className="text-xs bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-2">
+                              <div key={`${l.lot}-${li}`} className="text-xs bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-800 rounded-lg px-2.5 py-2">
                                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                                  <span className="font-bold text-slate-700">{lotPackLabel(l)}</span>
-                                  <span className={`font-medium ${near ? 'text-amber-600' : 'text-slate-400'}`}>
+                                  <span className="font-bold text-slate-700 dark:text-slate-200">{lotPackLabel(l)}</span>
+                                  <span className={`font-medium ${near ? 'text-amber-600' : 'text-slate-400 dark:text-slate-500'}`}>
                                     {near && <AlertCircle size={11} className="inline mr-0.5 -mt-0.5" />}
                                     EXP {l.exp || '-'}
                                   </span>
                                 </div>
-                                <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap text-slate-500 mt-1">
-                                  <span>Lot: <span className="font-mono text-slate-600">{l.lot || '-'}</span></span>
-                                  {l.location && <span>ที่เก็บ: <span className="text-slate-600">{l.location}</span></span>}
-                                  {l.supplier && <span>บริษัท: <span className="text-slate-600">{l.supplier}</span></span>}
+                                <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap text-slate-500 dark:text-slate-400 mt-1">
+                                  <span>Lot: <span className="font-mono text-slate-600 dark:text-slate-300">{l.lot || '-'}</span></span>
+                                  {l.location && <span>ที่เก็บ: <span className="text-slate-600 dark:text-slate-300">{l.location}</span></span>}
+                                  {l.supplier && <span>บริษัท: <span className="text-slate-600 dark:text-slate-300">{l.supplier}</span></span>}
                                 </div>
                               </div>
                             );
                           })}
-                          <p className="text-[11px] text-slate-400 italic">* ประมาณการตามลำดับ FEFO — lot ที่จ่ายจริงคำนวณอีกครั้งตอนคลังจัดยา</p>
+                          <p className="text-[11px] text-slate-400 dark:text-slate-500 italic">* ประมาณการตามลำดับ FEFO — lot ที่จ่ายจริงคำนวณอีกครั้งตอนคลังจัดยา</p>
                         </div>
                       )}
                     </div>
@@ -1133,15 +1133,15 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
                   {/* Add to cart */}
                   {!outOfStock && (
                     <div className="flex items-center gap-2 flex-wrap mt-3">
-                      <span className="text-sm text-slate-500 font-medium">ขอเบิก</span>
+                      <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">ขอเบิก</span>
                       <input type="number" min="1" max={remaining}
                         value={qtyMap[drugKey] ?? 1}
                         onChange={e => {
                           setQtyMap(p => ({ ...p, [drugKey]: e.target.value }));
                           setWarnMap(p => { const n = { ...p }; delete n[drugKey]; return n; });
                         }}
-                        className={`w-24 bg-white border rounded-lg px-2 py-2 text-slate-800 text-center text-base font-semibold focus:outline-none focus:ring-2 focus:ring-[#1E90FF] ${warnMap[drugKey] ? 'border-red-400 bg-red-50' : 'border-slate-300'}`} />
-                      <span className="text-sm text-slate-500">{drug.baseUnit}</span>
+                        className={`w-24 bg-white dark:bg-slate-900 border rounded-lg px-2 py-2 text-slate-800 dark:text-slate-100 text-center text-base font-semibold focus:outline-none focus:ring-2 focus:ring-[#1E90FF] ${warnMap[drugKey] ? 'border-red-400 bg-red-50 dark:bg-red-950/40' : 'border-slate-300 dark:border-slate-600'}`} />
+                      <span className="text-sm text-slate-500 dark:text-slate-400">{drug.baseUnit}</span>
                       <button onClick={() => addToCart(drug, qtyMap[drugKey] ?? 1)}
                         className="bg-[#1E90FF] hover:bg-[#1a7fe0] text-white rounded-lg px-4 py-2 text-sm font-bold flex items-center gap-1.5 transition-colors shadow-sm ml-auto">
                         <Plus size={15} /> เพิ่มเข้าตะกร้า
@@ -1163,7 +1163,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
           className="fixed bottom-6 right-5 z-40 bg-[#1E90FF] hover:bg-[#1a7fe0] text-white rounded-2xl shadow-2xl px-5 py-3.5 flex items-center gap-2.5 transition-all active:scale-95">
           <Package size={20} />
           <span className="font-bold text-base">ตะกร้ายา</span>
-          <span className="bg-white text-[#1E90FF] rounded-full w-6 h-6 flex items-center justify-center font-black text-sm">{cart.length}</span>
+          <span className="bg-white dark:bg-slate-900 text-[#1E90FF] rounded-full w-6 h-6 flex items-center justify-center font-black text-sm">{cart.length}</span>
         </button>
       )}
     </div>
@@ -1262,16 +1262,16 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
   };
 
   if (doneInfo) return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center space-y-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-800 p-6">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-sm p-6 text-center space-y-4">
         <div className="flex justify-center"><CheckCircle size={56} className="text-emerald-500" strokeWidth={2} /></div>
-        <h2 className="text-xl font-black text-slate-800">ส่งใบเบิกสำเร็จ</h2>
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-left space-y-2 text-sm">
-          <div className="flex justify-between"><span className="text-slate-500">เลขที่ใบเบิก</span><span className="font-bold text-[#1E90FF]">{doneInfo.reqNumber}</span></div>
-          <div className="flex justify-between"><span className="text-slate-500">วันที่</span><span className="font-semibold text-slate-800">{doneInfo.date} {doneInfo.time}</span></div>
-          <div className="flex justify-between"><span className="text-slate-500">หน่วยงาน</span><span className="font-semibold text-slate-800">{doneInfo.department}</span></div>
-          <div className="flex justify-between"><span className="text-slate-500">ชื่อผู้ส่ง</span><span className="font-semibold text-slate-800">{doneInfo.name}</span></div>
-          <div className="flex justify-between"><span className="text-slate-500">จำนวนรายการ</span><span className="font-bold text-emerald-600">{doneInfo.itemCount} รายการ</span></div>
+        <h2 className="text-xl font-black text-slate-800 dark:text-slate-100">ส่งใบเบิกสำเร็จ</h2>
+        <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 text-left space-y-2 text-sm">
+          <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">เลขที่ใบเบิก</span><span className="font-bold text-[#1E90FF]">{doneInfo.reqNumber}</span></div>
+          <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">วันที่</span><span className="font-semibold text-slate-800 dark:text-slate-100">{doneInfo.date} {doneInfo.time}</span></div>
+          <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">หน่วยงาน</span><span className="font-semibold text-slate-800 dark:text-slate-100">{doneInfo.department}</span></div>
+          <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">ชื่อผู้ส่ง</span><span className="font-semibold text-slate-800 dark:text-slate-100">{doneInfo.name}</span></div>
+          <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">จำนวนรายการ</span><span className="font-bold text-emerald-600">{doneInfo.itemCount} รายการ</span></div>
         </div>
         <button onClick={onSubmitted}
           className="w-full bg-[#1E90FF] hover:bg-[#1a7fe0] text-white rounded-xl py-3 font-bold text-base transition-colors">
@@ -1292,13 +1292,13 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
       {cart.length > 1 && (
         <div className="px-4 pt-3 pb-1">
           <div className="relative">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}
               placeholder="ค้นหายาในตะกร้า..."
-              className="w-full border border-slate-300 rounded-xl pl-9 pr-4 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1E90FF] bg-white" />
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-9 pr-4 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1E90FF] bg-white dark:bg-slate-900" />
           </div>
           {search && (
-            <p className="text-xs text-slate-400 mt-1.5 px-1">
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5 px-1">
               แสดง {filteredCart.length} / {cart.length} รายการ
             </p>
           )}
@@ -1307,9 +1307,9 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
 
       <div className="flex-1 p-4 space-y-2 pb-32">
         {cart.length === 0
-          ? <p className="text-center text-slate-500 py-20">ยังไม่มีรายการยา</p>
+          ? <p className="text-center text-slate-500 dark:text-slate-400 py-20">ยังไม่มีรายการยา</p>
           : filteredCart.length === 0
-            ? <p className="text-center text-slate-500 py-10">ไม่พบยาที่ค้นหา</p>
+            ? <p className="text-center text-slate-500 dark:text-slate-400 py-10">ไม่พบยาที่ค้นหา</p>
           : filteredCart.map((item) => {
               const i = cart.indexOf(item);
               const overStock = item.availableBase != null && item.requestedQty > item.availableBase;
@@ -1317,38 +1317,38 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
               // preview: คาดว่าจะได้ lot อะไรบ้าง ตาม FEFO (lot ตรวจรับแล้ว) — authoritative recompute ตอน picking
               const alloc = item.fefoLots ? allocateFefo(item.requestedQty, item.fefoLots) : null;
               return (
-            <div key={i} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+            <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm overflow-hidden">
               <div className="p-4">
                 <div className="flex items-start gap-3">
                   {/* ลำดับการเบิก */}
-                  <span className="shrink-0 w-7 h-7 rounded-full bg-blue-50 text-[#1E90FF] font-bold text-sm flex items-center justify-center mt-0.5">{i + 1}</span>
+                  <span className="shrink-0 w-7 h-7 rounded-full bg-blue-50 dark:bg-blue-950/40 text-[#1E90FF] font-bold text-sm flex items-center justify-center mt-0.5">{i + 1}</span>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start gap-2 flex-wrap">
-                      <p className="font-bold text-lg text-slate-800 leading-snug flex-1">{item.name}</p>
+                      <p className="font-bold text-lg text-slate-800 dark:text-slate-100 leading-snug flex-1">{item.name}</p>
                       {item.drugType && item.drugType !== '-' && <DrugTypeBadge type={item.drugType} />}
                     </div>
-                    <p className="text-sm text-slate-400 mt-0.5">รหัส: {item.code}</p>
+                    <p className="text-sm text-slate-400 dark:text-slate-500 mt-0.5">รหัส: {item.code}</p>
                     {item.availableBase != null && (
                       <p className="text-sm mt-1">
-                        <span className="text-slate-500">คงเหลือในคลัง </span>
+                        <span className="text-slate-500 dark:text-slate-400">คงเหลือในคลัง </span>
                         <span className="font-bold text-emerald-600">{Number(item.availableBase).toLocaleString()}</span>
-                        <span className="text-slate-500"> {item.unit || ''}</span>
+                        <span className="text-slate-500 dark:text-slate-400"> {item.unit || ''}</span>
                       </p>
                     )}
                   </div>
                   <button onClick={() => { setCart(p => p.filter((_,j)=>j!==i)); setError(''); }}
-                    className="shrink-0 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg p-2 transition-colors"><Trash2 size={18} /></button>
+                    className="shrink-0 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg p-2 transition-colors"><Trash2 size={18} /></button>
                 </div>
 
                 {/* จำนวนที่ขอเบิก */}
                 <div className="flex items-center gap-2 mt-3">
-                  <span className="text-sm text-slate-500 font-medium">ขอเบิก</span>
-                  <button onClick={() => updateQty(i, item.requestedQty-1)} className="bg-slate-100 hover:bg-slate-200 rounded-lg p-2 transition-colors"><Minus size={16} /></button>
+                  <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">ขอเบิก</span>
+                  <button onClick={() => updateQty(i, item.requestedQty-1)} className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-lg p-2 transition-colors"><Minus size={16} /></button>
                   <input type="number" min="1" value={item.requestedQty} onChange={e => updateQty(i, e.target.value)}
-                    className={`w-20 border rounded-lg px-2 py-2 text-slate-800 text-center text-base font-semibold focus:outline-none focus:ring-2 focus:ring-[#1E90FF] ${overStock ? 'border-red-400 bg-red-50' : 'border-slate-300 bg-slate-50'}`} />
+                    className={`w-20 border rounded-lg px-2 py-2 text-slate-800 dark:text-slate-100 text-center text-base font-semibold focus:outline-none focus:ring-2 focus:ring-[#1E90FF] ${overStock ? 'border-red-400 bg-red-50 dark:bg-red-950/40' : 'border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800'}`} />
                   <button onClick={() => updateQty(i, item.requestedQty+1)} disabled={item.availableBase != null && item.requestedQty >= item.availableBase}
-                    className="bg-slate-100 hover:bg-slate-200 disabled:opacity-40 rounded-lg p-2 transition-colors"><Plus size={16} /></button>
-                  <span className="text-sm text-slate-500">{item.unit || ''}</span>
+                    className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 disabled:opacity-40 rounded-lg p-2 transition-colors"><Plus size={16} /></button>
+                  <span className="text-sm text-slate-500 dark:text-slate-400">{item.unit || ''}</span>
                 </div>
                 {overStock && (
                   <p className="text-xs text-red-600 font-medium mt-1.5 flex items-center gap-1"><AlertCircle size={12} /> เกินคงเหลือในคลัง ({Number(item.availableBase).toLocaleString()} {item.unit || ''})</p>
@@ -1356,34 +1356,34 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
 
                 {/* Preview: คาดว่าจะได้ lot อะไรบ้าง ตาม FEFO (lot ตรวจรับแล้ว) */}
                 {alloc && alloc.allocation.length > 0 && (
-                  <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
-                    <p className="text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
+                  <div className="mt-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1">
                       <Package size={12} /> คาดว่าจะจ่ายจาก Lot (ใกล้หมดอายุก่อน)
                     </p>
                     <div className="space-y-1">
                       {alloc.allocation.map((a, ai) => (
                         <div key={ai} className="grid grid-cols-[1fr_auto] gap-x-2 gap-y-1 items-start text-sm">
                           <div className="flex items-center gap-x-2 gap-y-1 flex-wrap min-w-0">
-                            <span className="font-mono font-semibold text-slate-700">Lot {a.lot || '-'}</span>
-                            <span className="text-xs text-slate-400">Exp {fmtExp(a.exp)}</span>
+                            <span className="font-mono font-semibold text-slate-700 dark:text-slate-200">Lot {a.lot || '-'}</span>
+                            <span className="text-xs text-slate-400 dark:text-slate-500">Exp {fmtExp(a.exp)}</span>
                             {isNearExpiry(a.exp) && (
-                              <span className="inline-flex items-center gap-0.5 text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 font-semibold"><Clock size={10}/> ใกล้หมดอายุ · {expCountdown(a.exp)}</span>
+                              <span className="inline-flex items-center gap-0.5 text-xs bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 rounded px-1.5 py-0.5 font-semibold"><Clock size={10}/> ใกล้หมดอายุ · {expCountdown(a.exp)}</span>
                             )}
                           </div>
                           <div className="text-right whitespace-nowrap">
                             <span className="font-bold text-emerald-600">{a.base.toLocaleString()} {item.unit || ''}</span>
-                            <span className="text-xs text-slate-400"> ({a.packs.toLocaleString()} × {a.unit})</span>
+                            <span className="text-xs text-slate-400 dark:text-slate-500"> ({a.packs.toLocaleString()} × {a.unit})</span>
                           </div>
                         </div>
                       ))}
                     </div>
                     {alloc.overBase > 0 && (
-                      <p className="text-xs text-amber-600 font-semibold mt-2 pt-2 border-t border-amber-100 flex items-center gap-1">
+                      <p className="text-xs text-amber-600 font-semibold mt-2 pt-2 border-t border-amber-100 dark:border-amber-900/50 flex items-center gap-1">
                         <AlertCircle size={12} /> จ่ายเต็มกล่อง — ได้ {alloc.allocatedBase.toLocaleString()} {item.unit || ''} (เกินที่ขอ {alloc.overBase.toLocaleString()})
                       </p>
                     )}
                     {!alloc.fulfilled && (
-                      <p className="text-xs text-red-600 font-semibold mt-2 pt-2 border-t border-red-100 flex items-center gap-1">
+                      <p className="text-xs text-red-600 font-semibold mt-2 pt-2 border-t border-red-100 dark:border-red-900/50 flex items-center gap-1">
                         <AlertCircle size={12} /> ของไม่พอเบิก — ขาดอีก {alloc.shortfallBase.toLocaleString()} {item.unit || ''} (มีให้จ่าย {alloc.allocatedBase.toLocaleString()})
                       </p>
                     )}
@@ -1394,20 +1394,20 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
                 {noteOpen ? (
                   <input type="text" value={item.note || ''} onChange={e => updateNote(i, e.target.value)} autoFocus={!item.note}
                     placeholder="หมายเหตุรายการนี้..."
-                    className="w-full mt-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-700 placeholder-slate-400 text-base focus:outline-none focus:ring-1 focus:ring-[#1E90FF]" />
+                    className="w-full mt-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-700 dark:text-slate-200 placeholder-slate-400 text-base focus:outline-none focus:ring-1 focus:ring-[#1E90FF]" />
                 ) : (
                   <button onClick={() => setOpenNotes(p => ({ ...p, [i]: true }))}
-                    className="mt-2.5 inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-[#1E90FF] transition-colors">
+                    className="mt-2.5 inline-flex items-center gap-1.5 text-sm text-slate-400 dark:text-slate-500 hover:text-[#1E90FF] transition-colors">
                     <Plus size={14} /> เพิ่มหมายเหตุ
                   </button>
                 )}
               </div>
             </div>
           ); })}
-        {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-xl px-3 py-2 flex items-center gap-2"><AlertCircle size={14}/>{error}</p>}
+        {error && <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2 flex items-center gap-2"><AlertCircle size={14}/>{error}</p>}
       </div>
       {cart.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200">
+        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
           <button onClick={submit} disabled={loading}
             className="w-full bg-[#1E90FF] hover:bg-[#1a7fe0] disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3.5 font-semibold flex items-center justify-center gap-2 transition-all">
             <Send size={18} />{loading ? 'กำลังส่งใบเบิก...' : `ส่งใบเบิก (${cart.length} รายการ)`}
@@ -1985,11 +1985,11 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
   return (
     <div className="min-h-screen flex flex-col">
       <PageHeader onBack={onBack} title="ประวัติการเบิกยา">
-        <button onClick={load} className="text-slate-500 hover:text-[#1E90FF] p-1 transition-colors"><RefreshCcw size={18} /></button>
+        <button onClick={load} className="text-slate-500 dark:text-slate-400 hover:text-[#1E90FF] p-1 transition-colors"><RefreshCcw size={18} /></button>
       </PageHeader>
 
       {actionMsg && (
-        <div className="mx-4 mt-3 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-emerald-800 text-sm font-medium">
+        <div className="mx-4 mt-3 flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-xl px-4 py-3 text-emerald-800 dark:text-emerald-300 text-sm font-medium">
           <CheckCircle size={16} className="text-emerald-600 shrink-0" /> {actionMsg}
         </div>
       )}
@@ -1998,11 +1998,11 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
         {/* Date range filter */}
         <div className="flex flex-wrap items-center gap-2">
           <IsoDateInput value={dateFrom} onChange={v => { setDateFrom(v); setLoading(true); }} className="flex-1 min-w-[130px]" />
-          <span className="text-slate-400 text-sm">–</span>
+          <span className="text-slate-400 dark:text-slate-500 text-sm">–</span>
           <IsoDateInput value={dateTo} onChange={v => { setDateTo(v); setLoading(true); }} className="flex-1 min-w-[130px]" />
           {(dateFrom || dateTo) && (
             <button onClick={() => { setDateFrom(''); setDateTo(''); }}
-              className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-100">
+              className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
               <X size={12}/> ล้าง
             </button>
           )}
@@ -2016,18 +2016,18 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
             options={historyDrugNames}
             placeholder="ค้นหายาที่เคยเบิก..."
             ringClass="focus:ring-[#1E90FF]"
-            hoverClass="hover:bg-blue-50"
+            hoverClass="hover:bg-blue-50 dark:hover:bg-blue-950/50"
             maxResults={10}
           />
         )}
         {drugSearch && (
-          <p className="text-xs text-slate-400 -mt-1">
+          <p className="text-xs text-slate-400 dark:text-slate-500 -mt-1">
             พบ {filteredList.length} ใบเบิก · ค้นหา "{drugSearch}"
           </p>
         )}
-        {loading && <p className="text-center text-slate-500 py-10">กำลังโหลด...</p>}
+        {loading && <p className="text-center text-slate-500 dark:text-slate-400 py-10">กำลังโหลด...</p>}
         {!loading && filteredList.length === 0 && (
-          <p className="text-center text-slate-500 py-20">
+          <p className="text-center text-slate-500 dark:text-slate-400 py-20">
             {drugSearch ? `ไม่พบใบเบิกที่มียา "${drugSearch}"` : 'ยังไม่มีประวัติการเบิกยา'}
           </p>
         )}
@@ -2035,15 +2035,15 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
           const cfg = STATUS_CONFIG[req.status] || STATUS_CONFIG.pending;
           const isPending = req.status === 'pending';
           return (
-            <div key={req.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+            <div key={req.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm">
               {/* div ไม่ใช่ button — ข้างในมีปุ่มพิมพ์/แก้/ลบ (button ซ้อน button = invalid HTML, hydration error) */}
               <div role="button" tabIndex={0} className="w-full p-4 text-left flex items-start justify-between gap-3 cursor-pointer"
                 onClick={() => setExpanded(expanded===req.id ? null : req.id)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(expanded===req.id ? null : req.id); } }}>
                 <div className="min-w-0">
-                  <p className="font-mono text-xs text-slate-400">{req.req_number}</p>
-                  <p className="font-semibold text-slate-800 mt-0.5">{req.department}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="font-mono text-xs text-slate-400 dark:text-slate-500">{req.req_number}</p>
+                  <p className="font-semibold text-slate-800 dark:text-slate-100 mt-0.5">{req.department}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {new Date(req.created_at).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'})}
                     &nbsp;· {req.requisition_items?.length||0} รายการ
                   </p>
@@ -2056,39 +2056,39 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                 <div className="flex items-center gap-2 shrink-0">
                   <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${cfg.badge}`}>{cfg.label}</span>
                   <button onClick={e => { e.stopPropagation(); printReq(req, window.open('', '_blank')); }}
-                    className="p-1.5 text-slate-400 hover:text-[#1E90FF] hover:bg-[#F0F8FF] rounded-lg transition-colors" title="พิมพ์ใบเบิก">
+                    className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-[#1E90FF] hover:bg-[#F0F8FF] rounded-lg transition-colors" title="พิมพ์ใบเบิก">
                     <Printer size={15} />
                   </button>
                   <button onClick={e => { e.stopPropagation(); printCoverForm(req, window.open('', '_blank')); }}
-                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="พิมพ์ใบปะหน้า (ใบเบิกเวชภัณฑ์ยา)">
+                    className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-lg transition-colors" title="พิมพ์ใบปะหน้า (ใบเบิกเวชภัณฑ์ยา)">
                     <FileText size={15} />
                   </button>
                   <button onClick={e => { e.stopPropagation(); exportReqExcel([req], auth); }}
-                    className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Export Excel">
+                    className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded-lg transition-colors" title="Export Excel">
                     <FileDown size={15} />
                   </button>
                   {isPending && (<>
                     <button onClick={e => { e.stopPropagation(); openEdit(req); }}
-                      className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="แก้ไขใบเบิก">
+                      className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-lg transition-colors" title="แก้ไขใบเบิก">
                       <Pencil size={15} />
                     </button>
                     <button onClick={e => { e.stopPropagation(); setConfirmModal({ type: 'delete', req }); }}
-                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="ลบใบเบิก">
+                      className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors" title="ลบใบเบิก">
                       <Trash2 size={15} />
                     </button>
                   </>)}
-                  <ChevronRight size={16} className={`text-slate-400 transition-transform ${expanded===req.id?'rotate-90':''}`} />
+                  <ChevronRight size={16} className={`text-slate-400 dark:text-slate-500 transition-transform ${expanded===req.id?'rotate-90':''}`} />
                 </div>
               </div>
               {expanded===req.id && (
-                <div className="border-t border-slate-100 p-4 space-y-2 bg-slate-50">
+                <div className="border-t border-slate-100 dark:border-slate-800 p-4 space-y-2 bg-slate-50 dark:bg-slate-800">
                   {req.requisition_items?.map(item => (
-                    <div key={item.id} className="flex items-center justify-between text-sm gap-2 bg-white rounded-lg px-3 py-2 border border-slate-100">
+                    <div key={item.id} className="flex items-center justify-between text-sm gap-2 bg-white dark:bg-slate-900 rounded-lg px-3 py-2 border border-slate-100 dark:border-slate-800">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <DrugTypeBadge type={item.drug_type} />
-                          <span className="text-slate-800 font-medium">{item.drug_name}</span>
-                          <span className="text-slate-400 text-xs">({item.drug_unit||'-'})</span>
+                          <span className="text-slate-800 dark:text-slate-100 font-medium">{item.drug_name}</span>
+                          <span className="text-slate-400 dark:text-slate-500 text-xs">({item.drug_unit||'-'})</span>
                         </div>
                         {item.approved_qty!=null && (
                           <span className={`text-xs font-semibold ${item.approved_qty>0?'text-emerald-600':'text-red-500'}`}>
@@ -2104,35 +2104,35 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                         {Array.isArray(item.picked_allocation) && item.picked_allocation.length > 0 ? (
                           <div className="mt-1 space-y-0.5">
                             {item.picked_allocation.map((a, ai) => (
-                              <p key={ai} className="text-xs text-slate-500 flex items-center gap-1 flex-wrap">
-                                <span className="font-mono font-medium text-slate-600">Lot {a.lot || '-'}</span>
-                                <span className="text-slate-400">· Exp {fmtExp(a.exp)} · {Number(a.base).toLocaleString()} {item.drug_unit||''}</span>
+                              <p key={ai} className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 flex-wrap">
+                                <span className="font-mono font-medium text-slate-600 dark:text-slate-300">Lot {a.lot || '-'}</span>
+                                <span className="text-slate-400 dark:text-slate-500">· Exp {fmtExp(a.exp)} · {Number(a.base).toLocaleString()} {item.drug_unit||''}</span>
                                 <span className="text-indigo-600 font-medium">({allocPackLabel(a, item.drug_unit)})</span>
                                 {isNearExpiry(a.exp) && (
-                                  <span className="inline-flex items-center gap-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded px-1 py-0.5 font-semibold"><Clock size={9}/> ใกล้หมดอายุ · {expCountdown(a.exp)}</span>
+                                  <span className="inline-flex items-center gap-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 rounded px-1 py-0.5 font-semibold"><Clock size={9}/> ใกล้หมดอายุ · {expCountdown(a.exp)}</span>
                                 )}
                               </p>
                             ))}
                           </div>
                         ) : item.picked_lot ? (
-                          <p className="mt-1 text-xs text-slate-500">
-                            <span className="font-mono font-medium text-slate-600">{item.picked_lot}</span>
-                            {item.picked_exp && <span className="text-slate-400"> · Exp {fmtExp(item.picked_exp)}</span>}
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            <span className="font-mono font-medium text-slate-600 dark:text-slate-300">{item.picked_lot}</span>
+                            {item.picked_exp && <span className="text-slate-400 dark:text-slate-500"> · Exp {fmtExp(item.picked_exp)}</span>}
                           </p>
                         ) : null}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-slate-500 text-xs">ขอ <b>{item.requested_qty}</b>{item.drug_unit && item.drug_unit !== '-' && <span> × {item.drug_unit}</span>}</span>
+                        <span className="text-slate-500 dark:text-slate-400 text-xs">ขอ <b>{item.requested_qty}</b>{item.drug_unit && item.drug_unit !== '-' && <span> × {item.drug_unit}</span>}</span>
                       </div>
                     </div>
                   ))}
-                  {req.note && <p className="text-xs text-slate-400 pt-2 border-t border-slate-200">หมายเหตุ: {req.note}</p>}
+                  {req.note && <p className="text-xs text-slate-400 dark:text-slate-500 pt-2 border-t border-slate-200 dark:border-slate-700">หมายเหตุ: {req.note}</p>}
                   {req.status === 'dispensed' && (
-                    <div className="pt-2 border-t border-slate-200">
+                    <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
                       {confirmingReceived === req.id ? (
                         <div className="flex gap-2">
                           <button onClick={() => setConfirmingReceived(null)}
-                            className="flex-1 bg-white border border-slate-200 text-slate-600 rounded-xl py-2 text-sm font-medium">
+                            className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl py-2 text-sm font-medium">
                             ยกเลิก
                           </button>
                           <button onClick={() => handleConfirmReceived(req)}
@@ -2142,7 +2142,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                         </div>
                       ) : (
                         <button onClick={e => { e.stopPropagation(); setConfirmingReceived(req.id); }}
-                          className="w-full bg-teal-50 hover:bg-teal-100 border border-teal-300 text-teal-700 rounded-xl py-2.5 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+                          className="w-full bg-teal-50 dark:bg-teal-950/40 hover:bg-teal-100 dark:hover:bg-teal-950/70 border border-teal-300 dark:border-teal-800/60 text-teal-700 dark:text-teal-300 rounded-xl py-2.5 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
                           <CheckCircle size={15}/> ยืนยันรับยาแล้ว
                         </button>
                       )}
@@ -2158,27 +2158,27 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
       {/* ===== Confirmation / Edit Modal ===== */}
       {confirmModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
             {/* Header */}
-            <div className={`px-5 py-4 border-b flex items-center gap-3 ${confirmModal.type==='delete' ? 'bg-red-50 border-red-100' : 'bg-blue-50 border-blue-100'}`}>
+            <div className={`px-5 py-4 border-b flex items-center gap-3 ${confirmModal.type==='delete' ? 'bg-red-50 dark:bg-red-950/40 border-red-100 dark:border-red-900/50' : 'bg-blue-50 dark:bg-blue-950/40 border-blue-100 dark:border-blue-900/50'}`}>
               <AlertCircle size={20} className={confirmModal.type==='delete' ? 'text-red-500' : 'text-blue-500'} />
               <div>
-                <p className={`font-bold text-sm ${confirmModal.type==='delete' ? 'text-red-800' : 'text-blue-800'}`}>
+                <p className={`font-bold text-sm ${confirmModal.type==='delete' ? 'text-red-800 dark:text-red-300' : 'text-blue-800 dark:text-blue-300'}`}>
                   {confirmModal.type==='delete' ? 'ลบใบเบิก' : 'แก้ไขใบเบิก'}
                 </p>
-                <p className="text-xs text-slate-500 font-mono">{confirmModal.req.req_number}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">{confirmModal.req.req_number}</p>
               </div>
             </div>
 
             <div className="p-5 space-y-4">
               {/* Staff notification warning */}
-              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+              <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-3 py-2.5">
                 <Bell size={15} className="text-amber-500 shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-800">การดำเนินการนี้จะ<span className="font-semibold">แจ้งให้เจ้าหน้าที่คลังยาและผู้ดูแลระบบรับทราบ</span>ทันที</p>
+                <p className="text-xs text-amber-800 dark:text-amber-300">การดำเนินการนี้จะ<span className="font-semibold">แจ้งให้เจ้าหน้าที่คลังยาและผู้ดูแลระบบรับทราบ</span>ทันที</p>
               </div>
 
               {confirmModal.type === 'delete' ? (
-                <p className="text-sm text-slate-700">ต้องการลบใบเบิก <span className="font-semibold">{confirmModal.req.req_number}</span> ใช่หรือไม่? การดำเนินการนี้ไม่สามารถย้อนกลับได้</p>
+                <p className="text-sm text-slate-700 dark:text-slate-200">ต้องการลบใบเบิก <span className="font-semibold">{confirmModal.req.req_number}</span> ใช่หรือไม่? การดำเนินการนี้ไม่สามารถย้อนกลับได้</p>
               ) : (
                 <div className="space-y-3">
                   {/* Search filter — แสดงเมื่อมีรายการ > 4 */}
@@ -2189,7 +2189,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                       options={(editDraft?.items || []).map(i => ({ name: i.drug_name, type: i.drug_type || '' }))}
                       placeholder="ค้นหารายการยา..."
                       ringClass="focus:ring-blue-400"
-                      hoverClass="hover:bg-blue-50"
+                      hoverClass="hover:bg-blue-50 dark:hover:bg-blue-950/50"
                       maxResults={10}
                     />
                   )}
@@ -2199,30 +2199,30 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                     .map((item, idx) => {
                     const realIdx = editDraft.items.findIndex(i => i.id === item.id);
                     return (
-                    <div key={item.id} className="flex items-center justify-between gap-3 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200">
+                    <div key={item.id} className="flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800 rounded-xl px-3 py-2 border border-slate-200 dark:border-slate-700">
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-slate-800 truncate">{item.drug_name}</p>
-                        <p className="text-xs text-slate-400">{item.drug_unit||'-'}</p>
+                        <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{item.drug_name}</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500">{item.drug_unit||'-'}</p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button onClick={() => setEditDraft(d => ({ ...d, items: d.items.map((it,i) => i===realIdx ? { ...it, requested_qty: Math.max(1, it.requested_qty-1) } : it) }))}
-                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold transition-colors">−</button>
-                        <span className="w-8 text-center font-bold text-slate-800">{item.requested_qty}</span>
+                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-200 font-bold transition-colors">−</button>
+                        <span className="w-8 text-center font-bold text-slate-800 dark:text-slate-100">{item.requested_qty}</span>
                         <button onClick={() => setEditDraft(d => ({ ...d, items: d.items.map((it,i) => i===realIdx ? { ...it, requested_qty: it.requested_qty+1 } : it) }))}
-                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold transition-colors">+</button>
+                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-200 font-bold transition-colors">+</button>
                       </div>
                     </div>
                     );
                   })}
                   {/* Note */}
                   <div>
-                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">หมายเหตุ</label>
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">หมายเหตุ</label>
                     <input type="text" value={editDraft?.note||''} onChange={e => setEditDraft(d => ({ ...d, note: e.target.value }))}
                       placeholder="หมายเหตุ (ถ้ามี)"
-                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   {editError && (
-                    <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2 flex items-start gap-1.5">
+                    <p className="text-xs text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2 flex items-start gap-1.5">
                       <AlertCircle size={13} className="shrink-0 mt-0.5"/> {editError}
                     </p>
                   )}
@@ -2233,7 +2233,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
             {/* Actions */}
             <div className="px-5 pb-5 flex gap-2">
               <button onClick={() => setConfirmModal(null)} disabled={saving}
-                className="flex-1 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl py-2.5 font-medium text-sm transition-colors">
+                className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2.5 font-medium text-sm transition-colors">
                 ยกเลิก
               </button>
               <button onClick={confirmModal.type==='delete' ? handleDelete : handleEdit} disabled={saving}
@@ -2257,33 +2257,33 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
 function DispatchConfirmModal({ req, onConfirm, onClose, loading = false }) {
   return (
     <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-        <div className="px-5 py-4 border-b border-blue-100 bg-blue-50 flex items-center gap-3">
-          <div className="w-9 h-9 bg-blue-100 rounded-xl flex items-center justify-center shrink-0">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+        <div className="px-5 py-4 border-b border-blue-100 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/40 flex items-center gap-3">
+          <div className="w-9 h-9 bg-blue-100 dark:bg-blue-950/60 rounded-xl flex items-center justify-center shrink-0">
             <Check size={18} className="text-blue-600" />
           </div>
           <div className="min-w-0">
-            <p className="font-bold text-blue-800 text-sm">ยืนยันจ่ายออก</p>
-            <p className="text-xs text-slate-500 font-mono truncate">{req.req_number}</p>
+            <p className="font-bold text-blue-800 dark:text-blue-300 text-sm">ยืนยันจ่ายออก</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">{req.req_number}</p>
           </div>
         </div>
 
         <div className="p-5 space-y-3">
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-slate-700 dark:text-slate-200">
             ต้องการจ่ายยาตามใบเบิก <span className="font-semibold">{req.department}</span> ออกจากคลังใช่หรือไม่?
           </p>
-          <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 truncate">
+          <p className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 truncate">
             {drugPreview(req.requisition_items)}
           </p>
-          <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+          <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-3 py-2.5">
             <AlertCircle size={15} className="text-amber-500 shrink-0 mt-0.5" />
-            <p className="text-xs text-amber-800">เมื่อจ่ายออกแล้ว ใบเบิกจะถูกบันทึกเป็น<span className="font-semibold">จ่ายแล้ว</span> และตัดสต็อกตามที่จัด</p>
+            <p className="text-xs text-amber-800 dark:text-amber-300">เมื่อจ่ายออกแล้ว ใบเบิกจะถูกบันทึกเป็น<span className="font-semibold">จ่ายแล้ว</span> และตัดสต็อกตามที่จัด</p>
           </div>
         </div>
 
         <div className="px-5 pb-5 flex gap-2">
           <button onClick={onClose} disabled={loading}
-            className="flex-1 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl py-2.5 font-medium text-sm transition-colors disabled:opacity-50">
+            className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2.5 font-medium text-sm transition-colors disabled:opacity-50">
             ยกเลิก
           </button>
           <button onClick={onConfirm} disabled={loading}
@@ -2400,78 +2400,78 @@ function PickingModal({ req, auth, onClose, onDone }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 bg-purple-50 flex items-center gap-3 shrink-0">
-          <div className="w-9 h-9 bg-purple-100 rounded-xl flex items-center justify-center">
+      <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-purple-50 dark:bg-purple-950/40 flex items-center gap-3 shrink-0">
+          <div className="w-9 h-9 bg-purple-100 dark:bg-purple-950/60 rounded-xl flex items-center justify-center">
             <Package size={18} className="text-purple-600" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-bold text-purple-800">เริ่มจัดยา</p>
-            <p className="text-xs text-slate-500 font-mono truncate">{req.req_number} · {req.department}</p>
+            <p className="font-bold text-purple-800 dark:text-purple-300">เริ่มจัดยา</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">{req.req_number} · {req.department}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
             <X size={18} />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">ชื่อผู้จัดยา</label>
+            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">ชื่อผู้จัดยา</label>
             <input type="text" value={pickerName} onChange={e => setPickerName(e.target.value)}
               placeholder="กรอกชื่อผู้จัดยา"
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-400" />
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-400" />
           </div>
 
           {loadingInv ? (
-            <div className="flex items-center justify-center py-8 text-slate-400 gap-2">
+            <div className="flex items-center justify-center py-8 text-slate-400 dark:text-slate-500 gap-2">
               <RefreshCcw size={18} className="animate-spin" /> กำลังโหลดข้อมูล Lot...
             </div>
           ) : (
             <div className="space-y-3">
               {itemStates.length === 0 && (
-                <p className="text-sm text-slate-500 text-center py-4">ไม่มีรายการที่อนุมัติ</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-4">ไม่มีรายการที่อนุมัติ</p>
               )}
               {itemStates.map((item) => {
                 const alloc = item.allocation || [];
                 return (
-                  <div key={item.id} className="bg-slate-50 rounded-xl border border-slate-200 p-3 space-y-2.5">
+                  <div key={item.id} className="bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2.5">
                     <div>
-                      <p className="text-sm font-semibold text-slate-800">{item.drug_name}</p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{item.drug_name}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
                         อนุมัติ <span className="font-bold text-emerald-600">{Number(item.approved_qty).toLocaleString()}</span> {item.drug_unit || ''}
                       </p>
                     </div>
                     {alloc.length > 0 ? (
                       <div>
-                        <label className="block text-xs font-semibold text-slate-500 mb-1.5">จ่ายจาก Lot (FEFO — ใกล้หมดอายุก่อน)</label>
-                        <div className="space-y-1 bg-white border border-slate-200 rounded-lg p-2.5">
+                        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">จ่ายจาก Lot (FEFO — ใกล้หมดอายุก่อน)</label>
+                        <div className="space-y-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5">
                           {alloc.map((a, ai) => {
                             const remain = remainLotPacks(item.lotOnHand?.[String(a.lot || '').trim()], a.packs);
                             return (
                             <div key={ai} className="text-sm">
                               <div className="grid grid-cols-[1fr_auto] gap-x-2 gap-y-1 items-start">
                                 <div className="flex items-center gap-x-2 gap-y-1 flex-wrap min-w-0">
-                                  <span className="font-mono font-semibold text-slate-700">Lot {a.lot || '-'}</span>
-                                  <span className="text-xs text-slate-400">Exp {fmtExp(a.exp)}</span>
+                                  <span className="font-mono font-semibold text-slate-700 dark:text-slate-200">Lot {a.lot || '-'}</span>
+                                  <span className="text-xs text-slate-400 dark:text-slate-500">Exp {fmtExp(a.exp)}</span>
                                   {isNearExpiry(a.exp) && (
-                                    <span className="inline-flex items-center gap-0.5 text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 font-semibold"><Clock size={10}/> ใกล้หมดอายุ · {expCountdown(a.exp)}</span>
+                                    <span className="inline-flex items-center gap-0.5 text-xs bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 rounded px-1.5 py-0.5 font-semibold"><Clock size={10}/> ใกล้หมดอายุ · {expCountdown(a.exp)}</span>
                                   )}
                                 </div>
                                 <div className="text-right whitespace-nowrap">
                                   <span className="font-bold text-emerald-600">{a.base.toLocaleString()} {item.drug_unit || ''}</span>
-                                  <span className="block text-xs text-slate-400">({a.packs.toLocaleString()} × {a.unit})</span>
+                                  <span className="block text-xs text-slate-400 dark:text-slate-500">({a.packs.toLocaleString()} × {a.unit})</span>
                                 </div>
                               </div>
                               {a.location && a.location !== '-' && (
-                                <p className="flex items-center gap-1 text-xs text-indigo-700 font-semibold mt-0.5">
+                                <p className="flex items-center gap-1 text-xs text-indigo-700 dark:text-indigo-300 font-semibold mt-0.5">
                                   <MapPin size={11}/> ที่เก็บ: {a.location}
                                 </p>
                               )}
                               {remain && (
-                                <p className="text-xs text-slate-400 mt-0.5">
-                                  คงเหลือก่อนจ่าย <span className="font-medium text-slate-600">{remain.before}</span>
-                                  <span className="text-slate-400"> − เบิกออก {remain.out} = </span>
-                                  <span className="font-bold text-indigo-700">{remain.label}</span>
+                                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                                  คงเหลือก่อนจ่าย <span className="font-medium text-slate-600 dark:text-slate-300">{remain.before}</span>
+                                  <span className="text-slate-400 dark:text-slate-500"> − เบิกออก {remain.out} = </span>
+                                  <span className="font-bold text-indigo-700 dark:text-indigo-300">{remain.label}</span>
                                 </p>
                               )}
                             </div>
@@ -2480,7 +2480,7 @@ function PickingModal({ req, auth, onClose, onDone }) {
                         </div>
                       </div>
                     ) : (
-                      <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                      <p className="text-xs text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-lg px-3 py-2">
                         ไม่พบ Lot ในคลัง — กรุณาตรวจสอบสต็อก
                       </p>
                     )}
@@ -2499,7 +2499,7 @@ function PickingModal({ req, auth, onClose, onDone }) {
                         {STAFF_NOTE_PRESETS.map(p => (
                           <button key={p} type="button"
                             onClick={() => setItemStates(prev => prev.map(s => s.id === item.id ? { ...s, staff_note: s.staff_note ? `${s.staff_note} ${p}` : p } : s))}
-                            className="text-xs px-2 py-0.5 rounded-full border border-slate-300 bg-white text-slate-500 hover:border-purple-400 hover:text-purple-700 transition-colors">
+                            className="text-xs px-2 py-0.5 rounded-full border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:border-purple-400 hover:text-purple-700 transition-colors">
                             {p}
                           </button>
                         ))}
@@ -2507,19 +2507,19 @@ function PickingModal({ req, auth, onClose, onDone }) {
                       <input type="text" value={item.staff_note}
                         onChange={e => setItemStates(prev => prev.map(s => s.id === item.id ? { ...s, staff_note: e.target.value } : s))}
                         placeholder="หมายเหตุคลัง (ขึ้นใบ lot คุม)"
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-400" />
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-400" />
                     </div>
                   </div>
                 );
               })}
             </div>
           )}
-          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>}
+          {error && <p className="text-sm text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2">{error}</p>}
         </div>
 
-        <div className="px-4 pb-5 pt-3 border-t border-slate-100 flex gap-2 shrink-0">
+        <div className="px-4 pb-5 pt-3 border-t border-slate-100 dark:border-slate-800 flex gap-2 shrink-0">
           <button onClick={onClose} disabled={saving}
-            className="flex-1 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl py-2.5 font-medium text-sm transition-colors">
+            className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2.5 font-medium text-sm transition-colors">
             ยกเลิก
           </button>
           <button onClick={handleConfirm} disabled={saving || loadingInv || !pickerName.trim()}
@@ -2579,38 +2579,38 @@ function VerifyModal({ req, auth, onClose, onDone }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 bg-indigo-50 flex items-center gap-3 shrink-0">
-          <div className="w-9 h-9 bg-indigo-100 rounded-xl flex items-center justify-center">
+      <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-indigo-50 dark:bg-indigo-950/40 flex items-center gap-3 shrink-0">
+          <div className="w-9 h-9 bg-indigo-100 dark:bg-indigo-950/60 rounded-xl flex items-center justify-center">
             <CheckCircle size={18} className="text-indigo-600" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-bold text-indigo-800">ตรวจนับยา (Double Check)</p>
-            <p className="text-xs text-slate-500 truncate">ผู้จัด: <span className="font-medium">{req.picker_name || '-'}</span> · {req.req_number}</p>
+            <p className="font-bold text-indigo-800 dark:text-indigo-300">ตรวจนับยา (Double Check)</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">ผู้จัด: <span className="font-medium">{req.picker_name || '-'}</span> · {req.req_number}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
             <X size={18} />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">ชื่อผู้ตรวจนับ</label>
+            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">ชื่อผู้ตรวจนับ</label>
             <input type="text" value={verifierName} onChange={e => setVerifierName(e.target.value)}
               placeholder="กรอกชื่อผู้ตรวจนับ"
-              className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
             {isSamePicker && (
-              <div className="flex items-start gap-2 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2 mt-2">
+              <div className="flex items-start gap-2 bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900/60 rounded-xl px-3 py-2 mt-2">
                 <AlertCircle size={14} className="text-orange-500 shrink-0 mt-0.5" />
-                <p className="text-xs text-orange-700">ชื่อตรงกับผู้จัดยา — แนะนำให้ใช้เจ้าหน้าที่คนอื่นตรวจนับเพื่อความถูกต้อง</p>
+                <p className="text-xs text-orange-700 dark:text-orange-300">ชื่อตรงกับผู้จัดยา — แนะนำให้ใช้เจ้าหน้าที่คนอื่นตรวจนับเพื่อความถูกต้อง</p>
               </div>
             )}
           </div>
 
           <div className="space-y-2">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">รายการที่จัดแล้ว</p>
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">รายการที่จัดแล้ว</p>
             {pickedItems.length === 0 && (
-              <p className="text-sm text-slate-500 text-center py-4">ไม่มีรายการที่จัดแล้ว</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-4">ไม่มีรายการที่จัดแล้ว</p>
             )}
             {pickedItems.map(item => {
               const allocs = Array.isArray(item.picked_allocation) && item.picked_allocation.length
@@ -2618,12 +2618,12 @@ function VerifyModal({ req, auth, onClose, onDone }) {
                 : [{ lot: item.picked_lot, exp: item.picked_exp, base: item.picked_qty, packs: null }];
               const checked = !!checkedItems[item.id];
               return (
-              <div key={item.id} className={`rounded-xl border px-3 py-2.5 ${checked ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-slate-200'}`}>
+              <div key={item.id} className={`rounded-xl border px-3 py-2.5 ${checked ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800/60' : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
                 <div className="flex items-start justify-between gap-2">
-                  <p className="text-sm font-semibold text-slate-800 min-w-0 truncate">{item.drug_name}</p>
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 min-w-0 truncate">{item.drug_name}</p>
                   <div className="shrink-0 text-right">
-                    <span className="text-sm font-bold text-indigo-700">{Number(item.picked_qty).toLocaleString()}</span>
-                    <span className="text-xs text-slate-500 ml-1">{item.drug_unit || ''}</span>
+                    <span className="text-sm font-bold text-indigo-700 dark:text-indigo-300">{Number(item.picked_qty).toLocaleString()}</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400 ml-1">{item.drug_unit || ''}</span>
                   </div>
                 </div>
                 {/* แต่ละ lot ที่จ่าย + คงเหลือหลังจ่ายเป็นกล่อง × หน่วยย่อย (นับของจริงง่าย) */}
@@ -2633,20 +2633,20 @@ function VerifyModal({ req, auth, onClose, onDone }) {
                     const on = onHandLotMap ? onHandLotMap[key] : null;
                     const remain = remainLotPacks(on, a.packs);
                     return (
-                      <div key={ai} className="text-xs text-slate-500">
+                      <div key={ai} className="text-xs text-slate-500 dark:text-slate-400">
                         <div className="flex items-center gap-1 flex-wrap">
-                          <span className="font-mono font-medium text-slate-600">Lot {a.lot || '-'}</span>
-                          {a.exp && <span className="text-slate-400">· Exp {fmtExp(a.exp)}</span>}
+                          <span className="font-mono font-medium text-slate-600 dark:text-slate-300">Lot {a.lot || '-'}</span>
+                          {a.exp && <span className="text-slate-400 dark:text-slate-500">· Exp {fmtExp(a.exp)}</span>}
                           {isNearExpiry(a.exp) && (
-                            <span className="inline-flex items-center gap-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded px-1 py-0.5 font-semibold"><Clock size={9}/> ใกล้หมดอายุ · {expCountdown(a.exp)}</span>
+                            <span className="inline-flex items-center gap-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 rounded px-1 py-0.5 font-semibold"><Clock size={9}/> ใกล้หมดอายุ · {expCountdown(a.exp)}</span>
                           )}
-                          <span className="text-slate-400">· จ่าย {Number(a.base).toLocaleString()} {item.drug_unit || ''}</span>
+                          <span className="text-slate-400 dark:text-slate-500">· จ่าย {Number(a.base).toLocaleString()} {item.drug_unit || ''}</span>
                         </div>
                         {remain && (
-                          <p className="text-slate-400 mt-0.5">
-                            คงเหลือก่อนจ่าย <span className="font-medium text-slate-600">{remain.before}</span>
+                          <p className="text-slate-400 dark:text-slate-500 mt-0.5">
+                            คงเหลือก่อนจ่าย <span className="font-medium text-slate-600 dark:text-slate-300">{remain.before}</span>
                             <span> − เบิกออก {remain.out} = </span>
-                            <span className="font-bold text-indigo-700">{remain.label}</span>
+                            <span className="font-bold text-indigo-700 dark:text-indigo-300">{remain.label}</span>
                           </p>
                         )}
                       </div>
@@ -2655,19 +2655,19 @@ function VerifyModal({ req, auth, onClose, onDone }) {
                 </div>
                 {/* ติ๊กยืนยันว่าตรวจรายการนี้ถูกต้องแล้ว */}
                 <button type="button" onClick={() => setCheckedItems(p => ({ ...p, [item.id]: !p[item.id] }))}
-                  className={`mt-2 w-full flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-colors ${checked ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-600 hover:border-emerald-400'}`}>
+                  className={`mt-2 w-full flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-colors ${checked ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-emerald-400'}`}>
                   <CheckCircle size={14} /> {checked ? 'ตรวจรับรายการนี้แล้ว ✓' : 'ติ๊กเมื่อตรวจรายการนี้ถูกต้อง'}
                 </button>
               </div>
               );
             })}
           </div>
-          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>}
+          {error && <p className="text-sm text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2">{error}</p>}
         </div>
 
-        <div className="px-4 pb-5 pt-3 border-t border-slate-100 flex gap-2 shrink-0">
+        <div className="px-4 pb-5 pt-3 border-t border-slate-100 dark:border-slate-800 flex gap-2 shrink-0">
           <button onClick={onClose} disabled={saving}
-            className="flex-1 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl py-2.5 font-medium text-sm transition-colors">
+            className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2.5 font-medium text-sm transition-colors">
             ยกเลิก
           </button>
           <button onClick={handleConfirm} disabled={saving || !verifierName.trim() || !allChecked}
@@ -2690,15 +2690,15 @@ function StaffRoot({ onBack, alreadyAuthed = false, auth = {}, onProxyRequest })
   if (!authed) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-6 relative">
-        <button onClick={onBack} className="absolute top-5 left-5 flex items-center gap-1.5 text-slate-500 hover:text-[#1E90FF] text-sm transition-colors">
+        <button onClick={onBack} className="absolute top-5 left-5 flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-[#1E90FF] text-sm transition-colors">
           <ArrowLeft size={16} /> กลับ
         </button>
-        <div className="w-full max-w-xs bg-white rounded-2xl shadow-sm border border-slate-200 p-8 text-center">
-          <div className="inline-flex items-center justify-center w-14 h-14 bg-emerald-100 rounded-xl mb-4">
+        <div className="w-full max-w-xs bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-8 text-center">
+          <div className="inline-flex items-center justify-center w-14 h-14 bg-emerald-100 dark:bg-emerald-950/60 rounded-xl mb-4">
             <CheckCircle size={28} className="text-emerald-600" />
           </div>
-          <h2 className="text-xl font-bold text-slate-800 mb-1">เจ้าหน้าที่คลังยา</h2>
-          <p className="text-slate-500 text-sm mb-6">กดยืนยันเพื่อเข้าระบบ</p>
+          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-1">เจ้าหน้าที่คลังยา</h2>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">กดยืนยันเพื่อเข้าระบบ</p>
           <button onClick={() => setAuthed(true)}
             className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-3 font-semibold transition-all">
             เข้าสู่ระบบ
@@ -2846,7 +2846,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
   ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
+    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-800">
       <PageHeader onBack={onLogout} title="ระบบเบิกยาออนไลน์">
         {pendingCount > 0 && (
           <span className="flex items-center gap-1 bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
@@ -2863,28 +2863,28 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
       </PageHeader>
 
       {/* Filter Bar — mobile-responsive */}
-      <div className="bg-white border-b border-slate-100 px-3 py-2">
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-3 py-2">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
             <input type="text" value={searchName} onChange={e => setSearchName(e.target.value)}
               placeholder="ชื่อผู้เบิก หรือ เลขใบเบิก..."
-              className="w-full pl-8 pr-7 py-1.5 border border-slate-300 rounded-xl text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+              className="w-full pl-8 pr-7 py-1.5 border border-slate-300 dark:border-slate-600 rounded-xl text-sm text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
             {searchName && (
-              <button onClick={() => setSearchName('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <button onClick={() => setSearchName('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
                 <X size={13}/>
               </button>
             )}
           </div>
           {/* Filter toggle — mobile only */}
           <button onClick={() => setShowFilters(f => !f)}
-            className={`sm:hidden flex items-center justify-center w-9 h-9 rounded-xl border transition-colors shrink-0 ${showFilters || searchDept || !dateFilter ? 'bg-[#F0F8FF] border-[#1E90FF] text-[#1E90FF]' : 'border-slate-300 text-slate-500 hover:border-slate-400'}`}>
+            className={`sm:hidden flex items-center justify-center w-9 h-9 rounded-xl border transition-colors shrink-0 ${showFilters || searchDept || !dateFilter ? 'bg-[#F0F8FF] border-[#1E90FF] text-[#1E90FF]' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:border-slate-400'}`}>
             <SlidersHorizontal size={16}/>
           </button>
           {/* Desktop: always visible */}
           <div className="hidden sm:flex items-center gap-2">
-            <div className="relative w-28 min-h-[36px] border border-slate-300 rounded-xl bg-white flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:ring-[#1E90FF]">
-              <span className={`px-2 py-1.5 text-sm pointer-events-none block w-full ${dateFilter ? 'text-slate-700' : 'text-slate-400'}`}>
+            <div className="relative w-28 min-h-[36px] border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:ring-[#1E90FF]">
+              <span className={`px-2 py-1.5 text-sm pointer-events-none block w-full ${dateFilter ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'}`}>
                 {dateFilter ? dateFilter.split('-').reverse().join('/') : 'dd/mm/yyyy'}
               </span>
               <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
@@ -2892,19 +2892,19 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
                 className="absolute inset-0 opacity-0 w-full cursor-pointer text-base" />
             </div>
             <button onClick={() => setDateFilter('')}
-              className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] text-[#1E90FF] border-[#1E90FF]' : 'text-slate-500 border-slate-300 hover:bg-slate-100'}`}>
+              className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] text-[#1E90FF] border-[#1E90FF]' : 'text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
               ทั้งหมด
             </button>
             <div className="relative min-w-[160px]">
               <select value={searchDept} onChange={e => setSearchDept(e.target.value)}
-                className="w-full appearance-none pl-3 pr-7 py-1.5 border border-slate-300 rounded-xl text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]">
+                className="w-full appearance-none pl-3 pr-7 py-1.5 border border-slate-300 dark:border-slate-600 rounded-xl text-sm text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]">
                 <option value="">-- ทุกหน่วยงาน --</option>
                 {allDepts.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
-              <ChevronRight size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none rotate-90" />
+              <ChevronRight size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none rotate-90" />
             </div>
             <button onClick={() => exportReqExcel(filtered, auth)}
-              className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-xl px-3 py-1.5 text-sm font-medium transition-colors whitespace-nowrap">
+              className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 rounded-xl px-3 py-1.5 text-sm font-medium transition-colors whitespace-nowrap">
               <FileDown size={16}/> Excel
             </button>
           </div>
@@ -2913,8 +2913,8 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
         {showFilters && (
           <div className="sm:hidden mt-2 space-y-2">
             <div className="flex gap-2">
-              <div className="relative flex-1 min-h-[36px] border border-slate-300 rounded-xl bg-white flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:ring-[#1E90FF]">
-                <span className={`px-2 py-1.5 text-sm pointer-events-none block w-full ${dateFilter ? 'text-slate-700' : 'text-slate-400'}`}>
+              <div className="relative flex-1 min-h-[36px] border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:ring-[#1E90FF]">
+                <span className={`px-2 py-1.5 text-sm pointer-events-none block w-full ${dateFilter ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'}`}>
                   {dateFilter ? dateFilter.split('-').reverse().join('/') : 'dd/mm/yyyy'}
                 </span>
                 <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
@@ -2922,20 +2922,20 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
                   className="absolute inset-0 opacity-0 w-full cursor-pointer text-base" />
               </div>
               <button onClick={() => setDateFilter('')}
-                className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] text-[#1E90FF] border-[#1E90FF]' : 'text-slate-500 border-slate-300 hover:bg-slate-100'}`}>
+                className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] text-[#1E90FF] border-[#1E90FF]' : 'text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
                 ทั้งหมด
               </button>
             </div>
             <div className="relative">
               <select value={searchDept} onChange={e => setSearchDept(e.target.value)}
-                className="w-full appearance-none pl-3 pr-7 py-1.5 border border-slate-300 rounded-xl text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E90FF]">
+                className="w-full appearance-none pl-3 pr-7 py-1.5 border border-slate-300 dark:border-slate-600 rounded-xl text-sm text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]">
                 <option value="">-- ทุกหน่วยงาน --</option>
                 {allDepts.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
-              <ChevronRight size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none rotate-90" />
+              <ChevronRight size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none rotate-90" />
             </div>
             <button onClick={() => exportReqExcel(filtered, auth)}
-              className="w-full flex items-center justify-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-xl py-2 text-sm font-medium transition-colors">
+              className="w-full flex items-center justify-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 rounded-xl py-2 text-sm font-medium transition-colors">
               <FileDown size={16}/> Export Excel
             </button>
           </div>
@@ -2943,7 +2943,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 px-3 py-2.5 bg-white border-b border-slate-200 overflow-x-auto shadow-sm">
+      <div className="flex gap-1 px-3 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 overflow-x-auto shadow-sm">
         {tabs.map(tab => (
           <button key={tab.key} onClick={() => {
             setFilter(tab.key);
@@ -2955,7 +2955,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
             }
           }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm whitespace-nowrap font-medium transition-all ${
-              filter === tab.key ? 'bg-[#F0F8FF] text-[#1E90FF]' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+              filter === tab.key ? 'bg-[#F0F8FF] text-[#1E90FF]' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}>
             {tab.label}
             {tab.key === 'pending'  && pendingCount  > 0 && (
@@ -2973,8 +2973,8 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
 
       {/* Bulk action toolbar */}
       {filtered.length > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-white border-b border-slate-100">
-          <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-slate-600" onClick={toggleAll}>
+        <div className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
+          <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-slate-600 dark:text-slate-300" onClick={toggleAll}>
             <input type="checkbox" readOnly checked={selected.size > 0 && selected.size === filtered.length}
               ref={el => { if (el) el.indeterminate = selected.size > 0 && selected.size < filtered.length; }}
               className="w-4 h-4 accent-[#1E90FF] cursor-pointer" />
@@ -2982,7 +2982,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
           </label>
           {selected.size > 0 && (
             <>
-              <span className="text-xs text-slate-400">({selected.size} รายการ)</span>
+              <span className="text-xs text-slate-400 dark:text-slate-500">({selected.size} รายการ)</span>
               {[...selected].some(id => list.find(r => r.id === id)?.status === 'pending') && (
                 <button onClick={bulkApprove} disabled={bulkLoading}
                   className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
@@ -3002,21 +3002,21 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
       <div className="flex-1 p-3 space-y-3">
         {loading && (
           <div className="flex flex-col items-center justify-center py-16 text-center">
-            <RefreshCcw size={24} className="text-slate-300 animate-spin mb-2"/>
-            <p className="text-sm text-slate-400">กำลังโหลด...</p>
+            <RefreshCcw size={24} className="text-slate-300 dark:text-slate-500 animate-spin mb-2"/>
+            <p className="text-sm text-slate-400 dark:text-slate-500">กำลังโหลด...</p>
           </div>
         )}
         {filtered.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mb-4">
+            <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-950/60 rounded-2xl flex items-center justify-center mb-4">
               <CheckCircle size={32} className="text-emerald-500"/>
             </div>
-            <p className="text-base font-semibold text-slate-700">
+            <p className="text-base font-semibold text-slate-700 dark:text-slate-200">
               {filter === 'pending'  ? 'ยอดเยี่ยม!' :
                filter === 'approved' ? 'ไม่มีรายการรออนุมัติ' :
                filter === 'picking'  ? 'ไม่มีรายการกำลังจัดยา' : 'ไม่พบรายการ'}
             </p>
-            <p className="text-sm text-slate-400 mt-1">
+            <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">
               {filter === 'pending' ? 'ไม่มีใบเบิกตกค้าง ทำงานได้ดีมาก' : 'ลองปรับตัวกรองหรือเปลี่ยนวันที่'}
             </p>
           </div>
@@ -3026,11 +3026,11 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
           const confirming = deleteId === req.id;
           const isPending = req.status === 'pending';
           return (
-            <div key={req.id} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div key={req.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
               {/* Card body — clickable to detail (div ไม่ใช่ button — ข้างในมี checkbox, input ใน button = invalid HTML) */}
               <div role="button" tabIndex={0} onClick={() => onSelect(req)}
                 onKeyDown={e => { if (e.key === 'Enter') onSelect(req); }}
-                className="w-full text-left p-4 hover:bg-slate-50 transition-colors cursor-pointer">
+                className="w-full text-left p-4 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">
                 <div className="flex items-start gap-3">
                   <div className="pt-1 shrink-0" onClick={e => toggleSelect(e, req.id)}>
                     <input type="checkbox" readOnly checked={selected.has(req.id)}
@@ -3038,41 +3038,41 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
-                      <p className="font-bold text-slate-800 truncate">{req.department}</p>
-                      <p className="text-xs text-slate-400 shrink-0">{timeAgo(req.created_at)}</p>
+                      <p className="font-bold text-slate-800 dark:text-slate-100 truncate">{req.department}</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 shrink-0">{timeAgo(req.created_at)}</p>
                     </div>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      <p className="text-sm text-slate-500">ผู้เบิก: <span className="font-medium text-slate-700">{req.requester_name}</span></p>
-                      <span className="text-slate-300 text-xs">·</span>
-                      <p className="font-mono text-xs text-slate-400">{req.req_number}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">ผู้เบิก: <span className="font-medium text-slate-700 dark:text-slate-200">{req.requester_name}</span></p>
+                      <span className="text-slate-300 dark:text-slate-500 text-xs">·</span>
+                      <p className="font-mono text-xs text-slate-400 dark:text-slate-500">{req.req_number}</p>
                     </div>
-                    <p className="text-xs text-slate-500 mt-1.5 bg-slate-50 rounded-xl px-2.5 py-1 truncate">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 bg-slate-50 dark:bg-slate-800 rounded-xl px-2.5 py-1 truncate">
                       {drugPreview(req.requisition_items)}
                     </p>
                   </div>
                   <div className="shrink-0 flex flex-col items-end gap-1.5 pt-0.5">
                     <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${cfg.badge}`}>{cfg.label}</span>
-                    <ChevronRight size={14} className="text-slate-300"/>
+                    <ChevronRight size={14} className="text-slate-300 dark:text-slate-500"/>
                   </div>
                 </div>
               </div>
               {/* Card footer — action buttons */}
-              <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-t border-slate-100">
+              <div className="flex items-center justify-between px-4 py-2 bg-slate-50 dark:bg-slate-800 border-t border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-1">
                   <button onClick={e => { e.stopPropagation(); printReq(req, window.open('', '_blank')); }}
-                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-[#1E90FF] transition-colors px-2 py-1 rounded-xl hover:bg-white">
+                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-[#1E90FF] transition-colors px-2 py-1 rounded-xl hover:bg-white">
                     <Printer size={13}/> พิมพ์
                   </button>
                   <button onClick={e => { e.stopPropagation(); printLotControl(req, window.open('', '_blank')); }}
-                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-purple-600 transition-colors px-2 py-1 rounded-xl hover:bg-white">
+                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-purple-600 transition-colors px-2 py-1 rounded-xl hover:bg-white">
                     <Printer size={13}/> ใบ lot คุม
                   </button>
                   <button onClick={e => { e.stopPropagation(); printCoverForm(req, window.open('', '_blank')); }}
-                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-indigo-600 transition-colors px-2 py-1 rounded-xl hover:bg-white">
+                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-indigo-600 transition-colors px-2 py-1 rounded-xl hover:bg-white">
                     <FileText size={13}/> ใบปะหน้า
                   </button>
                   <button onClick={e => { e.stopPropagation(); exportReqExcel([req], auth); }}
-                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-emerald-600 transition-colors px-2 py-1 rounded-xl hover:bg-white">
+                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-emerald-600 transition-colors px-2 py-1 rounded-xl hover:bg-white">
                     <FileDown size={13}/> Excel
                   </button>
                 </div>
@@ -3080,14 +3080,14 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
                   {filter === 'all' && (
                     <button onClick={e => handleDelete(e, req.id)}
                       className={`flex items-center gap-1 text-xs px-2 py-1 rounded-xl border transition-colors ${
-                        confirming ? 'bg-red-500 text-white border-red-500' : 'text-slate-400 border-slate-200 hover:text-red-500 hover:border-red-200 hover:bg-red-50'
+                        confirming ? 'bg-red-500 text-white border-red-500' : 'text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700 hover:text-red-500 hover:border-red-200 hover:bg-red-50 dark:hover:bg-red-950/50'
                       }`}>
                       <Trash2 size={12}/> {confirming ? 'ยืนยัน?' : 'ลบ'}
                     </button>
                   )}
                   {isPending && (
                     <button onClick={e => approveOne(req, e)}
-                      className="flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors">
+                      className="flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors">
                       <Check size={12}/> อนุมัติด่วน
                     </button>
                   )}
@@ -3295,15 +3295,15 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
               <FileDown size={16}/> Excel
             </button>
             <button onClick={() => printReq(currentReq, window.open('', '_blank'))}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-[#1E90FF] text-sm font-semibold transition-colors shadow-sm no-print">
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-[#1E90FF] text-sm font-semibold transition-colors shadow-sm no-print">
               <Printer size={16}/> พิมพ์
             </button>
             <button onClick={() => printLotControl(currentReq, window.open('', '_blank'))}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-purple-600 text-sm font-semibold transition-colors shadow-sm no-print">
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-purple-600 text-sm font-semibold transition-colors shadow-sm no-print">
               <Printer size={16}/> ใบ lot คุม
             </button>
             <button onClick={() => printCoverForm(currentReq, window.open('', '_blank'))}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-indigo-600 text-sm font-semibold transition-colors shadow-sm no-print">
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-indigo-600 text-sm font-semibold transition-colors shadow-sm no-print">
               <FileText size={16}/> ใบปะหน้า
             </button>
           </PageHeader>
@@ -3318,7 +3318,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
             <div>หน่วยงาน: <strong>{currentReq.department}</strong></div>
             <div>ผู้เบิก: <strong>{currentReq.requester_name}</strong></div>
           </div>
-          <hr className="mt-4 border-slate-300"/>
+          <hr className="mt-4 border-slate-300 dark:border-slate-600"/>
         </div>
 
         <div className="flex-1 p-4 space-y-3 pb-40">
@@ -3331,11 +3331,11 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                 options={detailDrugNames}
                 placeholder="ค้นหารายการยาในใบเบิก..."
                 ringClass="focus:ring-[#1E90FF]"
-                hoverClass="hover:bg-blue-50"
+                hoverClass="hover:bg-blue-50 dark:hover:bg-blue-950/50"
                 maxResults={15}
               />
               {detailSearch && (
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
                   พบ {filteredItems.length} / {items.length} รายการ
                   {filteredItems.length === 0 && <span className="text-red-500"> — ไม่พบรายการที่ค้นหา</span>}
                 </p>
@@ -3346,17 +3346,17 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
           {filteredItems.map((item) => {
             const realIdx = items.findIndex(it => it.id === item.id);
             return (
-            <div key={item.id} className="print-card bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+            <div key={item.id} className="print-card bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-4 shadow-sm">
               <div className="flex items-start gap-3">
-                <span className="shrink-0 w-7 h-7 rounded-full bg-slate-100 text-slate-600 font-bold text-sm flex items-center justify-center mt-0.5">{realIdx+1}</span>
+                <span className="shrink-0 w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-sm flex items-center justify-center mt-0.5">{realIdx+1}</span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start gap-2 flex-wrap">
-                    <p className="font-semibold text-slate-800 flex-1">{item.drug_name}</p>
+                    <p className="font-semibold text-slate-800 dark:text-slate-100 flex-1">{item.drug_name}</p>
                     {item.drug_type && item.drug_type !== '-' && <DrugTypeBadge type={item.drug_type} />}
                   </div>
-                  <p className="text-xs text-slate-400 mt-0.5">รหัส: {item.drug_code}</p>
-                  <p className="text-sm mt-1 text-slate-600">ขอเบิก <span className="font-bold text-slate-800">{Number(item.requested_qty).toLocaleString()}</span> {item.drug_unit && item.drug_unit !== '-' ? item.drug_unit : ''}</p>
-                  {item.item_note && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 mt-1.5">หมายเหตุจากผู้เบิก: {item.item_note}</p>}
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">รหัส: {item.drug_code}</p>
+                  <p className="text-sm mt-1 text-slate-600 dark:text-slate-300">ขอเบิก <span className="font-bold text-slate-800 dark:text-slate-100">{Number(item.requested_qty).toLocaleString()}</span> {item.drug_unit && item.drug_unit !== '-' ? item.drug_unit : ''}</p>
+                  {item.item_note && <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-md px-2 py-1 mt-1.5">หมายเหตุจากผู้เบิก: {item.item_note}</p>}
 
                   {/* Preview: จะจ่ายจาก lot ไหน (FEFO) — คำนวณจากจำนวนที่จะอนุมัติ */}
                   {(() => {
@@ -3369,28 +3369,28 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                       <p className="no-print text-xs text-red-600 font-semibold mt-1.5 flex items-center gap-1"><AlertCircle size={12}/> ไม่มีของในคลัง</p>
                     );
                     return (
-                      <div className="no-print mt-2 bg-slate-50 border border-slate-200 rounded-lg p-2.5">
-                        <p className="text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Package size={12}/> จะจ่ายจาก Lot (ใกล้หมดอายุก่อน)</p>
+                      <div className="no-print mt-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5">
+                        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1"><Package size={12}/> จะจ่ายจาก Lot (ใกล้หมดอายุก่อน)</p>
                         <div className="space-y-1">
                           {a.allocation.map((al, ai) => (
                             <div key={ai} className="text-xs">
                               <div className="grid grid-cols-[1fr_auto] gap-x-2 gap-y-1 items-start">
                                 <div className="flex items-center gap-x-2 gap-y-1 flex-wrap min-w-0">
-                                  <span className="font-mono font-semibold text-slate-700">{al.lot || '-'}</span>
-                                  <span className="text-slate-400">Exp {fmtExp(al.exp)}</span>
+                                  <span className="font-mono font-semibold text-slate-700 dark:text-slate-200">{al.lot || '-'}</span>
+                                  <span className="text-slate-400 dark:text-slate-500">Exp {fmtExp(al.exp)}</span>
                                   {isNearExpiry(al.exp) && (
-                                    <span className="inline-flex items-center gap-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5 font-semibold">
+                                    <span className="inline-flex items-center gap-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 rounded px-1.5 py-0.5 font-semibold">
                                       <Clock size={10}/> ใกล้หมดอายุ · {expCountdown(al.exp)}
                                     </span>
                                   )}
                                 </div>
                                 <div className="text-right whitespace-nowrap">
                                   <span className="font-bold text-emerald-600">{al.base.toLocaleString()} {item.drug_unit||''}</span>
-                                  <span className="text-slate-400"> ({al.packs.toLocaleString()} × {al.unit})</span>
+                                  <span className="text-slate-400 dark:text-slate-500"> ({al.packs.toLocaleString()} × {al.unit})</span>
                                 </div>
                               </div>
                               {al.location && al.location !== '-' && (
-                                <p className="flex items-center gap-1 text-indigo-700 font-semibold mt-0.5">
+                                <p className="flex items-center gap-1 text-indigo-700 dark:text-indigo-300 font-semibold mt-0.5">
                                   <MapPin size={11}/> ที่เก็บ: {al.location}
                                 </p>
                               )}
@@ -3398,12 +3398,12 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                           ))}
                         </div>
                         {a.overBase > 0 && (
-                          <p className="text-xs text-amber-600 font-semibold mt-1.5 pt-1.5 border-t border-amber-100 flex items-center gap-1">
+                          <p className="text-xs text-amber-600 font-semibold mt-1.5 pt-1.5 border-t border-amber-100 dark:border-amber-900/50 flex items-center gap-1">
                             <AlertCircle size={12}/> จ่ายเต็มกล่อง — ได้ {a.allocatedBase.toLocaleString()} {item.drug_unit||''} (เกินที่ขอ {a.overBase.toLocaleString()})
                           </p>
                         )}
                         {!a.fulfilled && (
-                          <p className="text-xs text-red-600 font-semibold mt-1.5 pt-1.5 border-t border-red-100 flex items-center gap-1">
+                          <p className="text-xs text-red-600 font-semibold mt-1.5 pt-1.5 border-t border-red-100 dark:border-red-900/50 flex items-center gap-1">
                             <AlertCircle size={12}/> ของไม่พอเบิก — ขาดอีก {a.shortfallBase.toLocaleString()} {item.drug_unit||''} (จัดได้ {a.allocatedBase.toLocaleString()})
                           </p>
                         )}
@@ -3422,7 +3422,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                         <span className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-600"><Check size={14}/> อนุมัติเต็มจำนวน</span>
                       )}
                       <button onClick={() => setEditingItems(p => ({ ...p, [item.id]: true }))}
-                        className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-[#1E90FF] transition-colors ml-auto">
+                        className="inline-flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-[#1E90FF] transition-colors ml-auto">
                         <Pencil size={12}/> ปรับรายการนี้
                       </button>
                     </div>
@@ -3430,29 +3430,29 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
 
                   {/* ปรับรายตัว (เปิดเมื่อกด) */}
                   {isPending && editingItems[item.id] && (
-                    <div className="no-print mt-2.5 bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2.5">
+                    <div className="no-print mt-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 space-y-2.5">
                       <div className="flex gap-1.5">
                         <button onClick={() => updateItem(realIdx,'decision','approve')}
-                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-sm font-medium transition-all border ${item.decision==='approve'?'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-sm font-medium transition-all border ${item.decision==='approve'?'bg-emerald-600 text-white border-emerald-600':'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
                           <Check size={14}/> อนุมัติ
                         </button>
                         <button onClick={() => updateItem(realIdx,'decision','reject')}
-                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-sm font-medium transition-all border ${item.decision==='reject'?'bg-red-500 text-white border-red-500':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-sm font-medium transition-all border ${item.decision==='reject'?'bg-red-500 text-white border-red-500':'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
                           <X size={14}/> ไม่อนุมัติ
                         </button>
                       </div>
                       {item.decision==='approve' && (
                         <div className="flex items-center gap-2">
-                          <span className="text-sm text-slate-500">อนุมัติจำนวน</span>
+                          <span className="text-sm text-slate-500 dark:text-slate-400">อนุมัติจำนวน</span>
                           <input type="number" min="0" max={item.requested_qty} value={item.approvedQty} onChange={e => updateItem(realIdx,'approvedQty',e.target.value)}
-                            className="w-24 bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-slate-800 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
-                          <span className="text-sm text-slate-500">{item.drug_unit||''}</span>
+                            className="w-24 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-slate-800 dark:text-slate-100 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+                          <span className="text-sm text-slate-500 dark:text-slate-400">{item.drug_unit||''}</span>
                         </div>
                       )}
                       <input type="text" value={item.itemNote} onChange={e => updateItem(realIdx,'itemNote',e.target.value)} placeholder="หมายเหตุรายการนี้..."
-                        className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-800 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2.5 py-1.5 text-slate-800 dark:text-slate-100 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
                       <button onClick={() => setEditingItems(p => { const n={...p}; delete n[item.id]; return n; })}
-                        className="text-xs text-slate-400 hover:text-slate-600 transition-colors">เสร็จ</button>
+                        className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">เสร็จ</button>
                     </div>
                   )}
                 </div>
@@ -3463,7 +3463,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                     <p className={`inline-flex items-center gap-1 text-sm font-bold ${item.approved_qty>0?'text-emerald-600':'text-red-500'}`}>
                       {item.approved_qty>0 ? <><Check size={14}/> อนุมัติ {Number(item.approved_qty).toLocaleString()}</> : <><X size={14}/> ไม่อนุมัติ</>}
                     </p>
-                    {item.note && <p className="text-xs text-slate-400 mt-0.5">{item.note}</p>}
+                    {item.note && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{item.note}</p>}
                   </div>
                 )}
               </div>
@@ -3472,15 +3472,15 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
           })}
 
           {isPending && requesterNote && (
-            <div className="no-print bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+            <div className="no-print bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
               <span className="font-semibold">หมายเหตุจากผู้เบิก:</span> {requesterNote}
             </div>
           )}
           {isPending && (
             <textarea value={staffNote} onChange={e => setStaffNote(e.target.value)} placeholder="หมายเหตุโดยรวมจากเจ้าหน้าที่..." rows={2}
-              className="no-print w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF] resize-none shadow-sm" />
+              className="no-print w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-3 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF] resize-none shadow-sm" />
           )}
-          {error && <p className="no-print text-red-600 text-sm bg-red-50 border border-red-200 rounded-xl px-3 py-2 flex items-center gap-2"><AlertCircle size={14}/>{error}</p>}
+          {error && <p className="no-print text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2 flex items-center gap-2"><AlertCircle size={14}/>{error}</p>}
 
           <div className="hidden print:block mt-12 text-sm text-black px-2">
             <div className="grid grid-cols-2 gap-16">
@@ -3491,30 +3491,30 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         </div>
 
         {isPending && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200">
+          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
             <div className="grid grid-cols-[1fr_auto] gap-2">
               <button onClick={() => save(null)} disabled={loading}
                 className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
                 <CheckCircle size={18}/>{loading?'กำลังบันทึก...':'ยืนยันอนุมัติใบเบิก'}
               </button>
               <button onClick={() => save('rejected')} disabled={loading}
-                className="bg-white hover:bg-red-50 border border-red-300 text-red-600 disabled:opacity-40 rounded-xl px-4 py-3 font-semibold flex items-center justify-center gap-2 transition-all">
+                className="bg-white dark:bg-slate-900 hover:bg-red-50 dark:hover:bg-red-950/50 border border-red-300 dark:border-red-800/60 text-red-600 disabled:opacity-40 rounded-xl px-4 py-3 font-semibold flex items-center justify-center gap-2 transition-all">
                 <XCircle size={18}/> ไม่อนุมัติทั้งใบ
               </button>
             </div>
           </div>
         )}
         {isRejected && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200 space-y-2">
+          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 space-y-2">
             {!deleteConfirm ? (
               <button onClick={() => setDeleteConfirm(true)} disabled={loading}
-                className="w-full bg-red-50 hover:bg-red-100 border border-red-300 text-red-600 rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
+                className="w-full bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-950/70 border border-red-300 dark:border-red-800/60 text-red-600 rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
                 <Trash2 size={18}/> ลบใบเบิกนี้ออกจากระบบ
               </button>
             ) : (
               <div className="flex gap-2">
                 <button onClick={() => setDeleteConfirm(false)} disabled={loading}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
+                  className="flex-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
                   <X size={16}/> ยกเลิก
                 </button>
                 <button onClick={handleDelete} disabled={loading}
@@ -3529,7 +3529,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
 
         {/* ── Workflow actions ตามสถานะ (จัดยา/ตรวจนับ/จ่ายออก) ── */}
         {isApproved && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200">
+          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
             <button onClick={() => setPickingModal(true)} disabled={loading}
               className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
               <Package size={18}/> เริ่มจัดยา
@@ -3537,7 +3537,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
           </div>
         )}
         {isPicking && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200">
+          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
             <button onClick={() => setVerifyModal(true)} disabled={loading}
               className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
               <CheckCircle size={18}/> ตรวจนับยา (Double Check)
@@ -3545,7 +3545,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
           </div>
         )}
         {isReady && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200 space-y-2">
+          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 space-y-2">
             <button onClick={() => setDispatchModal(true)} disabled={loading}
               className="w-full rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all bg-blue-600 hover:bg-blue-700 text-white disabled:bg-slate-200 disabled:text-slate-400">
               <Check size={18}/> จ่ายออก

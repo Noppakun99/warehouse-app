@@ -22,9 +22,9 @@ function UsageAnalyticsPanel() {
 
   useEffect(() => { load(); }, [load]);
 
-  if (loading) return <div className="text-center text-slate-400 py-16 text-sm">กำลังโหลด…</div>;
+  if (loading) return <div className="text-center text-slate-400 dark:text-slate-500 py-16 text-sm">กำลังโหลด…</div>;
   if (error) return <div className="text-center text-red-500 py-16 text-sm">โหลดข้อมูลล้มเหลว: {error}</div>;
-  if (!stats) return <div className="text-center text-slate-400 py-16 text-sm">ยังไม่มีข้อมูลการใช้งาน</div>;
+  if (!stats) return <div className="text-center text-slate-400 dark:text-slate-500 py-16 text-sm">ยังไม่มีข้อมูลการใช้งาน</div>;
 
   const { dau, wau, mau, stickiness, trend, byRole, users, capDays, dataFrom } = stats;
   const maxTrend = Math.max(1, ...trend.map(d => d.count));
@@ -35,16 +35,16 @@ function UsageAnalyticsPanel() {
     return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear() + 543} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} น.`;
   };
   const cards = [
-    { label: 'ผู้ใช้วันนี้ (DAU)', value: dau, icon: Users, color: 'text-emerald-600 bg-emerald-50' },
-    { label: 'ผู้ใช้ 7 วัน (WAU)', value: wau, icon: Users, color: 'text-sky-600 bg-sky-50' },
-    { label: 'ผู้ใช้ 30 วัน (MAU)', value: mau, icon: Users, color: 'text-indigo-600 bg-indigo-50' },
-    { label: 'Stickiness (DAU/MAU)', value: `${Math.round(stickiness * 100)}%`, icon: TrendingUp, color: 'text-amber-600 bg-amber-50' },
+    { label: 'ผู้ใช้วันนี้ (DAU)', value: dau, icon: Users, color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40' },
+    { label: 'ผู้ใช้ 7 วัน (WAU)', value: wau, icon: Users, color: 'text-sky-600 bg-sky-50 dark:bg-sky-950/40' },
+    { label: 'ผู้ใช้ 30 วัน (MAU)', value: mau, icon: Users, color: 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/40' },
+    { label: 'Stickiness (DAU/MAU)', value: `${Math.round(stickiness * 100)}%`, icon: TrendingUp, color: 'text-amber-600 bg-amber-50 dark:bg-amber-950/40' },
   ];
 
   return (
     <div className="space-y-4">
       {/* caption ความครอบคลุมข้อมูล — staleness มองเห็นได้ (Rule #18) */}
-      <p className="text-xs text-slate-400">
+      <p className="text-xs text-slate-400 dark:text-slate-500">
         นับจากการเข้าสู่ระบบ (login) ย้อนหลังสูงสุด {capDays} วัน — ข้อมูลเก่ากว่านี้ถูกลบตามนโยบายเก็บ log
         {dataFrom && <> · มีข้อมูลตั้งแต่ {fmtDate(dataFrom)}</>}
       </p>
@@ -52,18 +52,18 @@ function UsageAnalyticsPanel() {
       {/* stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {cards.map(c => (
-          <div key={c.label} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+          <div key={c.label} className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
             <div className={`inline-flex p-2 rounded-lg mb-2 ${c.color}`}><c.icon size={16} /></div>
-            <p className="text-2xl font-bold text-slate-800 leading-none">{c.value}</p>
-            <p className="text-xs text-slate-400 mt-1">{c.label}</p>
+            <p className="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-none">{c.value}</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{c.label}</p>
           </div>
         ))}
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4">
         {/* กราฟแนวโน้ม 30 วัน */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-          <h3 className="text-sm font-semibold text-slate-700 mb-3">แนวโน้มผู้เข้าใช้รายวัน (30 วัน)</h3>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">แนวโน้มผู้เข้าใช้รายวัน (30 วัน)</h3>
           <div className="flex items-end gap-0.5 h-32">
             {trend.map(d => (
               <div key={d.ymd} className="flex-1 group relative flex items-end" title={`${d.ymd}: ${d.count} คน`}>
@@ -72,23 +72,23 @@ function UsageAnalyticsPanel() {
               </div>
             ))}
           </div>
-          <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+          <div className="flex justify-between text-[10px] text-slate-400 dark:text-slate-500 mt-1">
             <span>{trend[0]?.ymd.slice(5)}</span>
             <span>{trend[trend.length - 1]?.ymd.slice(5)}</span>
           </div>
         </div>
 
         {/* active ตาม role */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-          <h3 className="text-sm font-semibold text-slate-700 mb-3">ผู้ใช้ active ตามบทบาท (30 วัน)</h3>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">ผู้ใช้ active ตามบทบาท (30 วัน)</h3>
           {byRole.length === 0 ? (
-            <p className="text-xs text-slate-400 py-8 text-center">ไม่มีข้อมูล</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 py-8 text-center">ไม่มีข้อมูล</p>
           ) : (
             <div className="space-y-2.5">
               {byRole.map(r => (
                 <div key={r.role} className="flex items-center gap-2">
-                  <span className="w-24 text-xs text-slate-500 shrink-0">{roleLabel(r.role)}</span>
-                  <div className="flex-1 bg-slate-100 rounded-full h-5 overflow-hidden">
+                  <span className="w-24 text-xs text-slate-500 dark:text-slate-400 shrink-0">{roleLabel(r.role)}</span>
+                  <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-5 overflow-hidden">
                     <div className="bg-indigo-400 h-full rounded-full flex items-center justify-end px-2"
                       style={{ width: `${(r.count / maxRole) * 100}%`, minWidth: '1.5rem' }}>
                       <span className="text-[10px] font-semibold text-white">{r.count}</span>
@@ -102,15 +102,15 @@ function UsageAnalyticsPanel() {
       </div>
 
       {/* ตารางรายคน */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-700">รายละเอียดผู้ใช้</h3>
-          <button onClick={load} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100" title="โหลดใหม่"><RefreshCcw size={14} /></button>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">รายละเอียดผู้ใช้</h3>
+          <button onClick={load} className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" title="โหลดใหม่"><RefreshCcw size={14} /></button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[560px]">
             <thead>
-              <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
+              <tr className="text-left text-xs text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
                 <th className="px-4 py-2 font-semibold">ผู้ใช้</th>
                 <th className="px-4 py-2 font-semibold">บทบาท</th>
                 <th className="px-4 py-2 font-semibold text-right">เข้าใช้ล่าสุด</th>
@@ -120,17 +120,17 @@ function UsageAnalyticsPanel() {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {users.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-xs">ไม่มีการเข้าใช้ใน {capDays} วันที่ผ่านมา</td></tr>
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500 text-xs">ไม่มีการเข้าใช้ใน {capDays} วันที่ผ่านมา</td></tr>
               ) : users.map(u => (
-                <tr key={u.id} className="hover:bg-slate-50/60">
-                  <td className="px-4 py-2.5 font-medium text-slate-700">{u.name}</td>
-                  <td className="px-4 py-2.5 text-slate-500 text-xs">{roleLabel(u.role)}</td>
-                  <td className="px-4 py-2.5 text-right text-slate-500 text-xs whitespace-nowrap">{fmtDate(u.lastLogin)}</td>
-                  <td className="px-4 py-2.5 text-right font-semibold text-slate-700">{u.count.toLocaleString()}</td>
+                <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                  <td className="px-4 py-2.5 font-medium text-slate-700 dark:text-slate-200">{u.name}</td>
+                  <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 text-xs">{roleLabel(u.role)}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">{fmtDate(u.lastLogin)}</td>
+                  <td className="px-4 py-2.5 text-right font-semibold text-slate-700 dark:text-slate-200">{u.count.toLocaleString()}</td>
                   <td className="px-4 py-2.5 text-center">
                     {u.activeToday
                       ? <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" title="เข้าใช้วันนี้" />
-                      : <span className="inline-block w-2 h-2 rounded-full bg-slate-200" title="ไม่ได้เข้าใช้วันนี้" />}
+                      : <span className="inline-block w-2 h-2 rounded-full bg-slate-200 dark:bg-slate-700" title="ไม่ได้เข้าใช้วันนี้" />}
                   </td>
                 </tr>
               ))}
@@ -143,64 +143,64 @@ function UsageAnalyticsPanel() {
 }
 
 const ACTION_LABELS = {
-  import_inventory:             { label: 'นำเข้า Inventory',       color: 'bg-blue-100 text-blue-700'      },
-  import_receive:               { label: 'นำเข้าประวัติรับยา',      color: 'bg-indigo-100 text-indigo-700'  },
-  import_dispense:              { label: 'นำเข้าประวัติเบิกจ่าย',   color: 'bg-rose-100 text-rose-700'     },
-  scan_invoice:                 { label: 'สแกนบิลรับยา',            color: 'bg-cyan-100 text-cyan-700'     },
-  map_drug_alias:               { label: 'จับคู่ชื่อยา→รหัส',        color: 'bg-teal-100 text-teal-700'     },
-  insert_return:                { label: 'ส่งคำขอคืนยา',             color: 'bg-violet-100 text-violet-700'  },
-  confirm_return:               { label: 'ยืนยันรับคืนยา',           color: 'bg-emerald-100 text-emerald-700'},
-  update_return:                { label: 'แก้ไขรายการคืนยา',         color: 'bg-amber-100 text-amber-700'   },
-  delete_return:                { label: 'ลบรายการคืนยา',            color: 'bg-red-100 text-red-700'       },
-  flag_swap_return:             { label: 'แจ้งเปลี่ยน/คืนยา',        color: 'bg-amber-100 text-amber-800'   },
-  seed_swap_policy:             { label: 'อัปเดตนโยบายคืนยา',        color: 'bg-slate-100 text-slate-600'   },
-  export_excel:                 { label: 'ส่งออก Excel',             color: 'bg-emerald-100 text-emerald-700'},
-  submit_requisition:           { label: 'ส่งใบเบิกยา',             color: 'bg-sky-100 text-sky-700'        },
-  requester_edit_requisition:   { label: 'แก้ไขใบเบิก',             color: 'bg-amber-100 text-amber-700'    },
-  requester_delete_requisition: { label: 'ลบใบเบิก',                color: 'bg-red-100 text-red-700'        },
-  delete_requisition:           { label: 'ลบใบเบิก (staff)',         color: 'bg-red-100 text-red-700'        },
-  update_requisition:           { label: 'แก้ไขใบเบิก (staff)',      color: 'bg-amber-100 text-amber-700'    },
-  picking_requisition:          { label: 'จัดยา (Picking)',          color: 'bg-blue-100 text-blue-700'     },
-  verify_requisition:           { label: 'ตรวจสอบใบเบิก',           color: 'bg-indigo-100 text-indigo-700' },
-  dispense_requisition:         { label: 'จ่ายยา',                   color: 'bg-emerald-100 text-emerald-700'},
-  received_requisition:         { label: 'รับยาที่หน่วยงาน',         color: 'bg-teal-100 text-teal-700'     },
-  delete_dispense:              { label: 'ลบรายการจ่ายยา',           color: 'bg-red-100 text-red-700'        },
-  update_dispense:              { label: 'แก้ไขรายการจ่ายยา',        color: 'bg-amber-100 text-amber-700'    },
-  delete_receive:               { label: 'ลบรายการรับยา',            color: 'bg-red-100 text-red-700'        },
-  update_receive:               { label: 'แก้ไขรายการรับยา',         color: 'bg-amber-100 text-amber-700'    },
+  import_inventory:             { label: 'นำเข้า Inventory',       color: 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'      },
+  import_receive:               { label: 'นำเข้าประวัติรับยา',      color: 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'  },
+  import_dispense:              { label: 'นำเข้าประวัติเบิกจ่าย',   color: 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300'     },
+  scan_invoice:                 { label: 'สแกนบิลรับยา',            color: 'bg-cyan-100 dark:bg-cyan-950/60 text-cyan-700 dark:text-cyan-300'     },
+  map_drug_alias:               { label: 'จับคู่ชื่อยา→รหัส',        color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300'     },
+  insert_return:                { label: 'ส่งคำขอคืนยา',             color: 'bg-violet-100 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300'  },
+  confirm_return:               { label: 'ยืนยันรับคืนยา',           color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
+  update_return:                { label: 'แก้ไขรายการคืนยา',         color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'   },
+  delete_return:                { label: 'ลบรายการคืนยา',            color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'       },
+  flag_swap_return:             { label: 'แจ้งเปลี่ยน/คืนยา',        color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'   },
+  seed_swap_policy:             { label: 'อัปเดตนโยบายคืนยา',        color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'   },
+  export_excel:                 { label: 'ส่งออก Excel',             color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
+  submit_requisition:           { label: 'ส่งใบเบิกยา',             color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'        },
+  requester_edit_requisition:   { label: 'แก้ไขใบเบิก',             color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'    },
+  requester_delete_requisition: { label: 'ลบใบเบิก',                color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'        },
+  delete_requisition:           { label: 'ลบใบเบิก (staff)',         color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'        },
+  update_requisition:           { label: 'แก้ไขใบเบิก (staff)',      color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'    },
+  picking_requisition:          { label: 'จัดยา (Picking)',          color: 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'     },
+  verify_requisition:           { label: 'ตรวจสอบใบเบิก',           color: 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300' },
+  dispense_requisition:         { label: 'จ่ายยา',                   color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
+  received_requisition:         { label: 'รับยาที่หน่วยงาน',         color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300'     },
+  delete_dispense:              { label: 'ลบรายการจ่ายยา',           color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'        },
+  update_dispense:              { label: 'แก้ไขรายการจ่ายยา',        color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'    },
+  delete_receive:               { label: 'ลบรายการรับยา',            color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'        },
+  update_receive:               { label: 'แก้ไขรายการรับยา',         color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'    },
   // ── AP Workflow (ส่งบัญชี) ──
-  ap_acknowledge:               { label: 'จัดซื้อรับเอกสาร',         color: 'bg-sky-100 text-sky-700'       },
-  ap_unacknowledge:             { label: 'ยกเลิกรับเอกสาร',          color: 'bg-slate-100 text-slate-600'   },
-  ap_mark_inspected:            { label: 'ตรวจรับบิล',               color: 'bg-emerald-100 text-emerald-700'},
-  ap_uninspect:                 { label: 'ยกเลิกตรวจรับ',            color: 'bg-slate-100 text-slate-600'   },
-  ap_send_batch:                { label: 'ส่งบัญชีรอบ',              color: 'bg-orange-100 text-orange-700' },
-  ap_unsend_batch:              { label: 'ยกเลิกส่งบัญชี',           color: 'bg-slate-100 text-slate-600'   },
-  ap_mark_posted:               { label: 'ตั้งหนี้แล้ว (Post)',      color: 'bg-violet-100 text-violet-700' },
-  ap_unpost:                    { label: 'ยกเลิกตั้งหนี้',           color: 'bg-slate-100 text-slate-600'   },
-  ap_reset_batch:               { label: 'รีเซ็ตรอบส่งบัญชี',        color: 'bg-red-100 text-red-700'       },
-  print_ap_batch:               { label: 'พิมพ์รอบส่งบัญชี',         color: 'bg-blue-100 text-blue-700'     },
-  print_ack_batch:              { label: 'พิมพ์ใบส่งจัดซื้อ',        color: 'bg-cyan-100 text-cyan-700'     },
-  export_ap_batch:              { label: 'Export Excel รอบส่งบัญชี', color: 'bg-emerald-100 text-emerald-700'},
-  login:                        { label: 'เข้าสู่ระบบ',              color: 'bg-slate-100 text-slate-600'   },
+  ap_acknowledge:               { label: 'จัดซื้อรับเอกสาร',         color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'       },
+  ap_unacknowledge:             { label: 'ยกเลิกรับเอกสาร',          color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'   },
+  ap_mark_inspected:            { label: 'ตรวจรับบิล',               color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
+  ap_uninspect:                 { label: 'ยกเลิกตรวจรับ',            color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'   },
+  ap_send_batch:                { label: 'ส่งบัญชีรอบ',              color: 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300' },
+  ap_unsend_batch:              { label: 'ยกเลิกส่งบัญชี',           color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'   },
+  ap_mark_posted:               { label: 'ตั้งหนี้แล้ว (Post)',      color: 'bg-violet-100 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300' },
+  ap_unpost:                    { label: 'ยกเลิกตั้งหนี้',           color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'   },
+  ap_reset_batch:               { label: 'รีเซ็ตรอบส่งบัญชี',        color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'       },
+  print_ap_batch:               { label: 'พิมพ์รอบส่งบัญชี',         color: 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'     },
+  print_ack_batch:              { label: 'พิมพ์ใบส่งจัดซื้อ',        color: 'bg-cyan-100 dark:bg-cyan-950/60 text-cyan-700 dark:text-cyan-300'     },
+  export_ap_batch:              { label: 'Export Excel รอบส่งบัญชี', color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
+  login:                        { label: 'เข้าสู่ระบบ',              color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'   },
   // ── Reorder Analysis ──
-  analysis_run:                 { label: 'บันทึก Snapshot สั่งซื้อ',  color: 'bg-orange-100 text-orange-700' },
-  analysis_view:                { label: 'รันวิเคราะห์สั่งซื้อ',       color: 'bg-orange-50 text-orange-600'  },
-  delete_analysis_run:          { label: 'ลบ Snapshot สั่งซื้อ',     color: 'bg-red-100 text-red-700'       },
-  update_reorder_config:        { label: 'แก้ Master ยา',           color: 'bg-violet-100 text-violet-700' },
-  import_reorder_config:        { label: 'Import Master ยา',        color: 'bg-indigo-100 text-indigo-700' },
-  mark_ordered:                 { label: 'ทำเครื่องหมายสั่งแล้ว',     color: 'bg-emerald-100 text-emerald-700'},
-  unmark_ordered:               { label: 'ยกเลิกสั่งแล้ว',           color: 'bg-slate-100 text-slate-600'   },
-  print_po:                     { label: 'พิมพ์ใบสั่งซื้อ',           color: 'bg-blue-100 text-blue-700'     },
-  reconcile_excel:              { label: 'เทียบผลกับ Excel',         color: 'bg-indigo-50 text-indigo-600'  },
+  analysis_run:                 { label: 'บันทึก Snapshot สั่งซื้อ',  color: 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300' },
+  analysis_view:                { label: 'รันวิเคราะห์สั่งซื้อ',       color: 'bg-orange-50 dark:bg-orange-950/40 text-orange-600'  },
+  delete_analysis_run:          { label: 'ลบ Snapshot สั่งซื้อ',     color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'       },
+  update_reorder_config:        { label: 'แก้ Master ยา',           color: 'bg-violet-100 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300' },
+  import_reorder_config:        { label: 'Import Master ยา',        color: 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300' },
+  mark_ordered:                 { label: 'ทำเครื่องหมายสั่งแล้ว',     color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
+  unmark_ordered:               { label: 'ยกเลิกสั่งแล้ว',           color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'   },
+  print_po:                     { label: 'พิมพ์ใบสั่งซื้อ',           color: 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'     },
+  reconcile_excel:              { label: 'เทียบผลกับ Excel',         color: 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600'  },
   // ── Monthly Stock Ledger (ADR-0007) ──
-  seed_ledger:                  { label: 'นำเข้างวดคงคลังตั้งต้น',    color: 'bg-teal-100 text-teal-700'     },
-  close_ledger_period:          { label: 'ปิดงวดคงคลัง',            color: 'bg-teal-100 text-teal-700'     },
-  reopen_ledger_period:         { label: 'เปิดงวดคงคลังใหม่',        color: 'bg-amber-100 text-amber-700'   },
-  add_ledger_adjustment:        { label: 'เพิ่มแถวปรับยอดคงคลัง',     color: 'bg-teal-100 text-teal-700'     },
+  seed_ledger:                  { label: 'นำเข้างวดคงคลังตั้งต้น',    color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300'     },
+  close_ledger_period:          { label: 'ปิดงวดคงคลัง',            color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300'     },
+  reopen_ledger_period:         { label: 'เปิดงวดคงคลังใหม่',        color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'   },
+  add_ledger_adjustment:        { label: 'เพิ่มแถวปรับยอดคงคลัง',     color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300'     },
   // ── Stock Count (ADR-0008) ──
-  create_stock_count:           { label: 'ตรวจนับคงคลัง',           color: 'bg-emerald-100 text-emerald-700'},
-  update_stock_count:           { label: 'แก้ไขผลตรวจนับ',          color: 'bg-amber-100 text-amber-700'   },
-  delete_stock_count:           { label: 'ลบรอบตรวจนับ',            color: 'bg-red-100 text-red-700'       },
+  create_stock_count:           { label: 'ตรวจนับคงคลัง',           color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
+  update_stock_count:           { label: 'แก้ไขผลตรวจนับ',          color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'   },
+  delete_stock_count:           { label: 'ลบรอบตรวจนับ',            color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'       },
 };
 
 const RETURN_TYPE_LABELS = {
@@ -304,8 +304,8 @@ function monthAgoStr() {
 function IsoDateInput({ value, onChange, className = '' }) {
   const display = iso => { if (!iso) return null; const [y,m,d] = iso.split('-'); return `${d}/${m}/${Number(y)+543}`; }
   return (
-    <div className={`relative flex items-center bg-white border border-slate-300 rounded-lg focus-within:ring-2 focus-within:ring-slate-400 ${className}`}>
-      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
+    <div className={`relative flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus-within:ring-2 focus-within:ring-slate-400 ${className}`}>
+      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>{display(value) || 'dd/mm/yyyy'}</span>
       <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
         onClick={e => { try { e.currentTarget.showPicker?.(); } catch { /* noop */ } }}
         className="absolute inset-0 opacity-0 w-full cursor-pointer" />
@@ -452,16 +452,16 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-800">
       {/* Title bar — sidebar (AppShell) คุม navigation แล้ว header เดิมเหลือแค่ title + refresh */}
-      <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center gap-3">
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 flex items-center gap-3">
         <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
-        <div className="p-1.5 rounded-lg bg-amber-100 text-amber-600 shrink-0"><ClipboardList size={18} /></div>
+        <div className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-950/60 text-amber-600 shrink-0"><ClipboardList size={18} /></div>
         <button onClick={onRefresh} className="flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
-          <h1 className="font-bold text-base leading-tight text-slate-800">Audit Log</h1>
-          <p className="text-slate-400 text-xs">ประวัติการดำเนินการในระบบ</p>
+          <h1 className="font-bold text-base leading-tight text-slate-800 dark:text-slate-100">Audit Log</h1>
+          <p className="text-slate-400 dark:text-slate-500 text-xs">ประวัติการดำเนินการในระบบ</p>
         </button>
-        <button onClick={onRefresh} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors" title="โหลดใหม่">
+        <button onClick={onRefresh} className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="โหลดใหม่">
           <RefreshCcw size={16} />
         </button>
       </div>
@@ -473,13 +473,13 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
           <div className="flex gap-2">
             <button onClick={() => setMainView('logs')}
               className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors inline-flex items-center gap-1.5 ${
-                mainView === 'logs' ? 'bg-slate-700 text-white' : 'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'
+                mainView === 'logs' ? 'bg-slate-700 text-white' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
               }`}>
               <ClipboardList size={15} /> รายการ
             </button>
             <button onClick={() => setMainView('usage')}
               className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors inline-flex items-center gap-1.5 ${
-                mainView === 'usage' ? 'bg-slate-700 text-white' : 'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'
+                mainView === 'usage' ? 'bg-slate-700 text-white' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
               }`}>
               <BarChart3 size={15} /> สรุปการใช้งาน
             </button>
@@ -491,24 +491,24 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
         {(!isAdmin || mainView === 'logs') && (<>
 
         {/* Filters */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex flex-wrap gap-3 items-end">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-4 flex flex-wrap gap-3 items-end">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-slate-500 font-medium">วันที่เริ่ม</label>
+            <label className="text-xs text-slate-500 dark:text-slate-400 font-medium">วันที่เริ่ม</label>
             <IsoDateInput value={dateFrom} onChange={setDateFrom} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-slate-500 font-medium">วันที่สิ้นสุด</label>
+            <label className="text-xs text-slate-500 dark:text-slate-400 font-medium">วันที่สิ้นสุด</label>
             <IsoDateInput value={dateTo} onChange={setDateTo} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-slate-500 font-medium">ค้นหาผู้ใช้</label>
+            <label className="text-xs text-slate-500 dark:text-slate-400 font-medium">ค้นหาผู้ใช้</label>
             <div className="relative">
-              <Search size={14} className="absolute left-2.5 top-2 text-slate-400" />
+              <Search size={14} className="absolute left-2.5 top-2 text-slate-400 dark:text-slate-500" />
               <input
                 type="text" value={userSearch} onChange={e => setUser(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && load()}
                 placeholder="ชื่อผู้ใช้..."
-                className="border border-slate-300 rounded-lg pl-8 pr-3 py-1.5 text-sm w-44 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                className="border border-slate-300 dark:border-slate-600 rounded-lg pl-8 pr-3 py-1.5 text-sm w-44 focus:outline-none focus:ring-2 focus:ring-slate-400"
               />
             </div>
           </div>
@@ -520,11 +520,11 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
 
         {/* Action filter dropdown — เลือกกรองประเภทการดำเนินการ (auto-refetch ผ่าน useEffect[load]) */}
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-500 font-medium">กรองประเภทการดำเนินการ</label>
+          <label className="text-xs text-slate-500 dark:text-slate-400 font-medium">กรองประเภทการดำเนินการ</label>
           <div className="relative w-full sm:w-72">
-            <Filter size={14} className="absolute left-2.5 top-2.5 text-slate-400 pointer-events-none" />
+            <Filter size={14} className="absolute left-2.5 top-2.5 text-slate-400 dark:text-slate-500 pointer-events-none" />
             <select value={actionFilter} onChange={e => setAction(e.target.value)}
-              className="w-full appearance-none bg-white border border-slate-300 rounded-lg pl-8 pr-8 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 cursor-pointer">
+              className="w-full appearance-none bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg pl-8 pr-8 py-1.5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-400 cursor-pointer">
               <option value="all">ทั้งหมด</option>
               {ACTION_GROUPS.map(g => (
                 <optgroup key={g.label} label={g.label}>
@@ -534,7 +534,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
                 </optgroup>
               ))}
             </select>
-            <ChevronDown size={15} className="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none" />
+            <ChevronDown size={15} className="absolute right-2.5 top-2.5 text-slate-400 dark:text-slate-500 pointer-events-none" />
           </div>
         </div>
 
@@ -542,30 +542,30 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
         {isMobile && editId && (
           <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={cancelEdit}>
             <div className="absolute inset-0 bg-black/40" />
-            <div className="relative bg-white rounded-t-2xl shadow-2xl p-5 space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="relative bg-white dark:bg-slate-900 rounded-t-2xl shadow-2xl p-5 space-y-3" onClick={e => e.stopPropagation()}>
               <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-2" />
-              <p className="font-semibold text-slate-800 text-sm">แก้ไข Audit Log</p>
+              <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm">แก้ไข Audit Log</p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-slate-500 mb-1 block">ผู้ดำเนินการ</label>
+                  <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">ผู้ดำเนินการ</label>
                   <input value={editUserName} onChange={e => setEditUserName(e.target.value)}
-                    className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"/>
+                    className="w-full border border-amber-300 dark:border-amber-800/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"/>
                 </div>
                 <div>
-                  <label className="text-xs text-slate-500 mb-1 block">หน่วยงาน</label>
+                  <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">หน่วยงาน</label>
                   <input value={editDept} onChange={e => setEditDept(e.target.value)}
-                    className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"/>
+                    className="w-full border border-amber-300 dark:border-amber-800/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"/>
                 </div>
               </div>
               <div>
-                <label className="text-xs text-slate-500 mb-1 block">จำนวน</label>
+                <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">จำนวน</label>
                 <input type="number" value={editCount} onChange={e => setEditCount(e.target.value)}
-                  className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"/>
+                  className="w-full border border-amber-300 dark:border-amber-800/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"/>
               </div>
               <div>
-                <label className="text-xs text-slate-500 mb-1 block">Details (JSON)</label>
+                <label className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">Details (JSON)</label>
                 <textarea value={editDetails} onChange={e => setEditDetails(e.target.value)} rows={3}
-                  className="w-full border border-amber-300 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"/>
+                  className="w-full border border-amber-300 dark:border-amber-800/60 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"/>
                 {editError && <p className="text-red-500 text-xs mt-1">{editError}</p>}
               </div>
               <div className="flex gap-2 pt-1">
@@ -574,7 +574,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
                   {saving ? 'กำลังบันทึก...' : 'บันทึก'}
                 </button>
                 <button onClick={cancelEdit}
-                  className="px-4 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium">
+                  className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-medium">
                   ยกเลิก
                 </button>
               </div>
@@ -583,16 +583,16 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
         )}
 
         {/* Table */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 gap-3 flex-wrap">
-            <span className="text-sm font-semibold text-slate-700">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 dark:border-slate-800 gap-3 flex-wrap">
+            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
               {loading ? 'กำลังโหลด...' : `${logs.length} รายการ`}
             </span>
             {isAdmin && selectedIds.size > 0 && (
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500">เลือก <span className="font-semibold text-slate-700">{selectedIds.size}</span> รายการ</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">เลือก <span className="font-semibold text-slate-700 dark:text-slate-200">{selectedIds.size}</span> รายการ</span>
                 <button onClick={() => { setSelectedIds(new Set()); setBulkConfirm(false); }}
-                  className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
+                  className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-colors">
                   ยกเลิก
                 </button>
                 {bulkConfirm ? (
@@ -602,13 +602,13 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
                       {bulkDeleting ? 'กำลังลบ...' : `ยืนยันลบ ${selectedIds.size} รายการ`}
                     </button>
                     <button onClick={() => setBulkConfirm(false)}
-                      className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors">
+                      className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-colors">
                       <X size={12}/>
                     </button>
                   </>
                 ) : (
                   <button onClick={() => setBulkConfirm(true)}
-                    className="text-xs px-3 py-1 rounded-lg bg-red-50 text-red-600 border border-red-200 font-semibold hover:bg-red-100 transition-colors flex items-center gap-1">
+                    className="text-xs px-3 py-1 rounded-lg bg-red-50 dark:bg-red-950/40 text-red-600 border border-red-200 dark:border-red-900/60 font-semibold hover:bg-red-100 dark:hover:bg-red-950/70 transition-colors flex items-center gap-1">
                     <Trash2 size={12}/> ลบที่เลือก
                   </button>
                 )}
@@ -617,14 +617,14 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
           </div>
 
           {logs.length === 0 && !loading ? (
-            <p className="text-center text-slate-400 text-sm py-10">ไม่มีข้อมูล</p>
+            <p className="text-center text-slate-400 dark:text-slate-500 text-sm py-10">ไม่มีข้อมูล</p>
           ) : isMobile ? (
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
               {sorted.map((r) => {
-                const meta = ACTION_LABELS[r.action] || { label: r.action, color: 'bg-slate-100 text-slate-600' };
+                const meta = ACTION_LABELS[r.action] || { label: r.action, color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' };
                 const isDeletePending = deleteId === r.id;
                 return (
-                  <div key={r.id} className={`p-4 space-y-2 ${selectedIds.has(r.id) ? 'bg-slate-100/70' : ''}`}>
+                  <div key={r.id} className={`p-4 space-y-2 ${selectedIds.has(r.id) ? 'bg-slate-100 dark:bg-slate-800/70' : ''}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         {isAdmin && (
@@ -633,17 +633,17 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
                         )}
                         <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${meta.color}`}>{meta.label}</span>
                       </div>
-                      <span className="text-[10px] text-slate-400 shrink-0">{fmtDatetime(r.created_at)}</span>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0">{fmtDatetime(r.created_at)}</span>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-600">
+                    <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
                       <span className="font-medium">{r.user_name || '-'}</span>
-                      {r.department && r.department !== '-' && <><span className="text-slate-300">·</span><span>{r.department}</span></>}
-                      {r.record_count != null && <><span className="text-slate-300">·</span><span>{r.record_count.toLocaleString()} รายการ</span></>}
+                      {r.department && r.department !== '-' && <><span className="text-slate-300 dark:text-slate-500">·</span><span>{r.department}</span></>}
+                      {r.record_count != null && <><span className="text-slate-300 dark:text-slate-500">·</span><span>{r.record_count.toLocaleString()} รายการ</span></>}
                     </div>
-                    <p className="text-xs text-slate-500 leading-relaxed">{formatDetails(r.action, r.details, r.record_count)}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{formatDetails(r.action, r.details, r.record_count)}</p>
                     <div className="flex gap-2 pt-1">
                       <button onClick={() => openEdit(r)}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60">
                         <Pencil size={11}/> แก้ไข
                       </button>
                       {isDeletePending ? (
@@ -653,13 +653,13 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
                             {deleting ? '...' : 'ยืนยันลบ'}
                           </button>
                           <button onClick={() => setDeleteId(null)}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-600">
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
                             ยกเลิก
                           </button>
                         </>
                       ) : (
                         <button onClick={() => setDeleteId(r.id)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-red-50 text-red-600 border border-red-200">
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-red-50 dark:bg-red-950/40 text-red-600 border border-red-200 dark:border-red-900/60">
                           <Trash2 size={11}/> ลบ
                         </button>
                       )}
@@ -672,37 +672,37 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
             <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 340px)' }}>
               <table className="w-full text-xs min-w-[800px]">
                 <thead className="sticky top-0 z-20">
-                  <tr className="text-slate-500 font-semibold border-b border-slate-100 bg-slate-50">
+                  <tr className="text-slate-500 dark:text-slate-400 font-semibold border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800">
                     {isAdmin && (
-                      <th className="pl-4 pr-2 py-2.5 bg-slate-50 w-8">
+                      <th className="pl-4 pr-2 py-2.5 bg-slate-50 dark:bg-slate-800 w-8">
                         <input type="checkbox" checked={allSelected} ref={el => { if (el) el.indeterminate = someSelected; }}
                           onChange={toggleSelectAll}
                           className="w-3.5 h-3.5 accent-slate-700 cursor-pointer" />
                       </th>
                     )}
-                    <SortableTh sortKey="created_at" label="วันที่/เวลา" sort={sort} onSort={toggleSort} className="px-4 py-2.5 bg-slate-50" activeColor="text-slate-700" />
-                    <SortableTh sortKey="action" label="การดำเนินการ" sort={sort} onSort={toggleSort} className="px-4 py-2.5 bg-slate-50" activeColor="text-slate-700" />
-                    <SortableTh sortKey="user_name" label="ผู้ดำเนินการ" sort={sort} onSort={toggleSort} className="px-4 py-2.5 bg-slate-50" activeColor="text-slate-700" />
-                    <SortableTh sortKey="department" label="หน่วยงาน" sort={sort} onSort={toggleSort} className="px-4 py-2.5 bg-slate-50" activeColor="text-slate-700" />
-                    <SortableTh sortKey="record_count" label="จำนวน" align="right" sort={sort} onSort={toggleSort} className="px-4 py-2.5 bg-slate-50" activeColor="text-slate-700" />
-                    <th className="px-4 py-2.5 text-left bg-slate-50">รายละเอียด</th>
-                    <th className="px-4 py-2.5 text-center bg-slate-50">จัดการ</th>
+                    <SortableTh sortKey="created_at" label="วันที่/เวลา" sort={sort} onSort={toggleSort} className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800" activeColor="text-slate-700 dark:text-slate-200" />
+                    <SortableTh sortKey="action" label="การดำเนินการ" sort={sort} onSort={toggleSort} className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800" activeColor="text-slate-700 dark:text-slate-200" />
+                    <SortableTh sortKey="user_name" label="ผู้ดำเนินการ" sort={sort} onSort={toggleSort} className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800" activeColor="text-slate-700 dark:text-slate-200" />
+                    <SortableTh sortKey="department" label="หน่วยงาน" sort={sort} onSort={toggleSort} className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800" activeColor="text-slate-700 dark:text-slate-200" />
+                    <SortableTh sortKey="record_count" label="จำนวน" align="right" sort={sort} onSort={toggleSort} className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800" activeColor="text-slate-700 dark:text-slate-200" />
+                    <th className="px-4 py-2.5 text-left bg-slate-50 dark:bg-slate-800">รายละเอียด</th>
+                    <th className="px-4 py-2.5 text-center bg-slate-50 dark:bg-slate-800">จัดการ</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sorted.map((r, i) => {
-                    const meta = ACTION_LABELS[r.action] || { label: r.action, color: 'bg-slate-100 text-slate-600' };
+                    const meta = ACTION_LABELS[r.action] || { label: r.action, color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' };
                     const isEditing = editId === r.id;
                     const isDeletePending = deleteId === r.id;
                     return (
-                      <tr key={r.id} className={`border-b border-slate-100 ${isEditing ? 'bg-amber-50' : selectedIds.has(r.id) ? 'bg-slate-100/70' : i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
+                      <tr key={r.id} className={`border-b border-slate-100 dark:border-slate-800 ${isEditing ? 'bg-amber-50 dark:bg-amber-950/40' : selectedIds.has(r.id) ? 'bg-slate-100 dark:bg-slate-800/70' : i % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50 dark:bg-slate-800/40'}`}>
                         {isAdmin && (
                           <td className="pl-4 pr-2 py-2.5 w-8">
                             <input type="checkbox" checked={selectedIds.has(r.id)} onChange={() => toggleSelect(r.id)}
                               className="w-3.5 h-3.5 accent-slate-700 cursor-pointer" />
                           </td>
                         )}
-                        <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{fmtDatetime(r.created_at)}</td>
+                        <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">{fmtDatetime(r.created_at)}</td>
                         <td className="px-4 py-2.5">
                           <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${meta.color}`}>
                             {meta.label}
@@ -710,36 +710,36 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
                         </td>
 
                         {/* ผู้ดำเนินการ */}
-                        <td className="px-4 py-2.5 font-medium text-slate-800">
+                        <td className="px-4 py-2.5 font-medium text-slate-800 dark:text-slate-100">
                           {isEditing
                             ? <input value={editUserName} onChange={e => setEditUserName(e.target.value)}
-                                className="border border-amber-300 rounded px-2 py-0.5 w-28 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"/>
+                                className="border border-amber-300 dark:border-amber-800/60 rounded px-2 py-0.5 w-28 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"/>
                             : r.user_name || '-'}
                         </td>
 
                         {/* หน่วยงาน */}
-                        <td className="px-4 py-2.5 text-slate-500">
+                        <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">
                           {isEditing
                             ? <input value={editDept} onChange={e => setEditDept(e.target.value)}
-                                className="border border-amber-300 rounded px-2 py-0.5 w-28 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"/>
+                                className="border border-amber-300 dark:border-amber-800/60 rounded px-2 py-0.5 w-28 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"/>
                             : r.department || '-'}
                         </td>
 
                         {/* จำนวน */}
-                        <td className="px-4 py-2.5 text-right text-slate-600">
+                        <td className="px-4 py-2.5 text-right text-slate-600 dark:text-slate-300">
                           {isEditing
                             ? <input type="number" value={editCount} onChange={e => setEditCount(e.target.value)}
-                                className="border border-amber-300 rounded px-2 py-0.5 w-16 text-xs text-right focus:outline-none focus:ring-1 focus:ring-amber-400"/>
+                                className="border border-amber-300 dark:border-amber-800/60 rounded px-2 py-0.5 w-16 text-xs text-right focus:outline-none focus:ring-1 focus:ring-amber-400"/>
                             : r.record_count != null ? r.record_count.toLocaleString() : '-'}
                         </td>
 
                         {/* รายละเอียด */}
-                        <td className="px-4 py-2.5 text-slate-600 max-w-[280px]">
+                        <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300 max-w-[280px]">
                           {isEditing ? (
                             <div className="space-y-1">
                               <textarea value={editDetails} onChange={e => setEditDetails(e.target.value)} rows={2}
                                 placeholder='{"key":"value"}'
-                                className="border border-amber-300 rounded px-2 py-0.5 w-full text-xs font-mono focus:outline-none focus:ring-1 focus:ring-amber-400 resize-none"/>
+                                className="border border-amber-300 dark:border-amber-800/60 rounded px-2 py-0.5 w-full text-xs font-mono focus:outline-none focus:ring-1 focus:ring-amber-400 resize-none"/>
                               {editError && <p className="text-red-500 text-[10px]">{editError}</p>}
                             </div>
                           ) : (
@@ -758,7 +758,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
                                 <Save size={13}/>
                               </button>
                               <button onClick={cancelEdit}
-                                className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="ยกเลิก">
+                                className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors" title="ยกเลิก">
                                 <X size={13}/>
                               </button>
                             </div>
@@ -769,18 +769,18 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
                                 {deleting ? '...' : 'ยืนยัน'}
                               </button>
                               <button onClick={() => setDeleteId(null)}
-                                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+                                className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
                                 <X size={13}/>
                               </button>
                             </div>
                           ) : (
                             <div className="flex items-center justify-center gap-1">
                               <button onClick={() => openEdit(r)}
-                                className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors" title="แก้ไข">
+                                className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/50 rounded-lg transition-colors" title="แก้ไข">
                                 <Pencil size={13}/>
                               </button>
                               <button onClick={() => setDeleteId(r.id)}
-                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="ลบ">
+                                className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors" title="ลบ">
                                 <Trash2 size={13}/>
                               </button>
                             </div>

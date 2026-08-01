@@ -28,7 +28,7 @@ const NOTIF_LABELS = {
   confirm_return:               { label: 'ยืนยันรับคืนยา',        color: 'text-emerald-600',dot: 'bg-emerald-400'},
   update_return:                { label: 'แก้ไขรายการคืนยา',     color: 'text-amber-600',  dot: 'bg-amber-400' },
   delete_return:                { label: 'ลบรายการคืนยา',        color: 'text-red-600',    dot: 'bg-red-400'   },
-  flag_swap_return:             { label: 'แจ้งเปลี่ยน/คืนยา',    color: 'text-amber-700',  dot: 'bg-amber-500' },
+  flag_swap_return:             { label: 'แจ้งเปลี่ยน/คืนยา',    color: 'text-amber-700 dark:text-amber-300',  dot: 'bg-amber-500' },
   delete_dispense:              { label: 'ลบรายการจ่ายยา',       color: 'text-red-600',    dot: 'bg-red-400'   },
   update_dispense:              { label: 'แก้ไขรายการจ่ายยา',    color: 'text-amber-600',  dot: 'bg-amber-400' },
   import_dispense:              { label: 'นำเข้าประวัติเบิกจ่าย', color: 'text-rose-600',  dot: 'bg-rose-400'  },
@@ -48,7 +48,7 @@ const NOTIF_LABELS = {
   update_reorder_config:        { label: 'แก้ Master ยา',         color: 'text-violet-600',  dot: 'bg-violet-400' },
   import_reorder_config:        { label: 'Import Master ยา',      color: 'text-indigo-600',  dot: 'bg-indigo-400' },
   mark_ordered:                 { label: 'ทำเครื่องหมายสั่งแล้ว',  color: 'text-emerald-600', dot: 'bg-emerald-400' },
-  print_po:                     { label: 'พิมพ์ใบสั่งซื้อ',        color: 'text-slate-700',   dot: 'bg-slate-500'  },
+  print_po:                     { label: 'พิมพ์ใบสั่งซื้อ',        color: 'text-slate-700 dark:text-slate-200',   dot: 'bg-slate-500'  },
   // ── Stock Count (ตรวจนับคงคลัง) ──
   create_stock_count:           { label: 'ตรวจนับคงคลัง',         color: 'text-emerald-600', dot: 'bg-emerald-400' },
   update_stock_count:           { label: 'แก้ไขผลตรวจนับ',        color: 'text-amber-600',   dot: 'bg-amber-400' },
@@ -211,7 +211,7 @@ export default function NotificationBell({ auth, onNavigate, dropdownAlign = 'ri
     <div className="relative" ref={bellRef}>
       <button
         onClick={() => { setShowBell(v => { if (!v) markRead(); return !v; }); }}
-        className={`relative p-2 rounded-xl transition-colors ${onBlue ? 'text-indigo-100 hover:text-white hover:bg-white/10' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
+        className={`relative p-2 rounded-xl transition-colors ${onBlue ? 'text-indigo-100 hover:text-white hover:bg-white/10' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
         title="การแจ้งเตือน"
       >
         <Bell size={20} />
@@ -223,39 +223,39 @@ export default function NotificationBell({ auth, onNavigate, dropdownAlign = 'ri
       </button>
 
       {showBell && (
-        <div className={`fixed left-2 right-2 top-16 w-auto sm:absolute sm:top-full sm:mt-2 sm:w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden ${dropdownAlign === 'left' ? 'sm:right-auto sm:left-0' : 'sm:left-auto sm:right-0'}`}>
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
-            <span className="font-bold text-slate-800 text-sm flex items-center gap-2">
-              <Bell size={14} className="text-slate-500" /> การแจ้งเตือน
+        <div className={`fixed left-2 right-2 top-16 w-auto sm:absolute sm:top-full sm:mt-2 sm:w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden ${dropdownAlign === 'left' ? 'sm:right-auto sm:left-0' : 'sm:left-auto sm:right-0'}`}>
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800">
+            <span className="font-bold text-slate-800 dark:text-slate-100 text-sm flex items-center gap-2">
+              <Bell size={14} className="text-slate-500 dark:text-slate-400" /> การแจ้งเตือน
               {notifs.length > 0 && (
-                <span className="text-xs text-slate-400 font-normal">7 วันล่าสุด</span>
+                <span className="text-xs text-slate-400 dark:text-slate-500 font-normal">7 วันล่าสุด</span>
               )}
             </span>
-            <button onClick={() => setShowBell(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+            <button onClick={() => setShowBell(false)} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
               <X size={16} />
             </button>
           </div>
 
           {/* ── ผู้ใช้งานออนไลน์ขณะนี้ ── */}
-          <div className="px-4 py-3 border-b border-slate-100 bg-emerald-50/60">
-            <p className="text-xs font-bold text-emerald-700 flex items-center gap-1.5 mb-2">
+          <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-emerald-50 dark:bg-emerald-950/40">
+            <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5 mb-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
               ออนไลน์ขณะนี้
-              <span className="ml-auto font-semibold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full">
+              <span className="ml-auto font-semibold text-emerald-600 bg-emerald-100 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded-full">
                 {onlineUsers.length} คน
               </span>
             </p>
             <div className="space-y-1.5 max-h-36 overflow-y-auto">
               {onlineUsers.length === 0
-                ? <p className="text-xs text-slate-400">ไม่มีผู้ใช้งาน</p>
+                ? <p className="text-xs text-slate-400 dark:text-slate-500">ไม่มีผู้ใช้งาน</p>
                 : onlineUsers.map((u, i) => {
                   const isMe = String(u.user_id) === String(auth.id);
                   const roleLabel = u.role === 'admin' ? 'ผู้ดูแล' : u.role === 'staff' ? 'เจ้าหน้าที่' : 'ผู้ใช้';
-                  const roleColor = u.role === 'admin' ? 'text-violet-700 bg-violet-100' : u.role === 'staff' ? 'text-indigo-700 bg-indigo-100' : 'text-slate-600 bg-slate-100';
+                  const roleColor = u.role === 'admin' ? 'text-violet-700 dark:text-violet-300 bg-violet-100 dark:bg-violet-950/60' : u.role === 'staff' ? 'text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-950/60' : 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800';
                   return (
-                    <div key={i} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg ${isMe ? 'bg-emerald-100/80' : 'bg-white'}`}>
+                    <div key={i} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg ${isMe ? 'bg-emerald-100 dark:bg-emerald-950/60' : 'bg-white dark:bg-slate-900'}`}>
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                      <span className="text-xs font-semibold text-slate-700 truncate flex-1">
+                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate flex-1">
                         {u.user_name || '-'}
                         {isMe && <span className="ml-1 text-emerald-600 font-normal">(คุณ)</span>}
                       </span>
@@ -267,25 +267,25 @@ export default function NotificationBell({ auth, onNavigate, dropdownAlign = 'ri
             </div>
           </div>
 
-          <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
+          <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
             {notifs.length === 0
               ? (
                 <div className="py-8 text-center">
-                  <Bell size={28} className="text-slate-300 mx-auto mb-2" />
-                  <p className="text-slate-400 text-sm">ไม่มีการแจ้งเตือน</p>
+                  <Bell size={28} className="text-slate-300 dark:text-slate-500 mx-auto mb-2" />
+                  <p className="text-slate-400 dark:text-slate-500 text-sm">ไม่มีการแจ้งเตือน</p>
                 </div>
               )
               : notifs.map(n => {
-                const meta = NOTIF_LABELS[n.action] || { label: n.action, color: 'text-slate-600', dot: 'bg-slate-400' };
+                const meta = NOTIF_LABELS[n.action] || { label: n.action, color: 'text-slate-600 dark:text-slate-300', dot: 'bg-slate-400' };
                 const isNew = !lastRead || new Date(n.created_at) > new Date(lastRead);
                 return (
-                  <div key={n.id} className={`px-4 py-3 ${isNew ? 'bg-blue-50/50' : ''}`}>
+                  <div key={n.id} className={`px-4 py-3 ${isNew ? 'bg-blue-50 dark:bg-blue-950/40' : ''}`}>
                     <div className="flex items-start gap-2.5">
                       <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${meta.dot}`} />
                       <div className="flex-1 min-w-0">
                         <p className={`text-xs font-bold ${meta.color}`}>{meta.label}</p>
-                        <p className="text-sm text-slate-700 leading-snug mt-0.5 break-words">{notifMessage(n)}</p>
-                        <p className="text-xs text-slate-400 mt-1">{timeAgo(n.created_at)}</p>
+                        <p className="text-sm text-slate-700 dark:text-slate-200 leading-snug mt-0.5 break-words">{notifMessage(n)}</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{timeAgo(n.created_at)}</p>
                       </div>
                       {isNew && <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0 mt-1.5" />}
                     </div>
@@ -296,7 +296,7 @@ export default function NotificationBell({ auth, onNavigate, dropdownAlign = 'ri
           </div>
 
           {notifs.length > 0 && onNavigate && (
-            <div className="px-4 py-2.5 border-t border-slate-100 bg-slate-50 text-center">
+            <div className="px-4 py-2.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-center">
               <button
                 onClick={() => { setShowBell(false); onNavigate('audit'); }}
                 className="text-xs text-[#1E90FF] hover:underline font-semibold"

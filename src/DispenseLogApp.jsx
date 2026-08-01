@@ -167,8 +167,8 @@ function dateDiff(isoFrom, isoTo) {
 
 function ThaiDateInput({ value, onChange, ring = 'focus-within:ring-rose-400', size = 'w-28', placeholder }) {
   return (
-    <div className={`relative ${size} min-h-[36px] border border-slate-300 rounded-lg bg-white flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:outline-none ${ring}`}>
-      <span className={`px-2 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
+    <div className={`relative ${size} min-h-[36px] border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:outline-none ${ring}`}>
+      <span className={`px-2 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>
         {value || placeholder || 'dd/mm/yyyy'}
       </span>
       <input type="date"
@@ -280,20 +280,20 @@ export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBa
   const isAdmin = auth.role === 'admin';
 
   return (
-    <div className="min-h-screen bg-slate-200 text-slate-800 font-sans">
+    <div className="min-h-screen bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100 font-sans">
       {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + action */}
-      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center gap-2">
+      <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 flex items-center gap-2">
         <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
-        <div className="p-1.5 rounded-lg bg-rose-100 text-rose-600 shrink-0"><TrendingDown size={18} /></div>
-        <button onClick={onRefresh} className="font-bold text-base text-slate-800 truncate flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">บันทึกการเบิกจ่าย (คลังเบิก)</button>
+        <div className="p-1.5 rounded-lg bg-rose-100 dark:bg-rose-950/60 text-rose-600 shrink-0"><TrendingDown size={18} /></div>
+        <button onClick={onRefresh} className="font-bold text-base text-slate-800 dark:text-slate-100 truncate flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">บันทึกการเบิกจ่าย (คลังเบิก)</button>
         <div className="flex items-center gap-1.5 shrink-0">
           <button onClick={() => setShowSummary(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors">
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
             <BarChart3 size={15} /> สรุปผล
           </button>
           {isStaff && (
             <button onClick={() => setTab('import')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'import' ? 'bg-rose-600 text-white' : 'bg-white border border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'import' ? 'bg-rose-600 text-white' : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
             >Import CSV</button>
           )}
         </div>
@@ -445,25 +445,25 @@ function DispenseImport({ onDone, auth = {} }) {
       {/* Upload Warning Modal */}
       {uploadWarnings && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
             <div className="bg-amber-500 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
               <div>
                 <p className="font-bold text-lg flex items-center gap-2"><AlertCircle size={20}/>พบ Row ที่ไม่ผ่านเงื่อนไข</p>
                 <p className="text-amber-100 text-sm">{uploadWarnings.type}: {uploadWarnings.fileName} — {uploadWarnings.rows.length} row มีปัญหา</p>
               </div>
-              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={18}/></button>
+              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white dark:bg-slate-900/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={18}/></button>
             </div>
             <div className="overflow-y-auto flex-1 p-4 space-y-2">
               {uploadWarnings.rows.map((r, i) => (
-                <div key={i} className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-sm">
+                <div key={i} className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-4 py-2 text-sm">
                   <div className="flex gap-3 items-start">
-                    <span className="font-mono bg-amber-200 text-amber-900 px-2 py-0.5 rounded text-xs font-bold shrink-0">Row {r.row}</span>
+                    <span className="font-mono bg-amber-200 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded text-xs font-bold shrink-0">Row {r.row}</span>
                     <div className="flex-1">
-                      <span className="font-semibold text-slate-800">{r.name}</span>
-                      {r.code && r.code !== '-' && <span className="text-slate-400 ml-2 text-xs">[{r.code}]</span>}
+                      <span className="font-semibold text-slate-800 dark:text-slate-100">{r.name}</span>
+                      {r.code && r.code !== '-' && <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">[{r.code}]</span>}
                       <div className="flex flex-wrap gap-1 mt-1">
                         {r.issues.map((issue, j) => (
-                          <span key={j} className="bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full text-xs">{issue}</span>
+                          <span key={j} className="bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-900/60 px-2 py-0.5 rounded-full text-xs">{issue}</span>
                         ))}
                       </div>
                     </div>
@@ -471,8 +471,8 @@ function DispenseImport({ onDone, auth = {} }) {
                 </div>
               ))}
             </div>
-            <div className="px-6 py-4 border-t border-slate-100 flex justify-between items-center">
-              <p className="text-sm text-slate-500">ข้อมูลที่ถูกต้องถูกบันทึกแล้ว — แก้ไข CSV แล้วอัปโหลดใหม่</p>
+            <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+              <p className="text-sm text-slate-500 dark:text-slate-400">ข้อมูลที่ถูกต้องถูกบันทึกแล้ว — แก้ไข CSV แล้วอัปโหลดใหม่</p>
               <button onClick={() => setUploadWarnings(null)} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm">รับทราบ</button>
             </div>
           </div>
@@ -480,21 +480,21 @@ function DispenseImport({ onDone, auth = {} }) {
       )}
 
       <div onClick={() => fileRef.current?.click()}
-        className="border-2 border-dashed border-slate-300 hover:border-rose-400 bg-white rounded-2xl p-10 text-center cursor-pointer transition-colors">
-        <FileSpreadsheet size={40} className="mx-auto mb-3 text-slate-400" />
-        <p className="font-semibold text-slate-700">คลิกเพื่อเลือกไฟล์ CSV คลังเบิก</p>
-        <p className="text-xs text-slate-400 mt-1">รองรับ .csv (UTF-8 หรือ TIS-620)</p>
+        className="border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-rose-400 bg-white dark:bg-slate-900 rounded-2xl p-10 text-center cursor-pointer transition-colors">
+        <FileSpreadsheet size={40} className="mx-auto mb-3 text-slate-400 dark:text-slate-500" />
+        <p className="font-semibold text-slate-700 dark:text-slate-200">คลิกเพื่อเลือกไฟล์ CSV คลังเบิก</p>
+        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">รองรับ .csv (UTF-8 หรือ TIS-620)</p>
         <input ref={fileRef} type="file" accept=".csv" onChange={handleFile} className="hidden" />
       </div>
 
-      {error  && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-xl px-4 py-2 flex items-center gap-2"><AlertCircle size={16}/>{error}</p>}
-      {status && <p className="text-emerald-700 text-sm bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2">{status}</p>}
+      {error  && <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-4 py-2 flex items-center gap-2"><AlertCircle size={16}/>{error}</p>}
+      {status && <p className="text-emerald-700 dark:text-emerald-300 text-sm bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-xl px-4 py-2">{status}</p>}
 
       {/* Column reference — shown before file is selected */}
       {!preview && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
-          <p className="text-sm font-semibold text-slate-700">หัวคอลัมน์ที่รองรับในไฟล์ CSV</p>
-          <p className="text-xs text-slate-400">ชื่อหัวคอลัมน์ใน CSV ต้องตรงกับชื่อด้านล่าง (ไม่ต้องเว้นวรรค / ไม่ต้องตรงทุกตัว)</p>
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm space-y-3">
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">หัวคอลัมน์ที่รองรับในไฟล์ CSV</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500">ชื่อหัวคอลัมน์ใน CSV ต้องตรงกับชื่อด้านล่าง (ไม่ต้องเว้นวรรค / ไม่ต้องตรงทุกตัว)</p>
           <div className="flex flex-wrap gap-2">
             {[
               { label: 'วันที่เบิก',         req: true,  hints: ['วันที่เบิก', 'วันที่', 'dispense_date'] },
@@ -515,14 +515,14 @@ function DispenseImport({ onDone, auth = {} }) {
               { label: 'DetailedLog',        req: false, hints: ['detailedlog', 'detail_log', 'กลุ่ม'] },
               { label: 'หมายเหตุ',           req: false, hints: ['หมายเหตุ', 'note', 'remark'] },
             ].map(({ label, req, hints }) => (
-              <div key={label} className="bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
+              <div key={label} className="bg-slate-50 dark:bg-slate-800 rounded-xl px-3 py-2 border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">{label}</span>
-                  {req && <span className="text-[10px] font-bold bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full">จำเป็น</span>}
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap">{label}</span>
+                  {req && <span className="text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-600 px-1.5 py-0.5 rounded-full">จำเป็น</span>}
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {hints.map(h => (
-                    <code key={h} className="text-[10px] bg-white border border-slate-200 text-slate-500 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">{h}</code>
+                    <code key={h} className="text-[10px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">{h}</code>
                   ))}
                 </div>
               </div>
@@ -532,21 +532,21 @@ function DispenseImport({ onDone, auth = {} }) {
       )}
 
       {preview && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-4 shadow-sm">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 space-y-4 shadow-sm">
           <div className="flex items-center justify-between">
-            <p className="font-semibold text-slate-800">{preview.fileName}</p>
-            <span className="text-xs text-slate-500">{preview.total.toLocaleString()} แถว</span>
+            <p className="font-semibold text-slate-800 dark:text-slate-100">{preview.fileName}</p>
+            <span className="text-xs text-slate-500 dark:text-slate-400">{preview.total.toLocaleString()} แถว</span>
           </div>
 
           {/* CSV header tags */}
           <div>
-            <p className="text-xs font-semibold text-slate-500 mb-2">หัวคอลัมน์ CSV ที่ตรวจพบ ({rawHeaders.length} คอลัมน์):</p>
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">หัวคอลัมน์ CSV ที่ตรวจพบ ({rawHeaders.length} คอลัมน์):</p>
             <div className="flex flex-wrap gap-1.5">
               {rawHeaders.map((h, i) => {
                 const matchedField = Object.entries(mapping).find(([, idx]) => idx === i)?.[0];
                 return (
                   <span key={i} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium border ${
-                    matchedField ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-400 border-slate-200'
+                    matchedField ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700'
                   }`}>
                     {matchedField ? <CheckCircle2 size={12}/> : <HelpCircle size={12}/>} {h}
                     {matchedField && <span className="text-[10px] text-emerald-500 ml-0.5">→ {FIELD_LABELS[matchedField] || matchedField}</span>}
@@ -565,10 +565,10 @@ function DispenseImport({ onDone, auth = {} }) {
             <div className="grid grid-cols-1 gap-1.5 max-h-72 overflow-y-auto mt-2 pr-1">
               {Object.keys(COL_MAP).map(field => (
                 <div key={field} className="grid gap-2 items-center" style={{gridTemplateColumns:'10rem 1fr'}}>
-                  <span className="text-xs text-slate-600 font-medium truncate">{FIELD_LABELS[field] || field}</span>
+                  <span className="text-xs text-slate-600 dark:text-slate-300 font-medium truncate">{FIELD_LABELS[field] || field}</span>
                   <select value={mapping[field] ?? ''}
                     onChange={e => setMapping(p => ({ ...p, [field]: e.target.value === '' ? undefined : Number(e.target.value) }))}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-rose-400">
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:ring-1 focus:ring-rose-400">
                     <option value="">-- ไม่ใช้ --</option>
                     {rawHeaders.map((h, i) => <option key={i} value={i}>{h}</option>)}
                   </select>
@@ -579,11 +579,11 @@ function DispenseImport({ onDone, auth = {} }) {
 
           {/* Full preview table - all matched fields */}
           <div>
-            <p className="text-xs font-semibold text-slate-500 mb-2">ตัวอย่างข้อมูล 3 แถวแรก (เฉพาะคอลัมน์ที่ match):</p>
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">ตัวอย่างข้อมูล 3 แถวแรก (เฉพาะคอลัมน์ที่ match):</p>
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
               <table className="text-xs w-full">
                 <thead>
-                  <tr className="text-slate-600 border-b border-slate-200 bg-slate-50">
+                  <tr className="text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
                     {Object.keys(COL_MAP).filter(f => mapping[f] != null).map(f => (
                       <th key={f} className="px-3 py-2 text-left font-semibold whitespace-nowrap">{FIELD_LABELS[f] || f}</th>
                     ))}
@@ -591,11 +591,11 @@ function DispenseImport({ onDone, auth = {} }) {
                 </thead>
                 <tbody>
                   {rawRows.slice(0, 3).map((row, i) => (
-                    <tr key={i} className="border-b border-slate-100">
+                    <tr key={i} className="border-b border-slate-100 dark:border-slate-800">
                       {Object.keys(COL_MAP).filter(f => mapping[f] != null).map(f => {
                         const val = getVal(row, f);
                         return (
-                          <td key={f} className={`px-3 py-1.5 truncate max-w-[140px] ${val ? 'text-slate-700' : 'text-rose-300'}`}>
+                          <td key={f} className={`px-3 py-1.5 truncate max-w-[140px] ${val ? 'text-slate-700 dark:text-slate-200' : 'text-rose-300'}`}>
                             {val || '—'}
                           </td>
                         );
@@ -753,29 +753,29 @@ function EditModal({ row, onClose, onSaved, auth = {} }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-          <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+          <h2 className="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
             <Pencil size={16} className="text-indigo-500"/> แก้ไขรายการเบิก
           </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={18}/></button>
+          <button onClick={onClose} className="text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200"><X size={18}/></button>
         </div>
         <div className="overflow-y-auto p-5 space-y-3">
           {fields.map(([label, key, type]) => (
             <div key={key} className="flex items-center gap-3">
-              <label className="text-xs text-slate-500 w-36 shrink-0 text-right">{label}</label>
+              <label className="text-xs text-slate-500 dark:text-slate-400 w-36 shrink-0 text-right">{label}</label>
               <input
                 type={type}
                 value={form[key]}
                 onChange={e => set(key, e.target.value)}
-                className="flex-1 border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                className="flex-1 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-400"
               />
             </div>
           ))}
-          {error && <p className="text-red-600 text-xs bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+          {error && <p className="text-red-600 text-xs bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-lg px-3 py-2">{error}</p>}
         </div>
-        <div className="flex gap-2 px-5 py-4 border-t border-slate-200">
-          <button onClick={onClose} className="flex-1 border border-slate-300 text-slate-600 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50">ยกเลิก</button>
+        <div className="flex gap-2 px-5 py-4 border-t border-slate-200 dark:border-slate-700">
+          <button onClick={onClose} className="flex-1 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-xl py-2.5 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800">ยกเลิก</button>
           <button onClick={handleSave} disabled={saving}
             className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 text-white rounded-xl py-2.5 text-sm font-semibold flex items-center justify-center gap-2">
             <Save size={15}/>{saving ? 'กำลังบันทึก...' : 'บันทึก'}
@@ -998,23 +998,23 @@ function DispenseView({ isAdmin = false, auth = {} }) {
         />
       )}
       {/* Filter card */}
-      <div className="bg-white/95 backdrop-blur border border-slate-200 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
+      <div className="bg-white dark:bg-slate-900/95 backdrop-blur border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
         <div className="flex flex-wrap gap-2">
           <div className="relative flex-1 min-w-[180px]" ref={searchRef}>
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input
               type="text" value={search}
               onChange={e => { setSearch(e.target.value); setSelectedDrug(''); setPage(0); setShowDropdown(true); }}
               onFocus={() => { if (search.trim()) setShowDropdown(true); }}
               placeholder="ค้นหาชื่อยา, รหัส, Lot..."
-              className="w-full bg-white border border-slate-300 rounded-xl pl-9 pr-4 py-2 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl pl-9 pr-4 py-2 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
             />
-            {search && <button onClick={clearSearchDrug} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X size={14}/></button>}
+            {search && <button onClick={clearSearchDrug} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"><X size={14}/></button>}
             {showDropdown && filteredDrugs.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 overflow-hidden">
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg z-20 overflow-hidden">
                 {filteredDrugs.map(({ name, type }) => (
                   <button key={name} onMouseDown={e => { e.preventDefault(); selectDrug(name); }}
-                    className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-rose-50 hover:text-rose-700 transition-colors border-b border-slate-100 last:border-0">
+                    className="w-full text-left px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-rose-50 dark:hover:bg-rose-950/50 hover:text-rose-700 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span>{name}</span>
                       {type && <DrugTypeBadge type={type} />}
@@ -1027,7 +1027,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
           <SearchableSelect value={deptFilter} onChange={v => { setDeptFilter(v); setPage(0); }}
             options={departments} emptyLabel="ทุกหน่วยงาน" placeholder="ทุกหน่วยงาน"
             className="w-44" />
-          <button onClick={clearAll} className="text-slate-400 hover:text-slate-600 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
+          <button onClick={clearAll} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
             <RefreshCcw size={16} />
           </button>
           <button
@@ -1040,21 +1040,21 @@ function DispenseView({ isAdmin = false, auth = {} }) {
         </div>
         {/* Date range row */}
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          <span className="text-xs text-slate-500 font-medium">ตั้งแต่</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">ตั้งแต่</span>
           <ThaiDateInput value={dateFrom} onChange={v => { setDateFrom(v); setPage(0); }} />
-          <span className="text-xs text-slate-400">ถึง</span>
+          <span className="text-xs text-slate-400 dark:text-slate-500">ถึง</span>
           <ThaiDateInput value={dateTo} onChange={v => { setDateTo(v); setPage(0); }}
             placeholder={dateFrom ? isoToThai(new Date().toISOString().split('T')[0]) : 'dd/mm/yyyy'} />
           {(dateFrom || dateTo) && (
             <button onClick={() => { setDateFrom(''); setDateTo(''); setPage(0); }}
-              className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1"><X size={12}/>ล้างวันที่</button>
+              className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1"><X size={12}/>ล้างวันที่</button>
           )}
         </div>
       </div>
 
       {/* ตารางประวัติเบิกยาที่เลือก */}
       {selectedDrug && (
-        <div className="bg-white border border-rose-300 rounded-xl shadow-md overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-800/60 rounded-xl shadow-md overflow-hidden">
           {/* Header */}
           <div className="bg-rose-700 px-4 py-3">
             <div className="flex items-start justify-between gap-3">
@@ -1067,7 +1067,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                     <div className="flex flex-wrap gap-1.5 mt-2 items-center">
                       <span className="text-xs text-rose-200 font-semibold shrink-0">หน่วยงานที่เบิก:</span>
                       {depts.map(d => (
-                        <span key={d} className="text-xs bg-white/20 border border-white/30 text-white px-2 py-0.5 rounded-full">{d}</span>
+                        <span key={d} className="text-xs bg-white dark:bg-slate-900/20 border border-white/30 text-white px-2 py-0.5 rounded-full">{d}</span>
                       ))}
                     </div>
                   ) : null;
@@ -1078,14 +1078,14 @@ function DispenseView({ isAdmin = false, auth = {} }) {
           </div>
 
           {/* Date filter */}
-          <div className="px-4 py-2.5 border-b border-slate-100 flex flex-wrap items-center gap-3">
-            <span className="text-xs text-slate-500 font-medium">ช่วงวันที่:</span>
+          <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-3">
+            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">ช่วงวันที่:</span>
             <ThaiDateInput value={drugDateFrom} onChange={setDrugDateFrom} size="w-24" />
-            <span className="text-xs text-slate-400">ถึง</span>
+            <span className="text-xs text-slate-400 dark:text-slate-500">ถึง</span>
             <ThaiDateInput value={drugDateTo} onChange={setDrugDateTo} size="w-24" />
             {(drugDateFrom || drugDateTo) && (
               <button onClick={() => { setDrugDateFrom(''); setDrugDateTo(''); }}
-                className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-0.5"><X size={11}/>ล้าง</button>
+                className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-0.5"><X size={11}/>ล้าง</button>
             )}
           </div>
 
@@ -1093,10 +1093,10 @@ function DispenseView({ isAdmin = false, auth = {} }) {
           <div className="grid grid-cols-3 gap-3 px-4 py-3">
             <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
               <p className="text-2xl font-bold text-white tabular-nums">{filteredDrugRows.length.toLocaleString()}</p>
-              <p className="text-xs text-slate-300 mt-0.5">รายการ (กรอง)</p>
+              <p className="text-xs text-slate-300 dark:text-slate-500 mt-0.5">รายการ (กรอง)</p>
             </div>
             <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-3.5 text-center shadow-lg shadow-rose-300/60">
-              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
+              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white dark:bg-slate-900/25 blur-xl" />
               <p className="relative text-2xl font-bold text-white tabular-nums">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
               <p className="relative text-xs text-rose-50 mt-0.5">ปริมาณรวม (ออก)</p>
             </div>
@@ -1108,23 +1108,23 @@ function DispenseView({ isAdmin = false, auth = {} }) {
 
           {/* Table */}
           {drugLoading ? (
-            <p className="text-center text-slate-400 py-8 text-sm">กำลังโหลด...</p>
+            <p className="text-center text-slate-400 dark:text-slate-500 py-8 text-sm">กำลังโหลด...</p>
           ) : filteredDrugRows.length === 0 ? (
-            <p className="text-center text-slate-400 py-8 text-sm">ไม่พบข้อมูลในช่วงที่เลือก</p>
+            <p className="text-center text-slate-400 dark:text-slate-500 py-8 text-sm">ไม่พบข้อมูลในช่วงที่เลือก</p>
           ) : (
             <div className="overflow-x-auto overflow-y-auto max-h-[480px]">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-[5]">
-                  <tr className="text-xs font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-200">
-                    <th className="px-4 py-3 text-left bg-slate-50">วันที่เบิก</th>
-                    <th className="px-4 py-3 text-right bg-slate-50">จำนวน</th>
-                    <th className="px-4 py-3 text-left bg-slate-50">หน่วย</th>
-                    <th className="px-4 py-3 text-left bg-slate-50">Lot</th>
-                    <th className="px-4 py-3 text-left bg-slate-50">Exp</th>
-                    <th className="px-4 py-3 text-right bg-slate-50">ราคา/หน่วย</th>
-                    <th className="px-4 py-3 text-right bg-slate-50">มูลค่า (บาท)</th>
-                    <th className="px-4 py-3 text-left bg-slate-50">หน่วยงาน</th>
-                    <th className="px-4 py-3 w-8 bg-slate-50"></th>
+                  <tr className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide border-b border-slate-200 dark:border-slate-700">
+                    <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">วันที่เบิก</th>
+                    <th className="px-4 py-3 text-right bg-slate-50 dark:bg-slate-800">จำนวน</th>
+                    <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">หน่วย</th>
+                    <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">Lot</th>
+                    <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">Exp</th>
+                    <th className="px-4 py-3 text-right bg-slate-50 dark:bg-slate-800">ราคา/หน่วย</th>
+                    <th className="px-4 py-3 text-right bg-slate-50 dark:bg-slate-800">มูลค่า (บาท)</th>
+                    <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">หน่วยงาน</th>
+                    <th className="px-4 py-3 w-8 bg-slate-50 dark:bg-slate-800"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1132,22 +1132,22 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                     <React.Fragment key={r.id}>
                       <tr
                         onClick={() => setExpandedDrug(expandedDrug === r.id ? null : r.id)}
-                        className={`border-b border-slate-100 cursor-pointer transition-colors ${expandedDrug === r.id ? 'bg-rose-50' : 'hover:bg-rose-50/60'}`}
+                        className={`border-b border-slate-100 dark:border-slate-800 cursor-pointer transition-colors ${expandedDrug === r.id ? 'bg-rose-50 dark:bg-rose-950/40' : 'hover:bg-rose-50 dark:hover:bg-rose-950/50/60'}`}
                       >
-                        <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(r.dispense_date)}</td>
-                        <td className="px-4 py-2.5 text-rose-700 font-bold text-right whitespace-nowrap">{fmtQtyOut(r.qty_out)}</td>
-                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{getUnit(r) !== '-' ? getUnit(r) : drugUnit}</td>
-                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{r.lot || '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
-                        <td className="px-4 py-2.5 text-slate-800 font-medium text-right whitespace-nowrap">{getPrice(r) != null ? Number(getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                        <td className="px-4 py-2.5 text-amber-800 font-bold text-right whitespace-nowrap">{getPrice(r) != null ? ((r.qty_out||0)*getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-800 max-w-[160px] truncate font-medium">{r.department || '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-500">
+                        <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDate(r.dispense_date)}</td>
+                        <td className="px-4 py-2.5 text-rose-700 dark:text-rose-300 font-bold text-right whitespace-nowrap">{fmtQtyOut(r.qty_out)}</td>
+                        <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap font-medium">{getUnit(r) !== '-' ? getUnit(r) : drugUnit}</td>
+                        <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{r.lot || '-'}</td>
+                        <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
+                        <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 font-medium text-right whitespace-nowrap">{getPrice(r) != null ? Number(getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                        <td className="px-4 py-2.5 text-amber-800 dark:text-amber-300 font-bold text-right whitespace-nowrap">{getPrice(r) != null ? ((r.qty_out||0)*getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                        <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 max-w-[160px] truncate font-medium">{r.department || '-'}</td>
+                        <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">
                           {expandedDrug === r.id ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                         </td>
                       </tr>
                       {expandedDrug === r.id && (
-                        <tr key={`${r.id}-detail`} className="bg-rose-50/60 border-b border-rose-100">
+                        <tr key={`${r.id}-detail`} className="bg-rose-50 dark:bg-rose-950/40 border-b border-rose-100 dark:border-rose-900/50">
                           <td colSpan={9} className="px-6 py-3">
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-1.5 text-sm mb-3">
                               {[
@@ -1165,21 +1165,21 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                                 ['หมายเหตุ', r.note],
                               ].map(([label, val]) => val != null && val !== '-' && val !== '' ? (
                                 <div key={label}>
-                                  <span className="text-slate-400 text-xs">{label}: </span>
-                                  <span className="text-slate-700 font-medium">{val}</span>
+                                  <span className="text-slate-400 dark:text-slate-500 text-xs">{label}: </span>
+                                  <span className="text-slate-700 dark:text-slate-200 font-medium">{val}</span>
                                 </div>
                               ) : null)}
                             </div>
                             {isAdmin && (
-                              <div className="flex gap-2 pt-2 border-t border-rose-100">
+                              <div className="flex gap-2 pt-2 border-t border-rose-100 dark:border-rose-900/50">
                                 <button
                                   onClick={e => { e.stopPropagation(); setEditingRow(r); }}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors">
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-900/60 hover:bg-indigo-100 dark:hover:bg-indigo-950/70 transition-colors">
                                   <Pencil size={13}/> แก้ไข
                                 </button>
                                 <button
                                   onClick={e => handleDelete(r, e)}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors">
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 dark:bg-red-950/40 text-red-600 border border-red-200 dark:border-red-900/60 hover:bg-red-100 dark:hover:bg-red-950/70 transition-colors">
                                   <Trash2 size={13}/> ลบ
                                 </button>
                               </div>
@@ -1200,11 +1200,11 @@ function DispenseView({ isAdmin = false, auth = {} }) {
       {!selectedDrug && rows.length > 0 && (
         <div className="space-y-2">
           {aggStats?.minDate && aggStats?.maxDate && (
-            <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 flex-wrap">
-              <CalendarDays size={13} className="text-slate-400 shrink-0" />
-              <span>ข้อมูลตั้งแต่ <span className="font-semibold text-slate-700">{isoToThai(aggStats.minDate)}</span> – <span className="font-semibold text-slate-700">{isoToThai(aggStats.maxDate)}</span></span>
-              <span className="text-slate-400">·</span>
-              <span className="text-slate-600">{dateDiff(aggStats.minDate, aggStats.maxDate)}</span>
+            <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 flex-wrap">
+              <CalendarDays size={13} className="text-slate-400 dark:text-slate-500 shrink-0" />
+              <span>ข้อมูลตั้งแต่ <span className="font-semibold text-slate-700 dark:text-slate-200">{isoToThai(aggStats.minDate)}</span> – <span className="font-semibold text-slate-700 dark:text-slate-200">{isoToThai(aggStats.maxDate)}</span></span>
+              <span className="text-slate-400 dark:text-slate-500">·</span>
+              <span className="text-slate-600 dark:text-slate-300">{dateDiff(aggStats.minDate, aggStats.maxDate)}</span>
             </div>
           )}
           <div className="grid grid-cols-3 gap-3">
@@ -1213,7 +1213,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
               <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
             </div>
             <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-3.5 text-center shadow-lg shadow-rose-300/60">
-              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
+              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white dark:bg-slate-900/25 blur-xl" />
               <p className="relative text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.drugCount.toLocaleString() : '...'}</p>
               <p className="relative text-xs text-rose-50 mt-0.5">จำนวนชนิดยา{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
             </div>
@@ -1225,9 +1225,9 @@ function DispenseView({ isAdmin = false, auth = {} }) {
         </div>
       )}
 
-      {!selectedDrug && loading && <p className="text-center text-slate-400 py-10">กำลังโหลด...</p>}
+      {!selectedDrug && loading && <p className="text-center text-slate-400 dark:text-slate-500 py-10">กำลังโหลด...</p>}
       {!selectedDrug && !loading && rows.length === 0 && (
-        <div className="text-center text-slate-400 py-20">
+        <div className="text-center text-slate-400 dark:text-slate-500 py-20">
           <TrendingDown size={48} className="mx-auto mb-3 opacity-30" />
           <p>ไม่พบข้อมูล{hasFilter ? ' — ลองเปลี่ยนตัวกรอง' : ' — กด Import CSV เพื่อนำเข้าข้อมูล'}</p>
         </div>
@@ -1237,25 +1237,25 @@ function DispenseView({ isAdmin = false, auth = {} }) {
       {mobileDetail && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setMobileDetail(null)}>
           <div className="absolute inset-0 bg-black/40" />
-          <div className="relative bg-white rounded-t-2xl shadow-2xl max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="relative bg-white dark:bg-slate-900 rounded-t-2xl shadow-2xl max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mt-3 mb-1" />
-            <div className="px-4 pb-3 border-b border-slate-100">
-              <p className="font-bold text-slate-900 text-base leading-tight">{mobileDetail.drug_name}</p>
-              <p className="text-xs text-slate-500 mt-0.5">{mobileDetail.drug_code} · {fmtDate(mobileDetail.dispense_date)}</p>
+            <div className="px-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <p className="font-bold text-slate-900 dark:text-slate-50 text-base leading-tight">{mobileDetail.drug_name}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{mobileDetail.drug_code} · {fmtDate(mobileDetail.dispense_date)}</p>
             </div>
             <div className="p-4 space-y-3">
               <div className="grid grid-cols-3 gap-2">
-                <div className="bg-rose-50 rounded-xl p-2.5 text-center">
-                  <p className="text-lg font-bold text-rose-700">{fmtQtyOut(mobileDetail.qty_out)}</p>
+                <div className="bg-rose-50 dark:bg-rose-950/40 rounded-xl p-2.5 text-center">
+                  <p className="text-lg font-bold text-rose-700 dark:text-rose-300">{fmtQtyOut(mobileDetail.qty_out)}</p>
                   <p className="text-[10px] text-rose-600">{getUnit(mobileDetail)}</p>
                 </div>
-                <div className="bg-amber-50 rounded-xl p-2.5 text-center">
-                  <p className="text-base font-bold text-amber-700">{getPrice(mobileDetail) != null ? ((mobileDetail.qty_out||0)*getPrice(mobileDetail)).toLocaleString(undefined,{maximumFractionDigits:0}) : '-'}</p>
+                <div className="bg-amber-50 dark:bg-amber-950/40 rounded-xl p-2.5 text-center">
+                  <p className="text-base font-bold text-amber-700 dark:text-amber-300">{getPrice(mobileDetail) != null ? ((mobileDetail.qty_out||0)*getPrice(mobileDetail)).toLocaleString(undefined,{maximumFractionDigits:0}) : '-'}</p>
                   <p className="text-[10px] text-amber-600">มูลค่า (บาท)</p>
                 </div>
-                <div className="bg-slate-50 rounded-xl p-2.5 text-center">
-                  <p className="text-base font-bold text-slate-700">{getPrice(mobileDetail) != null ? Number(getPrice(mobileDetail)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</p>
-                  <p className="text-[10px] text-slate-500">ราคา/หน่วย</p>
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-2.5 text-center">
+                  <p className="text-base font-bold text-slate-700 dark:text-slate-200">{getPrice(mobileDetail) != null ? Number(getPrice(mobileDetail)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">ราคา/หน่วย</p>
                 </div>
               </div>
               <div className="space-y-2">
@@ -1270,20 +1270,20 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                   ['คงเหลือหลังจ่าย', mobileDetail.qty_after?.toLocaleString()],
                   ['หมายเหตุ',         mobileDetail.note],
                 ].filter(([, val]) => val != null && val !== '-' && val !== '').map(([label, val]) => (
-                  <div key={label} className="flex justify-between items-start gap-2 py-1.5 border-b border-slate-100 last:border-0">
-                    <span className="text-xs text-slate-400 shrink-0">{label}</span>
-                    <span className="text-sm text-slate-700 font-medium text-right">{val}</span>
+                  <div key={label} className="flex justify-between items-start gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-0">
+                    <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0">{label}</span>
+                    <span className="text-sm text-slate-700 dark:text-slate-200 font-medium text-right">{val}</span>
                   </div>
                 ))}
               </div>
               {isAdmin && (
                 <div className="flex gap-2 pt-2">
                   <button onClick={e => { setEditingRow(mobileDetail); setMobileDetail(null); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-900/60">
                     <Pencil size={13}/> แก้ไข
                   </button>
                   <button onClick={e => { handleDelete(mobileDetail, e); setMobileDetail(null); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-600 border border-red-200">
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 dark:bg-red-950/40 text-red-600 border border-red-200 dark:border-red-900/60">
                     <Trash2 size={13}/> ลบ
                   </button>
                 </div>
@@ -1297,27 +1297,27 @@ function DispenseView({ isAdmin = false, auth = {} }) {
         <div className="space-y-2">
           {rows.map((row, i) => (
             <div key={row.id} onClick={() => setMobileDetail(row)}
-              className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm active:bg-rose-50 transition-colors cursor-pointer">
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-3 shadow-sm active:bg-rose-50 transition-colors cursor-pointer">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-900 truncate text-sm">{row.drug_name}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{row.drug_code} · {fmtDate(row.dispense_date)}</p>
+                  <p className="font-semibold text-slate-900 dark:text-slate-50 truncate text-sm">{row.drug_name}</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{row.drug_code} · {fmtDate(row.dispense_date)}</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <span className="inline-flex items-center rounded-full bg-rose-50 text-rose-700 font-bold px-2.5 py-0.5 text-xs tabular-nums">{fmtQtyOut(row.qty_out)}</span>
-                  <p className="text-[10px] text-slate-400 mt-0.5">{getUnit(row)}</p>
+                  <span className="inline-flex items-center rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold px-2.5 py-0.5 text-xs tabular-nums">{fmtQtyOut(row.qty_out)}</span>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{getUnit(row)}</p>
                 </div>
               </div>
               {(row.lot || row.exp) && (
                 <div className="flex items-center gap-1.5 mt-2 text-[11px]">
-                  {row.lot && row.lot !== '-' && <span className="font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">Lot {row.lot}</span>}
-                  {row.exp && row.exp !== '-' && <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">Exp {fmtAnyDate(row.exp)}</span>}
+                  {row.lot && row.lot !== '-' && <span className="font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md">Lot {row.lot}</span>}
+                  {row.exp && row.exp !== '-' && <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md">Exp {fmtAnyDate(row.exp)}</span>}
                 </div>
               )}
-              <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
-                <span className="text-xs text-slate-500 truncate">{row.department || '-'}</span>
+              <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <span className="text-xs text-slate-500 dark:text-slate-400 truncate">{row.department || '-'}</span>
                 {getPrice(row) != null && (
-                  <span className="text-xs text-amber-700 font-medium">{((row.qty_out||0)*getPrice(row)).toLocaleString(undefined,{maximumFractionDigits:0})} บาท</span>
+                  <span className="text-xs text-amber-700 dark:text-amber-300 font-medium">{((row.qty_out||0)*getPrice(row)).toLocaleString(undefined,{maximumFractionDigits:0})} บาท</span>
                 )}
               </div>
             </div>
@@ -1326,21 +1326,21 @@ function DispenseView({ isAdmin = false, auth = {} }) {
       )}
 
       {!selectedDrug && rows.length > 0 && !isMobile && (
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-260px)]">
             <table className="w-full min-w-[800px] text-sm">
               <thead className="sticky top-0 z-[5]">
-                <tr className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100">
-                  <th className="px-4 py-3.5 text-left bg-slate-50/80">วันที่เบิก</th>
-                  <th className="px-4 py-3.5 text-left bg-slate-50/80">ชื่อรายการยา</th>
-                  <th className="px-4 py-3.5 text-right bg-slate-50/80">จำนวน</th>
-                  <th className="px-4 py-3.5 text-left bg-slate-50/80">หน่วย</th>
-                  <th className="px-4 py-3.5 text-left bg-slate-50/80">Lot</th>
-                  <th className="px-4 py-3.5 text-left bg-slate-50/80">Exp</th>
-                  <th className="px-4 py-3.5 text-right bg-slate-50/80">ราคา/หน่วย</th>
-                  <th className="px-4 py-3.5 text-right bg-slate-50/80">มูลค่า (บาท)</th>
-                  <th className="px-4 py-3.5 text-left bg-slate-50/80">หน่วยงาน</th>
-                  <th className="px-4 py-3.5 w-8 bg-slate-50/80"></th>
+                <tr className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
+                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">วันที่เบิก</th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">ชื่อรายการยา</th>
+                  <th className="px-4 py-3.5 text-right bg-slate-50 dark:bg-slate-800/80">จำนวน</th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">หน่วย</th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">Lot</th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">Exp</th>
+                  <th className="px-4 py-3.5 text-right bg-slate-50 dark:bg-slate-800/80">ราคา/หน่วย</th>
+                  <th className="px-4 py-3.5 text-right bg-slate-50 dark:bg-slate-800/80">มูลค่า (บาท)</th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">หน่วยงาน</th>
+                  <th className="px-4 py-3.5 w-8 bg-slate-50 dark:bg-slate-800/80"></th>
                 </tr>
               </thead>
               <tbody>
@@ -1348,28 +1348,28 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                   <React.Fragment key={row.id}>
                     <tr
                       onClick={() => setExpanded(expanded === row.id ? null : row.id)}
-                      className={`border-b border-slate-50 cursor-pointer transition-colors ${expanded === row.id ? 'bg-rose-50' : 'hover:bg-rose-50/50'}`}
+                      className={`border-b border-slate-50 cursor-pointer transition-colors ${expanded === row.id ? 'bg-rose-50 dark:bg-rose-950/40' : 'hover:bg-rose-50 dark:hover:bg-rose-950/50/50'}`}
                     >
-                      <td className="px-4 py-3 text-slate-800 whitespace-nowrap font-medium">{fmtDate(row.dispense_date)}</td>
-                      <td className="px-4 py-3 font-semibold text-slate-900 max-w-[220px]">
+                      <td className="px-4 py-3 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDate(row.dispense_date)}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900 dark:text-slate-50 max-w-[220px]">
                         <span className="block truncate">{row.drug_name}</span>
-                        <span className="text-xs text-slate-500 font-normal">{row.drug_code}</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400 font-normal">{row.drug_code}</span>
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <span className="inline-flex items-center justify-end rounded-full bg-rose-50 text-rose-700 font-bold px-2.5 py-0.5 text-xs tabular-nums">{fmtQtyOut(row.qty_out)}</span>
+                        <span className="inline-flex items-center justify-end rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold px-2.5 py-0.5 text-xs tabular-nums">{fmtQtyOut(row.qty_out)}</span>
                       </td>
-                      <td className="px-4 py-3 text-slate-700 text-xs whitespace-nowrap font-medium">{getUnit(row)}</td>
-                      <td className="px-4 py-3 text-slate-700 text-xs whitespace-nowrap">{row.lot || '-'}</td>
-                      <td className="px-4 py-3 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>
-                      <td className="px-4 py-3 text-slate-800 font-medium text-right whitespace-nowrap tabular-nums">{getPrice(row) != null ? Number(getPrice(row)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-3 text-amber-800 font-bold text-right whitespace-nowrap tabular-nums">{getPrice(row) != null ? ((row.qty_out||0)*getPrice(row)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-3 text-slate-800 max-w-[140px] truncate font-medium">{row.department || '-'}</td>
-                      <td className="px-4 py-3 text-slate-400">
+                      <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap font-medium">{getUnit(row)}</td>
+                      <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{row.lot || '-'}</td>
+                      <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>
+                      <td className="px-4 py-3 text-slate-800 dark:text-slate-100 font-medium text-right whitespace-nowrap tabular-nums">{getPrice(row) != null ? Number(getPrice(row)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                      <td className="px-4 py-3 text-amber-800 dark:text-amber-300 font-bold text-right whitespace-nowrap tabular-nums">{getPrice(row) != null ? ((row.qty_out||0)*getPrice(row)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                      <td className="px-4 py-3 text-slate-800 dark:text-slate-100 max-w-[140px] truncate font-medium">{row.department || '-'}</td>
+                      <td className="px-4 py-3 text-slate-400 dark:text-slate-500">
                         {expanded === row.id ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                       </td>
                     </tr>
                     {expanded === row.id && (
-                      <tr key={`${row.id}-detail`} className="bg-rose-50/60 border-b border-rose-100">
+                      <tr key={`${row.id}-detail`} className="bg-rose-50 dark:bg-rose-950/40 border-b border-rose-100 dark:border-rose-900/50">
                         <td colSpan={10} className="px-6 py-3">
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-1.5 text-sm mb-3">
                             {[
@@ -1387,21 +1387,21 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                               ['หมายเหตุ', row.note],
                             ].map(([label, val]) => val != null && val !== '-' && val !== '' ? (
                               <div key={label}>
-                                <span className="text-slate-400 text-xs">{label}: </span>
-                                <span className="text-slate-700 font-medium">{val}</span>
+                                <span className="text-slate-400 dark:text-slate-500 text-xs">{label}: </span>
+                                <span className="text-slate-700 dark:text-slate-200 font-medium">{val}</span>
                               </div>
                             ) : null)}
                           </div>
                           {isAdmin && (
-                            <div className="flex gap-2 pt-2 border-t border-rose-100">
+                            <div className="flex gap-2 pt-2 border-t border-rose-100 dark:border-rose-900/50">
                               <button
                                 onClick={e => { e.stopPropagation(); setEditingRow(row); }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors">
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-900/60 hover:bg-indigo-100 dark:hover:bg-indigo-950/70 transition-colors">
                                 <Pencil size={13}/> แก้ไข
                               </button>
                               <button
                                 onClick={e => handleDelete(row, e)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors">
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 dark:bg-red-950/40 text-red-600 border border-red-200 dark:border-red-900/60 hover:bg-red-100 dark:hover:bg-red-950/70 transition-colors">
                                 <Trash2 size={13}/> ลบ
                               </button>
                             </div>
@@ -1421,9 +1421,9 @@ function DispenseView({ isAdmin = false, auth = {} }) {
         const totalPages = aggStats ? Math.ceil(aggStats.count / PAGE_SIZE) : null;
         return (
           <div className="flex items-center gap-3 justify-center pt-2 flex-wrap">
-            {page > 0 && <button onClick={() => setPage(p => p-1)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl px-4 py-2 text-sm shadow-sm">← ก่อนหน้า</button>}
+            {page > 0 && <button onClick={() => setPage(p => p-1)} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl px-4 py-2 text-sm shadow-sm">← ก่อนหน้า</button>}
             {aggStats && (
-              <div className="flex items-center gap-1.5 text-xs text-slate-500">
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                 <span>หน้า</span>
                 <input
                   type="number" min={1} max={totalPages || undefined}
@@ -1438,13 +1438,13 @@ function DispenseView({ isAdmin = false, auth = {} }) {
                     const v = parseInt(e.target.value, 10);
                     if (v >= 1 && (!totalPages || v <= totalPages)) setPage(v - 1);
                   }}
-                  className="w-14 text-center border border-slate-300 rounded-lg px-1 py-1 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                  className="w-14 text-center border border-slate-300 dark:border-slate-600 rounded-lg px-1 py-1 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-400"
                 />
                 <span>/ {totalPages}</span>
-                <span className="text-slate-400 ml-1">({aggStats.count.toLocaleString()} รายการ)</span>
+                <span className="text-slate-400 dark:text-slate-500 ml-1">({aggStats.count.toLocaleString()} รายการ)</span>
               </div>
             )}
-            {rows.length === PAGE_SIZE && <button onClick={() => setPage(p => p+1)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl px-4 py-2 text-sm shadow-sm">ถัดไป →</button>}
+            {rows.length === PAGE_SIZE && <button onClick={() => setPage(p => p+1)} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl px-4 py-2 text-sm shadow-sm">ถัดไป →</button>}
           </div>
         );
       })()}
@@ -1493,8 +1493,8 @@ function FcTip({ active, payload, label }) {
   const items = payload.filter(p => p.value != null);
   if (!items.length) return null;
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 text-sm">
-      <p className="font-semibold text-slate-700 mb-2">{label}</p>
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg px-4 py-3 text-sm">
+      <p className="font-semibold text-slate-700 dark:text-slate-200 mb-2">{label}</p>
       {items.map((p, i) => (
         <p key={i} style={{ color: p.color }} className="flex items-center gap-2">
           <span className="font-medium">{p.name}:</span> <strong>{fmtM(p.value)}</strong>
@@ -1507,8 +1507,8 @@ function ValTip({ active, payload, label, lbl, money }) {
   if (!active || !payload?.length) return null;
   const val = payload[0]?.value;
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 text-sm">
-      <p className="font-semibold text-slate-700 mb-1">{label}</p>
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg px-4 py-3 text-sm">
+      <p className="font-semibold text-slate-700 dark:text-slate-200 mb-1">{label}</p>
       <p style={{ color: '#1E90FF' }}>{lbl}: <strong>{money ? fmtM(val) : Number(val).toLocaleString('th-TH')}</strong></p>
     </div>
   );
@@ -1766,17 +1766,17 @@ function DispenseSummaryModal({ onClose }) {
 
   return (
     <div className="fixed inset-0 bg-slate-900/70 flex items-start justify-center z-50 p-3 pt-4 backdrop-blur-sm overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col mb-6">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col mb-6">
         {/* Header */}
         <div className="bg-gradient-to-r from-slate-800 to-rose-800 p-5 flex justify-between items-center text-white rounded-t-2xl">
           <h3 className="text-xl font-bold flex items-center gap-3">
             <BarChart3 size={22} className="text-rose-300" /> สรุปข้อมูลการเบิกจ่าย
           </h3>
-          <button onClick={onClose} className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-xl transition-colors"><X size={20}/></button>
+          <button onClick={onClose} className="text-white/70 hover:text-white bg-white dark:bg-slate-900/10 hover:bg-white/20 p-2 rounded-xl transition-colors"><X size={20}/></button>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-slate-200 px-5 pt-3 gap-1">
+        <div className="flex border-b border-slate-200 dark:border-slate-700 px-5 pt-3 gap-1">
           {[
             { key: 'overview',  label: 'ภาพรวม' },
             { key: 'monthly',   label: 'สถิติการเบิก รายเดือน' },
@@ -1785,8 +1785,8 @@ function DispenseSummaryModal({ onClose }) {
             <button key={t.key} onClick={() => setActiveTab(t.key)}
               className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
                 activeTab === t.key
-                  ? 'border-rose-500 text-rose-600 bg-rose-50'
-                  : 'border-transparent text-slate-500 hover:text-slate-700'
+                  ? 'border-rose-500 text-rose-600 bg-rose-50 dark:bg-rose-950/40'
+                  : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
               }`}>{t.label}</button>
           ))}
         </div>
@@ -1796,14 +1796,14 @@ function DispenseSummaryModal({ onClose }) {
           {/* ========== TAB: ภาพรวม ========== */}
           {activeTab === 'overview' && (<>
             {/* Filters */}
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap items-center gap-3">
-              <span className="text-sm font-semibold text-slate-600">กรองข้อมูล:</span>
+            <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 flex flex-wrap items-center gap-3">
+              <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">กรองข้อมูล:</span>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500">ตั้งแต่</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">ตั้งแต่</span>
                 <ThaiDateInput value={dateFrom} onChange={setDateFrom} />
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500">ถึง</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">ถึง</span>
                 <ThaiDateInput value={dateTo} onChange={setDateTo} />
               </div>
               <SearchableSelect value={deptFilter} onChange={setDeptFilter}
@@ -1814,14 +1814,14 @@ function DispenseSummaryModal({ onClose }) {
                   onChange={e => { setDrugFilter(e.target.value); setShowDrugDd(true); }}
                   onFocus={() => { if (drugFilter.trim()) setShowDrugDd(true); }}
                   placeholder="ค้นหายา..."
-                  className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-rose-400 w-40"
+                  className="border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-400 w-40"
                 />
-                {drugFilter && <button onClick={() => setDrugFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"><X size={12}/></button>}
+                {drugFilter && <button onClick={() => setDrugFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"><X size={12}/></button>}
                 {showDrugDd && drugFilter && (
-                  <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-30 w-64 overflow-hidden">
+                  <div className="absolute top-full left-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg z-30 w-64 overflow-hidden">
                     {drugNames.filter(n => n.name.toLowerCase().includes(drugFilter.toLowerCase())).slice(0,8).map(({ name, type }) => (
                       <button key={name} onMouseDown={e => { e.preventDefault(); setDrugFilter(name); setShowDrugDd(false); }}
-                        className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-rose-50 border-b border-slate-100 last:border-0">
+                        className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-rose-50 dark:hover:bg-rose-950/50 border-b border-slate-100 dark:border-slate-800 last:border-0">
                         <div className="flex items-center gap-2 flex-wrap"><span>{name}</span>{type && <DrugTypeBadge type={type} />}</div>
                       </button>
                     ))}
@@ -1830,23 +1830,23 @@ function DispenseSummaryModal({ onClose }) {
               </div>
               {(dateFrom || dateTo || deptFilter || drugFilter) && (
                 <button onClick={() => { setDateFrom(''); setDateTo(''); setDeptFilter(''); setDrugFilter(''); }}
-                  className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1"><X size={12}/>ล้าง</button>
+                  className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1"><X size={12}/>ล้าง</button>
               )}
             </div>
 
             {/* ช่วงข้อมูลจริง — ระบุว่า "ทุกช่วงเวลา" คือวันไหนถึงวันไหน */}
             {dataRange.from && dataRange.to && (
-              <div className="flex items-center gap-1.5 text-xs text-slate-500 -mt-2 px-1">
-                <CalendarDays size={13} className="text-slate-400" />
-                ช่วงข้อมูลทั้งหมดในระบบ: <span className="font-semibold text-slate-700">{dataRange.from}</span> ถึง <span className="font-semibold text-slate-700">{dataRange.to}</span>
-                <span className="text-slate-400">(ค่าในการ์ดสรุปนับจากข้อมูลทั้งหมดนี้ เว้นแต่จะกรองหน่วยงาน/ยา)</span>
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 -mt-2 px-1">
+                <CalendarDays size={13} className="text-slate-400 dark:text-slate-500" />
+                ช่วงข้อมูลทั้งหมดในระบบ: <span className="font-semibold text-slate-700 dark:text-slate-200">{dataRange.from}</span> ถึง <span className="font-semibold text-slate-700 dark:text-slate-200">{dataRange.to}</span>
+                <span className="text-slate-400 dark:text-slate-500">(ค่าในการ์ดสรุปนับจากข้อมูลทั้งหมดนี้ เว้นแต่จะกรองหน่วยงาน/ยา)</span>
               </div>
             )}
 
             {loading ? (
-              <p className="text-center text-slate-400 py-16">กำลังโหลด...</p>
+              <p className="text-center text-slate-400 dark:text-slate-500 py-16">กำลังโหลด...</p>
             ) : !stats ? (
-              <p className="text-center text-slate-400 py-16">ไม่พบข้อมูลที่กรอง หรือเลือก</p>
+              <p className="text-center text-slate-400 dark:text-slate-500 py-16">ไม่พบข้อมูลที่กรอง หรือเลือก</p>
             ) : (
               (() => {
                 const isFiltered = !!(deptFilter || drugFilter);
@@ -1867,31 +1867,31 @@ function DispenseSummaryModal({ onClose }) {
                 return (<>
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label:'รายการเบิกทั้งหมด', value: cardTotal != null ? cardTotal.toLocaleString() : '...', unit:`รายการ (${filterLabel})`, Icon: FileSpreadsheet, bg:'bg-indigo-50', bd:'border-indigo-200', lbl:'text-indigo-600', val:'text-indigo-900' },
-                    { label:'จำนวนวันที่มีการเบิก', value: cardDays != null ? cardDays.toLocaleString() : '...', unit:`วัน (${filterLabel})`, Icon: CalendarDays, bg:'bg-rose-50', bd:'border-rose-200', lbl:'text-rose-600', val:'text-rose-900' },
-                    { label:'มูลค่าเบิกทั้งหมด (บาท)', value: cardValue != null ? cardValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:`บาท (${filterLabel})`, Icon: TrendingDown, bg:'bg-amber-50', bd:'border-amber-200', lbl:'text-amber-600', val:'text-amber-900' },
+                    { label:'รายการเบิกทั้งหมด', value: cardTotal != null ? cardTotal.toLocaleString() : '...', unit:`รายการ (${filterLabel})`, Icon: FileSpreadsheet, bg:'bg-indigo-50 dark:bg-indigo-950/40', bd:'border-indigo-200 dark:border-indigo-900/60', lbl:'text-indigo-600', val:'text-indigo-900 dark:text-indigo-200' },
+                    { label:'จำนวนวันที่มีการเบิก', value: cardDays != null ? cardDays.toLocaleString() : '...', unit:`วัน (${filterLabel})`, Icon: CalendarDays, bg:'bg-rose-50 dark:bg-rose-950/40', bd:'border-rose-200 dark:border-rose-900/60', lbl:'text-rose-600', val:'text-rose-900 dark:text-rose-200' },
+                    { label:'มูลค่าเบิกทั้งหมด (บาท)', value: cardValue != null ? cardValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:`บาท (${filterLabel})`, Icon: TrendingDown, bg:'bg-amber-50 dark:bg-amber-950/40', bd:'border-amber-200 dark:border-amber-900/60', lbl:'text-amber-600', val:'text-amber-900 dark:text-amber-200' },
                   ].map((k,i) => (
                     <div key={i} className={`${k.bg} border ${k.bd} rounded-xl p-4 shadow-sm relative overflow-hidden`}>
                       <k.Icon size={44} className={`absolute -right-2 -bottom-2 opacity-10 ${k.lbl}`} />
                       <div className={`text-xs font-bold uppercase tracking-wide ${k.lbl} mb-1 flex items-center gap-1.5`}><k.Icon size={13}/>{k.label}</div>
                       <div className={`text-2xl font-black ${k.val} relative z-10`}>{k.value}</div>
-                      <div className="text-xs text-slate-500">{k.unit}</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">{k.unit}</div>
                     </div>
                   ))}
                 </div>
 
                 {/* สรุปอัตโนมัติ — อ่านประเด็นสำคัญได้ทันที */}
-                <div className="bg-gradient-to-r from-slate-50 to-rose-50/50 border border-slate-200 rounded-xl p-4">
+                <div className="bg-gradient-to-r from-slate-50 dark:from-slate-900 to-rose-50 dark:to-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
                   <div className="flex items-start gap-2.5">
                     <HelpCircle size={18} className="text-rose-500 shrink-0 mt-0.5" />
-                    <div className="text-sm text-slate-700 leading-relaxed">
-                      <span className="font-semibold text-slate-800">สรุป:</span>{' '}
+                    <div className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
+                      <span className="font-semibold text-slate-800 dark:text-slate-100">สรุป:</span>{' '}
                       ในช่วง <span className="font-semibold">{periodLabel}</span> เบิกจ่าย{' '}
-                      <span className="font-bold text-indigo-700">{stats.total.toLocaleString()}</span> รายการ มูลค่ารวม{' '}
-                      <span className="font-bold text-amber-700">{stats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</span> บาท
+                      <span className="font-bold text-indigo-700 dark:text-indigo-300">{stats.total.toLocaleString()}</span> รายการ มูลค่ารวม{' '}
+                      <span className="font-bold text-amber-700 dark:text-amber-300">{stats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</span> บาท
                       {stats.uniqueDays > 0 && <> (เฉลี่ย <span className="font-semibold">{avgPerDay.toLocaleString()}</span> บาท/วันที่มีการเบิก)</>}
-                      {topDeptVal && <> · หน่วยงานที่ใช้งบยามากสุดคือ <span className="font-semibold text-amber-800">{topDeptVal[0]}</span> ({deptValPct}% ของมูลค่า)</>}
-                      {topDeptDays && <> · เบิกบ่อยสุดคือ <span className="font-semibold text-rose-700">{topDeptDays[0]}</span> ({topDeptDays[1].toLocaleString()} วัน)</>}
+                      {topDeptVal && <> · หน่วยงานที่ใช้งบยามากสุดคือ <span className="font-semibold text-amber-800 dark:text-amber-300">{topDeptVal[0]}</span> ({deptValPct}% ของมูลค่า)</>}
+                      {topDeptDays && <> · เบิกบ่อยสุดคือ <span className="font-semibold text-rose-700 dark:text-rose-300">{topDeptDays[0]}</span> ({topDeptDays[1].toLocaleString()} วัน)</>}
                       {topDrugVal && <> · ยาที่ดึงงบมากสุดคือ <span className="font-semibold">{topDrugVal[0]}</span></>}
                     </div>
                   </div>
@@ -1915,13 +1915,13 @@ function DispenseSummaryModal({ onClose }) {
             <div className="space-y-4">
               {/* Controls */}
               <div className="flex flex-wrap items-center gap-3">
-                <span className="text-sm font-semibold text-slate-600">ย้อนหลัง:</span>
+                <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">ย้อนหลัง:</span>
                 {[2,3,4,6,12].map(n => (
                   <button key={n} onClick={() => setNumMonths(n)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
                       numMonths === n
                         ? 'bg-rose-500 text-white border-rose-500'
-                        : 'bg-white text-slate-600 border-slate-300 hover:border-rose-300'
+                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:border-rose-300'
                     }`}>{n} เดือน</button>
                 ))}
                 <DrugSearchBar
@@ -1931,16 +1931,16 @@ function DispenseSummaryModal({ onClose }) {
                   placeholder="ค้นหายา..."
                   className="ml-auto w-56"
                   ringClass="focus:ring-rose-400"
-                  hoverClass="hover:bg-rose-50"
+                  hoverClass="hover:bg-rose-50 dark:hover:bg-rose-950/50"
                 />
               </div>
 
               {monthlyLoading ? (
-                <p className="text-center text-slate-400 py-16">กำลังโหลดข้อมูล...</p>
+                <p className="text-center text-slate-400 dark:text-slate-500 py-16">กำลังโหลดข้อมูล...</p>
               ) : !monthlyStats ? (
-                <p className="text-center text-slate-400 py-16">ไม่พบข้อมูล</p>
+                <p className="text-center text-slate-400 dark:text-slate-500 py-16">ไม่พบข้อมูล</p>
               ) : (
-                <div className="overflow-auto rounded-xl border border-slate-200 shadow-sm" style={{ maxHeight: 'calc(100vh - 340px)' }}>
+                <div className="overflow-auto rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style={{ maxHeight: 'calc(100vh - 340px)' }}>
                   <table className="w-full text-xs min-w-[700px]">
                     <thead className="sticky top-0 z-20">
                       <tr className="bg-slate-700 text-white text-center">
@@ -1955,18 +1955,18 @@ function DispenseSummaryModal({ onClose }) {
                     </thead>
                     <tbody>
                       {filteredMonthlyDrugs.length === 0 ? (
-                        <tr><td colSpan={4 + (monthlyStats?.months?.length || 0)} className="text-center py-10 text-slate-400">ไม่พบยา</td></tr>
+                        <tr><td colSpan={4 + (monthlyStats?.months?.length || 0)} className="text-center py-10 text-slate-400 dark:text-slate-500">ไม่พบยา</td></tr>
                       ) : filteredMonthlyDrugs.map((drug, i) => (
-                        <tr key={drug.name} className={`border-b border-slate-100 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} hover:bg-rose-50/40 transition-colors`}>
-                          <td className="px-3 py-2 font-medium text-slate-800 sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
+                        <tr key={drug.name} className={`border-b border-slate-100 dark:border-slate-800 ${i % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50 dark:bg-slate-800/60'} hover:bg-rose-50 dark:hover:bg-rose-950/50/40 transition-colors`}>
+                          <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-100 sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
                             <span className="block truncate max-w-[180px]" title={drug.name}>{drug.name}</span>
-                            {drug.code && drug.code !== '-' && <span className="text-slate-400 font-normal">{drug.code}</span>}
+                            {drug.code && drug.code !== '-' && <span className="text-slate-400 dark:text-slate-500 font-normal">{drug.code}</span>}
                           </td>
                           <td className="px-3 py-2 text-center font-bold text-rose-600">{drug.max > 0 ? drug.max.toLocaleString() : '-'}</td>
                           <td className="px-3 py-2 text-center font-semibold text-indigo-600">{drug.avg > 0 ? drug.avg.toLocaleString(undefined, {maximumFractionDigits:1}) : '-'}</td>
-                          <td className="px-3 py-2 text-center font-bold text-amber-700">{drug.total > 0 ? drug.total.toLocaleString() : '-'}</td>
+                          <td className="px-3 py-2 text-center font-bold text-amber-700 dark:text-amber-300">{drug.total > 0 ? drug.total.toLocaleString() : '-'}</td>
                           {drug.qtys.map((q, mi) => (
-                            <td key={mi} className={`px-3 py-2 text-center ${q > 0 ? 'text-slate-700' : 'text-slate-300'}`}>
+                            <td key={mi} className={`px-3 py-2 text-center ${q > 0 ? 'text-slate-700 dark:text-slate-200' : 'text-slate-300 dark:text-slate-500'}`}>
                               {q > 0 ? q.toLocaleString() : '-'}
                             </td>
                           ))}
@@ -1974,17 +1974,17 @@ function DispenseSummaryModal({ onClose }) {
                       ))}
                     </tbody>
                     <tfoot>
-                      <tr className="bg-slate-100 font-bold text-slate-700 border-t-2 border-slate-300">
-                        <td className="px-3 py-2 sticky left-0 z-10 bg-slate-100 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">รวมทั้งหมด</td>
-                        <td className="px-3 py-2 text-center text-rose-700">
+                      <tr className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-200 border-t-2 border-slate-300 dark:border-slate-600">
+                        <td className="px-3 py-2 sticky left-0 z-10 bg-slate-100 dark:bg-slate-800 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">รวมทั้งหมด</td>
+                        <td className="px-3 py-2 text-center text-rose-700 dark:text-rose-300">
                           {filteredMonthlyDrugs.length > 0 ? Math.max(...filteredMonthlyDrugs.map(d => d.max)).toLocaleString() : '-'}
                         </td>
-                        <td className="px-3 py-2 text-center text-indigo-700">
+                        <td className="px-3 py-2 text-center text-indigo-700 dark:text-indigo-300">
                           {filteredMonthlyDrugs.length > 0
                             ? (filteredMonthlyDrugs.reduce((s,d)=>s+d.avg,0)/filteredMonthlyDrugs.length).toLocaleString(undefined,{maximumFractionDigits:1})
                             : '-'}
                         </td>
-                        <td className="px-3 py-2 text-center text-amber-800">
+                        <td className="px-3 py-2 text-center text-amber-800 dark:text-amber-300">
                           {filteredMonthlyDrugs.reduce((s,d)=>s+d.total,0).toLocaleString()}
                         </td>
                         {monthlyStats.months.map((_m, mi) => (
@@ -1998,7 +1998,7 @@ function DispenseSummaryModal({ onClose }) {
                 </div>
               )}
               {monthlyStats && (
-                <p className="text-xs text-slate-400 text-right">{filteredMonthlyDrugs.length} รายการยา</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 text-right">{filteredMonthlyDrugs.length} รายการยา</p>
               )}
             </div>
           )}
@@ -2008,18 +2008,18 @@ function DispenseSummaryModal({ onClose }) {
           {activeTab === 'forecast' && (
             <div className="space-y-4">
               {rawRows.length === 0 ? (
-                <p className="text-center text-slate-400 py-16">กรุณาโหลดข้อมูลจากแท็บ "ภาพรวม" ก่อน</p>
+                <p className="text-center text-slate-400 dark:text-slate-500 py-16">กรุณาโหลดข้อมูลจากแท็บ "ภาพรวม" ก่อน</p>
               ) : !fcReady ? (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-700">
+                <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl p-4 text-sm text-amber-700 dark:text-amber-300">
                   ข้อมูลน้อยเกินไปสำหรับการคาดการณ์ (ต้องการข้อมูลอย่างน้อย 2 เดือน)
                 </div>
               ) : (<>
-                <div className="bg-white border border-slate-200 rounded-xl p-4">
-                  <h4 className="font-bold text-slate-700 mb-1 flex items-center gap-2">
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+                  <h4 className="font-bold text-slate-700 dark:text-slate-200 mb-1 flex items-center gap-2">
                     <TrendingUp size={16} className="text-amber-500" /> แนวโน้มการเบิกยาในอนาคต (12 เดือน)
                   </h4>
-                  <p className="text-xs text-slate-400 mb-2">เส้นน้ำเงิน = ข้อมูลจริง | เส้นประส้ม = คาดการณ์ (Linear Regression)</p>
-                  <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mb-3 flex items-start gap-2">
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mb-2">เส้นน้ำเงิน = ข้อมูลจริง | เส้นประส้ม = คาดการณ์ (Linear Regression)</p>
+                  <div className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 px-3 py-2 rounded-lg mb-3 flex items-start gap-2">
                     <AlertCircle size={14} className="shrink-0 mt-0.5"/>
                     <span>คาดการณ์จากแนวโน้มในอดีต ใช้เพื่อประเมินทิศทางเท่านั้น</span>
                   </div>
@@ -2040,19 +2040,19 @@ function DispenseSummaryModal({ onClose }) {
                 </div>
 
                 {sortedFcDrugs.length > 0 && (
-                  <div className="bg-white border border-slate-200 rounded-xl p-4">
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
                     <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
                       <div>
-                        <h4 className="font-bold text-slate-700 flex items-center gap-2">
+                        <h4 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                           <TrendingUp size={16} className="text-emerald-500" /> คาดการณ์มูลค่าการเบิกยา Top 10
                         </h4>
-                        <p className="text-xs text-slate-400 mt-0.5">ราคา/หน่วย × จำนวนที่เบิก — เรียงตามมูลค่าเบิกเฉลี่ย/เดือน</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">ราคา/หน่วย × จำนวนที่เบิก — เรียงตามมูลค่าเบิกเฉลี่ย/เดือน</p>
                       </div>
-                      <div className="flex items-center bg-slate-100 rounded-xl p-1 gap-1 shrink-0">
+                      <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-xl p-1 gap-1 shrink-0">
                         {[1, 6, 12].map(p => (
                           <button key={p} onClick={() => setForecastPrd(p)}
                             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                              forecastPrd === p ? 'bg-white text-[#1E90FF] shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                              forecastPrd === p ? 'bg-white dark:bg-slate-900 text-[#1E90FF] shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                             }`}>+{p} เดือน</button>
                         ))}
                       </div>
@@ -2070,9 +2070,9 @@ function DispenseSummaryModal({ onClose }) {
                       </BarChart>
                     </ResponsiveContainer>
                     <div className="mt-4 overflow-x-auto">
-                      <table className="w-full text-xs text-slate-600">
+                      <table className="w-full text-xs text-slate-600 dark:text-slate-300">
                         <thead>
-                          <tr className="border-b border-slate-200 text-slate-500">
+                          <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400">
                             <th className="text-left py-2 pr-2 font-semibold">ยา</th>
                             <th className="text-right py-2 pr-2 font-semibold">เฉลี่ย/เดือน</th>
                             <th className="text-right py-2 pr-2 font-semibold">+1 เดือน</th>
@@ -2084,11 +2084,11 @@ function DispenseSummaryModal({ onClose }) {
                         <tbody>
                           {sortedFcDrugs.map((d, i) => {
                             const pct = forecastPrd === 1 ? d.pct1 : forecastPrd === 6 ? d.pct6 : d.pct12;
-                            const pc = pct >= 50 ? 'text-red-600 bg-red-50' : pct >= 20 ? 'text-orange-500 bg-orange-50' : pct >= 0 ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 bg-slate-100';
+                            const pc = pct >= 50 ? 'text-red-600 bg-red-50 dark:bg-red-950/40' : pct >= 20 ? 'text-orange-500 bg-orange-50 dark:bg-orange-950/40' : pct >= 0 ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40' : 'text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800';
                             return (
-                              <tr key={i} className={`border-b border-slate-100 ${i % 2 ? 'bg-slate-50' : ''}`}>
+                              <tr key={i} className={`border-b border-slate-100 dark:border-slate-800 ${i % 2 ? 'bg-slate-50 dark:bg-slate-800' : ''}`}>
                                 <td className="py-1.5 pr-2 font-medium">{d.nameShort}</td>
-                                <td className="py-1.5 pr-2 text-right text-slate-500">{fmtV(d.curAvg)}</td>
+                                <td className="py-1.5 pr-2 text-right text-slate-500 dark:text-slate-400">{fmtV(d.curAvg)}</td>
                                 <td className={`py-1.5 pr-2 text-right ${forecastPrd === 1  ? 'font-semibold text-[#1E90FF]' : 'text-amber-600'}`}>{fmtV(d.p1)}</td>
                                 <td className={`py-1.5 pr-2 text-right ${forecastPrd === 6  ? 'font-semibold text-[#1E90FF]' : 'text-amber-600'}`}>{fmtV(d.p6)}</td>
                                 <td className={`py-1.5 pr-2 text-right ${forecastPrd === 12 ? 'font-semibold text-[#1E90FF]' : 'text-amber-600'}`}>{fmtV(d.p12)}</td>
@@ -2100,7 +2100,7 @@ function DispenseSummaryModal({ onClose }) {
                           })}
                         </tbody>
                       </table>
-                      <p className="text-xs text-slate-400 mt-2">* % Growth = มูลค่าคาดการณ์ ณ เดือนที่เลือก เทียบกับค่าเฉลี่ยต่อเดือนปัจจุบัน</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">* % Growth = มูลค่าคาดการณ์ ณ เดือนที่เลือก เทียบกับค่าเฉลี่ยต่อเดือนปัจจุบัน</p>
                     </div>
                   </div>
                 )}
@@ -2108,7 +2108,7 @@ function DispenseSummaryModal({ onClose }) {
             </div>
           )}
 
-        <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end rounded-b-2xl">
+        <div className="bg-slate-50 dark:bg-slate-800 p-4 border-t border-slate-200 dark:border-slate-700 flex justify-end rounded-b-2xl">
           <button onClick={onClose} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-medium transition-colors shadow-sm">ปิด</button>
         </div>
       </div>
@@ -2123,20 +2123,20 @@ function BarSection({ title, items, barColor, unit, caption }) {
   if (!items || items.length === 0) return null;
   const max = items[0][1] || 1;
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-      <h4 className="font-bold text-slate-700 flex items-center gap-2">
-        <BarChart3 size={16} className="text-slate-400" /> {title}
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
+      <h4 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+        <BarChart3 size={16} className="text-slate-400 dark:text-slate-500" /> {title}
       </h4>
-      {caption && <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">{caption}</p>}
-      <div className="border-b border-slate-100 mb-4 mt-3" />
+      {caption && <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 leading-snug">{caption}</p>}
+      <div className="border-b border-slate-100 dark:border-slate-800 mb-4 mt-3" />
       <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
         {items.map(([name, val], i) => (
           <div key={i}>
-            <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1">
+            <div className="flex justify-between text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
               <span className="truncate mr-2">{name}</span>
-              <span className="font-bold text-slate-700 shrink-0">{Number(val).toLocaleString(undefined,{maximumFractionDigits:0})} {unit}</span>
+              <span className="font-bold text-slate-700 dark:text-slate-200 shrink-0">{Number(val).toLocaleString(undefined,{maximumFractionDigits:0})} {unit}</span>
             </div>
-            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
               <div className={`${barColor} h-2 rounded-full transition-all`} style={{ width:`${(val/max)*100}%` }} />
             </div>
           </div>

@@ -306,11 +306,11 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
                 type="button"
                 onClick={() => setPaletteOpen(true)}
                 title="ค้นหาเมนู (Ctrl+K)"
-                className="hidden sm:flex items-center gap-2 w-56 lg:w-72 ml-1 lg:ml-3 px-3 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 transition-colors"
+                className="hidden sm:flex items-center gap-2 w-56 lg:w-72 ml-1 lg:ml-3 px-3 h-9 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-200/70 dark:bg-slate-800/60 text-slate-600 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 hover:border-slate-400 dark:hover:border-slate-600 transition-colors"
               >
                 <Search size={15} className="shrink-0" />
                 <span className="text-sm truncate">ค้นหาเมนู...</span>
-                <kbd className="ml-auto text-[10px] font-sans font-semibold px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-400 dark:text-slate-400 shrink-0">Ctrl K</kbd>
+                <kbd className="ml-auto text-[10px] font-sans font-semibold px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 shrink-0">Ctrl K</kbd>
               </button>
             </div>
             {/* ขวา: ค้นหา (จอเล็ก) → สลับธีม → กระดิ่ง → เมนูบัญชี */}

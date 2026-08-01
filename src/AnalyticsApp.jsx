@@ -21,8 +21,8 @@ const YEAR_COLORS = ['#1E90FF','#F59E0B','#10B981','#EF4444','#8B5CF6'];
 function IsoDateInput({ value, onChange, className = '' }) {
   const display = iso => { if (!iso) return null; const [y,m,d] = iso.split('-'); return `${d}/${m}/${Number(y)+543}`; }
   return (
-    <div className={`relative flex items-center bg-white border border-slate-300 rounded-lg focus-within:ring-2 focus-within:ring-blue-400 ${className}`}>
-      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
+    <div className={`relative flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus-within:ring-2 focus-within:ring-blue-400 ${className}`}>
+      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>{display(value) || 'dd/mm/yyyy'}</span>
       <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
         onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }}
         className="absolute inset-0 opacity-0 w-full cursor-pointer" />
@@ -146,19 +146,19 @@ function abcClassify(drugs) {
 // ============================================================
 // Sub-components
 // ============================================================
-function StatCard({ icon: Icon, label, value, sub, badge, color = BLUE, bg = 'bg-blue-50' }) {
+function StatCard({ icon: Icon, label, value, sub, badge, color = BLUE, bg = 'bg-blue-50 dark:bg-blue-950/40' }) {
   return (
     <div className={`${bg} rounded-2xl p-4 flex items-center gap-3`}>
       <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: color + '20' }}>
         <Icon size={22} style={{ color }} />
       </div>
       <div className="min-w-0">
-        <p className="text-xs text-slate-500 font-medium truncate">{label}</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 font-medium truncate">{label}</p>
         <p className="text-xl font-black leading-tight" style={{ color }}>{value}</p>
         {(sub || badge) && (
           <div className="flex items-center gap-1.5 mt-0.5">
-            {badge && <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${badge.up ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`}>{badge.up ? '▲' : '▼'} {badge.text}</span>}
-            {sub && <p className="text-xs text-slate-400">{sub}</p>}
+            {badge && <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${badge.up ? 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'}`}>{badge.up ? '▲' : '▼'} {badge.text}</span>}
+            {sub && <p className="text-xs text-slate-400 dark:text-slate-500">{sub}</p>}
           </div>
         )}
       </div>
@@ -170,8 +170,8 @@ function ChartTooltip({ active, payload, label, valueLabel = 'จำนวน', 
   if (!active || !payload?.length) return null;
   const val = payload[0]?.value;
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 text-sm">
-      <p className="font-semibold text-slate-700 mb-1">{label}</p>
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg px-4 py-3 text-sm">
+      <p className="font-semibold text-slate-700 dark:text-slate-200 mb-1">{label}</p>
       <p style={{ color: BLUE }}>{valueLabel}: <strong>{money ? fmtMoney(val) : Number(val).toLocaleString('th-TH')}</strong></p>
     </div>
   );
@@ -182,8 +182,8 @@ function MultiLineTooltip({ active, payload, label }) {
   const items = payload.filter(p => p.value != null);
   if (!items.length) return null;
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 text-sm">
-      <p className="font-semibold text-slate-700 mb-2">{label}</p>
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg px-4 py-3 text-sm">
+      <p className="font-semibold text-slate-700 dark:text-slate-200 mb-2">{label}</p>
       {items.map((p, i) => (
         <p key={i} style={{ color: p.color }} className="flex items-center gap-2">
           <span className="font-medium">{p.name}:</span>
@@ -494,28 +494,28 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
   // Render
   // ============================================================
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-800">
       {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + refresh + filter */}
-      <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3">
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3">
         <div className="flex items-center gap-3">
           <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
-          <div className="p-1.5 rounded-lg bg-cyan-100 text-cyan-600 shrink-0"><Activity size={18} /></div>
+          <div className="p-1.5 rounded-lg bg-cyan-100 dark:bg-cyan-950/60 text-cyan-600 shrink-0"><Activity size={18} /></div>
           <button onClick={onRefresh} className="flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
-            <h1 className="font-bold text-base leading-tight text-slate-800">วิเคราะห์การเบิกยา</h1>
-            <p className="text-slate-400 text-xs">
+            <h1 className="font-bold text-base leading-tight text-slate-800 dark:text-slate-100">วิเคราะห์การเบิกยา</h1>
+            <p className="text-slate-400 dark:text-slate-500 text-xs">
               {actualDateMin && actualDateMax
                 ? `ข้อมูล ${actualDateMin} – ${actualDateMax}`
                 : 'ข้อมูลจาก Dispense Log'}
             </p>
           </button>
-          <button onClick={onRefresh} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors" title="รีเฟรช">
+          <button onClick={onRefresh} className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="รีเฟรช">
             <RefreshCcw size={18} />
           </button>
         </div>
         <div className="flex items-center gap-2 mt-3 flex-wrap">
-          <span className="text-slate-500 text-sm">ตั้งแต่</span>
+          <span className="text-slate-500 dark:text-slate-400 text-sm">ตั้งแต่</span>
           <IsoDateInput value={dateFrom} onChange={setDateFrom} />
-          <span className="text-slate-500 text-sm">ถึง</span>
+          <span className="text-slate-500 dark:text-slate-400 text-sm">ถึง</span>
           <IsoDateInput value={dateTo} onChange={setDateTo} />
         </div>
         {/* Drug filter */}
@@ -527,19 +527,19 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
             placeholder="ค้นหารายการยา... (ทั้งหมด)"
             maxResults={12}
             ringClass="focus:ring-blue-400"
-            hoverClass="hover:bg-blue-50"
+            hoverClass="hover:bg-blue-50 dark:hover:bg-blue-950/50"
             className="w-full max-w-sm"
           />
         </div>
       </div>
 
       {/* Tab navigation */}
-      <div className="bg-white border-b border-slate-200 sticky top-0 z-10">
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10">
         <div className="flex max-w-4xl mx-auto">
           {TABS.map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={`flex-1 py-3 text-xs font-semibold border-b-2 transition-all flex flex-col items-center gap-0.5 ${
-                activeTab === tab.id ? 'border-[#1E90FF] text-[#1E90FF]' : 'border-transparent text-slate-500 hover:text-slate-700'
+                activeTab === tab.id ? 'border-[#1E90FF] text-[#1E90FF]' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
               }`}>
               <span className="text-base leading-none">{tab.icon}</span>
               {tab.label}
@@ -550,12 +550,12 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
 
       <div className="p-4 space-y-4 max-w-4xl mx-auto">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+          <div className="flex flex-col items-center justify-center py-20 text-slate-400 dark:text-slate-500">
             <div className="w-10 h-10 border-4 border-[#1E90FF] border-t-transparent rounded-full animate-spin mb-3" />
             <p className="text-sm">กำลังโหลดข้อมูล...</p>
           </div>
         ) : rows.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-sm p-10 text-center text-slate-400">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-10 text-center text-slate-400 dark:text-slate-500">
             <TrendingUp size={40} className="mx-auto mb-3 opacity-20" />
             <p className="font-semibold">ไม่พบข้อมูลในช่วงเวลาที่เลือก</p>
             <p className="text-sm mt-1">ลองเปลี่ยนช่วงวันที่</p>
@@ -575,71 +575,71 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                       const data    = topDrugs.map(d => ({ ...d, group: abcMap[d.name] || '-', momentum: momMap[d.name] ?? null }));
                       exportToExcel(data, SUMMARY_EXCEL_COLS, 'สรุปภาพรวม', `analytics_summary_${today}.xlsx`, auth);
                     }}
-                    className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+                    className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
                   >
                     <FileDown size={14} /> Export ภาพรวม
                   </button>
                 </div>
                 {/* KPI Cards */}
                 <div className="grid grid-cols-2 gap-3">
-                  <StatCard icon={Banknote}     label="มูลค่าเบิกทั้งหมด"   value={fmtMoney(totalValue)}               sub="ราคา × จำนวน"           color="#10B981" bg="bg-emerald-50"
+                  <StatCard icon={Banknote}     label="มูลค่าเบิกทั้งหมด"   value={fmtMoney(totalValue)}               sub="ราคา × จำนวน"           color="#10B981" bg="bg-emerald-50 dark:bg-emerald-950/40"
                     badge={momTrend ? { up: momTrend.up, text: `${momTrend.up ? '+' : ''}${momTrend.pct.toFixed(1)}% MoM` } : null} />
-                  <StatCard icon={Package}      label="รายการยาทั้งหมด"    value={`${uniqueDrugCount} รายการ`}          sub={`${rows.length.toLocaleString()} บันทึก`} color="#1E90FF" bg="bg-blue-50" />
-                  <StatCard icon={CalendarDays} label="วันที่มีการเบิก"     value={uniqueDays.toLocaleString()}           sub="วัน"                     color="#8B5CF6" bg="bg-purple-50" />
-                  <StatCard icon={Building2}    label="หน่วยงานที่เบิก"     value={topDeptsValue.length}                  sub="หน่วยงาน"               color="#F59E0B" bg="bg-amber-50" />
+                  <StatCard icon={Package}      label="รายการยาทั้งหมด"    value={`${uniqueDrugCount} รายการ`}          sub={`${rows.length.toLocaleString()} บันทึก`} color="#1E90FF" bg="bg-blue-50 dark:bg-blue-950/40" />
+                  <StatCard icon={CalendarDays} label="วันที่มีการเบิก"     value={uniqueDays.toLocaleString()}           sub="วัน"                     color="#8B5CF6" bg="bg-purple-50 dark:bg-purple-950/40" />
+                  <StatCard icon={Building2}    label="หน่วยงานที่เบิก"     value={topDeptsValue.length}                  sub="หน่วยงาน"               color="#F59E0B" bg="bg-amber-50 dark:bg-amber-950/40" />
                 </div>
 
                 {/* Attention + Forecast Snapshot — side by side on md+ */}
                 <div className="grid md:grid-cols-2 gap-4">
                   {/* Attention: top drugs + top dept */}
-                  <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                    <div className="bg-amber-50 border-b border-amber-100 px-4 py-2.5 flex items-center gap-2">
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm overflow-hidden">
+                    <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-100 dark:border-amber-900/50 px-4 py-2.5 flex items-center gap-2">
                       <AlertTriangle size={15} className="text-amber-600" />
-                      <span className="font-bold text-amber-800 text-sm">ยาที่ต้องติดตาม</span>
+                      <span className="font-bold text-amber-800 dark:text-amber-300 text-sm">ยาที่ต้องติดตาม</span>
                     </div>
-                    <div className="divide-y divide-slate-100">
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800">
                       {topDrugs.slice(0, 3).map((d, i) => (
                         <div key={i} className="flex items-center gap-3 px-4 py-3">
                           <span className={`w-6 h-6 rounded-full flex items-center justify-center font-black text-xs text-white shrink-0 ${i === 0 ? 'bg-red-500' : i === 1 ? 'bg-orange-400' : 'bg-amber-400'}`}>{i + 1}</span>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-slate-700 truncate">{d.name}</p>
-                            <p className="text-xs text-slate-400">ปริมาณ {Math.round(d.qty).toLocaleString()} หน่วย</p>
+                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">{d.name}</p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500">ปริมาณ {Math.round(d.qty).toLocaleString()} หน่วย</p>
                           </div>
-                          <span className="text-sm font-bold text-amber-700 shrink-0">{fmtMoney(d.value)}</span>
+                          <span className="text-sm font-bold text-amber-700 dark:text-amber-300 shrink-0">{fmtMoney(d.value)}</span>
                         </div>
                       ))}
                       {topDeptsValue[0] && (
                         <div className="flex items-center gap-3 px-4 py-3">
                           <Building2 size={18} className="text-purple-500 shrink-0" />
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs text-slate-400">หน่วยงานมูลค่าสูงสุด</p>
-                            <p className="text-sm font-semibold text-slate-700 truncate">{topDeptsValue[0].name}</p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500">หน่วยงานมูลค่าสูงสุด</p>
+                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">{topDeptsValue[0].name}</p>
                           </div>
-                          <span className="text-sm font-bold text-purple-700 shrink-0">{fmtMoney(topDeptsValue[0].value)}</span>
+                          <span className="text-sm font-bold text-purple-700 dark:text-purple-300 shrink-0">{fmtMoney(topDeptsValue[0].value)}</span>
                         </div>
                       )}
                     </div>
                   </div>
 
                   {/* Forecast snapshot */}
-                  <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                    <div className="bg-blue-50 border-b border-blue-100 px-4 py-2.5 flex items-center gap-2">
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm overflow-hidden">
+                    <div className="bg-blue-50 dark:bg-blue-950/40 border-b border-blue-100 dark:border-blue-900/50 px-4 py-2.5 flex items-center gap-2">
                       <TrendingUp size={15} className="text-blue-600" />
-                      <span className="font-bold text-blue-800 text-sm">คาดการณ์ 12 เดือนข้างหน้า</span>
+                      <span className="font-bold text-blue-800 dark:text-blue-300 text-sm">คาดการณ์ 12 เดือนข้างหน้า</span>
                     </div>
                     {risingDrugsLinear.length === 0 ? (
-                      <p className="px-4 py-6 text-xs text-slate-400 text-center">ข้อมูลไม่เพียงพอสำหรับการคาดการณ์</p>
+                      <p className="px-4 py-6 text-xs text-slate-400 dark:text-slate-500 text-center">ข้อมูลไม่เพียงพอสำหรับการคาดการณ์</p>
                     ) : (
-                      <div className="divide-y divide-slate-100">
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800">
                         {risingDrugsLinear.slice(0, 5).map((d, i) => {
                           const pct = d.pct12;
                           const color = pct >= 100 ? '#DC2626' : pct >= 50 ? '#EA580C' : pct >= 20 ? '#D97706' : '#059669';
-                          const bgBadge = pct >= 100 ? 'bg-red-100' : pct >= 50 ? 'bg-orange-100' : pct >= 20 ? 'bg-amber-100' : 'bg-emerald-100';
+                          const bgBadge = pct >= 100 ? 'bg-red-100 dark:bg-red-950/60' : pct >= 50 ? 'bg-orange-100 dark:bg-orange-950/60' : pct >= 20 ? 'bg-amber-100 dark:bg-amber-950/60' : 'bg-emerald-100 dark:bg-emerald-950/60';
                           return (
                             <div key={i} className="flex items-center gap-3 px-4 py-3">
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-slate-700 truncate">{d.name}</p>
-                                <p className="text-xs text-slate-400">เฉลี่ย {fmtMoney(d.curAvg)}/เดือน</p>
+                                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">{d.name}</p>
+                                <p className="text-xs text-slate-400 dark:text-slate-500">เฉลี่ย {fmtMoney(d.curAvg)}/เดือน</p>
                               </div>
                               <span className={`text-xs font-bold px-2 py-1 rounded-full ${bgBadge} shrink-0`} style={{ color }}>
                                 {pct >= 0 ? '+' : ''}{pct.toFixed(0)}%
@@ -654,23 +654,23 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
 
                 {/* Rising Demand Alerts (momentum) */}
                 {risingMomentum.length > 0 && (
-                  <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                    <div className="bg-red-50 border-b border-red-100 px-4 py-2.5 flex items-center gap-2">
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm overflow-hidden">
+                    <div className="bg-red-50 dark:bg-red-950/40 border-b border-red-100 dark:border-red-900/50 px-4 py-2.5 flex items-center gap-2">
                       <TrendingUp size={15} className="text-red-600" />
-                      <span className="font-bold text-red-800 text-sm">Rising Demand — ยาที่ยอดพุ่งเกิน +30% (เดือนล่าสุด vs เฉลี่ย 3 เดือนก่อน)</span>
+                      <span className="font-bold text-red-800 dark:text-red-300 text-sm">Rising Demand — ยาที่ยอดพุ่งเกิน +30% (เดือนล่าสุด vs เฉลี่ย 3 เดือนก่อน)</span>
                     </div>
-                    <div className="divide-y divide-slate-100">
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800">
                       {risingMomentum.slice(0, 8).map((d, i) => {
                         const groupColor = d.group === 'A' ? 'bg-red-500' : d.group === 'B' ? 'bg-amber-500' : 'bg-emerald-500';
                         return (
                           <div key={i} className="flex items-center gap-3 px-4 py-3">
                             <span className={`text-xs font-black px-1.5 py-0.5 rounded text-white shrink-0 ${groupColor}`}>{d.group}</span>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-slate-700 truncate">{d.nameShort}</p>
+                              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">{d.nameShort}</p>
                               <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-xs text-slate-400">เดือนล่าสุด {fmtMoney(d.lastVal)}</span>
-                                <span className="text-xs text-slate-300">vs</span>
-                                <span className="text-xs text-slate-400">เฉลี่ยก่อนหน้า {fmtMoney(d.prevAvg)}</span>
+                                <span className="text-xs text-slate-400 dark:text-slate-500">เดือนล่าสุด {fmtMoney(d.lastVal)}</span>
+                                <span className="text-xs text-slate-300 dark:text-slate-500">vs</span>
+                                <span className="text-xs text-slate-400 dark:text-slate-500">เฉลี่ยก่อนหน้า {fmtMoney(d.prevAvg)}</span>
                               </div>
                             </div>
                             <span className="text-sm font-black text-red-600 shrink-0">+{d.momentum.toFixed(0)}%</span>
@@ -679,7 +679,7 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                       })}
                     </div>
                     {lastMonthLabel && (
-                      <p className="px-4 py-2 text-xs text-slate-400 border-t border-slate-100">
+                      <p className="px-4 py-2 text-xs text-slate-400 dark:text-slate-500 border-t border-slate-100 dark:border-slate-800">
                         เดือนอ้างอิง: {lastMonthLabel} | badge A/B/C = กลุ่ม ABC ของยานั้น
                       </p>
                     )}
@@ -688,9 +688,9 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
 
                 {/* MoM trend summary */}
                 {momTrend && (
-                  <div className={`rounded-2xl px-4 py-3 flex items-center gap-3 ${momTrend.up ? 'bg-orange-50 border border-orange-200' : 'bg-emerald-50 border border-emerald-200'}`}>
+                  <div className={`rounded-2xl px-4 py-3 flex items-center gap-3 ${momTrend.up ? 'bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900/60' : 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60'}`}>
                     <TrendingUp size={18} className={momTrend.up ? 'text-orange-500' : 'text-emerald-500'} />
-                    <p className={`text-sm font-semibold ${momTrend.up ? 'text-orange-700' : 'text-emerald-700'}`}>
+                    <p className={`text-sm font-semibold ${momTrend.up ? 'text-orange-700 dark:text-orange-300' : 'text-emerald-700 dark:text-emerald-300'}`}>
                       เดือน {momTrend.label} มูลค่าการเบิก{momTrend.up ? 'เพิ่มขึ้น' : 'ลดลง'}{' '}
                       <strong>{fmtMoney(Math.abs(momTrend.diff))}</strong>{' '}
                       ({momTrend.up ? '+' : ''}{momTrend.pct.toFixed(1)}%) จากเดือน {momTrend.prevLabel}
@@ -710,24 +710,24 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                       const today = new Date().toISOString().slice(0, 10);
                       exportToExcel(abcDrugs, ABC_EXCEL_COLS, 'ABC Analysis', `analytics_abc_${today}.xlsx`, auth);
                     }}
-                    className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+                    className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
                   >
                     <FileDown size={14} /> Export ABC ทั้งหมด
                   </button>
                 </div>
                 {/* ABC Summary Stats */}
                 {abcDrugs.length > 0 && (
-                  <div className="bg-white rounded-2xl shadow-sm p-4">
-                    <h2 className="font-bold text-slate-700 mb-1 flex items-center gap-2">
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4">
+                    <h2 className="font-bold text-slate-700 dark:text-slate-200 mb-1 flex items-center gap-2">
                       <Layers size={18} className="text-[#EF4444]" /> ABC Analysis — จัดลำดับความสำคัญยา
                     </h2>
-                    <p className="text-xs text-slate-400 mb-3">Pareto Principle — ยากลุ่ม A (ส่วนน้อย) รับผิดชอบ 80% ของมูลค่าทั้งหมด</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">Pareto Principle — ยากลุ่ม A (ส่วนน้อย) รับผิดชอบ 80% ของมูลค่าทั้งหมด</p>
 
                     {/* ABC Stats row */}
                     <div className="grid grid-cols-3 gap-2 mb-3">
                       {['A','B','C'].map(g => {
                         const count = abcDrugs.filter(d => d.group === g).length;
-                        const cls = g === 'A' ? 'bg-red-50 border-red-200 text-red-700' : g === 'B' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700';
+                        const cls = g === 'A' ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300' : g === 'B' ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/60 text-amber-700 dark:text-amber-300' : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300';
                         const dot = g === 'A' ? 'bg-red-500' : g === 'B' ? 'bg-amber-500' : 'bg-emerald-500';
                         const pctValue = g === 'A' ? '80%' : g === 'B' ? '15%' : '5%';
                         return (
@@ -757,10 +757,10 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                         const count = abcDrugs.filter(d => d.group === g).length;
                         const active = abcFilter === g;
                         const cls = g === 'A'
-                          ? active ? 'bg-red-100 text-red-700 border-red-300'     : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                          ? active ? 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300 border-red-300 dark:border-red-800/60'     : 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
                           : g === 'B'
-                            ? active ? 'bg-amber-100 text-amber-700 border-amber-300'   : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                            : active ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100';
+                            ? active ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800/60'   : 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+                            : active ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800/60' : 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800';
                         const dot = g === 'A' ? 'bg-red-500' : g === 'B' ? 'bg-amber-500' : 'bg-emerald-500';
                         return (
                           <button key={g} onClick={() => setAbcFilter(g)}
@@ -773,7 +773,7 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                     </div>
 
                     {/* Description */}
-                    <div className={`text-xs px-3 py-2 rounded-lg mb-3 border ${abcFilter === 'A' ? 'bg-red-50 text-red-700 border-red-200' : abcFilter === 'B' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                    <div className={`text-xs px-3 py-2 rounded-lg mb-3 border ${abcFilter === 'A' ? 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border-red-200 dark:border-red-900/60' : abcFilter === 'B' ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900/60' : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60'}`}>
                       {abcFilter === 'A' && <><strong>กลุ่ม A</strong> — มูลค่าสูง: ตรวจสอบ Safety Stock และวางแผนจัดซื้อล่วงหน้า ต้องมีความแม่นยำในการพยากรณ์สูงสุด</>}
                       {abcFilter === 'B' && <><strong>กลุ่ม B</strong> — มูลค่าปานกลาง: ทบทวน Reorder Point ทุก 1-3 เดือน</>}
                       {abcFilter === 'C' && <><strong>กลุ่ม C</strong> — มูลค่าต่ำ: พิจารณาสั่งซื้อ Bulk เพื่อลดต้นทุนการจัดการ</>}
@@ -781,9 +781,9 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
 
                     {/* ABC Table */}
                     <div className="overflow-x-auto">
-                      <table className="w-full text-xs text-slate-600">
+                      <table className="w-full text-xs text-slate-600 dark:text-slate-300">
                         <thead>
-                          <tr className="border-b border-slate-200 text-slate-500">
+                          <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400">
                             <th className="text-left py-2 pr-2 font-semibold w-8">#</th>
                             <th className="text-left py-2 pr-2 font-semibold">รายการยา</th>
                             <th className="text-right py-2 pr-2 font-semibold">มูลค่า (฿)</th>
@@ -793,15 +793,15 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                         </thead>
                         <tbody>
                           {filteredAbcDrugs.map((d, i) => (
-                            <tr key={i} className={`border-b border-slate-100 ${i % 2 ? 'bg-slate-50' : ''}`}>
-                              <td className="py-2 pr-2 text-slate-400 font-mono">{d.rank}</td>
+                            <tr key={i} className={`border-b border-slate-100 dark:border-slate-800 ${i % 2 ? 'bg-slate-50 dark:bg-slate-800' : ''}`}>
+                              <td className="py-2 pr-2 text-slate-400 dark:text-slate-500 font-mono">{d.rank}</td>
                               <td className="py-2 pr-2 font-medium max-w-0 w-full">
                                 <span className="block truncate" title={d.name}>{d.name}</span>
                               </td>
                               <td className="py-2 pr-2 text-right font-semibold">{fmtMoney(d.value)}</td>
-                              <td className="py-2 pr-2 text-right text-slate-500">{d.pct.toFixed(1)}%</td>
+                              <td className="py-2 pr-2 text-right text-slate-500 dark:text-slate-400">{d.pct.toFixed(1)}%</td>
                               <td className="py-2 text-right">
-                                <span className={`inline-block px-2 py-0.5 rounded-full font-bold text-xs ${d.group === 'A' ? 'bg-red-100 text-red-700' : d.group === 'B' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                <span className={`inline-block px-2 py-0.5 rounded-full font-bold text-xs ${d.group === 'A' ? 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300' : d.group === 'B' ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'}`}>
                                   {d.cumPct.toFixed(1)}%
                                 </span>
                               </td>
@@ -810,7 +810,7 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                         </tbody>
                       </table>
                       {abcDrugs.filter(d => d.group === abcFilter).length > 30 && (
-                        <p className="text-xs text-slate-400 mt-2 text-center">แสดง 30 รายการแรก (ทั้งหมด {abcDrugs.filter(d => d.group === abcFilter).length} รายการ)</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-2 text-center">แสดง 30 รายการแรก (ทั้งหมด {abcDrugs.filter(d => d.group === abcFilter).length} รายการ)</p>
                       )}
                     </div>
                   </div>
@@ -818,11 +818,11 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
 
                 {/* Top Drugs by Value — gradient bar */}
                 {topDrugs.length > 0 && (
-                  <div className="bg-white rounded-2xl shadow-sm p-4">
-                    <h2 className="font-bold text-slate-700 mb-1 flex items-center gap-2">
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4">
+                    <h2 className="font-bold text-slate-700 dark:text-slate-200 mb-1 flex items-center gap-2">
                       <Banknote size={18} className="text-[#1E40AF]" /> ยาที่มีมูลค่าเบิกสูงสุด Top {topDrugs.length}
                     </h2>
-                    <p className="text-xs text-slate-400 mb-4">ราคา/หน่วย × จำนวนเบิก — สีเข้ม = มูลค่าสูง</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">ราคา/หน่วย × จำนวนเบิก — สีเข้ม = มูลค่าสูง</p>
                     <ResponsiveContainer width="100%" height={topDrugs.length * 38 + 20}>
                       <BarChart data={topDrugs} layout="vertical" margin={{ top: 0, right: 60, left: 8, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F1F5F9" />
@@ -839,11 +839,11 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
 
                 {/* Top Depts by Value — top 5 with expand */}
                 {topDeptsValue.length > 0 && (
-                  <div className="bg-white rounded-2xl shadow-sm p-4">
-                    <h2 className="font-bold text-slate-700 mb-1 flex items-center gap-2">
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4">
+                    <h2 className="font-bold text-slate-700 dark:text-slate-200 mb-1 flex items-center gap-2">
                       <Building2 size={18} className="text-[#8B5CF6]" /> หน่วยงาน — มูลค่าการเบิก
                     </h2>
-                    <p className="text-xs text-slate-400 mb-4">มูลค่าการเบิกรวมต่อหน่วยงาน (บาท)</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">มูลค่าการเบิกรวมต่อหน่วยงาน (บาท)</p>
                     <ResponsiveContainer width="100%" height={displayedDepts.length * 38 + 20}>
                       <BarChart data={displayedDepts} layout="vertical" margin={{ top: 0, right: 60, left: 8, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F1F5F9" />
@@ -857,7 +857,7 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                     </ResponsiveContainer>
                     {topDeptsValue.length > 5 && (
                       <button onClick={() => setShowAllDepts(!showAllDepts)}
-                        className="mt-3 w-full flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-[#1E90FF] hover:bg-blue-50 rounded-xl transition-colors">
+                        className="mt-3 w-full flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-[#1E90FF] hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-xl transition-colors">
                         {showAllDepts ? <><ChevronUp size={14} /> แสดงน้อยลง</> : <><ChevronDown size={14} /> ดูทั้งหมด {topDeptsValue.length} หน่วยงาน</>}
                       </button>
                     )}
@@ -866,11 +866,11 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
 
                 {/* Top Drugs by Days */}
                 {topDrugsByDays.length > 0 && (
-                  <div className="bg-white rounded-2xl shadow-sm p-4">
-                    <h2 className="font-bold text-slate-700 mb-1 flex items-center gap-2">
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4">
+                    <h2 className="font-bold text-slate-700 dark:text-slate-200 mb-1 flex items-center gap-2">
                       <CalendarDays size={18} className="text-[#06B6D4]" /> ยาที่เบิกบ่อย (จำนวนวัน)
                     </h2>
-                    <p className="text-xs text-slate-400 mb-4">นับจากจำนวนวันที่มีการเบิกยานั้นจริง</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">นับจากจำนวนวันที่มีการเบิกยานั้นจริง</p>
                     <ResponsiveContainer width="100%" height={topDrugsByDays.length * 38 + 20}>
                       <BarChart data={topDrugsByDays} layout="vertical" margin={{ top: 0, right: 50, left: 8, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F1F5F9" />
@@ -898,7 +898,7 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                       const model   = forecastModel === 'linear' ? 'linear' : 'exp';
                       exportToExcel(risingDrugs, FORECAST_EXCEL_COLS, 'คาดการณ์', `analytics_forecast_${model}_${today}.xlsx`, auth);
                     }}
-                    className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+                    className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
                     disabled={!hasEnoughData}
                   >
                     <FileDown size={14} /> Export คาดการณ์
@@ -906,11 +906,11 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                 </div>
                 {/* Monthly trend + MA3 */}
                 {monthlyTrend.length > 0 && (
-                  <div className="bg-white rounded-2xl shadow-sm p-4">
-                    <h2 className="font-bold text-slate-700 mb-1 flex items-center gap-2">
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4">
+                    <h2 className="font-bold text-slate-700 dark:text-slate-200 mb-1 flex items-center gap-2">
                       <BarChart2 size={18} className="text-[#1E90FF]" /> แนวโน้มการเบิกรายเดือน
                     </h2>
-                    <p className="text-xs text-slate-400 mb-4">เส้นสีน้ำเงิน = มูลค่าจริง &nbsp;|&nbsp; เส้นประสีส้ม = MA3 (เฉลี่ย 3 เดือน ตัดสัญญาณรบกวน)</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">เส้นสีน้ำเงิน = มูลค่าจริง &nbsp;|&nbsp; เส้นประสีส้ม = MA3 (เฉลี่ย 3 เดือน ตัดสัญญาณรบกวน)</p>
                     <ResponsiveContainer width="100%" height={260}>
                       <LineChart data={ma3Trend} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
@@ -927,13 +927,13 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
 
                 {/* Year-over-Year Seasonality */}
                 {yoyYears.length >= 2 && yoyData.length > 0 && (
-                  <div className="bg-white rounded-2xl shadow-sm p-4">
-                    <h2 className="font-bold text-slate-700 mb-1 flex items-center gap-2">
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4">
+                    <h2 className="font-bold text-slate-700 dark:text-slate-200 mb-1 flex items-center gap-2">
                       <CalendarDays size={18} className="text-[#8B5CF6]" /> เปรียบเทียบรายปี — Seasonality
                     </h2>
-                    <p className="text-xs text-slate-400 mb-3">มูลค่าเบิกเดือนเดียวกันของแต่ละปี — ระบุช่วงฤดูกาลที่การใช้ยาพุ่งสูงเป็นประจำ</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">มูลค่าเบิกเดือนเดียวกันของแต่ละปี — ระบุช่วงฤดูกาลที่การใช้ยาพุ่งสูงเป็นประจำ</p>
                     {!yoySufficient && (
-                      <div className="text-xs text-purple-700 bg-purple-50 border border-purple-200 px-3 py-2 rounded-lg mb-3 flex items-start gap-2">
+                      <div className="text-xs text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900/60 px-3 py-2 rounded-lg mb-3 flex items-start gap-2">
                         <span className="shrink-0">⚠️</span>
                         <span>
                           ข้อมูลปีอ้างอิงน้อยกว่า 6 เดือน ({yoyYears.slice(0,-1).map(y => `ปี ${parseInt(y)+543}: ${yoyMonthsPerYear[y]} เดือน`).join(', ')}) — ควรรวบรวมข้อมูลให้ครบ 12 เดือนก่อนนำไปตีความ
@@ -961,32 +961,32 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
 
                 {/* Forecast Combined Chart */}
                 {hasEnoughData && (
-                  <div className="bg-white rounded-2xl shadow-sm p-4">
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4">
                     <div className="flex items-start justify-between gap-3 mb-2 flex-wrap">
                       <div>
-                        <h2 className="font-bold text-slate-700 flex items-center gap-2">
+                        <h2 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                           <TrendingUp size={18} className="text-[#F59E0B]" /> คาดการณ์ 12 เดือนข้างหน้า
                         </h2>
-                        <p className="text-xs text-slate-400 mt-0.5">เส้นสีน้ำเงิน = จริง &nbsp;|&nbsp; เส้นประสีส้ม = คาดการณ์</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">เส้นสีน้ำเงิน = จริง &nbsp;|&nbsp; เส้นประสีส้ม = คาดการณ์</p>
                       </div>
-                      <div className="flex items-center bg-slate-100 rounded-xl p-1 gap-1 shrink-0">
+                      <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-xl p-1 gap-1 shrink-0">
                         <button onClick={() => setForecastModel('linear')}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${forecastModel === 'linear' ? 'bg-white text-[#1E90FF] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${forecastModel === 'linear' ? 'bg-white dark:bg-slate-900 text-[#1E90FF] shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
                           Linear
                         </button>
                         <button onClick={() => setForecastModel('exponential')}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${forecastModel === 'exponential' ? 'bg-white text-[#1E90FF] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${forecastModel === 'exponential' ? 'bg-white dark:bg-slate-900 text-[#1E90FF] shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
                           Exp. Smoothing
                         </button>
                       </div>
                     </div>
                     {!forecastReliable && (
-                      <div className="text-xs text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-lg mb-2 flex items-start gap-2">
+                      <div className="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 px-3 py-2 rounded-lg mb-2 flex items-start gap-2">
                         <span className="shrink-0">🚨</span>
                         <span>ข้อมูลมีเพียง <strong>{monthlyTrend.length} เดือน</strong> — ต้องการอย่างน้อย 6 เดือน ตัวเลขเป็นเพียงการประมาณเบื้องต้น</span>
                       </div>
                     )}
-                    <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mb-4 flex items-start gap-2">
+                    <div className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 px-3 py-2 rounded-lg mb-4 flex items-start gap-2">
                       <span className="shrink-0">⚠️</span>
                       <span>{forecastModel === 'linear' ? 'Linear Regression — เหมาะเมื่อแนวโน้มเป็นเส้นตรงต่อเนื่อง' : "Exponential Smoothing (Holt's) — ให้น้ำหนักข้อมูลล่าสุดมากกว่า เหมาะเมื่อแนวโน้มเปลี่ยนเร็ว"} ใช้ประเมินทิศทางเท่านั้น</span>
                     </div>
@@ -1006,18 +1006,18 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
 
                 {/* Forecast Table */}
                 {hasEnoughData && sortedRisingDrugs.length > 0 && (
-                  <div className="bg-white rounded-2xl shadow-sm p-4">
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm p-4">
                     <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
                       <div>
-                        <h2 className="font-bold text-slate-700 flex items-center gap-2">
+                        <h2 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                           <FileText size={18} className="text-[#10B981]" /> ตารางคาดการณ์มูลค่า Top 10
                         </h2>
-                        <p className="text-xs text-slate-400 mt-0.5">โมเดล: {forecastModel === 'linear' ? 'Linear Regression' : 'Exp. Smoothing'}</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">โมเดล: {forecastModel === 'linear' ? 'Linear Regression' : 'Exp. Smoothing'}</p>
                       </div>
-                      <div className="flex items-center bg-slate-100 rounded-xl p-1 gap-1 shrink-0">
+                      <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-xl p-1 gap-1 shrink-0">
                         {[1, 6, 12].map(p => (
                           <button key={p} onClick={() => setForecastPeriod(p)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${forecastPeriod === p ? 'bg-white text-[#1E90FF] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${forecastPeriod === p ? 'bg-white dark:bg-slate-900 text-[#1E90FF] shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
                             +{p} เดือน
                           </button>
                         ))}
@@ -1036,9 +1036,9 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                       </BarChart>
                     </ResponsiveContainer>
                     <div className="mt-4 overflow-x-auto">
-                      <table className="w-full text-xs text-slate-600">
+                      <table className="w-full text-xs text-slate-600 dark:text-slate-300">
                         <thead>
-                          <tr className="border-b border-slate-200 text-slate-500">
+                          <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400">
                             <th className="text-left py-2 pr-2 font-semibold">ยา</th>
                             <th className="text-right py-2 pr-2 font-semibold">เฉลี่ย/เดือน</th>
                             <th className="text-right py-2 pr-2 font-semibold">+1 เดือน</th>
@@ -1050,12 +1050,12 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                         <tbody>
                           {sortedRisingDrugs.map((d, i) => {
                             const pct = forecastPeriod === 1 ? d.pct1 : forecastPeriod === 6 ? d.pct6 : d.pct12;
-                            const pctColor = pct >= 50 ? 'text-red-600' : pct >= 20 ? 'text-orange-500' : pct >= 0 ? 'text-emerald-600' : 'text-slate-400';
-                            const pctBg   = pct >= 50 ? 'bg-red-50'   : pct >= 20 ? 'bg-orange-50'   : pct >= 0 ? 'bg-emerald-50'   : 'bg-slate-100';
+                            const pctColor = pct >= 50 ? 'text-red-600' : pct >= 20 ? 'text-orange-500' : pct >= 0 ? 'text-emerald-600' : 'text-slate-400 dark:text-slate-500';
+                            const pctBg   = pct >= 50 ? 'bg-red-50 dark:bg-red-950/40'   : pct >= 20 ? 'bg-orange-50 dark:bg-orange-950/40'   : pct >= 0 ? 'bg-emerald-50 dark:bg-emerald-950/40'   : 'bg-slate-100 dark:bg-slate-800';
                             return (
-                              <tr key={i} className={`border-b border-slate-100 ${i % 2 ? 'bg-slate-50' : ''}`}>
+                              <tr key={i} className={`border-b border-slate-100 dark:border-slate-800 ${i % 2 ? 'bg-slate-50 dark:bg-slate-800' : ''}`}>
                                 <td className="py-2 pr-2 font-medium">{d.nameShort}</td>
-                                <td className="py-2 pr-2 text-right text-slate-500">{fmt(d.curAvg)}</td>
+                                <td className="py-2 pr-2 text-right text-slate-500 dark:text-slate-400">{fmt(d.curAvg)}</td>
                                 <td className={`py-2 pr-2 text-right ${forecastPeriod === 1  ? 'font-semibold text-[#1E90FF]' : 'text-amber-600'}`}>{fmt(d.p1)}</td>
                                 <td className={`py-2 pr-2 text-right ${forecastPeriod === 6  ? 'font-semibold text-[#1E90FF]' : 'text-amber-600'}`}>{fmt(d.p6)}</td>
                                 <td className={`py-2 pr-2 text-right ${forecastPeriod === 12 ? 'font-semibold text-[#1E90FF]' : 'text-amber-600'}`}>{fmt(d.p12)}</td>
@@ -1069,7 +1069,7 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                           })}
                         </tbody>
                       </table>
-                      <p className="text-xs text-slate-400 mt-2">* % Growth = มูลค่าคาดการณ์ ณ เดือนที่เลือก เทียบกับค่าเฉลี่ยต่อเดือนปัจจุบัน</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">* % Growth = มูลค่าคาดการณ์ ณ เดือนที่เลือก เทียบกับค่าเฉลี่ยต่อเดือนปัจจุบัน</p>
                     </div>
                   </div>
                 )}

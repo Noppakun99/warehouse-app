@@ -19,39 +19,39 @@ import { useSort, SortableTh } from './SortableTable'
 
 // ── ข้อมูลเก่า (legacy) — ใช้แสดง label เมื่อ return_source = null ──
 const LEGACY_TYPES = [
-  { key: 'ward_return',     label: 'คืนยาจาก Ward',    short: 'คืน Ward',   badgeBg: 'bg-blue-100',   badgeText: 'text-blue-800',   border: 'border-blue-200' },
-  { key: 'damaged',         label: 'ยาเสียหาย/แตกหัก', short: 'ยาเสียหาย', badgeBg: 'bg-orange-100', badgeText: 'text-orange-800', border: 'border-orange-200' },
-  { key: 'expired_removal', label: 'ตัดยาหมดอายุออก',  short: 'ยาหมดอายุ', badgeBg: 'bg-red-100',    badgeText: 'text-red-800',    border: 'border-red-200' },
-  { key: 'vendor_return',   label: 'ส่งคืนบริษัทยา',   short: 'คืนบริษัท', badgeBg: 'bg-purple-100', badgeText: 'text-purple-800', border: 'border-purple-200' },
+  { key: 'ward_return',     label: 'คืนยาจาก Ward',    short: 'คืน Ward',   badgeBg: 'bg-blue-100 dark:bg-blue-950/60',   badgeText: 'text-blue-800 dark:text-blue-300',   border: 'border-blue-200 dark:border-blue-900/60' },
+  { key: 'damaged',         label: 'ยาเสียหาย/แตกหัก', short: 'ยาเสียหาย', badgeBg: 'bg-orange-100 dark:bg-orange-950/60', badgeText: 'text-orange-800 dark:text-orange-300', border: 'border-orange-200 dark:border-orange-900/60' },
+  { key: 'expired_removal', label: 'ตัดยาหมดอายุออก',  short: 'ยาหมดอายุ', badgeBg: 'bg-red-100 dark:bg-red-950/60',    badgeText: 'text-red-800 dark:text-red-300',    border: 'border-red-200 dark:border-red-900/60' },
+  { key: 'vendor_return',   label: 'ส่งคืนบริษัทยา',   short: 'คืนบริษัท', badgeBg: 'bg-purple-100 dark:bg-purple-950/60', badgeText: 'text-purple-800 dark:text-purple-300', border: 'border-purple-200 dark:border-purple-900/60' },
 ]
 const LEGACY_MAP = Object.fromEntries(LEGACY_TYPES.map(t => [t.key, t]))
 
 // ── ระบบใหม่ 2 ระดับ ──
 const RETURN_SOURCES = [
-  { key: 'ward',   label: 'หน่วยงาน / Ward',   short: 'Ward',   badgeBg: 'bg-blue-100',   badgeText: 'text-blue-800',   border: 'border-blue-200',   needsDept: true },
-  { key: 'or',     label: 'ห้องผ่าตัด',         short: 'ห้องผ่าตัด', badgeBg: 'bg-purple-100', badgeText: 'text-purple-800', border: 'border-purple-200', needsDept: false },
-  { key: 'er',     label: 'ห้องฉุกเฉิน',        short: 'ER',     badgeBg: 'bg-red-100',    badgeText: 'text-red-800',    border: 'border-red-200',    needsDept: false },
-  { key: 'opd',    label: 'OPD คลินิก',          short: 'OPD',    badgeBg: 'bg-sky-100',    badgeText: 'text-sky-800',    border: 'border-sky-200',    needsDept: false },
-  { key: 'vendor', label: 'บริษัทยา / Supplier', short: 'บริษัทยา', badgeBg: 'bg-orange-100', badgeText: 'text-orange-800', border: 'border-orange-200', needsDept: false },
+  { key: 'ward',   label: 'หน่วยงาน / Ward',   short: 'Ward',   badgeBg: 'bg-blue-100 dark:bg-blue-950/60',   badgeText: 'text-blue-800 dark:text-blue-300',   border: 'border-blue-200 dark:border-blue-900/60',   needsDept: true },
+  { key: 'or',     label: 'ห้องผ่าตัด',         short: 'ห้องผ่าตัด', badgeBg: 'bg-purple-100 dark:bg-purple-950/60', badgeText: 'text-purple-800 dark:text-purple-300', border: 'border-purple-200 dark:border-purple-900/60', needsDept: false },
+  { key: 'er',     label: 'ห้องฉุกเฉิน',        short: 'ER',     badgeBg: 'bg-red-100 dark:bg-red-950/60',    badgeText: 'text-red-800 dark:text-red-300',    border: 'border-red-200 dark:border-red-900/60',    needsDept: false },
+  { key: 'opd',    label: 'OPD คลินิก',          short: 'OPD',    badgeBg: 'bg-sky-100 dark:bg-sky-950/60',    badgeText: 'text-sky-800 dark:text-sky-300',    border: 'border-sky-200 dark:border-sky-900/60',    needsDept: false },
+  { key: 'vendor', label: 'บริษัทยา / Supplier', short: 'บริษัทยา', badgeBg: 'bg-orange-100 dark:bg-orange-950/60', badgeText: 'text-orange-800 dark:text-orange-300', border: 'border-orange-200 dark:border-orange-900/60', needsDept: false },
 ]
 const SOURCE_MAP = Object.fromEntries(RETURN_SOURCES.map(s => [s.key, s]))
 
 const RETURN_REASONS = [
-  { key: 'leftover',      label: 'ยาเหลือจากการใช้',       short: 'เหลือใช้',   sources: ['ward', 'or', 'er', 'opd'], badgeBg: 'bg-teal-100',   badgeText: 'text-teal-800'   },
-  { key: 'over_req',      label: 'เบิกเกินจำนวน',           short: 'เบิกเกิน',   sources: ['ward', 'opd'],             badgeBg: 'bg-cyan-100',   badgeText: 'text-cyan-800'   },
-  { key: 'wrong_drug',    label: 'ยาผิดชนิด / ขนาด',       short: 'ผิดชนิด',   sources: ['ward', 'or', 'er', 'opd', 'vendor'], badgeBg: 'bg-amber-100',  badgeText: 'text-amber-800'  },
-  { key: 'damaged',       label: 'ยาเสียหาย / แตกหัก',     short: 'ยาเสียหาย', sources: ['ward', 'or', 'er', 'opd', 'vendor'], badgeBg: 'bg-orange-100', badgeText: 'text-orange-800' },
-  { key: 'expired',       label: 'ยาหมดอายุ',               short: 'ยาหมดอายุ', sources: ['ward', 'or', 'er', 'opd', 'vendor'], badgeBg: 'bg-red-100',    badgeText: 'text-red-800'    },
-  { key: 'recall',        label: 'Lot เรียกคืน (Recall)',   short: 'Recall',     sources: ['vendor'],                  badgeBg: 'bg-rose-100',   badgeText: 'text-rose-800'   },
-  { key: 'vendor_return', label: 'ส่งคืนตามสัญญา',         short: 'คืนบริษัท', sources: ['vendor'],                  badgeBg: 'bg-purple-100', badgeText: 'text-purple-800' },
-  { key: 'other',         label: 'อื่นๆ (ระบุในหมายเหตุ)',  short: 'อื่นๆ',      sources: ['ward', 'or', 'er', 'opd', 'vendor'], badgeBg: 'bg-slate-100', badgeText: 'text-slate-700' },
+  { key: 'leftover',      label: 'ยาเหลือจากการใช้',       short: 'เหลือใช้',   sources: ['ward', 'or', 'er', 'opd'], badgeBg: 'bg-teal-100 dark:bg-teal-950/60',   badgeText: 'text-teal-800 dark:text-teal-300'   },
+  { key: 'over_req',      label: 'เบิกเกินจำนวน',           short: 'เบิกเกิน',   sources: ['ward', 'opd'],             badgeBg: 'bg-cyan-100 dark:bg-cyan-950/60',   badgeText: 'text-cyan-800 dark:text-cyan-300'   },
+  { key: 'wrong_drug',    label: 'ยาผิดชนิด / ขนาด',       short: 'ผิดชนิด',   sources: ['ward', 'or', 'er', 'opd', 'vendor'], badgeBg: 'bg-amber-100 dark:bg-amber-950/60',  badgeText: 'text-amber-800 dark:text-amber-300'  },
+  { key: 'damaged',       label: 'ยาเสียหาย / แตกหัก',     short: 'ยาเสียหาย', sources: ['ward', 'or', 'er', 'opd', 'vendor'], badgeBg: 'bg-orange-100 dark:bg-orange-950/60', badgeText: 'text-orange-800 dark:text-orange-300' },
+  { key: 'expired',       label: 'ยาหมดอายุ',               short: 'ยาหมดอายุ', sources: ['ward', 'or', 'er', 'opd', 'vendor'], badgeBg: 'bg-red-100 dark:bg-red-950/60',    badgeText: 'text-red-800 dark:text-red-300'    },
+  { key: 'recall',        label: 'Lot เรียกคืน (Recall)',   short: 'Recall',     sources: ['vendor'],                  badgeBg: 'bg-rose-100 dark:bg-rose-950/60',   badgeText: 'text-rose-800 dark:text-rose-300'   },
+  { key: 'vendor_return', label: 'ส่งคืนตามสัญญา',         short: 'คืนบริษัท', sources: ['vendor'],                  badgeBg: 'bg-purple-100 dark:bg-purple-950/60', badgeText: 'text-purple-800 dark:text-purple-300' },
+  { key: 'other',         label: 'อื่นๆ (ระบุในหมายเหตุ)',  short: 'อื่นๆ',      sources: ['ward', 'or', 'er', 'opd', 'vendor'], badgeBg: 'bg-slate-100 dark:bg-slate-800', badgeText: 'text-slate-700 dark:text-slate-200' },
 ]
 const REASON_MAP = Object.fromEntries(RETURN_REASONS.map(r => [r.key, r]))
 
 // ── helper: badge ของ "สาเหตุการคืน" (reason) — ตารางประวัติเลิกโชว์ source กลุ่มแล้ว ──
 function getReasonBadge(log) {
   const rsn = REASON_MAP[log.return_type] || (log.return_source ? null : LEGACY_MAP[log.return_type])
-  return rsn || { label: log.return_type || '-', badgeBg: 'bg-slate-100', badgeText: 'text-slate-600' }
+  return rsn || { label: log.return_type || '-', badgeBg: 'bg-slate-100 dark:bg-slate-800', badgeText: 'text-slate-600 dark:text-slate-300' }
 }
 function getReturnLabel(log) {
   if (!log.return_source) {
@@ -77,16 +77,16 @@ function returnStatus(log) {
   return log.status === 'pending' ? 'pending' : 'received'
 }
 const STATUS_META = {
-  pending:  { label: 'รอรับคืน', icon: Clock,        badgeBg: 'bg-amber-100',   badgeText: 'text-amber-800'   },
-  received: { label: 'รับแล้ว',  icon: PackageCheck, badgeBg: 'bg-emerald-100', badgeText: 'text-emerald-700' },
+  pending:  { label: 'รอรับคืน', icon: Clock,        badgeBg: 'bg-amber-100 dark:bg-amber-950/60',   badgeText: 'text-amber-800 dark:text-amber-300'   },
+  received: { label: 'รับแล้ว',  icon: PackageCheck, badgeBg: 'bg-emerald-100 dark:bg-emerald-950/60', badgeText: 'text-emerald-700 dark:text-emerald-300' },
 }
 
 // ผลการดำเนินการหลัง staff ตรวจรับ (ADR-0012) — บันทึกผลอย่างเดียว ไม่แตะ inventory.qty
 const DISPOSITION_META = {
-  restock:   { label: 'รับเข้าคลัง',  icon: PackageCheck, badgeBg: 'bg-emerald-100', badgeText: 'text-emerald-700', desc: 'ยาสภาพดี — บันทึกว่ารับกลับเข้าคลัง' },
-  dispose:   { label: 'ทำลาย/ตัดจำหน่าย', icon: Trash2,   badgeBg: 'bg-red-100',     badgeText: 'text-red-700',     desc: 'หมดอายุ/เสียหาย — ตัดจำหน่าย' },
-  to_vendor: { label: 'ส่งคืนบริษัท',  icon: ArrowRight,   badgeBg: 'bg-sky-100',     badgeText: 'text-sky-700',     desc: 'ส่งคืนบริษัท (recall/เปลี่ยน)' },
-  rejected:  { label: 'ปฏิเสธการคืน',  icon: X,            badgeBg: 'bg-slate-200',   badgeText: 'text-slate-600',   desc: 'ไม่รับคืน — ระบุเหตุผล' },
+  restock:   { label: 'รับเข้าคลัง',  icon: PackageCheck, badgeBg: 'bg-emerald-100 dark:bg-emerald-950/60', badgeText: 'text-emerald-700 dark:text-emerald-300', desc: 'ยาสภาพดี — บันทึกว่ารับกลับเข้าคลัง' },
+  dispose:   { label: 'ทำลาย/ตัดจำหน่าย', icon: Trash2,   badgeBg: 'bg-red-100 dark:bg-red-950/60',     badgeText: 'text-red-700 dark:text-red-300',     desc: 'หมดอายุ/เสียหาย — ตัดจำหน่าย' },
+  to_vendor: { label: 'ส่งคืนบริษัท',  icon: ArrowRight,   badgeBg: 'bg-sky-100 dark:bg-sky-950/60',     badgeText: 'text-sky-700 dark:text-sky-300',     desc: 'ส่งคืนบริษัท (recall/เปลี่ยน)' },
+  rejected:  { label: 'ปฏิเสธการคืน',  icon: X,            badgeBg: 'bg-slate-200 dark:bg-slate-700',   badgeText: 'text-slate-600 dark:text-slate-300',   desc: 'ไม่รับคืน — ระบุเหตุผล' },
 }
 const DISPOSITION_ORDER = ['restock', 'dispose', 'to_vendor', 'rejected']
 
@@ -120,8 +120,8 @@ function isoToThai(iso) {
 function IsoDateInput({ value, onChange, className = '', ring = 'focus-within:ring-violet-400' }) {
   const display = iso => { if (!iso) return null; const [y,m,d] = iso.split('-'); return `${d}/${m}/${Number(y)+543}`; }
   return (
-    <div className={`relative flex items-center bg-white border border-slate-300 rounded-xl focus-within:ring-2 ${ring} ${className}`}>
-      <span className={`px-3 py-2 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>{display(value) || 'dd/mm/yyyy'}</span>
+    <div className={`relative flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl focus-within:ring-2 ${ring} ${className}`}>
+      <span className={`px-3 py-2 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>{display(value) || 'dd/mm/yyyy'}</span>
       {/* onClick + showPicker guarded (Rule #3): เสริมเปิดปฏิทินตอนคลิกบน desktop; mobile แตะเปิด native ตามปกติ */}
       <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
         onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }}
@@ -285,21 +285,21 @@ export default function ReturnApp({ onRefresh, auth, onGoBack, canGoBack }) {
   ]
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans">
-      <header className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-10">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-800 font-sans">
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 shadow-sm sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
           <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
-          <div className="p-2 bg-violet-100 text-violet-600 rounded-xl shrink-0"><RotateCcw size={20} /></div>
+          <div className="p-2 bg-violet-100 dark:bg-violet-950/60 text-violet-600 rounded-xl shrink-0"><RotateCcw size={20} /></div>
           <button onClick={onRefresh} className="text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
-            <p className="font-bold text-sm leading-tight text-slate-800">ระบบคืนยา / บันทึกยาเสียหาย</p>
-            <p className="text-slate-400 text-xs">Return &amp; Write-off Management</p>
+            <p className="font-bold text-sm leading-tight text-slate-800 dark:text-slate-100">ระบบคืนยา / บันทึกยาเสียหาย</p>
+            <p className="text-slate-400 dark:text-slate-500 text-xs">Return &amp; Write-off Management</p>
           </button>
         </div>
         <div className="max-w-4xl mx-auto px-4 flex gap-2 pb-2.5">
           {tabs.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
               className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
-                tab === t.key ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-500 bg-slate-100 hover:bg-slate-200'
+                tab === t.key ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200'
               }`}>
               {t.label}
             </button>
@@ -442,8 +442,8 @@ function RecordTab({ auth }) {
     }
   }
 
-  const inputCls = 'w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-400 transition-shadow'
-  const labelCls = 'block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5'
+  const inputCls = 'w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-400 transition-shadow'
+  const labelCls = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5'
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -451,24 +451,24 @@ function RecordTab({ auth }) {
       {success && lastSubmitted && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setSuccess(false)}>
           <div className="absolute inset-0 bg-black/40" />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center" onClick={e => e.stopPropagation()}>
-            <div className="mx-auto w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mb-3">
+          <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center" onClick={e => e.stopPropagation()}>
+            <div className="mx-auto w-14 h-14 rounded-full bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center mb-3">
               <CheckCircle size={30} className="text-emerald-600" />
             </div>
-            <p className="text-base font-bold text-slate-800 mb-1">บันทึกการคืนยาเรียบร้อยแล้ว</p>
-            <p className="text-sm text-slate-600 leading-relaxed">
-              คืนยา <span className="font-semibold text-slate-800">{lastSubmitted.drug_name}</span>
-              {lastSubmitted.qty_returned && <> จำนวน <span className="font-semibold text-violet-700">{Number(lastSubmitted.qty_returned).toLocaleString()} {lastSubmitted.drug_unit && lastSubmitted.drug_unit !== '-' ? lastSubmitted.drug_unit : 'หน่วย'}</span></>}
-              <br />หน่วยงาน <span className="font-semibold text-slate-800">{lastSubmitted.department}</span>
+            <p className="text-base font-bold text-slate-800 dark:text-slate-100 mb-1">บันทึกการคืนยาเรียบร้อยแล้ว</p>
+            <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+              คืนยา <span className="font-semibold text-slate-800 dark:text-slate-100">{lastSubmitted.drug_name}</span>
+              {lastSubmitted.qty_returned && <> จำนวน <span className="font-semibold text-violet-700 dark:text-violet-300">{Number(lastSubmitted.qty_returned).toLocaleString()} {lastSubmitted.drug_unit && lastSubmitted.drug_unit !== '-' ? lastSubmitted.drug_unit : 'หน่วย'}</span></>}
+              <br />หน่วยงาน <span className="font-semibold text-slate-800 dark:text-slate-100">{lastSubmitted.department}</span>
             </p>
-            <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mt-3">รอเจ้าหน้าที่คลังยืนยันรับคืน</p>
+            <p className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/40 rounded-lg px-3 py-2 mt-3">รอเจ้าหน้าที่คลังยืนยันรับคืน</p>
             <div className="flex gap-2 mt-5">
               <button type="button" onClick={() => printReturnLog(lastSubmitted)}
                 className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-colors">
                 <Printer size={15} /> พิมพ์ / PDF
               </button>
               <button type="button" onClick={() => setSuccess(false)}
-                className="flex-1 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-semibold transition-colors">
+                className="flex-1 px-3 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-semibold transition-colors">
                 ปิด
               </button>
             </div>
@@ -476,18 +476,18 @@ function RecordTab({ auth }) {
         </div>
       )}
       {error && (
-        <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-2xl px-4 py-3 text-red-600 text-sm">
+        <div className="flex items-center gap-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-2xl px-4 py-3 text-red-600 text-sm">
           <AlertCircle size={16} /> {error}
         </div>
       )}
 
       {/* ── STEP 1: แหล่งที่คืน + สาเหตุ ── */}
       {/* overflow-visible: ให้ dropdown ของ SearchableSelect ("คืนจากไหน") ล้นออกนอกการ์ดได้ ไม่โดน overflow-hidden ตัด */}
-      <section className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-visible">
-        <div className="flex items-center gap-2.5 px-5 py-3.5 bg-gradient-to-r from-violet-50 to-white border-b border-slate-100 rounded-t-2xl">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-visible">
+        <div className="flex items-center gap-2.5 px-5 py-3.5 bg-gradient-to-r from-violet-50 dark:from-slate-900 to-white border-b border-slate-100 dark:border-slate-800 rounded-t-2xl">
           <div className="p-1.5 rounded-lg bg-violet-600 text-white shrink-0"><MapPin size={15} /></div>
-          <p className="text-sm font-bold text-slate-800">แหล่งที่คืน &amp; สาเหตุ</p>
-          <span className="ml-auto text-[11px] font-bold text-violet-600 bg-violet-100 rounded-full w-6 h-6 flex items-center justify-center">1</span>
+          <p className="text-sm font-bold text-slate-800 dark:text-slate-100">แหล่งที่คืน &amp; สาเหตุ</p>
+          <span className="ml-auto text-[11px] font-bold text-violet-600 bg-violet-100 dark:bg-violet-950/60 rounded-full w-6 h-6 flex items-center justify-center">1</span>
         </div>
         <div className="p-5 space-y-4">
           <div className="grid sm:grid-cols-2 gap-4">
@@ -510,12 +510,12 @@ function RecordTab({ auth }) {
                 const validReasons = RETURN_REASONS.filter(r => r.sources.includes(form.return_source))
                 return (
                   <select value={form.return_type} onChange={e => set('return_type', e.target.value)}
-                    className={`${inputCls} bg-white appearance-none`}>
+                    className={`${inputCls} bg-white dark:bg-slate-900 appearance-none`}>
                     {validReasons.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
                   </select>
                 )
               })() : (
-                <div className="text-sm text-slate-400 border border-dashed border-slate-200 rounded-xl px-3.5 py-2.5">
+                <div className="text-sm text-slate-400 dark:text-slate-500 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5">
                   เลือกหน่วยงานก่อน
                 </div>
               )}
@@ -534,11 +534,11 @@ function RecordTab({ auth }) {
 
       {/* ── STEP 2: ข้อมูลยา ── */}
       {/* overflow-visible: ให้ dropdown DrugSearchBar ("ชื่อยา") ล้นออกนอกการ์ดได้ */}
-      <section className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-visible">
-        <div className="flex items-center gap-2.5 px-5 py-3.5 bg-gradient-to-r from-sky-50 to-white border-b border-slate-100 rounded-t-2xl">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-visible">
+        <div className="flex items-center gap-2.5 px-5 py-3.5 bg-gradient-to-r from-sky-50 dark:from-slate-900 to-white border-b border-slate-100 dark:border-slate-800 rounded-t-2xl">
           <div className="p-1.5 rounded-lg bg-sky-500 text-white shrink-0"><Pill size={15} /></div>
-          <p className="text-sm font-bold text-slate-800">ข้อมูลยา</p>
-          <span className="ml-auto text-[11px] font-bold text-sky-600 bg-sky-100 rounded-full w-6 h-6 flex items-center justify-center">2</span>
+          <p className="text-sm font-bold text-slate-800 dark:text-slate-100">ข้อมูลยา</p>
+          <span className="ml-auto text-[11px] font-bold text-sky-600 bg-sky-100 dark:bg-sky-950/60 rounded-full w-6 h-6 flex items-center justify-center">2</span>
         </div>
         <div className="p-5 space-y-4">
           {/* ค้นหายา (เต็มแถว) — DrugSearchBar (autocomplete + badge ชนิดยา) */}
@@ -551,7 +551,7 @@ function RecordTab({ auth }) {
               options={drugNames}
               placeholder="พิมพ์เพื่อค้นหายาในคลัง..."
               ringClass="focus:ring-violet-400"
-              hoverClass="hover:bg-violet-50"
+              hoverClass="hover:bg-violet-50 dark:hover:bg-violet-950/50"
               maxResults={10}
             />
           </div>
@@ -561,7 +561,7 @@ function RecordTab({ auth }) {
             <div>
               <label className={labelCls}>รหัสยา</label>
               <div className="relative">
-                <Hash size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <Hash size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
                 <input type="text" value={form.drug_code === '-' ? '' : form.drug_code}
                   onChange={e => set('drug_code', e.target.value || '-')} placeholder="-"
                   className={`${inputCls} pl-10`} />
@@ -581,9 +581,9 @@ function RecordTab({ auth }) {
               <label className={labelCls}>Lot</label>
               {lotOptions.length > 0 && !manualLot ? (
                 <div className="relative">
-                  <Layers size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10" />
+                  <Layers size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none z-10" />
                   <select value={form.lot === '-' ? '' : form.lot} onChange={e => selectLot(e.target.value)}
-                    className={`${inputCls} pl-10 bg-white appearance-none`}>
+                    className={`${inputCls} pl-10 bg-white dark:bg-slate-900 appearance-none`}>
                     <option value="">-- เลือก lot จากคลัง --</option>
                     {lotOptions.map(o => (
                       <option key={o.lot} value={o.lot}>
@@ -592,7 +592,7 @@ function RecordTab({ auth }) {
                     ))}
                     <option value="__manual__">+ พิมพ์ lot เอง (ไม่มีในคลัง)</option>
                   </select>
-                  <ChevronDown size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <ChevronDown size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
                 </div>
               ) : (
                 <div className="relative">
@@ -621,7 +621,7 @@ function RecordTab({ auth }) {
             <div>
               <label className={labelCls}>จำนวนคืน *</label>
               <div className="relative">
-                <Package size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <Package size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
                 <input type="number" min="0.01" step="0.01" value={form.qty_returned}
                   onChange={e => set('qty_returned', e.target.value)} placeholder="0" required
                   className={`${inputCls} pl-10`} />
@@ -642,18 +642,18 @@ function RecordTab({ auth }) {
       </section>
 
       {/* ── STEP 3: ผู้คืน / ผู้รับ ── */}
-      <section className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="flex items-center gap-2.5 px-5 py-3.5 bg-gradient-to-r from-emerald-50 to-white border-b border-slate-100">
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2.5 px-5 py-3.5 bg-gradient-to-r from-emerald-50 dark:from-slate-900 to-white border-b border-slate-100 dark:border-slate-800">
           <div className="p-1.5 rounded-lg bg-emerald-600 text-white shrink-0"><UserCheck size={15} /></div>
-          <p className="text-sm font-bold text-slate-800">ผู้คืน / ผู้รับ</p>
-          <span className="ml-auto text-[11px] font-bold text-emerald-600 bg-emerald-100 rounded-full w-6 h-6 flex items-center justify-center">3</span>
+          <p className="text-sm font-bold text-slate-800 dark:text-slate-100">ผู้คืน / ผู้รับ</p>
+          <span className="ml-auto text-[11px] font-bold text-emerald-600 bg-emerald-100 dark:bg-emerald-950/60 rounded-full w-6 h-6 flex items-center justify-center">3</span>
         </div>
         <div className="p-5 space-y-4">
           <div>
             <label className={labelCls}>ชื่อผู้คืน / ผู้แจ้ง</label>
             <input type="text" value={form.returned_by} onChange={e => set('returned_by', e.target.value)}
               placeholder="ชื่อ-สกุล" className={inputCls} />
-            <p className="text-[11px] text-slate-400 mt-1.5">เจ้าหน้าที่ผู้รับคืนจะถูกเติมอัตโนมัติเมื่อคลังกดยืนยันรับคืน</p>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1.5">เจ้าหน้าที่ผู้รับคืนจะถูกเติมอัตโนมัติเมื่อคลังกดยืนยันรับคืน</p>
           </div>
           {/* เมื่อเลือก 'อื่นๆ' ช่องหมายเหตุ (= form.note) ถูกยกไปไว้ใต้ dropdown สาเหตุใน STEP 1 แล้ว — ซ่อนที่นี่กันซ้ำ */}
           {form.return_type !== 'other' && (
@@ -668,13 +668,13 @@ function RecordTab({ auth }) {
       </section>
 
       {/* แถบสรุป + ปุ่มบันทึก (sticky bottom) */}
-      <div className="sticky bottom-0 z-10 bg-slate-50/80 backdrop-blur-sm pt-1 pb-1 -mx-4 px-4">
+      <div className="sticky bottom-0 z-10 bg-slate-50 dark:bg-slate-800/80 backdrop-blur-sm pt-1 pb-1 -mx-4 px-4">
         {form.drug_name && (
-          <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 mb-2 px-1">
-            <span className="font-semibold text-slate-700 truncate max-w-[200px]">{form.drug_name}</span>
-            {form.qty_returned && <span className="text-violet-700 font-bold">{Number(form.qty_returned).toLocaleString()} {form.drug_unit !== '-' ? form.drug_unit : 'หน่วย'}</span>}
-            {form.department && <><ArrowRight size={12} /><span className="text-slate-500 truncate max-w-[140px]">{form.department}</span></>}
-            {reasonInfo && <span className="text-slate-400">· {reasonInfo.short}</span>}
+          <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 dark:text-slate-400 mb-2 px-1">
+            <span className="font-semibold text-slate-700 dark:text-slate-200 truncate max-w-[200px]">{form.drug_name}</span>
+            {form.qty_returned && <span className="text-violet-700 dark:text-violet-300 font-bold">{Number(form.qty_returned).toLocaleString()} {form.drug_unit !== '-' ? form.drug_unit : 'หน่วย'}</span>}
+            {form.department && <><ArrowRight size={12} /><span className="text-slate-500 dark:text-slate-400 truncate max-w-[140px]">{form.department}</span></>}
+            {reasonInfo && <span className="text-slate-400 dark:text-slate-500">· {reasonInfo.short}</span>}
           </div>
         )}
         <button type="submit" disabled={submitting}
@@ -742,22 +742,22 @@ function EditReturnModal({ log, auth, onClose, onSaved }) {
 
   const field = (label, key, type = 'text') => (
     <div key={key}>
-      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">{label}</label>
+      <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">{label}</label>
       <input type={type} value={form[key]} onChange={e => set(key, e.target.value)}
-        className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-400" />
+        className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-400" />
     </div>
   )
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 bg-violet-50 flex items-center gap-3 shrink-0">
+      <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-violet-50 dark:bg-violet-950/40 flex items-center gap-3 shrink-0">
           <Pencil size={18} className="text-violet-600" />
           <div className="flex-1 min-w-0">
-            <p className="font-bold text-violet-800">แก้ไขรายการ</p>
-            <p className="text-xs text-slate-500 truncate">{log.drug_name}</p>
+            <p className="font-bold text-violet-800 dark:text-violet-300">แก้ไขรายการ</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{log.drug_name}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
             <X size={18} />
           </button>
         </div>
@@ -766,9 +766,9 @@ function EditReturnModal({ log, auth, onClose, onSaved }) {
           <div className="grid grid-cols-2 gap-3">
             {field('วันที่', 'return_date', 'date')}
             <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">ประเภท</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">ประเภท</label>
               <select value={form.return_type} onChange={e => set('return_type', e.target.value)}
-                className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-400 bg-white">
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-400 bg-white dark:bg-slate-900">
                 {RETURN_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
               </select>
             </div>
@@ -792,16 +792,16 @@ function EditReturnModal({ log, auth, onClose, onSaved }) {
             {field('ผู้รับ', 'received_by')}
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">หมายเหตุ</label>
+            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">หมายเหตุ</label>
             <textarea value={form.note} onChange={e => set('note', e.target.value)} rows={2}
-              className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none" />
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none" />
           </div>
-          {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>}
+          {error && <p className="text-sm text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2">{error}</p>}
         </div>
 
-        <div className="px-4 pb-5 pt-3 border-t border-slate-100 flex gap-2 shrink-0">
+        <div className="px-4 pb-5 pt-3 border-t border-slate-100 dark:border-slate-800 flex gap-2 shrink-0">
           <button onClick={onClose} disabled={saving}
-            className="flex-1 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl py-2.5 font-medium text-sm transition-colors">
+            className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2.5 font-medium text-sm transition-colors">
             ยกเลิก
           </button>
           <button onClick={handleSave} disabled={saving}
@@ -914,27 +914,27 @@ function HistoryTab({ auth = {}, mode = 'history' }) {
   return (
     <div className="space-y-4">
       {isReview && (
-        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+        <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-4 py-3">
           <Clock size={18} className="text-amber-600 mt-0.5 shrink-0" />
           <div>
-            <p className="text-sm font-semibold text-amber-800">รายการคืนยาที่รอตรวจสอบ</p>
-            <p className="text-xs text-amber-700">คลิกรายการเพื่อตรวจรับและเลือกผลการดำเนินการ (รับเข้าคลัง / ทำลาย / ส่งคืนบริษัท / ปฏิเสธ)</p>
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">รายการคืนยาที่รอตรวจสอบ</p>
+            <p className="text-xs text-amber-700 dark:text-amber-300">คลิกรายการเพื่อตรวจรับและเลือกผลการดำเนินการ (รับเข้าคลัง / ทำลาย / ส่งคืนบริษัท / ปฏิเสธ)</p>
           </div>
         </div>
       )}
 
       {/* Filters */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm space-y-3">
         <div className="flex gap-2 flex-wrap">
           <IsoDateInput value={dateFrom} onChange={setDateFrom} />
-          <span className="self-center text-slate-400 text-sm">–</span>
+          <span className="self-center text-slate-400 dark:text-slate-500 text-sm">–</span>
           <IsoDateInput value={dateTo} onChange={setDateTo} />
           <div className="flex-1 min-w-[160px] relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && load()}
               placeholder="ค้นหาชื่อยา... (Enter)"
-              className="w-full border border-slate-300 rounded-xl pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
           </div>
           <button onClick={load}
             className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-colors">
@@ -949,7 +949,7 @@ function HistoryTab({ auth = {}, mode = 'history' }) {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-semibold text-slate-500">หน่วยงาน</span>
+          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">หน่วยงาน</span>
           <SearchableSelect
             value={filterDept}
             onChange={setFilterDept}
@@ -964,9 +964,9 @@ function HistoryTab({ auth = {}, mode = 'history' }) {
 
       {/* Table */}
       {loading ? (
-        <p className="text-center text-slate-400 py-10 text-sm">กำลังโหลด...</p>
+        <p className="text-center text-slate-400 dark:text-slate-500 py-10 text-sm">กำลังโหลด...</p>
       ) : logs.length === 0 ? (
-        <div className="text-center text-slate-400 py-16">
+        <div className="text-center text-slate-400 dark:text-slate-500 py-16">
           <FileText size={40} className="mx-auto mb-2 opacity-30" />
           <p className="text-sm">{isReview ? 'ไม่มีรายการรอตรวจสอบ' : 'ไม่พบข้อมูล'}</p>
         </div>
@@ -976,38 +976,38 @@ function HistoryTab({ auth = {}, mode = 'history' }) {
             const b = getReasonBadge(l)
             return (
               <div key={l.id} onClick={() => setDetailLog(l)}
-                className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm active:bg-violet-50 transition-colors cursor-pointer">
+                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm active:bg-violet-50 transition-colors cursor-pointer">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-slate-900 truncate text-sm">{l.drug_name}</p>
+                    <p className="font-semibold text-slate-900 dark:text-slate-50 truncate text-sm">{l.drug_name}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       {returnStatus(l) === 'pending' && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800"><Clock size={9} />รอรับคืน</span>
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300"><Clock size={9} />รอรับคืน</span>
                       )}
-                      <p className="text-xs text-slate-400">{isoToThai(l.return_date)}</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500">{isoToThai(l.return_date)}</p>
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-sm font-bold text-violet-700">{Number(l.qty_returned).toLocaleString()}</p>
-                    {l.drug_unit && l.drug_unit !== '-' && <p className="text-[10px] text-slate-400">{l.drug_unit}</p>}
+                    <p className="text-sm font-bold text-violet-700 dark:text-violet-300">{Number(l.qty_returned).toLocaleString()}</p>
+                    {l.drug_unit && l.drug_unit !== '-' && <p className="text-[10px] text-slate-400 dark:text-slate-500">{l.drug_unit}</p>}
                   </div>
                 </div>
-                <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-semibold shrink-0 ${b.badgeBg} ${b.badgeText}`}>{b.label}</span>
                   </div>
-                  <span className="text-xs text-slate-500 truncate ml-2 shrink-0">{l.department !== '-' ? l.department : ''}</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 truncate ml-2 shrink-0">{l.department !== '-' ? l.department : ''}</span>
                 </div>
               </div>
             )
           })}
         </div>
       ) : (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[1100px]">
               <thead>
-                <tr className="text-xs text-slate-500 font-semibold bg-slate-50 border-b border-slate-200 uppercase tracking-wide">
+                <tr className="text-xs text-slate-500 dark:text-slate-400 font-semibold bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 uppercase tracking-wide">
                   <SortableTh sortKey="return_date" label="วันที่" sort={sort} onSort={toggleSort} className="px-3 py-3" activeColor="text-violet-600" />
                   <SortableTh sortKey="drug_name" label="ชื่อยา" sort={sort} onSort={toggleSort} className="px-3 py-3" activeColor="text-violet-600" />
                   <th className="px-3 py-3 text-left">ชนิดยา</th>
@@ -1023,29 +1023,29 @@ function HistoryTab({ auth = {}, mode = 'history' }) {
                   <th className="px-3 py-3 text-left w-8"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {sorted.map((l) => {
                   const b = getReasonBadge(l)
                   return (
                     <React.Fragment key={l.id}>
                       <tr onClick={() => setDetailLog(l)}
-                        className="cursor-pointer transition-colors hover:bg-slate-50">
-                        <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap font-medium">{isoToThai(l.return_date)}</td>
-                        <td className="px-3 py-2.5 font-semibold text-slate-800 max-w-[200px]">
+                        className="cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-slate-800">
+                        <td className="px-3 py-2.5 text-slate-700 dark:text-slate-200 whitespace-nowrap font-medium">{isoToThai(l.return_date)}</td>
+                        <td className="px-3 py-2.5 font-semibold text-slate-800 dark:text-slate-100 max-w-[200px]">
                           <span className="block truncate">{l.drug_name}</span>
-                          {l.drug_code && l.drug_code !== '-' && <span className="text-xs text-slate-400 font-normal">{l.drug_code}</span>}
+                          {l.drug_code && l.drug_code !== '-' && <span className="text-xs text-slate-400 dark:text-slate-500 font-normal">{l.drug_code}</span>}
                         </td>
                         <td className="px-3 py-2.5 whitespace-nowrap">
-                          {l.drug_type && l.drug_type !== '-' ? <DrugTypeBadge type={l.drug_type} /> : <span className="text-slate-300">-</span>}
+                          {l.drug_type && l.drug_type !== '-' ? <DrugTypeBadge type={l.drug_type} /> : <span className="text-slate-300 dark:text-slate-500">-</span>}
                         </td>
                         <td className="px-3 py-2.5 whitespace-nowrap">
                           <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${b.badgeBg} ${b.badgeText}`}>{b.label}</span>
                         </td>
-                        <td className="px-3 py-2.5 text-right font-bold text-violet-700 whitespace-nowrap">{Number(l.qty_returned).toLocaleString()}</td>
-                        <td className="px-3 py-2.5 text-slate-600 text-xs whitespace-nowrap">{l.drug_unit && l.drug_unit !== '-' ? l.drug_unit : '-'}</td>
-                        <td className="px-3 py-2.5 text-slate-600 text-xs whitespace-nowrap">{l.lot && l.lot !== '-' ? l.lot : '-'}</td>
-                        <td className="px-3 py-2.5 text-slate-600 text-xs whitespace-nowrap">{l.exp && l.exp !== '-' ? l.exp : '-'}</td>
-                        <td className="px-3 py-2.5 text-slate-600 text-xs">{l.department !== '-' ? l.department : '-'}</td>
+                        <td className="px-3 py-2.5 text-right font-bold text-violet-700 dark:text-violet-300 whitespace-nowrap">{Number(l.qty_returned).toLocaleString()}</td>
+                        <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs whitespace-nowrap">{l.drug_unit && l.drug_unit !== '-' ? l.drug_unit : '-'}</td>
+                        <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs whitespace-nowrap">{l.lot && l.lot !== '-' ? l.lot : '-'}</td>
+                        <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs whitespace-nowrap">{l.exp && l.exp !== '-' ? l.exp : '-'}</td>
+                        <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs">{l.department !== '-' ? l.department : '-'}</td>
                         <td className="px-3 py-2.5 whitespace-nowrap">
                           <div className="flex flex-col gap-1">
                             {(() => {
@@ -1058,9 +1058,9 @@ function HistoryTab({ auth = {}, mode = 'history' }) {
                             })()}
                           </div>
                         </td>
-                        <td className="px-3 py-2.5 text-slate-600 text-xs">{l.returned_by !== '-' ? l.returned_by : '-'}</td>
-                        <td className="px-3 py-2.5 text-slate-600 text-xs">{l.received_by !== '-' ? l.received_by : '-'}</td>
-                        <td className="px-3 py-2.5 text-slate-400">
+                        <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs">{l.returned_by !== '-' ? l.returned_by : '-'}</td>
+                        <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs">{l.received_by !== '-' ? l.received_by : '-'}</td>
+                        <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500">
                           <ChevronRight size={14}/>
                         </td>
                       </tr>
@@ -1070,7 +1070,7 @@ function HistoryTab({ auth = {}, mode = 'history' }) {
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-2 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 text-right">
+          <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 text-right">
             แสดง {logs.length} รายการ
           </div>
         </div>
@@ -1106,7 +1106,7 @@ function DispositionModal({ log, busy, onClose, onConfirm }) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/50" />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="bg-emerald-600 text-white px-5 py-4 rounded-t-2xl flex items-center gap-2">
           <PackageCheck size={20} />
           <div className="min-w-0">
@@ -1116,17 +1116,17 @@ function DispositionModal({ log, busy, onClose, onConfirm }) {
         </div>
         <div className="p-5 space-y-4">
           <div>
-            <p className="text-sm font-semibold text-slate-600 mb-2">เลือกผลการดำเนินการ *</p>
+            <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2">เลือกผลการดำเนินการ *</p>
             <div className="space-y-2">
               {DISPOSITION_ORDER.map(key => {
                 const dm = DISPOSITION_META[key], DIcon = dm.icon, active = disp === key
                 return (
                   <button key={key} type="button" onClick={() => setDisp(key)}
-                    className={`w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-colors ${active ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-400' : 'border-slate-200 hover:bg-slate-50'}`}>
+                    className={`w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-colors ${active ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 ring-1 ring-emerald-400' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
                     <span className={`p-1.5 rounded-lg shrink-0 ${dm.badgeBg} ${dm.badgeText}`}><DIcon size={16} /></span>
                     <span className="min-w-0">
-                      <span className="block text-sm font-semibold text-slate-800">{dm.label}</span>
-                      <span className="block text-xs text-slate-400">{dm.desc}</span>
+                      <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">{dm.label}</span>
+                      <span className="block text-xs text-slate-400 dark:text-slate-500">{dm.desc}</span>
                     </span>
                   </button>
                 )
@@ -1134,15 +1134,15 @@ function DispositionModal({ log, busy, onClose, onConfirm }) {
             </div>
           </div>
           <div>
-            <label className="text-sm font-semibold text-slate-600">หมายเหตุ / เหตุผล{disp === 'rejected' ? ' *' : ''}</label>
+            <label className="text-sm font-semibold text-slate-600 dark:text-slate-300">หมายเหตุ / เหตุผล{disp === 'rejected' ? ' *' : ''}</label>
             <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
               placeholder={disp === 'rejected' ? 'ระบุเหตุผลที่ไม่รับคืน...' : 'เพิ่มเติม (ถ้ามี)'}
-              className="mt-1 w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+              className="mt-1 w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
           </div>
         </div>
         <div className="flex gap-2 px-5 pb-5">
           <button onClick={onClose} disabled={busy}
-            className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors disabled:opacity-50">
+            className="flex-1 px-4 py-2.5 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50">
             ยกเลิก
           </button>
           <button
@@ -1184,47 +1184,47 @@ function ReturnDetail({ log, isStaff, isAdmin, busy, onBack, onDispose, onEdit, 
   ].filter(([, v]) => v != null && v !== '')
 
   return (
-    <div className="min-h-screen bg-slate-50 -m-4 sm:-m-6">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-800 -m-4 sm:-m-6">
       {/* Header bar */}
-      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center gap-3">
+      <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 flex items-center gap-3">
         <button onClick={onBack}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition-colors">
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 text-sm font-semibold transition-colors">
           <RotateCcw size={15} className="rotate-[135deg]" /> ย้อนกลับ
         </button>
         <div className="min-w-0 flex-1">
-          <p className="font-bold text-slate-900 text-base leading-tight truncate">{log.drug_name}</p>
-          <p className="text-xs text-slate-400">คืนวันที่ {isoToThai(log.return_date)}</p>
+          <p className="font-bold text-slate-900 dark:text-slate-50 text-base leading-tight truncate">{log.drug_name}</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500">คืนวันที่ {isoToThai(log.return_date)}</p>
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto p-4 space-y-4">
         {/* สรุปสถานะ + จำนวน */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm space-y-3">
           <div className="flex items-center gap-2 flex-wrap">
             <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${sm.badgeBg} ${sm.badgeText}`}><SIcon size={12} />{sm.label}</span>
             <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-bold ${rb.badgeBg} ${rb.badgeText}`}>{rb.label}</span>
             {dm && <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${dm.badgeBg} ${dm.badgeText}`}><DIcon size={12} />{dm.label}</span>}
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-violet-700">{Number(log.qty_returned).toLocaleString()}</span>
-            <span className="text-sm text-slate-500">{log.drug_unit && log.drug_unit !== '-' ? log.drug_unit : 'หน่วย'}</span>
+            <span className="text-3xl font-bold text-violet-700 dark:text-violet-300">{Number(log.qty_returned).toLocaleString()}</span>
+            <span className="text-sm text-slate-500 dark:text-slate-400">{log.drug_unit && log.drug_unit !== '-' ? log.drug_unit : 'หน่วย'}</span>
           </div>
           {dm && log.disposition_note && (
             <div className={`flex items-start gap-2 rounded-xl p-2.5 ${dm.badgeBg}`}>
               <DIcon size={15} className={`${dm.badgeText} mt-0.5 shrink-0`} />
-              <p className="text-xs text-slate-600">{log.disposition_note}</p>
+              <p className="text-xs text-slate-600 dark:text-slate-300">{log.disposition_note}</p>
             </div>
           )}
         </div>
 
         {/* ข้อมูลละเอียด */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-          <p className="text-sm font-bold text-slate-700 mb-2">ข้อมูลการคืน</p>
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm">
+          <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-2">ข้อมูลการคืน</p>
           <div className="space-y-1">
             {rows.map(([label, val]) => (
               <div key={label} className="flex justify-between items-start gap-3 py-1.5 border-b border-slate-50 last:border-0">
-                <span className="text-xs text-slate-400 shrink-0">{label}</span>
-                <span className="text-sm text-slate-700 font-medium text-right min-w-0">{val}</span>
+                <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0">{label}</span>
+                <span className="text-sm text-slate-700 dark:text-slate-200 font-medium text-right min-w-0">{val}</span>
               </div>
             ))}
           </div>
@@ -1245,7 +1245,7 @@ function ReturnDetail({ log, isStaff, isAdmin, busy, onBack, onDispose, onEdit, 
           {isAdmin && (
             <div className="grid grid-cols-2 gap-2">
               <button onClick={onEdit}
-                className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300 rounded-xl text-sm font-semibold transition-colors">
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60 rounded-xl text-sm font-semibold transition-colors">
                 <Pencil size={14} /> แก้ไข
               </button>
               {confirmDel ? (
@@ -1255,13 +1255,13 @@ function ReturnDetail({ log, isStaff, isAdmin, busy, onBack, onDispose, onEdit, 
                     ยืนยันลบ?
                   </button>
                   <button onClick={() => setConfirmDel(false)}
-                    className="p-2.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors">
+                    className="p-2.5 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                     <X size={15} />
                   </button>
                 </div>
               ) : (
                 <button onClick={() => setConfirmDel(true)}
-                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl text-sm font-semibold transition-colors">
+                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-950/70 text-red-600 border border-red-200 dark:border-red-900/60 rounded-xl text-sm font-semibold transition-colors">
                   <Trash2 size={14} /> ลบ
                 </button>
               )}

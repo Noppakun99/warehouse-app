@@ -12,31 +12,31 @@ import BackButton from './BackButton';
 import { useSort, SortableTh } from './SortableTable';
 
 const ROLE_CONFIG = {
-  requester: { label: 'ผู้เบิก',          badge: 'bg-blue-100 text-blue-700 border border-blue-300',   icon: User      },
-  staff:     { label: 'เจ้าหน้าที่คลัง', badge: 'bg-emerald-100 text-emerald-700 border border-emerald-300', icon: Shield },
-  admin:     { label: 'ผู้ดูแลระบบ',      badge: 'bg-violet-100 text-violet-700 border border-violet-300',   icon: ShieldCheck },
+  requester: { label: 'ผู้เบิก',          badge: 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-800/60',   icon: User      },
+  staff:     { label: 'เจ้าหน้าที่คลัง', badge: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60', icon: Shield },
+  admin:     { label: 'ผู้ดูแลระบบ',      badge: 'bg-violet-100 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300 border border-violet-300 dark:border-violet-800/60',   icon: ShieldCheck },
 };
 
 // ประเภทผู้ใช้ (แสดงในตาราง)
 const USER_TYPE = {
-  requester: { label: 'ผู้ใช้งานทั่วไป',    color: 'bg-sky-50 text-sky-700 border border-sky-200' },
-  staff:     { label: 'เจ้าหน้าที่คลังยา', color: 'bg-emerald-50 text-emerald-700 border border-emerald-200' },
-  admin:     { label: 'เจ้าหน้าที่คลังยา', color: 'bg-emerald-50 text-emerald-700 border border-emerald-200' },
+  requester: { label: 'ผู้ใช้งานทั่วไป',    color: 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-900/60' },
+  staff:     { label: 'เจ้าหน้าที่คลังยา', color: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60' },
+  admin:     { label: 'เจ้าหน้าที่คลังยา', color: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60' },
 };
 
 // ระบบที่ admin สามารถ grant เพิ่มให้ผู้ใช้แต่ละคนได้ (ยกเว้น users ที่เป็น admin-only)
 const GRANTABLE_SYSTEMS = [
-  { key: 'inventory',  label: 'แผนผังคลังยา',        color: 'bg-indigo-100 text-indigo-700', defaultRoles: ['requester','staff','admin'] },
-  { key: 'requisition',label: 'เบิกยาออนไลน์',       color: 'bg-blue-100 text-blue-700',    defaultRoles: ['requester','staff','admin'] },
-  { key: 'receive',    label: 'ประวัติรับเข้าคลัง',  color: 'bg-emerald-100 text-emerald-700', defaultRoles: ['requester','staff','admin'] },
-  { key: 'dispense',   label: 'ประวัติเบิกยา',       color: 'bg-rose-100 text-rose-700',    defaultRoles: ['requester','staff','admin'] },
-  { key: 'return',     label: 'คืนยา',               color: 'bg-violet-100 text-violet-700', defaultRoles: ['requester','staff','admin'] },
-  { key: 'audit',      label: 'Audit Log',            color: 'bg-slate-100 text-slate-600',  defaultRoles: ['staff','admin'] },
-  { key: 'analytics',  label: 'วิเคราะห์การเบิกยา', color: 'bg-cyan-100 text-cyan-700',    defaultRoles: ['requester','staff','admin'] },
-  { key: 'reorder',    label: 'วิเคราะห์การสั่งซื้อ', color: 'bg-orange-100 text-orange-700', defaultRoles: ['staff','admin'] },
-  { key: 'ledger',     label: 'ทะเบียนคงคลัง',       color: 'bg-teal-100 text-teal-700',    defaultRoles: ['admin'] },
-  { key: 'stockcount', label: 'ตรวจนับคงคลัง',       color: 'bg-emerald-100 text-emerald-700', defaultRoles: ['staff','admin'] },
-  { key: 'stockcard',  label: 'Stockcard',            color: 'bg-teal-100 text-teal-700',    defaultRoles: ['requester','staff','admin'] },
+  { key: 'inventory',  label: 'แผนผังคลังยา',        color: 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300', defaultRoles: ['requester','staff','admin'] },
+  { key: 'requisition',label: 'เบิกยาออนไลน์',       color: 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300',    defaultRoles: ['requester','staff','admin'] },
+  { key: 'receive',    label: 'ประวัติรับเข้าคลัง',  color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300', defaultRoles: ['requester','staff','admin'] },
+  { key: 'dispense',   label: 'ประวัติเบิกยา',       color: 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300',    defaultRoles: ['requester','staff','admin'] },
+  { key: 'return',     label: 'คืนยา',               color: 'bg-violet-100 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300', defaultRoles: ['requester','staff','admin'] },
+  { key: 'audit',      label: 'Audit Log',            color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300',  defaultRoles: ['staff','admin'] },
+  { key: 'analytics',  label: 'วิเคราะห์การเบิกยา', color: 'bg-cyan-100 dark:bg-cyan-950/60 text-cyan-700 dark:text-cyan-300',    defaultRoles: ['requester','staff','admin'] },
+  { key: 'reorder',    label: 'วิเคราะห์การสั่งซื้อ', color: 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300', defaultRoles: ['staff','admin'] },
+  { key: 'ledger',     label: 'ทะเบียนคงคลัง',       color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300',    defaultRoles: ['admin'] },
+  { key: 'stockcount', label: 'ตรวจนับคงคลัง',       color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300', defaultRoles: ['staff','admin'] },
+  { key: 'stockcard',  label: 'Stockcard',            color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300',    defaultRoles: ['requester','staff','admin'] },
 ];
 
 // สรุปสิทธิ์ต่อ user — นับจาก GRANTABLE_SYSTEMS (แหล่งเดียวกับโมดอลสิทธิ์) ไม่ใช่ลิสต์แยก
@@ -54,9 +54,9 @@ function summarizeAccess(user) {
 
 // avatar ตัวอักษรแรก — app_users ไม่มีคอลัมน์รูป จึงใช้อักษรย่อ + สีตาม role
 const AVATAR_COLOR = {
-  requester: 'bg-sky-100 text-sky-700',
-  staff:     'bg-emerald-100 text-emerald-700',
-  admin:     'bg-violet-100 text-violet-700',
+  requester: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300',
+  staff:     'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300',
+  admin:     'bg-violet-100 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300',
 };
 
 const DEPARTMENTS = [
@@ -92,10 +92,10 @@ function PasswordInput({ value, onChange, placeholder = 'รหัสผ่า�
         type={show ? 'text' : 'password'}
         value={value} onChange={onChange}
         placeholder={placeholder} required={required}
-        className="w-full border border-slate-300 rounded-xl px-4 py-2.5 pr-10 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+        className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 pr-10 text-slate-800 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
       />
       <button type="button" onClick={() => setShow(s => !s)}
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
         {show ? <EyeOff size={16}/> : <Eye size={16}/>}
       </button>
     </div>
@@ -254,16 +254,16 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
   const { sorted, sort, toggleSort } = useSort(filtered, {});
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-800 font-sans">
       {/* Title bar — sidebar (AppShell) คุม navigation แล้ว header เดิมเหลือแค่ title + refresh */}
-      <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center gap-3">
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 flex items-center gap-3">
         <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
-        <div className="p-1.5 rounded-lg bg-violet-100 text-violet-700 shrink-0"><Users size={18}/></div>
+        <div className="p-1.5 rounded-lg bg-violet-100 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300 shrink-0"><Users size={18}/></div>
         <div className="flex-1 min-w-0">
-          <h1 className="font-bold text-base leading-tight text-slate-800">จัดการผู้ใช้งาน</h1>
-          <p className="text-slate-400 text-xs">สร้าง แก้ไข และลบบัญชีผู้ใช้</p>
+          <h1 className="font-bold text-base leading-tight text-slate-800 dark:text-slate-100">จัดการผู้ใช้งาน</h1>
+          <p className="text-slate-400 dark:text-slate-500 text-xs">สร้าง แก้ไข และลบบัญชีผู้ใช้</p>
         </div>
-        <button onClick={load} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors" title="รีเฟรช">
+        <button onClick={load} className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="รีเฟรช">
           <RefreshCcw size={16}/>
         </button>
       </div>
@@ -272,13 +272,13 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
         {/* Toolbar */}
         <div className="flex flex-wrap gap-2 items-center">
           <div className="relative flex-1 min-w-[200px]">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"/>
             <input value={search} onChange={e => setSearch(e.target.value)}
               placeholder="ค้นหาชื่อผู้ใช้ ชื่อ-สกุล หน่วยงาน..."
-              className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-400"/>
+              className="w-full pl-9 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-400"/>
           </div>
           <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)}
-            className="border border-slate-300 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-400">
+            className="border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-400">
             <option value="all">ทุก Role</option>
             <option value="requester">ผู้เบิก</option>
             <option value="staff">เจ้าหน้าที่คลัง</option>
@@ -291,38 +291,38 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
         </div>
 
         {/* Table */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
           {/* หัวตาราง: จำนวนผู้ใช้ + ป้ายระงับ (โผล่เมื่อมีจริง — กดกรองได้) */}
-          <div className="flex items-center gap-2.5 px-4 py-3.5 border-b border-slate-100">
-            <h2 className="text-base font-bold text-slate-800">ผู้ใช้ทั้งหมด</h2>
-            <span className="text-base font-semibold text-slate-400 tabular-nums">{users.length}</span>
+          <div className="flex items-center gap-2.5 px-4 py-3.5 border-b border-slate-100 dark:border-slate-800">
+            <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">ผู้ใช้ทั้งหมด</h2>
+            <span className="text-base font-semibold text-slate-400 dark:text-slate-500 tabular-nums">{users.length}</span>
             {suspendedCount > 0 && (
               <button type="button" onClick={() => setSuspendedOnly(v => !v)}
                 title={suspendedOnly ? 'แสดงผู้ใช้ทั้งหมด' : 'กรองเฉพาะที่ถูกระงับ'}
                 className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors ${
                   suspendedOnly
                     ? 'bg-red-600 text-white'
-                    : 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
+                    : 'bg-red-50 dark:bg-red-950/40 text-red-600 border border-red-200 dark:border-red-900/60 hover:bg-red-100 dark:hover:bg-red-950/70'
                 }`}>
                 <XCircle size={11}/> ระงับ {suspendedCount}
               </button>
             )}
             {suspendedOnly && (
               <button type="button" onClick={() => setSuspendedOnly(false)}
-                className="text-xs text-slate-500 hover:text-slate-700 underline">
+                className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 underline">
                 ล้างตัวกรอง
               </button>
             )}
           </div>
           {loading ? (
-            <div className="text-center py-12 text-slate-400">กำลังโหลด...</div>
+            <div className="text-center py-12 text-slate-400 dark:text-slate-500">กำลังโหลด...</div>
           ) : filtered.length === 0 ? (
-            <div className="text-center py-12 text-slate-400">
+            <div className="text-center py-12 text-slate-400 dark:text-slate-500">
               <Users size={32} className="mx-auto mb-2 opacity-30"/>
               ไม่พบผู้ใช้งาน
             </div>
           ) : isMobile ? (
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
               {sorted.map(u => {
                 const t = USER_TYPE[u.role] || USER_TYPE.requester;
                 return (
@@ -331,19 +331,19 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                       <UserCell user={u} isSelf={u.id === auth.id}/>
                       <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap shrink-0 ${t.color}`}>{t.label}</span>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+                    <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 flex-wrap">
                       {u.department && <span>{u.department}</span>}
                       {u.is_active
-                        ? <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full"><CheckCircle size={10}/>ใช้งานได้</span>
+                        ? <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 px-2 py-0.5 rounded-full"><CheckCircle size={10}/>ใช้งานได้</span>
                         : u.suspend_until
-                          ? <span className="inline-flex items-center gap-1 text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full"><XCircle size={10}/>ระงับชั่วคราว</span>
-                          : <span className="inline-flex items-center gap-1 text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full"><XCircle size={10}/>ระงับถาวร</span>
+                          ? <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 px-2 py-0.5 rounded-full"><XCircle size={10}/>ระงับชั่วคราว</span>
+                          : <span className="inline-flex items-center gap-1 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 px-2 py-0.5 rounded-full"><XCircle size={10}/>ระงับถาวร</span>
                       }
                     </div>
                     <AccessCell user={u}/>
                     <div className="flex items-center gap-2">
                       <button onClick={() => openEdit(u)}
-                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-600 border border-slate-200 active:bg-slate-50">
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 active:bg-slate-50">
                         <Pencil size={12}/> แก้ไข
                       </button>
                       <RowMenu
@@ -361,23 +361,23 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
             <div className="overflow-auto" style={{ maxHeight: 'calc(100vh - 260px)' }}>
               <table className="w-full text-sm min-w-[900px]">
                 <thead className="sticky top-0 z-10">
-                  <tr className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100">
-                    <SortableTh sortKey="username" label="ผู้ใช้" sort={sort} onSort={toggleSort} className="px-4 py-3.5 bg-slate-50/95" activeColor="text-violet-600" />
-                    <SortableTh sortKey="department" label="หน่วยงาน" sort={sort} onSort={toggleSort} className="px-4 py-3.5 bg-slate-50/95" activeColor="text-violet-600" />
-                    <th className="px-4 py-3.5 text-center bg-slate-50/95">ประเภทผู้ใช้</th>
-                    <th className="px-4 py-3.5 text-left bg-slate-50/95">สิทธิ์ระบบ</th>
-                    <th className="px-4 py-3.5 text-center bg-slate-50/95">สถานะ</th>
-                    <SortableTh sortKey="created_at" label="วันที่สมัคร" align="center" sort={sort} onSort={toggleSort} className="px-4 py-3.5 bg-slate-50/95" activeColor="text-violet-600" />
-                    <th className="px-4 py-3.5 text-center bg-slate-50/95">จัดการ</th>
+                  <tr className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
+                    <SortableTh sortKey="username" label="ผู้ใช้" sort={sort} onSort={toggleSort} className="px-4 py-3.5 bg-slate-50 dark:bg-slate-800/95" activeColor="text-violet-600" />
+                    <SortableTh sortKey="department" label="หน่วยงาน" sort={sort} onSort={toggleSort} className="px-4 py-3.5 bg-slate-50 dark:bg-slate-800/95" activeColor="text-violet-600" />
+                    <th className="px-4 py-3.5 text-center bg-slate-50 dark:bg-slate-800/95">ประเภทผู้ใช้</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/95">สิทธิ์ระบบ</th>
+                    <th className="px-4 py-3.5 text-center bg-slate-50 dark:bg-slate-800/95">สถานะ</th>
+                    <SortableTh sortKey="created_at" label="วันที่สมัคร" align="center" sort={sort} onSort={toggleSort} className="px-4 py-3.5 bg-slate-50 dark:bg-slate-800/95" activeColor="text-violet-600" />
+                    <th className="px-4 py-3.5 text-center bg-slate-50 dark:bg-slate-800/95">จัดการ</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sorted.map(u => {
                     const t = USER_TYPE[u.role] || USER_TYPE.requester;
                     return (
-                      <tr key={u.id} className={`border-b border-slate-50 hover:bg-violet-50/40 transition-colors ${!u.is_active ? 'opacity-60' : ''}`}>
+                      <tr key={u.id} className={`border-b border-slate-50 hover:bg-violet-50 dark:hover:bg-violet-950/50/40 transition-colors ${!u.is_active ? 'opacity-60' : ''}`}>
                         <td className="px-4 py-3"><UserCell user={u} isSelf={u.id === auth.id}/></td>
-                        <td className="px-4 py-3 text-slate-600 text-xs">{u.department || '-'}</td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-slate-300 text-xs">{u.department || '-'}</td>
 
                         <td className="px-4 py-3 text-center">
                           <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${t.color}`}>{t.label}</span>
@@ -387,20 +387,20 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
 
                         <td className="px-4 py-3 text-center">
                           {u.is_active
-                            ? <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full"><CheckCircle size={11}/>ใช้งานได้</span>
+                            ? <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 px-2 py-0.5 rounded-full"><CheckCircle size={11}/>ใช้งานได้</span>
                             : u.suspend_until
                               ? <div className="space-y-0.5">
-                                  <span className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full"><XCircle size={11}/>ระงับชั่วคราว</span>
+                                  <span className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 px-2 py-0.5 rounded-full"><XCircle size={11}/>ระงับชั่วคราว</span>
                                   <p className="text-[10px] text-amber-600 text-center">ถึง {fmtDate(u.suspend_until)}</p>
                                 </div>
-                              : <span className="inline-flex items-center gap-1 text-xs text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full"><XCircle size={11}/>ระงับถาวร</span>
+                              : <span className="inline-flex items-center gap-1 text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 px-2 py-0.5 rounded-full"><XCircle size={11}/>ระงับถาวร</span>
                           }
                         </td>
-                        <td className="px-4 py-3 text-center text-slate-500 text-xs whitespace-nowrap">{fmtDate(u.created_at)}</td>
+                        <td className="px-4 py-3 text-center text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">{fmtDate(u.created_at)}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-center gap-1">
                             <button onClick={() => openEdit(u)}
-                              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-600 border border-slate-200 hover:bg-white hover:border-slate-300 hover:text-slate-800 transition-colors" title="แก้ไข">
+                              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-white hover:border-slate-300 dark:hover:border-slate-600 hover:text-slate-800 dark:hover:text-slate-100 transition-colors" title="แก้ไข">
                               <Pencil size={13}/> แก้ไข
                             </button>
                             <RowMenu
@@ -425,7 +425,7 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
       {modal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
           onMouseDown={e => { if (e.target === e.currentTarget) closeModal(); }}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md">
 
             {/* Create User */}
             {modal === 'create' && (
@@ -435,23 +435,23 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                   <Field label="ชื่อผู้ใช้ (username)">
                     <input value={fUsername} onChange={e => setFUsername(e.target.value)} required
                       placeholder="เช่น nurse.ward1" autoComplete="off"
-                      className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"/>
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"/>
                   </Field>
                   <Field label="ชื่อ-สกุล">
                     <input value={fFullName} onChange={e => setFFullName(e.target.value)} required
                       placeholder="ชื่อ-สกุลจริง"
-                      className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"/>
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"/>
                   </Field>
                   <Field label="หน่วยงาน">
                     <select value={fDepartment} onChange={e => setFDepartment(e.target.value)}
-                      className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500">
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500">
                       <option value="">-- ไม่ระบุ --</option>
                       {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </Field>
                   <Field label="บทบาท">
                     <select value={fRole} onChange={e => setFRole(e.target.value)}
-                      className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500">
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500">
                       <option value="requester">ผู้เบิก (Requester)</option>
                       <option value="staff">เจ้าหน้าที่คลัง (Staff)</option>
                       <option value="admin">ผู้ดูแลระบบ (Admin)</option>
@@ -476,18 +476,18 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                 <div className="p-5 space-y-3.5">
                   <Field label="ชื่อ-สกุล">
                     <input value={fFullName} onChange={e => setFFullName(e.target.value)} required
-                      className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"/>
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"/>
                   </Field>
                   <Field label="หน่วยงาน">
                     <select value={fDepartment} onChange={e => setFDepartment(e.target.value)}
-                      className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500">
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500">
                       <option value="">-- ไม่ระบุ --</option>
                       {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </Field>
                   <Field label="บทบาท">
                     <select value={fRole} onChange={e => setFRole(e.target.value)}
-                      className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500">
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500">
                       <option value="requester">ผู้เบิก (Requester)</option>
                       <option value="staff">เจ้าหน้าที่คลัง (Staff)</option>
                       <option value="admin">ผู้ดูแลระบบ (Admin)</option>
@@ -496,11 +496,11 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                   <Field label="สถานะบัญชี">
                     <div className="space-y-2">
                       {[
-                        { val: 'active', label: 'ใช้งานได้',              color: 'text-emerald-700 bg-emerald-50 border-emerald-300' },
-                        { val: 'temp',   label: 'ระงับชั่วคราว',          color: 'text-amber-700 bg-amber-50 border-amber-300' },
-                        { val: 'perm',   label: 'ระงับถาวร',              color: 'text-red-700 bg-red-50 border-red-300' },
+                        { val: 'active', label: 'ใช้งานได้',              color: 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800/60' },
+                        { val: 'temp',   label: 'ระงับชั่วคราว',          color: 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800/60' },
+                        { val: 'perm',   label: 'ระงับถาวร',              color: 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-800/60' },
                       ].map(({ val, label, color }) => (
-                        <label key={val} className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border cursor-pointer transition-colors ${fSuspendMode === val ? color : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+                        <label key={val} className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border cursor-pointer transition-colors ${fSuspendMode === val ? color : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
                           <input type="radio" name="suspendMode" value={val} checked={fSuspendMode === val}
                             onChange={() => setFSuspendMode(val)} className="accent-violet-600"/>
                           <span className="text-sm font-medium">{label}</span>
@@ -508,10 +508,10 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                       ))}
                       {fSuspendMode === 'temp' && (
                         <div className="pt-1">
-                          <label className="text-xs text-slate-500 font-medium block mb-1">ระงับถึงวันเวลา</label>
+                          <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1">ระงับถึงวันเวลา</label>
                           <input type="datetime-local" value={fSuspendUntil} onChange={e => setFSuspendUntil(e.target.value)}
                             min={new Date().toISOString().slice(0,16)}
-                            className="w-full border border-amber-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-amber-50"/>
+                            className="w-full border border-amber-300 dark:border-amber-800/60 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-amber-50 dark:bg-amber-950/40"/>
                         </div>
                       )}
                     </div>
@@ -529,16 +529,16 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                 <div>
                   <ModalHeader title={`ตั้งรหัสผ่าน: ${target.username}`} icon={<KeyRound size={18}/>} onClose={closeModal}/>
                   <div className="p-5 space-y-4">
-                    <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                    <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-xl px-4 py-3">
                       <svg xmlns="http://www.w3.org/2000/svg" width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
                       <span className="text-sm font-semibold">บันทึกรหัสผ่านใหม่สำเร็จ</span>
                     </div>
                     <div>
-                      <p className="text-xs text-slate-500 font-medium mb-2">ข้อความสำหรับแจ้ง User — กด Copy แล้วส่งทาง Line / SMS</p>
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1 font-mono text-sm text-slate-800 select-all">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-2">ข้อความสำหรับแจ้ง User — กด Copy แล้วส่งทาง Line / SMS</p>
+                      <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 space-y-1 font-mono text-sm text-slate-800 dark:text-slate-100 select-all">
                         <p>ชื่อผู้ใช้: <span className="font-bold">{target.username}</span></p>
-                        <p>รหัสผ่านใหม่: <span className="font-bold text-violet-700">{pwSaved}</span></p>
-                        <p className="text-xs text-slate-400 font-sans mt-2">* กรุณาเข้าสู่ระบบด้วยรหัสผ่านนี้ และเปลี่ยนรหัสผ่านใหม่ด้วยตนเอง</p>
+                        <p>รหัสผ่านใหม่: <span className="font-bold text-violet-700 dark:text-violet-300">{pwSaved}</span></p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 font-sans mt-2">* กรุณาเข้าสู่ระบบด้วยรหัสผ่านนี้ และเปลี่ยนรหัสผ่านใหม่ด้วยตนเอง</p>
                       </div>
                     </div>
                     <button
@@ -556,8 +556,8 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                       }
                     </button>
                   </div>
-                  <div className="border-t border-slate-100 px-5 py-3 flex justify-end">
-                    <button onClick={closeModal} className="bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl px-5 py-2 text-sm font-medium transition-colors">ปิด</button>
+                  <div className="border-t border-slate-100 dark:border-slate-800 px-5 py-3 flex justify-end">
+                    <button onClick={closeModal} className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl px-5 py-2 text-sm font-medium transition-colors">ปิด</button>
                   </div>
                 </div>
               ) : (
@@ -565,15 +565,15 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                 <form onSubmit={handlePassword}>
                   <ModalHeader title={`ตั้งรหัสผ่าน: ${target.username}`} icon={<KeyRound size={18}/>} onClose={closeModal}/>
                   <div className="p-5 space-y-3.5">
-                    <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">
+                    <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5">
                       <div className="min-w-0">
-                        <p className="text-xs text-slate-500">ผู้ใช้</p>
-                        <p className="text-sm font-semibold text-slate-800">{target.username}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">ผู้ใช้</p>
+                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{target.username}</p>
                       </div>
                       {target.full_name && target.full_name !== '-' && (
-                        <div className="min-w-0 border-l border-slate-200 pl-3">
-                          <p className="text-xs text-slate-500">ชื่อ-สกุล</p>
-                          <p className="text-sm text-slate-700">{target.full_name}</p>
+                        <div className="min-w-0 border-l border-slate-200 dark:border-slate-700 pl-3">
+                          <p className="text-xs text-slate-500 dark:text-slate-400">ชื่อ-สกุล</p>
+                          <p className="text-sm text-slate-700 dark:text-slate-200">{target.full_name}</p>
                         </div>
                       )}
                     </div>
@@ -583,9 +583,9 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                           type={fShowPw ? 'text' : 'password'}
                           value={fPassword} onChange={e => setFPassword(e.target.value)}
                           placeholder="อย่างน้อย 6 ตัวอักษร" required autoComplete="new-password"
-                          className="w-full border border-slate-300 rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 font-mono tracking-wider"/>
+                          className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 font-mono tracking-wider"/>
                         <button type="button" onClick={() => setFShowPw(s => !s)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
                           {fShowPw
                             ? <svg xmlns="http://www.w3.org/2000/svg" width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
                             : <svg xmlns="http://www.w3.org/2000/svg" width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -593,7 +593,7 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                         </button>
                       </div>
                     </Field>
-                    <p className="text-xs text-slate-400">รหัสผ่านจะถูกเข้ารหัสก่อนบันทึก — ระบบไม่สามารถแสดงรหัสผ่านเดิมได้</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">รหัสผ่านจะถูกเข้ารหัสก่อนบันทึก — ระบบไม่สามารถแสดงรหัสผ่านเดิมได้</p>
                     {error && <ErrorMsg>{error}</ErrorMsg>}
                   </div>
                   <ModalFooter saving={saving} onCancel={closeModal} submitLabel="บันทึกรหัสผ่าน" danger/>
@@ -606,7 +606,7 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
               <div>
                 <ModalHeader title={`สิทธิ์ระบบ: ${target.username}`} icon={<ShieldPlus size={18}/>} onClose={closeModal}/>
                 <div className="p-5 space-y-3">
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     บทบาท <strong>{ROLE_CONFIG[target.role]?.label || target.role}</strong> — ติ๊กถูกสีเทา = มีสิทธิ์จาก role แล้ว · ติ๊กถูกสีเขียว = grant เพิ่มเป็นพิเศษ
                   </p>
                   <div className="space-y-2">
@@ -614,7 +614,7 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                       const fromRole = sys.defaultRoles.includes(target.role);
                       const granted  = fPermissions.includes(sys.key);
                       return (
-                        <label key={sys.key} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors ${fromRole ? 'bg-slate-50 border-slate-200 cursor-default' : granted ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-slate-200 hover:bg-slate-50'}`}>
+                        <label key={sys.key} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors ${fromRole ? 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 cursor-default' : granted ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800/60' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
                           <input
                             type="checkbox"
                             checked={fromRole || granted}
@@ -623,7 +623,7 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                             className="w-4 h-4 accent-emerald-600 disabled:accent-slate-400"
                           />
                           <span className={`text-xs font-semibold px-2 py-0.5 rounded-md ${sys.color}`}>{sys.label}</span>
-                          {fromRole && <span className="ml-auto text-[10px] text-slate-400">จาก role</span>}
+                          {fromRole && <span className="ml-auto text-[10px] text-slate-400 dark:text-slate-500">จาก role</span>}
                           {!fromRole && granted && <span className="ml-auto text-[10px] text-emerald-600 font-semibold">grant เพิ่ม</span>}
                         </label>
                       );
@@ -633,7 +633,7 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                 </div>
                 <div className="flex gap-2 px-5 pb-5">
                   <button type="button" onClick={closeModal}
-                    className="flex-1 border border-slate-300 rounded-xl py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+                    className="flex-1 border border-slate-300 dark:border-slate-600 rounded-xl py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                     ยกเลิก
                   </button>
                   <button type="button" onClick={handlePermissions} disabled={saving}
@@ -649,13 +649,13 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
               <div>
                 <ModalHeader title="ยืนยันการลบ" icon={<Trash2 size={18}/>} onClose={closeModal} danger/>
                 <div className="p-5">
-                  <p className="text-slate-700">ต้องการลบบัญชี <strong>{target.username}</strong> ({target.full_name}) ใช่ไหม?</p>
-                  <p className="text-xs text-slate-500 mt-1">การดำเนินการนี้ไม่สามารถยกเลิกได้</p>
+                  <p className="text-slate-700 dark:text-slate-200">ต้องการลบบัญชี <strong>{target.username}</strong> ({target.full_name}) ใช่ไหม?</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">การดำเนินการนี้ไม่สามารถยกเลิกได้</p>
                   {error && <ErrorMsg className="mt-3">{error}</ErrorMsg>}
                 </div>
                 <div className="flex gap-2 px-5 pb-5">
                   <button type="button" onClick={closeModal}
-                    className="flex-1 border border-slate-300 rounded-xl py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+                    className="flex-1 border border-slate-300 dark:border-slate-600 rounded-xl py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                     ยกเลิก
                   </button>
                   <button type="button" onClick={handleDelete} disabled={saving}
@@ -689,10 +689,10 @@ function UserCell({ user, isSelf }) {
       </div>
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className={`truncate ${fullName ? 'font-semibold text-slate-800' : 'font-mono font-semibold text-slate-800'}`}>{label}</span>
-          {isSelf && <span className="text-[10px] bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full font-semibold shrink-0">คุณ</span>}
+          <span className={`truncate ${fullName ? 'font-semibold text-slate-800 dark:text-slate-100' : 'font-mono font-semibold text-slate-800 dark:text-slate-100'}`}>{label}</span>
+          {isSelf && <span className="text-[10px] bg-violet-100 dark:bg-violet-950/60 text-violet-600 px-1.5 py-0.5 rounded-full font-semibold shrink-0">คุณ</span>}
         </div>
-        {fullName && <p className="text-xs text-slate-400 font-mono truncate">{user.username}</p>}
+        {fullName && <p className="text-xs text-slate-400 dark:text-slate-500 font-mono truncate">{user.username}</p>}
       </div>
     </div>
   );
@@ -703,7 +703,7 @@ function AccessCell({ user }) {
   const { baseLabel, extra } = summarizeAccess(user);
   return (
     <div className="flex flex-wrap items-center gap-1">
-      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 whitespace-nowrap">{baseLabel}</span>
+      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 whitespace-nowrap">{baseLabel}</span>
       {extra.map(s => (
         <span key={s.key} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap border border-dashed border-current ${s.color}`}>
           +{s.label}
@@ -733,21 +733,21 @@ function RowMenu({ onPermissions, onPassword, onDelete, disableDelete }) {
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen(o => !o)}
-        className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors" title="ตัวเลือกเพิ่มเติม">
+        className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors" title="ตัวเลือกเพิ่มเติม">
         <MoreVertical size={16}/>
       </button>
       {/* mobile กาง"ขวา"จากปุ่ม (ปุ่มอยู่ซ้ายจอ) — desktop กาง"ซ้าย" (ปุ่มอยู่ขวาสุดตาราง) กันล้นขอบ */}
       {open && (
-        <div className="absolute left-0 md:left-auto md:right-0 top-full mt-1 z-20 w-48 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden py-1">
-          <button type="button" onClick={() => pick(onPermissions)} className={`${item} text-slate-700 hover:bg-emerald-50 hover:text-emerald-700`}>
+        <div className="absolute left-0 md:left-auto md:right-0 top-full mt-1 z-20 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg overflow-hidden py-1">
+          <button type="button" onClick={() => pick(onPermissions)} className={`${item} text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:text-emerald-700`}>
             <ShieldPlus size={14}/> กำหนดสิทธิ์ระบบ
           </button>
-          <button type="button" onClick={() => pick(onPassword)} className={`${item} text-slate-700 hover:bg-amber-50 hover:text-amber-700`}>
+          <button type="button" onClick={() => pick(onPassword)} className={`${item} text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-950/50 hover:text-amber-700`}>
             <KeyRound size={14}/> เปลี่ยนรหัสผ่าน
           </button>
-          <div className="border-t border-slate-100 my-1"/>
+          <div className="border-t border-slate-100 dark:border-slate-800 my-1"/>
           <button type="button" onClick={() => pick(onDelete)} disabled={disableDelete}
-            className={`${item} text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent`}>
+            className={`${item} text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent`}>
             <Trash2 size={14}/> ลบบัญชี
           </button>
         </div>
@@ -767,18 +767,18 @@ function Toast({ message, onClose }) {
     <div className="fixed bottom-5 right-5 z-[60] flex items-center gap-2.5 bg-slate-800 text-white rounded-xl shadow-2xl pl-4 pr-3 py-3 text-sm max-w-sm">
       <CheckCircle size={16} className="text-emerald-400 shrink-0"/>
       <span className="flex-1">{message}</span>
-      <button type="button" onClick={onClose} className="text-slate-400 hover:text-white transition-colors"><X size={15}/></button>
+      <button type="button" onClick={onClose} className="text-slate-400 dark:text-slate-500 hover:text-white transition-colors"><X size={15}/></button>
     </div>
   );
 }
 
 function ModalHeader({ title, icon, onClose, danger = false }) {
   return (
-    <div className={`flex items-center justify-between px-5 py-4 border-b border-slate-100 ${danger ? 'bg-red-50' : 'bg-slate-50'} rounded-t-2xl`}>
-      <div className={`flex items-center gap-2 font-bold text-base ${danger ? 'text-red-700' : 'text-slate-800'}`}>
+    <div className={`flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 ${danger ? 'bg-red-50 dark:bg-red-950/40' : 'bg-slate-50 dark:bg-slate-800'} rounded-t-2xl`}>
+      <div className={`flex items-center gap-2 font-bold text-base ${danger ? 'text-red-700 dark:text-red-300' : 'text-slate-800 dark:text-slate-100'}`}>
         {icon} {title}
       </div>
-      <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">
+      <button type="button" onClick={onClose} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
         <X size={18}/>
       </button>
     </div>
@@ -789,7 +789,7 @@ function ModalFooter({ saving, onCancel, submitLabel, danger = false }) {
   return (
     <div className="flex gap-2 px-5 pb-5">
       <button type="button" onClick={onCancel}
-        className="flex-1 border border-slate-300 rounded-xl py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+        className="flex-1 border border-slate-300 dark:border-slate-600 rounded-xl py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
         ยกเลิก
       </button>
       <button type="submit" disabled={saving}
@@ -803,7 +803,7 @@ function ModalFooter({ saving, onCancel, submitLabel, danger = false }) {
 function Field({ label, children }) {
   return (
     <div>
-      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">{label}</label>
+      <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">{label}</label>
       {children}
     </div>
   );
@@ -811,6 +811,6 @@ function Field({ label, children }) {
 
 function ErrorMsg({ children, className = '' }) {
   return (
-    <p className={`text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2 ${className}`}>{children}</p>
+    <p className={`text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-lg px-3 py-2 ${className}`}>{children}</p>
   );
 }

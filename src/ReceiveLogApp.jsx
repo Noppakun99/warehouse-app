@@ -20,12 +20,12 @@ import { insertAuditLog, resolveAuditUserName } from './lib/db';
 function DrugTypeBadge({ type }) {
   if (!type || type === '-') return null;
   const t = type.trim().toLowerCase();
-  let cls = 'bg-slate-100 text-slate-600';
-  if (t.includes('เม็ด') || t.includes('tablet') || t.includes('cap')) cls = 'bg-blue-100 text-blue-700';
-  else if (t.includes('น้ำ') || t.includes('syrup') || t.includes('liquid') || t.includes('sol')) cls = 'bg-emerald-100 text-emerald-700';
-  else if (t.includes('ฉีด') || t.includes('inject') || t.includes('iv') || t.includes('im')) cls = 'bg-rose-100 text-rose-700';
-  else if (t.includes('apply') || t.includes('cream') || t.includes('oint') || t.includes('ทา')) cls = 'bg-amber-100 text-amber-700';
-  else if (t.includes('inhale') || t.includes('สูด') || t.includes('spray')) cls = 'bg-purple-100 text-purple-700';
+  let cls = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
+  if (t.includes('เม็ด') || t.includes('tablet') || t.includes('cap')) cls = 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300';
+  else if (t.includes('น้ำ') || t.includes('syrup') || t.includes('liquid') || t.includes('sol')) cls = 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300';
+  else if (t.includes('ฉีด') || t.includes('inject') || t.includes('iv') || t.includes('im')) cls = 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300';
+  else if (t.includes('apply') || t.includes('cream') || t.includes('oint') || t.includes('ทา')) cls = 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300';
+  else if (t.includes('inhale') || t.includes('สูด') || t.includes('spray')) cls = 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300';
   return <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>{type}</span>;
 }
 
@@ -45,8 +45,8 @@ const thaiToIso = (thai) => {
 
 function ThaiDateInput({ value, onChange, placeholder = 'dd/mm/yyyy', ring = 'focus-within:ring-emerald-400', size = 'w-28' }) {
   return (
-    <div className={`relative ${size} min-h-[36px] border border-slate-300 rounded-lg bg-white flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:outline-none ${ring}`}>
-      <span className={`px-2 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
+    <div className={`relative ${size} min-h-[36px] border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:outline-none ${ring}`}>
+      <span className={`px-2 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>
         {value || placeholder}
       </span>
       <input type="date"
@@ -68,8 +68,8 @@ function IsoDateInput({ value, onChange, className = '' }) {
     return `${m[3]}/${m[2]}/${Number(m[1]) + 543}`;
   };
   return (
-    <div className={`relative flex items-center bg-white border border-slate-300 rounded ${className}`}>
-      <span className={`px-2 py-1 text-xs w-full select-none pointer-events-none ${value ? 'text-slate-700' : 'text-slate-400'}`}>
+    <div className={`relative flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded ${className}`}>
+      <span className={`px-2 py-1 text-xs w-full select-none pointer-events-none ${value ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'}`}>
         {display(value) || 'dd/mm/yyyy'}
       </span>
       <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
@@ -281,30 +281,30 @@ export default function ReceiveLogApp({ onRefresh, auth = {}, initialTab = 'view
   const canAp   = isStaff || perms.includes('receive-ap');
 
   return (
-    <div className="min-h-screen bg-slate-200 text-slate-800 font-sans">
+    <div className="min-h-screen bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100 font-sans">
       {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + action */}
-      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center gap-2 flex-wrap">
+      <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 flex items-center gap-2 flex-wrap">
         <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
-        <div className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 shrink-0"><TrendingUp size={18} /></div>
-        <button onClick={onRefresh} className="font-bold text-base text-slate-800 truncate flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">บันทึกการรับเข้าคลัง (คลังรับ)</button>
+        <div className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 shrink-0"><TrendingUp size={18} /></div>
+        <button onClick={onRefresh} className="font-bold text-base text-slate-800 dark:text-slate-100 truncate flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">บันทึกการรับเข้าคลัง (คลังรับ)</button>
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
           <button onClick={() => setShowSummary(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors">
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
             <BarChart3 size={15}/> สรุปผล
           </button>
           {canAp && (
             <button onClick={() => setTab('ap')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'ap' ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'ap' ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
             ><Send size={15}/>ส่งบัญชี</button>
           )}
           {canScan && (
             <button onClick={() => setTab('scan')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'scan' ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'scan' ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
             ><ScanLine size={15}/>สแกนบิล</button>
           )}
           {isStaff && (
             <button onClick={() => setTab('import')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'import' ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'import' ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
             >Import CSV</button>
           )}
         </div>
@@ -406,7 +406,7 @@ function EditableCell({ value, onChange, type = 'text', className = '' }) {
       type={type}
       value={value ?? ''}
       onChange={e => onChange(e.target.value)}
-      className={`w-full border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white ${className}`}
+      className={`w-full border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white dark:bg-slate-900 ${className}`}
     />
   );
 }
@@ -831,15 +831,15 @@ function ScanInvoice({ onDone, auth }) {
   // confirm modal กลาง — ใช้ทั้งลบบิลในประวัติ และ "สแกนใหม่" (ทิ้งผลที่แก้ไว้)
   const confirmModal = confirmBox && (
     <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
         <div className="flex items-center gap-3 text-rose-600 mb-3">
           <AlertTriangle size={24}/>
-          <h3 className="text-lg font-bold text-slate-800">ยืนยันการทำรายการ</h3>
+          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">ยืนยันการทำรายการ</h3>
         </div>
-        <p className="text-sm text-slate-600 mb-5 leading-relaxed">{confirmBox.message}</p>
+        <p className="text-sm text-slate-600 dark:text-slate-300 mb-5 leading-relaxed">{confirmBox.message}</p>
         <div className="flex justify-end gap-2">
           <button onClick={() => setConfirmBox(null)}
-            className="px-4 py-2 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl text-sm font-medium transition-colors">
+            className="px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-medium transition-colors">
             ยกเลิก
           </button>
           <button onClick={() => { const fn = confirmBox.onConfirm; setConfirmBox(null); fn(); }}
@@ -853,34 +853,34 @@ function ScanInvoice({ onDone, auth }) {
 
   // panel ประวัติบิลสแกน — ใช้ทั้งหน้า upload (ตลอด) และหน้า saved
   const historyPanel = (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
-          <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3 flex items-center gap-2">
             <History size={16} className="text-emerald-600"/> ประวัติบิลที่สแกน (แยกตามวันที่อัพโหลด)
           </h3>
 
           {histError && (
-            <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">{histError}</p>
+            <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-lg px-3 py-2 mb-3">{histError}</p>
           )}
 
           {/* ตัวกรอง: ค้นหา (ยา/เลขบิล/บริษัท) + ช่วงวันที่ */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 space-y-2.5">
+          <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 mb-4 space-y-2.5">
             <DrugSearchBar
               value={histQuery}
               onChange={setHistQuery}
               options={scanDrugNames}
               placeholder="ค้นหายา / เลขบิล / บริษัท / รหัส"
               ringClass="focus:ring-emerald-400"
-              hoverClass="hover:bg-emerald-50"
+              hoverClass="hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
             />
             <div className="flex items-center gap-2 flex-wrap text-sm">
-              <CalendarDays size={15} className="text-slate-400 shrink-0"/>
-              <span className="text-slate-600">วันที่:</span>
+              <CalendarDays size={15} className="text-slate-400 dark:text-slate-500 shrink-0"/>
+              <span className="text-slate-600 dark:text-slate-300">วันที่:</span>
               <IsoDateInput value={histFrom} onChange={setHistFrom} className="w-32"/>
-              <span className="text-slate-400">ถึง</span>
+              <span className="text-slate-400 dark:text-slate-500">ถึง</span>
               <IsoDateInput value={histTo} onChange={setHistTo} className="w-32"/>
               {(histQuery || histFrom || histTo) && (
                 <button onClick={() => { setHistQuery(''); setHistFrom(''); setHistTo(''); }}
-                  className="flex items-center gap-1 text-slate-500 hover:text-red-500 text-xs px-2 py-1 transition-colors">
+                  className="flex items-center gap-1 text-slate-500 dark:text-slate-400 hover:text-red-500 text-xs px-2 py-1 transition-colors">
                   <X size={13}/> ล้าง
                 </button>
               )}
@@ -888,11 +888,11 @@ function ScanInvoice({ onDone, auth }) {
           </div>
 
           {historyLoading ? (
-            <div className="text-center text-slate-400 text-sm py-6 flex items-center justify-center gap-2">
+            <div className="text-center text-slate-400 dark:text-slate-500 text-sm py-6 flex items-center justify-center gap-2">
               <RefreshCcw size={15} className="animate-spin"/> กำลังโหลด...
             </div>
           ) : histGrouped.length === 0 ? (
-            <p className="text-center text-slate-400 text-sm py-6">
+            <p className="text-center text-slate-400 dark:text-slate-500 text-sm py-6">
               {history.length === 0 ? 'ยังไม่มีบิลที่สแกน' : 'ไม่พบบิลตามเงื่อนไข — ลองล้างตัวกรอง'}
             </p>
           ) : (
@@ -903,20 +903,20 @@ function ScanInvoice({ onDone, auth }) {
                 const value = rows.reduce((s, r) => s + (parseFloat(String(r.total_price_vat || 0).replace(/,/g, '')) || 0), 0);
                 const open = !!histExpanded[date];
                 return (
-                  <div key={date} className="border border-slate-200 rounded-xl overflow-hidden">
-                    <div className="bg-slate-50 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+                  <div key={date} className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                    <div className="bg-slate-50 dark:bg-slate-800 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
                       <button
                         onClick={() => setHistExpanded(p => ({ ...p, [date]: !p[date] }))}
                         className="flex items-center gap-2 text-sm hover:text-emerald-700 transition-colors">
-                        {open ? <ChevronUp size={15} className="text-emerald-600"/> : <ChevronDown size={15} className="text-slate-400"/>}
+                        {open ? <ChevronUp size={15} className="text-emerald-600"/> : <ChevronDown size={15} className="text-slate-400 dark:text-slate-500"/>}
                         <CalendarDays size={15} className="text-emerald-600"/>
-                        <span className="font-semibold text-slate-700">{dateThai(date)}</span>
-                        <span className="text-slate-400">· {rounds} รอบ · {dayBills.length} บิล · {rows.length} รายการ · {value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>
+                        <span className="font-semibold text-slate-700 dark:text-slate-200">{dateThai(date)}</span>
+                        <span className="text-slate-400 dark:text-slate-500">· {rounds} รอบ · {dayBills.length} บิล · {rows.length} รายการ · {value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>
                       </button>
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => exportToExcel(rows, SCAN_EXCEL_COLS, 'บิลสแกน', `บิลสแกน_${date}.xlsx`, auth)}
-                          className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                          className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
                         >
                           <FileDown size={15}/> Excel
                         </button>
@@ -926,22 +926,22 @@ function ScanInvoice({ onDone, auth }) {
                             `ลบบิลสแกนของวันที่ ${dateThai(date)} ทั้งหมด ${rows.length} รายการ?`,
                             { date, reason: 'scan_delete_day' },
                           )}
-                          className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                          className="flex items-center gap-1.5 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-950/70 text-red-600 border border-red-200 dark:border-red-900/60 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
                         >
                           <Trash2 size={15}/> ลบ
                         </button>
                       </div>
                     </div>
                     {open && (
-                      <div className="divide-y divide-slate-100">
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800">
                         {dayBills.map((b, bi) => {
                           const bv = b.items.reduce((s, r) => s + (parseFloat(String(r.total_price_vat || 0).replace(/,/g, '')) || 0), 0);
                           return (
                             <div key={bi} className="px-4 py-2 flex items-center justify-between gap-3 text-xs">
                               <div className="min-w-0">
-                                <span className="font-medium text-slate-700">{b.bill_number || '-'}</span>
-                                <span className="text-slate-400"> · {b.supplier || '-'}</span>
-                                <span className="text-slate-400"> · {b.items.length} รายการ · {bv.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>
+                                <span className="font-medium text-slate-700 dark:text-slate-200">{b.bill_number || '-'}</span>
+                                <span className="text-slate-400 dark:text-slate-500"> · {b.supplier || '-'}</span>
+                                <span className="text-slate-400 dark:text-slate-500"> · {b.items.length} รายการ · {bv.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>
                               </div>
                               <div className="flex items-center gap-2.5 shrink-0">
                                 {b.images.map((url, ui) => (
@@ -957,7 +957,7 @@ function ScanInvoice({ onDone, auth }) {
                                     `ลบบิล ${b.bill_number || '-'} (${b.items.length} รายการ)?`,
                                     { bill_number: b.bill_number, reason: 'scan_delete_bill' },
                                   )}
-                                  className="flex items-center gap-1 text-slate-400 hover:text-red-500 transition-colors"
+                                  className="flex items-center gap-1 text-slate-400 dark:text-slate-500 hover:text-red-500 transition-colors"
                                   title="ลบบิลนี้"
                                 >
                                   <Trash2 size={14}/>
@@ -979,16 +979,16 @@ function ScanInvoice({ onDone, auth }) {
   if (saved) {
     return (
       <div className="max-w-5xl mx-auto px-4 py-8 space-y-5">
-        <div className="bg-white rounded-2xl shadow-sm border border-emerald-200 p-6 text-center">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-emerald-200 dark:border-emerald-900/60 p-6 text-center">
           <CheckCircle2 size={40} className="text-emerald-500 mx-auto mb-3"/>
-          <h2 className="text-lg font-bold text-slate-800 mb-1">บันทึกสำเร็จ</h2>
-          <p className="text-slate-600 text-sm mb-4">บันทึกข้อมูล {totalItems} รายการจาก {invoices.length} บิล เข้าระบบแล้ว</p>
+          <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-1">บันทึกสำเร็จ</h2>
+          <p className="text-slate-600 dark:text-slate-300 text-sm mb-4">บันทึกข้อมูล {totalItems} รายการจาก {invoices.length} บิล เข้าระบบแล้ว</p>
           <div className="flex items-center justify-center gap-2">
             <button onClick={() => {
                 invoices.forEach(inv => { try { URL.revokeObjectURL(inv.previewUrl); } catch { /* noop */ } });
                 setSaved(false); setFiles([]); setInvoices([]);
               }}
-              className="bg-white text-emerald-700 border border-emerald-300 hover:bg-emerald-50 rounded-xl py-2 px-5 font-semibold text-sm transition-colors">
+              className="bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded-xl py-2 px-5 font-semibold text-sm transition-colors">
               สแกนบิลต่อ
             </button>
             <button onClick={onDone}
@@ -1008,8 +1008,8 @@ function ScanInvoice({ onDone, auth }) {
 
       {/* Upload Area */}
       {!invoices.length && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-          <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
+          <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
             <ScanLine size={18} className="text-emerald-600"/> อัพโหลดภาพบิลยา
           </h2>
 
@@ -1018,11 +1018,11 @@ function ScanInvoice({ onDone, auth }) {
             onDrop={handleDrop}
             onDragOver={e => e.preventDefault()}
             onClick={() => fileInputRef.current?.click()}
-            className="border-2 border-dashed border-emerald-300 rounded-xl p-8 text-center cursor-pointer hover:bg-emerald-50 transition-colors"
+            className="border-2 border-dashed border-emerald-300 dark:border-emerald-800/60 rounded-xl p-8 text-center cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors"
           >
             <ImagePlus size={36} className="text-emerald-400 mx-auto mb-3"/>
-            <p className="text-sm font-medium text-slate-700 mb-1">ลากวางหรือคลิกเพื่อเลือกรูปบิล</p>
-            <p className="text-xs text-slate-500">รองรับหลายรูปพร้อมกัน · JPG, PNG, HEIC</p>
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">ลากวางหรือคลิกเพื่อเลือกรูปบิล</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">รองรับหลายรูปพร้อมกัน · JPG, PNG, HEIC</p>
             <input
               ref={fileInputRef}
               type="file"
@@ -1036,23 +1036,23 @@ function ScanInvoice({ onDone, auth }) {
           {files.length > 0 && (
             <div className="mt-4 space-y-2">
               {files.map((f, i) => (
-                <div key={i} className="flex items-center gap-3 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200">
-                  <img src={filePreviews[i]} alt="" className="w-10 h-10 object-cover rounded-lg border border-slate-200"/>
-                  <span className="flex-1 text-sm text-slate-700 truncate">{f.name}</span>
+                <div key={i} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 rounded-xl px-3 py-2 border border-slate-200 dark:border-slate-700">
+                  <img src={filePreviews[i]} alt="" className="w-10 h-10 object-cover rounded-lg border border-slate-200 dark:border-slate-700"/>
+                  <span className="flex-1 text-sm text-slate-700 dark:text-slate-200 truncate">{f.name}</span>
                   {scanning && (
                     fileStatus[i] === 'reading' ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 rounded-full px-2 py-0.5"><RefreshCcw size={11} className="animate-spin"/> กำลังอ่าน</span>
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-900/60 rounded-full px-2 py-0.5"><RefreshCcw size={11} className="animate-spin"/> กำลังอ่าน</span>
                     ) : fileStatus[i] === 'done' ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5"><CheckCircle2 size={11}/> เสร็จ</span>
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-full px-2 py-0.5"><CheckCircle2 size={11}/> เสร็จ</span>
                     ) : fileStatus[i] === 'error' ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5"><AlertCircle size={11}/> อ่านไม่ได้</span>
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-full px-2 py-0.5"><AlertCircle size={11}/> อ่านไม่ได้</span>
                     ) : (
-                      <span className="text-[11px] font-semibold text-slate-400 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5">รอคิว</span>
+                      <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-2 py-0.5">รอคิว</span>
                     )
                   )}
-                  <span className="text-xs text-slate-400">{(f.size/1024).toFixed(0)} KB</span>
+                  <span className="text-xs text-slate-400 dark:text-slate-500">{(f.size/1024).toFixed(0)} KB</span>
                   {!scanning && (
-                    <button onClick={(e) => { e.stopPropagation(); removeFile(i); }} className="text-slate-400 hover:text-red-500 transition-colors">
+                    <button onClick={(e) => { e.stopPropagation(); removeFile(i); }} className="text-slate-400 dark:text-slate-500 hover:text-red-500 transition-colors">
                       <X size={16}/>
                     </button>
                   )}
@@ -1073,7 +1073,7 @@ function ScanInvoice({ onDone, auth }) {
                 {scanning && (
                   <button
                     onClick={() => { cancelRef.current = true; }}
-                    className="px-4 py-2.5 bg-white border border-slate-300 hover:border-red-400 hover:text-red-600 text-slate-600 rounded-xl text-sm font-medium transition-colors"
+                    className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-red-400 hover:text-red-600 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-medium transition-colors"
                   >
                     หยุดหลังรูปนี้
                   </button>
@@ -1089,16 +1089,16 @@ function ScanInvoice({ onDone, auth }) {
 
       {/* Preview per invoice */}
       {invoices.map((inv, invIdx) => (
-        <div key={invIdx} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <div key={invIdx} className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
 
           {/* Invoice header */}
-          <div className="bg-emerald-50 border-b border-emerald-100 px-5 py-4">
+          <div className="bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-100 dark:border-emerald-900/50 px-5 py-4">
             <div className="flex items-start gap-4">
-              <img src={inv.previewUrl} alt="" className="w-16 h-16 object-cover rounded-xl border border-emerald-200 shrink-0"/>
+              <img src={inv.previewUrl} alt="" className="w-16 h-16 object-cover rounded-xl border border-emerald-200 dark:border-emerald-900/60 shrink-0"/>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-2">ข้อมูลบิล #{invIdx + 1}</p>
+                <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 uppercase tracking-wide mb-2">ข้อมูลบิล #{invIdx + 1}</p>
                 {inv.error ? (
-                  <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                  <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2">
                     <AlertCircle size={16}/> อ่านบิลไม่สำเร็จ: {inv.error}
                   </div>
                 ) : (
@@ -1109,13 +1109,13 @@ function ScanInvoice({ onDone, auth }) {
                       { label: 'วันที่บิล',     field: 'invoice_date' },
                     ].map(({ label, field }) => (
                       <div key={field}>
-                        <p className="text-xs text-slate-500 mb-0.5">{label}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">{label}</p>
                         <EditableCell value={inv.header[field]} onChange={v => updateHeader(invIdx, field, v)}
-                          className={field === 'invoice_date' && !isValidDateText(inv.header[field]) ? 'border-red-400 bg-red-50' : ''}/>
+                          className={field === 'invoice_date' && !isValidDateText(inv.header[field]) ? 'border-red-400 bg-red-50 dark:bg-red-950/40' : ''}/>
                       </div>
                     ))}
                     <div>
-                      <p className="text-xs text-slate-500 mb-0.5">วันที่รับเข้า</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">วันที่รับเข้า</p>
                       <IsoDateInput value={inv.header.receive_date} onChange={v => updateHeader(invIdx, 'receive_date', v)} className="w-full min-h-[30px]"/>
                     </div>
                     {[
@@ -1125,7 +1125,7 @@ function ScanInvoice({ onDone, auth }) {
                       { label: 'รวมทั้งบิล', field: 'invoice_total' },
                     ].map(({ label, field }) => (
                       <div key={field}>
-                        <p className="text-xs text-slate-500 mb-0.5">{label}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">{label}</p>
                         <EditableCell value={inv.header[field]} onChange={v => updateHeader(invIdx, field, v)} type="number"/>
                       </div>
                     ))}
@@ -1136,9 +1136,9 @@ function ScanInvoice({ onDone, auth }) {
 
             {/* เตือนบิลซ้ำ — เลขบิลนี้มีใน receive_logs แล้ว (เตือนอย่างเดียว ไม่ block) */}
             {!inv.error && inv._dup && (
-              <div className="mt-3 flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2">
+              <div className="mt-3 flex items-start gap-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 rounded-xl px-3 py-2">
                 <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5"/>
-                <p className="text-xs text-amber-800">
+                <p className="text-xs text-amber-800 dark:text-amber-300">
                   <span className="font-bold">เลขบิลนี้มีในระบบแล้ว {inv._dup.count} รายการ</span>
                   {inv._dup.suppliers.length > 0 && <> · {inv._dup.suppliers.join(', ')}</>}
                   {inv._dup.lastDate && <> · รับล่าสุด {dateThai(inv._dup.lastDate)}</>}
@@ -1150,19 +1150,19 @@ function ScanInvoice({ onDone, auth }) {
             {/* VAT toggle */}
             {!inv.error && (
               <div className="mt-3 flex items-center gap-3">
-                <Info size={13} className="text-slate-400 shrink-0"/>
-                <span className="text-xs text-slate-600">ราคาในบิลนี้:</span>
+                <Info size={13} className="text-slate-400 dark:text-slate-500 shrink-0"/>
+                <span className="text-xs text-slate-600 dark:text-slate-300">ราคาในบิลนี้:</span>
                 {['included','excluded'].map(mode => (
                   <button
                     key={mode}
                     onClick={() => setVatMode(invIdx, mode)}
-                    className={`text-xs px-3 py-1 rounded-full border font-medium transition-colors ${inv.vatMode === mode ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-300 hover:border-emerald-400'}`}
+                    className={`text-xs px-3 py-1 rounded-full border font-medium transition-colors ${inv.vatMode === mode ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:border-emerald-400'}`}
                   >
                     {mode === 'included' ? 'รวม VAT แล้ว' : 'ยังไม่รวม VAT'}
                   </button>
                 ))}
                 {inv.vatMode === 'excluded' && parseFloat(inv.header.vat_percent) > 0 && (
-                  <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-0.5">
+                  <span className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-lg px-2 py-0.5">
                     ระบบจะคำนวณ +{inv.header.vat_percent}% ให้อัตโนมัติ
                   </span>
                 )}
@@ -1173,18 +1173,18 @@ function ScanInvoice({ onDone, auth }) {
           {/* Items — mobile: card ต่อรายการ (Rule #5) / desktop: ตาราง */}
           {!inv.error && inv.items.length > 0 && (
             <>
-            <div className="md:hidden divide-y divide-slate-100">
+            <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
               {inv.items.map((it, itemIdx) => (
                 <div key={itemIdx} className="p-3.5 space-y-2.5">
                   <div className="flex items-start gap-2">
                     <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">ชื่อยา (ตามบิล)</p>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">ชื่อยา (ตามบิล)</p>
                       <EditableCell value={it.drug_name} onChange={v => updateItem(invIdx, itemIdx, 'drug_name', v)}/>
                     </div>
-                    <button onClick={() => removeItem(invIdx, itemIdx)} className="mt-5 text-slate-300 hover:text-red-500 transition-colors shrink-0"><Trash2 size={16}/></button>
+                    <button onClick={() => removeItem(invIdx, itemIdx)} className="mt-5 text-slate-300 dark:text-slate-500 hover:text-red-500 transition-colors shrink-0"><Trash2 size={16}/></button>
                   </div>
                   <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">จับคู่ยาในระบบ</p>
+                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">จับคู่ยาในระบบ</p>
                     <SearchableSelect
                       value={it.matched_name || it._candidateName || ''}
                       onChange={v => mapItemToInventory(invIdx, itemIdx, v)}
@@ -1194,7 +1194,7 @@ function ScanInvoice({ onDone, auth }) {
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">รหัสยา</p>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">รหัสยา</p>
                       <div className="relative">
                         <EditableCell value={it.drug_code} onChange={v => updateItem(invIdx, itemIdx, 'drug_code', v)}/>
                         {it._autoCode && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" title="จับคู่แล้ว"/>}
@@ -1202,45 +1202,45 @@ function ScanInvoice({ onDone, auth }) {
                       </div>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">จำนวน</p>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">จำนวน</p>
                       <EditableCell value={it.qty_received} onChange={v => updateItem(invIdx, itemIdx, 'qty_received', v)} type="number"/>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Lot</p>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Lot</p>
                       <EditableCell value={it.lot} onChange={v => updateItem(invIdx, itemIdx, 'lot', v)}/>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Exp</p>
-                      <EditableCell value={it.exp} onChange={v => updateItem(invIdx, itemIdx, 'exp', v)} className={isValidDateText(it.exp) ? '' : 'border-red-400 bg-red-50'}/>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Exp</p>
+                      <EditableCell value={it.exp} onChange={v => updateItem(invIdx, itemIdx, 'exp', v)} className={isValidDateText(it.exp) ? '' : 'border-red-400 bg-red-50 dark:bg-red-950/40'}/>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">หน่วย</p>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">หน่วย</p>
                       <EditableCell value={it.drug_unit} onChange={v => updateItem(invIdx, itemIdx, 'drug_unit', v)}/>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Mfg</p>
-                      <EditableCell value={it.mfg_date} onChange={v => updateItem(invIdx, itemIdx, 'mfg_date', v)} className={isValidDateText(it.mfg_date) ? '' : 'border-red-400 bg-red-50'}/>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Mfg</p>
+                      <EditableCell value={it.mfg_date} onChange={v => updateItem(invIdx, itemIdx, 'mfg_date', v)} className={isValidDateText(it.mfg_date) ? '' : 'border-red-400 bg-red-50 dark:bg-red-950/40'}/>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">ราคา/หน่วย</p>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">ราคา/หน่วย</p>
                       <EditableCell value={it.price_per_unit} onChange={v => updateItem(invIdx, itemIdx, 'price_per_unit', v)} type="number"/>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">มูลค่า</p>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">มูลค่า</p>
                       <EditableCell value={it.total_price_vat} onChange={v => updateItem(invIdx, itemIdx, 'total_price_vat', v)} type="number"/>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">GPU</p>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">GPU</p>
                       <EditableCell value={it.gpu_code} onChange={v => updateItem(invIdx, itemIdx, 'gpu_code', v)}/>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">TPU</p>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">TPU</p>
                       <EditableCell value={it.tpu_code} onChange={v => updateItem(invIdx, itemIdx, 'tpu_code', v)}/>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">TTMP</p>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">TTMP</p>
                       <EditableCell value={it.ttmp_code} onChange={v => updateItem(invIdx, itemIdx, 'ttmp_code', v)}/>
                     </div>
                   </div>
@@ -1249,16 +1249,16 @@ function ScanInvoice({ onDone, auth }) {
             </div>
             <div className="overflow-x-auto hidden md:block">
               <table className="w-full text-xs">
-                <thead className="bg-slate-50 border-b border-slate-200">
+                <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
                   <tr>
                     {['ชื่อยา','รหัสยา','จับคู่ยาในระบบ','GPU','TPU','TTMP','Lot','Exp','Mfg','จำนวน','หน่วย','ราคา/หน่วย','มูลค่า',''].map(h => (
-                      <th key={h} className="text-left px-3 py-2 font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                      <th key={h} className="text-left px-3 py-2 font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {inv.items.map((it, itemIdx) => (
-                    <tr key={itemIdx} className="hover:bg-slate-50">
+                    <tr key={itemIdx} className="hover:bg-slate-50 dark:hover:bg-slate-800">
                       <td className="px-3 py-1.5 min-w-56"><EditableCell value={it.drug_name} onChange={v => updateItem(invIdx, itemIdx, 'drug_name', v)}/></td>
                       <td className="px-3 py-1.5 min-w-28">
                         <div className="relative">
@@ -1279,14 +1279,14 @@ function ScanInvoice({ onDone, auth }) {
                       <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.tpu_code} onChange={v => updateItem(invIdx, itemIdx, 'tpu_code', v)}/></td>
                       <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.ttmp_code} onChange={v => updateItem(invIdx, itemIdx, 'ttmp_code', v)}/></td>
                       <td className="px-3 py-1.5 min-w-28"><EditableCell value={it.lot} onChange={v => updateItem(invIdx, itemIdx, 'lot', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-32"><EditableCell value={it.exp} onChange={v => updateItem(invIdx, itemIdx, 'exp', v)} className={isValidDateText(it.exp) ? '' : 'border-red-400 bg-red-50'}/></td>
-                      <td className="px-3 py-1.5 min-w-32"><EditableCell value={it.mfg_date} onChange={v => updateItem(invIdx, itemIdx, 'mfg_date', v)} className={isValidDateText(it.mfg_date) ? '' : 'border-red-400 bg-red-50'}/></td>
+                      <td className="px-3 py-1.5 min-w-32"><EditableCell value={it.exp} onChange={v => updateItem(invIdx, itemIdx, 'exp', v)} className={isValidDateText(it.exp) ? '' : 'border-red-400 bg-red-50 dark:bg-red-950/40'}/></td>
+                      <td className="px-3 py-1.5 min-w-32"><EditableCell value={it.mfg_date} onChange={v => updateItem(invIdx, itemIdx, 'mfg_date', v)} className={isValidDateText(it.mfg_date) ? '' : 'border-red-400 bg-red-50 dark:bg-red-950/40'}/></td>
                       <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.qty_received} onChange={v => updateItem(invIdx, itemIdx, 'qty_received', v)} type="number"/></td>
                       <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.drug_unit} onChange={v => updateItem(invIdx, itemIdx, 'drug_unit', v)}/></td>
                       <td className="px-3 py-1.5 min-w-28"><EditableCell value={it.price_per_unit} onChange={v => updateItem(invIdx, itemIdx, 'price_per_unit', v)} type="number"/></td>
                       <td className="px-3 py-1.5 min-w-28"><EditableCell value={it.total_price_vat} onChange={v => updateItem(invIdx, itemIdx, 'total_price_vat', v)} type="number"/></td>
                       <td className="px-3 py-1.5">
-                        <button onClick={() => removeItem(invIdx, itemIdx)} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={14}/></button>
+                        <button onClick={() => removeItem(invIdx, itemIdx)} className="text-slate-300 dark:text-slate-500 hover:text-red-500 transition-colors"><Trash2 size={14}/></button>
                       </td>
                     </tr>
                   ))}
@@ -1304,17 +1304,17 @@ function ScanInvoice({ onDone, auth }) {
             const diff = Math.abs(sumItems - headerTotal);
             const TOL = 1; // เศษสตางค์จากการปัดรายแถว
             return (
-              <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-x-4 gap-y-1.5 flex-wrap text-xs text-slate-500">
+              <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-x-4 gap-y-1.5 flex-wrap text-xs text-slate-500 dark:text-slate-400">
                 <span>{inv.items.length} รายการ</span>
                 <div className="flex items-center gap-x-4 gap-y-1.5 flex-wrap">
-                  <span>Σ มูลค่ารายการ: <span className="font-semibold text-slate-700 tabular-nums">{fmtBaht(sumItems)}</span> บาท</span>
-                  <span>รวมทั้งบิล: <span className="font-semibold text-slate-700 tabular-nums">{fmtBaht(headerTotal)}</span> บาท</span>
+                  <span>Σ มูลค่ารายการ: <span className="font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{fmtBaht(sumItems)}</span> บาท</span>
+                  <span>รวมทั้งบิล: <span className="font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{fmtBaht(headerTotal)}</span> บาท</span>
                   {headerTotal > 0 && (diff <= TOL ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 font-bold">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60 px-2 py-0.5 font-bold">
                       <CheckCircle2 size={11}/> ยอดตรงกับบิล
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 font-bold">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60 px-2 py-0.5 font-bold">
                       <AlertTriangle size={11}/> ต่างจากยอดบิล {fmtBaht(diff)} บาท — ตรวจเลขก่อนบันทึก
                     </span>
                   ))}
@@ -1327,9 +1327,9 @@ function ScanInvoice({ onDone, auth }) {
 
       {/* Action bar */}
       {invoices.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 px-5 py-4 flex items-center justify-between gap-4">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 px-5 py-4 flex items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold text-slate-800">{invoices.length} บิล · {totalItems} รายการ</p>
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{invoices.length} บิล · {totalItems} รายการ</p>
             {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
           </div>
           <div className="flex gap-3">
@@ -1342,7 +1342,7 @@ function ScanInvoice({ onDone, auth }) {
                   setInvoices([]); setFiles([]); setSaved(false); setError('');
                 },
               })}
-              className="px-4 py-2 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl text-sm font-medium transition-colors"
+              className="px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-medium transition-colors"
             >
               สแกนใหม่
             </button>
@@ -1494,25 +1494,25 @@ function ReceiveImport({ onDone, auth = {} }) {
       {/* Upload Warning Modal */}
       {uploadWarnings && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
             <div className="bg-amber-500 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
               <div>
                 <p className="font-bold text-lg flex items-center gap-2"><AlertCircle size={20}/>พบ Row ที่ไม่ผ่านเงื่อนไข</p>
                 <p className="text-amber-100 text-sm">{uploadWarnings.type}: {uploadWarnings.fileName} — {uploadWarnings.rows.length} row มีปัญหา</p>
               </div>
-              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={18}/></button>
+              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white dark:bg-slate-900/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={18}/></button>
             </div>
             <div className="overflow-y-auto flex-1 p-4 space-y-2">
               {uploadWarnings.rows.map((r, i) => (
-                <div key={i} className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-sm">
+                <div key={i} className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-4 py-2 text-sm">
                   <div className="flex gap-3 items-start">
-                    <span className="font-mono bg-amber-200 text-amber-900 px-2 py-0.5 rounded text-xs font-bold shrink-0">Row {r.row}</span>
+                    <span className="font-mono bg-amber-200 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded text-xs font-bold shrink-0">Row {r.row}</span>
                     <div className="flex-1">
-                      <span className="font-semibold text-slate-800">{r.name}</span>
-                      {r.code && r.code !== '-' && <span className="text-slate-400 ml-2 text-xs">[{r.code}]</span>}
+                      <span className="font-semibold text-slate-800 dark:text-slate-100">{r.name}</span>
+                      {r.code && r.code !== '-' && <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">[{r.code}]</span>}
                       <div className="flex flex-wrap gap-1 mt-1">
                         {r.issues.map((issue, j) => (
-                          <span key={j} className="bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full text-xs">{issue}</span>
+                          <span key={j} className="bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-900/60 px-2 py-0.5 rounded-full text-xs">{issue}</span>
                         ))}
                       </div>
                     </div>
@@ -1520,8 +1520,8 @@ function ReceiveImport({ onDone, auth = {} }) {
                 </div>
               ))}
             </div>
-            <div className="px-6 py-4 border-t border-slate-100 flex justify-between items-center">
-              <p className="text-sm text-slate-500">ข้อมูลที่ถูกต้องถูกบันทึกแล้ว — แก้ไข CSV แล้วอัปโหลดใหม่</p>
+            <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+              <p className="text-sm text-slate-500 dark:text-slate-400">ข้อมูลที่ถูกต้องถูกบันทึกแล้ว — แก้ไข CSV แล้วอัปโหลดใหม่</p>
               <button onClick={() => setUploadWarnings(null)} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm">รับทราบ</button>
             </div>
           </div>
@@ -1529,21 +1529,21 @@ function ReceiveImport({ onDone, auth = {} }) {
       )}
 
       <div onClick={() => fileRef.current?.click()}
-        className="border-2 border-dashed border-slate-300 hover:border-emerald-400 bg-white rounded-2xl p-10 text-center cursor-pointer transition-colors">
-        <FileSpreadsheet size={40} className="mx-auto mb-3 text-slate-400" />
-        <p className="font-semibold text-slate-700">คลิกเพื่อเลือกไฟล์ CSV คลังรับ</p>
-        <p className="text-xs text-slate-400 mt-1">รองรับ .csv (UTF-8 หรือ TIS-620)</p>
+        className="border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-emerald-400 bg-white dark:bg-slate-900 rounded-2xl p-10 text-center cursor-pointer transition-colors">
+        <FileSpreadsheet size={40} className="mx-auto mb-3 text-slate-400 dark:text-slate-500" />
+        <p className="font-semibold text-slate-700 dark:text-slate-200">คลิกเพื่อเลือกไฟล์ CSV คลังรับ</p>
+        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">รองรับ .csv (UTF-8 หรือ TIS-620)</p>
         <input ref={fileRef} type="file" accept=".csv" onChange={handleFile} className="hidden" />
       </div>
 
-      {error  && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-xl px-4 py-2 flex items-center gap-2"><AlertCircle size={16}/>{error}</p>}
-      {status && <p className="text-emerald-700 text-sm bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2">{status}</p>}
+      {error  && <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-4 py-2 flex items-center gap-2"><AlertCircle size={16}/>{error}</p>}
+      {status && <p className="text-emerald-700 dark:text-emerald-300 text-sm bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-xl px-4 py-2">{status}</p>}
 
       {/* Column reference — shown before file is selected */}
       {!preview && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
-          <p className="text-sm font-semibold text-slate-700">หัวคอลัมน์ที่รองรับในไฟล์ CSV</p>
-          <p className="text-xs text-slate-400">ชื่อหัวคอลัมน์ใน CSV ต้องตรงกับชื่อด้านล่าง (ไม่ต้องเว้นวรรค / ไม่ต้องตรงทุกตัว)</p>
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm space-y-3">
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">หัวคอลัมน์ที่รองรับในไฟล์ CSV</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500">ชื่อหัวคอลัมน์ใน CSV ต้องตรงกับชื่อด้านล่าง (ไม่ต้องเว้นวรรค / ไม่ต้องตรงทุกตัว)</p>
           <div className="flex flex-wrap gap-2">
             {[
               { label: 'วันที่รับ',         req: true,  hints: ['วันที่รับ', 'receive_date', 'วันรับ'] },
@@ -1566,14 +1566,14 @@ function ReceiveImport({ onDone, auth = {} }) {
               { label: 'บริษัทก่อนหน้า',   req: false, hints: ['บริษัทก่อนหน้า', 'บริษัทก่อนนาน', 'supplier_prev'] },
               { label: 'หมายเหตุ',          req: false, hints: ['หมายเหตุ', 'note', 'remark'] },
             ].map(({ label, req, hints }) => (
-              <div key={label} className="bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
+              <div key={label} className="bg-slate-50 dark:bg-slate-800 rounded-xl px-3 py-2 border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">{label}</span>
-                  {req && <span className="text-[10px] font-bold bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full">จำเป็น</span>}
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap">{label}</span>
+                  {req && <span className="text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-600 px-1.5 py-0.5 rounded-full">จำเป็น</span>}
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {hints.map(h => (
-                    <code key={h} className="text-[10px] bg-white border border-slate-200 text-slate-500 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">{h}</code>
+                    <code key={h} className="text-[10px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">{h}</code>
                   ))}
                 </div>
               </div>
@@ -1583,21 +1583,21 @@ function ReceiveImport({ onDone, auth = {} }) {
       )}
 
       {preview && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-4 shadow-sm">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 space-y-4 shadow-sm">
           <div className="flex items-center justify-between">
-            <p className="font-semibold text-slate-800">{preview.fileName}</p>
-            <span className="text-xs text-slate-500">{preview.total.toLocaleString()} แถว</span>
+            <p className="font-semibold text-slate-800 dark:text-slate-100">{preview.fileName}</p>
+            <span className="text-xs text-slate-500 dark:text-slate-400">{preview.total.toLocaleString()} แถว</span>
           </div>
 
           {/* CSV header tags */}
           <div>
-            <p className="text-xs font-semibold text-slate-500 mb-2">หัวคอลัมน์ CSV ที่ตรวจพบ ({rawHeaders.length} คอลัมน์):</p>
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">หัวคอลัมน์ CSV ที่ตรวจพบ ({rawHeaders.length} คอลัมน์):</p>
             <div className="flex flex-wrap gap-1.5">
               {rawHeaders.map((h, i) => {
                 const matchedField = Object.entries(mapping).find(([, idx]) => idx === i)?.[0];
                 return (
                   <span key={i} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium border ${
-                    matchedField ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-400 border-slate-200'
+                    matchedField ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700'
                   }`}>
                     {matchedField ? <CheckCircle2 size={12}/> : <HelpCircle size={12}/>} {h}
                     {matchedField && <span className="text-[10px] text-emerald-500 ml-0.5">→ {FIELD_LABELS[matchedField] || matchedField}</span>}
@@ -1616,10 +1616,10 @@ function ReceiveImport({ onDone, auth = {} }) {
             <div className="grid grid-cols-1 gap-1.5 max-h-72 overflow-y-auto mt-2 pr-1">
               {Object.keys(RECEIVE_COL_MAP).map(field => (
                 <div key={field} className="grid gap-2 items-center" style={{gridTemplateColumns:'10rem 1fr'}}>
-                  <span className="text-xs text-slate-600 font-medium truncate">{FIELD_LABELS[field] || field}</span>
+                  <span className="text-xs text-slate-600 dark:text-slate-300 font-medium truncate">{FIELD_LABELS[field] || field}</span>
                   <select value={mapping[field] ?? ''}
                     onChange={e => setMapping(p => ({ ...p, [field]: e.target.value === '' ? undefined : Number(e.target.value) }))}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400">
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400">
                     <option value="">-- ไม่ใช้ --</option>
                     {rawHeaders.map((h, i) => <option key={i} value={i}>{h}</option>)}
                   </select>
@@ -1630,11 +1630,11 @@ function ReceiveImport({ onDone, auth = {} }) {
 
           {/* Full preview table - all matched fields */}
           <div>
-            <p className="text-xs font-semibold text-slate-500 mb-2">ตัวอย่างข้อมูล 3 แถวแรก (เฉพาะคอลัมน์ที่ match):</p>
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">ตัวอย่างข้อมูล 3 แถวแรก (เฉพาะคอลัมน์ที่ match):</p>
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
               <table className="text-xs w-full">
                 <thead>
-                  <tr className="text-slate-600 border-b border-slate-200 bg-slate-50">
+                  <tr className="text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
                     {Object.keys(RECEIVE_COL_MAP).filter(f => mapping[f] != null).map(f => (
                       <th key={f} className="px-3 py-2 text-left font-semibold whitespace-nowrap">{FIELD_LABELS[f] || f}</th>
                     ))}
@@ -1642,11 +1642,11 @@ function ReceiveImport({ onDone, auth = {} }) {
                 </thead>
                 <tbody>
                   {rawRows.slice(0, 3).map((row, i) => (
-                    <tr key={i} className="border-b border-slate-100">
+                    <tr key={i} className="border-b border-slate-100 dark:border-slate-800">
                       {Object.keys(RECEIVE_COL_MAP).filter(f => mapping[f] != null).map(f => {
                         const val = getVal(row, f);
                         return (
-                          <td key={f} className={`px-3 py-1.5 truncate max-w-[140px] ${val ? 'text-slate-700' : 'text-rose-300'}`}>
+                          <td key={f} className={`px-3 py-1.5 truncate max-w-[140px] ${val ? 'text-slate-700 dark:text-slate-200' : 'text-rose-300'}`}>
                             {val || '—'}
                           </td>
                         );
@@ -1998,31 +1998,31 @@ function ReceiveView({ auth = {} }) {
   return (
     <div className="p-4 space-y-4 max-w-5xl mx-auto">
       {/* Filter card */}
-      <div className="bg-white/95 backdrop-blur border border-slate-200 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
+      <div className="bg-white dark:bg-slate-900/95 backdrop-blur border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
         <div className="flex flex-wrap gap-2">
           <div className="relative flex-[2] min-w-[160px]" ref={searchRef}>
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input
               type="text"
               value={search}
               onChange={e => { setSearch(e.target.value); setSelectedDrug(''); setDrugRows([]); setPage(0); setShowDropdown(true); }}
               onFocus={() => { if (search.trim()) setShowDropdown(true); }}
               placeholder="ค้นหาชื่อยา, รหัส, Lot, เลขบิล..."
-              className="w-full bg-white border border-slate-300 rounded-xl pl-9 pr-4 py-2 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl pl-9 pr-4 py-2 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
             />
             {search && (
-              <button onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <button onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
                 <X size={14}/>
               </button>
             )}
             {/* Dropdown ชื่อยา */}
             {showDropdown && filteredDrugs.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 overflow-hidden">
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg z-20 overflow-hidden">
                 {filteredDrugs.map(({ name, type }) => (
                   <button
                     key={name}
                     onMouseDown={e => { e.preventDefault(); selectDrug(name); }}
-                    className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors border-b border-slate-100 last:border-0"
+                    className="w-full text-left px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:text-emerald-700 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-0"
                   >
                     <div className="flex items-center gap-2 flex-wrap">
                       <span>{name}</span>
@@ -2040,25 +2040,25 @@ function ReceiveView({ auth = {} }) {
               onChange={e => { setSupplierSearch(e.target.value); setShowSupplierDd(true); }}
               onFocus={() => setShowSupplierDd(true)}
               placeholder={supplierFilter || 'ค้นหาบริษัท...'}
-              className={`bg-white border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 w-64 ${supplierFilter ? 'border-emerald-400 text-emerald-700 font-medium' : 'border-slate-300 text-slate-800'}`}
+              className={`bg-white dark:bg-slate-900 border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 w-64 ${supplierFilter ? 'border-emerald-400 text-emerald-700 dark:text-emerald-300 font-medium' : 'border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-100'}`}
             />
             {supplierFilter && (
               <button onClick={() => { setSupplier(''); setSupplierSearch(''); setPage(0); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
                 <X size={14}/>
               </button>
             )}
             {showSupplierDd && (
-              <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-30 w-64 max-h-60 overflow-y-auto">
+              <div className="absolute top-full left-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg z-30 w-64 max-h-60 overflow-y-auto">
                 <button onMouseDown={e => { e.preventDefault(); setSupplier(''); setSupplierSearch(''); setShowSupplierDd(false); setPage(0); }}
-                  className="w-full text-left px-3 py-2 text-sm text-slate-500 hover:bg-slate-50 border-b border-slate-100">
+                  className="w-full text-left px-3 py-2 text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 border-b border-slate-100 dark:border-slate-800">
                   ทุกบริษัท
                 </button>
                 {suppliers
                   .filter(s => !supplierSearch || s.toLowerCase().includes(supplierSearch.toLowerCase()))
                   .map(s => (
                     <button key={s} onMouseDown={e => { e.preventDefault(); setSupplier(s); setSupplierSearch(''); setShowSupplierDd(false); setPage(0); }}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-emerald-50 hover:text-emerald-700 border-b border-slate-100 last:border-0 ${supplierFilter === s ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-slate-700'}`}>
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:text-emerald-700 border-b border-slate-100 dark:border-slate-800 last:border-0 ${supplierFilter === s ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold' : 'text-slate-700 dark:text-slate-200'}`}>
                       {s}
                     </button>
                   ))
@@ -2066,7 +2066,7 @@ function ReceiveView({ auth = {} }) {
               </div>
             )}
           </div>
-          <button onClick={clearAll} className="text-slate-400 hover:text-slate-600 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
+          <button onClick={clearAll} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
             <RefreshCcw size={16}/>
           </button>
           <button
@@ -2079,21 +2079,21 @@ function ReceiveView({ auth = {} }) {
         </div>
         {/* Date range */}
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          <span className="text-xs text-slate-500 font-medium">ตั้งแต่</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">ตั้งแต่</span>
           <ThaiDateInput value={dateFrom} onChange={v => { setDateFrom(v); setPage(0); }} />
-          <span className="text-xs text-slate-400">ถึง</span>
+          <span className="text-xs text-slate-400 dark:text-slate-500">ถึง</span>
           <ThaiDateInput value={dateTo} onChange={v => { setDateTo(v); setPage(0); }}
             placeholder={dateFrom ? isoToThai(new Date().toISOString().split('T')[0]) : 'dd/mm/yyyy'} />
           {(dateFrom || dateTo) && (
             <button onClick={() => { setDateFrom(''); setDateTo(''); setPage(0); }}
-              className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1"><X size={12}/>ล้างวันที่</button>
+              className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1"><X size={12}/>ล้างวันที่</button>
           )}
         </div>
       </div>
 
       {/* ตารางประวัติรับยาที่เลือก */}
       {selectedDrug && (
-        <div className="bg-white border border-emerald-300 rounded-xl shadow-md overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-800/60 rounded-xl shadow-md overflow-hidden">
           {/* Header */}
           <div className="bg-emerald-700 px-4 py-3">
             <div className="flex items-start justify-between gap-3">
@@ -2106,7 +2106,7 @@ function ReceiveView({ auth = {} }) {
                     <div className="flex flex-wrap gap-1.5 mt-2 items-center">
                       <span className="text-xs text-emerald-200 font-semibold shrink-0">บริษัทที่เคยรับ:</span>
                       {suppliers.map(s => (
-                        <span key={s} className="text-xs bg-white/20 border border-white/30 text-white px-2 py-0.5 rounded-full">{s}</span>
+                        <span key={s} className="text-xs bg-white dark:bg-slate-900/20 border border-white/30 text-white px-2 py-0.5 rounded-full">{s}</span>
                       ))}
                     </div>
                   ) : null;
@@ -2120,10 +2120,10 @@ function ReceiveView({ auth = {} }) {
           <div className="grid grid-cols-3 gap-3 px-4 py-3">
             <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
               <p className="text-2xl font-bold text-white tabular-nums">{filteredDrugRows.length.toLocaleString()}</p>
-              <p className="text-xs text-slate-300 mt-0.5">รายการ (กรอง)</p>
+              <p className="text-xs text-slate-300 dark:text-slate-500 mt-0.5">รายการ (กรอง)</p>
             </div>
             <div className="relative overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-700 rounded-2xl p-3.5 text-center shadow-lg shadow-emerald-300/60">
-              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
+              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white dark:bg-slate-900/25 blur-xl" />
               <p className="relative text-2xl font-bold text-white tabular-nums">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
               <p className="relative text-xs text-emerald-50 mt-0.5">ปริมาณรับรวม</p>
             </div>
@@ -2135,24 +2135,24 @@ function ReceiveView({ auth = {} }) {
 
           {/* Table */}
           {drugLoading ? (
-            <p className="text-center text-slate-400 py-8 text-sm">กำลังโหลด...</p>
+            <p className="text-center text-slate-400 dark:text-slate-500 py-8 text-sm">กำลังโหลด...</p>
           ) : filteredDrugRows.length === 0 ? (
-            <p className="text-center text-slate-400 py-8 text-sm">ไม่พบข้อมูลในช่วงที่เลือก</p>
+            <p className="text-center text-slate-400 dark:text-slate-500 py-8 text-sm">ไม่พบข้อมูลในช่วงที่เลือก</p>
           ) : (
             <div className="overflow-x-auto overflow-y-auto max-h-[480px]">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-[5]">
-                  <tr className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100">
-                    <th className="px-4 py-3.5 text-left bg-slate-50/80">วันที่รับ</th>
-                    <th className="px-4 py-3.5 text-right bg-slate-50/80">จำนวน</th>
-                    <th className="px-4 py-3.5 text-left bg-slate-50/80">หน่วย</th>
-                    <th className="px-4 py-3.5 text-left bg-slate-50/80">Lot</th>
-                    <th className="px-4 py-3.5 text-left bg-slate-50/80">Exp</th>
-                    <th className="px-4 py-3.5 text-right bg-slate-50/80">ราคา/หน่วย</th>
-                    <th className="px-4 py-3.5 text-right bg-slate-50/80">มูลค่ารวมภาษี (บาท)</th>
-                    <th className="px-4 py-3.5 text-left bg-slate-50/80">บริษัท</th>
-                    <th className="px-4 py-3.5 text-left bg-slate-50/80">เลขบิล</th>
-                    <th className="px-4 py-3.5 w-6 bg-slate-50/80"></th>
+                  <tr className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
+                    <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">วันที่รับ</th>
+                    <th className="px-4 py-3.5 text-right bg-slate-50 dark:bg-slate-800/80">จำนวน</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">หน่วย</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">Lot</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">Exp</th>
+                    <th className="px-4 py-3.5 text-right bg-slate-50 dark:bg-slate-800/80">ราคา/หน่วย</th>
+                    <th className="px-4 py-3.5 text-right bg-slate-50 dark:bg-slate-800/80">มูลค่ารวมภาษี (บาท)</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">บริษัท</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">เลขบิล</th>
+                    <th className="px-4 py-3.5 w-6 bg-slate-50 dark:bg-slate-800/80"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2160,37 +2160,37 @@ function ReceiveView({ auth = {} }) {
                     <React.Fragment key={r.id}>
                       <tr
                         onClick={() => setDrugExpanded(drugExpanded === r.id ? null : r.id)}
-                        className={`border-b border-slate-50 cursor-pointer transition-colors ${drugExpanded === r.id ? 'bg-emerald-50' : 'hover:bg-emerald-50/50'}`}
+                        className={`border-b border-slate-50 cursor-pointer transition-colors ${drugExpanded === r.id ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'hover:bg-emerald-50 dark:hover:bg-emerald-950/50/50'}`}
                       >
-                        <td className="px-4 py-3 text-slate-800 whitespace-nowrap font-medium">{fmtDate(r.receive_date)}</td>
+                        <td className="px-4 py-3 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDate(r.receive_date)}</td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">
-                          {r.qty_received ? <span className="inline-flex items-center justify-end rounded-full bg-emerald-50 text-emerald-700 font-bold px-2.5 py-0.5 text-xs tabular-nums">+{r.qty_received.toLocaleString()}</span> : '-'}
+                          {r.qty_received ? <span className="inline-flex items-center justify-end rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold px-2.5 py-0.5 text-xs tabular-nums">+{r.qty_received.toLocaleString()}</span> : '-'}
                         </td>
-                        <td className="px-4 py-3 text-slate-700 text-xs whitespace-nowrap font-medium">{r.drug_unit || r.unit_per_bill || '-'}</td>
-                        <td className="px-4 py-3 text-slate-700 text-xs whitespace-nowrap">{r.lot || '-'}</td>
-                        <td className="px-4 py-3 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
-                        <td className="px-4 py-3 text-slate-800 font-medium text-right whitespace-nowrap tabular-nums">{r.price_per_unit != null ? Number(r.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                        <td className="px-4 py-3 text-amber-800 font-bold text-right whitespace-nowrap tabular-nums">{r.total_price_vat != null ? Number(r.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap font-medium">{r.drug_unit || r.unit_per_bill || '-'}</td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{r.lot || '-'}</td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
+                        <td className="px-4 py-3 text-slate-800 dark:text-slate-100 font-medium text-right whitespace-nowrap tabular-nums">{r.price_per_unit != null ? Number(r.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                        <td className="px-4 py-3 text-amber-800 dark:text-amber-300 font-bold text-right whitespace-nowrap tabular-nums">{r.total_price_vat != null ? Number(r.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
                         <td className="px-4 py-3 max-w-[160px]">
-                          <span className="text-slate-800 font-medium truncate block text-xs">
+                          <span className="text-slate-800 dark:text-slate-100 font-medium truncate block text-xs">
                             {getDetailSupplier(r) || r.supplier_current || '-'}
                           </span>
                           {r.supplier_changed && r.supplier_changed !== '-' && (
                             <span
                               title={r.supplier_prev && r.supplier_prev !== '-' ? `เดิม: ${r.supplier_prev}` : 'เปลี่ยนบริษัทจากเดิม'}
-                              className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-100 text-orange-700 border border-orange-200"
+                              className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-900/60"
                             >
                               <ArrowLeftRight size={10}/> เปลี่ยนบริษัท
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-slate-700 text-xs whitespace-nowrap">{r.bill_number || '-'}</td>
-                        <td className="px-4 py-3 text-slate-400">
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{r.bill_number || '-'}</td>
+                        <td className="px-4 py-3 text-slate-400 dark:text-slate-500">
                           {drugExpanded === r.id ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
                         </td>
                       </tr>
                       {drugExpanded === r.id && (
-                        <tr className="bg-emerald-50/70 border-b border-emerald-100">
+                        <tr className="bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-100 dark:border-emerald-900/50">
                           <td colSpan={10} className="px-6 py-3">
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-1.5 text-sm">
                               {[
@@ -2207,8 +2207,8 @@ function ReceiveView({ auth = {} }) {
                                 ['ราคารวมภาษี/สูตร',  r.total_price_formula],
                               ].map(([label, val]) => val != null && val !== '-' && val !== '' ? (
                                 <div key={label}>
-                                  <span className="text-slate-400 text-xs">{label}: </span>
-                                  <span className={label === 'บริษัทก่อนหน้า' ? 'text-orange-700 font-medium' : 'text-slate-700 font-medium'}>{val}</span>
+                                  <span className="text-slate-400 dark:text-slate-500 text-xs">{label}: </span>
+                                  <span className={label === 'บริษัทก่อนหน้า' ? 'text-orange-700 dark:text-orange-300 font-medium' : 'text-slate-700 dark:text-slate-200 font-medium'}>{val}</span>
                                 </div>
                               ) : null)}
                             </div>
@@ -2219,12 +2219,12 @@ function ReceiveView({ auth = {} }) {
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="bg-emerald-50 border-t-2 border-emerald-200 font-semibold text-sm">
-                    <td className="px-4 py-2.5 text-slate-700">รวม {filteredDrugRows.length} รายการ</td>
-                    <td className="px-4 py-2.5 text-emerald-700 text-right">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-                    <td className="px-4 py-2.5 text-slate-500 text-xs">{drugUnit}</td>
+                  <tr className="bg-emerald-50 dark:bg-emerald-950/40 border-t-2 border-emerald-200 dark:border-emerald-900/60 font-semibold text-sm">
+                    <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200">รวม {filteredDrugRows.length} รายการ</td>
+                    <td className="px-4 py-2.5 text-emerald-700 dark:text-emerald-300 text-right">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+                    <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 text-xs">{drugUnit}</td>
                     <td colSpan={3}></td>
-                    <td className="px-4 py-2.5 text-amber-700 text-right">{drugTotalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+                    <td className="px-4 py-2.5 text-amber-700 dark:text-amber-300 text-right">{drugTotalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
                     <td colSpan={3}></td>
                   </tr>
                 </tfoot>
@@ -2237,20 +2237,20 @@ function ReceiveView({ auth = {} }) {
       {!selectedDrug && rows.length > 0 && (
         <div className="space-y-2">
           {aggStats?.minDate && aggStats?.maxDate && (
-            <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 flex-wrap">
-              <CalendarDays size={13} className="text-slate-400 shrink-0" />
-              <span>ข้อมูลตั้งแต่ <span className="font-semibold text-slate-700">{isoToThai(aggStats.minDate)}</span> – <span className="font-semibold text-slate-700">{isoToThai(aggStats.maxDate)}</span></span>
-              <span className="text-slate-400">·</span>
-              <span className="text-slate-600">{dateDiff(aggStats.minDate, aggStats.maxDate)}</span>
+            <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 flex-wrap">
+              <CalendarDays size={13} className="text-slate-400 dark:text-slate-500 shrink-0" />
+              <span>ข้อมูลตั้งแต่ <span className="font-semibold text-slate-700 dark:text-slate-200">{isoToThai(aggStats.minDate)}</span> – <span className="font-semibold text-slate-700 dark:text-slate-200">{isoToThai(aggStats.maxDate)}</span></span>
+              <span className="text-slate-400 dark:text-slate-500">·</span>
+              <span className="text-slate-600 dark:text-slate-300">{dateDiff(aggStats.minDate, aggStats.maxDate)}</span>
             </div>
           )}
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
             <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
-            <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
+            <p className="text-xs text-slate-300 dark:text-slate-500 mt-0.5">จำนวนรายการ{supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
           </div>
           <div className="relative overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-700 rounded-2xl p-3.5 text-center shadow-lg shadow-emerald-300/60">
-            <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
+            <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white dark:bg-slate-900/25 blur-xl" />
             <p className="relative text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.billCount.toLocaleString() : '...'}</p>
             <p className="relative text-xs text-emerald-50 mt-0.5">จำนวนบิล{supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
           </div>
@@ -2262,17 +2262,17 @@ function ReceiveView({ auth = {} }) {
         </div>
       )}
 
-      {!selectedDrug && loading && <p className="text-center text-slate-400 py-10">กำลังโหลด...</p>}
+      {!selectedDrug && loading && <p className="text-center text-slate-400 dark:text-slate-500 py-10">กำลังโหลด...</p>}
       {!selectedDrug && !loading && rows.length === 0 && (
-        <div className="text-center text-slate-400 py-20">
+        <div className="text-center text-slate-400 dark:text-slate-500 py-20">
           <TrendingUp size={48} className="mx-auto mb-3 opacity-30" />
           <p>ไม่พบข้อมูล{hasFilter ? ' — ลองเปลี่ยนตัวกรอง' : ' — กด Import CSV เพื่อนำเข้าข้อมูล'}</p>
         </div>
       )}
       {!selectedDrug && !loading && rows.length > 0 && displayRows.length === 0 && supplierFilter && (
-        <div className="text-center text-slate-400 py-16 bg-white border border-slate-200 rounded-2xl">
+        <div className="text-center text-slate-400 dark:text-slate-500 py-16 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl">
           <Search size={40} className="mx-auto mb-3 opacity-30" />
-          <p className="text-sm">ไม่พบรายการของบริษัท <span className="font-semibold text-slate-600">"{supplierFilter}"</span> ในช่วงนี้</p>
+          <p className="text-sm">ไม่พบรายการของบริษัท <span className="font-semibold text-slate-600 dark:text-slate-300">"{supplierFilter}"</span> ในช่วงนี้</p>
           <button onClick={() => setSupplier('')} className="mt-3 text-xs text-indigo-600 hover:text-indigo-800 underline">ล้างตัวกรองบริษัท</button>
         </div>
       )}
@@ -2281,15 +2281,15 @@ function ReceiveView({ auth = {} }) {
       {mobileDetail && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setMobileDetail(null)}>
           <div className="absolute inset-0 bg-black/40" />
-          <div className="relative bg-white rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="relative bg-white dark:bg-slate-900 rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
             {/* handle */}
             <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 bg-slate-300 rounded-full"/></div>
             {/* header */}
-            <div className="px-4 pb-3 border-b border-slate-100">
-              <p className="font-bold text-slate-900 text-base leading-tight">{mobileDetail.drug_name}</p>
-              <p className="text-xs text-slate-500 mt-0.5">{mobileDetail.drug_code} · {fmtDate(mobileDetail.receive_date)}</p>
+            <div className="px-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <p className="font-bold text-slate-900 dark:text-slate-50 text-base leading-tight">{mobileDetail.drug_name}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{mobileDetail.drug_code} · {fmtDate(mobileDetail.receive_date)}</p>
               {mobileDetail.supplier_changed && mobileDetail.supplier_changed !== '-' && (
-                <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-orange-100 text-orange-700 border border-orange-200">
+                <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-900/60">
                   <ArrowLeftRight size={11}/> เปลี่ยนบริษัท{mobileDetail.supplier_prev && mobileDetail.supplier_prev !== '-' ? ` (เดิม: ${mobileDetail.supplier_prev})` : ''}
                 </span>
               )}
@@ -2298,17 +2298,17 @@ function ReceiveView({ auth = {} }) {
             <div className="overflow-y-auto px-4 py-3 space-y-3">
               {/* key stats */}
               <div className="grid grid-cols-3 gap-2">
-                <div className="bg-emerald-50 rounded-xl p-2.5 text-center">
-                  <p className="text-lg font-bold text-emerald-700">+{(mobileDetail.qty_received||0).toLocaleString()}</p>
+                <div className="bg-emerald-50 dark:bg-emerald-950/40 rounded-xl p-2.5 text-center">
+                  <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">+{(mobileDetail.qty_received||0).toLocaleString()}</p>
                   <p className="text-[10px] text-emerald-600">{mobileDetail.drug_unit || mobileDetail.unit_per_bill || '-'}</p>
                 </div>
-                <div className="bg-amber-50 rounded-xl p-2.5 text-center">
-                  <p className="text-base font-bold text-amber-700">{mobileDetail.total_price_vat != null ? Number(mobileDetail.total_price_vat).toLocaleString(undefined,{maximumFractionDigits:0}) : '-'}</p>
+                <div className="bg-amber-50 dark:bg-amber-950/40 rounded-xl p-2.5 text-center">
+                  <p className="text-base font-bold text-amber-700 dark:text-amber-300">{mobileDetail.total_price_vat != null ? Number(mobileDetail.total_price_vat).toLocaleString(undefined,{maximumFractionDigits:0}) : '-'}</p>
                   <p className="text-[10px] text-amber-600">มูลค่า (บาท)</p>
                 </div>
-                <div className="bg-slate-50 rounded-xl p-2.5 text-center">
-                  <p className="text-base font-bold text-slate-700">{mobileDetail.price_per_unit != null ? Number(mobileDetail.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</p>
-                  <p className="text-[10px] text-slate-500">ราคา/หน่วย</p>
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-2.5 text-center">
+                  <p className="text-base font-bold text-slate-700 dark:text-slate-200">{mobileDetail.price_per_unit != null ? Number(mobileDetail.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">ราคา/หน่วย</p>
                 </div>
               </div>
               {/* detail fields */}
@@ -2329,16 +2329,16 @@ function ReceiveView({ auth = {} }) {
                   ['ราคารวมภาษี/สูตร', mobileDetail.total_price_formula],
                   ['หมายเหตุหมดอายุ', mobileDetail.exp_note],
                 ].filter(([, val]) => val != null && val !== '-' && val !== '').map(([label, val]) => (
-                  <div key={label} className="flex justify-between items-start gap-2 py-1.5 border-b border-slate-100 last:border-0">
-                    <span className="text-xs text-slate-400 shrink-0">{label}</span>
-                    <span className="text-sm text-slate-800 font-medium text-right">{val}</span>
+                  <div key={label} className="flex justify-between items-start gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-0">
+                    <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0">{label}</span>
+                    <span className="text-sm text-slate-800 dark:text-slate-100 font-medium text-right">{val}</span>
                   </div>
                 ))}
               </div>
             </div>
             {/* close */}
-            <div className="px-4 py-3 border-t border-slate-100">
-              <button onClick={() => setMobileDetail(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl py-2.5 text-sm font-medium transition-colors">ปิด</button>
+            <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800">
+              <button onClick={() => setMobileDetail(null)} className="w-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl py-2.5 text-sm font-medium transition-colors">ปิด</button>
             </div>
           </div>
         </div>
@@ -2349,26 +2349,26 @@ function ReceiveView({ auth = {} }) {
         <div className="space-y-2">
           {displayRows.map(row => (
             <button key={row.id} onClick={() => setMobileDetail(row)}
-              className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 shadow-sm text-left active:bg-emerald-50 transition-colors">
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 shadow-sm text-left active:bg-emerald-50 transition-colors">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-slate-900 text-sm leading-tight truncate">{row.drug_name}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{row.drug_code} · {fmtDate(row.receive_date)}</p>
+                  <p className="font-semibold text-slate-900 dark:text-slate-50 text-sm leading-tight truncate">{row.drug_name}</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{row.drug_code} · {fmtDate(row.receive_date)}</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 font-bold px-2.5 py-0.5 text-xs tabular-nums">+{(row.qty_received||0).toLocaleString()}</span>
-                  <p className="text-[10px] text-slate-400 mt-0.5">{row.drug_unit || row.unit_per_bill || '-'}</p>
+                  <span className="inline-flex items-center rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold px-2.5 py-0.5 text-xs tabular-nums">+{(row.qty_received||0).toLocaleString()}</span>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{row.drug_unit || row.unit_per_bill || '-'}</p>
                 </div>
               </div>
               {((row.lot && row.lot !== '-') || (row.exp && row.exp !== '-')) && (
                 <div className="flex items-center gap-1.5 mt-2 text-[11px]">
-                  {row.lot && row.lot !== '-' && <span className="font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">Lot {row.lot}</span>}
-                  {row.exp && row.exp !== '-' && <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md">Exp {fmtAnyDate(row.exp)}</span>}
+                  {row.lot && row.lot !== '-' && <span className="font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md">Lot {row.lot}</span>}
+                  {row.exp && row.exp !== '-' && <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md">Exp {fmtAnyDate(row.exp)}</span>}
                 </div>
               )}
               <div className="flex items-center justify-between mt-2">
-                <span className="text-xs text-slate-500 truncate max-w-[60%]">{getDetailSupplier(row) || row.supplier_current || '-'}</span>
-                <span className="text-amber-700 font-bold text-sm">
+                <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[60%]">{getDetailSupplier(row) || row.supplier_current || '-'}</span>
+                <span className="text-amber-700 dark:text-amber-300 font-bold text-sm">
                   {row.total_price_vat != null ? Number(row.total_price_vat).toLocaleString(undefined,{maximumFractionDigits:0}) + ' ฿' : '-'}
                 </span>
               </div>
@@ -2378,23 +2378,23 @@ function ReceiveView({ auth = {} }) {
       )}
 
       {!selectedDrug && rows.length > 0 && !isMobile && (
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-260px)]">
             <table className="w-full min-w-[900px] text-sm">
               <thead className="sticky top-0 z-[5]">
-                <tr className="text-xs font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-200">
-                  <th className="px-4 py-3 text-left bg-slate-50">วันที่รับ</th>
-                  <th className="px-4 py-3 text-left bg-slate-50">ชื่อรายการยา</th>
-                  <th className="px-4 py-3 text-left bg-slate-50">ชนิดยา</th>
-                  <th className="px-4 py-3 text-right bg-slate-50">จำนวน</th>
-                  <th className="px-4 py-3 text-left bg-slate-50">หน่วย</th>
-                  <th className="px-4 py-3 text-left bg-slate-50">Lot</th>
-                  <th className="px-4 py-3 text-left bg-slate-50">Exp</th>
-                  <th className="px-4 py-3 text-right bg-slate-50">ราคา/หน่วย</th>
-                  <th className="px-4 py-3 text-right bg-slate-50">มูลค่ารวมภาษี (บาท)</th>
-                  <th className="px-4 py-3 text-left bg-slate-50">บริษัท</th>
-                  <th className="px-4 py-3 text-left bg-slate-50">เลขบิล</th>
-                  <th className="px-4 py-3 w-8 bg-slate-50"></th>
+                <tr className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide border-b border-slate-200 dark:border-slate-700">
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">วันที่รับ</th>
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">ชื่อรายการยา</th>
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">ชนิดยา</th>
+                  <th className="px-4 py-3 text-right bg-slate-50 dark:bg-slate-800">จำนวน</th>
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">หน่วย</th>
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">Lot</th>
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">Exp</th>
+                  <th className="px-4 py-3 text-right bg-slate-50 dark:bg-slate-800">ราคา/หน่วย</th>
+                  <th className="px-4 py-3 text-right bg-slate-50 dark:bg-slate-800">มูลค่ารวมภาษี (บาท)</th>
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">บริษัท</th>
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">เลขบิล</th>
+                  <th className="px-4 py-3 w-8 bg-slate-50 dark:bg-slate-800"></th>
                 </tr>
               </thead>
               <tbody>
@@ -2402,38 +2402,38 @@ function ReceiveView({ auth = {} }) {
                   <React.Fragment key={row.id}>
                     <tr
                       onClick={() => setExpanded(expanded === row.id ? null : row.id)}
-                      className={`border-b border-slate-100 cursor-pointer transition-colors ${expanded === row.id ? 'bg-emerald-50' : 'hover:bg-emerald-50/60'}`}
+                      className={`border-b border-slate-100 dark:border-slate-800 cursor-pointer transition-colors ${expanded === row.id ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'hover:bg-emerald-50 dark:hover:bg-emerald-950/50/60'}`}
                     >
-                      <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(row.receive_date)}</td>
-                      <td className="px-4 py-2.5 font-semibold text-slate-900 max-w-[220px]">
+                      <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDate(row.receive_date)}</td>
+                      <td className="px-4 py-2.5 font-semibold text-slate-900 dark:text-slate-50 max-w-[220px]">
                         <span className="block truncate">{row.drug_name}</span>
-                        <span className="text-xs text-slate-600 font-normal">{row.drug_code}</span>
+                        <span className="text-xs text-slate-600 dark:text-slate-300 font-normal">{row.drug_code}</span>
                       </td>
-                      <td className="px-4 py-2.5 text-slate-600 text-xs whitespace-nowrap">{row.drug_type || '-'}</td>
-                      <td className="px-4 py-2.5 text-emerald-800 font-bold text-right whitespace-nowrap">+{(row.qty_received || 0).toLocaleString()}</td>
-                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{row.drug_unit || row.unit_per_bill || '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{row.lot || '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>
-                      <td className="px-4 py-2.5 text-slate-800 font-medium text-right whitespace-nowrap">{row.price_per_unit != null ? Number(row.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-2.5 text-amber-800 font-bold text-right whitespace-nowrap">{row.total_price_vat != null ? Number(row.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-800 max-w-[160px] font-medium text-xs">
+                      <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300 text-xs whitespace-nowrap">{row.drug_type || '-'}</td>
+                      <td className="px-4 py-2.5 text-emerald-800 dark:text-emerald-300 font-bold text-right whitespace-nowrap">+{(row.qty_received || 0).toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap font-medium">{row.drug_unit || row.unit_per_bill || '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{row.lot || '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>
+                      <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 font-medium text-right whitespace-nowrap">{row.price_per_unit != null ? Number(row.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                      <td className="px-4 py-2.5 text-amber-800 dark:text-amber-300 font-bold text-right whitespace-nowrap">{row.total_price_vat != null ? Number(row.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 max-w-[160px] font-medium text-xs">
                         <span className="block truncate">{getDetailSupplier(row) || row.supplier_current || '-'}</span>
                         {row.supplier_changed && row.supplier_changed !== '-' && (
                           <span
                             title={row.supplier_prev && row.supplier_prev !== '-' ? `เดิม: ${row.supplier_prev}` : 'เปลี่ยนบริษัทจากเดิม'}
-                            className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-100 text-orange-700 border border-orange-200"
+                            className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-900/60"
                           >
                             <ArrowLeftRight size={10}/> เปลี่ยนบริษัท
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{row.bill_number || '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-500">
+                      <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{row.bill_number || '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">
                         {expanded === row.id ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                       </td>
                     </tr>
                     {expanded === row.id && (
-                      <tr className="bg-emerald-50/60 border-b border-emerald-100">
+                      <tr className="bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-100 dark:border-emerald-900/50">
                         <td colSpan={12} className="px-6 py-3">
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-1.5 text-sm">
                             {[
@@ -2450,8 +2450,8 @@ function ReceiveView({ auth = {} }) {
                               ['ราคารวมภาษี/สูตร',  row.total_price_formula],
                             ].map(([label, val]) => val != null && val !== '-' && val !== '' ? (
                               <div key={label}>
-                                <span className="text-slate-400 text-xs">{label}: </span>
-                                <span className={label === 'บริษัทก่อนหน้า' ? 'text-orange-700 font-medium' : 'text-slate-700 font-medium'}>{val}</span>
+                                <span className="text-slate-400 dark:text-slate-500 text-xs">{label}: </span>
+                                <span className={label === 'บริษัทก่อนหน้า' ? 'text-orange-700 dark:text-orange-300 font-medium' : 'text-slate-700 dark:text-slate-200 font-medium'}>{val}</span>
                               </div>
                             ) : null)}
                           </div>
@@ -2470,9 +2470,9 @@ function ReceiveView({ auth = {} }) {
         const totalPages = aggStats ? Math.ceil(aggStats.count / PAGE_SIZE) : null;
         return (
           <div className="flex items-center gap-3 justify-center pt-2 flex-wrap">
-            {page > 0 && <button onClick={() => setPage(p => p-1)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl px-4 py-2 text-sm shadow-sm">← ก่อนหน้า</button>}
+            {page > 0 && <button onClick={() => setPage(p => p-1)} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl px-4 py-2 text-sm shadow-sm">← ก่อนหน้า</button>}
             {aggStats && (
-              <div className="flex items-center gap-1.5 text-xs text-slate-500">
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                 <span>หน้า</span>
                 <input
                   type="number" min={1} max={totalPages || undefined}
@@ -2487,13 +2487,13 @@ function ReceiveView({ auth = {} }) {
                     const v = parseInt(e.target.value, 10);
                     if (v >= 1 && (!totalPages || v <= totalPages)) setPage(v - 1);
                   }}
-                  className="w-14 text-center border border-slate-300 rounded-lg px-1 py-1 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                  className="w-14 text-center border border-slate-300 dark:border-slate-600 rounded-lg px-1 py-1 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-400"
                 />
                 <span>/ {totalPages}</span>
-                <span className="text-slate-400 ml-1">({aggStats.count.toLocaleString()} รายการ)</span>
+                <span className="text-slate-400 dark:text-slate-500 ml-1">({aggStats.count.toLocaleString()} รายการ)</span>
               </div>
             )}
-            {rows.length === PAGE_SIZE && <button onClick={() => setPage(p => p+1)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl px-4 py-2 text-sm shadow-sm">ถัดไป →</button>}
+            {rows.length === PAGE_SIZE && <button onClick={() => setPage(p => p+1)} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl px-4 py-2 text-sm shadow-sm">ถัดไป →</button>}
           </div>
         );
       })()}
@@ -2629,29 +2629,29 @@ function ReceiveSummaryModal({ onClose }) {
 
   return (
     <div className="fixed inset-0 bg-slate-900/70 flex items-start justify-center z-50 p-3 pt-4 backdrop-blur-sm overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col mb-6">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col mb-6">
         {/* Header */}
         <div className="bg-gradient-to-r from-slate-800 to-emerald-800 p-5 flex justify-between items-center text-white rounded-t-2xl">
           <h3 className="text-xl font-bold flex items-center gap-3">
             <BarChart3 size={22} className="text-emerald-300"/> สรุปข้อมูลการรับเข้าคลัง
           </h3>
-          <button onClick={onClose} className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-xl transition-colors"><X size={20}/></button>
+          <button onClick={onClose} className="text-white/70 hover:text-white bg-white dark:bg-slate-900/10 hover:bg-white/20 p-2 rounded-xl transition-colors"><X size={20}/></button>
         </div>
 
         <div className="p-5 space-y-5">
           {/* Filters */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap items-center gap-3">
-            <span className="text-sm font-semibold text-slate-600">กรองข้อมูล:</span>
+          <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 flex flex-wrap items-center gap-3">
+            <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">กรองข้อมูล:</span>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">ตั้งแต่</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">ตั้งแต่</span>
               <ThaiDateInput value={dateFrom} onChange={setDateFrom} />
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">ถึง</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">ถึง</span>
               <ThaiDateInput value={dateTo} onChange={setDateTo} />
             </div>
             <select value={supplierFilter} onChange={e => setSupplier(e.target.value)}
-              className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400">
+              className="border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-sm text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-400">
               <option value="">ทุกบริษัท</option>
               {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -2662,27 +2662,27 @@ function ReceiveSummaryModal({ onClose }) {
               placeholder="ค้นหายา..."
               className="w-44"
               ringClass="focus:ring-emerald-400"
-              hoverClass="hover:bg-emerald-50"
+              hoverClass="hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
             />
             {(dateFrom || dateTo || supplierFilter || drugFilter) && (
               <button onClick={() => { setDateFrom(''); setDateTo(''); setSupplier(''); setDrugFilter(''); }}
-                className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1"><X size={12}/>ล้าง</button>
+                className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1"><X size={12}/>ล้าง</button>
             )}
           </div>
 
           {/* ช่วงข้อมูลจริง — ระบุว่า "ทุกช่วงเวลา" คือวันไหนถึงวันไหน */}
           {dataRange.from && dataRange.to && (
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 -mt-2 px-1 flex-wrap">
-              <CalendarDays size={13} className="text-slate-400" />
-              ช่วงข้อมูลทั้งหมดในระบบ: <span className="font-semibold text-slate-700">{dataRange.from}</span> ถึง <span className="font-semibold text-slate-700">{dataRange.to}</span>
-              <span className="text-slate-400">(ค่าในการ์ดสรุปนับจากข้อมูลทั้งหมดนี้ เว้นแต่จะกรองบริษัท/ยา)</span>
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 -mt-2 px-1 flex-wrap">
+              <CalendarDays size={13} className="text-slate-400 dark:text-slate-500" />
+              ช่วงข้อมูลทั้งหมดในระบบ: <span className="font-semibold text-slate-700 dark:text-slate-200">{dataRange.from}</span> ถึง <span className="font-semibold text-slate-700 dark:text-slate-200">{dataRange.to}</span>
+              <span className="text-slate-400 dark:text-slate-500">(ค่าในการ์ดสรุปนับจากข้อมูลทั้งหมดนี้ เว้นแต่จะกรองบริษัท/ยา)</span>
             </div>
           )}
 
           {loading ? (
-            <p className="text-center text-slate-400 py-16">กำลังโหลด...</p>
+            <p className="text-center text-slate-400 dark:text-slate-500 py-16">กำลังโหลด...</p>
           ) : !stats ? (
-            <p className="text-center text-slate-400 py-16">ไม่มีข้อมูลในช่วงที่เลือก</p>
+            <p className="text-center text-slate-400 dark:text-slate-500 py-16">ไม่มีข้อมูลในช่วงที่เลือก</p>
           ) : (
             (() => {
               const isFiltered  = !!(supplierFilter || drugFilter);
@@ -2705,33 +2705,33 @@ function ReceiveSummaryModal({ onClose }) {
               {/* KPI */}
               <div className="grid grid-cols-3 gap-3">
                 {[
-                  { label:'รายการรับทั้งหมด',   value: cardTotal != null ? cardTotal.toLocaleString() : '...', unit:`รายการ (${filterLabel})`, Icon: ClipboardList, bg:'bg-indigo-50',  bd:'border-indigo-200',  lbl:'text-indigo-600',  val:'text-indigo-900'  },
-                  { label:'จำนวนวันที่มีการรับ', value: cardDays  != null ? cardDays.toLocaleString()  : '...', unit:`วัน (${filterLabel})`,    Icon: CalendarDays,  bg:'bg-emerald-50', bd:'border-emerald-200', lbl:'text-emerald-600', val:'text-emerald-900' },
-                  { label:'มูลค่ารับรวม (บาท)',  value: cardValue != null ? cardValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:`บาท (${filterLabel})`, Icon: TrendingUp, bg:'bg-amber-50', bd:'border-amber-200', lbl:'text-amber-600', val:'text-amber-900' },
+                  { label:'รายการรับทั้งหมด',   value: cardTotal != null ? cardTotal.toLocaleString() : '...', unit:`รายการ (${filterLabel})`, Icon: ClipboardList, bg:'bg-indigo-50 dark:bg-indigo-950/40',  bd:'border-indigo-200 dark:border-indigo-900/60',  lbl:'text-indigo-600',  val:'text-indigo-900 dark:text-indigo-200'  },
+                  { label:'จำนวนวันที่มีการรับ', value: cardDays  != null ? cardDays.toLocaleString()  : '...', unit:`วัน (${filterLabel})`,    Icon: CalendarDays,  bg:'bg-emerald-50 dark:bg-emerald-950/40', bd:'border-emerald-200 dark:border-emerald-900/60', lbl:'text-emerald-600', val:'text-emerald-900 dark:text-emerald-200' },
+                  { label:'มูลค่ารับรวม (บาท)',  value: cardValue != null ? cardValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:`บาท (${filterLabel})`, Icon: TrendingUp, bg:'bg-amber-50 dark:bg-amber-950/40', bd:'border-amber-200 dark:border-amber-900/60', lbl:'text-amber-600', val:'text-amber-900 dark:text-amber-200' },
                 ].map((k,i) => (
                   <div key={i} className={`${k.bg} border ${k.bd} rounded-xl p-4 shadow-sm relative overflow-hidden`}>
                     <k.Icon size={44} className={`absolute -right-2 -bottom-2 opacity-10 ${k.lbl}`} />
                     <div className={`text-xs font-bold uppercase tracking-wide ${k.lbl} mb-1 flex items-center gap-1.5`}><k.Icon size={13}/>{k.label}</div>
                     <div className={`text-2xl font-black ${k.val} relative z-10`}>{k.value}</div>
-                    <div className="text-xs text-slate-500">{k.unit}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">{k.unit}</div>
                   </div>
                 ))}
               </div>
 
               {/* สรุปอัตโนมัติ — อ่านประเด็นสำคัญได้ทันที */}
-              <div className="bg-gradient-to-r from-slate-50 to-emerald-50/50 border border-slate-200 rounded-xl p-4">
+              <div className="bg-gradient-to-r from-slate-50 dark:from-slate-900 to-emerald-50 dark:to-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
                 <div className="flex items-start gap-2.5">
                   <Info size={18} className="text-emerald-600 shrink-0 mt-0.5" />
-                  <div className="text-sm text-slate-700 leading-relaxed">
-                    <span className="font-semibold text-slate-800">สรุป:</span>{' '}
+                  <div className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
+                    <span className="font-semibold text-slate-800 dark:text-slate-100">สรุป:</span>{' '}
                     ในช่วง <span className="font-semibold">{periodLabel}</span> รับเข้า{' '}
-                    <span className="font-bold text-indigo-700">{stats.total.toLocaleString()}</span> รายการ มูลค่ารวม{' '}
-                    <span className="font-bold text-amber-700">{stats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</span> บาท
+                    <span className="font-bold text-indigo-700 dark:text-indigo-300">{stats.total.toLocaleString()}</span> รายการ มูลค่ารวม{' '}
+                    <span className="font-bold text-amber-700 dark:text-amber-300">{stats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</span> บาท
                     {stats.uniqueDays > 0 && <> (เฉลี่ย <span className="font-semibold">{avgPerDay.toLocaleString()}</span> บาท/วันที่มีการรับ)</>}
-                    {topSup && <> · บริษัทที่ซื้อมากสุดคือ <span className="font-semibold text-emerald-800">{topSup[0]}</span> คิดเป็น <span className="font-bold">{topShPct}%</span> ของมูลค่า</>}
+                    {topSup && <> · บริษัทที่ซื้อมากสุดคือ <span className="font-semibold text-emerald-800 dark:text-emerald-300">{topSup[0]}</span> คิดเป็น <span className="font-bold">{topShPct}%</span> ของมูลค่า</>}
                     {topValDrug && <> · ยาที่ใช้งบรับเข้าสูงสุดคือ <span className="font-semibold">{topValDrug[0]}</span></>}
                     {concentRisk && (
-                      <span className="inline-flex items-center gap-1 ml-1 text-xs font-bold text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full align-middle">
+                      <span className="inline-flex items-center gap-1 ml-1 text-xs font-bold text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 px-2 py-0.5 rounded-full align-middle">
                         <AlertCircle size={12}/> พึ่งพาบริษัทเดียวเกิน 40% ควรกระจายแหล่งซื้อ
                       </span>
                     )}
@@ -2747,17 +2747,17 @@ function ReceiveSummaryModal({ onClose }) {
                   caption="% ของมูลค่ารวมที่ซื้อจากแต่ละบริษัท — เตือนความเสี่ยงพึ่งพาแหล่งเดียว (single-source) สีแดง ≥40% = เสี่ยงสูง" />
               </div>
               {/* Drug comparison — frequency vs value/tx */}
-              <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-                <h4 className="font-bold text-slate-700 mb-1 flex items-center gap-2">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
+                <h4 className="font-bold text-slate-700 dark:text-slate-200 mb-1 flex items-center gap-2">
                   <BarChart3 size={16} className="text-emerald-500"/> ยาที่รับเข้าบ่อยและมูลค่าต่อครั้ง
                 </h4>
-                <p className="text-[11px] text-slate-400 mb-2 leading-snug">
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-2 leading-snug">
                   เทียบ "ความถี่การรับเข้า" (แท่งม่วง = จำนวนวันที่รับ) กับ "มูลค่ารวม" (แท่งเหลือง) ของยาแต่ละตัว —
                   รับบ่อยแต่มูลค่าต่ำ = ของใช้ประจำ · รับน้อยแต่มูลค่าสูง = ยาราคาแพง ควรคุมสต็อกใกล้ชิด
                 </p>
-                <div className="flex gap-5 mb-4 pt-2 border-b border-slate-100 pb-3">
-                  <span className="flex items-center gap-1.5 text-xs text-slate-500"><span className="inline-block w-3 h-3 rounded-full bg-indigo-400"/>&nbsp;จำนวนครั้งที่รับ (วัน)</span>
-                  <span className="flex items-center gap-1.5 text-xs text-slate-500"><span className="inline-block w-3 h-3 rounded-full bg-amber-400"/>&nbsp;มูลค่ารับเข้ารวม (บาท)</span>
+                <div className="flex gap-5 mb-4 pt-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <span className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400"><span className="inline-block w-3 h-3 rounded-full bg-indigo-400"/>&nbsp;จำนวนครั้งที่รับ (วัน)</span>
+                  <span className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400"><span className="inline-block w-3 h-3 rounded-full bg-amber-400"/>&nbsp;มูลค่ารับเข้ารวม (บาท)</span>
                 </div>
                 {(() => {
                   const freqMap  = stats.drugFreqMap;   // map เต็ม — ค่าจริงของยาทุกตัว
@@ -2772,24 +2772,24 @@ function ReceiveSummaryModal({ onClose }) {
                         const freq  = freqMap[name]  || 0;
                         const valTx = valTxMap[name] || 0;
                         return (
-                          <div key={i} className="flex items-center gap-3 hover:bg-slate-50 rounded-lg px-1 py-0.5 transition-colors">
-                            <span className={`text-xs font-black w-5 text-center shrink-0 ${i === 0 ? 'text-amber-500' : i === 1 ? 'text-slate-400' : i === 2 ? 'text-orange-400' : 'text-slate-300'}`}>
+                          <div key={i} className="flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg px-1 py-0.5 transition-colors">
+                            <span className={`text-xs font-black w-5 text-center shrink-0 ${i === 0 ? 'text-amber-500' : i === 1 ? 'text-slate-400 dark:text-slate-500' : i === 2 ? 'text-orange-400' : 'text-slate-300 dark:text-slate-500'}`}>
                               {i + 1}
                             </span>
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold text-slate-700 truncate mb-1">{name}</p>
+                              <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate mb-1">{name}</p>
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2">
-                                  <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                  <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
                                     <div className="bg-indigo-400 h-1.5 rounded-full" style={{width:`${(freq/maxFreq)*100}%`}}/>
                                   </div>
-                                  <span className="text-xs font-bold text-indigo-700 w-16 text-right shrink-0">{freq} ครั้ง</span>
+                                  <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300 w-16 text-right shrink-0">{freq} ครั้ง</span>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                  <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
                                     <div className="bg-amber-400 h-1.5 rounded-full" style={{width:`${(valTx/maxValTx)*100}%`}}/>
                                   </div>
-                                  <span className="text-xs font-bold text-amber-700 w-20 text-right shrink-0">{Number(valTx).toLocaleString(undefined,{maximumFractionDigits:0})} ฿</span>
+                                  <span className="text-xs font-bold text-amber-700 dark:text-amber-300 w-20 text-right shrink-0">{Number(valTx).toLocaleString(undefined,{maximumFractionDigits:0})} ฿</span>
                                 </div>
                               </div>
                             </div>
@@ -2805,7 +2805,7 @@ function ReceiveSummaryModal({ onClose }) {
           )}
         </div>
 
-        <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end rounded-b-2xl">
+        <div className="bg-slate-50 dark:bg-slate-800 p-4 border-t border-slate-200 dark:border-slate-700 flex justify-end rounded-b-2xl">
           <button onClick={onClose} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-medium transition-colors shadow-sm">ปิด</button>
         </div>
       </div>
@@ -2828,21 +2828,21 @@ function BarSection({ title, items, barColor, unit, shareMode = false, caption }
     return 'bg-emerald-400';
   };
   const shareBadge = (pct, gpo) => {
-    if (gpo) return <span className="ml-1 text-[10px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-full shrink-0">รัฐ</span>;
-    if (pct >= 40) return <span className="ml-1 text-[10px] font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full shrink-0">เสี่ยงสูง</span>;
-    if (pct >= 20) return <span className="ml-1 text-[10px] font-bold text-orange-600 bg-orange-100 px-1.5 py-0.5 rounded-full shrink-0">ระวัง</span>;
+    if (gpo) return <span className="ml-1 text-[10px] font-bold text-blue-600 bg-blue-100 dark:bg-blue-950/60 px-1.5 py-0.5 rounded-full shrink-0">รัฐ</span>;
+    if (pct >= 40) return <span className="ml-1 text-[10px] font-bold text-red-600 bg-red-100 dark:bg-red-950/60 px-1.5 py-0.5 rounded-full shrink-0">เสี่ยงสูง</span>;
+    if (pct >= 20) return <span className="ml-1 text-[10px] font-bold text-orange-600 bg-orange-100 dark:bg-orange-950/60 px-1.5 py-0.5 rounded-full shrink-0">ระวัง</span>;
     return null;
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-      <h4 className="font-bold text-slate-700 flex items-center gap-2">
-        <BarChart3 size={16} className="text-slate-400"/> {title}
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
+      <h4 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+        <BarChart3 size={16} className="text-slate-400 dark:text-slate-500"/> {title}
       </h4>
-      {caption && <p className="text-[11px] text-slate-400 mt-0.5 mb-2 leading-snug">{caption}</p>}
-      <div className={caption ? 'border-b border-slate-100 mb-3' : 'border-b border-slate-100 mb-3 mt-3'} />
+      {caption && <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 mb-2 leading-snug">{caption}</p>}
+      <div className={caption ? 'border-b border-slate-100 dark:border-slate-800 mb-3' : 'border-b border-slate-100 dark:border-slate-800 mb-3 mt-3'} />
       {shareMode && (
-        <p className="text-[11px] text-slate-400 mb-3">
+        <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-3">
           <span className="inline-block w-2 h-2 rounded-full bg-blue-400 mr-1"/>รัฐ (ยกเว้นประเมิน) &nbsp;
           <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1"/>≥40% เสี่ยงสูง &nbsp;
           <span className="inline-block w-2 h-2 rounded-full bg-orange-400 mr-1"/>≥20% ระวัง &nbsp;
@@ -2852,16 +2852,16 @@ function BarSection({ title, items, barColor, unit, shareMode = false, caption }
       <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
         {items.map(([name, val, gpo], i) => (
           <div key={i}>
-            <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1 gap-1">
+            <div className="flex justify-between text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 gap-1">
               <span className="truncate">{name}</span>
               <div className="flex items-center shrink-0">
-                <span className="font-bold text-slate-700">
+                <span className="font-bold text-slate-700 dark:text-slate-200">
                   {shareMode ? `${val}%` : Number(val).toLocaleString(undefined,{maximumFractionDigits:0}) + ' ' + unit}
                 </span>
                 {shareMode && shareBadge(val, gpo)}
               </div>
             </div>
-            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
               <div
                 className={`${shareMode ? shareBarColor(val, gpo) : barColor} h-2 rounded-full transition-all`}
                 style={{ width:`${shareMode ? val : (val/max)*100}%` }}
@@ -2878,11 +2878,11 @@ function BarSection({ title, items, barColor, unit, shareMode = false, caption }
 // AP Workflow — ติดตาม + ส่งบัญชี (Weekly Batch)
 // ============================================================
 const AP_STAGE_LABEL = {
-  null:           { label: 'รอจัดซื้อรับเอกสาร',  bg: 'bg-amber-100',  text: 'text-amber-700',  dot: 'bg-amber-500' },
-  acked:          { label: 'จัดซื้อรับเอกสารแล้ว', bg: 'bg-sky-100',    text: 'text-sky-700',    dot: 'bg-sky-500' },
-  inspected:      { label: 'รอนำส่งบัญชี',   bg: 'bg-orange-100', text: 'text-orange-700', dot: 'bg-orange-500' },
-  sent_batch:     { label: 'นำส่งบัญชีแล้ว (รอตั้งหนี้)', bg: 'bg-indigo-100', text: 'text-indigo-700', dot: 'bg-indigo-500' },
-  posted:         { label: 'ตั้งหนี้แล้ว',  bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500' },
+  null:           { label: 'รอจัดซื้อรับเอกสาร',  bg: 'bg-amber-100 dark:bg-amber-950/60',  text: 'text-amber-700 dark:text-amber-300',  dot: 'bg-amber-500' },
+  acked:          { label: 'จัดซื้อรับเอกสารแล้ว', bg: 'bg-sky-100 dark:bg-sky-950/60',    text: 'text-sky-700 dark:text-sky-300',    dot: 'bg-sky-500' },
+  inspected:      { label: 'รอนำส่งบัญชี',   bg: 'bg-orange-100 dark:bg-orange-950/60', text: 'text-orange-700 dark:text-orange-300', dot: 'bg-orange-500' },
+  sent_batch:     { label: 'นำส่งบัญชีแล้ว (รอตั้งหนี้)', bg: 'bg-indigo-100 dark:bg-indigo-950/60', text: 'text-indigo-700 dark:text-indigo-300', dot: 'bg-indigo-500' },
+  posted:         { label: 'ตั้งหนี้แล้ว',  bg: 'bg-emerald-100 dark:bg-emerald-950/60', text: 'text-emerald-700 dark:text-emerald-300', dot: 'bg-emerald-500' },
 };
 
 function daysSince(iso) {
@@ -3186,57 +3186,57 @@ function InspectChecklistModal({ bills, defaultInspector, onConfirm, onClose, bu
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-xl" onClick={e => e.stopPropagation()}>
-        <div className="sticky top-0 flex items-center justify-between border-b bg-white px-5 py-3.5">
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 shadow-xl" onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 flex items-center justify-between border-b bg-white dark:bg-slate-900 px-5 py-3.5">
           <div className="flex items-center gap-2">
             <CheckCircle2 size={18} className="text-orange-500" />
-            <h3 className="text-base font-bold text-slate-800">ยืนยันการตรวจรับยา</h3>
+            <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">ยืนยันการตรวจรับยา</h3>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X size={18} /></button>
+          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={18} /></button>
         </div>
 
         <div className="space-y-4 px-5 py-4">
-          <p className="rounded-lg bg-orange-50 px-3 py-2 text-xs text-orange-700">
+          <p className="rounded-lg bg-orange-50 dark:bg-orange-950/40 px-3 py-2 text-xs text-orange-700 dark:text-orange-300">
             กำลังตรวจรับ <b>{billCount} บิล</b> ({itemCount} รายการ) — ติ๊กยืนยันครบทุกข้อ + แนบรูป ถึงจะบันทึกได้
           </p>
 
           {/* Checklist */}
           <div className="space-y-2">
             {INSPECT_CHECKLIST.map(c => (
-              <label key={c.key} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50">
+              <label key={c.key} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800">
                 <input
                   type="checkbox"
                   checked={!!checks[c.key]}
                   onChange={e => setChecks(cur => ({ ...cur, [c.key]: e.target.checked }))}
-                  className="h-4 w-4 rounded border-slate-300 text-orange-500 focus:ring-orange-400"
+                  className="h-4 w-4 rounded border-slate-300 dark:border-slate-600 text-orange-500 focus:ring-orange-400"
                 />
-                <span className="text-sm text-slate-700">{c.label}</span>
+                <span className="text-sm text-slate-700 dark:text-slate-200">{c.label}</span>
               </label>
             ))}
           </div>
 
           {/* ชื่อกรรมการตรวจรับ */}
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">กรรมการตรวจรับ (ไม่กรอกก็ได้ — เซ็นเอง)</label>
+            <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">กรรมการตรวจรับ (ไม่กรอกก็ได้ — เซ็นเอง)</label>
             <input
               value={inspector}
               onChange={e => setInspector(e.target.value)}
               placeholder="ชื่อกรรมการตรวจรับ"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-400"
+              className="w-full rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-400"
             />
           </div>
 
           {/* รูปตรวจรับ */}
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">
+            <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
               รูปการตรวจรับ <span className="text-red-500">*</span> (อย่างน้อย 1 รูป)
             </label>
             <div className="flex flex-wrap gap-2">
               {images.map((img, idx) => (
-                <div key={idx} className="relative h-20 w-20 overflow-hidden rounded-lg border border-slate-200">
+                <div key={idx} className="relative h-20 w-20 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
                   {img.preview
                     ? <img src={img.preview} alt="" className="h-full w-full object-cover" />
-                    : <div className="flex h-full w-full items-center justify-center bg-slate-100 text-[10px] text-slate-400">ไฟล์</div>}
+                    : <div className="flex h-full w-full items-center justify-center bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-400 dark:text-slate-500">ไฟล์</div>}
                   <button
                     onClick={() => removeImage(idx)}
                     className="absolute right-0.5 top-0.5 rounded-full bg-black/50 p-0.5 text-white hover:bg-black/70"
@@ -3245,7 +3245,7 @@ function InspectChecklistModal({ bills, defaultInspector, onConfirm, onClose, bu
               ))}
               <button
                 onClick={() => fileRef.current?.click()}
-                className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-slate-300 text-slate-400 hover:border-orange-400 hover:text-orange-500"
+                className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500 hover:border-orange-400 hover:text-orange-500"
               >
                 <ImagePlus size={20} />
                 <span className="text-[10px]">เพิ่มรูป</span>
@@ -3263,14 +3263,14 @@ function InspectChecklistModal({ bills, defaultInspector, onConfirm, onClose, bu
           </div>
 
           {localErr && (
-            <div className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
+            <div className="flex items-center gap-1.5 rounded-lg bg-red-50 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600">
               <AlertCircle size={14} /> {localErr}
             </div>
           )}
         </div>
 
-        <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t bg-white px-5 py-3">
-          <button onClick={onClose} disabled={busy} className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50">ยกเลิก</button>
+        <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t bg-white dark:bg-slate-900 px-5 py-3">
+          <button onClick={onClose} disabled={busy} className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">ยกเลิก</button>
           <button
             onClick={handleConfirm}
             disabled={!canConfirm}
@@ -3677,18 +3677,18 @@ function ApWorkflow({ auth, onBack }) {
   // ---- UI ----
   const tabBtn = (key, label, count, icon) => (
     <button key={key} onClick={() => setSubTab(key)}
-      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab === key ? 'bg-emerald-600 text-white shadow' : 'bg-white text-slate-600 hover:bg-emerald-50 border border-slate-200'}`}>
-      {icon}{label} <span className={`ml-1 px-1.5 py-0.5 rounded text-xs ${subTab === key ? 'bg-white/20' : 'bg-slate-100'}`}>{count}</span>
+      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab === key ? 'bg-emerald-600 text-white shadow' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 border border-slate-200 dark:border-slate-700'}`}>
+      {icon}{label} <span className={`ml-1 px-1.5 py-0.5 rounded text-xs ${subTab === key ? 'bg-white dark:bg-slate-900/20' : 'bg-slate-100 dark:bg-slate-800'}`}>{count}</span>
     </button>
   );
 
   return (
     <div className="p-4 max-w-7xl mx-auto">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-4">
-        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-2">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 mb-4">
+        <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-2">
           <Send size={20} className="text-emerald-600" /> ส่งบัญชีรายอาทิตย์ (AP Workflow)
         </h2>
-        <p className="text-xs text-slate-500">ตรวจรับ → ส่งบัญชี (export Excel batch) → ยืนยันบัญชี post แล้ว — track ทุก stage มี audit trail</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">ตรวจรับ → ส่งบัญชี (export Excel batch) → ยืนยันบัญชี post แล้ว — track ทุก stage มี audit trail</p>
       </div>
 
       <div className="flex flex-wrap gap-2 mb-4">
@@ -3712,29 +3712,29 @@ function ApWorkflow({ auth, onBack }) {
         />
       )}
 
-      <div className="bg-white rounded-xl border border-slate-200 p-3 mb-3 space-y-2">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 mb-3 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-            <Search size={16} className="text-slate-400"/>
+            <Search size={16} className="text-slate-400 dark:text-slate-500"/>
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาเลขบิล / ชื่อยา / บริษัท"
               className="flex-1 outline-none text-sm" />
-            {search && <button onClick={() => setSearch('')}><X size={14} className="text-slate-400"/></button>}
+            {search && <button onClick={() => setSearch('')}><X size={14} className="text-slate-400 dark:text-slate-500"/></button>}
           </div>
-          <div className="flex items-center gap-2 text-xs text-slate-600">
-            <CalendarDays size={14} className="text-slate-400"/>
+          <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <CalendarDays size={14} className="text-slate-400 dark:text-slate-500"/>
             <span>{subTab === 'history' ? 'วันที่ส่ง:' : 'วันรับ:'}</span>
             <IsoDateInput value={dateFrom} onChange={setDateFrom} className="w-28" />
             <span>ถึง</span>
             <IsoDateInput value={dateTo} onChange={setDateTo} className="w-28" />
             {(dateFrom || dateTo) && (
               <button onClick={() => { setDateFrom(''); setDateTo(''); }}
-                className="text-slate-400 hover:text-slate-600"><X size={14}/></button>
+                className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"><X size={14}/></button>
             )}
           </div>
         </div>
       </div>
 
-      {loading ? <div className="text-center text-slate-500 py-8">กำลังโหลด...</div> : (
+      {loading ? <div className="text-center text-slate-500 dark:text-slate-400 py-8">กำลังโหลด...</div> : (
         <>
           {subTab === 'pending' && (
             <PendingTab bills={filteredPending} selected={selected} toggleBill={toggleBill} toggleAll={toggleAll}
@@ -3777,20 +3777,20 @@ function InspectEvidence({ bill }) {
   const inspector = meta.inspector || bill.inspected_by || '-';
   const at = meta.at || bill.inspected_at;
   return (
-    <div className="mt-3 rounded-lg border border-emerald-200 bg-white p-3">
-      <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+    <div className="mt-3 rounded-lg border border-emerald-200 dark:border-emerald-900/60 bg-white dark:bg-slate-900 p-3">
+      <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
         <FileCheck2 size={14}/> หลักฐานการตรวจรับ
       </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600">
-        <span><span className="text-slate-400">กรรมการตรวจรับ:</span> <span className="font-medium text-slate-800">{inspector}</span></span>
-        {at && <span className="inline-flex items-center gap-1"><CalendarDays size={12} className="text-slate-400"/> {fmtDateThaiShort(at)}</span>}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600 dark:text-slate-300">
+        <span><span className="text-slate-400 dark:text-slate-500">กรรมการตรวจรับ:</span> <span className="font-medium text-slate-800 dark:text-slate-100">{inspector}</span></span>
+        {at && <span className="inline-flex items-center gap-1"><CalendarDays size={12} className="text-slate-400 dark:text-slate-500"/> {fmtDateThaiShort(at)}</span>}
       </div>
       <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
         {INSPECT_CHECKLIST.map(c => (
-          <span key={c.key} className={`inline-flex items-center gap-1 text-[11px] ${checklist[c.key] ? 'text-emerald-700' : 'text-slate-400'}`}>
+          <span key={c.key} className={`inline-flex items-center gap-1 text-[11px] ${checklist[c.key] ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-400 dark:text-slate-500'}`}>
             {checklist[c.key]
               ? <CheckCircle2 size={12} className="text-emerald-600"/>
-              : <AlertCircle size={12} className="text-slate-300"/>}
+              : <AlertCircle size={12} className="text-slate-300 dark:text-slate-500"/>}
             {c.label}
           </span>
         ))}
@@ -3799,7 +3799,7 @@ function InspectEvidence({ bill }) {
         <div className="mt-2.5 flex flex-wrap gap-2">
           {images.map((url, i) => (
             <button key={i} type="button" onClick={() => setLightbox(url)}
-              className="h-16 w-16 overflow-hidden rounded-lg border border-slate-200 hover:border-emerald-400 transition-colors">
+              className="h-16 w-16 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 hover:border-emerald-400 transition-colors">
               <img src={url} alt={`รูปตรวจรับ ${i+1}`} className="h-full w-full object-cover" loading="lazy"/>
             </button>
           ))}
@@ -3821,18 +3821,18 @@ function BillItemsDetail({ bill }) {
   const items = bill.items || [];
   const totalQty = items.reduce((s, r) => s + (parseFloat(r.qty_received) || 0), 0);
   return (
-    <div className="bg-slate-50/70 border-t-2 border-emerald-200 p-3">
-      <div className="mb-2 text-xs text-slate-600 flex items-center gap-3 flex-wrap">
-        <span><span className="text-slate-400">บิล:</span> <span className="font-semibold text-slate-800">{bill.bill_number}</span></span>
-        <span><span className="text-slate-400">บริษัท:</span> <span className="font-medium">{bill.supplier}</span></span>
-        <span><span className="text-slate-400">วันรับ:</span> {fmtDateThaiShort(bill.receive_date)}</span>
-        <span><span className="text-slate-400">รายการยา:</span> <span className="font-semibold">{bill.drug_count}</span></span>
-        <span><span className="text-slate-400">Lot รวม:</span> <span className="font-semibold">{bill.item_count}</span></span>
-        <span className="ml-auto"><span className="text-slate-400">มูลค่ารวม:</span> <span className="font-bold text-emerald-700">{fmtBahtDisplay(bill.total_value)} บาท</span></span>
+    <div className="bg-slate-50 dark:bg-slate-800/70 border-t-2 border-emerald-200 dark:border-emerald-900/60 p-3">
+      <div className="mb-2 text-xs text-slate-600 dark:text-slate-300 flex items-center gap-3 flex-wrap">
+        <span><span className="text-slate-400 dark:text-slate-500">บิล:</span> <span className="font-semibold text-slate-800 dark:text-slate-100">{bill.bill_number}</span></span>
+        <span><span className="text-slate-400 dark:text-slate-500">บริษัท:</span> <span className="font-medium">{bill.supplier}</span></span>
+        <span><span className="text-slate-400 dark:text-slate-500">วันรับ:</span> {fmtDateThaiShort(bill.receive_date)}</span>
+        <span><span className="text-slate-400 dark:text-slate-500">รายการยา:</span> <span className="font-semibold">{bill.drug_count}</span></span>
+        <span><span className="text-slate-400 dark:text-slate-500">Lot รวม:</span> <span className="font-semibold">{bill.item_count}</span></span>
+        <span className="ml-auto"><span className="text-slate-400 dark:text-slate-500">มูลค่ารวม:</span> <span className="font-bold text-emerald-700 dark:text-emerald-300">{fmtBahtDisplay(bill.total_value)} บาท</span></span>
       </div>
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+      <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
         <table className="w-full text-xs">
-          <thead className="bg-slate-100 text-slate-600">
+          <thead className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
             <tr>
               <th className="p-2 text-center w-8">#</th>
               <th className="p-2 text-left">รหัสยา</th>
@@ -3853,28 +3853,28 @@ function BillItemsDetail({ bill }) {
               const price = parseFloat(r.price_per_unit) || 0;
               const v = (r.total_price_vat != null && r.total_price_vat > 0) ? parseFloat(r.total_price_vat) : qty * price;
               return (
-                <tr key={r.id || i} className="border-t border-slate-100 hover:bg-slate-50">
-                  <td className="p-2 text-center text-slate-400">{i+1}</td>
-                  <td className="p-2 font-mono text-slate-700">{r.drug_code || '-'}</td>
-                  <td className="p-2 font-medium text-slate-800">{r.drug_name || '-'}</td>
+                <tr key={r.id || i} className="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800">
+                  <td className="p-2 text-center text-slate-400 dark:text-slate-500">{i+1}</td>
+                  <td className="p-2 font-mono text-slate-700 dark:text-slate-200">{r.drug_code || '-'}</td>
+                  <td className="p-2 font-medium text-slate-800 dark:text-slate-100">{r.drug_name || '-'}</td>
                   <td className="p-2 text-center"><DrugTypeBadge type={r.drug_type}/></td>
                   <td className="p-2 font-mono">{r.lot || '-'}</td>
-                  <td className="p-2 text-center text-slate-600">{r.exp || '-'}</td>
+                  <td className="p-2 text-center text-slate-600 dark:text-slate-300">{r.exp || '-'}</td>
                   <td className="p-2 text-right font-mono">{fmtBahtDisplay(qty)}</td>
-                  <td className="p-2 text-center text-slate-500">{r.drug_unit || '-'}</td>
-                  <td className="p-2 text-right font-mono text-slate-600">{fmtBahtDisplay(price)}</td>
-                  <td className="p-2 text-right font-mono font-semibold text-emerald-700">{fmtBahtDisplay(v)}</td>
-                  <td className="p-2 text-center text-slate-500 text-[11px]">{r.receive_status || '-'}</td>
+                  <td className="p-2 text-center text-slate-500 dark:text-slate-400">{r.drug_unit || '-'}</td>
+                  <td className="p-2 text-right font-mono text-slate-600 dark:text-slate-300">{fmtBahtDisplay(price)}</td>
+                  <td className="p-2 text-right font-mono font-semibold text-emerald-700 dark:text-emerald-300">{fmtBahtDisplay(v)}</td>
+                  <td className="p-2 text-center text-slate-500 dark:text-slate-400 text-[11px]">{r.receive_status || '-'}</td>
                 </tr>
               );
             })}
           </tbody>
           <tfoot>
-            <tr className="border-t-2 border-slate-300 bg-emerald-50">
-              <td colSpan={6} className="p-2 text-right font-semibold text-slate-700">รวม</td>
+            <tr className="border-t-2 border-slate-300 dark:border-slate-600 bg-emerald-50 dark:bg-emerald-950/40">
+              <td colSpan={6} className="p-2 text-right font-semibold text-slate-700 dark:text-slate-200">รวม</td>
               <td className="p-2 text-right font-mono font-bold">{fmtBahtDisplay(totalQty)}</td>
               <td/><td/>
-              <td className="p-2 text-right font-mono font-bold text-emerald-700">{fmtBahtDisplay(bill.total_value)}</td>
+              <td className="p-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300">{fmtBahtDisplay(bill.total_value)}</td>
               <td/>
             </tr>
           </tfoot>
@@ -3898,86 +3898,86 @@ function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, 
   const inspectedSinceFeature = bill.inspected_at && bill.inspected_at.slice(0, 10) >= INSPECT_PHOTO_SINCE;
   const missingInspectPhoto = isInspectedStage && inspectedSinceFeature && !(bill.inspect_meta?.images?.length > 0);
   return (
-    <div className={`border-b border-slate-100 last:border-b-0 ${isExpanded ? 'bg-emerald-50/40' : ''}`}>
-      <div className={`p-3 cursor-pointer hover:bg-slate-50 transition-colors ${selected ? 'bg-emerald-50/60' : ''}`}
+    <div className={`border-b border-slate-100 dark:border-slate-800 last:border-b-0 ${isExpanded ? 'bg-emerald-50 dark:bg-emerald-950/40' : ''}`}>
+      <div className={`p-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${selected ? 'bg-emerald-50 dark:bg-emerald-950/40' : ''}`}
            onClick={() => onToggleExpand(bill._key)}>
         <div className="flex items-start gap-2.5">
           {onToggleSelect && (
             <input type="checkbox" className="mt-1.5 shrink-0" onClick={e => e.stopPropagation()}
               checked={selected} onChange={() => onToggleSelect(bill._key)}/>
           )}
-          <div className="mt-0.5 shrink-0 text-slate-400">
+          <div className="mt-0.5 shrink-0 text-slate-400 dark:text-slate-500">
             {isExpanded ? <ChevronDown size={16} className="text-emerald-600"/> : <ChevronUp size={16} className="rotate-180"/>}
           </div>
           <div className="flex-1 min-w-0">
             {/* row 1: เลขบิล + รายการยา */}
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                <span className="font-bold text-slate-800 text-sm">{bill.bill_number}</span>
+                <span className="font-bold text-slate-800 dark:text-slate-100 text-sm">{bill.bill_number}</span>
                 <StageBadge stage={stage} acknowledged={bill.acknowledged_at}/>
                 {missingInspectPhoto && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700"
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 dark:bg-red-950/60 px-2 py-0.5 text-[11px] font-medium text-red-700 dark:text-red-300"
                     title="ตรวจรับแล้วแต่ไม่มีรูปหลักฐาน">
                     <AlertCircle size={12}/> ไม่มีรูปตรวจรับ
                   </span>
                 )}
               </div>
               <span className="text-emerald-600 font-bold text-sm whitespace-nowrap">
-                <span className="text-slate-400 font-normal">จำนวนรายการยา </span>{bill.drug_count} รายการ
+                <span className="text-slate-400 dark:text-slate-500 font-normal">จำนวนรายการยา </span>{bill.drug_count} รายการ
               </span>
             </div>
             {/* row 2: บริษัท · วันรับ + lot */}
-            <div className="flex items-center justify-between text-xs text-slate-500 mt-0.5 gap-2">
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mt-0.5 gap-2">
               <span className="truncate">
                 {bill.supplier}
-                <span className="text-slate-400"> · วันที่รับ: </span>{fmtDateThaiShort(bill.receive_date)}
+                <span className="text-slate-400 dark:text-slate-500"> · วันที่รับ: </span>{fmtDateThaiShort(bill.receive_date)}
               </span>
-              <span className="text-slate-400 whitespace-nowrap">{bill.item_count} lot</span>
+              <span className="text-slate-400 dark:text-slate-500 whitespace-nowrap">{bill.item_count} lot</span>
             </div>
             {/* row 3: timeline (วันที่แต่ละขั้น + ผู้รับผิดชอบ) + มูลค่า + action */}
             <div className="flex items-center justify-between mt-1.5 gap-2">
               <div className="flex items-center gap-x-3 gap-y-1 text-xs flex-wrap">
-                <span className="text-emerald-700">
-                  <span className="text-slate-400">คลังรับ:</span> {fmtDateThaiShort(bill.receive_date)}
+                <span className="text-emerald-700 dark:text-emerald-300">
+                  <span className="text-slate-400 dark:text-slate-500">คลังรับ:</span> {fmtDateThaiShort(bill.receive_date)}
                 </span>
                 {bill.acknowledged_at && (
                   <span className="text-sky-600">
-                    <span className="text-slate-400">→ จัดซื้อรับ:</span> {fmtDateThaiShort(bill.acknowledged_at.slice(0,10))}
+                    <span className="text-slate-400 dark:text-slate-500">→ จัดซื้อรับ:</span> {fmtDateThaiShort(bill.acknowledged_at.slice(0,10))}
                     {bill.acknowledged_by && ` · ${bill.acknowledged_by}`}
                   </span>
                 )}
                 {bill.inspected_at && (
-                  <span className="text-orange-700">
-                    <span className="text-slate-400">→ ตรวจรับ:</span> {fmtDateThaiShort(bill.inspected_at.slice(0,10))}
+                  <span className="text-orange-700 dark:text-orange-300">
+                    <span className="text-slate-400 dark:text-slate-500">→ ตรวจรับ:</span> {fmtDateThaiShort(bill.inspected_at.slice(0,10))}
                     {bill.inspected_by && ` · ${bill.inspected_by}`}
                   </span>
                 )}
                 {bill.ap_sent_at && (
-                  <span className="text-indigo-700">
-                    <span className="text-slate-400">→ ส่งบัญชี:</span> {fmtDateThaiShort(bill.ap_sent_at.slice(0,10))}
+                  <span className="text-indigo-700 dark:text-indigo-300">
+                    <span className="text-slate-400 dark:text-slate-500">→ ส่งบัญชี:</span> {fmtDateThaiShort(bill.ap_sent_at.slice(0,10))}
                     {bill.ap_sent_by && ` · ${bill.ap_sent_by}`}
                   </span>
                 )}
                 {bill.ap_posted_at && (
-                  <span className="text-violet-700">
-                    <span className="text-slate-400">→ ตั้งหนี้:</span> {fmtDateThaiShort(bill.ap_posted_at.slice(0,10))}
+                  <span className="text-violet-700 dark:text-violet-300">
+                    <span className="text-slate-400 dark:text-slate-500">→ ตั้งหนี้:</span> {fmtDateThaiShort(bill.ap_posted_at.slice(0,10))}
                     {bill.ap_posted_by && ` · ${bill.ap_posted_by}`}
                   </span>
                 )}
-                <span className={`font-semibold ${overdue ? 'text-red-600' : 'text-slate-500'}`}>
-                  <span className="text-slate-400 font-normal">{sentTimestamp ? '· ค้างที่บัญชี ' : '· รวม '}</span>{days} วัน
+                <span className={`font-semibold ${overdue ? 'text-red-600' : 'text-slate-500 dark:text-slate-400'}`}>
+                  <span className="text-slate-400 dark:text-slate-500 font-normal">{sentTimestamp ? '· ค้างที่บัญชี ' : '· รวม '}</span>{days} วัน
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-bold text-orange-600 font-mono text-sm">
-                  <span className="text-slate-400 font-normal font-sans">มูลค่ารวม </span>
+                  <span className="text-slate-400 dark:text-slate-500 font-normal font-sans">มูลค่ารวม </span>
                   {Number(bill.total_value || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })} บาท
                 </span>
                 {/* ปุ่มรับบิล (เฉพาะ unack) */}
                 {onAcknowledge && !stage && !bill.acknowledged_at && (
                   <button onClick={(e) => { e.stopPropagation(); onAcknowledge(bill); }}
                     disabled={busy} title="จัดซื้อรับเอกสารแล้ว"
-                    className="text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2 py-0.5 rounded inline-flex items-center gap-1 text-xs disabled:opacity-50 font-medium">
+                    className="text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 hover:bg-sky-100 dark:hover:bg-sky-950/70 border border-sky-200 dark:border-sky-900/60 px-2 py-0.5 rounded inline-flex items-center gap-1 text-xs disabled:opacity-50 font-medium">
                     <CheckCircle2 size={12}/> รับบิล
                   </button>
                 )}
@@ -3985,7 +3985,7 @@ function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, 
                 {onUnacknowledge && isAcked && (
                   <button onClick={(e) => { e.stopPropagation(); onUnacknowledge(bill); }}
                     disabled={busy} title="ย้อนเป็นรอจัดซื้อรับเอกสาร"
-                    className="text-sky-600 hover:bg-sky-50 p-1 rounded inline-flex items-center text-xs disabled:opacity-50">
+                    className="text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/50 p-1 rounded inline-flex items-center text-xs disabled:opacity-50">
                     <Undo2 size={13}/>
                   </button>
                 )}
@@ -3993,7 +3993,7 @@ function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, 
                 {onUndo && (stage === 'inspected' || stage === 'sent_batch') && (
                   <button onClick={(e) => { e.stopPropagation(); onUndo(bill); }}
                     disabled={busy} title={undoTitle || 'ย้อนกลับ'}
-                    className="text-amber-600 hover:bg-amber-50 p-1 rounded inline-flex items-center text-xs disabled:opacity-50">
+                    className="text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/50 p-1 rounded inline-flex items-center text-xs disabled:opacity-50">
                     <Undo2 size={13}/>
                   </button>
                 )}
@@ -4019,16 +4019,16 @@ function SortToolbar({ sortKey, sortDir, toggleSort, allSelected, onToggleAll, t
   ];
   const arrow = sortDir === 'asc' ? '▲' : '▼';
   return (
-    <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/60 flex items-center flex-wrap gap-1.5 text-xs">
-      <span className="text-slate-500 mr-1">เรียง:</span>
+    <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 flex items-center flex-wrap gap-1.5 text-xs">
+      <span className="text-slate-500 dark:text-slate-400 mr-1">เรียง:</span>
       {options.map(opt => (
         <button key={opt.key} onClick={() => toggleSort(opt.key)}
-          className={`px-2 py-0.5 rounded font-medium transition-colors ${sortKey === opt.key ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}>
+          className={`px-2 py-0.5 rounded font-medium transition-colors ${sortKey === opt.key ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
           {opt.label}{sortKey === opt.key && <span className="ml-1">{arrow}</span>}
         </button>
       ))}
       {!hideSelectAll && onToggleAll && (
-        <label className="ml-auto flex items-center gap-1.5 text-slate-600 cursor-pointer">
+        <label className="ml-auto flex items-center gap-1.5 text-slate-600 dark:text-slate-300 cursor-pointer">
           <input type="checkbox" checked={allSelected} onChange={onToggleAll}/>
           เลือกทั้งหมด ({totalSelected}/{totalBills})
         </label>
@@ -4042,7 +4042,7 @@ function ToastPopup({ type = 'success', message, onClose }) {
   const Icon = isError ? AlertCircle : CheckCircle2;
   return (
     <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-top duration-200">
-      <div className={`flex items-start gap-3 px-4 py-3 rounded-xl shadow-2xl border-2 max-w-md min-w-[280px] ${isError ? 'bg-red-50 border-red-300 text-red-800' : 'bg-emerald-50 border-emerald-300 text-emerald-800'}`}>
+      <div className={`flex items-start gap-3 px-4 py-3 rounded-xl shadow-2xl border-2 max-w-md min-w-[280px] ${isError ? 'bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-800/60 text-red-800 dark:text-red-300' : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300'}`}>
         <Icon size={20} className={`shrink-0 mt-0.5 ${isError ? 'text-red-600' : 'text-emerald-600'}`}/>
         <div className="flex-1 text-sm font-medium leading-relaxed whitespace-pre-line">{message}</div>
         <button onClick={onClose} className={`shrink-0 -mr-1 -mt-1 p-1 rounded hover:bg-white/40 ${isError ? 'text-red-600' : 'text-emerald-600'}`}>
@@ -4074,44 +4074,44 @@ function StagePipeline({
   onBulkUndo, undoableCount,
 }) {
   const toggleStage = (key) => setStageFilter(stageFilter === key ? 'all' : key);
-  const cardBase = 'flex flex-col min-w-[200px] flex-1 rounded-xl border-2 bg-white transition-all overflow-hidden';
-  const arrow = <ArrowRight size={18} className="text-slate-300 shrink-0 self-center"/>;
+  const cardBase = 'flex flex-col min-w-[200px] flex-1 rounded-xl border-2 bg-white dark:bg-slate-900 transition-all overflow-hidden';
+  const arrow = <ArrowRight size={18} className="text-slate-300 dark:text-slate-500 shrink-0 self-center"/>;
 
   // หัวการ์ด (คลิกเพื่อกรอง) — แสดงเลขขั้น, สถานะ, จำนวนบิลในสถานะนั้น
   const renderHead = (no, title, count, dot, active) => (
     <button onClick={() => toggleStage(active.key)}
-      className={`text-left px-3 pt-2.5 pb-2 cursor-pointer transition-colors ${stageFilter === active.key ? active.head : 'hover:bg-slate-50'}`}>
+      className={`text-left px-3 pt-2.5 pb-2 cursor-pointer transition-colors ${stageFilter === active.key ? active.head : 'hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-bold text-slate-400">ขั้น {no}</span>
+        <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500">ขั้น {no}</span>
         <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${active.pill}`}>{count} บิล</span>
       </div>
       <div className="flex items-center gap-1.5 mt-1">
         <span className={`w-2 h-2 rounded-full ${dot}`}/>
-        <span className="font-semibold text-sm text-slate-700">{title}</span>
+        <span className="font-semibold text-sm text-slate-700 dark:text-slate-200">{title}</span>
       </div>
     </button>
   );
 
   const cfg = {
-    unack:     { key: 'unack',     border: stageFilter === 'unack'     ? 'border-amber-400'  : 'border-slate-200', head: 'bg-amber-50',  pill: 'bg-amber-100 text-amber-700' },
-    acked:     { key: 'acked',     border: stageFilter === 'acked'     ? 'border-sky-400'    : 'border-slate-200', head: 'bg-sky-50',    pill: 'bg-sky-100 text-sky-700' },
-    inspected: { key: 'inspected', border: stageFilter === 'inspected' ? 'border-orange-400' : 'border-slate-200', head: 'bg-orange-50', pill: 'bg-orange-100 text-orange-700' },
+    unack:     { key: 'unack',     border: stageFilter === 'unack'     ? 'border-amber-400'  : 'border-slate-200 dark:border-slate-700', head: 'bg-amber-50 dark:bg-amber-950/40',  pill: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300' },
+    acked:     { key: 'acked',     border: stageFilter === 'acked'     ? 'border-sky-400'    : 'border-slate-200 dark:border-slate-700', head: 'bg-sky-50 dark:bg-sky-950/40',    pill: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300' },
+    inspected: { key: 'inspected', border: stageFilter === 'inspected' ? 'border-orange-400' : 'border-slate-200 dark:border-slate-700', head: 'bg-orange-50 dark:bg-orange-950/40', pill: 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300' },
   };
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <span className="text-xs text-slate-500">ลำดับงาน — คลิกการ์ดเพื่อกรองบิลตามสถานะ แล้วเลือกบิลเพื่อกดปุ่มในขั้นนั้น</span>
+        <span className="text-xs text-slate-500 dark:text-slate-400">ลำดับงาน — คลิกการ์ดเพื่อกรองบิลตามสถานะ แล้วเลือกบิลเพื่อกดปุ่มในขั้นนั้น</span>
         <div className="flex items-center gap-2">
           <button onClick={() => setStageFilter('all')}
-            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${stageFilter === 'all' ? 'bg-slate-700 text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${stageFilter === 'all' ? 'bg-slate-700 text-white shadow' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'}`}>
             ดูทั้งหมด ({stageCount.all || 0})
           </button>
           {onBulkUndo && (
             <button onClick={onBulkUndo}
               disabled={busy || undoableCount === 0}
               title={undoableCount === 0 ? 'เลือกบิลที่ ack แล้ว หรือ ตรวจรับแล้ว ก่อน' : ''}
-              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-white text-amber-700 border border-amber-300 hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60 hover:bg-amber-50 dark:hover:bg-amber-950/50 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
               <Undo2 size={12}/> ย้อนกลับ ({undoableCount})
             </button>
           )}
@@ -4122,7 +4122,7 @@ function StagePipeline({
         {/* ขั้น 1 — รอจัดซื้อรับเอกสาร: พิมพ์ใบส่งมอบเอกสาร + บันทึกจัดซื้อรับเอกสาร */}
         <div className={`${cardBase} ${cfg.unack.border}`}>
           {renderHead(1, 'รอจัดซื้อรับเอกสาร', stageCount.unack || 0, 'bg-amber-500', cfg.unack)}
-          <div className="border-t border-slate-100 p-2 space-y-1.5">
+          <div className="border-t border-slate-100 dark:border-slate-800 p-2 space-y-1.5">
             <button onClick={onExportAck} disabled={busy || !someUnackSelected}
               title={!someUnackSelected ? 'เลือกบิล "รอจัดซื้อรับเอกสาร" ก่อน' : 'พิมพ์ใบส่งมอบเอกสารให้เซ็น'}
               className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
@@ -4140,7 +4140,7 @@ function StagePipeline({
         {/* ขั้น 2 — จัดซื้อรับเอกสารแล้ว: ยืนยันตรวจรับ (เปิด checklist modal) */}
         <div className={`${cardBase} ${cfg.acked.border}`}>
           {renderHead(2, 'จัดซื้อรับเอกสารแล้ว', stageCount.acked || 0, 'bg-sky-500', cfg.acked)}
-          <div className="border-t border-slate-100 p-2 space-y-1.5">
+          <div className="border-t border-slate-100 dark:border-slate-800 p-2 space-y-1.5">
             <button onClick={onMarkInspected} disabled={busy || !someAckedSelected}
               title={!someAckedSelected ? 'ต้องบันทึกจัดซื้อรับเอกสารก่อน (กรุณาเลือกบิลที่ "จัดซื้อรับเอกสารแล้ว")' : ''}
               className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
@@ -4154,7 +4154,7 @@ function StagePipeline({
         {/* ขั้น 3 — รอนำส่งบัญชี: พิมพ์ใบนำส่ง + นำส่งบัญชี */}
         <div className={`${cardBase} ${cfg.inspected.border}`}>
           {renderHead(3, 'รอนำส่งบัญชี', stageCount.inspected || 0, 'bg-orange-500', cfg.inspected)}
-          <div className="border-t border-slate-100 p-2 space-y-1.5">
+          <div className="border-t border-slate-100 dark:border-slate-800 p-2 space-y-1.5">
             <button onClick={onExportSend} disabled={busy || !someInspectedSelected}
               className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
               <Printer size={15}/> พิมพ์ใบนำส่ง & นำส่งบัญชี ({selInspected})
@@ -4165,10 +4165,10 @@ function StagePipeline({
         {arrow}
 
         {/* ปลายทาง — นำส่งบัญชีแล้ว (ดูที่แท็บถัดไป) */}
-        <div className="flex flex-col items-center justify-center min-w-[140px] flex-1 rounded-xl border-2 border-dashed border-slate-200 p-3 text-center bg-slate-50/50">
-          <FileCheck2 size={20} className="text-slate-300 mb-1"/>
-          <span className="font-semibold text-sm text-slate-400">นำส่งบัญชีแล้ว</span>
-          <span className="text-[11px] text-slate-400 mt-0.5">ดูที่แท็บ “นำส่งบัญชีแล้ว”</span>
+        <div className="flex flex-col items-center justify-center min-w-[140px] flex-1 rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700 p-3 text-center bg-slate-50 dark:bg-slate-800/50">
+          <FileCheck2 size={20} className="text-slate-300 dark:text-slate-500 mb-1"/>
+          <span className="font-semibold text-sm text-slate-400 dark:text-slate-500">นำส่งบัญชีแล้ว</span>
+          <span className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">ดูที่แท็บ “นำส่งบัญชีแล้ว”</span>
         </div>
       </div>
     </div>
@@ -4187,8 +4187,8 @@ function PendingTab({ bills, selected, toggleBill, toggleAll, stageFilter, setSt
   const selInspected = bills.filter(b => b.ap_stage === 'inspected' && selected.has(b._key)).length;
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <div className="p-3 border-b border-slate-100 bg-slate-50 space-y-3">
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <div className="p-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 space-y-3">
         {/* Pipeline ขั้นตอนงาน — สถานะ + จำนวน + ปุ่ม action ของแต่ละขั้นรวมเป็นการ์ดเดียว */}
         <StagePipeline
           stageFilter={stageFilter} setStageFilter={setStageFilter} stageCount={stageCount}
@@ -4200,7 +4200,7 @@ function PendingTab({ bills, selected, toggleBill, toggleAll, stageFilter, setSt
           onBulkUndo={onBulkUndo} undoableCount={undoableCount} />
       </div>
       {bills.length === 0 ? (
-        <div className="text-center text-slate-400 py-12 text-sm">ไม่มีบิลรอตรวจรับ/ส่งบัญชี</div>
+        <div className="text-center text-slate-400 dark:text-slate-500 py-12 text-sm">ไม่มีบิลรอตรวจรับ/ส่งบัญชี</div>
       ) : (
         <>
           <SortToolbar sortKey={sortKey} sortDir={sortDir} toggleSort={toggleSort}
@@ -4234,15 +4234,15 @@ function SentTab({ bills, selected, toggleBill, toggleAll, accountant, setAccoun
 
   return (
     <div>
-      <div className="bg-white rounded-xl border border-slate-200 p-3 mb-3 flex flex-wrap items-center gap-2">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 mb-3 flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1.5">
-          <span className="text-xs text-slate-500 whitespace-nowrap">จนท.บัญชี:</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">จนท.บัญชี:</span>
           <input value={accountant} onChange={e => setAccountant(e.target.value)}
             placeholder=""
-            className="px-2 py-1 border border-slate-300 rounded text-sm w-52"/>
+            className="px-2 py-1 border border-slate-300 dark:border-slate-600 rounded text-sm w-52"/>
         </div>
         <button onClick={() => toggleAll(bills)} disabled={bills.length === 0}
-          className="px-3 py-1.5 rounded-lg text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-40">
+          className="px-3 py-1.5 rounded-lg text-sm bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 disabled:opacity-40">
           {allSelected ? 'ยกเลิกเลือกทั้งหมด' : 'เลือกทั้งหมด'} ({selected.size}/{bills.length})
         </button>
         <button onClick={() => onMarkPosted()} disabled={busy || selected.size === 0}
@@ -4252,16 +4252,16 @@ function SentTab({ bills, selected, toggleBill, toggleAll, accountant, setAccoun
       </div>
 
       {batchKeys.length === 0 ? (
-        <div className="bg-white rounded-xl border border-slate-200 text-center text-slate-400 py-12 text-sm">ไม่มีบิลรอ post</div>
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 text-center text-slate-400 dark:text-slate-500 py-12 text-sm">ไม่มีบิลรอ post</div>
       ) : (
         <>
-          <div className="bg-white rounded-xl border border-slate-200 mb-3">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 mb-3">
             <SortToolbar sortKey={sortKey} sortDir={sortDir} toggleSort={toggleSort} hideSelectAll/>
           </div>
           {batchKeys.map(bk => (
-            <div key={bk} className="bg-white rounded-xl border border-slate-200 overflow-hidden mb-3">
-              <div className="p-2 bg-sky-50 border-b border-sky-100 flex items-center justify-between">
-                <div className="text-sm font-medium text-sky-800">Batch: {bk}  <span className="text-xs text-slate-500">({byBatch[bk].length} บิล)</span></div>
+            <div key={bk} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden mb-3">
+              <div className="p-2 bg-sky-50 dark:bg-sky-950/40 border-b border-sky-100 dark:border-sky-900/50 flex items-center justify-between">
+                <div className="text-sm font-medium text-sky-800 dark:text-sky-300">Batch: {bk}  <span className="text-xs text-slate-500 dark:text-slate-400">({byBatch[bk].length} บิล)</span></div>
                 <button onClick={() => onMarkPosted(byBatch[bk])}
                   disabled={busy}
                   className="text-xs px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
@@ -4315,8 +4315,8 @@ function HistoryTab({ batches, busy, search = '', onReExport, onUnpost, onResetB
     return bills.some(bill => billMatchesQuery(bill, q));
   });
 
-  if (batches.length === 0) return <div className="bg-white rounded-xl border border-slate-200 text-center text-slate-400 py-12 text-sm">ไม่มี batch ตรงเงื่อนไข — ลองล้างตัวกรองวันที่ส่ง หรือไปแท็บ "รอนำส่งบัญชี" เพื่อสร้าง batch แรก</div>;
-  if (visibleBatches.length === 0) return <div className="bg-white rounded-xl border border-slate-200 text-center text-slate-400 py-12 text-sm">ไม่พบบิล/บริษัท ที่ตรงกับคำค้น "{q}"</div>;
+  if (batches.length === 0) return <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 text-center text-slate-400 dark:text-slate-500 py-12 text-sm">ไม่มี batch ตรงเงื่อนไข — ลองล้างตัวกรองวันที่ส่ง หรือไปแท็บ "รอนำส่งบัญชี" เพื่อสร้าง batch แรก</div>;
+  if (visibleBatches.length === 0) return <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 text-center text-slate-400 dark:text-slate-500 py-12 text-sm">ไม่พบบิล/บริษัท ที่ตรงกับคำค้น "{q}"</div>;
 
   async function toggleExpand(batchId) {
     if (expandedBatch === batchId) { setExpandedBatch(null); return; }
@@ -4331,9 +4331,9 @@ function HistoryTab({ batches, busy, search = '', onReExport, onUnpost, onResetB
   }
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
       <table className="w-full text-sm">
-        <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
+        <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs uppercase">
           <tr>
             <th className="p-2 text-left">Batch ID</th>
             <th className="p-2 text-left">ส่งโดย</th>
@@ -4350,16 +4350,16 @@ function HistoryTab({ batches, busy, search = '', onReExport, onUnpost, onResetB
             const isExpanded = expandedBatch === b.batch_id || (!!q && !!batchBills[b.batch_id]); // auto-expand เมื่อ search
             return (
               <React.Fragment key={b.batch_id}>
-                <tr className={`border-t border-slate-100 hover:bg-slate-50 cursor-pointer ${isExpanded ? 'bg-emerald-50/60' : ''}`}
+                <tr className={`border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer ${isExpanded ? 'bg-emerald-50 dark:bg-emerald-950/40' : ''}`}
                     onClick={() => toggleExpand(b.batch_id)}>
-                  <td className="p-2 font-mono font-medium text-slate-800">
+                  <td className="p-2 font-mono font-medium text-slate-800 dark:text-slate-100">
                     <span className="inline-flex items-center gap-1">
-                      {isExpanded ? <ChevronDown size={14} className="text-emerald-600"/> : <ChevronUp size={14} className="text-slate-400 rotate-180"/>}
+                      {isExpanded ? <ChevronDown size={14} className="text-emerald-600"/> : <ChevronUp size={14} className="text-slate-400 dark:text-slate-500 rotate-180"/>}
                       {b.batch_id}
                     </span>
                   </td>
-                  <td className="p-2 text-slate-600">{b.sent_by || '-'}</td>
-                  <td className="p-2 text-center text-slate-600">{fmtDateThaiShort(b.sent_at?.slice(0,10))}</td>
+                  <td className="p-2 text-slate-600 dark:text-slate-300">{b.sent_by || '-'}</td>
+                  <td className="p-2 text-center text-slate-600 dark:text-slate-300">{fmtDateThaiShort(b.sent_at?.slice(0,10))}</td>
                   <td className="p-2 text-center">{b.bill_count}</td>
                   <td className="p-2 text-center">
                     <span className={done ? 'text-emerald-600 font-semibold' : 'text-sky-600'}>{b.posted_count}/{b.bill_count}</span>
@@ -4368,30 +4368,30 @@ function HistoryTab({ batches, busy, search = '', onReExport, onUnpost, onResetB
                   <td className="p-2 text-center" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-center gap-1 flex-wrap">
                       <button onClick={() => onReExport(b)} disabled={busy}
-                        className="px-2 py-1 rounded text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1 disabled:opacity-50">
+                        className="px-2 py-1 rounded text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 flex items-center gap-1 disabled:opacity-50">
                         <Printer size={12}/> พิมพ์ซ้ำ
                       </button>
                       <button onClick={() => onResetBatch(b)} disabled={busy}
                         title={`Reset batch — ทุกบิล (${b.bill_count} บิล) จะกลับเป็น "รอนำส่งบัญชี"`}
-                        className="px-2 py-1 rounded text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 flex items-center gap-1 disabled:opacity-50">
+                        className="px-2 py-1 rounded text-xs bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/70 text-amber-700 dark:text-amber-300 flex items-center gap-1 disabled:opacity-50">
                         <Undo2 size={12}/> Reset
                       </button>
                     </div>
                   </td>
                 </tr>
                 {isExpanded && (
-                  <tr className="bg-slate-50/70 border-t-2 border-emerald-200">
+                  <tr className="bg-slate-50 dark:bg-slate-800/70 border-t-2 border-emerald-200 dark:border-emerald-900/60">
                     <td colSpan={7} className="p-3">
-                      <div className="mb-2 text-xs text-slate-600 flex items-center gap-3 flex-wrap">
-                        <span><span className="text-slate-400">Batch:</span> <span className="font-semibold">{b.batch_id}</span></span>
-                        <span><span className="text-slate-400">บิลทั้งหมด:</span> <span className="font-semibold">{b.bill_count}</span></span>
-                        <span><span className="text-slate-400">Post แล้ว:</span> <span className={done ? 'text-emerald-600 font-semibold' : 'text-sky-600 font-semibold'}>{b.posted_count}/{b.bill_count}</span></span>
-                        <span className="ml-auto"><span className="text-slate-400">มูลค่ารวม:</span> <span className="font-bold text-emerald-700">{fmtBahtDisplay(b.total_value)} บาท</span></span>
+                      <div className="mb-2 text-xs text-slate-600 dark:text-slate-300 flex items-center gap-3 flex-wrap">
+                        <span><span className="text-slate-400 dark:text-slate-500">Batch:</span> <span className="font-semibold">{b.batch_id}</span></span>
+                        <span><span className="text-slate-400 dark:text-slate-500">บิลทั้งหมด:</span> <span className="font-semibold">{b.bill_count}</span></span>
+                        <span><span className="text-slate-400 dark:text-slate-500">Post แล้ว:</span> <span className={done ? 'text-emerald-600 font-semibold' : 'text-sky-600 font-semibold'}>{b.posted_count}/{b.bill_count}</span></span>
+                        <span className="ml-auto"><span className="text-slate-400 dark:text-slate-500">มูลค่ารวม:</span> <span className="font-bold text-emerald-700 dark:text-emerald-300">{fmtBahtDisplay(b.total_value)} บาท</span></span>
                       </div>
                       {loadingBatch === b.batch_id ? (
-                        <div className="text-center text-slate-400 py-4 text-sm">กำลังโหลด...</div>
+                        <div className="text-center text-slate-400 dark:text-slate-500 py-4 text-sm">กำลังโหลด...</div>
                       ) : !batchBills[b.batch_id] || batchBills[b.batch_id].length === 0 ? (
-                        <div className="text-center text-slate-400 py-4 text-sm">ไม่พบรายการ</div>
+                        <div className="text-center text-slate-400 dark:text-slate-500 py-4 text-sm">ไม่พบรายการ</div>
                       ) : (
                         <BatchBillsList bills={batchBills[b.batch_id]} search={q} />
                       )}
@@ -4412,10 +4412,10 @@ function BatchBillsList({ bills, search = '' }) {
   const q = search.trim().toLowerCase();
   const filteredBills = !q ? bills : bills.filter(b => billMatchesQuery(b, q));
   if (filteredBills.length === 0) {
-    return <div className="text-center text-slate-400 py-3 text-xs italic">— ไม่มีบิลที่ตรงกับคำค้น "{q}" ใน batch นี้ —</div>;
+    return <div className="text-center text-slate-400 dark:text-slate-500 py-3 text-xs italic">— ไม่มีบิลที่ตรงกับคำค้น "{q}" ใน batch นี้ —</div>;
   }
   return (
-    <div className="rounded-lg border border-slate-200 bg-white">
+    <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
       {filteredBills.map(b => (
         <BillCard key={b._key} bill={b}
           isExpanded={expandedBill === b._key}

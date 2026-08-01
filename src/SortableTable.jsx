@@ -38,7 +38,7 @@ export function useSort(rows, { key = null, dir = 'asc', numericKeys = [], acces
 //   sortKey  = key ของคอลัมน์ (ต้องตรงกับที่ใช้ใน useSort/accessor)
 //   sort, onSort = จาก useSort
 //   align    = 'left' | 'right' | 'center' (default 'left')
-//   className = คลาสของ <th> (คุมสีธีมต่อ sub-app — เช่น 'bg-slate-50')
+//   className = คลาสของ <th> (คุมสีธีมต่อ sub-app — เช่น 'bg-slate-50 dark:bg-slate-800')
 //   activeColor = คลาสสีไอคอนตอน active (default 'text-indigo-500')
 export function SortableTh({ sortKey, label, sort, onSort, align = 'left', className = '', activeColor = 'text-indigo-500', children }) {
   const active = sort.key === sortKey;

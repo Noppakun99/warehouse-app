@@ -42,19 +42,19 @@ const STATUS_META = {
 };
 
 const TONE_CLASSES = {
-  rose:    { chip: 'bg-rose-50 text-rose-700 border-rose-200',     bar: 'bg-rose-500',    text: 'text-rose-700' },
-  amber:   { chip: 'bg-amber-50 text-amber-700 border-amber-200',  bar: 'bg-amber-500',   text: 'text-amber-700' },
-  orange:  { chip: 'bg-orange-50 text-orange-700 border-orange-200',bar: 'bg-orange-500', text: 'text-orange-700' },
-  emerald: { chip: 'bg-emerald-50 text-emerald-700 border-emerald-200',bar:'bg-emerald-500',text:'text-emerald-700' },
-  sky:     { chip: 'bg-sky-50 text-sky-700 border-sky-200',        bar: 'bg-sky-500',     text: 'text-sky-700' },
-  slate:   { chip: 'bg-slate-100 text-slate-600 border-slate-200', bar: 'bg-slate-400',   text: 'text-slate-600' },
+  rose:    { chip: 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60',     bar: 'bg-rose-500',    text: 'text-rose-700 dark:text-rose-300' },
+  amber:   { chip: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900/60',  bar: 'bg-amber-500',   text: 'text-amber-700 dark:text-amber-300' },
+  orange:  { chip: 'bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-900/60',bar: 'bg-orange-500', text: 'text-orange-700 dark:text-orange-300' },
+  emerald: { chip: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60',bar:'bg-emerald-500',text:'text-emerald-700 dark:text-emerald-300' },
+  sky:     { chip: 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-900/60',        bar: 'bg-sky-500',     text: 'text-sky-700 dark:text-sky-300' },
+  slate:   { chip: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700', bar: 'bg-slate-400',   text: 'text-slate-600 dark:text-slate-300' },
 };
 
 // VEN (Excel) ↔ risk_group (schema เดิม): V=Vital=Critical, E=Essential, N=Non-essential=Normal
 const RISK_OPTIONS = [
-  { value: 'Critical',  label: 'V — Vital (2.0×)',         color: 'text-rose-700'  },
-  { value: 'Essential', label: 'E — Essential (1.5×)',     color: 'text-amber-700' },
-  { value: 'Normal',    label: 'N — Non-essential (1.0×)', color: 'text-slate-600' },
+  { value: 'Critical',  label: 'V — Vital (2.0×)',         color: 'text-rose-700 dark:text-rose-300'  },
+  { value: 'Essential', label: 'E — Essential (1.5×)',     color: 'text-amber-700 dark:text-amber-300' },
+  { value: 'Normal',    label: 'N — Non-essential (1.0×)', color: 'text-slate-600 dark:text-slate-300' },
 ];
 
 // risk_group → ตัวอักษร VEN (สำหรับ badge)
@@ -192,8 +192,8 @@ function IsoDateInput({ value, onChange, className = '', resetValue }) {
     return `${m[3]}/${m[2]}/${Number(m[1]) + 543}`;
   };
   return (
-    <div className={`relative flex items-center bg-white border border-slate-300 rounded-lg focus-within:ring-2 focus-within:ring-orange-400 ${className}`}>
-      <span className={`pl-3 pr-8 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
+    <div className={`relative flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus-within:ring-2 focus-within:ring-orange-400 ${className}`}>
+      <span className={`pl-3 pr-8 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>
         {display(value) || 'dd/mm/yyyy'}
       </span>
       {/* type=date: คลิก = showPicker (desktop) guarded ด้วย try/catch + ?. → mobile แตะเปิด native ได้ตามปกติ */}
@@ -203,8 +203,8 @@ function IsoDateInput({ value, onChange, className = '', resetValue }) {
       {/* ปุ่ม reset/ล้าง — z-10 เพื่ออยู่เหนือ input ที่ซ้อนเต็มพื้นที่ */}
       {showBtn
         ? <button type="button" onClick={onBtn} title={btnTitle}
-            className="absolute right-2 z-10 p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"><X size={14}/></button>
-        : <Calendar size={15} className="absolute right-2.5 text-slate-400 pointer-events-none"/>}
+            className="absolute right-2 z-10 p-0.5 rounded text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={14}/></button>
+        : <Calendar size={15} className="absolute right-2.5 text-slate-400 dark:text-slate-500 pointer-events-none"/>}
     </div>
   );
 }
@@ -260,7 +260,7 @@ function MasterEditModal({ open, drug, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <div className="bg-gradient-to-r from-orange-600 to-rose-600 text-white px-5 py-3.5 rounded-t-2xl flex items-center justify-between">
           <div>
             <h2 className="font-bold flex items-center gap-2"><Pencil size={16}/> แก้ Master ยา</h2>
@@ -271,43 +271,43 @@ function MasterEditModal({ open, drug, onClose, onSave }) {
         <div className="p-5 space-y-3 text-sm">
           <Field label="บริษัทผู้จำหน่าย (supplier)">
             <input value={form.supplier} onChange={(e) => setForm(f => ({...f, supplier: e.target.value}))}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="เช่น บ.ABC จำกัด"/>
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="เช่น บ.ABC จำกัด"/>
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Risk Group">
               <select value={form.risk_group} onChange={(e) => setForm(f => ({...f, risk_group: e.target.value}))}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white">
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-900">
                 {RISK_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             </Field>
             <Field label="Lead Time (วัน)">
               <input type="number" min="0" step="0.5" value={form.lead_time_days} onChange={(e) => setForm(f => ({...f, lead_time_days: parseFloat(e.target.value) || 0}))}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2"/>
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2"/>
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="ราคา/หน่วย (บาท)">
               <input type="number" min="0" step="0.01" value={form.price_per_unit} onChange={(e) => setForm(f => ({...f, price_per_unit: parseFloat(e.target.value) || 0}))}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2"/>
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2"/>
             </Field>
             <Field label="Pack size">
               <input type="number" min="1" step="1" value={form.pack_size} onChange={(e) => setForm(f => ({...f, pack_size: parseFloat(e.target.value) || 1}))}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2"/>
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2"/>
             </Field>
           </div>
           <Field label="สถานะพิเศษ">
             <select value={form.exclude_status} onChange={(e) => setForm(f => ({...f, exclude_status: e.target.value}))}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white">
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-900">
               {EXCLUDE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </Field>
           <Field label="หมายเหตุ">
             <textarea rows={2} value={form.notes} onChange={(e) => setForm(f => ({...f, notes: e.target.value}))}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 resize-none"/>
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 resize-none"/>
           </Field>
         </div>
-        <div className="border-t border-slate-200 px-5 py-3 flex items-center justify-end gap-2 bg-slate-50 rounded-b-2xl">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-200 rounded-lg">ยกเลิก</button>
+        <div className="border-t border-slate-200 dark:border-slate-700 px-5 py-3 flex items-center justify-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-b-2xl">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-200 rounded-lg">ยกเลิก</button>
           <button onClick={submit} disabled={saving} className="px-4 py-2 text-sm bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-1.5">
             {saving ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>}
             บันทึก
@@ -321,7 +321,7 @@ function MasterEditModal({ open, drug, onClose, onSave }) {
 function Field({ label, children }) {
   return (
     <label className="block">
-      <span className="text-xs font-semibold text-slate-600 mb-1 block">{label}</span>
+      <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 block">{label}</span>
       {children}
     </label>
   );
@@ -393,29 +393,29 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-3.5 rounded-t-2xl flex items-center justify-between">
           <h2 className="font-bold flex items-center gap-2"><Upload size={16}/> Import Master ยา</h2>
           <button onClick={onClose} className="text-white/80 hover:text-white"><X size={20}/></button>
         </div>
         <div className="p-5 space-y-3 text-sm">
-          <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-800">
+          <div className="bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/60 rounded-lg p-3 text-xs text-indigo-800 dark:text-indigo-300">
             <p className="font-bold mb-1">รองรับไฟล์ "วิเคราะห์สั่งซื้อ" จาก Excel โดยตรง</p>
-            <p className="text-indigo-700">ใช้คอลัมน์ รหัส · กลุ่ม VEN · ตัดออก/สั่งเมื่อขอ เป็นหลัก (ราคา/บริษัท/LT คำนวณสดจากบิลรับเข้า) — ข้ามแถวหัวตารางให้อัตโนมัติ</p>
+            <p className="text-indigo-700 dark:text-indigo-300">ใช้คอลัมน์ รหัส · กลุ่ม VEN · ตัดออก/สั่งเมื่อขอ เป็นหลัก (ราคา/บริษัท/LT คำนวณสดจากบิลรับเข้า) — ข้ามแถวหัวตารางให้อัตโนมัติ</p>
           </div>
           <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-            className="block w-full text-sm border border-slate-300 rounded-lg p-2 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-indigo-600 file:text-white"/>
-          {parsing && <p className="text-slate-500 flex items-center gap-1.5"><Loader2 size={14} className="animate-spin"/> กำลังประมวลผล…</p>}
+            className="block w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-indigo-600 file:text-white"/>
+          {parsing && <p className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5"><Loader2 size={14} className="animate-spin"/> กำลังประมวลผล…</p>}
           {error && <p className="text-rose-600 text-xs">{error}</p>}
           {rows.length > 0 && (
-            <div className="border border-slate-200 rounded-lg overflow-auto max-h-64">
+            <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-auto max-h-64">
               <table className="w-full text-xs">
-                <thead className="bg-slate-100 sticky top-0">
+                <thead className="bg-slate-100 dark:bg-slate-800 sticky top-0">
                   <tr><th className="px-2 py-1.5 text-left">รหัส</th><th className="px-2 py-1.5 text-left">ชื่อ</th><th className="px-2 py-1.5 text-left">บริษัท</th><th className="px-2 py-1.5 text-right">LT</th><th className="px-2 py-1.5 text-right">ราคา</th></tr>
                 </thead>
                 <tbody>
                   {rows.slice(0, 100).map((r, i) => (
-                    <tr key={i} className="border-t border-slate-100">
+                    <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
                       <td className="px-2 py-1 font-mono">{r.code}</td>
                       <td className="px-2 py-1 truncate max-w-[160px]">{r.name || '—'}</td>
                       <td className="px-2 py-1">{r.supplier || '—'}</td>
@@ -425,12 +425,12 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
                   ))}
                 </tbody>
               </table>
-              {rows.length > 100 && <p className="text-center text-xs text-slate-400 py-1.5">…และอีก {rows.length - 100} รายการ</p>}
+              {rows.length > 100 && <p className="text-center text-xs text-slate-400 dark:text-slate-500 py-1.5">…และอีก {rows.length - 100} รายการ</p>}
             </div>
           )}
         </div>
-        <div className="border-t border-slate-200 px-5 py-3 flex items-center justify-end gap-2 bg-slate-50 rounded-b-2xl">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-200 rounded-lg">ยกเลิก</button>
+        <div className="border-t border-slate-200 dark:border-slate-700 px-5 py-3 flex items-center justify-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-b-2xl">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-200 rounded-lg">ยกเลิก</button>
           <button onClick={apply} disabled={rows.length === 0 || parsing} className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-1.5">
             {parsing ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>}
             Import {rows.length > 0 && `(${rows.length})`}
@@ -666,20 +666,20 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
 
   // ────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-slate-100 font-sans text-slate-800 pb-20">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-800 font-sans text-slate-800 dark:text-slate-100 pb-20">
       {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + action */}
-      <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 sticky top-0 z-30">
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 sticky top-0 z-30">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">
             <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
-            <div className="p-1.5 rounded-lg bg-orange-100 text-orange-600 shrink-0"><ShoppingCart size={18}/></div>
+            <div className="p-1.5 rounded-lg bg-orange-100 dark:bg-orange-950/60 text-orange-600 shrink-0"><ShoppingCart size={18}/></div>
             <button onClick={onRefresh} className="text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
-              <h1 className="text-base sm:text-lg font-bold leading-tight text-slate-800">ระบบวิเคราะห์การสั่งซื้อยา</h1>
-              <p className="text-xs text-slate-400">คำนวณ ROP · Safety Stock · ใบสั่งซื้อแยกบริษัท · ตามสูตรจาก Excel "วิเคราะห์สั่งซื้อ"</p>
+              <h1 className="text-base sm:text-lg font-bold leading-tight text-slate-800 dark:text-slate-100">ระบบวิเคราะห์การสั่งซื้อยา</h1>
+              <p className="text-xs text-slate-400 dark:text-slate-500">คำนวณ ROP · Safety Stock · ใบสั่งซื้อแยกบริษัท · ตามสูตรจาก Excel "วิเคราะห์สั่งซื้อ"</p>
             </button>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={() => setImportOpen(true)} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
+            <button onClick={() => setImportOpen(true)} className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
               <Upload size={14}/> Import Master
             </button>
             <button onClick={saveSnapshot} disabled={!result || running} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
@@ -696,7 +696,7 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
         />
 
         {runError && (
-          <div className="bg-rose-50 border border-rose-300 text-rose-800 rounded-xl p-3 text-sm flex items-center gap-2">
+          <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800/60 text-rose-800 dark:text-rose-300 rounded-xl p-3 text-sm flex items-center gap-2">
             <ShieldAlert size={16}/> {runError}
           </div>
         )}
@@ -714,8 +714,8 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
         )}
 
         {/* Tabs */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-          <div className="flex border-b border-slate-200 overflow-x-auto bg-gradient-to-r from-slate-50 to-white">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
+          <div className="flex border-b border-slate-200 dark:border-slate-700 overflow-x-auto bg-gradient-to-r from-slate-50 dark:from-slate-900 to-white">
             <TabBtn id="analysis" cur={tab} set={setTab} icon={<ListChecks size={14}/>}>ตารางวิเคราะห์</TabBtn>
             <TabBtn id="supplier" cur={tab} set={setTab} icon={<Building2 size={14}/>}>ใบสั่งซื้อแยกบริษัท {result?.suppliers?.length ? `(${result.suppliers.length})` : ''}</TabBtn>
             <TabBtn id="reconcile" cur={tab} set={setTab} icon={<GitCompare size={14}/>}>เทียบกับ Excel</TabBtn>
@@ -761,32 +761,32 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
 // ────────────────────────────────────────────────────────────
 function ControlBar({ statsFrom, setStatsFrom, statsTo, setStatsTo, excludedMonth, setExcludedMonth, leadDefault, setLeadDefault, search, setSearch, drugNames, monthsInRange, running, onRun }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-3 sm:p-4 space-y-3">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm p-3 sm:p-4 space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Calendar size={11}/> ช่วงสถิติ (จาก)</label>
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1"><Calendar size={11}/> ช่วงสถิติ (จาก)</label>
           <IsoDateInput value={statsFrom} onChange={setStatsFrom} resetValue={isoMonthsAgo(4)} className="w-full"/>
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Calendar size={11}/> ถึง</label>
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1"><Calendar size={11}/> ถึง</label>
           <IsoDateInput value={statsTo} onChange={setStatsTo} resetValue={isoPrevMonthEnd()} className="w-full"/>
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Lead Time default (วัน)</label>
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Lead Time default (วัน)</label>
           <input type="number" min="1" step="0.5" value={leadDefault} onChange={(e) => setLeadDefault(parseFloat(e.target.value) || DEFAULT_LEAD_TIME)}
-            className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"/>
+            className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-400"/>
         </div>
       </div>
 
       {/* ช่วงเวลาเร็ว — กดแล้วเซ็ต จาก/ถึง ทีเดียว (ถึง = สิ้นเดือนก่อน, จาก = ย้อน N เดือนเต็ม) */}
       <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="text-xs text-slate-400 mr-0.5">ช่วงด่วน:</span>
+        <span className="text-xs text-slate-400 dark:text-slate-500 mr-0.5">ช่วงด่วน:</span>
         {QUICK_RANGES.map(({ months, label }) => {
           const active = statsFrom === isoMonthStartBack(months) && statsTo === isoPrevMonthEnd();
           return (
             <button key={months} type="button"
               onClick={() => { setStatsFrom(isoMonthStartBack(months)); setStatsTo(isoPrevMonthEnd()); }}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${active ? 'bg-orange-600 text-white border-orange-600' : 'bg-white text-slate-600 border-slate-200 hover:border-orange-300 hover:bg-orange-50'}`}>
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${active ? 'bg-orange-600 text-white border-orange-600' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-orange-300 hover:bg-orange-50 dark:hover:bg-orange-950/50'}`}>
               {label}
             </button>
           );
@@ -795,20 +795,20 @@ function ControlBar({ statsFrom, setStatsFrom, statsTo, setStatsTo, excludedMont
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         <div className="sm:col-span-2">
-          <label className="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Search size={11}/> ค้นหา</label>
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1"><Search size={11}/> ค้นหา</label>
           <DrugSearchBar
             value={search}
             onChange={setSearch}
             options={drugNames}
             placeholder="พิมพ์ชื่อยา/รหัส เช่น Atorvastatin หรือ ATOR40"
             ringClass="focus:ring-orange-400"
-            hoverClass="hover:bg-orange-50"
+            hoverClass="hover:bg-orange-50 dark:hover:bg-orange-950/50"
           />
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">เดือนตัดออก (ช่วง Refill)</label>
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">เดือนตัดออก (ช่วง Refill)</label>
           <select value={excludedMonth} onChange={(e) => setExcludedMonth(e.target.value)}
-            className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+            className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-slate-900">
             <option value="">— ไม่ตัด —</option>
             {monthsInRange.map(m => <option key={m} value={m}>{thaiMonthLabel(m)}</option>)}
           </select>
@@ -827,21 +827,21 @@ function ControlBar({ statsFrom, setStatsFrom, statsTo, setStatsTo, excludedMont
 
 function StatusStrip({ counts, total, reorderRows, totalAmount, active, onPick }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-3 sm:p-4">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm p-3 sm:p-4">
       <div className="flex items-center gap-2 flex-wrap mb-3">
         {STATUS_ORDER.map(s => (
           <StatusChip key={s} status={s} count={counts[s] || 0} active={active === s} onClick={() => onPick(s)}/>
         ))}
         {active && (
-          <button onClick={() => onPick(active)} className="text-xs text-slate-500 hover:text-slate-800 px-2 py-1 flex items-center gap-1">
+          <button onClick={() => onPick(active)} className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 px-2 py-1 flex items-center gap-1">
             <X size={12}/> ล้าง filter
           </button>
         )}
       </div>
-      <div className="flex items-center gap-4 text-xs sm:text-sm text-slate-600 flex-wrap pt-3 border-t border-slate-100">
-        <span>ทั้งหมด <b className="text-slate-800">{fmtNum(total)}</b> รายการ</span>
-        <span className="text-orange-700">ต้องสั่ง <b>{fmtNum(reorderRows)}</b> รายการ</span>
-        <span className="text-emerald-700">มูลค่ารวม <b>฿{fmtBaht(totalAmount)}</b></span>
+      <div className="flex items-center gap-4 text-xs sm:text-sm text-slate-600 dark:text-slate-300 flex-wrap pt-3 border-t border-slate-100 dark:border-slate-800">
+        <span>ทั้งหมด <b className="text-slate-800 dark:text-slate-100">{fmtNum(total)}</b> รายการ</span>
+        <span className="text-orange-700 dark:text-orange-300">ต้องสั่ง <b>{fmtNum(reorderRows)}</b> รายการ</span>
+        <span className="text-emerald-700 dark:text-emerald-300">มูลค่ารวม <b>฿{fmtBaht(totalAmount)}</b></span>
       </div>
     </div>
   );
@@ -851,18 +851,18 @@ function TabBtn({ id, cur, set, icon, children }) {
   const active = cur === id;
   return (
     <button onClick={() => set(id)} className={`flex items-center gap-1.5 px-4 py-2.5 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition-colors
-      ${active ? 'border-orange-600 text-orange-700 bg-orange-50' : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'}`}>
+      ${active ? 'border-orange-600 text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-950/40' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
       {icon} {children}
     </button>
   );
 }
 
 function LoadingState({ text }) {
-  return <div className="flex flex-col items-center justify-center py-16 text-slate-500"><Loader2 size={28} className="animate-spin mb-2 text-orange-500"/><p className="text-sm">{text}</p></div>;
+  return <div className="flex flex-col items-center justify-center py-16 text-slate-500 dark:text-slate-400"><Loader2 size={28} className="animate-spin mb-2 text-orange-500"/><p className="text-sm">{text}</p></div>;
 }
 
 function EmptyState({ text }) {
-  return <div className="flex flex-col items-center justify-center py-16 text-slate-400"><Database size={32} className="mb-2"/><p className="text-sm">{text}</p></div>;
+  return <div className="flex flex-col items-center justify-center py-16 text-slate-400 dark:text-slate-500"><Database size={32} className="mb-2"/><p className="text-sm">{text}</p></div>;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -872,8 +872,8 @@ function EmptyState({ text }) {
 function DetailField({ label, children }) {
   return (
     <div className="flex justify-between gap-3 py-1.5 border-b border-slate-50 text-sm">
-      <span className="text-slate-400 shrink-0">{label}</span>
-      <span className="text-slate-700 text-right font-medium min-w-0">{children}</span>
+      <span className="text-slate-400 dark:text-slate-500 shrink-0">{label}</span>
+      <span className="text-slate-700 dark:text-slate-200 text-right font-medium min-w-0">{children}</span>
     </div>
   );
 }
@@ -890,13 +890,13 @@ function DrugDetailPanel({ r, months, onClose }) {
       {/* backdrop */}
       <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose}/>
       {/* panel */}
-      <div className="fixed top-0 right-0 h-full w-full max-w-md bg-white z-50 shadow-2xl flex flex-col">
-        <div className="flex items-start justify-between gap-2 px-5 py-4 border-b border-slate-200">
+      <div className="fixed top-0 right-0 h-full w-full max-w-md bg-white dark:bg-slate-900 z-50 shadow-2xl flex flex-col">
+        <div className="flex items-start justify-between gap-2 px-5 py-4 border-b border-slate-200 dark:border-slate-700">
           <div className="min-w-0">
-            <h3 className="font-bold text-slate-800 leading-tight">{r.name || '-'}</h3>
-            <p className="text-xs text-slate-400 font-mono mt-0.5">{r.code}{r.unit ? ` · ${r.unit}` : ''}</p>
+            <h3 className="font-bold text-slate-800 dark:text-slate-100 leading-tight">{r.name || '-'}</h3>
+            <p className="text-xs text-slate-400 dark:text-slate-500 font-mono mt-0.5">{r.code}{r.unit ? ` · ${r.unit}` : ''}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 shrink-0" title="ปิด"><X size={18}/></button>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0" title="ปิด"><X size={18}/></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
@@ -907,24 +907,24 @@ function DrugDetailPanel({ r, months, onClose }) {
 
           {/* ตัวเลขตัดสินใจ */}
           <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="bg-slate-50 rounded-lg py-2.5">
-              <div className="text-lg font-bold text-slate-800 tabular-nums">{fmtNum(r.stock)}</div>
-              <div className="text-[10px] text-slate-400">คงเหลือ</div>
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg py-2.5">
+              <div className="text-lg font-bold text-slate-800 dark:text-slate-100 tabular-nums">{fmtNum(r.stock)}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500">คงเหลือ</div>
             </div>
-            <div className="bg-slate-50 rounded-lg py-2.5">
-              <div className="text-lg font-bold text-slate-800 tabular-nums">{fmtNum(r.ss)}</div>
-              <div className="text-[10px] text-slate-400">Safety Stock</div>
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg py-2.5">
+              <div className="text-lg font-bold text-slate-800 dark:text-slate-100 tabular-nums">{fmtNum(r.ss)}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500">Safety Stock</div>
             </div>
-            <div className="bg-slate-50 rounded-lg py-2.5">
-              <div className="text-lg font-bold text-slate-800 tabular-nums">{fmtNum(r.rop)}</div>
-              <div className="text-[10px] text-slate-400">ROP</div>
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg py-2.5">
+              <div className="text-lg font-bold text-slate-800 dark:text-slate-100 tabular-nums">{fmtNum(r.rop)}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500">ROP</div>
             </div>
           </div>
 
           {/* mini bar chart — เบิกรายเดือน (หน้าต่าง SS) */}
           {usage.length > 0 && (
             <div>
-              <h4 className="text-xs font-semibold text-slate-500 mb-2">ยอดเบิกรายเดือน (หน่วยซื้อ)</h4>
+              <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">ยอดเบิกรายเดือน (หน่วยซื้อ)</h4>
               <div className="flex items-end gap-2 h-24">
                 {usage.map((v, i) => (
                   <div key={i} className="flex-1 flex flex-col items-center gap-1" title={`${fmtNum(v)} ${r.unit || ''}`}>
@@ -932,8 +932,8 @@ function DrugDetailPanel({ r, months, onClose }) {
                       <div className="w-full bg-orange-400 rounded-t hover:bg-orange-500 transition-colors"
                         style={{ height: `${(v / maxU) * 100}%`, minHeight: v > 0 ? '3px' : '0' }}/>
                     </div>
-                    <span className="text-[9px] text-slate-400 tabular-nums">{fmtNum(Math.round(v))}</span>
-                    {months?.[i] && <span className="text-[9px] text-slate-300">{thaiMonthLabel(months[i])}</span>}
+                    <span className="text-[9px] text-slate-400 dark:text-slate-500 tabular-nums">{fmtNum(Math.round(v))}</span>
+                    {months?.[i] && <span className="text-[9px] text-slate-300 dark:text-slate-500">{thaiMonthLabel(months[i])}</span>}
                   </div>
                 ))}
               </div>
@@ -946,9 +946,9 @@ function DrugDetailPanel({ r, months, onClose }) {
             <DetailField label="หน่วย">{r.unit || '—'}</DetailField>
             <DetailField label="คงอยู่ได้อีก">{fmtCoverage(r.stock, r.avgDay)}</DetailField>
             <DetailField label="ต้องซื้อ">
-              {r.orderQty > 0 ? <>{fmtNum(r.orderQty)} {r.unit}{(r.packFactor||1)>1 && <span className="text-slate-400"> = {fmtNum(r.orderQty*r.packFactor)} {base}</span>}</> : '—'}
+              {r.orderQty > 0 ? <>{fmtNum(r.orderQty)} {r.unit}{(r.packFactor||1)>1 && <span className="text-slate-400 dark:text-slate-500"> = {fmtNum(r.orderQty*r.packFactor)} {base}</span>}</> : '—'}
             </DetailField>
-            {r.amount > 0 && <DetailField label="มูลค่าที่ต้องซื้อ"><span className="text-emerald-700 font-bold">฿{fmtBaht(r.amount)}</span></DetailField>}
+            {r.amount > 0 && <DetailField label="มูลค่าที่ต้องซื้อ"><span className="text-emerald-700 dark:text-emerald-300 font-bold">฿{fmtBaht(r.amount)}</span></DetailField>}
             <DetailField label="ราคา/หน่วยซื้อ">{r.pricePerUnit > 0 ? `฿${fmtBaht(r.pricePerUnit)}` : '—'}</DetailField>
             <DetailField label="VEN">{venLetter(r.riskGroup)}</DetailField>
             <DetailField label="Lead Time">{r.leadTimeDays ? `${Math.round(r.leadTimeDays)} วัน` : '—'}</DetailField>
@@ -1045,30 +1045,30 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, months }) 
     <>
       <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
         <div className="flex items-center gap-2 text-xs">
-          <span className="text-slate-500">เรียง:</span>
+          <span className="text-slate-500 dark:text-slate-400">เรียง:</span>
           {[
             { v: 'status', l: 'สถานะ' },
             { v: 'amount', l: 'มูลค่า' },
             { v: 'gap', l: 'ช่องว่าง ROP' },
           ].map(o => (
-            <button key={o.v} onClick={() => setSortBy(o.v)} className={`px-2.5 py-1 rounded-md ${sortBy === o.v ? 'bg-orange-100 text-orange-700 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}>{o.l}</button>
+            <button key={o.v} onClick={() => setSortBy(o.v)} className={`px-2.5 py-1 rounded-md ${sortBy === o.v ? 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 font-semibold' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>{o.l}</button>
           ))}
         </div>
         <div className="flex items-center gap-2">
           {/* จัดการคอลัมน์ — desktop เท่านั้น (mobile เป็น card แสดงทุก field) */}
           <div className="relative hidden md:block">
             <button onClick={() => setColMenuOpen(o => !o)}
-              className="flex items-center gap-1.5 text-xs sm:text-sm bg-white border border-slate-300 hover:border-slate-400 text-slate-700 px-3 py-1.5 rounded-lg font-medium transition-colors">
+              className="flex items-center gap-1.5 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 px-3 py-1.5 rounded-lg font-medium transition-colors">
               <ListChecks size={13}/> จัดการคอลัมน์
             </button>
             {colMenuOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setColMenuOpen(false)}/>
-                <div className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-lg border border-slate-200 py-1.5 z-20">
+                <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-slate-900 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 py-1.5 z-20">
                   {TOGGLE_COLS.map(c => (
                     <button key={c.key} onClick={() => toggleCol(c.key)}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 text-left">
-                      <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${showCol(c.key) ? 'bg-orange-500 border-orange-500 text-white' : 'border-slate-300'}`}>
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-left">
+                      <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${showCol(c.key) ? 'bg-orange-500 border-orange-500 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
                         {showCol(c.key) && <CheckCircle2 size={11}/>}
                       </span>
                       {c.label}
@@ -1085,18 +1085,18 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, months }) 
       </div>
 
       {/* Desktop table — light sticky header + frozen first column (ดู /sticky-table) */}
-      <div className="hidden md:block overflow-auto rounded-xl border border-slate-200 shadow-sm bg-white" style={{ maxHeight: 'calc(100vh - 240px)' }}>
+      <div className="hidden md:block overflow-auto rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm bg-white dark:bg-slate-900" style={{ maxHeight: 'calc(100vh - 240px)' }}>
         <table className="w-full text-sm min-w-[920px]">
           <thead className="sticky top-0 z-20">
-            <tr className="text-slate-500 border-b border-slate-200">
-              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide sticky left-0 z-30 bg-slate-50 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">รายการยา</th>
-              {showCol('status') && <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">สถานะ</th>}
-              {showCol('stock') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">คงเหลือ</th>}
-              {showCol('order') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">ต้องซื้อ · มูลค่า</th>}
-              {showCol('ssrop') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">SS · ROP</th>}
-              {showCol('usage') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 whitespace-nowrap">ใช้/เดือน</th>}
-              {showCol('ven') && <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50">VEN</th>}
-              <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50">จัดการ</th>
+            <tr className="text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide sticky left-0 z-30 bg-slate-50 dark:bg-slate-800 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">รายการยา</th>
+              {showCol('status') && <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50 dark:bg-slate-800 whitespace-nowrap">สถานะ</th>}
+              {showCol('stock') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 dark:bg-slate-800 whitespace-nowrap">คงเหลือ</th>}
+              {showCol('order') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 dark:bg-slate-800 whitespace-nowrap">ต้องซื้อ · มูลค่า</th>}
+              {showCol('ssrop') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 dark:bg-slate-800 whitespace-nowrap">SS · ROP</th>}
+              {showCol('usage') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 dark:bg-slate-800 whitespace-nowrap">ใช้/เดือน</th>}
+              {showCol('ven') && <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50 dark:bg-slate-800">VEN</th>}
+              <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50 dark:bg-slate-800">จัดการ</th>
             </tr>
           </thead>
           <tbody>
@@ -1104,22 +1104,22 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, months }) 
           </tbody>
           {/* ยอดรวมท้ายตาราง — sticky ล่าง รวมเฉพาะแถวที่แสดง (Rule #6) */}
           <tfoot className="sticky bottom-0 z-20">
-            <tr className="bg-slate-100 border-t-2 border-slate-300 font-bold text-slate-700">
-              <td className="px-3 py-2.5 sticky left-0 z-30 bg-slate-100 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
-                รวม <span className="font-normal text-slate-400 text-xs">({fmtNum(sorted.length)} รายการ)</span>
+            <tr className="bg-slate-100 dark:bg-slate-800 border-t-2 border-slate-300 dark:border-slate-600 font-bold text-slate-700 dark:text-slate-200">
+              <td className="px-3 py-2.5 sticky left-0 z-30 bg-slate-100 dark:bg-slate-800 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
+                รวม <span className="font-normal text-slate-400 dark:text-slate-500 text-xs">({fmtNum(sorted.length)} รายการ)</span>
               </td>
-              {showCol('status') && <td className="bg-slate-100"/>}
-              {showCol('stock') && <td className="px-3 py-2.5 text-right tabular-nums bg-slate-100">{fmtNum(footTotals.stock)}</td>}
+              {showCol('status') && <td className="bg-slate-100 dark:bg-slate-800"/>}
+              {showCol('stock') && <td className="px-3 py-2.5 text-right tabular-nums bg-slate-100 dark:bg-slate-800">{fmtNum(footTotals.stock)}</td>}
               {showCol('order') && (
-                <td className="px-3 py-2.5 text-right tabular-nums bg-slate-100">
+                <td className="px-3 py-2.5 text-right tabular-nums bg-slate-100 dark:bg-slate-800">
                   {footTotals.orderQty > 0 && <div>{fmtNum(footTotals.orderQty)}</div>}
-                  {footTotals.amount > 0 && <div className="text-emerald-700">฿{fmtBaht(footTotals.amount)}</div>}
+                  {footTotals.amount > 0 && <div className="text-emerald-700 dark:text-emerald-300">฿{fmtBaht(footTotals.amount)}</div>}
                 </td>
               )}
-              {showCol('ssrop') && <td className="bg-slate-100"/>}
-              {showCol('usage') && <td className="bg-slate-100"/>}
-              {showCol('ven') && <td className="bg-slate-100"/>}
-              <td className="bg-slate-100"/>
+              {showCol('ssrop') && <td className="bg-slate-100 dark:bg-slate-800"/>}
+              {showCol('usage') && <td className="bg-slate-100 dark:bg-slate-800"/>}
+              {showCol('ven') && <td className="bg-slate-100 dark:bg-slate-800"/>}
+              <td className="bg-slate-100 dark:bg-slate-800"/>
             </tr>
           </tfoot>
         </table>
@@ -1143,17 +1143,17 @@ function AnalysisRow({ r, ordered, toggleOrdered, onEdit, onOpen, visibleCols })
   const ropPct = r.rop > 0 ? Math.min(100, Math.round((r.stock / r.rop) * 100)) : null;
   const showCol = (k) => !visibleCols || visibleCols.has(k);
   return (
-    <tr className={`border-t border-slate-100 transition-colors ${ordered ? 'bg-emerald-50/50' : 'bg-white hover:bg-slate-50'}`}>
+    <tr className={`border-t border-slate-100 dark:border-slate-800 transition-colors ${ordered ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
       {/* รายการยา + แถบสีสถานะซ้าย (scan เร็วโดยไม่ต้องอ่าน chip) — คลิกชื่อเปิดรายละเอียด */}
       <td className="p-0 sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.04)]">
         <div className="flex items-stretch gap-2.5 px-3 py-2.5">
           <span className={`w-1 rounded-full shrink-0 ${tone.bar}`} aria-hidden="true"/>
           <button onClick={onOpen} className="min-w-0 text-left hover:opacity-70 transition-opacity" title="ดูรายละเอียด">
-            <div className="font-semibold text-slate-800 flex items-center gap-1.5">
+            <div className="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
               {ordered && <CheckCircle2 size={13} className="text-emerald-600 shrink-0"/>}
-              <span className={ordered ? 'line-through text-slate-400' : ''}>{r.name || '-'}</span>
+              <span className={ordered ? 'line-through text-slate-400 dark:text-slate-500' : ''}>{r.name || '-'}</span>
             </div>
-            <div className="text-xs text-slate-400 font-mono truncate">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}{r.receiveDate ? ` · รับ ${fmtThaiDate(r.receiveDate)}` : ''}</div>
+            <div className="text-xs text-slate-400 dark:text-slate-500 font-mono truncate">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}{r.receiveDate ? ` · รับ ${fmtThaiDate(r.receiveDate)}` : ''}</div>
           </button>
         </div>
       </td>
@@ -1168,10 +1168,10 @@ function AnalysisRow({ r, ordered, toggleOrdered, onEdit, onOpen, visibleCols })
       {/* คงเหลือ + coverage + bar เทียบ ROP */}
       {showCol('stock') && (
         <td className="px-3 py-2.5 text-right">
-          <div className="font-bold tabular-nums text-slate-800">{fmtNum(r.stock)}</div>
-          <div className="text-[10px] text-slate-400">อยู่ได้ {fmtCoverage(r.stock, r.avgDay)}</div>
+          <div className="font-bold tabular-nums text-slate-800 dark:text-slate-100">{fmtNum(r.stock)}</div>
+          <div className="text-[10px] text-slate-400 dark:text-slate-500">อยู่ได้ {fmtCoverage(r.stock, r.avgDay)}</div>
           {ropPct != null && (
-            <div className="w-24 bg-slate-100 rounded-full h-1.5 mt-1 ml-auto overflow-hidden" title={`${ropPct}% ของ ROP`}>
+            <div className="w-24 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 mt-1 ml-auto overflow-hidden" title={`${ropPct}% ของ ROP`}>
               <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${ropPct}%` }}/>
             </div>
           )}
@@ -1182,40 +1182,40 @@ function AnalysisRow({ r, ordered, toggleOrdered, onEdit, onOpen, visibleCols })
         <td className="px-3 py-2.5 text-right tabular-nums">
           {r.orderQty > 0 ? (
             <>
-              <div className="font-bold text-slate-800">{fmtNum(r.orderQty)}</div>
-              {(r.packFactor || 1) > 1 && <div className="text-[10px] text-slate-400">= {fmtNum(r.orderQty * r.packFactor)} {parseUnitFactor(r.unit).base}</div>}
-              {r.amount > 0 && <div className="text-xs font-bold text-emerald-700">฿{fmtBaht(r.amount)}</div>}
+              <div className="font-bold text-slate-800 dark:text-slate-100">{fmtNum(r.orderQty)}</div>
+              {(r.packFactor || 1) > 1 && <div className="text-[10px] text-slate-400 dark:text-slate-500">= {fmtNum(r.orderQty * r.packFactor)} {parseUnitFactor(r.unit).base}</div>}
+              {r.amount > 0 && <div className="text-xs font-bold text-emerald-700 dark:text-emerald-300">฿{fmtBaht(r.amount)}</div>}
             </>
-          ) : <span className="text-slate-300">—</span>}
+          ) : <span className="text-slate-300 dark:text-slate-500">—</span>}
         </td>
       )}
       {/* SS · ROP + ขาดเท่าไหร่ (เฉพาะต่ำกว่า ROP) */}
       {showCol('ssrop') && (
         <td className="px-3 py-2.5 text-right text-xs tabular-nums whitespace-nowrap">
-          <div className="text-slate-400">SS <span className="font-semibold text-slate-700">{fmtNum(r.ss)}</span></div>
-          <div className="text-slate-400 mt-0.5">ROP <span className="font-semibold text-slate-700">{fmtNum(r.rop)}</span></div>
+          <div className="text-slate-400 dark:text-slate-500">SS <span className="font-semibold text-slate-700 dark:text-slate-200">{fmtNum(r.ss)}</span></div>
+          <div className="text-slate-400 dark:text-slate-500 mt-0.5">ROP <span className="font-semibold text-slate-700 dark:text-slate-200">{fmtNum(r.rop)}</span></div>
           {gap < 0 && <div className="text-rose-600 font-semibold mt-0.5">ขาด {fmtNum(-gap)}</div>}
         </td>
       )}
       {/* การใช้ต่อเดือน (Avg เด่น, Max รอง) */}
       {showCol('usage') && (
         <td className="px-3 py-2.5 text-right tabular-nums">
-          <div className="font-semibold text-slate-700">{fmtNum(r.avgMonth)}</div>
-          <div className="text-[10px] text-slate-400">Max {fmtNum(r.max)}</div>
+          <div className="font-semibold text-slate-700 dark:text-slate-200">{fmtNum(r.avgMonth)}</div>
+          <div className="text-[10px] text-slate-400 dark:text-slate-500">Max {fmtNum(r.max)}</div>
         </td>
       )}
       {showCol('ven') && (
         <td className="px-3 py-2.5 text-center">
-          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.riskGroup === 'Critical' ? 'bg-rose-50 border-rose-200 text-rose-700' : r.riskGroup === 'Normal' ? 'bg-slate-100 border-slate-200 text-slate-600' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>{venLetter(r.riskGroup)}</span>
+          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.riskGroup === 'Critical' ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300' : r.riskGroup === 'Normal' ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300' : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/60 text-amber-700 dark:text-amber-300'}`}>{venLetter(r.riskGroup)}</span>
         </td>
       )}
       <td className="px-3 py-2.5 text-center">
         <div className="flex items-center justify-center gap-1">
           <button onClick={toggleOrdered} title={ordered ? 'ยกเลิกการสั่ง' : 'สั่งแล้ว'}
-            className={`w-6 h-6 rounded-md border flex items-center justify-center transition-colors ${ordered ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 hover:bg-emerald-50 hover:border-emerald-400'}`}>
+            className={`w-6 h-6 rounded-md border flex items-center justify-center transition-colors ${ordered ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 dark:border-slate-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:border-emerald-400'}`}>
             {ordered && <CheckCircle2 size={12}/>}
           </button>
-          <button onClick={onEdit} title="แก้ Master" className="w-6 h-6 rounded-md border border-slate-300 hover:bg-orange-50 hover:border-orange-400 flex items-center justify-center text-slate-500 hover:text-orange-700">
+          <button onClick={onEdit} title="แก้ Master" className="w-6 h-6 rounded-md border border-slate-300 dark:border-slate-600 hover:bg-orange-50 dark:hover:bg-orange-950/50 hover:border-orange-400 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-orange-700">
             <Pencil size={11}/>
           </button>
         </div>
@@ -1229,11 +1229,11 @@ function AnalysisCard({ r, ordered, toggleOrdered, onEdit, onOpen }) {
   const tone = TONE_CLASSES[meta.tone];
   const Icon = meta.icon;
   return (
-    <div className={`bg-white border rounded-xl p-3 shadow-sm ${ordered ? 'border-emerald-200 opacity-75' : 'border-slate-200'}`}>
+    <div className={`bg-white dark:bg-slate-900 border rounded-xl p-3 shadow-sm ${ordered ? 'border-emerald-200 dark:border-emerald-900/60 opacity-75' : 'border-slate-200 dark:border-slate-700'}`}>
       <div className="flex items-start justify-between gap-2 mb-2">
         <button onClick={onOpen} className="flex-1 min-w-0 text-left" title="ดูรายละเอียด">
-          <div className={`font-bold text-sm leading-tight ${ordered ? 'line-through text-slate-400' : 'text-slate-800'}`}>{r.name || '-'}</div>
-          <div className="text-[11px] text-slate-400 font-mono">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}</div>
+          <div className={`font-bold text-sm leading-tight ${ordered ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-100'}`}>{r.name || '-'}</div>
+          <div className="text-[11px] text-slate-400 dark:text-slate-500 font-mono">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}</div>
         </button>
         <span className={`inline-flex items-center gap-1 ${tone.chip} px-2 py-0.5 rounded-full text-[10px] font-semibold border whitespace-nowrap`}>
           <Icon size={10}/> {r.status}
@@ -1245,20 +1245,20 @@ function AnalysisCard({ r, ordered, toggleOrdered, onEdit, onOpen }) {
         <Stat label="ROP"     value={fmtNum(r.rop)}   tone="orange"/>
         <Stat label="ต้องซื้อ" value={r.orderQty > 0 ? fmtNum(r.orderQty) : '—'} tone="cyan"/>
       </div>
-      <div className="text-[10px] text-slate-400 mb-2">
+      <div className="text-[10px] text-slate-400 dark:text-slate-500 mb-2">
         อยู่ได้ {fmtCoverage(r.stock, r.avgDay)}
         {(r.packFactor || 1) > 1 && r.orderQty > 0 ? ` · สั่ง ${fmtNum(r.orderQty * r.packFactor)} ${parseUnitFactor(r.unit).base}` : ''}
         {r.receiveDate ? ` · รับ ${fmtThaiDate(r.receiveDate)}` : ''}
       </div>
-      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
         <div className="text-sm">
-          {r.amount > 0 ? <span className="font-bold text-emerald-700">฿{fmtBaht(r.amount)}</span> : <span className="text-slate-400 text-xs">ไม่ต้องสั่ง</span>}
+          {r.amount > 0 ? <span className="font-bold text-emerald-700 dark:text-emerald-300">฿{fmtBaht(r.amount)}</span> : <span className="text-slate-400 dark:text-slate-500 text-xs">ไม่ต้องสั่ง</span>}
         </div>
         <div className="flex items-center gap-1.5">
-          <button onClick={toggleOrdered} className={`px-2.5 py-1 rounded-md text-xs font-medium ${ordered ? 'bg-emerald-500 text-white' : 'bg-slate-100 hover:bg-emerald-100 text-slate-600'}`}>
+          <button onClick={toggleOrdered} className={`px-2.5 py-1 rounded-md text-xs font-medium ${ordered ? 'bg-emerald-500 text-white' : 'bg-slate-100 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-slate-600 dark:text-slate-300'}`}>
             {ordered ? '✓ สั่งแล้ว' : 'สั่งแล้ว'}
           </button>
-          <button onClick={onEdit} className="w-7 h-7 rounded-md border border-slate-300 hover:bg-orange-50 flex items-center justify-center text-slate-500">
+          <button onClick={onEdit} className="w-7 h-7 rounded-md border border-slate-300 dark:border-slate-600 hover:bg-orange-50 dark:hover:bg-orange-950/50 flex items-center justify-center text-slate-500 dark:text-slate-400">
             <Pencil size={11}/>
           </button>
         </div>
@@ -1270,8 +1270,8 @@ function AnalysisCard({ r, ordered, toggleOrdered, onEdit, onOpen }) {
 function Stat({ label, value, tone = 'slate' }) {
   const t = TONE_CLASSES[tone] || TONE_CLASSES.slate;
   return (
-    <div className="bg-slate-50 rounded-md px-1.5 py-1.5">
-      <div className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">{label}</div>
+    <div className="bg-slate-50 dark:bg-slate-800 rounded-md px-1.5 py-1.5">
+      <div className="text-[9px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider">{label}</div>
       <div className={`text-sm font-black tabular-nums ${t.text}`}>{value}</div>
     </div>
   );
@@ -1284,9 +1284,9 @@ function SupplierTab({ suppliers, totalAmount, auth }) {
   if (!suppliers || suppliers.length === 0) return <EmptyState text="ไม่มีรายการที่ต้องสั่งซื้อ"/>;
   return (
     <div className="space-y-4">
-      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm flex items-center justify-between flex-wrap gap-2">
-        <span className="text-emerald-800"><b>{suppliers.length}</b> บริษัท · <b>{suppliers.reduce((s, g) => s + g.items.length, 0)}</b> รายการ</span>
-        <span className="text-emerald-700">มูลค่ารวม <b className="text-base">฿{fmtBaht(totalAmount)}</b></span>
+      <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-xl p-3 text-sm flex items-center justify-between flex-wrap gap-2">
+        <span className="text-emerald-800 dark:text-emerald-300"><b>{suppliers.length}</b> บริษัท · <b>{suppliers.reduce((s, g) => s + g.items.length, 0)}</b> รายการ</span>
+        <span className="text-emerald-700 dark:text-emerald-300">มูลค่ารวม <b className="text-base">฿{fmtBaht(totalAmount)}</b></span>
       </div>
       {suppliers.map((g, i) => <SupplierCard key={i} group={g} auth={auth}/>)}
     </div>
@@ -1351,58 +1351,58 @@ function SupplierCard({ group, auth }) {
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
-      <button onClick={() => setExpanded(v => !v)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 rounded-t-2xl">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm">
+      <button onClick={() => setExpanded(v => !v)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-t-2xl">
         <div className="flex items-center gap-2">
           <Building2 size={16} className="text-orange-600"/>
-          <span className="font-bold text-slate-800">{group.supplier}</span>
-          <span className="text-xs text-slate-500">· {group.items.length} รายการ</span>
+          <span className="font-bold text-slate-800 dark:text-slate-100">{group.supplier}</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">· {group.items.length} รายการ</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-emerald-700">฿{fmtBaht(group.totalAmount)}</span>
-          <ChevronDown size={14} className={`text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`}/>
+          <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">฿{fmtBaht(group.totalAmount)}</span>
+          <ChevronDown size={14} className={`text-slate-400 dark:text-slate-500 transition-transform ${expanded ? 'rotate-180' : ''}`}/>
         </div>
       </button>
       {expanded && (
         <>
-          <div className="border-t border-slate-200">
+          <div className="border-t border-slate-200 dark:border-slate-700">
             <table className="w-full text-xs">
-              <thead className="bg-slate-50">
+              <thead className="bg-slate-50 dark:bg-slate-800">
                 <tr>
-                  <th className="px-3 py-2 text-left font-semibold text-slate-600">รหัส / ชื่อยา</th>
-                  <th className="px-3 py-2 text-right font-semibold text-slate-600">คงเหลือ</th>
-                  <th className="px-3 py-2 text-right font-semibold text-slate-600">ROP</th>
-                  <th className="px-3 py-2 text-right font-semibold text-cyan-700">ต้องซื้อ</th>
-                  <th className="px-3 py-2 text-right font-semibold text-slate-600">฿/หน่วย</th>
-                  <th className="px-3 py-2 text-right font-semibold text-emerald-700">มูลค่า</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">รหัส / ชื่อยา</th>
+                  <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">คงเหลือ</th>
+                  <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">ROP</th>
+                  <th className="px-3 py-2 text-right font-semibold text-cyan-700 dark:text-cyan-300">ต้องซื้อ</th>
+                  <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">฿/หน่วย</th>
+                  <th className="px-3 py-2 text-right font-semibold text-emerald-700 dark:text-emerald-300">มูลค่า</th>
                 </tr>
               </thead>
               <tbody>
                 {group.items.map((it, i) => (
-                  <tr key={i} className="border-t border-slate-100">
+                  <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
                     <td className="px-3 py-2">
-                      <div className="font-semibold text-slate-700">{it.name || '-'}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">{it.code}</div>
+                      <div className="font-semibold text-slate-700 dark:text-slate-200">{it.name || '-'}</div>
+                      <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{it.code}</div>
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{fmtNum(it.stock)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-orange-700">{fmtNum(it.rop)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-bold text-cyan-700">{fmtNum(it.orderQty)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-slate-500">{fmtBaht(it.pricePerUnit)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-bold text-emerald-700">฿{fmtBaht(it.amount)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-orange-700 dark:text-orange-300">{fmtNum(it.rop)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-bold text-cyan-700 dark:text-cyan-300">{fmtNum(it.orderQty)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-500 dark:text-slate-400">{fmtBaht(it.pricePerUnit)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-bold text-emerald-700 dark:text-emerald-300">฿{fmtBaht(it.amount)}</td>
                   </tr>
                 ))}
               </tbody>
-              <tfoot className="bg-amber-50">
+              <tfoot className="bg-amber-50 dark:bg-amber-950/40">
                 <tr>
-                  <td colSpan={3} className="px-3 py-2 text-right font-bold text-slate-700">รวม</td>
-                  <td className="px-3 py-2 text-right font-bold text-cyan-700 tabular-nums">{fmtNum(group.totalQty)}</td>
+                  <td colSpan={3} className="px-3 py-2 text-right font-bold text-slate-700 dark:text-slate-200">รวม</td>
+                  <td className="px-3 py-2 text-right font-bold text-cyan-700 dark:text-cyan-300 tabular-nums">{fmtNum(group.totalQty)}</td>
                   <td></td>
-                  <td className="px-3 py-2 text-right font-black text-emerald-700 tabular-nums text-sm">฿{fmtBaht(group.totalAmount)}</td>
+                  <td className="px-3 py-2 text-right font-black text-emerald-700 dark:text-emerald-300 tabular-nums text-sm">฿{fmtBaht(group.totalAmount)}</td>
                 </tr>
               </tfoot>
             </table>
           </div>
-          <div className="border-t border-slate-200 px-4 py-2.5 flex items-center justify-end gap-2 bg-slate-50 rounded-b-2xl">
+          <div className="border-t border-slate-200 dark:border-slate-700 px-4 py-2.5 flex items-center justify-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-b-2xl">
             <button onClick={exportOne} className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-medium">
               <FileSpreadsheet size={12}/> Export Excel
             </button>
@@ -1449,11 +1449,11 @@ function ReconcileTab({ appRows, auth }) {
 
   return (
     <div className="space-y-3">
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+      <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
-            <h3 className="font-bold text-slate-800 flex items-center gap-2"><GitCompare size={16}/> เทียบผลแอปกับ Excel</h3>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2"><GitCompare size={16}/> เทียบผลแอปกับ Excel</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               อัปโหลดไฟล์ "วิเคราะห์สั่งซื้อ" (.csv/.xlsx) → เทียบ Safety Stock · ROP · สถานะ · จำนวนสั่ง กับที่แอปคำนวณ
               <br/>ต่างเกิน ±1 = ไม่ตรง · อ่านอย่างเดียว ไม่แก้ข้อมูล (Excel = source of truth ตาม ADR-0001)
             </p>
@@ -1464,7 +1464,7 @@ function ReconcileTab({ appRows, auth }) {
               onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}/>
           </label>
         </div>
-        {fileName && <p className="text-xs text-slate-400 mt-2">ไฟล์: {fileName}</p>}
+        {fileName && <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">ไฟล์: {fileName}</p>}
         {error && <p className="text-xs text-rose-600 mt-2 flex items-center gap-1"><AlertCircle size={12}/> {error}</p>}
       </div>
 
@@ -1480,13 +1480,13 @@ function ReconcileTab({ appRows, auth }) {
 
           {/* differing rows */}
           {res.differing.length > 0 && (
-            <div className="bg-white border border-amber-200 rounded-xl overflow-hidden">
-              <div className="bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 flex items-center gap-1.5">
+            <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/60 rounded-xl overflow-hidden">
+              <div className="bg-amber-50 dark:bg-amber-950/40 px-4 py-2 text-sm font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
                 <AlertTriangle size={14}/> ไม่ตรง {res.differing.length} รายการ
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
-                  <thead className="bg-slate-50 text-slate-500">
+                  <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
                     <tr>
                       <th className="text-left px-3 py-2">รหัส / ชื่อยา</th>
                       <th className="text-center px-2 py-2">Safety Stock<br/><span className="font-normal">แอป / Excel</span></th>
@@ -1497,15 +1497,15 @@ function ReconcileTab({ appRows, auth }) {
                   </thead>
                   <tbody>
                     {res.differing.map(d => (
-                      <tr key={d.code} className="border-t border-slate-100">
-                        <td className="px-3 py-2"><b className="text-slate-800">{d.code}</b><div className="text-slate-400">{d.name}</div></td>
+                      <tr key={d.code} className="border-t border-slate-100 dark:border-slate-800">
+                        <td className="px-3 py-2"><b className="text-slate-800 dark:text-slate-100">{d.code}</b><div className="text-slate-400 dark:text-slate-500">{d.name}</div></td>
                         <DiffCell diff={d.diffs.ss} app={d.app.ss} csv={d.csv.ss}/>
                         <DiffCell diff={d.diffs.rop} app={d.app.rop} csv={d.csv.rop}/>
                         <DiffCell diff={d.diffs.orderQty} app={Math.round(d.app.orderQty)} csv={d.csv.orderQty}/>
-                        <td className={`text-center px-2 py-2 ${d.diffs.status ? 'bg-amber-50' : ''}`}>
+                        <td className={`text-center px-2 py-2 ${d.diffs.status ? 'bg-amber-50 dark:bg-amber-950/40' : ''}`}>
                           {d.diffs.status
-                            ? <span className="text-amber-700">{d.app.status || '—'}<br/><span className="text-slate-400">{d.csv.status || '—'}</span></span>
-                            : <span className="text-slate-400">{d.app.status}</span>}
+                            ? <span className="text-amber-700 dark:text-amber-300">{d.app.status || '—'}<br/><span className="text-slate-400 dark:text-slate-500">{d.csv.status || '—'}</span></span>
+                            : <span className="text-slate-400 dark:text-slate-500">{d.app.status}</span>}
                         </td>
                       </tr>
                     ))}
@@ -1528,7 +1528,7 @@ function ReconcileTab({ appRows, auth }) {
           )}
 
           {res.differing.length === 0 && res.excelOnly.length === 0 && res.appOnly.length === 0 && (
-            <div className="bg-emerald-50 border-2 border-emerald-300 rounded-xl p-4 flex items-center gap-2 text-emerald-800 font-semibold">
+            <div className="bg-emerald-50 dark:bg-emerald-950/40 border-2 border-emerald-300 dark:border-emerald-800/60 rounded-xl p-4 flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-semibold">
               <CheckCircle2 size={18}/> ตรงกันทุกรายการ — แอปคำนวณตรงกับ Excel
             </div>
           )}
@@ -1540,10 +1540,10 @@ function ReconcileTab({ appRows, auth }) {
 
 function ReconStat({ label, value, tone, icon: Icon }) {
   const map = {
-    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    amber: 'bg-amber-50 text-amber-700 border-amber-200',
-    sky: 'bg-sky-50 text-sky-700 border-sky-200',
-    slate: 'bg-slate-50 text-slate-600 border-slate-200',
+    emerald: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60',
+    amber: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900/60',
+    sky: 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-900/60',
+    slate: 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700',
   };
   return (
     <div className={`border rounded-xl p-3 ${map[tone]}`}>
@@ -1555,27 +1555,27 @@ function ReconStat({ label, value, tone, icon: Icon }) {
 
 // เซลล์ตัวเลข: ถ้าต่าง (diff != null) ไฮไลต์ + แสดง app/excel + delta; ถ้าตรง แสดงค่าเดียว
 function DiffCell({ diff, app, csv }) {
-  if (!diff) return <td className="text-center px-2 py-2 text-slate-400">{app ?? '—'}</td>;
+  if (!diff) return <td className="text-center px-2 py-2 text-slate-400 dark:text-slate-500">{app ?? '—'}</td>;
   return (
-    <td className="text-center px-2 py-2 bg-amber-50">
-      <span className="text-slate-800 font-semibold">{app ?? '—'}</span>
-      <span className="text-slate-400"> / {csv ?? '—'}</span>
+    <td className="text-center px-2 py-2 bg-amber-50 dark:bg-amber-950/40">
+      <span className="text-slate-800 dark:text-slate-100 font-semibold">{app ?? '—'}</span>
+      <span className="text-slate-400 dark:text-slate-500"> / {csv ?? '—'}</span>
       <div className="text-[10px] text-rose-600">Δ {diff.delta > 0 ? '+' : ''}{diff.delta}</div>
     </td>
   );
 }
 
 function ReconOnlyList({ title, hint, tone, items }) {
-  const head = tone === 'sky' ? 'bg-sky-50 text-sky-800' : 'bg-slate-50 text-slate-700';
+  const head = tone === 'sky' ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-800 dark:text-sky-300' : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200';
   return (
-    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
       <div className={`px-4 py-2 text-sm font-semibold ${head}`}>{title}</div>
-      <p className="text-xs text-slate-400 px-4 pt-2">{hint}</p>
+      <p className="text-xs text-slate-400 dark:text-slate-500 px-4 pt-2">{hint}</p>
       <div className="flex flex-wrap gap-1.5 p-3">
         {items.map(it => (
-          <span key={it.code} className="inline-flex items-center gap-1 bg-slate-100 rounded-lg px-2 py-1 text-xs">
-            <b className="text-slate-700">{it.code}</b>
-            <span className="text-slate-400">{it.name}</span>
+          <span key={it.code} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg px-2 py-1 text-xs">
+            <b className="text-slate-700 dark:text-slate-200">{it.code}</b>
+            <span className="text-slate-400 dark:text-slate-500">{it.name}</span>
           </span>
         ))}
       </div>
@@ -1662,11 +1662,11 @@ function VerifyTab() {
 
   return (
     <div className="space-y-3">
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+      <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
-            <h3 className="font-bold text-slate-800 flex items-center gap-2"><ShieldAlert size={16}/> Golden Test Suite</h3>
-            <p className="text-xs text-slate-500 mt-0.5">ทดสอบสูตรคำนวณตาม Excel reference — ต้องผ่าน 100% ก่อน trust ผลลัพธ์</p>
+            <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2"><ShieldAlert size={16}/> Golden Test Suite</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">ทดสอบสูตรคำนวณตาม Excel reference — ต้องผ่าน 100% ก่อน trust ผลลัพธ์</p>
           </div>
           <button onClick={runTests} disabled={running} className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5">
             {running ? <Loader2 size={14} className="animate-spin"/> : <RefreshCw size={14}/>} Run tests
@@ -1675,16 +1675,16 @@ function VerifyTab() {
       </div>
 
       {results && (
-        <div className={`rounded-xl border-2 p-3 ${failCount === 0 ? 'bg-emerald-50 border-emerald-300' : 'bg-rose-50 border-rose-300'}`}>
+        <div className={`rounded-xl border-2 p-3 ${failCount === 0 ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800/60' : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800/60'}`}>
           <div className="flex items-center gap-2 font-bold mb-2">
-            {failCount === 0 ? <CheckCircle2 size={18} className="text-emerald-700"/> : <XCircle size={18} className="text-rose-700"/>}
-            <span className={failCount === 0 ? 'text-emerald-800' : 'text-rose-800'}>
+            {failCount === 0 ? <CheckCircle2 size={18} className="text-emerald-700 dark:text-emerald-300"/> : <XCircle size={18} className="text-rose-700 dark:text-rose-300"/>}
+            <span className={failCount === 0 ? 'text-emerald-800 dark:text-emerald-300' : 'text-rose-800 dark:text-rose-300'}>
               {passCount} ผ่าน · {failCount} ล้มเหลว · จาก {results.length} cases
             </span>
           </div>
           <div className="space-y-1 text-xs font-mono max-h-96 overflow-auto">
             {results.map((c, i) => (
-              <div key={i} className={`flex items-start gap-2 px-2 py-1 rounded ${c.ok ? 'text-emerald-700' : 'text-rose-700 bg-white border border-rose-200'}`}>
+              <div key={i} className={`flex items-start gap-2 px-2 py-1 rounded ${c.ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300 bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900/60'}`}>
                 <span>{c.ok ? '✓' : '✗'}</span>
                 <span className="flex-1">{c.label}</span>
                 {!c.ok && <span className="text-[10px]">expected {String(c.expected)} got {String(c.actual)}</span>}
@@ -1722,9 +1722,9 @@ function HistoryTab({ auth }) {
   if (runs.length === 0) return <EmptyState text="ยังไม่มี snapshot — กด 'บันทึก Snapshot' จากหน้าผลวิเคราะห์"/>;
 
   return (
-    <div className="overflow-auto rounded-xl border border-slate-200">
+    <div className="overflow-auto rounded-xl border border-slate-200 dark:border-slate-700">
       <table className="w-full text-sm">
-        <thead className="bg-slate-100">
+        <thead className="bg-slate-100 dark:bg-slate-800">
           <tr>
             <th className="px-3 py-2 text-left">เวลา</th>
             <th className="px-3 py-2 text-left">โดย</th>
@@ -1738,18 +1738,18 @@ function HistoryTab({ auth }) {
         </thead>
         <tbody>
           {runs.map(r => (
-            <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
-              <td className="px-3 py-2 text-slate-600">{fmtDateTimeThai(r.run_at)}</td>
-              <td className="px-3 py-2 text-slate-600">{r.run_by || '-'}</td>
+            <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800">
+              <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{fmtDateTimeThai(r.run_at)}</td>
+              <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{r.run_by || '-'}</td>
               <td className="px-3 py-2 text-center">
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${r.mode === 'refill' ? 'bg-rose-100 text-rose-700' : 'bg-orange-100 text-orange-700'}`}>{r.mode}</span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${r.mode === 'refill' ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300' : 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300'}`}>{r.mode}</span>
               </td>
-              <td className="px-3 py-2 text-xs text-slate-500">{r.stats_from} → {r.stats_to}</td>
+              <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">{r.stats_from} → {r.stats_to}</td>
               <td className="px-3 py-2 text-right tabular-nums">{fmtNum(r.total_rows)}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-orange-700 font-semibold">{fmtNum(r.reorder_rows)}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-emerald-700 font-semibold">฿{fmtBaht(r.total_amount)}</td>
+              <td className="px-3 py-2 text-right tabular-nums text-orange-700 dark:text-orange-300 font-semibold">{fmtNum(r.reorder_rows)}</td>
+              <td className="px-3 py-2 text-right tabular-nums text-emerald-700 dark:text-emerald-300 font-semibold">฿{fmtBaht(r.total_amount)}</td>
               <td className="px-3 py-2 text-center">
-                <button onClick={() => remove(r.id)} className="text-rose-500 hover:bg-rose-50 rounded p-1" title="ลบ">
+                <button onClick={() => remove(r.id)} className="text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded p-1" title="ลบ">
                   <Trash2 size={13}/>
                 </button>
               </td>

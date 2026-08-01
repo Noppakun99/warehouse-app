@@ -243,17 +243,17 @@ export default function AppRoot() {
 function ReqToast({ toast, onDismiss, onNavigate }) {
   const { req } = toast;
   return (
-    <div className="bg-white border border-amber-200 rounded-2xl shadow-2xl p-4 flex items-start gap-3 w-80 max-w-[calc(100vw-2rem)]">
-      <div className="shrink-0 w-9 h-9 bg-amber-100 rounded-xl flex items-center justify-center">
+    <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/60 rounded-2xl shadow-2xl p-4 flex items-start gap-3 w-80 max-w-[calc(100vw-2rem)]">
+      <div className="shrink-0 w-9 h-9 bg-amber-100 dark:bg-amber-950/60 rounded-xl flex items-center justify-center">
         <Bell size={18} className="text-amber-600" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="font-semibold text-slate-800 text-sm leading-tight">ใบเบิกยาใหม่เข้า</p>
-        <p className="text-xs text-slate-500 mt-0.5 truncate">
+        <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm leading-tight">ใบเบิกยาใหม่เข้า</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
           {req.department} · {req.requester_name || 'ไม่ระบุ'}
         </p>
         {req.req_number && (
-          <p className="text-[11px] text-slate-400 font-mono mt-0.5">{req.req_number}</p>
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">{req.req_number}</p>
         )}
         <button
           onClick={onNavigate}
@@ -262,7 +262,7 @@ function ReqToast({ toast, onDismiss, onNavigate }) {
           ไปดูใบเบิก →
         </button>
       </div>
-      <button onClick={onDismiss} className="shrink-0 text-slate-300 hover:text-slate-500 transition-colors mt-0.5">
+      <button onClick={onDismiss} className="shrink-0 text-slate-300 dark:text-slate-500 hover:text-slate-500 dark:hover:text-slate-400 transition-colors mt-0.5">
         <X size={14} />
       </button>
     </div>
@@ -368,7 +368,7 @@ function LoginPage({ onLogin }) {
     <div className="min-h-screen bg-gradient-to-br from-sky-400 via-blue-500 to-indigo-600 flex flex-col items-center justify-center p-4">
       {/* Brand */}
       <div className="text-center mb-8">
-        <div className="inline-flex items-center justify-center w-20 h-20 bg-white/20 backdrop-blur rounded-2xl shadow-xl mb-4 border border-white/30">
+        <div className="inline-flex items-center justify-center w-20 h-20 bg-white dark:bg-slate-900/20 backdrop-blur rounded-2xl shadow-xl mb-4 border border-white/30">
           <Pill size={40} className="text-white" />
         </div>
         <h1 className="text-3xl font-bold text-white drop-shadow">ระบบบริหารคลังยา</h1>
@@ -377,24 +377,24 @@ function LoginPage({ onLogin }) {
 
       {/* ===== First Run Setup ===== */}
       {view === 'firstrun' && (
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="bg-violet-50 border-b border-violet-100 px-6 py-4 text-center">
+        <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div className="bg-violet-50 dark:bg-violet-950/40 border-b border-violet-100 dark:border-violet-900/50 px-6 py-4 text-center">
             <ShieldCheck size={28} className="mx-auto text-violet-600 mb-1"/>
-            <p className="font-bold text-violet-800">ตั้งค่าระบบครั้งแรก</p>
+            <p className="font-bold text-violet-800 dark:text-violet-300">ตั้งค่าระบบครั้งแรก</p>
             <p className="text-xs text-violet-500 mt-0.5">สร้างบัญชีผู้ดูแลระบบ (Admin)</p>
           </div>
           <form onSubmit={handleFirstRun} className="p-6 space-y-4">
             <LabelInput label="ชื่อผู้ใช้ (username)" value={aUsername} onChange={e => setAUsername(e.target.value)} placeholder="เช่น admin" required autoComplete="off"/>
             <LabelInput label="ชื่อ-สกุล" value={aFullName} onChange={e => setAFullName(e.target.value)} placeholder="ชื่อ-สกุลจริง" required/>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">รหัสผ่าน</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">รหัสผ่าน</label>
               <PwInput value={aPassword} onChange={e => setAPassword(e.target.value)} show={aShowPw} onToggle={() => setAShowPw(s => !s)} required/>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">ยืนยันรหัสผ่าน</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">ยืนยันรหัสผ่าน</label>
               <PwInput value={aConfirm} onChange={e => setAConfirm(e.target.value)} show={aShowPw} onToggle={() => setAShowPw(s => !s)} placeholder="ยืนยันรหัสผ่าน" required/>
             </div>
-            {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+            {error && <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-lg px-3 py-2">{error}</p>}
             <button type="submit" disabled={loading}
               className="w-full bg-gradient-to-r from-violet-600 to-violet-700 hover:from-violet-700 hover:to-violet-800 text-white rounded-xl py-3 font-semibold text-sm transition-colors shadow-sm disabled:opacity-50">
               {loading ? 'กำลังสร้าง...' : 'สร้างบัญชี Admin'}
@@ -405,22 +405,22 @@ function LoginPage({ onLogin }) {
 
       {/* ===== Login ===== */}
       {view === 'login' && (
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
           <form onSubmit={handleLogin} className="p-6 space-y-4">
             <LabelInput label="ชื่อผู้ใช้ (username)" value={username} onChange={e => setUsername(e.target.value)} placeholder="กรอกชื่อผู้ใช้" required autoComplete="username"/>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">รหัสผ่าน</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">รหัสผ่าน</label>
               <PwInput value={password} onChange={e => setPassword(e.target.value)} show={showPw} onToggle={() => setShowPw(s => !s)} required autoComplete="current-password"/>
             </div>
-            {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+            {error && <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-lg px-3 py-2">{error}</p>}
             <button type="submit" disabled={loading}
               className="w-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white rounded-xl py-3 font-semibold text-sm transition-colors shadow-sm disabled:opacity-50">
               {loading ? 'กำลังตรวจสอบ...' : 'เข้าสู่ระบบ'}
             </button>
           </form>
-          <div className="border-t border-slate-100 px-6 py-4 flex items-center justify-between">
+          <div className="border-t border-slate-100 dark:border-slate-800 px-6 py-4 flex items-center justify-between">
             <button onClick={() => { setView('forgot'); setError(''); }}
-              className="text-slate-400 hover:text-slate-600 text-sm transition-colors">
+              className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 text-sm transition-colors">
               ลืมรหัสผ่าน?
             </button>
             <button onClick={() => { setView('register'); setError(''); setRSuccess(false); }}
@@ -433,18 +433,18 @@ function LoginPage({ onLogin }) {
 
       {/* ===== Register ===== */}
       {view === 'register' && (
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="bg-sky-50 border-b border-sky-100 px-6 py-4">
-            <p className="font-bold text-sky-800">สมัครเข้าใช้งาน</p>
+        <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div className="bg-sky-50 dark:bg-sky-950/40 border-b border-sky-100 dark:border-sky-900/50 px-6 py-4">
+            <p className="font-bold text-sky-800 dark:text-sky-300">สมัครเข้าใช้งาน</p>
             <p className="text-xs text-sky-500 mt-0.5">บัญชีใหม่จะได้รับสิทธิ์ผู้เบิก (requester)</p>
           </div>
           {rSuccess ? (
             <div className="p-6 text-center space-y-3">
-              <div className="inline-flex items-center justify-center w-14 h-14 bg-emerald-100 rounded-full">
+              <div className="inline-flex items-center justify-center w-14 h-14 bg-emerald-100 dark:bg-emerald-950/60 rounded-full">
                 <CheckCircle size={28} className="text-emerald-600"/>
               </div>
-              <p className="font-bold text-slate-800">สมัครสำเร็จ!</p>
-              <p className="text-sm text-slate-500">สามารถเข้าสู่ระบบได้ทันที</p>
+              <p className="font-bold text-slate-800 dark:text-slate-100">สมัครสำเร็จ!</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">สามารถเข้าสู่ระบบได้ทันที</p>
               <button onClick={() => { setView('login'); setError(''); }}
                 className="w-full bg-sky-600 hover:bg-sky-700 text-white rounded-xl py-2.5 font-semibold text-sm transition-colors">
                 ไปหน้าเข้าสู่ระบบ
@@ -454,24 +454,24 @@ function LoginPage({ onLogin }) {
             <form onSubmit={handleRegister} className="p-6 space-y-3.5">
               <LabelInput label="ชื่อผู้ใช้ (username)" value={rUsername} onChange={e => setRUsername(e.target.value)} placeholder="ภาษาอังกฤษ ไม่มีช่องว่าง" required autoComplete="off"/>
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">หน่วยงาน</label>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">หน่วยงาน</label>
                 <SearchableSelect value={rDept} onChange={setRDept} options={DEPARTMENTS_LIST} placeholder="-- เลือกหน่วยงาน --"/>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">รหัสผ่าน (อย่างน้อย 6 ตัว)</label>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">รหัสผ่าน (อย่างน้อย 6 ตัว)</label>
                 <PwInput value={rPassword} onChange={e => setRPassword(e.target.value)} show={rShowPw} onToggle={() => setRShowPw(s => !s)} required/>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">ยืนยันรหัสผ่าน</label>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">ยืนยันรหัสผ่าน</label>
                 <PwInput value={rConfirm} onChange={e => setRConfirm(e.target.value)} show={rShowPw} onToggle={() => setRShowPw(s => !s)} placeholder="ยืนยันรหัสผ่าน" required/>
               </div>
-              {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+              {error && <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-lg px-3 py-2">{error}</p>}
               <button type="submit" disabled={loading}
                 className="w-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white rounded-xl py-3 font-semibold text-sm transition-colors shadow-sm disabled:opacity-50">
                 {loading ? 'กำลังสมัคร...' : 'สมัครเข้าใช้งาน'}
               </button>
               <button type="button" onClick={() => { setView('login'); setError(''); }}
-                className="w-full text-slate-500 hover:text-slate-700 text-sm font-medium transition-colors py-1">
+                className="w-full text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-sm font-medium transition-colors py-1">
                 ← กลับหน้าเข้าสู่ระบบ
               </button>
             </form>
@@ -481,29 +481,29 @@ function LoginPage({ onLogin }) {
 
       {/* ===== Forgot Password ===== */}
       {view === 'forgot' && (
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="bg-amber-50 border-b border-amber-100 px-6 py-4 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+        <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-100 dark:border-amber-900/50 px-6 py-4 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-950/60 flex items-center justify-center shrink-0">
               <svg xmlns="http://www.w3.org/2000/svg" width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-600"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             </div>
             <div>
-              <p className="font-bold text-amber-800 text-sm">ลืมรหัสผ่าน</p>
+              <p className="font-bold text-amber-800 dark:text-amber-300 text-sm">ลืมรหัสผ่าน</p>
               <p className="text-xs text-amber-600 mt-0.5">ติดต่อผู้ดูแลระบบเพื่อรีเซ็ตรหัสผ่าน</p>
             </div>
           </div>
           <div className="px-6 py-5 space-y-4">
-            <p className="text-sm text-slate-600 leading-relaxed">
+            <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
               ระบบนี้ไม่รองรับการรีเซ็ตรหัสผ่านด้วยตนเอง<br/>
-              กรุณาติดต่อ <span className="font-semibold text-slate-800">ผู้ดูแลระบบ (Admin)</span> เพื่อให้รีเซ็ตรหัสผ่านให้
+              กรุณาติดต่อ <span className="font-semibold text-slate-800 dark:text-slate-100">ผู้ดูแลระบบ (Admin)</span> เพื่อให้รีเซ็ตรหัสผ่านให้
             </p>
-            <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 space-y-1.5">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">ขั้นตอน</p>
-              <p className="text-sm text-slate-700">1. แจ้ง Username ของคุณให้ Admin</p>
-              <p className="text-sm text-slate-700">2. Admin รีเซ็ตรหัสผ่านชั่วคราวให้</p>
-              <p className="text-sm text-slate-700">3. เข้าสู่ระบบด้วยรหัสใหม่</p>
+            <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 space-y-1.5">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">ขั้นตอน</p>
+              <p className="text-sm text-slate-700 dark:text-slate-200">1. แจ้ง Username ของคุณให้ Admin</p>
+              <p className="text-sm text-slate-700 dark:text-slate-200">2. Admin รีเซ็ตรหัสผ่านชั่วคราวให้</p>
+              <p className="text-sm text-slate-700 dark:text-slate-200">3. เข้าสู่ระบบด้วยรหัสใหม่</p>
             </div>
           </div>
-          <div className="border-t border-slate-100 px-6 py-4 text-center">
+          <div className="border-t border-slate-100 dark:border-slate-800 px-6 py-4 text-center">
             <button onClick={() => { setView('login'); setError(''); }}
               className="text-sky-600 hover:text-sky-800 text-sm font-medium transition-colors">
               ← กลับหน้าเข้าสู่ระบบ
@@ -521,9 +521,9 @@ function LoginPage({ onLogin }) {
 function LabelInput({ label, value, onChange, placeholder, required, autoComplete }) {
   return (
     <div>
-      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">{label}</label>
+      <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">{label}</label>
       <input type="text" value={value} onChange={onChange} placeholder={placeholder} required={required} autoComplete={autoComplete}
-        className="w-full border border-slate-300 rounded-xl px-4 py-2.5 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"/>
+        className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"/>
     </div>
   );
 }
@@ -532,8 +532,8 @@ function PwInput({ value, onChange, show, onToggle, placeholder = 'รหัส�
   return (
     <div className="relative">
       <input type={show ? 'text' : 'password'} value={value} onChange={onChange} placeholder={placeholder} required={required} autoComplete={autoComplete}
-        className="w-full border border-slate-300 rounded-xl px-4 py-2.5 pr-10 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"/>
-      <button type="button" onClick={onToggle} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+        className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 pr-10 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"/>
+      <button type="button" onClick={onToggle} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
         {show ? <EyeOff size={16}/> : <Eye size={16}/>}
       </button>
     </div>
@@ -592,12 +592,12 @@ function Dashboard({ auth, onNavigate }) {
   }, [isStaff, auth.id]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-200 via-slate-100 to-indigo-100 font-sans">
+    <div className="min-h-screen bg-gradient-to-br from-slate-200 via-slate-100 to-indigo-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-900 font-sans">
       {/* กระดิ่ง + เมนูบัญชี + สลับธีม อยู่บน top bar (ขาว) ของ AppShell — แสดงทุกหน้า */}
 
       {/* หัวหน้า — ชื่อหน้าอย่างเดียว (ชื่อผู้ใช้/บทบาทดูได้ที่เมนูบัญชีบน top bar) */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 pb-4">
-        <h2 className="text-3xl font-bold text-slate-800">Dashboard</h2>
+        <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-100">Dashboard</h2>
       </div>
 
       {/* Quick stats strip */}
@@ -766,20 +766,20 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
     const det = matchReceiveDetails(drugDetails, r); // ประวัติรับยา — helper กลางชุดเดียวกับโมดอลใกล้หมดอายุ
     // willDeplete = ของจะหมดเองก่อนถึง deadline (ตามเรทเบิก) → ไม่ต้องคืน (flag จาง ไม่ซ่อน — ดู CONTEXT.md §ความจำเป็นต้องคืน)
     return (
-      <div key={keyOf(r)} className={`rounded-lg border overflow-hidden ${r.willDeplete ? 'bg-slate-50 border-slate-200 opacity-80' : 'bg-white border-amber-200'}`}>
+      <div key={keyOf(r)} className={`rounded-lg border overflow-hidden ${r.willDeplete ? 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 opacity-80' : 'bg-white dark:bg-slate-900 border-amber-200 dark:border-amber-900/60'}`}>
         <div onClick={() => setExpandedKey(isOpen ? null : keyOf(r))} className="px-3 py-2 cursor-pointer hover:bg-amber-50/60">
           <div className="flex items-center gap-2 flex-wrap">
             <ChevronDown size={13} className={`text-amber-600 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-            <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.status === 'overdue' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+            <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.status === 'overdue' ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300'}`}>
               {r.status === 'overdue' ? 'พ้นกำหนด' : `เหลือ ${r.daysToDeadline} วัน`}
             </span>
-            <span className="text-sm font-semibold text-slate-800 truncate min-w-0">{r.name}</span>
-            <span className="text-[11px] text-slate-500 shrink-0">Lot {r.lot} · {r.location}</span>
-            {r.receiveDate && <span className="text-[11px] text-slate-500 shrink-0">คลังรับ {fmtThai(r.receiveDate)}</span>}
-            <span className="text-[11px] text-slate-500 shrink-0">EXP {fmtExp(r.exp)}</span>
-            <span className="text-[11px] font-semibold text-slate-700 shrink-0">คงเหลือ {r.qty}{r.unit ? ` (${r.unit})` : ''}</span>
-            <span className="text-[11px] text-slate-500 shrink-0">{r.company}</span>
-            <span className="text-[11px] text-slate-500 shrink-0">ต้องคืนภายใน {fmtThai(r.deadline)}</span>
+            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate min-w-0">{r.name}</span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">Lot {r.lot} · {r.location}</span>
+            {r.receiveDate && <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">คลังรับ {fmtThai(r.receiveDate)}</span>}
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">EXP {fmtExp(r.exp)}</span>
+            <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 shrink-0">คงเหลือ {r.qty}{r.unit ? ` (${r.unit})` : ''}</span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{r.company}</span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">ต้องคืนภายใน {fmtThai(r.deadline)}</span>
             {isFlagged ? (
               <span className="ml-auto text-[11px] font-semibold text-emerald-600 shrink-0">แจ้งหัวหน้าแล้ว</span>
             ) : (
@@ -789,33 +789,33 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
               </button>
             )}
           </div>
-          <p className="text-[11px] text-slate-500 mt-1">
-            <span className="font-semibold text-slate-600">เบิกเฉลี่ย/เดือน (6 ด.ล่าสุด):</span>{' '}
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            <span className="font-semibold text-slate-600 dark:text-slate-300">เบิกเฉลี่ย/เดือน (6 ด.ล่าสุด):</span>{' '}
             {r.avgBaseUnit ? `~${Math.round(r.avgBaseUnit).toLocaleString()} ${r.baseUnit || 'หน่วย'}/เดือน` : 'ไม่มีการเบิก'}
           </p>
           {r.willDeplete && (
-            <p className="text-[11px] text-emerald-700 mt-1 flex items-center gap-1">
+            <p className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-1 flex items-center gap-1">
               <span className="font-semibold">คาดว่าจะหมดเองก่อน</span>
               (ใช้ ~{Math.round(r.avgPerDay)}/วัน · คงเหลือพอ ~{r.coverageDays} วัน) — อาจไม่ต้องคืน
             </p>
           )}
           {r.policyText && (
-            <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-              <span className="font-semibold text-slate-600">นโยบาย:</span> {r.policyText}
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+              <span className="font-semibold text-slate-600 dark:text-slate-300">นโยบาย:</span> {r.policyText}
             </p>
           )}
-          <p className="text-[11px] font-semibold text-amber-700 mt-1 flex items-center gap-1">
+          <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 mt-1 flex items-center gap-1">
             <ChevronDown size={12} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
             {isOpen ? 'ซ่อนประวัติรับยา' : 'ดูประวัติรับยา'}
           </p>
         </div>
-        {isOpen && <div className="px-3 border-t border-amber-100"><ReceiveHistoryDetail details={det.rows} scope={det.scope} /></div>}
+        {isOpen && <div className="px-3 border-t border-amber-100 dark:border-amber-900/50"><ReceiveHistoryDetail details={det.rows} scope={det.scope} /></div>}
       </div>
     );
   };
   return (
     <div className="fixed inset-0 bg-slate-900/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      <div className="bg-amber-50 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col animate-in fade-in zoom-in duration-200">
+      <div className="bg-amber-50 dark:bg-amber-950/40 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col animate-in fade-in zoom-in duration-200">
         <div className="p-5 flex justify-between items-start gap-3 shrink-0 rounded-t-2xl bg-amber-500 text-white">
           <div className="flex items-start gap-2.5 min-w-0">
             <AlertTriangle size={22} className="text-white shrink-0 mt-0.5" />
@@ -834,22 +834,22 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
         <div className="overflow-auto p-4 space-y-2 flex-1">
           {overdue.length > 0 && (
             <>
-              <p className="text-xs font-bold text-rose-700 px-1">พ้นกำหนดคืนแล้ว ({overdue.length})</p>
+              <p className="text-xs font-bold text-rose-700 dark:text-rose-300 px-1">พ้นกำหนดคืนแล้ว ({overdue.length})</p>
               {overdue.map(Row)}
             </>
           )}
           {due.length > 0 && (
             <>
-              <p className="text-xs font-bold text-amber-700 px-1 pt-1">ใกล้พ้นกำหนด ({due.length})</p>
+              <p className="text-xs font-bold text-amber-700 dark:text-amber-300 px-1 pt-1">ใกล้พ้นกำหนด ({due.length})</p>
               {due.map(Row)}
             </>
           )}
         </div>
-        <div className="bg-white p-3 border-t border-amber-200 flex justify-between items-center gap-2 shrink-0 rounded-b-2xl flex-wrap">
-          <p className="text-[11px] text-slate-500 min-w-0">ดูรายละเอียดเพิ่มเติมได้ที่ระบบแผนผัง ▸ ใกล้หมดอายุ</p>
+        <div className="bg-white dark:bg-slate-900 p-3 border-t border-amber-200 dark:border-amber-900/60 flex justify-between items-center gap-2 shrink-0 rounded-b-2xl flex-wrap">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 min-w-0">ดูรายละเอียดเพิ่มเติมได้ที่ระบบแผนผัง ▸ ใกล้หมดอายุ</p>
           <div className="flex items-center gap-2 shrink-0">
             <button onClick={handlePrint} disabled={rows.length === 0}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
+              className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
               <Printer size={15}/> พิมพ์
             </button>
             <button onClick={handleExport} disabled={exporting || rows.length === 0}
@@ -899,7 +899,7 @@ function ReceiveHistoryDetail({ details = [], scope = 'code_lot' }) {
   const NEAR_MISS_CAP = 5; // lot '-' (เวชภัณฑ์) บิลเยอะ — ใบ้พอให้ตามหา ไม่ flood
   return (
     <div className="py-2.5 space-y-2.5">
-      <p className="text-[11px] font-bold text-teal-700 uppercase tracking-wide flex items-center gap-1.5 flex-wrap">
+      <p className="text-[11px] font-bold text-teal-700 dark:text-teal-300 uppercase tracking-wide flex items-center gap-1.5 flex-wrap">
         ประวัติรับยา (จาก Log คลัง)
         {exact && (
           <span className="font-semibold normal-case text-emerald-600 inline-flex items-center gap-1">
@@ -908,7 +908,7 @@ function ReceiveHistoryDetail({ details = [], scope = 'code_lot' }) {
         )}
       </p>
       {exact ? details.map((d, idx) => (
-        <div key={idx} className="rounded-lg border border-teal-100 bg-teal-50/50 p-2.5">
+        <div key={idx} className="rounded-lg border border-teal-100 dark:border-teal-900/50 bg-teal-50 dark:bg-teal-950/40 p-2.5">
           {details.length > 1 && (
             <p className="text-[11px] text-teal-600 font-medium mb-1.5">บิล {idx + 1}/{details.length} — {d._invoice || '-'}</p>
           )}
@@ -929,7 +929,7 @@ function ReceiveHistoryDetail({ details = [], scope = 'code_lot' }) {
             ].map(({ label, val }) => (
               <div key={label} className="flex flex-col">
                 <span className="text-[10px] font-semibold text-teal-600">{label}</span>
-                <span className="text-slate-700">{val}</span>
+                <span className="text-slate-700 dark:text-slate-200">{val}</span>
               </div>
             ))}
           </div>
@@ -940,18 +940,18 @@ function ReceiveHistoryDetail({ details = [], scope = 'code_lot' }) {
             {details.length ? 'ไม่พบบิลของ lot/EXP รายการนี้ในประวัติรับยา' : 'ไม่พบข้อมูลในประวัติรับยา'}
           </p>
           {scope === 'code_lot' && details.length > 0 && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 space-y-1">
-              <p className="text-[11px] text-amber-800">
+            <div className="rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 p-2.5 space-y-1">
+              <p className="text-[11px] text-amber-800 dark:text-amber-300">
                 พบบิลของ lot นี้ {details.length} ใบ แต่ EXP ใน log ไม่ตรง/ไม่ระบุ — โปรดตรวจสอบบิลในระบบประวัติรับยาก่อนใช้อ้างอิง
               </p>
               <ul className="space-y-0.5">
                 {details.slice(0, NEAR_MISS_CAP).map((d, idx) => (
-                  <li key={idx} className="text-[11px] text-slate-700">
+                  <li key={idx} className="text-[11px] text-slate-700 dark:text-slate-200">
                     เลขที่บิล <span className="font-semibold">{d._invoice || '-'}</span> · EXP ใน log: {fmtLogExp(d._exp)} · รับ {fmtDate(d.receive_date)}
                   </li>
                 ))}
                 {details.length > NEAR_MISS_CAP && (
-                  <li className="text-[11px] text-slate-500">… และอีก {details.length - NEAR_MISS_CAP} ใบ</li>
+                  <li className="text-[11px] text-slate-500 dark:text-slate-400">… และอีก {details.length - NEAR_MISS_CAP} ใบ</li>
                 )}
               </ul>
             </div>
@@ -1090,19 +1090,19 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
   };
 
   const rowColor = (daysLeft) => {
-    if (daysLeft < 0)   return 'bg-red-50 border-red-100';
-    if (daysLeft < 30)  return 'bg-orange-50 border-orange-100';
-    if (daysLeft < 90)  return 'bg-yellow-50 border-yellow-100';
-    if (daysLeft < 180) return 'bg-lime-50 border-lime-100';
-    return 'bg-blue-50 border-blue-100';
+    if (daysLeft < 0)   return 'bg-red-50 dark:bg-red-950/40 border-red-100 dark:border-red-900/50';
+    if (daysLeft < 30)  return 'bg-orange-50 dark:bg-orange-950/40 border-orange-100 dark:border-orange-900/50';
+    if (daysLeft < 90)  return 'bg-yellow-50 dark:bg-yellow-950/40 border-yellow-100 dark:border-yellow-900/50';
+    if (daysLeft < 180) return 'bg-lime-50 dark:bg-lime-950/40 border-lime-100 dark:border-lime-900/50';
+    return 'bg-blue-50 dark:bg-blue-950/40 border-blue-100 dark:border-blue-900/50';
   };
 
   const badgeColor = (daysLeft) => {
-    if (daysLeft < 0)   return 'bg-red-100 text-red-700 border-red-200';
-    if (daysLeft < 30)  return 'bg-orange-100 text-orange-700 border-orange-200';
-    if (daysLeft < 90)  return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-    if (daysLeft < 180) return 'bg-lime-100 text-lime-700 border-lime-200';
-    return 'bg-blue-100 text-blue-700 border-blue-200';
+    if (daysLeft < 0)   return 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300 border-red-200 dark:border-red-900/60';
+    if (daysLeft < 30)  return 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-900/60';
+    if (daysLeft < 90)  return 'bg-yellow-100 dark:bg-yellow-950/60 text-yellow-700 dark:text-yellow-300 border-yellow-200 dark:border-yellow-900/60';
+    if (daysLeft < 180) return 'bg-lime-100 dark:bg-lime-950/60 text-lime-700 dark:text-lime-300 border-lime-200 dark:border-lime-900/60';
+    return 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-900/60';
   };
 
   const daysLabel = (daysLeft) => {
@@ -1115,11 +1115,11 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
   const flagKeyOf = (r) => `${(r.code||'-')}|${(r.lot||'-')}|${(r.location||'-')}`;
   const returnBadge = (ri) => {
     if (!ri) return null;
-    if (ri.differsByItem) return { text: 'ต้องเช็กเอกสาร', cls: 'bg-slate-100 text-slate-600 border-slate-200' };
-    if (ri.canReturn === false) return { text: 'บริษัทไม่รับคืน', cls: 'bg-slate-100 text-slate-500 border-slate-200' };
-    if (ri.status === 'overdue') return { text: 'พ้นกำหนดคืน', cls: 'bg-rose-100 text-rose-700 border-rose-200' };
-    if (ri.status === 'due')     return { text: `ต้องคืนใน ${ri.daysToDeadline} วัน`, cls: 'bg-amber-100 text-amber-800 border-amber-300' };
-    if (ri.status === 'ok' && ri.returnMonths != null) return { text: `คืนก่อน ${ri.returnMonths} ด.`, cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+    if (ri.differsByItem) return { text: 'ต้องเช็กเอกสาร', cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700' };
+    if (ri.canReturn === false) return { text: 'บริษัทไม่รับคืน', cls: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700' };
+    if (ri.status === 'overdue') return { text: 'พ้นกำหนดคืน', cls: 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60' };
+    if (ri.status === 'due')     return { text: `ต้องคืนใน ${ri.daysToDeadline} วัน`, cls: 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300' };
+    if (ri.status === 'ok' && ri.returnMonths != null) return { text: `คืนก่อน ${ri.returnMonths} ด.`, cls: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60' };
     return null;
   };
   // รายการที่ต้องเด้ง banner = due/overdue (คืนได้ + ไม่กำกวม)
@@ -1151,12 +1151,12 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
   };
 
   const inner = (
-    <div className={`bg-white border border-red-200 rounded-2xl shadow-sm overflow-hidden flex flex-col ${onClose ? 'max-h-[90vh]' : 'mt-5'}`}>
+    <div className={`bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900/60 rounded-2xl shadow-sm overflow-hidden flex flex-col ${onClose ? 'max-h-[90vh]' : 'mt-5'}`}>
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3.5 bg-red-50 border-b border-red-200 shrink-0">
+      <div className="flex items-center justify-between px-5 py-3.5 bg-red-50 dark:bg-red-950/40 border-b border-red-200 dark:border-red-900/60 shrink-0">
         <div className="flex items-center gap-2">
           <AlertTriangle size={18} className="text-red-500" />
-          <span className="font-bold text-red-800 text-sm">แจ้งเตือนยาใกล้หมดอายุ</span>
+          <span className="font-bold text-red-800 dark:text-red-300 text-sm">แจ้งเตือนยาใกล้หมดอายุ</span>
           <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
             {expiring.length} รายการ
           </span>
@@ -1168,7 +1168,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
             {exporting ? 'กำลังส่งออก...' : 'Excel'}
           </button>
           {onClose && (
-            <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-red-100 rounded-lg transition-colors">
+            <button onClick={onClose} className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-red-100 rounded-lg transition-colors">
               <X size={18} />
             </button>
           )}
@@ -1177,14 +1177,14 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
 
       {/* Banner: ต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด (ADR-0012) — เหมือนโมดอลระบบแผนผัง */}
       {dueReturns.length > 0 && (
-        <div className="px-5 py-2.5 bg-amber-50 border-b border-amber-200 shrink-0">
+        <div className="px-5 py-2.5 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 shrink-0">
           <button onClick={() => setReturnBannerOpen(v => !v)} className="w-full flex items-center gap-2.5 text-left">
             <AlertTriangle size={18} className="text-amber-600 shrink-0" />
-            <span className="text-sm font-bold text-amber-800 min-w-0 flex-1">
+            <span className="text-sm font-bold text-amber-800 dark:text-amber-300 min-w-0 flex-1">
               มี {dueReturns.length} รายการต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด
-              <span className="font-normal text-amber-700"> — แจ้งหัวหน้าให้ดำเนินการก่อนตกหล่น</span>
+              <span className="font-normal text-amber-700 dark:text-amber-300"> — แจ้งหัวหน้าให้ดำเนินการก่อนตกหล่น</span>
             </span>
-            <span className="text-xs font-semibold text-amber-700 shrink-0">{returnBannerOpen ? 'ซ่อน' : 'ดูรายการ'}</span>
+            <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 shrink-0">{returnBannerOpen ? 'ซ่อน' : 'ดูรายการ'}</span>
             <ChevronDown size={16} className={`text-amber-600 shrink-0 transition-transform ${returnBannerOpen ? 'rotate-180' : ''}`} />
           </button>
           {returnBannerOpen && (
@@ -1193,25 +1193,25 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                 const flagged = swapFlagged[flagKeyOf(r)];
                 const isOpen = expandedRow === flagKeyOf(r);
                 return (
-                  <div key={flagKeyOf(r)} className="bg-white/70 rounded-lg border border-amber-200 overflow-hidden">
+                  <div key={flagKeyOf(r)} className="bg-white dark:bg-slate-900/70 rounded-lg border border-amber-200 dark:border-amber-900/60 overflow-hidden">
                     <div onClick={() => setExpandedRow(isOpen ? null : flagKeyOf(r))}
                       className="flex items-center gap-2 flex-wrap px-2.5 py-1.5 cursor-pointer hover:bg-amber-50/60">
                       <ChevronDown size={13} className={`text-amber-600 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-                      <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.returnInfo.status === 'overdue' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+                      <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.returnInfo.status === 'overdue' ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300'}`}>
                         {r.returnInfo.status === 'overdue' ? 'พ้นกำหนด' : `เหลือ ${r.returnInfo.daysToDeadline} วัน`}
                       </span>
-                      <span className="text-xs font-semibold text-slate-700 truncate">{r.name}</span>
-                      <span className="text-[11px] text-slate-500 shrink-0">Lot {r.lot} · {r.location || '-'}</span>
+                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{r.name}</span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">Lot {r.lot} · {r.location || '-'}</span>
                       {(() => {
                         // คลังรับ = วันที่รับล่าสุดจากประวัติที่ match — ไม่โชว์ถ้าเป็นข้อมูลระดับรหัส (คนละ lot)
                         if (r.detailScope === 'code_only') return null;
                         const ts = r.details.map(d => Date.parse(d.receive_date)).filter(t => !isNaN(t));
-                        return ts.length ? <span className="text-[11px] text-slate-500 shrink-0">คลังรับ {fmtThaiDate(new Date(Math.max(...ts)))}</span> : null;
+                        return ts.length ? <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">คลังรับ {fmtThaiDate(new Date(Math.max(...ts)))}</span> : null;
                       })()}
-                      {r.exp && r.exp !== '-' && <span className="text-[11px] text-slate-500 shrink-0">EXP {swapFmtExp(r.exp)}</span>}
-                      <span className="text-[11px] font-semibold text-slate-700 shrink-0">คงเหลือ {r.qty}{r.unit ? ` (${r.unit})` : ''}</span>
-                      <span className="text-[11px] text-slate-500 shrink-0">{r.supplier || 'ไม่ทราบบริษัท'}</span>
-                      <span className="text-[11px] text-slate-500 shrink-0">ต้องคืนภายใน {fmtThaiDate(r.returnInfo.deadline)}</span>
+                      {r.exp && r.exp !== '-' && <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">EXP {swapFmtExp(r.exp)}</span>}
+                      <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 shrink-0">คงเหลือ {r.qty}{r.unit ? ` (${r.unit})` : ''}</span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{r.supplier || 'ไม่ทราบบริษัท'}</span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">ต้องคืนภายใน {fmtThaiDate(r.returnInfo.deadline)}</span>
                       {flagged ? (
                         <span className="ml-auto text-[11px] font-semibold text-emerald-600 shrink-0">แจ้งหัวหน้าแล้ว</span>
                       ) : (
@@ -1221,12 +1221,12 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                         </button>
                       )}
                     </div>
-                    {isOpen && <div className="px-2.5 border-t border-amber-200"><ReceiveHistoryDetail details={r.details} scope={r.detailScope} /></div>}
+                    {isOpen && <div className="px-2.5 border-t border-amber-200 dark:border-amber-900/60"><ReceiveHistoryDetail details={r.details} scope={r.detailScope} /></div>}
                   </div>
                 );
               })}
               {dueReturns.length > 30 && (
-                <p className="text-[11px] text-amber-700 pt-1">และอีก {dueReturns.length - 30} รายการ (ดูในตารางด้านล่าง)</p>
+                <p className="text-[11px] text-amber-700 dark:text-amber-300 pt-1">และอีก {dueReturns.length - 30} รายการ (ดูในตารางด้านล่าง)</p>
               )}
             </div>
           )}
@@ -1247,7 +1247,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
           ringClass="focus:ring-red-400"
           hoverClass="hover:bg-red-50"
           maxResults={20}
-          inputClassName="py-2 bg-slate-50"
+          inputClassName="py-2 bg-slate-50 dark:bg-slate-800"
         />
       </div>
 
@@ -1266,20 +1266,20 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
           <>
             <div className="flex flex-wrap gap-2 px-5 pt-3 pb-1">
               <button onClick={() => setTimePillsOpen(o => !o)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border bg-white text-slate-600 border-slate-200 hover:border-slate-300 transition-colors">
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
                 <Filter size={13} />
                 ช่วงเวลา
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${filter !== 'all' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${filter !== 'all' ? 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>
                   {curTime.label} · {curTime.count}
                 </span>
                 {timePillsOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
               </button>
               {zoneGroups.length > 1 && (
                 <button onClick={() => setZonePillsOpen(o => !o)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border bg-white text-slate-600 border-slate-200 hover:border-slate-300 transition-colors">
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
                   <Filter size={13} />
                   กรองตามโซน
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter !== 'all' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter !== 'all' ? 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>
                     {zoneFilter === 'all' ? 'ทั้งหมด' : zoneFilter}
                   </span>
                   {zonePillsOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
@@ -1295,12 +1295,12 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
                       filter === tab.key
                         ? tab.active + ' border-transparent shadow-sm'
-                        : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                        : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
                     }`}
                   >
                     {tab.label}
                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                      filter === tab.key ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'
+                      filter === tab.key ? 'bg-white dark:bg-slate-900/30 text-inherit' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
                     }`}>{tab.count}</span>
                   </button>
                 ))}
@@ -1310,18 +1310,18 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
               <div className="flex gap-2 px-5 pt-1 pb-1 overflow-x-auto">
                 <button onClick={() => { setZoneFilter('all'); setExpanded(false); }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
-                    zoneFilter === 'all' ? 'bg-red-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                    zoneFilter === 'all' ? 'bg-red-600 text-white border-transparent shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
                   }`}>
                   ทั้งหมด
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter === 'all' ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{searched.length}</span>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter === 'all' ? 'bg-white dark:bg-slate-900/30 text-inherit' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>{searched.length}</span>
                 </button>
                 {zoneGroups.map(([zone, n]) => (
                   <button key={zone} onClick={() => { setZoneFilter(zone); setExpanded(false); }}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border ${
-                      zoneFilter === zone ? 'bg-red-600 text-white border-transparent shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                      zoneFilter === zone ? 'bg-red-600 text-white border-transparent shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
                     }`}>
                     {zone}
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter === zone ? 'bg-white/30 text-inherit' : 'bg-slate-100 text-slate-600'}`}>{n}</span>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${zoneFilter === zone ? 'bg-white dark:bg-slate-900/30 text-inherit' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>{n}</span>
                   </button>
                 ))}
               </div>
@@ -1332,7 +1332,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
 
       {/* Table (desktop) / Card list (mobile) */}
       {filtered.length === 0 ? (
-        <p className="text-center text-slate-400 text-sm py-6">ไม่มีรายการในหมวดนี้</p>
+        <p className="text-center text-slate-400 dark:text-slate-500 text-sm py-6">ไม่มีรายการในหมวดนี้</p>
       ) : isMobile ? (
         <div className="overflow-y-auto p-3 space-y-2" style={{ maxHeight: onClose ? 'calc(90vh - 200px)' : 'calc(100vh - 420px)' }}>
           {displayed.map((r, i) => {
@@ -1343,8 +1343,8 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
               <button type="button" onClick={() => setExpandedRow(isOpen ? null : flagKeyOf(r))} className="w-full text-left">
                 <div className="flex items-start justify-between gap-2 mb-1.5">
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-slate-800 text-sm leading-tight">{r.name || '-'}</p>
-                    {r.code && r.code !== '-' && <p className="text-[11px] text-slate-400 mt-0.5">{r.code}</p>}
+                    <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm leading-tight">{r.name || '-'}</p>
+                    {r.code && r.code !== '-' && <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">{r.code}</p>}
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeColor(r.daysLeft)}`}>
@@ -1353,17 +1353,17 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                     {rb && <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${rb.cls}`}>{rb.text}</span>}
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] mt-2 pt-2 border-t border-slate-200/60">
-                  <div><span className="text-slate-400">ชนิด:</span> <span className="text-slate-700 font-medium">{r.type || '-'}</span></div>
-                  <div><span className="text-slate-400">ตำแหน่ง:</span> <span className="text-slate-700 font-medium">{r.location || '-'}</span></div>
-                  <div><span className="text-slate-400">Lot:</span> <span className="text-slate-700">{r.lot || '-'}</span></div>
-                  <div><span className="text-slate-400">Exp:</span> <span className="text-slate-700">{fmtExp(r.exp)}</span></div>
-                  <div className="col-span-2"><span className="text-slate-400">คงเหลือ:</span> <span className="text-slate-800 font-bold">{r.qty || '-'}</span> <span className="text-slate-500">{r.unit || ''}</span></div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] mt-2 pt-2 border-t border-slate-200 dark:border-slate-700/60">
+                  <div><span className="text-slate-400 dark:text-slate-500">ชนิด:</span> <span className="text-slate-700 dark:text-slate-200 font-medium">{r.type || '-'}</span></div>
+                  <div><span className="text-slate-400 dark:text-slate-500">ตำแหน่ง:</span> <span className="text-slate-700 dark:text-slate-200 font-medium">{r.location || '-'}</span></div>
+                  <div><span className="text-slate-400 dark:text-slate-500">Lot:</span> <span className="text-slate-700 dark:text-slate-200">{r.lot || '-'}</span></div>
+                  <div><span className="text-slate-400 dark:text-slate-500">Exp:</span> <span className="text-slate-700 dark:text-slate-200">{fmtExp(r.exp)}</span></div>
+                  <div className="col-span-2"><span className="text-slate-400 dark:text-slate-500">คงเหลือ:</span> <span className="text-slate-800 dark:text-slate-100 font-bold">{r.qty || '-'}</span> <span className="text-slate-500 dark:text-slate-400">{r.unit || ''}</span></div>
                   {r.supplier && (
-                    <div className="col-span-2"><span className="text-slate-400">บริษัท:</span> <span className="text-slate-700">{r.supplier}</span></div>
+                    <div className="col-span-2"><span className="text-slate-400 dark:text-slate-500">บริษัท:</span> <span className="text-slate-700 dark:text-slate-200">{r.supplier}</span></div>
                   )}
                   {r.swapPolicy && (
-                    <div className="col-span-2"><span className="text-slate-400">นโยบายเปลี่ยนยา:</span> <span className="text-slate-700">{r.swapPolicy}</span></div>
+                    <div className="col-span-2"><span className="text-slate-400 dark:text-slate-500">นโยบายเปลี่ยนยา:</span> <span className="text-slate-700 dark:text-slate-200">{r.swapPolicy}</span></div>
                   )}
                 </div>
                 <div className="flex items-center gap-1 mt-1.5 text-[11px] font-semibold text-red-600">
@@ -1380,17 +1380,17 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
         <div className="overflow-auto" style={{ maxHeight: onClose ? 'calc(90vh - 200px)' : 'calc(100vh - 420px)' }}>
           <table className="w-full text-xs min-w-[860px]">
             <thead className="sticky top-0 z-20">
-              <tr className="text-slate-500 font-semibold border-b border-slate-100 bg-slate-50">
-                <th className="px-4 py-2 text-left bg-slate-50">ชื่อยา</th>
-                <th className="px-4 py-2 text-left bg-slate-50">ชนิด</th>
-                <th className="px-4 py-2 text-left bg-slate-50">ตำแหน่ง</th>
-                <th className="px-4 py-2 text-left bg-slate-50">Lot</th>
-                <th className="px-4 py-2 text-center bg-slate-50">วันหมดอายุ</th>
-                <th className="px-4 py-2 text-center bg-slate-50">สถานะ</th>
-                <th className="px-4 py-2 text-left bg-slate-50">บริษัท</th>
-                <th className="px-4 py-2 text-left bg-slate-50">นโยบายเปลี่ยนยา</th>
-                <th className="px-4 py-2 text-right bg-slate-50">คงเหลือ</th>
-                <th className="px-4 py-2 text-left bg-slate-50">หน่วย</th>
+              <tr className="text-slate-500 dark:text-slate-400 font-semibold border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800">
+                <th className="px-4 py-2 text-left bg-slate-50 dark:bg-slate-800">ชื่อยา</th>
+                <th className="px-4 py-2 text-left bg-slate-50 dark:bg-slate-800">ชนิด</th>
+                <th className="px-4 py-2 text-left bg-slate-50 dark:bg-slate-800">ตำแหน่ง</th>
+                <th className="px-4 py-2 text-left bg-slate-50 dark:bg-slate-800">Lot</th>
+                <th className="px-4 py-2 text-center bg-slate-50 dark:bg-slate-800">วันหมดอายุ</th>
+                <th className="px-4 py-2 text-center bg-slate-50 dark:bg-slate-800">สถานะ</th>
+                <th className="px-4 py-2 text-left bg-slate-50 dark:bg-slate-800">บริษัท</th>
+                <th className="px-4 py-2 text-left bg-slate-50 dark:bg-slate-800">นโยบายเปลี่ยนยา</th>
+                <th className="px-4 py-2 text-right bg-slate-50 dark:bg-slate-800">คงเหลือ</th>
+                <th className="px-4 py-2 text-left bg-slate-50 dark:bg-slate-800">หน่วย</th>
               </tr>
             </thead>
             <tbody>
@@ -1401,19 +1401,19 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                 <React.Fragment key={i}>
                 <tr onClick={() => setExpandedRow(isOpen ? null : flagKeyOf(r))}
                   className={`border-b cursor-pointer hover:brightness-95 ${rowColor(r.daysLeft)}`}>
-                  <td className="px-4 py-2.5 font-semibold text-slate-800 max-w-[200px]">
+                  <td className="px-4 py-2.5 font-semibold text-slate-800 dark:text-slate-100 max-w-[200px]">
                     <span className="flex items-center gap-1">
-                      <ChevronDown size={13} className={`text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                      <ChevronDown size={13} className={`text-slate-400 dark:text-slate-500 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                       <span className="truncate">{r.name || '-'}</span>
                     </span>
                     {r.code && r.code !== '-' && (
-                      <span className="text-slate-400 font-normal pl-[18px] block">{r.code}</span>
+                      <span className="text-slate-400 dark:text-slate-500 font-normal pl-[18px] block">{r.code}</span>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-slate-500">{r.type || '-'}</td>
-                  <td className="px-4 py-2.5 text-slate-600 font-medium">{r.location || '-'}</td>
-                  <td className="px-4 py-2.5 text-slate-500">{r.lot || '-'}</td>
-                  <td className="px-4 py-2.5 text-center font-medium text-slate-700">{fmtExp(r.exp)}</td>
+                  <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">{r.type || '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300 font-medium">{r.location || '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">{r.lot || '-'}</td>
+                  <td className="px-4 py-2.5 text-center font-medium text-slate-700 dark:text-slate-200">{fmtExp(r.exp)}</td>
                   <td className="px-4 py-2.5 text-center">
                     <div className="flex flex-col items-center gap-1">
                       <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${badgeColor(r.daysLeft)}`}>
@@ -1422,16 +1422,16 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                       {rb && <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${rb.cls}`}>{rb.text}</span>}
                     </div>
                   </td>
-                  <td className="px-4 py-2.5 text-slate-700 text-xs max-w-[160px] truncate" title={r.supplier || '-'}>{r.supplier || '-'}</td>
-                  <td className="px-4 py-2.5 text-slate-600 text-xs max-w-[220px]" title={r.swapPolicy || '-'}>
+                  <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs max-w-[160px] truncate" title={r.supplier || '-'}>{r.supplier || '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300 text-xs max-w-[220px]" title={r.swapPolicy || '-'}>
                     <span className="line-clamp-2 leading-snug">{r.swapPolicy || '-'}</span>
                   </td>
-                  <td className="px-4 py-2.5 text-right font-bold text-slate-700">{r.qty || '-'}</td>
-                  <td className="px-4 py-2.5 text-slate-500">{r.unit || '-'}</td>
+                  <td className="px-4 py-2.5 text-right font-bold text-slate-700 dark:text-slate-200">{r.qty || '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">{r.unit || '-'}</td>
                 </tr>
                 {isOpen && (
-                  <tr className="border-b border-slate-100">
-                    <td colSpan={10} className="px-4 py-0 bg-slate-50">
+                  <tr className="border-b border-slate-100 dark:border-slate-800">
+                    <td colSpan={10} className="px-4 py-0 bg-slate-50 dark:bg-slate-800">
                       <ReceiveHistoryDetail details={r.details} scope={r.detailScope} />
                     </td>
                   </tr>
@@ -1446,10 +1446,10 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
 
       {/* Show more / less */}
       {filtered.length > 8 && (
-        <div className="px-5 py-3 border-t border-slate-100 flex justify-center shrink-0">
+        <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 flex justify-center shrink-0">
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors"
+            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
           >
             {expanded
               ? <><ChevronUp size={14}/> ย่อรายการ</>
@@ -1479,11 +1479,11 @@ function LowStockAlertSection({ lowStock = [], onClose, onOpenReorder }) {
   const displayed = expanded ? lowStock : lowStock.slice(0, 8);
 
   const inner = (
-    <div className={`bg-white border border-amber-200 rounded-2xl shadow-sm overflow-hidden flex flex-col ${onClose ? 'max-h-[90vh]' : 'mt-4'}`}>
-      <div className="flex items-center justify-between px-5 py-3.5 bg-amber-50 border-b border-amber-200 shrink-0 gap-3">
+    <div className={`bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/60 rounded-2xl shadow-sm overflow-hidden flex flex-col ${onClose ? 'max-h-[90vh]' : 'mt-4'}`}>
+      <div className="flex items-center justify-between px-5 py-3.5 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 shrink-0 gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <AlertTriangle size={18} className="text-amber-500" />
-          <span className="font-bold text-amber-800 text-sm truncate">แจ้งเตือน Stock ต่ำกว่ากำหนด</span>
+          <span className="font-bold text-amber-800 dark:text-amber-300 text-sm truncate">แจ้งเตือน Stock ต่ำกว่ากำหนด</span>
           <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap">
             {lowStock.length} รายการ
           </span>
@@ -1497,7 +1497,7 @@ function LowStockAlertSection({ lowStock = [], onClose, onOpenReorder }) {
             </button>
           )}
           {onClose && (
-            <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-amber-100 rounded-lg transition-colors">
+            <button onClick={onClose} className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-amber-100 rounded-lg transition-colors">
               <X size={18} />
             </button>
           )}
@@ -1507,14 +1507,14 @@ function LowStockAlertSection({ lowStock = [], onClose, onOpenReorder }) {
       <div className="overflow-auto" style={{ maxHeight: onClose ? 'calc(90vh - 160px)' : 'calc(100vh - 420px)' }}>
         <table className="w-full text-xs min-w-[520px]">
           <thead className="sticky top-0 z-20">
-            <tr className="text-slate-500 font-semibold border-b border-slate-100 bg-slate-50">
-              <th className="px-4 py-2 text-left bg-slate-50">ชื่อยา</th>
-              <th className="px-4 py-2 text-left bg-slate-50">ชนิด</th>
-              <th className="px-4 py-2 text-left bg-slate-50">ตำแหน่ง</th>
-              <th className="px-4 py-2 text-right bg-slate-50">คงเหลือ</th>
-              <th className="px-4 py-2 text-left bg-slate-50">หน่วย</th>
-              <th className="px-4 py-2 text-right bg-slate-50">Safety Stock</th>
-              <th className="px-4 py-2 text-left bg-slate-50">ระดับ</th>
+            <tr className="text-slate-500 dark:text-slate-400 font-semibold border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800">
+              <th className="px-4 py-2 text-left bg-slate-50 dark:bg-slate-800">ชื่อยา</th>
+              <th className="px-4 py-2 text-left bg-slate-50 dark:bg-slate-800">ชนิด</th>
+              <th className="px-4 py-2 text-left bg-slate-50 dark:bg-slate-800">ตำแหน่ง</th>
+              <th className="px-4 py-2 text-right bg-slate-50 dark:bg-slate-800">คงเหลือ</th>
+              <th className="px-4 py-2 text-left bg-slate-50 dark:bg-slate-800">หน่วย</th>
+              <th className="px-4 py-2 text-right bg-slate-50 dark:bg-slate-800">Safety Stock</th>
+              <th className="px-4 py-2 text-left bg-slate-50 dark:bg-slate-800">ระดับ</th>
             </tr>
           </thead>
           <tbody>
@@ -1523,24 +1523,24 @@ function LowStockAlertSection({ lowStock = [], onClose, onOpenReorder }) {
               const isEmpty  = r.qty === 0;
               const barColor = isEmpty ? 'bg-red-500' : pct < 30 ? 'bg-orange-400' : 'bg-amber-400';
               return (
-                <tr key={i} className={`border-b border-slate-100 transition-colors ${isEmpty ? 'bg-red-50' : 'hover:bg-amber-50'}`}>
-                  <td className="px-4 py-2.5 font-semibold text-slate-800 max-w-[200px]">
+                <tr key={i} className={`border-b border-slate-100 dark:border-slate-800 transition-colors ${isEmpty ? 'bg-red-50 dark:bg-red-950/40' : 'hover:bg-amber-50'}`}>
+                  <td className="px-4 py-2.5 font-semibold text-slate-800 dark:text-slate-100 max-w-[200px]">
                     <span className="block truncate">{r.name}</span>
-                    {r.code && r.code !== '-' && <span className="text-slate-400 font-normal">{r.code}</span>}
+                    {r.code && r.code !== '-' && <span className="text-slate-400 dark:text-slate-500 font-normal">{r.code}</span>}
                   </td>
-                  <td className="px-4 py-2.5 text-slate-500">{r.type || '-'}</td>
-                  <td className="px-4 py-2.5 text-slate-600 font-medium">{r.location || '-'}</td>
-                  <td className={`px-4 py-2.5 text-right font-bold ${isEmpty ? 'text-red-600' : 'text-amber-700'}`}>
+                  <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">{r.type || '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300 font-medium">{r.location || '-'}</td>
+                  <td className={`px-4 py-2.5 text-right font-bold ${isEmpty ? 'text-red-600' : 'text-amber-700 dark:text-amber-300'}`}>
                     {r.qty.toLocaleString()}
                   </td>
-                  <td className="px-4 py-2.5 text-slate-500">{r.unit || '-'}</td>
-                  <td className="px-4 py-2.5 text-right text-slate-500">{r.safety_stock.toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">{r.unit || '-'}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-500 dark:text-slate-400">{r.safety_stock.toLocaleString()}</td>
                   <td className="px-4 py-2.5 min-w-[100px]">
                     <div className="flex items-center gap-2">
-                      <div className="flex-1 bg-slate-200 rounded-full h-2 overflow-hidden">
+                      <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
                         <div className={`${barColor} h-2 rounded-full`} style={{ width: `${pct}%` }} />
                       </div>
-                      <span className="text-[10px] font-bold text-slate-500 shrink-0 w-8 text-right">
+                      <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 shrink-0 w-8 text-right">
                         {isEmpty ? 'หมด' : `${Math.round(pct)}%`}
                       </span>
                     </div>
@@ -1553,9 +1553,9 @@ function LowStockAlertSection({ lowStock = [], onClose, onOpenReorder }) {
       </div>
 
       {lowStock.length > 8 && (
-        <div className="px-5 py-3 border-t border-slate-100 flex justify-center shrink-0">
+        <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 flex justify-center shrink-0">
           <button onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors">
+            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">
             {expanded
               ? <><ChevronUp size={14}/> ย่อรายการ</>
               : <><ChevronDown size={14}/> ดูทั้งหมด {lowStock.length} รายการ</>
@@ -1756,21 +1756,21 @@ function StockSummaryModal({ onClose, auth = {} }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-start justify-center sm:p-4 sm:pt-6 overflow-y-auto" onClick={onClose}>
-      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-5xl flex flex-col min-h-[60vh] sm:min-h-0" style={{ maxHeight: '95vh' }} onClick={e => e.stopPropagation()}>
+      <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-5xl flex flex-col min-h-[60vh] sm:min-h-0" style={{ maxHeight: '95vh' }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-100 bg-sky-50 rounded-t-2xl shrink-0">
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-100 dark:border-slate-800 bg-sky-50 dark:bg-sky-950/40 rounded-t-2xl shrink-0">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <Package size={18} className="text-sky-600" />
-              <span className="font-bold text-slate-800">จำนวนคงเหลือในคลัง</span>
+              <span className="font-bold text-slate-800 dark:text-slate-100">จำนวนคงเหลือในคลัง</span>
               {!loading && <span className="bg-sky-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">{rows.length} รายการ</span>}
-              {search && <span className="text-xs text-slate-500">· แสดง {filtered.length}</span>}
+              {search && <span className="text-xs text-slate-500 dark:text-slate-400">· แสดง {filtered.length}</span>}
             </div>
             {uploadInfo && (
-              <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1">
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 flex items-center gap-1">
                 <Clock size={10}/> อัพโหลด: {new Date(uploadInfo.updated_at).toLocaleString('th-TH', { day:'numeric', month:'short', year:'2-digit', hour:'2-digit', minute:'2-digit' })}
-                {uploadInfo.file_name && <span className="text-slate-300 hidden sm:inline">· {uploadInfo.file_name}</span>}
+                {uploadInfo.file_name && <span className="text-slate-300 dark:text-slate-500 hidden sm:inline">· {uploadInfo.file_name}</span>}
               </p>
             )}
           </div>
@@ -1784,17 +1784,17 @@ function StockSummaryModal({ onClose, auth = {} }) {
               {exporting ? <RefreshCcw size={12} className="animate-spin"/> : <Database size={12}/>}
               {exporting ? 'กำลังส่งออก...' : 'Excel'}
             </button>
-            <button onClick={load} className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-100 rounded-lg transition-colors" title="รีเฟรช">
+            <button onClick={load} className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-sky-600 hover:bg-sky-100 rounded-lg transition-colors" title="รีเฟรช">
               <RefreshCcw size={15}/>
             </button>
-            <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg transition-colors">
+            <button onClick={onClose} className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg transition-colors">
               <X size={18}/>
             </button>
           </div>
         </div>
 
         {/* DrugSearchBar */}
-        <div className="px-5 py-3 border-b border-slate-100 shrink-0">
+        <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
           <DrugSearchBar
             value={search}
             onChange={setSearch}
@@ -1808,14 +1808,14 @@ function StockSummaryModal({ onClose, auth = {} }) {
         {/* Table — sticky header + frozen ชื่อยา */}
         <div className="overflow-auto flex-1 rounded-b-2xl">
           {loading ? (
-            <div className="flex items-center justify-center py-16 text-slate-400">
+            <div className="flex items-center justify-center py-16 text-slate-400 dark:text-slate-500">
               <div className="w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full animate-spin mr-3"/>
               กำลังคำนวณคงเหลือ...
             </div>
           ) : error ? (
             <div className="text-center py-10 text-red-500 text-sm px-6">{error}</div>
           ) : filtered.length === 0 ? (
-            <div className="text-center py-10 text-slate-400 text-sm">ไม่พบรายการ</div>
+            <div className="text-center py-10 text-slate-400 dark:text-slate-500 text-sm">ไม่พบรายการ</div>
           ) : isMobile ? (
             /* ── Mobile card list ── */
             <div className="divide-y divide-slate-100">
@@ -1829,33 +1829,33 @@ function StockSummaryModal({ onClose, auth = {} }) {
                     className={`px-4 py-3 flex items-center gap-3 ${lots.length > 0 ? 'cursor-pointer active:bg-sky-50' : ''}`}>
                     {lots.length > 0 && (isOpen
                       ? <ChevronDown size={16} className="text-sky-500 shrink-0"/>
-                      : <ChevronRight size={16} className="text-slate-300 shrink-0"/>)}
+                      : <ChevronRight size={16} className="text-slate-300 dark:text-slate-500 shrink-0"/>)}
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-slate-800 text-sm leading-snug truncate">{r.name}</p>
+                      <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm leading-snug truncate">{r.name}</p>
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                        {r.code && r.code !== '-' && <span className="text-[10px] text-slate-400 font-mono">{r.code}</span>}
+                        {r.code && r.code !== '-' && <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{r.code}</span>}
                         <DrugTypeBadge type={r.type} />
                         {r.hasMultipleUnits && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200">~หลายหน่วย</span>
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60">~หลายหน่วย</span>
                         )}
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-lg font-bold text-sky-700 leading-tight">{r.totalQty.toLocaleString()}</p>
-                      <p className="text-[10px] text-slate-400">{r.mainUnit} · {r.lotCount} Lot</p>
+                      <p className="text-lg font-bold text-sky-700 dark:text-sky-300 leading-tight">{r.totalQty.toLocaleString()}</p>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500">{r.mainUnit} · {r.lotCount} Lot</p>
                     </div>
                   </div>
                   {isOpen && lots.length > 0 && (
-                    <div className="bg-sky-50/50 px-4 pb-2.5 pt-1 space-y-1">
+                    <div className="bg-sky-50 dark:bg-sky-950/40 px-4 pb-2.5 pt-1 space-y-1">
                       {lots.map((l, li) => (
                         <div key={`${rowKey}-lot-${li}`} className="flex items-center justify-between text-xs pl-6">
                           <div className="min-w-0">
-                            <span className="text-slate-400">Lot </span>
-                            <span className="font-mono text-slate-700">{l.lot || '—'}</span>
-                            {l.exp && <span className="text-slate-400 ml-2">EXP {l.exp}</span>}
+                            <span className="text-slate-400 dark:text-slate-500">Lot </span>
+                            <span className="font-mono text-slate-700 dark:text-slate-200">{l.lot || '—'}</span>
+                            {l.exp && <span className="text-slate-400 dark:text-slate-500 ml-2">EXP {l.exp}</span>}
                           </div>
-                          <div className="shrink-0 text-slate-600">
-                            <span className="font-semibold text-sky-700">{l.qty.toLocaleString()}</span> {l.unit}
+                          <div className="shrink-0 text-slate-600 dark:text-slate-300">
+                            <span className="font-semibold text-sky-700 dark:text-sky-300">{l.qty.toLocaleString()}</span> {l.unit}
                           </div>
                         </div>
                       ))}
@@ -1870,32 +1870,32 @@ function StockSummaryModal({ onClose, auth = {} }) {
             <table className="w-full text-sm min-w-[560px]">
               <thead className="sticky top-0 z-20">
                 <tr>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 bg-slate-50 sticky left-0 z-30 shadow-[2px_0_4px_rgba(0,0,0,0.06)] whitespace-nowrap">
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 sticky left-0 z-30 shadow-[2px_0_4px_rgba(0,0,0,0.06)] whitespace-nowrap">
                     <button onClick={() => cycleSort('name')} className="flex items-center gap-1 hover:text-sky-600 transition-colors">
                       ชื่อยา
                       <span className="flex flex-col leading-none">
-                        <ChevronUp  size={9} className={sortBy?.key==='name' && sortBy.dir==='asc'  ? 'text-sky-600' : 'text-slate-300'}/>
-                        <ChevronDown size={9} className={sortBy?.key==='name' && sortBy.dir==='desc' ? 'text-sky-600' : 'text-slate-300'}/>
+                        <ChevronUp  size={9} className={sortBy?.key==='name' && sortBy.dir==='asc'  ? 'text-sky-600' : 'text-slate-300 dark:text-slate-500'}/>
+                        <ChevronDown size={9} className={sortBy?.key==='name' && sortBy.dir==='desc' ? 'text-sky-600' : 'text-slate-300 dark:text-slate-500'}/>
                       </span>
                     </button>
                   </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 bg-slate-50 whitespace-nowrap">ประเภท</th>
-                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500 bg-slate-50 whitespace-nowrap">
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 whitespace-nowrap">ประเภท</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 whitespace-nowrap">
                     <button onClick={() => cycleSort('qty')} className="flex items-center gap-1 ml-auto hover:text-sky-600 transition-colors">
                       คงเหลือ
                       <span className="flex flex-col leading-none">
-                        <ChevronUp  size={9} className={sortBy?.key==='qty' && sortBy.dir==='asc'  ? 'text-sky-600' : 'text-slate-300'}/>
-                        <ChevronDown size={9} className={sortBy?.key==='qty' && sortBy.dir==='desc' ? 'text-sky-600' : 'text-slate-300'}/>
+                        <ChevronUp  size={9} className={sortBy?.key==='qty' && sortBy.dir==='asc'  ? 'text-sky-600' : 'text-slate-300 dark:text-slate-500'}/>
+                        <ChevronDown size={9} className={sortBy?.key==='qty' && sortBy.dir==='desc' ? 'text-sky-600' : 'text-slate-300 dark:text-slate-500'}/>
                       </span>
                     </button>
                   </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 bg-slate-50 whitespace-nowrap">หน่วย</th>
-                  <th className="px-4 py-2.5 text-center text-xs font-semibold text-slate-500 bg-slate-50 whitespace-nowrap">
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 whitespace-nowrap">หน่วย</th>
+                  <th className="px-4 py-2.5 text-center text-xs font-semibold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 whitespace-nowrap">
                     <button onClick={() => cycleSort('lot')} className="flex items-center gap-1 mx-auto hover:text-sky-600 transition-colors">
                       LOT
                       <span className="flex flex-col leading-none">
-                        <ChevronUp  size={9} className={sortBy?.key==='lot' && sortBy.dir==='asc'  ? 'text-sky-600' : 'text-slate-300'}/>
-                        <ChevronDown size={9} className={sortBy?.key==='lot' && sortBy.dir==='desc' ? 'text-sky-600' : 'text-slate-300'}/>
+                        <ChevronUp  size={9} className={sortBy?.key==='lot' && sortBy.dir==='asc'  ? 'text-sky-600' : 'text-slate-300 dark:text-slate-500'}/>
+                        <ChevronDown size={9} className={sortBy?.key==='lot' && sortBy.dir==='desc' ? 'text-sky-600' : 'text-slate-300 dark:text-slate-500'}/>
                       </span>
                     </button>
                   </th>
@@ -1909,15 +1909,15 @@ function StockSummaryModal({ onClose, auth = {} }) {
                   return (
                   <React.Fragment key={rowKey}>
                   <tr onClick={() => lots.length > 0 && toggleExpand(rowKey)}
-                    className={`border-b border-slate-100 hover:bg-sky-50 transition-colors ${lots.length > 0 ? 'cursor-pointer' : ''} ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
+                    className={`border-b border-slate-100 dark:border-slate-800 hover:bg-sky-50 transition-colors ${lots.length > 0 ? 'cursor-pointer' : ''} ${i % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50 dark:bg-slate-800/40'}`}>
                     <td className="px-4 py-2.5 sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.04)]">
                       <div className="flex items-center gap-1.5">
                         {lots.length > 0 && (isOpen
                           ? <ChevronDown size={14} className="text-sky-500 shrink-0"/>
-                          : <ChevronRight size={14} className="text-slate-300 shrink-0"/>)}
+                          : <ChevronRight size={14} className="text-slate-300 dark:text-slate-500 shrink-0"/>)}
                         <div>
-                          <p className="font-medium text-slate-800 leading-snug">{r.name}</p>
-                          {r.code && r.code !== '-' && <p className="text-[10px] text-slate-400">{r.code}</p>}
+                          <p className="font-medium text-slate-800 dark:text-slate-100 leading-snug">{r.name}</p>
+                          {r.code && r.code !== '-' && <p className="text-[10px] text-slate-400 dark:text-slate-500">{r.code}</p>}
                         </div>
                       </div>
                     </td>
@@ -1926,27 +1926,27 @@ function StockSummaryModal({ onClose, auth = {} }) {
                       <div className="flex items-center justify-end gap-1.5">
                         {r.hasMultipleUnits && (
                           <span title={`มีหลายหน่วย: ${r.units.join(', ')} — ปัดเศษขึ้นแล้ว`}
-                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200 cursor-help whitespace-nowrap">
+                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 cursor-help whitespace-nowrap">
                             ~หลายหน่วย
                           </span>
                         )}
-                        <span className="font-bold text-sky-700">{r.totalQty.toLocaleString()}</span>
+                        <span className="font-bold text-sky-700 dark:text-sky-300">{r.totalQty.toLocaleString()}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-2.5 text-slate-600 text-xs whitespace-nowrap">{r.mainUnit}</td>
-                    <td className="px-4 py-2.5 text-center text-slate-400 text-xs">{r.lotCount}</td>
+                    <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300 text-xs whitespace-nowrap">{r.mainUnit}</td>
+                    <td className="px-4 py-2.5 text-center text-slate-400 dark:text-slate-500 text-xs">{r.lotCount}</td>
                   </tr>
                   {isOpen && lots.map((l, li) => (
-                    <tr key={`${rowKey}-lot-${li}`} className="border-b border-slate-100 bg-sky-50/40 text-xs">
-                      <td className="px-4 py-1.5 pl-10 sticky left-0 z-10 bg-sky-50/40 text-slate-600">
-                        <span className="text-slate-400">Lot: </span>
-                        <span className="font-mono text-slate-700">{l.lot || '—'}</span>
+                    <tr key={`${rowKey}-lot-${li}`} className="border-b border-slate-100 dark:border-slate-800 bg-sky-50 dark:bg-sky-950/40 text-xs">
+                      <td className="px-4 py-1.5 pl-10 sticky left-0 z-10 bg-sky-50 dark:bg-sky-950/40 text-slate-600 dark:text-slate-300">
+                        <span className="text-slate-400 dark:text-slate-500">Lot: </span>
+                        <span className="font-mono text-slate-700 dark:text-slate-200">{l.lot || '—'}</span>
                       </td>
-                      <td className="px-4 py-1.5 text-slate-400">
-                        {l.exp ? <><span className="text-slate-400">EXP </span>{l.exp}</> : '—'}
+                      <td className="px-4 py-1.5 text-slate-400 dark:text-slate-500">
+                        {l.exp ? <><span className="text-slate-400 dark:text-slate-500">EXP </span>{l.exp}</> : '—'}
                       </td>
-                      <td className="px-4 py-1.5 text-right font-semibold text-sky-700">{l.qty.toLocaleString()}</td>
-                      <td className="px-4 py-1.5 text-slate-500">{l.unit}</td>
+                      <td className="px-4 py-1.5 text-right font-semibold text-sky-700 dark:text-sky-300">{l.qty.toLocaleString()}</td>
+                      <td className="px-4 py-1.5 text-slate-500 dark:text-slate-400">{l.unit}</td>
                       <td className="px-4 py-1.5"></td>
                     </tr>
                   ))}
@@ -1958,7 +1958,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
           )}
         </div>
 
-        <div className="px-5 py-2.5 border-t border-slate-100 text-[11px] text-slate-400 bg-slate-50 rounded-b-2xl shrink-0">
+        <div className="px-5 py-2.5 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800 rounded-b-2xl shrink-0">
           คงเหลือรวม Lot · หน่วยหลักจากวันที่รับยาล่าสุด · ยาตัดออกจากบัญชีไม่แสดง
         </div>
       </div>
@@ -1972,7 +1972,7 @@ function TrendBadge({ pct }) {
   const up = pct >= 0;
   const Icon = up ? TrendingUp : TrendingDown;
   return (
-    <span className={`inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-full ${up ? 'text-emerald-700 bg-emerald-50' : 'text-red-700 bg-red-50'}`}>
+    <span className={`inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-full ${up ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40' : 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40'}`}>
       <Icon size={12} /> {Math.abs(pct)}%
     </span>
   );
@@ -2007,15 +2007,15 @@ function RangeSelector({ months, onChange, endYm, onChangeEndYm, monthRange = []
           onChange={e => onChangeEndYm(e.target.value || null)}
           disabled={loading || isAll}
           title="เลือกเดือนสิ้นสุดของช่วงเปรียบเทียบ"
-          className="text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed">
+          className="text-xs font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed">
           <option value="">ถึงเดือนล่าสุด</option>
           {monthRange.map(m => <option key={m.ym} value={m.ym}>ถึง {m.label}</option>)}
         </select>
       )}
-      <div className="inline-flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5">
+      <div className="inline-flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
         {CHART_RANGES.map(r => (
           <button key={r.key} type="button" onClick={() => onChange(r.key)} disabled={loading}
-            className={`text-xs font-semibold px-2.5 py-1 rounded-md transition-colors disabled:opacity-50 ${months === r.key ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            className={`text-xs font-semibold px-2.5 py-1 rounded-md transition-colors disabled:opacity-50 ${months === r.key ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
             {r.label}
           </button>
         ))}
@@ -2036,12 +2036,12 @@ function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEn
   return (
     <div className="mt-4 space-y-4">
       {/* Hero panel — การเบิกจ่ายรายเดือน (เลขรวม + area chart) */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-indigo-100 text-indigo-600"><Activity size={15} /></div>
-            <span className="text-sm font-bold text-slate-700">การเบิกจ่ายรายเดือน</span>
-            {months === 'all' && dispense.length > 0 && <span className="text-xs text-slate-400">({dispense.length} เดือน)</span>}
+            <div className="p-1.5 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600"><Activity size={15} /></div>
+            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">การเบิกจ่ายรายเดือน</span>
+            {months === 'all' && dispense.length > 0 && <span className="text-xs text-slate-400 dark:text-slate-500">({dispense.length} เดือน)</span>}
           </div>
           <RangeSelector months={months} onChange={onChangeMonths} endYm={endYm} onChangeEndYm={onChangeEndYm} monthRange={monthRange} loading={loading} />
         </div>
@@ -2049,11 +2049,11 @@ function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEn
         <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-5 items-center">
           {/* เลขเด่นซ้าย */}
           <div className="lg:pr-6 lg:border-r lg:border-slate-100">
-            <p className="text-4xl font-black text-slate-800 leading-none">{fmtBaht(dispenseTotal)}</p>
-            <p className="text-xs text-slate-400 mt-1.5">มูลค่าเบิกจ่ายรวม (บาท)</p>
+            <p className="text-4xl font-black text-slate-800 dark:text-slate-100 leading-none">{fmtBaht(dispenseTotal)}</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">มูลค่าเบิกจ่ายรวม (บาท)</p>
             <div className="flex items-center gap-2 mt-3">
               <TrendBadge pct={trend.dispensePct} />
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-slate-400 dark:text-slate-500">
                 {trend.dispenseLabels?.cur ? `${trend.dispenseLabels.cur} เทียบ ${trend.dispenseLabels.prev}` : 'เทียบเดือนก่อน'}
               </span>
             </div>
@@ -2079,9 +2079,9 @@ function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEn
 
         {/* คำสรุป: เดือนมูลค่าสูงสุด + ลิงก์ไปดูรายการยา */}
         {maxValueMonth && maxValueMonth.value > 0 && (
-          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-xs text-slate-500">
-              เดือน <span className="font-bold text-indigo-700">{maxValueMonth.label}</span> มูลค่าเบิกสูงสุด <span className="font-bold text-slate-700">{fmtBaht(maxValueMonth.value)}</span>
+          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              เดือน <span className="font-bold text-indigo-700 dark:text-indigo-300">{maxValueMonth.label}</span> มูลค่าเบิกสูงสุด <span className="font-bold text-slate-700 dark:text-slate-200">{fmtBaht(maxValueMonth.value)}</span>
             </p>
             <button onClick={onOpenDispense} className="text-xs text-[#1E90FF] hover:underline font-semibold inline-flex items-center gap-0.5">
               ดูรายการยาที่มูลค่าสูงสุด <ArrowRight size={13} />
@@ -2091,22 +2091,22 @@ function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEn
       </div>
 
       {/* Panel รอง — รับเข้ารายเดือน (มูลค่าบาท, bar) */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-sky-100 text-sky-600"><Package size={15} /></div>
-            <span className="text-sm font-bold text-slate-700">มูลค่าการรับเข้ารายเดือน</span>
-            {receiveTotal > 0 && <span className="text-xs text-slate-400">รวม {fmtBaht(receiveTotal)}</span>}
+            <div className="p-1.5 rounded-lg bg-sky-100 dark:bg-sky-950/60 text-sky-600"><Package size={15} /></div>
+            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">มูลค่าการรับเข้ารายเดือน</span>
+            {receiveTotal > 0 && <span className="text-xs text-slate-400 dark:text-slate-500">รวม {fmtBaht(receiveTotal)}</span>}
           </div>
           <div className="flex items-center gap-2">
             {/* toggle เส้นเปรียบเทียบแนวโน้ม — ให้ user เลือกเปิด/ปิดได้ */}
             <button onClick={() => setShowTrendLine(v => !v)}
-              className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg border transition-colors ${showTrendLine ? 'bg-sky-50 border-sky-200 text-sky-700' : 'bg-white border-slate-200 text-slate-400 hover:text-slate-600'}`}
+              className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg border transition-colors ${showTrendLine ? 'bg-sky-50 dark:bg-sky-950/40 border-sky-200 dark:border-sky-900/60 text-sky-700 dark:text-sky-300' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}
               title={showTrendLine ? 'ซ่อนเส้นเปรียบเทียบ' : 'แสดงเส้นเปรียบเทียบ'}>
               <TrendingUp size={13} /> เส้นเปรียบเทียบ
             </button>
             <TrendBadge pct={trend.receivePct} />
-            {trend.receiveLabels?.cur && <span className="text-xs text-slate-400 hidden sm:inline">{trend.receiveLabels.cur} เทียบ {trend.receiveLabels.prev}</span>}
+            {trend.receiveLabels?.cur && <span className="text-xs text-slate-400 dark:text-slate-500 hidden sm:inline">{trend.receiveLabels.cur} เทียบ {trend.receiveLabels.prev}</span>}
           </div>
         </div>
         <ResponsiveContainer width="100%" height={170}>
@@ -2127,9 +2127,9 @@ function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEn
 
         {/* คำสรุป: เดือนรับเข้ามูลค่าสูงสุด + ลิงก์ไปประวัติรับยา */}
         {maxReceiveValueMonth && maxReceiveValueMonth.value > 0 && (
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-xs text-slate-500">
-              เดือน <span className="font-bold text-sky-700">{maxReceiveValueMonth.label}</span> รับเข้ามูลค่าสูงสุด <span className="font-bold text-slate-700">{fmtBaht(maxReceiveValueMonth.value)}</span>
+          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              เดือน <span className="font-bold text-sky-700 dark:text-sky-300">{maxReceiveValueMonth.label}</span> รับเข้ามูลค่าสูงสุด <span className="font-bold text-slate-700 dark:text-slate-200">{fmtBaht(maxReceiveValueMonth.value)}</span>
             </p>
             <button onClick={onOpenReceive} className="text-xs text-[#1E90FF] hover:underline font-semibold inline-flex items-center gap-0.5">
               ดูประวัติรับเข้า <ArrowRight size={13} />
@@ -2140,12 +2140,12 @@ function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEn
 
       {/* ตารางยาต้องสั่งซื้อ (Top 5) */}
       {top5.length > 0 && (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-amber-100 text-amber-600"><ShoppingCart size={15} /></div>
-              <span className="text-sm font-bold text-slate-700">ยาต้องสั่งซื้อ</span>
-              <span className="text-xs text-slate-400">ต่ำกว่า Safety Stock</span>
+              <div className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-950/60 text-amber-600"><ShoppingCart size={15} /></div>
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-200">ยาต้องสั่งซื้อ</span>
+              <span className="text-xs text-slate-400 dark:text-slate-500">ต่ำกว่า Safety Stock</span>
             </div>
             <button onClick={onOpenReorder} className="text-xs text-[#1E90FF] hover:underline font-semibold inline-flex items-center gap-0.5">
               ดูทั้งหมด <ArrowRight size={13} />
@@ -2155,7 +2155,7 @@ function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEn
           {/* Desktop: ตาราง */}
           <table className="hidden sm:table w-full text-sm">
             <thead>
-              <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
+              <tr className="text-left text-xs text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
                 <th className="px-4 py-2 font-semibold">ชื่อยา</th>
                 <th className="px-4 py-2 font-semibold text-right">คงเหลือ</th>
                 <th className="px-4 py-2 font-semibold text-left">หน่วย</th>
@@ -2166,21 +2166,21 @@ function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEn
             </thead>
             <tbody className="divide-y divide-slate-50">
               {top5.map((r, i) => (
-                <tr key={r.code || i} className="hover:bg-slate-50/60">
+                <tr key={r.code || i} className="hover:bg-slate-50 dark:hover:bg-slate-800/60">
                   <td className="px-4 py-2.5">
-                    <p className="font-semibold text-slate-700 leading-tight">{r.name || r.code}</p>
-                    <p className="text-xs text-slate-400">{r.code}</p>
+                    <p className="font-semibold text-slate-700 dark:text-slate-200 leading-tight">{r.name || r.code}</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">{r.code}</p>
                   </td>
                   <td className="px-4 py-2.5 text-right font-bold text-red-600 whitespace-nowrap">{Number(r.qty).toLocaleString()}</td>
-                  <td className="px-4 py-2.5 text-left text-slate-500 text-xs whitespace-nowrap">{r.unit || '-'}</td>
-                  <td className="px-4 py-2.5 text-right text-slate-600 whitespace-nowrap">{Number(r.safety_stock).toLocaleString()}</td>
+                  <td className="px-4 py-2.5 text-left text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">{r.unit || '-'}</td>
+                  <td className="px-4 py-2.5 text-right text-slate-600 dark:text-slate-300 whitespace-nowrap">{Number(r.safety_stock).toLocaleString()}</td>
                   <td className="px-4 py-2.5 text-right whitespace-nowrap" title="มีการเบิกกี่สัปดาห์ จาก 13 สัปดาห์ล่าสุด · และยอดรวมที่ใช้ไป">
                     {r.usageWeeks > 0 ? (
                       <>
-                        <span className="font-semibold text-slate-700">เบิก {r.usageWeeks}/13 สัปดาห์</span>
-                        <span className="block text-slate-500">รวม {Number(r.usage3m).toLocaleString()}</span>
+                        <span className="font-semibold text-slate-700 dark:text-slate-200">เบิก {r.usageWeeks}/13 สัปดาห์</span>
+                        <span className="block text-slate-500 dark:text-slate-400">รวม {Number(r.usage3m).toLocaleString()}</span>
                       </>
-                    ) : <span className="text-slate-300">—</span>}
+                    ) : <span className="text-slate-300 dark:text-slate-500">—</span>}
                   </td>
                   <td className="px-4 py-2.5 text-right">
                     <span className="inline-block w-12 text-right font-semibold text-amber-600">{Math.round(r.ratio * 100)}%</span>
@@ -2196,18 +2196,18 @@ function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEn
               <div key={r.code || i} className="px-4 py-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="font-semibold text-slate-700 leading-tight truncate">{r.name || r.code}</p>
-                    <p className="text-xs text-slate-400">{r.code}</p>
+                    <p className="font-semibold text-slate-700 dark:text-slate-200 leading-tight truncate">{r.name || r.code}</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">{r.code}</p>
                   </div>
                   <span className="text-xs font-semibold text-amber-600 shrink-0">{Math.round(r.ratio * 100)}% ของ SS</span>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  คงเหลือ <span className="font-bold text-red-600">{Number(r.qty).toLocaleString()}</span>{r.unit ? <span className="text-slate-400"> ({r.unit})</span> : ''} / SS {Number(r.safety_stock).toLocaleString()}{r.unit ? ` (${r.unit})` : ''}
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  คงเหลือ <span className="font-bold text-red-600">{Number(r.qty).toLocaleString()}</span>{r.unit ? <span className="text-slate-400 dark:text-slate-500"> ({r.unit})</span> : ''} / SS {Number(r.safety_stock).toLocaleString()}{r.unit ? ` (${r.unit})` : ''}
                 </p>
                 {r.usageWeeks > 0 && (
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    <span className="text-slate-400">เบิก</span> <span className="font-semibold text-slate-600">{r.usageWeeks}/13 สัปดาห์</span>
-                    <span className="text-slate-400"> · รวม </span><span className="font-semibold text-slate-600">{Number(r.usage3m).toLocaleString()}{r.unit ? ` (${r.unit})` : ''}</span>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    <span className="text-slate-400 dark:text-slate-500">เบิก</span> <span className="font-semibold text-slate-600 dark:text-slate-300">{r.usageWeeks}/13 สัปดาห์</span>
+                    <span className="text-slate-400 dark:text-slate-500"> · รวม </span><span className="font-semibold text-slate-600 dark:text-slate-300">{Number(r.usage3m).toLocaleString()}{r.unit ? ` (${r.unit})` : ''}</span>
                   </p>
                 )}
               </div>
@@ -2217,7 +2217,7 @@ function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEn
       )}
 
       {!hasData && top5.length === 0 && (
-        <p className="text-center text-sm text-slate-400 py-4">ยังไม่มีข้อมูลสำหรับแสดงกราฟ</p>
+        <p className="text-center text-sm text-slate-400 dark:text-slate-500 py-4">ยังไม่มีข้อมูลสำหรับแสดงกราฟ</p>
       )}
     </div>
   );
@@ -2267,30 +2267,30 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] 
       subLabel: 'ดูจำนวนคงเหลือ',
       value: stats.inventory,
       icon: Boxes,
-      color: 'text-sky-700', cardBg: 'bg-white', borderColor: 'border-slate-200', labelColor: 'text-slate-500',
-      iconBg: 'bg-sky-100 text-sky-600',
+      color: 'text-sky-700 dark:text-sky-300', cardBg: 'bg-white dark:bg-slate-900', borderColor: 'border-slate-200 dark:border-slate-700', labelColor: 'text-slate-500 dark:text-slate-400',
+      iconBg: 'bg-sky-100 dark:bg-sky-950/60 text-sky-600',
       onClick: onOpenStock,
     },
     {
       label: 'ใบเบิกรอดำเนินการ',
       value: typeof stats.pending === 'number' ? stats.pending : 0,
       icon: ClipboardList,
-      color:       stats.pending > 0 ? 'text-amber-700'   : 'text-slate-700',
-      cardBg:      'bg-white',
-      borderColor: stats.pending > 0 ? 'border-amber-200' : 'border-slate-200',
-      labelColor:  'text-slate-500',
-      iconBg:      stats.pending > 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500',
+      color:       stats.pending > 0 ? 'text-amber-700 dark:text-amber-300'   : 'text-slate-700 dark:text-slate-200',
+      cardBg:      'bg-white dark:bg-slate-900',
+      borderColor: stats.pending > 0 ? 'border-amber-200 dark:border-amber-900/60' : 'border-slate-200 dark:border-slate-700',
+      labelColor:  'text-slate-500 dark:text-slate-400',
+      iconBg:      stats.pending > 0 ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
       onClick: stats.pending > 0 ? onOpenRequisition : undefined,
     },
     {
       label: expiredCount > 0 ? `ยาหมดอายุแล้ว ${expiredCount} + ใกล้หมด` : 'ยาใกล้หมดอายุ (16 เดือน)',
       value: expiryCount,
       icon: AlertTriangle,
-      color:       expiryCount > 0 ? (expiredCount > 0 ? 'text-red-700' : 'text-orange-700')   : 'text-slate-700',
-      cardBg:      'bg-white',
-      borderColor: expiryCount > 0 ? (expiredCount > 0 ? 'border-red-200' : 'border-orange-200') : 'border-slate-200',
-      labelColor:  'text-slate-500',
-      iconBg:      expiryCount > 0 ? (expiredCount > 0 ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600') : 'bg-slate-100 text-slate-500',
+      color:       expiryCount > 0 ? (expiredCount > 0 ? 'text-red-700 dark:text-red-300' : 'text-orange-700 dark:text-orange-300')   : 'text-slate-700 dark:text-slate-200',
+      cardBg:      'bg-white dark:bg-slate-900',
+      borderColor: expiryCount > 0 ? (expiredCount > 0 ? 'border-red-200 dark:border-red-900/60' : 'border-orange-200 dark:border-orange-900/60') : 'border-slate-200 dark:border-slate-700',
+      labelColor:  'text-slate-500 dark:text-slate-400',
+      iconBg:      expiryCount > 0 ? (expiredCount > 0 ? 'bg-red-100 dark:bg-red-950/60 text-red-600' : 'bg-orange-100 dark:bg-orange-950/60 text-orange-600') : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
       onClick: expiryCount > 0 ? onOpenExpiry : undefined,
     },
   ];
@@ -2300,11 +2300,11 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] 
       label: 'Stock ต่ำกว่ากำหนด',
       value: lowStockCount,
       icon: ShoppingCart,
-      color:       lowStockCount > 0 ? 'text-amber-700'   : 'text-slate-700',
-      cardBg:      'bg-white',
-      borderColor: lowStockCount > 0 ? 'border-amber-200' : 'border-slate-200',
-      labelColor:  'text-slate-500',
-      iconBg:      lowStockCount > 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500',
+      color:       lowStockCount > 0 ? 'text-amber-700 dark:text-amber-300'   : 'text-slate-700 dark:text-slate-200',
+      cardBg:      'bg-white dark:bg-slate-900',
+      borderColor: lowStockCount > 0 ? 'border-amber-200 dark:border-amber-900/60' : 'border-slate-200 dark:border-slate-700',
+      labelColor:  'text-slate-500 dark:text-slate-400',
+      iconBg:      lowStockCount > 0 ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
       onClick: lowStockCount > 0 ? onOpenLowStock : undefined,
     },
   ];
@@ -2328,7 +2328,7 @@ function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] 
             </div>
             <p className={`text-2xl font-bold ${item.color} text-left`}>{typeof item.value === 'number' ? item.value.toLocaleString() : item.value}</p>
             {item.subLabel && <p className="text-xs mt-1.5 font-bold text-sky-600 underline underline-offset-2 text-left">{item.subLabel}</p>}
-            {item.onClick && !item.subLabel && <p className="text-[10px] mt-1.5 text-slate-400 text-left">กดเพื่อดูรายละเอียด</p>}
+            {item.onClick && !item.subLabel && <p className="text-[10px] mt-1.5 text-slate-400 dark:text-slate-500 text-left">กดเพื่อดูรายละเอียด</p>}
           </>
         );
         return item.onClick

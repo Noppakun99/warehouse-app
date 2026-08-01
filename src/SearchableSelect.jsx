@@ -43,7 +43,7 @@ export default function SearchableSelect({
     <div ref={ref} className={`relative ${className}`}>
       {/* Input */}
       <div
-        className="flex items-center gap-1 w-full border border-slate-300 rounded-xl bg-white cursor-pointer overflow-hidden focus-within:ring-2 focus-within:ring-[#1E90FF] focus-within:border-transparent"
+        className="flex items-center gap-1 w-full border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 cursor-pointer overflow-hidden focus-within:ring-2 focus-within:ring-[#1E90FF] focus-within:border-transparent"
         onClick={handleOpen}
       >
         <input
@@ -52,18 +52,18 @@ export default function SearchableSelect({
           onChange={e => setQuery(e.target.value)}
           onFocus={handleOpen}
           placeholder={placeholder}
-          className={`flex-1 px-3 py-2 text-sm bg-transparent outline-none cursor-pointer ${!open && !value ? 'text-slate-400' : 'text-slate-800'}`}
+          className={`flex-1 px-3 py-2 text-sm bg-transparent outline-none cursor-pointer ${!open && !value ? 'text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-100'}`}
         />
         {value && !open ? (
           <button
             type="button"
             onMouseDown={e => { e.stopPropagation(); select(emptyLabel !== null ? '' : ''); onChange(''); }}
-            className="pr-2 text-slate-400 hover:text-slate-600"
+            className="pr-2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
           >
             <X size={13} />
           </button>
         ) : (
-          <span className="pr-2 text-slate-400 pointer-events-none">
+          <span className="pr-2 text-slate-400 dark:text-slate-500 pointer-events-none">
             <ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
           </span>
         )}
@@ -71,23 +71,23 @@ export default function SearchableSelect({
 
       {/* Dropdown list */}
       {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
+        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg max-h-56 overflow-y-auto">
           {emptyLabel !== null && (
             <div
               onMouseDown={() => select('')}
-              className={`px-3 py-2 text-sm cursor-pointer hover:bg-[#F0F8FF] ${!value ? 'text-[#1E90FF] font-semibold' : 'text-slate-500'}`}
+              className={`px-3 py-2 text-sm cursor-pointer hover:bg-[#F0F8FF] ${!value ? 'text-[#1E90FF] font-semibold' : 'text-slate-500 dark:text-slate-400'}`}
             >
               {emptyLabel}
             </div>
           )}
           {filtered.length === 0 && (
-            <div className="px-3 py-2 text-sm text-slate-400">ไม่พบ "{query}"</div>
+            <div className="px-3 py-2 text-sm text-slate-400 dark:text-slate-500">ไม่พบ "{query}"</div>
           )}
           {filtered.map(o => (
             <div
               key={o}
               onMouseDown={() => select(o)}
-              className={`px-3 py-2 text-sm cursor-pointer hover:bg-[#F0F8FF] ${value === o ? 'text-[#1E90FF] font-semibold bg-[#F0F8FF]' : 'text-slate-800'}`}
+              className={`px-3 py-2 text-sm cursor-pointer hover:bg-[#F0F8FF] ${value === o ? 'text-[#1E90FF] font-semibold bg-[#F0F8FF]' : 'text-slate-800 dark:text-slate-100'}`}
             >
               {o}
             </div>
