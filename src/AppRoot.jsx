@@ -767,7 +767,7 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
     // willDeplete = ของจะหมดเองก่อนถึง deadline (ตามเรทเบิก) → ไม่ต้องคืน (flag จาง ไม่ซ่อน — ดู CONTEXT.md §ความจำเป็นต้องคืน)
     return (
       <div key={keyOf(r)} className={`rounded-lg border overflow-hidden ${r.willDeplete ? 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 opacity-80' : 'bg-white dark:bg-slate-900 border-amber-200 dark:border-amber-900/60'}`}>
-        <div onClick={() => setExpandedKey(isOpen ? null : keyOf(r))} className="px-3 py-2 cursor-pointer hover:bg-amber-50/60">
+        <div onClick={() => setExpandedKey(isOpen ? null : keyOf(r))} className="px-3 py-2 cursor-pointer hover:bg-amber-50/60 dark:hover:bg-amber-950/50">
           <div className="flex items-center gap-2 flex-wrap">
             <ChevronDown size={13} className={`text-amber-600 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
             <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.status === 'overdue' ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300'}`}>
@@ -1168,7 +1168,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
             {exporting ? 'กำลังส่งออก...' : 'Excel'}
           </button>
           {onClose && (
-            <button onClick={onClose} className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-red-100 rounded-lg transition-colors">
+            <button onClick={onClose} className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-red-100 dark:hover:bg-red-950/60 rounded-lg transition-colors">
               <X size={18} />
             </button>
           )}
@@ -1195,7 +1195,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                 return (
                   <div key={flagKeyOf(r)} className="bg-white dark:bg-slate-900/70 rounded-lg border border-amber-200 dark:border-amber-900/60 overflow-hidden">
                     <div onClick={() => setExpandedRow(isOpen ? null : flagKeyOf(r))}
-                      className="flex items-center gap-2 flex-wrap px-2.5 py-1.5 cursor-pointer hover:bg-amber-50/60">
+                      className="flex items-center gap-2 flex-wrap px-2.5 py-1.5 cursor-pointer hover:bg-amber-50/60 dark:hover:bg-amber-950/50">
                       <ChevronDown size={13} className={`text-amber-600 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                       <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.returnInfo.status === 'overdue' ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300'}`}>
                         {r.returnInfo.status === 'overdue' ? 'พ้นกำหนด' : `เหลือ ${r.returnInfo.daysToDeadline} วัน`}
@@ -1245,7 +1245,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
           })()}
           placeholder="ค้นหาชื่อยา, รหัสยา..."
           ringClass="focus:ring-red-400"
-          hoverClass="hover:bg-red-50"
+          hoverClass="hover:bg-red-50 dark:hover:bg-red-950/50"
           maxResults={20}
           inputClassName="py-2 bg-slate-50 dark:bg-slate-800"
         />
@@ -1497,7 +1497,7 @@ function LowStockAlertSection({ lowStock = [], onClose, onOpenReorder }) {
             </button>
           )}
           {onClose && (
-            <button onClick={onClose} className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-amber-100 rounded-lg transition-colors">
+            <button onClick={onClose} className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-amber-100 dark:hover:bg-amber-950/60 rounded-lg transition-colors">
               <X size={18} />
             </button>
           )}
@@ -1523,7 +1523,7 @@ function LowStockAlertSection({ lowStock = [], onClose, onOpenReorder }) {
               const isEmpty  = r.qty === 0;
               const barColor = isEmpty ? 'bg-red-500' : pct < 30 ? 'bg-orange-400' : 'bg-amber-400';
               return (
-                <tr key={i} className={`border-b border-slate-100 dark:border-slate-800 transition-colors ${isEmpty ? 'bg-red-50 dark:bg-red-950/40' : 'hover:bg-amber-50'}`}>
+                <tr key={i} className={`border-b border-slate-100 dark:border-slate-800 transition-colors ${isEmpty ? 'bg-red-50 dark:bg-red-950/40' : 'hover:bg-amber-50 dark:hover:bg-amber-950/50'}`}>
                   <td className="px-4 py-2.5 font-semibold text-slate-800 dark:text-slate-100 max-w-[200px]">
                     <span className="block truncate">{r.name}</span>
                     {r.code && r.code !== '-' && <span className="text-slate-400 dark:text-slate-500 font-normal">{r.code}</span>}
@@ -1784,7 +1784,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
               {exporting ? <RefreshCcw size={12} className="animate-spin"/> : <Database size={12}/>}
               {exporting ? 'กำลังส่งออก...' : 'Excel'}
             </button>
-            <button onClick={load} className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-sky-600 hover:bg-sky-100 rounded-lg transition-colors" title="รีเฟรช">
+            <button onClick={load} className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-sky-600 hover:bg-sky-100 dark:hover:bg-sky-950/60 rounded-lg transition-colors" title="รีเฟรช">
               <RefreshCcw size={15}/>
             </button>
             <button onClick={onClose} className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg transition-colors">
@@ -1801,7 +1801,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
             options={drugNames}
             placeholder="ค้นหาชื่อยา หรือรหัสยา..."
             ringClass="focus:ring-sky-400"
-            hoverClass="hover:bg-sky-50"
+            hoverClass="hover:bg-sky-50 dark:hover:bg-sky-950/50"
           />
         </div>
 
@@ -1909,7 +1909,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
                   return (
                   <React.Fragment key={rowKey}>
                   <tr onClick={() => lots.length > 0 && toggleExpand(rowKey)}
-                    className={`border-b border-slate-100 dark:border-slate-800 hover:bg-sky-50 transition-colors ${lots.length > 0 ? 'cursor-pointer' : ''} ${i % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50 dark:bg-slate-800/40'}`}>
+                    className={`border-b border-slate-100 dark:border-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/50 transition-colors ${lots.length > 0 ? 'cursor-pointer' : ''} ${i % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50 dark:bg-slate-800/40'}`}>
                     <td className="px-4 py-2.5 sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.04)]">
                       <div className="flex items-center gap-1.5">
                         {lots.length > 0 && (isOpen

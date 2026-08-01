@@ -269,7 +269,7 @@ export default function DashboardV2Preview({ onExit }) {
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {MOCK.top5.map(r => (
-                  <tr key={r.code} className="hover:bg-slate-50/60">
+                  <tr key={r.code} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/60">
                     <td className="px-4 py-2.5">
                       <p className="font-semibold text-slate-700 leading-tight">{r.name}</p>
                       <p className="text-xs text-slate-400">{r.code}</p>
