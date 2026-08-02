@@ -138,7 +138,7 @@ function SeedModal({ open, onClose, onSeeded, auth }) {
             <input
               type="text" value={period} onChange={(e) => setPeriod(e.target.value.trim())}
               placeholder="2026-06"
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
             />
             <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">งวดที่นำเข้า (เช่น 2026-07 = ก.ค. 2569). ถ้างวดนี้มีอยู่แล้วและยังเปิดอยู่ → นำเข้าทับทั้งงวด; งวดที่ล็อกแล้วต้องปลดล็อกก่อน</p>
           </div>
@@ -255,22 +255,22 @@ function AdjustModal({ open, period, onClose, onAdded, auth }) {
             <div>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">รหัสยา *</label>
               <input type="text" value={form.drug_code} onChange={set('drug_code')} placeholder="เช่น 1000001"
-                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">Lot</label>
               <input type="text" value={form.lot} onChange={set('lot')} placeholder="-"
-                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
             <div className="col-span-2">
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">ชื่อยา</label>
               <input type="text" value={form.drug_name} onChange={set('drug_name')} placeholder="(ไม่บังคับ)"
-                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">หมวด</label>
               <select value={form.med_category} onChange={set('med_category')}
-                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500">
                 <option value="ยา">เวชภัณฑ์ยา</option>
                 <option value="เวชภัณฑ์มิใช่ยา">เวชภัณฑ์มิใช่ยา</option>
               </select>
@@ -278,17 +278,17 @@ function AdjustModal({ open, period, onClose, onAdded, auth }) {
             <div>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">ราคา/หน่วย</label>
               <input type="number" value={form.price_per_unit} onChange={set('price_per_unit')} placeholder="0"
-                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">จำนวนปรับ (+/−)</label>
               <input type="number" value={form.adjust_qty} onChange={set('adjust_qty')} placeholder="0"
-                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">มูลค่าปรับ (+/−)</label>
               <input type="number" value={form.adjust_value} onChange={set('adjust_value')} placeholder="0"
-                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
           </div>
 

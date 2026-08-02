@@ -442,7 +442,8 @@ function RecordTab({ auth }) {
     }
   }
 
-  const inputCls = 'w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-400 transition-shadow'
+  // ต้องระบุ bg- เอง — ไม่งั้น input ใช้ค่า default ของ browser (ขาว) ทำให้ตัวหนังสือสีอ่อนในโหมดมืดจม
+  const inputCls = 'w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3.5 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-400 transition-shadow'
   const labelCls = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5'
 
   return (

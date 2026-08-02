@@ -523,7 +523,7 @@ function LabelInput({ label, value, onChange, placeholder, required, autoComplet
     <div>
       <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">{label}</label>
       <input type="text" value={value} onChange={onChange} placeholder={placeholder} required={required} autoComplete={autoComplete}
-        className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"/>
+        className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"/>
     </div>
   );
 }
@@ -532,7 +532,7 @@ function PwInput({ value, onChange, show, onToggle, placeholder = 'รหัส�
   return (
     <div className="relative">
       <input type={show ? 'text' : 'password'} value={value} onChange={onChange} placeholder={placeholder} required={required} autoComplete={autoComplete}
-        className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 pr-10 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"/>
+        className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 pr-10 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"/>
       <button type="button" onClick={onToggle} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
         {show ? <EyeOff size={16}/> : <Eye size={16}/>}
       </button>
