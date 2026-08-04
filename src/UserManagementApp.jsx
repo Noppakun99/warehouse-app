@@ -275,10 +275,10 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"/>
             <input value={search} onChange={e => setSearch(e.target.value)}
               placeholder="ค้นหาชื่อผู้ใช้ ชื่อ-สกุล หน่วยงาน..."
-              className="w-full pl-9 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-400"/>
+              className="w-full pl-9 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-400"/>
           </div>
           <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)}
-            className="border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-400">
+            className="border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-400">
             <option value="all">ทุก Role</option>
             <option value="requester">ผู้เบิก</option>
             <option value="staff">เจ้าหน้าที่คลัง</option>

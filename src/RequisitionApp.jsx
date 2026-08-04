@@ -1407,7 +1407,7 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
         {error && <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2 flex items-center gap-2"><AlertCircle size={14}/>{error}</p>}
       </div>
       {cart.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
+        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
           <button onClick={submit} disabled={loading}
             className="w-full bg-[#1E90FF] hover:bg-[#1a7fe0] disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3.5 font-semibold flex items-center justify-center gap-2 transition-all">
             <Send size={18} />{loading ? 'กำลังส่งใบเบิก...' : `ส่งใบเบิก (${cart.length} รายการ)`}
@@ -3491,7 +3491,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         </div>
 
         {isPending && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
+          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
             <div className="grid grid-cols-[1fr_auto] gap-2">
               <button onClick={() => save(null)} disabled={loading}
                 className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
@@ -3505,7 +3505,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
           </div>
         )}
         {isRejected && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 space-y-2">
+          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 space-y-2">
             {!deleteConfirm ? (
               <button onClick={() => setDeleteConfirm(true)} disabled={loading}
                 className="w-full bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-950/70 border border-red-300 dark:border-red-800/60 text-red-600 rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
@@ -3529,7 +3529,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
 
         {/* ── Workflow actions ตามสถานะ (จัดยา/ตรวจนับ/จ่ายออก) ── */}
         {isApproved && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
+          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
             <button onClick={() => setPickingModal(true)} disabled={loading}
               className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
               <Package size={18}/> เริ่มจัดยา
@@ -3537,7 +3537,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
           </div>
         )}
         {isPicking && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
+          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
             <button onClick={() => setVerifyModal(true)} disabled={loading}
               className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
               <CheckCircle size={18}/> ตรวจนับยา (Double Check)
@@ -3545,7 +3545,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
           </div>
         )}
         {isReady && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 space-y-2">
+          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 space-y-2">
             <button onClick={() => setDispatchModal(true)} disabled={loading}
               className="w-full rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all bg-blue-600 hover:bg-blue-700 text-white disabled:bg-slate-200 disabled:text-slate-400">
               <Check size={18}/> จ่ายออก

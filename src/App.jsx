@@ -2570,7 +2570,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                     {dueReturns.slice(0, 30).map((r) => {
                       const flagged = swapFlagged[flagKeyOf(r)];
                       return (
-                        <div key={flagKeyOf(r)} className="flex items-center gap-2 flex-wrap bg-white/70 rounded-lg px-2.5 py-1.5 border border-amber-200 dark:border-amber-900/60">
+                        <div key={flagKeyOf(r)} className="flex items-center gap-2 flex-wrap bg-white/70 dark:bg-slate-900/70 rounded-lg px-2.5 py-1.5 border border-amber-200 dark:border-amber-900/60">
                           <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.returnInfo.status === 'overdue' ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800/60'}`}>
                             {r.returnInfo.status === 'overdue' ? 'พ้นกำหนด' : `เหลือ ${r.returnInfo.daysToDeadline} วัน`}
                           </span>

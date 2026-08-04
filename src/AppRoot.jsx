@@ -1193,7 +1193,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                 const flagged = swapFlagged[flagKeyOf(r)];
                 const isOpen = expandedRow === flagKeyOf(r);
                 return (
-                  <div key={flagKeyOf(r)} className="bg-white/70 rounded-lg border border-amber-200 dark:border-amber-900/60 overflow-hidden">
+                  <div key={flagKeyOf(r)} className="bg-white/70 dark:bg-slate-900/70 rounded-lg border border-amber-200 dark:border-amber-900/60 overflow-hidden">
                     <div onClick={() => setExpandedRow(isOpen ? null : flagKeyOf(r))}
                       className="flex items-center gap-2 flex-wrap px-2.5 py-1.5 cursor-pointer hover:bg-amber-50/60 dark:hover:bg-amber-950/50">
                       <ChevronDown size={13} className={`text-amber-600 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />

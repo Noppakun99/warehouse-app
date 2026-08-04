@@ -540,7 +540,7 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
                   <input
                     type="text" value={search} onChange={(e) => setSearch(e.target.value)}
                     placeholder="ค้นหา ชื่อยา / รหัส / lot…"
-                    className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-9 pr-4 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-9 pr-4 py-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
               </div>
