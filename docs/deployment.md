@@ -70,6 +70,9 @@ VITE_SUPABASE_ANON_KEY  = <legacy anon/public key>
 
 ข้อ 5 ยืนยันว่าดึงโค้ดจาก branch ถูกตัว (dark mode มีเฉพาะใน `feat/requisition-bbase`)
 
+> verify ครั้งแรก 2026-08-07 ผ่านครบ 5 ข้อ ด้วย Playwright ยิงเว็บ production จริง
+> (`/dashboard` + `/some/deep/path` คืน 200 ยืนยัน redirect rule; Supabase ตอบ < 400 ยืนยัน env vars)
+
 ## หมายเหตุ
 
 - **branch `main` ตามหลังอยู่** — ค้างที่ 31 พ.ค. 2026 งานจริง 163 commits อยู่บน `feat/requisition-bbase` ระยะยาวควรหาจังหวะ merge (ทำตอนพร้อม test เต็มรูปแบบ ไม่ควรพ่วงกับงาน deploy)
