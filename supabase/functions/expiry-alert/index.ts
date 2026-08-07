@@ -331,10 +331,19 @@ function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMa
   const th = `style="background:#e2e8f0;padding:10px 12px;text-align:left;border:1px solid #cbd5e1;font-size:14px;font-weight:bold;color:#334155;white-space:nowrap;"`;
   // ตัด "โซน" ออก (= ตัวอักษรแรกของตำแหน่ง ซ้ำซ้อน 100%) เอาที่ว่างให้ "รหัสยา"
   // ที่แอป/Excel มีแต่ email ไม่มี → เอาไปค้นต่อในระบบไม่ได้ (Rule #6)
-  const HEADERS = ["ตำแหน่ง","รหัสยา","ชนิดยา","ชื่อยา","Lot","Exp","คงเหลือ","หน่วย","บริษัท","นโยบายเปลี่ยนยา", isExpired ? "เกินมาแล้ว" : "คงเหลือ (วัน)"];
+  // ลำดับคอลัมน์: ย้าย "คงเหลือ (วัน)" มาก่อน "นโยบาย" — นโยบายเป็น free-text ยาว (200+ ตัวอักษร)
+  // ถ้าอยู่กลางตารางจะดันคอลัมน์หลังหลุดขอบจอ Gmail (เลื่อนขวาไม่ได้ desktop ไม่มี scrollbar)
+  // เอาข้อมูลสั้น/สำคัญไว้ซ้ายทั้งหมด แล้วให้ "นโยบาย" เป็นคอลัมน์สุดท้าย ล้นได้ไม่บังใคร
+  const HEADERS = ["ตำแหน่ง","รหัสยา","ชนิดยา","ชื่อยา","Lot","Exp", isExpired ? "เกินมาแล้ว" : "คงเหลือ (วัน)","คงเหลือ","หน่วย","บริษัท","นโยบายเปลี่ยนยา"];
   const headRow = `<tr>${HEADERS.map(h => `<th ${th}>${h}</th>`).join("")}</tr>`;
 
-  let html = `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:20px;">`;
+  // table-layout:fixed + width คุมต่อคอลัมน์ = Gmail คำนวณความกว้างตามที่สั่ง ไม่ยืดตามเนื้อหา
+  let html = `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;table-layout:fixed;font-size:13px;margin-bottom:20px;">`;
+  html += `<colgroup>`;
+  html += `<col style="width:7%"/><col style="width:7%"/><col style="width:7%"/><col style="width:17%"/>`;
+  html += `<col style="width:8%"/><col style="width:8%"/><col style="width:7%"/><col style="width:6%"/>`;
+  html += `<col style="width:7%"/><col style="width:12%"/><col style="width:14%"/>`;
+  html += `</colgroup>`;
   html += `<thead>${headRow}</thead><tbody>`;
 
   items.forEach((item, idx) => {
@@ -360,18 +369,21 @@ function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMa
     if (d.supplier_changed && d.supplier_changed !== "-") swapParts.push(d.supplier_changed);
     const swapText = swapParts.length > 0 ? swapParts.join(" | ") : "-";
 
+    // ลำดับต้องตรงกับ HEADERS + colgroup — word-break กัน lot/ชื่อยายาวดันคอลัมน์
+    const tdWrap = `style="padding:8px 10px;border:1px solid #e2e8f0;background:${bg};font-size:13px;vertical-align:middle;word-break:break-word;"`;
     html += "<tr>";
     html += `<td ${td}>${row.location || "-"}</td>`;
     html += `<td ${td}>${row.code || "-"}</td>`;
     html += `<td ${td}>${row.type || "-"}</td>`;
-    html += `<td ${td}><b style="font-size:15px;">${row.name || "-"}</b></td>`;
-    html += `<td ${td}>${row.lot || "-"}</td>`;
+    html += `<td ${tdWrap}><b style="font-size:14px;">${row.name || "-"}</b></td>`;
+    html += `<td ${tdWrap}>${row.lot || "-"}</td>`;
     html += `<td ${td}><b>${fmtDate(item.expDate)}</b></td>`;
-    html += `<td style="padding:9px 12px;border:1px solid #e2e8f0;background:${bg};font-size:14px;text-align:right;vertical-align:middle;">${row.qty || "-"}</td>`;
+    html += `<td style="padding:8px 10px;border:1px solid #e2e8f0;background:${bg};text-align:right;font-weight:bold;font-size:14px;color:${dc};vertical-align:middle;">${Math.abs(days)} วัน</td>`;
+    html += `<td style="padding:8px 10px;border:1px solid #e2e8f0;background:${bg};font-size:13px;text-align:right;vertical-align:middle;">${row.qty || "-"}</td>`;
     html += `<td ${td}>${row.unit || "-"}</td>`;
-    html += `<td ${td}>${supplier}</td>`;
-    html += `<td ${td}>${swapText}</td>`;
-    html += `<td style="padding:9px 12px;border:1px solid #e2e8f0;background:${bg};text-align:right;font-weight:bold;font-size:15px;color:${dc};vertical-align:middle;white-space:nowrap;">${Math.abs(days)} วัน</td>`;
+    html += `<td ${tdWrap}>${supplier}</td>`;
+    // นโยบายยาวมาก → ตัดที่ 120 ตัวอักษร (รายละเอียดเต็มดูในแอป) กันดันตารางล้นจอ
+    html += `<td style="padding:8px 10px;border:1px solid #e2e8f0;background:${bg};font-size:12px;color:#475569;vertical-align:middle;word-break:break-word;">${swapText.length > 120 ? swapText.slice(0, 119).trimEnd() + "…" : swapText}</td>`;
     html += "</tr>";
   });
 
@@ -443,13 +455,17 @@ function buildExpiredEmail(expired: AlertItem[], today: Date, detailMap: Record<
   html += `<p style="margin:8px 0 0;color:#b45309;font-size:13px;"><b>หมายเหตุ:</b> ถ้ายังไม่อัพเดตระบบ อีเมลฉบับนี้จะแจ้งเตือนซ้ำทุกวันจนกว่าจะอัพเดต</p>`;
   html += `</div>`;
 
-  html += `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:20px;">`;
+  html += `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;table-layout:fixed;font-size:13px;margin-bottom:20px;">`;
+  html += `<colgroup>`;
+  html += `<col style="width:9%"/><col style="width:9%"/><col style="width:9%"/><col style="width:22%"/><col style="width:11%"/>`;
+  html += `<col style="width:10%"/><col style="width:10%"/><col style="width:7%"/><col style="width:7%"/><col style="width:16%"/>`;
+  html += `</colgroup>`;
   html += `<thead>${headRow}</thead><tbody>`;
   expired.forEach((item, idx) => {
     if (idx > 0 && idx % HEADER_REPEAT_EVERY === 0) html += headRow;
     const row = item.r;
     const over = Math.abs(daysLeft(item.expDate, today));
-    const td = `style="padding:9px 12px;border:1px solid #fecaca;background:#fef2f2;font-size:14px;vertical-align:middle;"`;
+    const td = `style="padding:8px 10px;border:1px solid #fecaca;background:#fef2f2;font-size:13px;vertical-align:middle;word-break:break-word;"`;
     const code = String(row.code || "").trim().toLowerCase();
     const lot  = String(row.lot  || "-").trim().toLowerCase() || "-";
     const d = detailMap[`${code}|${lot}`] || ({} as DetailEntry);   // strict per-lot
