@@ -6,8 +6,8 @@
 
 - deploy ผ่าน **Netlify + Continuous Deployment จาก GitHub** (Netlify build ให้บน cloud)
 - **branch ที่ deploy = `feat/requisition-bbase`** ไม่ใช่ `main`
-- **auto-build ปิดอยู่** (Build status = Stopped) → `git push` ไม่ trigger build ไม่กินโควตา
-- ขึ้นเว็บจริงต้อง **Trigger deploy เองที่หน้า Netlify**
+- **auto-build เปิดอยู่** (Build status = Active) → **`git push` = ขึ้นเว็บจริงอัตโนมัติ** ~30 วินาที
+- ไม่อยากให้ build รอบไหน → ใส่ `[skip ci]` ในข้อความ commit
 
 ## Config
 
@@ -19,7 +19,7 @@
 | Branch to deploy | **`feat/requisition-bbase`** |
 | Build command | `npm run build` |
 | Publish directory | `dist` |
-| Build status | **Stopped** (auto-deploy ปิด) |
+| Build status | **Active builds** (auto-deploy ทุก push) |
 
 build command / publish dir / redirect rules อ่านจาก [netlify.toml](../netlify.toml) — ไม่ต้องตั้งใน dashboard
 
@@ -41,20 +41,28 @@ VITE_SUPABASE_ANON_KEY  = <legacy anon/public key>
 ## Workflow
 
 ```
-แก้โค้ด → git commit → git push       (ไม่ deploy ไม่กินโควตา)
+แก้โค้ด → git commit → git push
                          ↓
-              พร้อมขึ้นเว็บจริงเมื่อไหร่
+        Netlify build อัตโนมัติ (~30 วินาที)
                          ↓
-   Netlify → Deploys → Trigger deploy   (build ~30 วิ)
+                   ขึ้นเว็บจริง
 ```
 
-ไม่ต้อง `npm run build` เอง ไม่ต้องลากโฟลเดอร์เข้า Netlify Drop
+ไม่ต้อง `npm run build` เอง ไม่ต้องลากโฟลเดอร์เข้า Netlify Drop ไม่ต้องกด Trigger
 
-**วิธี Trigger deploy:**
+**ไม่อยากให้ build รอบไหน** (เช่น commit แก้ docs) → ใส่ `[skip ci]` ในข้อความ commit
 
-1. เปิด https://app.netlify.com/projects/my-warehouse-app/deploys
-2. กด **Trigger deploy** (dropdown มุมขวาบน) → **Deploy site**
-3. ดู log: `Installing dependencies` → `vite build` → `Site is live`
+**ดูสถานะ:** https://app.netlify.com/projects/my-warehouse-app/deploys
+log ควรจบด้วย `Site is live` — ถ้าอยาก deploy ซ้ำโดยไม่ push ใหม่ กด **Trigger deploy** → **Deploy site**
+
+> ⚠️ **อย่าตั้ง Build status = "Stopped builds"** — มันไม่ได้ปิดแค่ auto-build แต่**ปิดปุ่ม Trigger deploy ด้วย**
+> (Netlify: "Activate builds… to re-enable the option to trigger deploys") ทำให้ deploy ไม่ได้เลยจาก dashboard
+> ต้องกด **Activate builds** ก่อนถึงจะกลับมาใช้ได้ (เหตุการณ์ 2026-08-07)
+
+### โควตา build
+
+Free tier 300 นาที/เดือน · build จริง ~27-30 วินาที → **push ได้ ~600 ครั้ง/เดือน**
+push วันละ 10 ครั้งทุกวัน ≈ 150 นาที ยังเหลือครึ่ง — auto-build จึงปลอดภัยกับโควตา
 
 ## Verify หลัง deploy
 
@@ -76,6 +84,5 @@ VITE_SUPABASE_ANON_KEY  = <legacy anon/public key>
 ## หมายเหตุ
 
 - **branch `main` ตามหลังอยู่** — ค้างที่ 31 พ.ค. 2026 งานจริง 163 commits อยู่บน `feat/requisition-bbase` ระยะยาวควรหาจังหวะ merge (ทำตอนพร้อม test เต็มรูปแบบ ไม่ควรพ่วงกับงาน deploy)
-- **โควตา build** — Free tier 300 นาที/เดือน, build จริง ~30 วินาที → deploy เดือนละ 20 ครั้งใช้ ~10 นาที
-- **"credits remaining" ในหน้า project** = โควตา Netlify AI agent คนละตัว ไม่เกี่ยวกับ deploy
+- **"credits remaining" ในหน้า project** = โควตา Netlify AI agent คนละตัว ไม่เกี่ยวกับ deploy (ดูโควตา build ด้านบน)
 - **อย่าลากโฟลเดอร์โปรเจกต์เข้า Netlify Drop** — Drop รับแค่ static output (`dist/`) ถ้าลากทั้งโปรเจกต์ที่มี `node_modules` จะค้าง/ไม่ผ่าน (เหตุการณ์ 2026-08-06)
