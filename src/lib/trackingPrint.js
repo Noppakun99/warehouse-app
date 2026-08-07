@@ -30,6 +30,13 @@ const fmtWaitDays = (d) => {
   return d === 0 ? 'รับวันนี้' : `${d} วัน`;
 };
 
+// ข้อความเดียวกับคอลัมน์ "สถานะ" ใน EXPIRY_EXCEL_COLS (AppRoot.jsx) — กระดาษกับ Excel ต้องอ่านได้ตรงกัน
+const fmtDaysLeft = (d) => {
+  if (d == null) return '-';
+  if (d < 0) return `หมดอายุแล้ว ${Math.abs(d)} วัน`;
+  return d === 0 ? 'หมดอายุวันนี้' : `อีก ${d} วัน`;
+};
+
 // receiveStatus เก็บรวม 2 ค่าเป็น "<สถานะตรวจรับ>|<ผลการพิจารณา>" (ดู import ใน App.jsx)
 // บนกระดาษเอาเฉพาะสถานะตรวจรับ — ผลการพิจารณา (คงไว้/ตัดออก) คนละเรื่องกัน ทำให้ช่องแคบต้องตัดขึ้นบรรทัดใหม่
 const fmtReceiveStatus = (s) => {
@@ -50,9 +57,25 @@ const cell = (v) => {
  * @param {boolean} opts.isExpiryMode  โหมดใกล้หมดอายุ/หมดอายุ → ไม่มีคอลัมน์ บิลยา/PO (ตรงกับ Excel)
  * @param {string} [opts.filterNote]   บรรทัดสรุปตัวกรองที่ใช้อยู่ (โซน/ช่วงเวลา/คำค้น)
  * @param {string} [opts.printedBy]    ชื่อผู้พิมพ์
+ * @param {boolean} [opts.dashboardMode] โมดอลใกล้หมดอายุของ Dashboard (AppRoot) — คอลัมน์ต่างจาก
+ *   โมดอลแผนผัง: มี รหัสยา/สถานะ(นับวัน)/นโยบายเปลี่ยนยา แทน สถานะตรวจรับ (ตรงกับ EXPIRY_EXCEL_COLS)
  */
-export function printTrackingList(rows, { title, isExpiryMode = false, filterNote = '', printedBy = '' } = {}) {
-  const cols = [
+export function printTrackingList(rows, { title, isExpiryMode = false, filterNote = '', printedBy = '', dashboardMode = false } = {}) {
+  // โมดอล Dashboard ใช้ชุดคอลัมน์ของตัวเอง ให้ตรงกับ Excel ของโมดอลเดียวกัน (Rule #6)
+  const cols = dashboardMode ? [
+    { header: 'ลำดับ',   get: (_r, i) => i + 1, cls: 'c w-no' },
+    { header: 'ชื่อยา',  get: r => r.name },
+    { header: 'รหัสยา',  get: r => r.code, cls: 'c' },
+    { header: 'ชนิด',    get: r => r.type, cls: 'c' },
+    { header: 'ตำแหน่ง', get: r => r.location, cls: 'c' },
+    { header: 'Lot',     get: r => r.lot, cls: 'c' },
+    { header: 'วันหมดอายุ', get: r => r.exp, cls: 'c' },
+    { header: 'สถานะ',   get: r => fmtDaysLeft(r.daysLeft), cls: 'c nowrap' },
+    { header: 'บริษัท',  get: r => r.supplier },
+    { header: 'นโยบายเปลี่ยนยา', get: r => r.swapPolicy },
+    { header: 'คงเหลือ', get: r => r.qty, cls: 'c' },
+    { header: 'หน่วย',   get: r => r.unit, cls: 'c' },
+  ] : [
     { header: 'ลำดับ',   get: (_r, i) => i + 1, cls: 'c w-no' },
     { header: 'ชื่อยา',  get: r => r.name },
     { header: 'ชนิด',    get: r => r.type, cls: 'c' },

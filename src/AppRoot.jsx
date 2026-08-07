@@ -16,6 +16,7 @@ import {
 import App                from './App';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
 import { exportToExcel }  from './lib/exportExcel';
+import { printTrackingList } from './lib/trackingPrint';
 import RequisitionApp     from './RequisitionApp';
 import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
@@ -1150,6 +1151,23 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
     } finally { setExporting(false); }
   };
 
+  // พิมพ์จาก filtered ชุดเดียวกับตาราง/Excel (Rule #6) + ระบุตัวกรองบนหัวกระดาษ
+  // ไม่งั้นกระดาษที่พิมพ์ตอนกรองอยู่ ดูเหมือนเป็นรายการทั้งหมด
+  const handlePrint = () => {
+    const notes = [];
+    if (search) notes.push(`คำค้น "${search}"`);
+    if (zoneFilter !== 'all') notes.push(`โซน ${zoneFilter}`);
+    if (filter !== 'all') {
+      notes.push(`ช่วงเวลา ${({ expired: 'หมดอายุแล้ว', soon30: 'ภายใน 30 วัน', soon90: '1–3 เดือน', soon180: '3–6 เดือน', soon16m: '6–16 เดือน' })[filter] || filter}`);
+    }
+    printTrackingList(filtered, {
+      title: 'แจ้งเตือนยาใกล้หมดอายุ',
+      dashboardMode: true,
+      filterNote: notes.length ? `ตัวกรอง: ${notes.join(' · ')}` : '',
+      printedBy: auth?.name || auth?.username || '',
+    });
+  };
+
   const inner = (
     <div className={`bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900/60 rounded-2xl shadow-sm overflow-hidden flex flex-col ${onClose ? 'max-h-[90vh]' : 'mt-5'}`}>
       {/* Header */}
@@ -1162,6 +1180,12 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
           </span>
         </div>
         <div className="flex items-center gap-1.5">
+          <button onClick={handlePrint} disabled={filtered.length === 0}
+            title="พิมพ์รายการที่กรองอยู่"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-600 hover:bg-slate-700 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition-colors">
+            <Printer size={12}/>
+            <span className="hidden sm:inline">พิมพ์</span>
+          </button>
           <button onClick={handleExport} disabled={exporting || filtered.length === 0}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition-colors">
             {exporting ? <RefreshCcw size={12} className="animate-spin"/> : <FileDown size={12}/>}
