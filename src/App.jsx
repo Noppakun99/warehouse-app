@@ -525,10 +525,9 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
     return [...byCode.values()];
   }, [inventory, searchTerm]);
 
-  // ปิด popup = ซ่อนเฉพาะ "คำค้นปัจจุบัน" — key ผูกกับ searchTerm ไม่ใช่รหัสยา
-  // (ผูกกับรหัสยาทำให้ค้นยาตัวเดิมซ้ำแล้วไม่เตือนอีกเลย ทั้งที่ยังต้องปิด code)
-  const [dismissedSearch, setDismissedSearch] = useState(null);
-  const showDiscontinuedAlert = discontinuedHits.length > 0 && dismissedSearch !== searchTerm;
+  // ไม่มีปุ่มปิด — เตือนค้างไว้ตราบใดที่ยังค้นคำนี้ และกลับมาค้นใหม่ต้องเจอทุกครั้ง
+  // (เดิมมีปุ่ม X + dismiss state แต่ผู้ใช้ขอให้ค้างเสมอ กันพลาดสั่งซื้อ/เบิกซ้ำ)
+  const showDiscontinuedAlert = discontinuedHits.length > 0;
 
   // โหลดข้อมูลล่าสุดจาก Supabase ใหม่
   const confirmResetData = async () => {
@@ -1332,12 +1331,6 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                     กรุณา<span className="font-bold">แจ้งหัวหน้าให้ปิด code ยาใน HosXP</span> เพื่อไม่ให้มีการเบิก/สั่งซื้อรายการนี้อีก
                   </p>
                 </div>
-                <button
-                  onClick={() => setDismissedSearch(searchTerm)}
-                  title="ปิดการแจ้งเตือนนี้"
-                  className="p-1.5 rounded-lg text-rose-400 hover:text-rose-700 dark:hover:text-rose-200 hover:bg-rose-100 dark:hover:bg-rose-950/60 transition-colors shrink-0">
-                  <X size={16} />
-                </button>
               </div>
             </div>
           )}

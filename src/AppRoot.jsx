@@ -1682,6 +1682,7 @@ function printStockSummary(rows, uploadInfo) {
 // ---- Stock Summary Modal ----
 function StockSummaryModal({ onClose, auth = {} }) {
   const [rows, setRows]             = React.useState([]);
+  const [discontinued, setDiscontinued] = React.useState([]);   // ยาตัดออกจากบัญชี (ไม่อยู่ในตาราง)
   const [loading, setLoading]       = React.useState(true);
   const [search, setSearch]         = React.useState('');
   const [drugNames, setDrugNames]   = React.useState([]);
@@ -1718,6 +1719,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
         supabase ? supabase.from('upload_meta').select('file_name, updated_at').eq('type', 'inventory').single().then(r => r.data) : null,
       ]);
       setRows(summary);
+      setDiscontinued(summary.discontinued || []);
       setUploadInfo(meta || null);
     }
     catch (e) { setError(e.message); }
@@ -1751,6 +1753,15 @@ function StockSummaryModal({ onClose, auth = {} }) {
     !search || (r.name || '').toLowerCase().includes(search.toLowerCase()) ||
     (r.code || '').toLowerCase().includes(search.toLowerCase())
   );
+
+  // ยาตัดออกที่ตรงกับคำค้น — เตือนเฉพาะตอนค้น (ไม่ค้น = ไม่ต้องรก)
+  const discontinuedHits = React.useMemo(() => {
+    if (!search) return [];
+    const t = search.toLowerCase();
+    return discontinued.filter(d =>
+      (d.name || '').toLowerCase().includes(t) || (d.code || '').toLowerCase().includes(t)
+    );
+  }, [discontinued, search]);
 
   const sortedFiltered = React.useMemo(() => {
     if (!sortBy) return filtered;
@@ -1818,7 +1829,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
         </div>
 
         {/* DrugSearchBar */}
-        <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
+        <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800 shrink-0 space-y-3">
           <DrugSearchBar
             value={search}
             onChange={setSearch}
@@ -1827,6 +1838,35 @@ function StockSummaryModal({ onClose, auth = {} }) {
             ringClass="focus:ring-sky-400"
             hoverClass="hover:bg-sky-50 dark:hover:bg-sky-950/50"
           />
+          {/* ยาตัดออกไม่อยู่ในตาราง (กรองที่ fetchStockSummary) → ค้นแล้วขึ้น "ไม่พบรายการ" เฉยๆ
+              ต้องบอกเหตุผลให้ตรงกับระบบแผนผังคลังยา ไม่งั้นคนนึกว่ายาหายจากระบบ
+              ไม่มีปุ่มปิด — ต้องค้างไว้ตราบใดที่ยังค้นคำนี้ (ผู้ใช้ขอ: กันพลาดสั่งซื้อซ้ำ) */}
+          {discontinuedHits.length > 0 && (
+            <div className="bg-rose-50 dark:bg-rose-950/40 border-2 border-rose-300 dark:border-rose-900/70 rounded-xl p-3.5">
+              <div className="flex items-start gap-2.5">
+                <span className="p-1.5 rounded-lg bg-rose-100 dark:bg-rose-950/60 shrink-0">
+                  <AlertTriangle size={16} className="text-rose-600 dark:text-rose-400" />
+                </span>
+                <div className="min-w-0">
+                  <p className="font-bold text-rose-800 dark:text-rose-300 text-sm">
+                    ยานี้ถูกตัดออกจากบัญชีแล้ว — ไม่มีการสั่งซื้อเพิ่ม
+                  </p>
+                  <ul className="mt-1.5 space-y-0.5">
+                    {discontinuedHits.map(d => (
+                      <li key={d.code || d.name} className="text-xs text-rose-700 dark:text-rose-300 flex flex-wrap items-center gap-x-2">
+                        <span className="font-semibold">{d.name}</span>
+                        {d.code && <span className="text-rose-500 dark:text-rose-400">({d.code})</span>}
+                        <span className="text-rose-600 dark:text-rose-400">คงเหลือ {d.totalQty.toLocaleString()}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-rose-700 dark:text-rose-300 leading-relaxed">
+                    กรุณา<span className="font-bold">แจ้งหัวหน้าให้ปิด code ยาใน HosXP</span> เพื่อไม่ให้มีการเบิก/สั่งซื้อรายการนี้อีก
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Table — sticky header + frozen ชื่อยา */}
@@ -1839,7 +1879,9 @@ function StockSummaryModal({ onClose, auth = {} }) {
           ) : error ? (
             <div className="text-center py-10 text-red-500 text-sm px-6">{error}</div>
           ) : filtered.length === 0 ? (
-            <div className="text-center py-10 text-slate-400 dark:text-slate-500 text-sm">ไม่พบรายการ</div>
+            <div className="text-center py-10 text-slate-400 dark:text-slate-500 text-sm">
+              {discontinuedHits.length > 0 ? 'ไม่มีรายการคงเหลือที่ตรงกับคำค้น' : 'ไม่พบรายการ'}
+            </div>
           ) : isMobile ? (
             /* ── Mobile card list ── */
             <div className="divide-y divide-slate-100">

@@ -1979,6 +1979,18 @@ export async function fetchStockSummary() {
     if (isPurchase) latestUnit[key] = r.drug_unit;
   });
 
+  // ยาตัดออกจากบัญชี — เก็บแยก (ไม่ปนในตารางคงเหลือ) ให้ UI เตือนตอนค้นเจอได้
+  // ต้องเก็บ "ทุกแถว" รวม qty=0 เพราะยาตัดออกส่วนใหญ่จ่ายหมดแล้วแต่ code ใน HosXP ยังไม่ปิด
+  const discontinuedMap = {}
+  ;(invData || []).forEach(row => {
+    if (!String(row.receive_status || '').includes('ตัดออก')) return
+    const key = (row.code && row.code !== '-') ? row.code.trim() : (row.name || '').trim()
+    if (!key) return
+    const qty = parseFloat(String(row.qty || '0').replace(/,/g, '')) || 0
+    if (!discontinuedMap[key]) discontinuedMap[key] = { code: row.code, name: row.name, totalQty: 0 }
+    discontinuedMap[key].totalQty += qty
+  })
+
   // group inventory by drug code
   const drugMap = {};
   (invData || []).forEach(row => {
@@ -1991,7 +2003,7 @@ export async function fetchStockSummary() {
     drugMap[key].lots.push({ unit: row.unit, qty, lot: row.lot, exp: row.exp });
   });
 
-  return Object.values(drugMap).map(drug => {
+  const summary = Object.values(drugMap).map(drug => {
     const codeKey = (drug.code && drug.code !== '-') ? drug.code.trim() : '';
     const mainUnit = (codeKey && latestUnit[codeKey]) || drug.lots[0]?.unit || '-';
     const mainParsed = parseUnitFactor(mainUnit);
@@ -2040,6 +2052,12 @@ export async function fetchStockSummary() {
   })
   .filter(d => d.totalQty > 0)
   .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'th'));
+
+  // แนบยาตัดออกเป็น property ของ array — caller เดิมที่ map/filter ตรงๆ ไม่พัง
+  // (return object ใหม่จะทำให้ทุก consumer ต้องแก้พร้อมกัน)
+  summary.discontinued = Object.values(discontinuedMap)
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'th'))
+  return summary
 }
 
 // --- Reorder: หน่วย/ราคา/บริษัท/วันรับ/lead time ต่อรหัสยา (จาก receive_logs) ---
