@@ -496,6 +496,40 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
     return results;
   }, [inventory, searchTerm]);
 
+  // ยาที่ค้นเจอแต่ถูก "ตัดออกจากบัญชี" — เตือนว่าห้ามสั่งเพิ่ม + ต้องปิด code ใน HosXP
+  // สแกนจาก inventory ทั้งหมด ไม่ใช่ searchResults เพราะ searchResults ซ่อน qty=0
+  // (ยาตัดออก 30/36 แถวมี qty=0 — ถ้าอิง searchResults ยาที่จ่ายหมดแล้วจะไม่เตือน ทั้งที่ยังต้องปิด code)
+  // group ตามรหัสยา: 1 รหัสมีหลาย lot ไม่ต้องเตือนซ้ำ
+  const discontinuedHits = useMemo(() => {
+    if (!searchTerm) return [];
+    const term = searchTerm.toLowerCase();
+    const lotTerm = normalizeLotSearch(term);
+    const byCode = new Map();
+    Object.entries(inventory).forEach(([loc, items]) => {
+      items.forEach(item => {
+        if (!(item.receiveStatus && String(item.receiveStatus).includes('ตัดออก'))) return;
+        const hit =
+          item.name.toLowerCase().includes(term) ||
+          (item.code && item.code.toLowerCase().includes(term)) ||
+          (item.lot && normalizeLotSearch(item.lot.toLowerCase()).includes(lotTerm)) ||
+          loc.toLowerCase().includes(term) ||
+          (item.invoice && item.invoice.toLowerCase().includes(term));
+        if (!hit) return;
+        const key = (item.code || item.name || '').toLowerCase();
+        const qty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
+        const cur = byCode.get(key);
+        if (cur) { cur.qty += qty; if (!cur.locations.includes(loc)) cur.locations.push(loc); }
+        else byCode.set(key, { code: item.code, name: item.name, qty, locations: [loc] });
+      });
+    });
+    return [...byCode.values()];
+  }, [inventory, searchTerm]);
+
+  // ปิด popup = ซ่อนเฉพาะ "คำค้นปัจจุบัน" — key ผูกกับ searchTerm ไม่ใช่รหัสยา
+  // (ผูกกับรหัสยาทำให้ค้นยาตัวเดิมซ้ำแล้วไม่เตือนอีกเลย ทั้งที่ยังต้องปิด code)
+  const [dismissedSearch, setDismissedSearch] = useState(null);
+  const showDiscontinuedAlert = discontinuedHits.length > 0 && dismissedSearch !== searchTerm;
+
   // โหลดข้อมูลล่าสุดจาก Supabase ใหม่
   const confirmResetData = async () => {
     setShowResetConfirm(false);
@@ -1271,6 +1305,42 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
               inputClassName="py-2.5"
             />
           </div>
+
+          {/* แจ้งเตือนยาตัดออกจากบัญชี — เด้งเมื่อค้นเจอยาที่ถูกตัดออก (รวม qty=0 ที่ตารางซ่อน) */}
+          {showDiscontinuedAlert && (
+            <div className="bg-rose-50 dark:bg-rose-950/40 border-2 border-rose-300 dark:border-rose-900/70 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <span className="p-1.5 rounded-lg bg-rose-100 dark:bg-rose-950/60 shrink-0">
+                  <AlertTriangle size={18} className="text-rose-600 dark:text-rose-400" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-rose-800 dark:text-rose-300 text-sm">
+                    ยานี้ถูกตัดออกจากบัญชีแล้ว — ไม่มีการสั่งซื้อเพิ่ม
+                  </p>
+                  <ul className="mt-2 space-y-1">
+                    {discontinuedHits.map(d => (
+                      <li key={d.code || d.name} className="text-xs text-rose-700 dark:text-rose-300 flex flex-wrap items-center gap-x-2">
+                        <span className="font-semibold">{d.name}</span>
+                        {d.code && <span className="text-rose-500 dark:text-rose-400">({d.code})</span>}
+                        <span className="text-rose-600 dark:text-rose-400">
+                          คงเหลือ {d.qty.toLocaleString()} · {d.locations.join(', ')}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2.5 text-xs text-rose-700 dark:text-rose-300 leading-relaxed">
+                    กรุณา<span className="font-bold">แจ้งหัวหน้าให้ปิด code ยาใน HosXP</span> เพื่อไม่ให้มีการเบิก/สั่งซื้อรายการนี้อีก
+                  </p>
+                </div>
+                <button
+                  onClick={() => setDismissedSearch(searchTerm)}
+                  title="ปิดการแจ้งเตือนนี้"
+                  className="p-1.5 rounded-lg text-rose-400 hover:text-rose-700 dark:hover:text-rose-200 hover:bg-rose-100 dark:hover:bg-rose-950/60 transition-colors shrink-0">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Hidden file inputs */}
           {isStaff && <>
@@ -2233,7 +2303,9 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           const lot  = (item.lot  || '-').trim().toLowerCase();
           const d = Object.values(drugDetails).find(x =>
             (x._code || '').toLowerCase() === code && (x._lot || '').toLowerCase() === lot);
-          return { tierDetail: d?._swap_tier_detail || null, receiveDate: d?.receive_date || null, condAm: d?._swap_condition_am || '' };
+          // '-' = ไม่มี tier (ต้อง normalize ให้ตรง db.js `tierDetailByLot` + edge fn ไม่งั้น parse '-' เป็น tier แล้วผลต่างกัน 3 จุด)
+          const td = (d?._swap_tier_detail || '').trim();
+          return { tierDetail: (td && td !== '-') ? td : null, receiveDate: d?.receive_date || null, condAm: d?._swap_condition_am || '' };
         };
         // นโยบายคืนยา (ADR-0014 เฟส 2): lot มี tier_detail → V2 (ต่อ lot); ไม่มี → fallback V1 (นโยบายบริษัท)
         const buildReturnInfo = (lotSupplier, item) => {
