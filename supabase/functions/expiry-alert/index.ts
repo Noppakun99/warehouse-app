@@ -108,12 +108,6 @@ function fmtDate(d: Date): string {
   return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
 }
 
-// โซน = ตัวอักษรนำหน้าของ location (E-1-4 → E). logic เดียวกับ zoneOf ใน App.jsx (pill กรองโซน)
-function zoneOf(location: string | null | undefined): string {
-  const m = String(location || "").trim().toUpperCase().match(/^([A-Z]+)/);
-  return m ? m[1] : "-";
-}
-
 function daysLeft(exp: Date, today: Date): number {
   return Math.floor((exp.getTime() - today.getTime()) / 86400000);
 }
@@ -329,16 +323,24 @@ interface DetailEntry {
 }
 interface AlertItem { r: InvRow; expDate: Date; }
 
+// หัวตารางซ้ำทุก N แถว — Gmail ตัด position:sticky ทิ้ง (email client ไม่รองรับ)
+// การซ้ำหัวคือวิธีมาตรฐานที่ทำได้จริง ให้คนเลื่อนกลางตารางยังรู้ว่าคอลัมน์ไหนคืออะไร
+const HEADER_REPEAT_EVERY = 20;
+
 function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMap: Record<string, DetailEntry>): string {
   const th = `style="background:#e2e8f0;padding:10px 12px;text-align:left;border:1px solid #cbd5e1;font-size:14px;font-weight:bold;color:#334155;white-space:nowrap;"`;
-  let html = `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:20px;">`;
-  html += "<thead><tr>";
-  ["โซน","ตำแหน่ง","ชนิดยา","ชื่อยา","Lot","Exp","คงเหลือ","หน่วย","บริษัท","นโยบายเปลี่ยนยา", isExpired ? "เกินมาแล้ว" : "คงเหลือ (วัน)"].forEach(h => {
-    html += `<th ${th}>${h}</th>`;
-  });
-  html += "</tr></thead><tbody>";
+  // ตัด "โซน" ออก (= ตัวอักษรแรกของตำแหน่ง ซ้ำซ้อน 100%) เอาที่ว่างให้ "รหัสยา"
+  // ที่แอป/Excel มีแต่ email ไม่มี → เอาไปค้นต่อในระบบไม่ได้ (Rule #6)
+  const HEADERS = ["ตำแหน่ง","รหัสยา","ชนิดยา","ชื่อยา","Lot","Exp","คงเหลือ","หน่วย","บริษัท","นโยบายเปลี่ยนยา", isExpired ? "เกินมาแล้ว" : "คงเหลือ (วัน)"];
+  const headRow = `<tr>${HEADERS.map(h => `<th ${th}>${h}</th>`).join("")}</tr>`;
 
-  for (const item of items) {
+  let html = `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:20px;">`;
+  html += `<thead>${headRow}</thead><tbody>`;
+
+  items.forEach((item, idx) => {
+    // ซ้ำหัวกลางตาราง (ไม่ซ้ำที่แถวแรก — thead แสดงอยู่แล้ว)
+    if (idx > 0 && idx % HEADER_REPEAT_EVERY === 0) html += headRow;
+
     const row = item.r;
     const days = daysLeft(item.expDate, today);
     const bg = isExpired ? "#fef2f2" : (days <= 90 ? "#fffbeb" : "#f0fdf4");
@@ -347,17 +349,20 @@ function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMa
 
     const code = String(row.code || "").trim().toLowerCase();
     const lot  = String(row.lot  || "-").trim().toLowerCase() || "-";
-    const d = detailMap[`${code}|${lot}`] || detailMap[`${code}|`] || ({} as DetailEntry);
+    // strict per-lot เท่านั้น — ห้าม fallback `code|` (CONTEXT §นโยบายเปลี่ยนยา + ADR-0012)
+    // ยา 1 รหัสซื้อหลายบริษัทได้ (~23%) → หยิบแถวอื่นของรหัสเดียวกัน = บริษัทผิด → คืนผิดเจ้า
+    // ไม่รู้บริษัท ≠ ตัดแถวทิ้ง: แถวยังอยู่ในรายการเสมอ แค่ช่องบริษัท/นโยบายเป็น '-'
+    const d = detailMap[`${code}|${lot}`] || ({} as DetailEntry);
 
-    const supplier = d.supplier_current || row.supplier || "-";
+    const supplier = d.supplier_current || "-";
     const swapParts: string[] = [];
     if (d.drug_swap_policy && d.drug_swap_policy !== "-") swapParts.push(d.drug_swap_policy);
     if (d.supplier_changed && d.supplier_changed !== "-") swapParts.push(d.supplier_changed);
     const swapText = swapParts.length > 0 ? swapParts.join(" | ") : "-";
 
     html += "<tr>";
-    html += `<td style="padding:9px 12px;border:1px solid #e2e8f0;background:${bg};font-size:14px;text-align:center;font-weight:bold;color:#475569;vertical-align:middle;">${zoneOf(row.location)}</td>`;
     html += `<td ${td}>${row.location || "-"}</td>`;
+    html += `<td ${td}>${row.code || "-"}</td>`;
     html += `<td ${td}>${row.type || "-"}</td>`;
     html += `<td ${td}><b style="font-size:15px;">${row.name || "-"}</b></td>`;
     html += `<td ${td}>${row.lot || "-"}</td>`;
@@ -368,7 +373,7 @@ function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMa
     html += `<td ${td}>${swapText}</td>`;
     html += `<td style="padding:9px 12px;border:1px solid #e2e8f0;background:${bg};text-align:right;font-weight:bold;font-size:15px;color:${dc};vertical-align:middle;white-space:nowrap;">${Math.abs(days)} วัน</td>`;
     html += "</tr>";
-  }
+  });
 
   html += "</tbody></table>";
   return html;
@@ -413,14 +418,69 @@ function makeReturnDueTable(items: ReturnDueItem[]): string {
   return html;
 }
 
+// ── อีเมลฉบับที่ 2: ยาหมดอายุค้างคลัง (Expired-On-Shelf) ────────────────────
+// แยกจากรายงานหลักโดยเจตนา — ปัญหาคือ "แจ้งแล้วไม่มีใครเก็บออก" ข้อความจึงต้อง
+// ไม่จมไปกับตารางใกล้หมดอายุ 96 แถว. ส่งเฉพาะเมื่อมีของค้างจริง (qty>0)
+// → เห็นอีเมลนี้ในกล่อง = มีปัญหาแน่นอน ไม่ต้องเปิดก็รู้
+function buildExpiredEmail(expired: AlertItem[], today: Date, detailMap: Record<string, DetailEntry>): string {
+  const th = `style="background:#fecaca;padding:10px 12px;text-align:left;border:1px solid #f87171;font-size:14px;font-weight:bold;color:#7f1d1d;white-space:nowrap;"`;
+  const HEADERS = ["ตำแหน่ง","รหัสยา","ชนิดยา","ชื่อยา","Lot","Exp","เลยมาแล้ว","คงเหลือ","หน่วย","บริษัท"];
+  const headRow = `<tr>${HEADERS.map(h => `<th ${th}>${h}</th>`).join("")}</tr>`;
+
+  let html = `<div style="font-family:'Sarabun','Noto Sans Thai',sans-serif;max-width:1100px;margin:auto;color:#1e293b;font-size:15px;">`;
+  html += `<h2 style="color:#b91c1c;border-bottom:3px solid #fecaca;padding-bottom:10px;font-size:22px;">ยาหมดอายุค้างคลัง — ต้องเก็บออกจากคลังทันที</h2>`;
+  html += `<p style="color:#7f1d1d;font-size:15px;font-weight:bold;margin:12px 0 4px;">พบ ${expired.length} รายการที่หมดอายุแล้วแต่ยังมีของค้างอยู่บนชั้น (${fmtDate(today)})</p>`;
+  html += `<p style="color:#64748b;font-size:14px;margin:0 0 16px;">รายการเหล่านี้เคยถูกแจ้งเตือน "ใกล้หมดอายุ" มาก่อน แต่ยังไม่ได้ถูกเก็บออก — กรุณาดำเนินการและแจ้งหัวหน้า</p>`;
+
+  // กล่องขั้นตอน — ต้องบอกวิธี "หยุดเตือน" ให้ชัด ไม่งั้นอีเมลกวนไปเรื่อยโดยคนไม่รู้ทางออก
+  html += `<div style="background:#fffbeb;border-left:4px solid #f59e0b;padding:12px 16px;margin:0 0 20px;">`;
+  html += `<p style="margin:0 0 6px;font-weight:bold;color:#92400e;font-size:15px;">สิ่งที่ต้องทำ</p>`;
+  html += `<ol style="margin:0;padding-left:20px;color:#78350f;font-size:14px;line-height:1.8;">`;
+  html += `<li>เก็บยาออกจากชั้นตามตำแหน่งด้านล่าง</li>`;
+  html += `<li>แจ้งหัวหน้าเพื่อรับทราบและดำเนินการตามระเบียบ</li>`;
+  html += `<li><b>อย่าลืมอัพเดตระบบ</b> — แก้ยอดคงเหลือใน Excel master เป็น <b>0</b> แล้ว import เข้าระบบใหม่</li>`;
+  html += `</ol>`;
+  html += `<p style="margin:8px 0 0;color:#b45309;font-size:13px;"><b>หมายเหตุ:</b> ถ้ายังไม่อัพเดตระบบ อีเมลฉบับนี้จะแจ้งเตือนซ้ำทุกวันจนกว่าจะอัพเดต</p>`;
+  html += `</div>`;
+
+  html += `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:20px;">`;
+  html += `<thead>${headRow}</thead><tbody>`;
+  expired.forEach((item, idx) => {
+    if (idx > 0 && idx % HEADER_REPEAT_EVERY === 0) html += headRow;
+    const row = item.r;
+    const over = Math.abs(daysLeft(item.expDate, today));
+    const td = `style="padding:9px 12px;border:1px solid #fecaca;background:#fef2f2;font-size:14px;vertical-align:middle;"`;
+    const code = String(row.code || "").trim().toLowerCase();
+    const lot  = String(row.lot  || "-").trim().toLowerCase() || "-";
+    const d = detailMap[`${code}|${lot}`] || ({} as DetailEntry);   // strict per-lot
+    html += "<tr>";
+    html += `<td ${td}>${row.location || "-"}</td>`;
+    html += `<td ${td}>${row.code || "-"}</td>`;
+    html += `<td ${td}>${row.type || "-"}</td>`;
+    html += `<td ${td}><b style="font-size:15px;">${row.name || "-"}</b></td>`;
+    html += `<td ${td}>${row.lot || "-"}</td>`;
+    html += `<td ${td}><b>${fmtDate(item.expDate)}</b></td>`;
+    html += `<td style="padding:9px 12px;border:1px solid #fecaca;background:#fef2f2;text-align:right;font-weight:bold;font-size:15px;color:#dc2626;white-space:nowrap;vertical-align:middle;">${over} วัน</td>`;
+    html += `<td style="padding:9px 12px;border:1px solid #fecaca;background:#fef2f2;font-size:14px;text-align:right;vertical-align:middle;">${row.qty || "-"}</td>`;
+    html += `<td ${td}>${row.unit || "-"}</td>`;
+    html += `<td ${td}>${d.supplier_current || "-"}</td>`;
+    html += "</tr>";
+  });
+  html += `</tbody></table>`;
+  html += `<p style="color:#94a3b8;font-size:13px;margin-top:32px;border-top:1px solid #e2e8f0;padding-top:12px;">ส่งอัตโนมัติโดย Supabase Edge Function · ระบบแผนผังคลังยา</p>`;
+  html += "</div>";
+  return html;
+}
+
 function buildEmail(expired: AlertItem[], nearExpiry: AlertItem[], returnDue: ReturnDueItem[], today: Date, detailMap: Record<string, DetailEntry>): string {
   let html = `<div style="font-family:'Sarabun','Noto Sans Thai',sans-serif;max-width:1100px;margin:auto;color:#1e293b;font-size:15px;">`;
   html += `<h2 style="color:#b91c1c;border-bottom:3px solid #fee2e2;padding-bottom:10px;font-size:22px;">รายงานยาใกล้หมดอายุ — ${fmtDate(today)}</h2>`;
   html += `<p style="color:#64748b;font-size:14px;">ข้อมูลจากระบบแผนผังคลังยา (Supabase) · แจ้งเตือนอัตโนมัติ</p>`;
 
+  // ยาหมดอายุค้างคลัง ย้ายไปอีเมลแยกฉบับแล้ว (buildExpiredEmail) — ไม่แสดงซ้ำที่นี่
+  // ฉบับนี้เหลือ "ใกล้หมดอายุ + ถึงกำหนดคืน" = ของที่ยังใช้/คืนได้ คนละเจตนากับของเสีย
   if (expired.length > 0) {
-    html += `<h3 style="color:#dc2626;margin-top:28px;font-size:18px;">❌ ยาหมดอายุแล้ว (${expired.length} รายการ)</h3>`;
-    html += makeTable(expired, today, true, detailMap);
+    html += `<p style="background:#fef2f2;border-left:4px solid #dc2626;padding:10px 14px;color:#7f1d1d;font-size:14px;margin:16px 0;"><b>มียาหมดอายุค้างคลัง ${expired.length} รายการ</b> — ส่งแยกในอีเมล "ยาหมดอายุค้างคลัง" ฉบับเดียวกันนี้</p>`;
   }
   if (nearExpiry.length > 0) {
     html += `<h3 style="color:#d97706;margin-top:28px;font-size:18px;">⚠️ ยาใกล้หมดอายุ ภายใน ${WARNING_DAYS} วัน (${nearExpiry.length} รายการ)</h3>`;
@@ -444,7 +504,7 @@ function buildEmail(expired: AlertItem[], nearExpiry: AlertItem[], returnDue: Re
 function policyText(row: InvRow, detailMap: Record<string, DetailEntry>, maxLen = 80): string {
   const code = String(row.code || "").trim().toLowerCase();
   const lot  = String(row.lot  || "-").trim().toLowerCase() || "-";
-  const d = detailMap[`${code}|${lot}`] || detailMap[`${code}|`] || ({} as DetailEntry);
+  const d = detailMap[`${code}|${lot}`] || ({} as DetailEntry);   // strict per-lot (ดู makeTable)
   const parts: string[] = [];
   if (d.drug_swap_policy && d.drug_swap_policy !== "-") parts.push(d.drug_swap_policy);
   if (d.supplier_changed && d.supplier_changed !== "-") parts.push(d.supplier_changed);
@@ -461,9 +521,9 @@ function lineBucket(items: AlertItem[], today: Date, isExpired: boolean, detailM
     const days = daysLeft(item.expDate, today);
     const code = String(row.code || "").trim().toLowerCase();
     const lot  = String(row.lot  || "-").trim().toLowerCase() || "-";
-    // fallback chain เดียวกับ makeTable (email) + policyText — code|lot ก่อน แล้ว code|
-    const d = detailMap[`${code}|${lot}`] || detailMap[`${code}|`] || ({} as DetailEntry);
-    const supplier = d.supplier_current || row.supplier || "-";
+    // strict per-lot เดียวกับ makeTable (email) + policyText — ไม่ fallback `code|`
+    const d = detailMap[`${code}|${lot}`] || ({} as DetailEntry);
+    const supplier = d.supplier_current || "-";
     const daysLabel = isExpired ? `เกิน ${Math.abs(days)} วัน` : `เหลือ ${days} วัน`;
     let l = `• ${row.name || "-"} (${row.qty || "-"} ${row.unit || ""}) exp ${fmtDate(item.expDate)} — ${daysLabel} · ${supplier}`;
     const pol = policyText(row, detailMap);
@@ -620,6 +680,8 @@ Deno.serve(async (req) => {
       // loop อื่นในไฟล์นี้ (baseStockByCode/returnDue) กรองอยู่แล้ว เฉพาะตรงนี้ที่ตกหล่น
       if (String(row.receive_status || "").includes("ตัดออก")) continue;
 
+      // expired = "ยาหมดอายุค้างคลัง" (CONTEXT §Expired-On-Shelf) — qty>0 ถูกกรองไว้ข้างบนแล้ว
+      // แถวหมดอายุที่ qty=0 คือประวัติ (เก็บออก/จ่ายหมดแล้ว) ไม่ใช่ของค้าง → ไม่เตือน
       if (exp < today) expired.push({ r: row, expDate: exp });
       else if (exp <= warnDate) nearExpiry.push({ r: row, expDate: exp });
     }
@@ -641,9 +703,12 @@ Deno.serve(async (req) => {
       const lot  = String(row.lot  || "-").trim().toLowerCase() || "-";
       const keyLot = `${code}|${lot}`;
       if (ambiguousLot.has(keyLot)) continue;   // lot ชนหลายบริษัท → ไม่เตือน (ADR-0012, ตรง supplierByLot=null ในแอป)
-      const d = detailMap[keyLot] || detailMap[`${code}|`];
+      // strict per-lot — จุดนี้เอาไปคำนวณ deadline จริง fallback ระดับรหัสอันตรายสุด
+      // (บริษัทผิด → deadline ผิด → คืนผิดเจ้า). ตรงกับ fetchSwapReturnDue ในแอปที่ `if (!company) continue`
+      const d = detailMap[keyLot];
       if (!d) continue;
-      const company = d.supplier_current || row.supplier || "";
+      const company = d.supplier_current || "";
+      if (!company || company === "-") continue;   // ไม่รู้บริษัท → ไม่เตือนคืน (ไม่เดา)
       // col27 "แตกต่างกัน แล้วแต่รายการ" = flag ระดับ**บริษัท**
       // ADR-0015: ไม่ override tier ที่ระบุชัดราย lot — ข้อมูลเจาะจงกว่าชนะ
       const differsByCompany = /แตกต่าง|แล้วแต่รายการ/.test(d.swap_condition_am || "");
@@ -690,21 +755,23 @@ Deno.serve(async (req) => {
     const result: Record<string, unknown> = { ok: true, channel, expired: expired.length };
 
     if (doEmail) {
-      // ส่งเมื่อมีอย่างน้อยหมวดใดหมวดหนึ่ง (รวมถึงถึงกำหนดคืนบริษัท แม้ยังไม่ใกล้หมดอายุ)
-      if (total === 0 && returnDue.length === 0) {
+      const transporter = nodemailer.createTransport({
+        host: "smtp.gmail.com",
+        port: 465,
+        secure: true,
+        auth: { user: GMAIL_USER, pass: GMAIL_PASS },
+      });
+
+      // ── ฉบับหลัก: ใกล้หมดอายุ + ถึงกำหนดคืน (ไม่รวมของหมดอายุแล้ว) ──
+      // นับจาก nearExpiry ตรงๆ ไม่ใช่ total (ซึ่งรวม expired ที่ย้ายไปฉบับแยกแล้ว)
+      if (nearExpiry.length === 0 && returnDue.length === 0) {
         result.email = "skip: ไม่มียาที่ต้องแจ้งเตือน";
       } else {
         const subjParts: string[] = [];
-        if (total > 0) subjParts.push(`ใกล้หมดอายุ ${total}`);
+        if (nearExpiry.length > 0) subjParts.push(`ใกล้หมดอายุ ${nearExpiry.length}`);
         if (returnDue.length > 0) subjParts.push(`ถึงกำหนดคืน ${returnDue.length}`);
         const subject = `[แจ้งเตือน] ${subjParts.join(" · ")} — ${fmtDate(today)}`;
         const html = buildEmail(expired, nearExpiry, returnDue, today, detailMap);
-        const transporter = nodemailer.createTransport({
-          host: "smtp.gmail.com",
-          port: 465,
-          secure: true,
-          auth: { user: GMAIL_USER, pass: GMAIL_PASS },
-        });
         await transporter.sendMail({
           from: GMAIL_USER,
           to: ALERT_EMAILS.join(", "),
@@ -712,7 +779,22 @@ Deno.serve(async (req) => {
           text: "กรุณาดูรายละเอียดใน HTML",
           html,
         });
-        result.email = { sent: true, total, nearExpiry: nearExpiry.length, returnDue: returnDue.length };
+        result.email = { sent: true, nearExpiry: nearExpiry.length, returnDue: returnDue.length };
+      }
+
+      // ── ฉบับที่ 2: ยาหมดอายุค้างคลัง — ส่งเฉพาะเมื่อมีของค้างจริง ──
+      // ไม่มี = ไม่ส่ง (เห็นอีเมลนี้เมื่อไหร่ = มีปัญหาแน่นอน ไม่ใช่รายงานประจำ)
+      if (expired.length === 0) {
+        result.expiredEmail = "skip: ไม่มียาหมดอายุค้างคลัง";
+      } else {
+        await transporter.sendMail({
+          from: GMAIL_USER,
+          to: ALERT_EMAILS.join(", "),
+          subject: `[ด่วน] ยาหมดอายุค้างคลัง ${expired.length} รายการ — ต้องเก็บออกจากคลัง (${fmtDate(today)})`,
+          text: "กรุณาดูรายละเอียดใน HTML",
+          html: buildExpiredEmail(expired, today, detailMap),
+        });
+        result.expiredEmail = { sent: true, count: expired.length };
       }
     }
 
