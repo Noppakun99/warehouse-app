@@ -98,6 +98,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | นโยบายคืนยา: tier % + กฎ cond_am ระดับบริษัท | [ADR-0014](docs/adr/0014-structured-return-policy-tier-percent.md) · [ADR-0015](docs/adr/0015-cond-am-does-not-override-explicit-tier.md) | แก้ logic เตือนคืนบริษัท (ต้อง sync 4 ที่ + redeploy edge fn) |
 | Roadmap | [docs/roadmap.md](docs/roadmap.md) | วางแผน feature ใหม่ |
 | Testing | [docs/testing.md](docs/testing.md) | รัน/แก้ test |
+| Deployment (Netlify + env vars + verify) | [docs/deployment.md](docs/deployment.md) | ขึ้นเว็บจริง / deploy ไม่ผ่าน / แก้ env var |
 | Expiry Alert Edge Function (แทน Apps Script) | [docs/expiry-alert-edge-function.md](docs/expiry-alert-edge-function.md) | แก้/deploy expiry alert |
 | External: Apps Script แจ้งเตือนยาใกล้หมดอายุ (backup) | [docs/apps-script-expiry-alert.md](docs/apps-script-expiry-alert.md) | reference สคริปต์เดิม |
 
