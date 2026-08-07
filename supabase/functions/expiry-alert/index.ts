@@ -5,7 +5,7 @@
 //   supabase secrets set GMAIL_USER=...
 //   supabase secrets set GMAIL_APP_PASSWORD=...   (App Password 16 หลัก ไม่ใช่ password Gmail ปกติ)
 //   supabase secrets set ALERT_EMAILS=a@example.com,b@example.com
-//   supabase secrets set WARNING_DAYS=400
+//   supabase secrets set WARNING_DAYS=487   (= 16 เดือน ให้ตรงกับโมดอลในแอป ดู Rule #6)
 //
 // Trigger:
 //   - แบบ manual จากแอป: supabase.functions.invoke('expiry-alert')
@@ -616,6 +616,9 @@ Deno.serve(async (req) => {
       const qty = parseFloat(String(row.qty || "0").replace(/,/g, ""));
       if (isNaN(qty) || qty <= 0) continue;
       if (row.receive_status === "รอตรวจรับ") continue;
+      // ยาตัดออกจากบัญชีไม่ต้องเตือน — ตรงกับ fetchDashboardAlerts ในแอป (Rule #6)
+      // loop อื่นในไฟล์นี้ (baseStockByCode/returnDue) กรองอยู่แล้ว เฉพาะตรงนี้ที่ตกหล่น
+      if (String(row.receive_status || "").includes("ตัดออก")) continue;
 
       if (exp < today) expired.push({ r: row, expDate: exp });
       else if (exp <= warnDate) nearExpiry.push({ r: row, expDate: exp });
