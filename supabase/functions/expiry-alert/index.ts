@@ -516,6 +516,21 @@ function buildEmail(expired: AlertItem[], nearExpiry: AlertItem[], returnDue: Re
   }
   if (nearExpiry.length > 0) {
     html += `<h3 style="color:#d97706;margin-top:28px;font-size:18px;">⚠️ ยาใกล้หมดอายุ ภายใน ${WARNING_DAYS} วัน (${humanDays(WARNING_DAYS)}) — ${nearExpiry.length} รายการ</h3>`;
+    // นับรายการที่หาบริษัทเจ้าของ lot ไม่เจอ → ช่องบริษัท/นโยบายเป็น '-'
+    // บอกจำนวน + วิธีแก้ ไม่งั้นคนเห็น '-' แล้วนึกว่าระบบพัง (จริงๆ คือไม่มีบิลของ lot นั้น)
+    const noSupplier = nearExpiry.filter(it => {
+      const c = String(it.r.code || "").trim().toLowerCase();
+      const l = String(it.r.lot || "-").trim().toLowerCase() || "-";
+      const dd = detailMap[`${c}|${l}`];
+      return !dd || !dd.supplier_current || dd.supplier_current === "-";
+    }).length;
+    if (noSupplier > 0) {
+      html += `<div style="background:#eff6ff;border-left:4px solid #3b82f6;padding:10px 14px;margin:0 0 12px;color:#1e3a8a;font-size:13px;line-height:1.7;">`;
+      html += `<b>หมายเหตุ: ${noSupplier} รายการยังไม่แสดงบริษัท/นโยบาย (ขึ้น "-")</b><br>`;
+      html += `ระบบหาบิลรับเข้าที่ <b>รหัสยา + Lot ตรงกัน</b> ไม่พบ จึงไม่เดาบริษัทให้ (บริษัทผิด = คืนผิดเจ้า เสียสิทธิ์)<br>`;
+      html += `<b>วิธีแก้:</b> อัปเดตไฟล์ CSV รับยา ให้มีแถวที่รหัสยา+Lot ตรงกับที่อยู่ในคลัง แล้ว import เข้าระบบ`;
+      html += `</div>`;
+    }
     html += makeTable(nearExpiry, today, false, detailMap);
   }
   if (returnDue.length > 0) {
