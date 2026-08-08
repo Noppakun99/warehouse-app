@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { fetchReturnLogs, insertReturnLog, deleteReturnLog, updateReturnLog, confirmReturnReceived, fetchAllInventoryRows } from './lib/db'
 import { exportToExcel } from './lib/exportExcel'
+import { openPrintView } from './lib/openPrintView'
 import { supabase } from './lib/supabase'
 import SearchableSelect from './SearchableSelect'
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar'
@@ -263,11 +264,7 @@ function printReturnLog(r) {
   <p class="foot">พิมพ์เมื่อ ${today}</p>
 </div>
 </body></html>`
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-  const url  = URL.createObjectURL(blob)
-  const win  = window.open(url, '_blank')
-  if (win) setTimeout(() => URL.revokeObjectURL(url), 30000)
-  else     URL.revokeObjectURL(url)
+  openPrintView(html)   // Blob URL + fallback <a> สำหรับ LINE WebView (Critical Rule #4)
 }
 
 // ============================================================

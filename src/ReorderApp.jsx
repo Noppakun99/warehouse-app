@@ -19,6 +19,7 @@ import {
   fetchReorderOrders, setReorderOrder,
 } from './lib/db';
 import { exportToExcel } from './lib/exportExcel';
+import { openPrintView } from './lib/openPrintView';
 import {
   analyzeBatch, analyzeDrug, STATUS, DEFAULT_LEAD_TIME,
   computeSafetyStock, reconcileRows,
@@ -1343,10 +1344,7 @@ function SupplierCard({ group, auth }) {
       <div class="sign"><div>ผู้สั่งซื้อ</div><div>ผู้อนุมัติ</div></div>
       <script>window.onload = () => setTimeout(() => window.print(), 300);</script>
       </body></html>`;
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const w = window.open(url, '_blank');
-    if (w) setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    openPrintView(html);   // Blob URL + fallback <a> สำหรับ LINE WebView (Critical Rule #4)
     logReorderAction('print_po', { supplier: group.supplier, items: group.items.length, amount: group.totalAmount }, auth);
   };
 
