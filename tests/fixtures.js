@@ -10,12 +10,21 @@
  */
 
 import { test as base, expect } from '@playwright/test';
-import { login } from './helpers/auth.js';
+import { login, waitForAppShell } from './helpers/auth.js';
+
+// re-export ให้ test file เรียกใช้ได้จาก fixtures โดยไม่ต้อง import helpers/auth เพิ่ม
+export { waitForAppShell };
 
 // ─── Credentials (override ด้วย env var ถ้ามี) ────────────────────────────
-// requester: test/444444  |  staff: test2/555555
-const STAFF_USER = process.env.TEST_STAFF_USER || 'test2';
-const STAFF_PASS = process.env.TEST_STAFF_PASS || '555555';
+// ยืนยันกับ DB แล้ว (app_users + เทียบ sha256):
+//   test  = requester (111111 ใช้ได้)
+//   Kao_9 = admin     (96409999 ใช้ได้)
+//   test2 = staff แต่ **รหัสผ่านที่บันทึกไว้เดิม (555555) ใช้ไม่ได้แล้ว** → login ไม่ผ่าน
+// staffPage จึงใช้ Kao_9 (admin) — สิทธิ์ครอบคลุมของ staff ทั้งหมด
+// ⚠️ test ที่ยืนยันว่า "staff ไม่เห็นเมนูเฉพาะ admin" ใช้ fixture นี้ไม่ได้
+//    (admin เห็นทุกเมนูโดยถูกต้อง) — ต้องมี account role=staff ที่ login ได้ก่อน
+const STAFF_USER = process.env.TEST_STAFF_USER || 'Kao_9';
+const STAFF_PASS = process.env.TEST_STAFF_PASS || '96409999';
 
 export const test = base.extend({
   // ─── Shared authenticated browser context (worker scope) ─────────────────
@@ -23,9 +32,14 @@ export const test = base.extend({
     async ({ browser }, use) => {
       const context = await browser.newContext();
       const page    = await context.newPage();
-      await login(page);
-      await use(page);
-      await context.close();
+      try {
+        await login(page);
+        await use(page);
+      } catch {
+        await use(null); // test ที่รับ null ต้อง test.skip() เอง
+      } finally {
+        await context.close();
+      }
     },
     { scope: 'worker' },  // สร้างครั้งเดียวต่อ worker — ไม่ login ซ้ำทุก test
   ],

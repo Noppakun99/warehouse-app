@@ -1,15 +1,18 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from './lib/supabase';
-import { fetchDrugDetails, RECEIVE_COL_MAP, insertReceiveRows, normalizeLotSearch, scanInvoiceImage, insertScannedBillRows, uploadInvoiceImage, lookupDrugCodes,
-  fetchApBills, groupRowsByBill, markBillsInspected, markBillsSentBatch, markBillsPosted, unmarkBillsPosted, unmarkBillsInspected, unmarkBillsSentBatch, resetApBatch, fetchApBatches,
+import { fetchDrugDetails, RECEIVE_COL_MAP, insertReceiveRows, normalizeLotSearch, scanInvoiceImage, insertScannedBillRows, deleteScannedBillRows, uploadInvoiceImage, checkExistingBills,
+  fetchInventoryNameCodeMap, lookupDrugAliases, upsertDrugAliases,
+  fetchApBills, groupRowsByBill, billGroupKey, markBillsInspected, markBillsSentBatch, markBillsPosted, unmarkBillsPosted, unmarkBillsInspected, unmarkBillsSentBatch, resetApBatch, fetchApBatches,
   markBillsAcknowledged, unmarkBillsAcknowledged } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
+import SearchableSelect from './SearchableSelect';
+import BackButton from './BackButton';
 import {
   ArrowLeft, UploadCloud, RefreshCcw, Search, X,
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
   TrendingUp, BarChart3, FileDown, ScanLine, CheckCircle2, HelpCircle,
-  ImagePlus, Pencil, Trash2, Info, CalendarDays,
-  ClipboardList, Send, FileCheck2, History, Undo2, Printer,
+  ImagePlus, Pencil, Trash2, Info, CalendarDays, Image as ImageIcon, AlertTriangle,
+  ClipboardList, Send, FileCheck2, History, Undo2, Printer, ArrowRight, ArrowLeftRight,
 } from 'lucide-react';
 import { exportToExcel } from './lib/exportExcel';
 import { insertAuditLog, resolveAuditUserName } from './lib/db';
@@ -17,12 +20,12 @@ import { insertAuditLog, resolveAuditUserName } from './lib/db';
 function DrugTypeBadge({ type }) {
   if (!type || type === '-') return null;
   const t = type.trim().toLowerCase();
-  let cls = 'bg-slate-100 text-slate-600';
-  if (t.includes('เม็ด') || t.includes('tablet') || t.includes('cap')) cls = 'bg-blue-100 text-blue-700';
-  else if (t.includes('น้ำ') || t.includes('syrup') || t.includes('liquid') || t.includes('sol')) cls = 'bg-emerald-100 text-emerald-700';
-  else if (t.includes('ฉีด') || t.includes('inject') || t.includes('iv') || t.includes('im')) cls = 'bg-rose-100 text-rose-700';
-  else if (t.includes('apply') || t.includes('cream') || t.includes('oint') || t.includes('ทา')) cls = 'bg-amber-100 text-amber-700';
-  else if (t.includes('inhale') || t.includes('สูด') || t.includes('spray')) cls = 'bg-purple-100 text-purple-700';
+  let cls = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
+  if (t.includes('เม็ด') || t.includes('tablet') || t.includes('cap')) cls = 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300';
+  else if (t.includes('น้ำ') || t.includes('syrup') || t.includes('liquid') || t.includes('sol')) cls = 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300';
+  else if (t.includes('ฉีด') || t.includes('inject') || t.includes('iv') || t.includes('im')) cls = 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300';
+  else if (t.includes('apply') || t.includes('cream') || t.includes('oint') || t.includes('ทา')) cls = 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300';
+  else if (t.includes('inhale') || t.includes('สูด') || t.includes('spray')) cls = 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300';
   return <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>{type}</span>;
 }
 
@@ -42,8 +45,8 @@ const thaiToIso = (thai) => {
 
 function ThaiDateInput({ value, onChange, placeholder = 'dd/mm/yyyy', ring = 'focus-within:ring-emerald-400', size = 'w-28' }) {
   return (
-    <div className={`relative ${size} min-h-[36px] border border-slate-300 rounded-lg bg-white flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:outline-none ${ring}`}>
-      <span className={`px-2 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
+    <div className={`relative ${size} min-h-[36px] border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:outline-none ${ring}`}>
+      <span className={`px-2 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>
         {value || placeholder}
       </span>
       <input type="date"
@@ -65,11 +68,12 @@ function IsoDateInput({ value, onChange, className = '' }) {
     return `${m[3]}/${m[2]}/${Number(m[1]) + 543}`;
   };
   return (
-    <div className={`relative flex items-center bg-white border border-slate-300 rounded ${className}`}>
-      <span className={`px-2 py-1 text-xs w-full select-none pointer-events-none ${value ? 'text-slate-700' : 'text-slate-400'}`}>
+    <div className={`relative flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded ${className}`}>
+      <span className={`px-2 py-1 text-xs w-full select-none pointer-events-none ${value ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'}`}>
         {display(value) || 'dd/mm/yyyy'}
       </span>
       <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
+        onClick={e => { try { e.currentTarget.showPicker?.(); } catch { /* noop */ } }}
         className="absolute inset-0 opacity-0 w-full cursor-pointer" />
     </div>
   );
@@ -136,6 +140,7 @@ const FIELD_LABELS = {
   safety_stock:        'Safety Stock',
   sum_of_lead_time:    'Sum of Lead Time',
   swap_condition:      'เงื่อนไขแลกเปลี่ยน',
+  swap_note:           'ระบุเงื่อนไขแลกเปลี่ยน',
   swap_items:          'รายการยาแลกเปลี่ยน',
 };
 
@@ -229,22 +234,36 @@ function parseDate(raw) {
   return null;
 }
 
+// ลำดับคอลัมน์ตาม CSV รับยาต้นทาง (ยอดคลังยา_รับยา_69.csv) + ครอบทุก field ที่ DB เก็บ
+// ไม่รวม internal-only: id/created_at + AP workflow metadata (ap_*, inspect_meta, acknowledged_*)
 const RECEIVE_EXCEL_COLS = [
-  { header: 'วันที่รับ',          key: 'receive_date' },
-  { header: 'วันที่ตรวจรับ',      key: 'inspect_date' },
-  { header: 'ชื่อยา',             key: 'drug_name' },
+  { header: 'วันที่แจ้งสั่ง',     key: 'order_date' },
   { header: 'รหัสยา',             key: 'drug_code' },
-  { header: 'ชนิด',               key: 'drug_type' },
+  { header: 'รูปแบบ',             key: 'drug_type' },
+  { header: 'ชื่อยา',             key: 'drug_name' },
+  { header: 'ประเภทการซื้อ',      key: 'purchase_type' },
   { header: 'Lot',                 key: 'lot' },
   { header: 'Exp',                 key: 'exp' },
-  { header: 'จำนวนรับ',           key: 'qty_received' },
-  { header: 'หน่วย',              key: 'drug_unit' },
-  { header: 'ราคา/หน่วย',        key: 'price_per_unit' },
+  { header: 'หมายเหตุหมดอายุ',    key: 'exp_note' },
   { header: 'เลขที่บิล',          key: 'bill_number' },
   { header: 'เลขที่ PO',          key: 'po_number' },
-  { header: 'บริษัท',             key: 'supplier_current' },
+  { header: 'จำนวนรับ',           key: 'qty_received' },
+  { header: 'หน่วย',              key: 'drug_unit' },
+  { header: 'หน่วย/บิล',          key: 'unit_per_bill' },
+  { header: 'ราคา/หน่วย',        key: 'price_per_unit' },
+  { header: 'ราคารวมภาษี (บาท)',  key: 'total_price_vat' },
+  { header: 'วันที่รับ',          key: 'receive_date' },
   { header: 'ผลการพิจารณา',       key: 'receive_status' },
-  { header: 'ประเภทการซื้อ',      key: 'purchase_type' },
+  { header: 'วันที่ตรวจรับ',      key: 'inspect_date' },
+  { header: 'ระยะตรวจรับ',        key: 'inspect_lag' },
+  { header: 'บริษัท',             key: 'supplier_current' },
+  { header: 'บริษัทก่อนหน้า',     key: 'supplier_prev' },
+  { header: 'เปลี่ยนบริษัท',      key: 'supplier_changed' },
+  { header: 'leadtime',            key: 'leadtime' },
+  { header: 'MainLog',             key: 'main_log' },
+  { header: 'DetailedLog',         key: 'detail_log' },
+  { header: 'ชนิดรายการ',         key: 'item_type' },
+  { header: 'Safety Stock',        key: 'safety_stock' },
   { header: 'หมายเหตุ',           key: 'note' },
   { header: 'เงื่อนไขแลกเปลี่ยนยา', key: 'drug_swap_policy' },
 ]
@@ -252,44 +271,48 @@ const RECEIVE_EXCEL_COLS = [
 // ============================================================
 // Root
 // ============================================================
-export default function ReceiveLogApp({ onBack, onRefresh, auth = {}, initialTab = 'view' }) {
+export default function ReceiveLogApp({ onRefresh, auth = {}, initialTab = 'view', onGoBack, canGoBack }) {
   const [tab, setTab]                 = useState(initialTab);
   const [showSummary, setShowSummary] = useState(false);
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
-  const isAdmin = auth.role === 'admin';
+  // Rule #23: การเข้าถึง = role baseline OR per-user grant — hard guard เฉพาะ isStaff ทำให้ requester ที่ถูก grant เจอหน้าว่าง
+  const perms = auth.permissions || [];
+  const canScan = isStaff || perms.includes('receive-scan');
+  const canAp   = isStaff || perms.includes('receive-ap');
 
   return (
-    <div className="min-h-screen bg-slate-200 text-slate-800 font-sans">
-      <div className="sticky top-0 z-10 bg-emerald-700 shadow-md px-4 py-3 flex items-center gap-2">
-        <button onClick={onBack} className="text-emerald-100 hover:text-white p-1 transition-colors shrink-0"><ArrowLeft size={20}/></button>
-        <button onClick={onRefresh} className="flex items-center gap-2 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity">
-          <TrendingUp size={20} className="text-white shrink-0" />
-          <span className="font-semibold text-white truncate">บันทึกการรับเข้าคลัง (คลังรับ)</span>
-        </button>
-        <div className="flex items-center gap-1 shrink-0">
+    <div className="min-h-screen bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100 font-sans">
+      {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + action */}
+      <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 flex items-center gap-2 flex-wrap">
+        <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
+        <div className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 shrink-0"><TrendingUp size={18} /></div>
+        <button onClick={onRefresh} className="font-bold text-base text-slate-800 dark:text-slate-100 truncate flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">บันทึกการรับเข้าคลัง (คลังรับ)</button>
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
           <button onClick={() => setShowSummary(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white/20 text-white hover:bg-white/30 border border-white/30 transition-all">
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
             <BarChart3 size={15}/> สรุปผล
           </button>
+          {canAp && (
+            <button onClick={() => setTab('ap')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'ap' ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+            ><Send size={15}/>ส่งบัญชี</button>
+          )}
+          {canScan && (
+            <button onClick={() => setTab('scan')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'scan' ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+            ><ScanLine size={15}/>สแกนบิล</button>
+          )}
           {isStaff && (
-            <>
-              <button onClick={() => setTab('ap')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'ap' ? 'bg-white text-emerald-700 font-bold' : 'text-emerald-100 hover:text-white hover:bg-white/20'}`}
-              ><Send size={15}/>ส่งบัญชี</button>
-              <button onClick={() => setTab('scan')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'scan' ? 'bg-white text-emerald-700 font-bold' : 'text-emerald-100 hover:text-white hover:bg-white/20'}`}
-              ><ScanLine size={15}/>สแกนบิล</button>
-              <button onClick={() => setTab('import')}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === 'import' ? 'bg-white text-emerald-700 font-bold' : 'text-emerald-100 hover:text-white hover:bg-white/20'}`}
-              >Import CSV</button>
-            </>
+            <button onClick={() => setTab('import')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'import' ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+            >Import CSV</button>
           )}
         </div>
       </div>
-      {tab === 'scan'   && isStaff && <ScanInvoice onDone={() => setTab('view')} auth={auth} />}
+      {tab === 'scan'   && canScan && <ScanInvoice onDone={() => setTab('view')} auth={auth} />}
       {tab === 'import' && isStaff && <ReceiveImport onDone={() => setTab('view')} auth={auth} />}
-      {tab === 'ap'     && isStaff && <ApWorkflow auth={auth} onBack={() => setTab('view')} />}
-      {tab === 'view'   && <ReceiveView isAdmin={isAdmin} auth={auth} />}
+      {tab === 'ap'     && canAp   && <ApWorkflow auth={auth} onBack={() => setTab('view')} />}
+      {tab === 'view'   && <ReceiveView auth={auth} />}
       {showSummary      && <ReceiveSummaryModal onClose={() => setShowSummary(false)} />}
     </div>
   );
@@ -298,16 +321,62 @@ export default function ReceiveLogApp({ onBack, onRefresh, auth = {}, initialTab
 // ============================================================
 // Invoice Scanner (AI Vision)
 // ============================================================
-const toBase64 = (file) => new Promise((resolve, reject) => {
+// บีบรูปก่อนส่ง AI เพื่อลด token (≈ครึ่งหนึ่ง) — ปรับ 2 ค่านี้ถ้าต้องการ:
+// SCAN_MAX_DIM ใหญ่ขึ้น = คมขึ้นแต่แพงขึ้น, SCAN_JPEG_QUALITY 0–1 (สูง=คม/ใหญ่)
+const SCAN_MAX_DIM = 1600;        // ด้านยาวสุด (px) — ต่ำกว่านี้ตัวเลขบิล carbon จางอาจเบลอ
+const SCAN_JPEG_QUALITY = 0.82;
+
+const readAsDataUrl = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
-  reader.onload = () => {
-    const result = reader.result; // data:image/jpeg;base64,...
-    const base64 = result.split(',')[1];
-    resolve(base64);
-  };
+  reader.onload = () => resolve(reader.result);
   reader.onerror = reject;
   reader.readAsDataURL(file);
 });
+
+// คืน { base64, mimeType } — resize ผ่าน canvas; ถ้า canvas ใช้ไม่ได้ (เช่น HEIC) ส่งรูปเดิม
+const toBase64 = async (file) => {
+  const dataUrl = await readAsDataUrl(file);
+  try {
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = rej;
+      im.src = dataUrl;
+    });
+    const scale = Math.min(1, SCAN_MAX_DIM / Math.max(img.width, img.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    const out = canvas.toDataURL('image/jpeg', SCAN_JPEG_QUALITY);
+    return { base64: out.split(',')[1], mimeType: 'image/jpeg' };
+  } catch {
+    // browser ถอดรูปไม่ได้ (HEIC ฯลฯ) → ส่งดิบ ให้ backend แจ้ง error ที่อ่านรู้เรื่อง
+    return { base64: dataUrl.split(',')[1], mimeType: file.type };
+  }
+};
+
+// บีบรูปก่อน upload (รูปตรวจรับ) → คืน Blob jpeg ~1600px; ถ้า canvas ใช้ไม่ได้ (HEIC) คืน file เดิม
+const compressImageFile = async (file) => {
+  try {
+    const dataUrl = await readAsDataUrl(file);
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = rej;
+      im.src = dataUrl;
+    });
+    const scale = Math.min(1, SCAN_MAX_DIM / Math.max(img.width, img.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', SCAN_JPEG_QUALITY));
+    return blob || file;
+  } catch {
+    return file;
+  }
+};
 
 const fmtExpFromIso = (iso) => {
   if (!iso) return '-';
@@ -337,9 +406,53 @@ function EditableCell({ value, onChange, type = 'text', className = '' }) {
       type={type}
       value={value ?? ''}
       onChange={e => onChange(e.target.value)}
-      className={`w-full border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white ${className}`}
+      className={`w-full border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-400 bg-white dark:bg-slate-900 ${className}`}
     />
   );
+}
+
+// ดึงบิลที่บันทึกจากการสแกน AI (receive_status='สแกนบิล AI') — paginate กัน 1000-row limit (Rule #2)
+async function fetchScannedBills() {
+  return fetchAllRows(() =>
+    supabase.from('receive_logs')
+      .select('id, created_at, receive_date, bill_number, supplier_current, drug_name, drug_code, drug_type, gpu_code, tpu_code, ttmp_code, lot, exp, mfg_date, qty_received, drug_unit, price_per_unit, total_price_vat, scan_image_url')
+      .eq('receive_status', 'สแกนบิล AI')
+      .order('receive_date', { ascending: false })
+  );
+}
+
+// group แถวสแกนตาม receive_date (วันที่อัพโหลด/บันทึก) → [{ date, rows }] เรียงวันล่าสุดก่อน
+function groupScannedByDate(rows) {
+  const map = {};
+  for (const r of rows) {
+    const d = r.receive_date || '-';
+    (map[d] = map[d] || []).push(r);
+  }
+  return Object.keys(map).sort((a, b) => (a < b ? 1 : -1)).map(date => ({ date, rows: map[date] }));
+}
+
+const SCAN_EXCEL_COLS = [
+  { header: 'เลขที่บิล',  key: 'bill_number' },
+  { header: 'บริษัท',     key: 'supplier_current' },
+  { header: 'ชื่อยา',     key: 'drug_name' },
+  { header: 'รหัสยา',     key: 'drug_code' },
+  { header: 'GPU',        key: 'gpu_code' },
+  { header: 'TPU',        key: 'tpu_code' },
+  { header: 'Lot',        key: 'lot' },
+  { header: 'Exp',        key: 'exp' },
+  { header: 'จำนวน',      key: 'qty_received' },
+  { header: 'หน่วย',      key: 'drug_unit' },
+  { header: 'ราคา/หน่วย', key: 'price_per_unit' },
+  { header: 'มูลค่า',     key: 'total_price_vat' },
+];
+
+// fuzzy match ชื่อยาบนบิล → ชื่อ inventory (generic) เป็น "candidate ตัวช่วย" — ยังไม่ยืนยัน
+// ใช้คำแรก (ตัวยาหลัก) match แบบ prefix; คืน candidate เฉพาะเมื่อ "ชัดพอ" (เจอ 1 ตัว) — กำกวม/ไม่เจอ → null
+function fuzzyInventoryMatch(billName, invNames) {
+  const first = String(billName || '').trim().toLowerCase().split(/\s+/)[0];
+  if (!first || first.length < 3) return '';
+  const hits = invNames.filter(n => n.toLowerCase().includes(first));
+  return hits.length === 1 ? hits[0] : '';   // ชัดเจนเท่านั้น — หลายตัว = ปล่อยให้คนเลือกเอง
 }
 
 function ScanInvoice({ onDone, auth }) {
@@ -350,8 +463,54 @@ function ScanInvoice({ onDone, auth }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
+  const [history, setHistory] = useState([]); // [{ date, rows }] บิลสแกนย้อนหลัง group ตามวัน
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [histQuery, setHistQuery] = useState('');     // ค้นเลขบิล/ชื่อยา/บริษัท
+  const [histFrom, setHistFrom] = useState('');       // ช่วงวันที่ (ISO)
+  const [histTo, setHistTo] = useState('');
+  const [histExpanded, setHistExpanded] = useState({}); // { [date]: true } กางวันไหนเห็นบิลรายใบ
+  const [scanDrugNames, setScanDrugNames] = useState([]); // autocomplete ชื่อยาจากบิลที่เคยสแกน
+  const [invNames, setInvNames] = useState([]);         // ชื่อยา generic จาก inventory (dropdown จับคู่)
+  const [invByName, setInvByName] = useState({});       // { ชื่อ inventory → drug_code }
   const dropRef = useRef(null);
   const fileInputRef = useRef(null);
+  const cancelRef = useRef(false);                       // ธงยกเลิกสแกน — มีผลหลังรูปที่กำลังอ่านเสร็จ
+  const [fileStatus, setFileStatus] = useState({});      // { idx: 'reading'|'done'|'error' } ระหว่างสแกน
+  const [confirmBox, setConfirmBox] = useState(null);    // { message, confirmLabel, onConfirm } — แทน window.confirm
+  const [histError, setHistError] = useState('');        // error ของ action ในประวัติ (ลบ) — แทน alert
+
+  // preview URL สร้างครั้งเดียวต่อชุดไฟล์ + revoke ชุดเก่า (เดิมสร้างใหม่ทุก render — memory leak)
+  const filePreviews = useMemo(() => files.map(f => URL.createObjectURL(f)), [files]);
+  useEffect(() => () => { filePreviews.forEach(u => URL.revokeObjectURL(u)); }, [filePreviews]);
+
+  // ช่องวันที่รับได้ ว่าง/'-'/วว/ดด/ปปปป เท่านั้น — กัน free text หลุดเข้า DB
+  const isValidDateText = (v) => {
+    const s = String(v ?? '').trim();
+    return !s || s === '-' || /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s);
+  };
+
+  // โหลดประวัติบิลสแกน — เก็บ raw rows (filter+group ตอน render) เรียกหลังบันทึกสำเร็จ
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      setHistory(await fetchScannedBills());
+    } catch {
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadHistory(); }, [loadHistory]);        // โหลดตอนเปิดหน้า
+  useEffect(() => { if (saved) loadHistory(); }, [saved, loadHistory]); // รีโหลดหลังบันทึก
+
+  // autocomplete ชื่อยา — derive จาก history (บิลที่เคยสแกน) ไม่ query เพิ่ม
+  useEffect(() => {
+    const typeMap = {};
+    history.forEach(r => { if (r.drug_name && r.drug_type && r.drug_type !== '-') typeMap[r.drug_name] = r.drug_type; });
+    const names = [...new Set(history.map(r => r.drug_name).filter(Boolean))].sort();
+    setScanDrugNames(names.map(name => ({ name, type: typeMap[name] || '' })));
+  }, [history]);
 
   // Drag & drop
   const handleDrop = (e) => {
@@ -380,37 +539,56 @@ function ScanInvoice({ onDone, auth }) {
     if (!files.length) return;
     setScanning(true);
     setError('');
+    cancelRef.current = false;
+    setFileStatus({});
     setScanProgress({ done: 0, total: files.length });
+
+    // โหลดฐานข้อมูลคลัง (ชื่อ generic → code) + map alias ที่จับคู่ไว้ครั้งก่อน — ครั้งเดียวก่อน loop
+    const { names: invNameList, byName } = await fetchInventoryNameCodeMap();
+    setInvNames(invNameList); setInvByName(byName);
+
     const results = [];
     for (let i = 0; i < files.length; i++) {
+      if (cancelRef.current) break;   // ผู้ใช้กดหยุด — เก็บผลรูปที่อ่านเสร็จแล้วไว้
       const file = files[i];
+      setFileStatus(prev => ({ ...prev, [i]: 'reading' }));
       try {
-        const base64 = await toBase64(file);
-        const data = await scanInvoiceImage(base64, file.type);
+        const { base64, mimeType } = await toBase64(file);
+        const data = await scanInvoiceImage(base64, mimeType);
         if (data?._debug_error) {
-          throw new Error(`Gemini (${data.status}): ${data.detail}`);
+          throw new Error(`${data.provider || 'AI'} (${data.status}): ${data.detail}`);
         }
         const previewUrl = URL.createObjectURL(file);
 
-        // Auto-lookup drug codes from existing DB
-        const names = (data.items || []).map(it => it.drug_name).filter(Boolean);
-        const codeMap = await lookupDrugCodes(names);
+        // จับคู่ชื่อยาบนบิล → รหัสยา ตามลำดับ:
+        //   1) alias table (จับคู่ครั้งก่อน, ชื่อเป๊ะเดิม) → auto-fill code + _autoCode
+        //   2) fuzzy candidate จาก inventory (คำแรกตรง) → ใส่ candidate ใน dropdown แต่ "ยังไม่ยืนยัน" (_needConfirm)
+        const billNames = (data.items || []).map(it => it.drug_name).filter(Boolean);
+        const aliasMap = await lookupDrugAliases(billNames);
 
-        const items = (data.items || []).map(it => ({
-          drug_name:      it.drug_name || '',
-          drug_code:      codeMap[it.drug_name] || '',
-          gpu_code:       it.gpu_code || '',
-          tpu_code:       it.tpu_code || '',
-          ttmp_code:      it.ttmp_code || '',
-          lot:            it.lot_number || '',
-          exp:            fmtExpFromIso(it.expiry_date),
-          mfg_date:       isoToDisplay(it.mfg_date),
-          qty_received:   it.qty_received ?? '',
-          drug_unit:      it.drug_unit || '',
-          price_per_unit: it.price_per_unit ?? '',
-          total_price_vat: it.total_price_vat ?? '',
-          _autoCode:      !!codeMap[it.drug_name],
-        }));
+        const items = (data.items || []).map(it => {
+          const billName = it.drug_name || '';
+          const alias = aliasMap[billName.trim().toLowerCase()];
+          const cand = alias ? null : fuzzyInventoryMatch(billName, invNameList);
+          return {
+            drug_name:      billName,
+            drug_code:      alias ? alias.code : '',
+            matched_name:   alias ? (alias.name || '') : '',   // ชื่อ generic ที่จับคู่ (โชว์ใน dropdown)
+            gpu_code:       it.gpu_code || '',
+            tpu_code:       it.tpu_code || '',
+            ttmp_code:      it.ttmp_code || '',
+            lot:            it.lot_number || '',
+            exp:            fmtExpFromIso(it.expiry_date),
+            mfg_date:       isoToDisplay(it.mfg_date),
+            qty_received:   it.qty_received ?? '',
+            drug_unit:      it.drug_unit || '',
+            price_per_unit: it.price_per_unit ?? '',
+            total_price_vat: it.total_price_vat ?? '',
+            _autoCode:      !!alias,                            // จับคู่จาก alias = ยืนยันแล้ว (dot เขียว)
+            _candidateName: cand || '',                        // fuzzy candidate (ยังไม่ยืนยัน)
+            _needConfirm:   !alias && !!cand,                  // pre-fill fuzzy แต่ต้องให้คนยืนยัน (dot ส้ม)
+          };
+        });
 
         results.push({
           file,
@@ -420,6 +598,7 @@ function ScanInvoice({ onDone, auth }) {
             supplier:      data.supplier || '',
             bill_number:   data.invoice_number || '',
             invoice_date:  isoToDisplay(data.invoice_date),
+            receive_date:  new Date().toISOString().slice(0, 10), // วันที่รับเข้า (ISO) — แก้ได้ก่อนบันทึก กันสแกนย้อนหลังได้วันผิด
             vat_percent:   data.vat_percent ?? 0,
             subtotal:      data.subtotal ?? '',
             vat_amount:    data.vat_amount ?? '',
@@ -427,11 +606,18 @@ function ScanInvoice({ onDone, auth }) {
           },
           items,
         });
+        setFileStatus(prev => ({ ...prev, [i]: 'done' }));
       } catch (err) {
         results.push({ file, previewUrl: URL.createObjectURL(file), error: err.message, header: {}, items: [] });
+        setFileStatus(prev => ({ ...prev, [i]: 'error' }));
       }
       setScanProgress({ done: i + 1, total: files.length });
     }
+    // เตือนบิลซ้ำ — เลขบิลที่มีใน receive_logs แล้ว (เตือนอย่างเดียว ไม่ block เพราะเลขชนข้ามบริษัทได้ Rule #19)
+    try {
+      const dupMap = await checkExistingBills(results.filter(r => !r.error).map(r => r.header.bill_number));
+      results.forEach(r => { if (!r.error) r._dup = dupMap[String(r.header.bill_number || '').trim()] || null; });
+    } catch { /* เช็คซ้ำไม่ได้ ไม่ block การสแกน */ }
     setInvoices(results);
     setScanning(false);
   };
@@ -452,6 +638,25 @@ function ScanInvoice({ onDone, auth }) {
     ));
   };
 
+  // คนเลือกยาในระบบจาก dropdown "จับคู่ยาในระบบ" → เติม drug_code จาก inventory + mark ว่าจะ save alias
+  // invName = '' (ล้าง) → คืนสถานะ unmatched
+  const mapItemToInventory = (invIdx, itemIdx, invName) => {
+    const code = invName ? (invByName[invName] || '') : '';
+    setInvoices(prev => prev.map((inv, i) =>
+      i !== invIdx ? inv : {
+        ...inv,
+        items: inv.items.map((it, j) => j !== itemIdx ? it : {
+          ...it,
+          matched_name: invName,
+          drug_code: code || it.drug_code,
+          _autoCode: !!code,
+          _needConfirm: false,
+          _userMapped: !!invName,   // คนจับคู่เอง → upsert alias ตอน save
+        }),
+      }
+    ));
+  };
+
   const removeItem = (invIdx, itemIdx) => {
     setInvoices(prev => prev.map((inv, i) =>
       i !== invIdx ? inv : { ...inv, items: inv.items.filter((_, j) => j !== itemIdx) }
@@ -462,9 +667,33 @@ function ScanInvoice({ onDone, auth }) {
     setInvoices(prev => prev.map((inv, i) => i !== invIdx ? inv : { ...inv, vatMode: mode }));
   };
 
+  // มูลค่ารายการหลังปรับตามโหมด VAT — ใช้ทั้งตอน save และแถบตรวจยอดท้ายบิล (สองที่ต้องตรงกัน)
+  const effItemTotal = (inv, it) => {
+    const qty   = parseFloat(String(it.qty_received).replace(/,/g, '')) || null;
+    const price = parseFloat(String(it.price_per_unit).replace(/,/g, '')) || null;
+    const vat   = parseFloat(inv.header.vat_percent) || 0;
+    let total   = parseFloat(String(it.total_price_vat).replace(/,/g, '')) || null;
+    if (inv.vatMode === 'excluded' && vat > 0 && qty && price) total = qty * price * (1 + vat / 100);
+    return { qty, price, vat, total };
+  };
+
   // Confirm & save
   const handleSave = async () => {
     if (!invoices.length) return;
+    // ตรวจ format วันที่ก่อน (ช่องที่ผิดถูกไฮไลต์แดงในฟอร์มด้วย isValidDateText เดียวกัน)
+    const dateErrs = [];
+    invoices.forEach((inv, i) => {
+      if (inv.error) return;
+      if (!isValidDateText(inv.header.invoice_date)) dateErrs.push(`บิล #${i + 1} วันที่บิล`);
+      inv.items.forEach((it, j) => {
+        if (!isValidDateText(it.exp)) dateErrs.push(`บิล #${i + 1} รายการ ${j + 1} Exp`);
+        if (!isValidDateText(it.mfg_date)) dateErrs.push(`บิล #${i + 1} รายการ ${j + 1} Mfg`);
+      });
+    });
+    if (dateErrs.length) {
+      setError(`รูปแบบวันที่ไม่ถูกต้อง (ต้องเป็น วว/ดด/ปปปป): ${dateErrs.slice(0, 5).join(', ')}${dateErrs.length > 5 ? ` และอีก ${dateErrs.length - 5} จุด` : ''}`);
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -474,12 +703,14 @@ function ScanInvoice({ onDone, auth }) {
       for (const inv of invoices) {
         if (inv.error || !inv.items.length) continue;
 
-        // Upload image to Supabase Storage
+        // Upload image to Supabase Storage — บีบก่อน (รูปมือถือดิบหลาย MB เปลือง Storage; compress fail → ใช้ไฟล์เดิม)
         let imageUrl = null;
         try {
           const ts = Date.now();
+          const blob = await compressImageFile(inv.file);
           const safeName = inv.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-          imageUrl = await uploadInvoiceImage(inv.file, `${ts}_${safeName}`);
+          const upName = blob !== inv.file ? `${ts}_${safeName.replace(/\.[^.]+$/, '')}.jpg` : `${ts}_${safeName}`;
+          imageUrl = await uploadInvoiceImage(blob, upName);
         } catch (_) {
           // ถ้าอัพโหลดรูปไม่สำเร็จ ยังคง save ข้อมูลต่อ
         }
@@ -487,18 +718,10 @@ function ScanInvoice({ onDone, auth }) {
         for (const it of inv.items) {
           if (!it.drug_name && !it.drug_code) continue;
 
-          let itemTotal = parseFloat(String(it.total_price_vat).replace(/,/g,'')) || null;
-          const qty     = parseFloat(String(it.qty_received).replace(/,/g,'')) || null;
-          const price   = parseFloat(String(it.price_per_unit).replace(/,/g,'')) || null;
-          const vat     = parseFloat(inv.header.vat_percent) || 0;
-
-          // ถ้า vatMode = 'excluded' → คำนวณ VAT เพิ่ม
-          if (inv.vatMode === 'excluded' && vat > 0 && qty && price) {
-            itemTotal = (qty * price * (1 + vat / 100));
-          }
+          const { qty, price, vat, total: itemTotal } = effItemTotal(inv, it);
 
           allRows.push({
-            receive_date:      today,
+            receive_date:      inv.header.receive_date || today,
             bill_number:       inv.header.bill_number || '-',
             supplier_current:  inv.header.supplier || '-',
             invoice_date:      displayToIso(inv.header.invoice_date) || null,
@@ -526,6 +749,16 @@ function ScanInvoice({ onDone, auth }) {
 
       if (!allRows.length) throw new Error('ไม่มีรายการยาที่จะบันทึก');
       await insertScannedBillRows(allRows, auth);
+
+      // จดจำการจับคู่ชื่อยา→รหัส ที่คนเลือกเอง → ครั้งหน้าชื่อเป๊ะเดิม auto-fill
+      const aliasRows = invoices.flatMap(inv => (inv.error ? [] : inv.items))
+        .filter(it => it._userMapped && it.drug_name && it.drug_code && it.drug_code !== '-')
+        .map(it => ({ billName: it.drug_name, drugCode: it.drug_code, drugName: it.matched_name || null }));
+      if (aliasRows.length) {
+        try { await upsertDrugAliases(aliasRows, auth); }
+        catch { /* mapping ไม่สำเร็จ ไม่ block การบันทึกบิล */ }
+      }
+
       setSaved(true);
     } catch (err) {
       setError(err.message);
@@ -536,18 +769,236 @@ function ScanInvoice({ onDone, auth }) {
 
   const totalItems = invoices.reduce((s, inv) => s + (inv.items?.length || 0), 0);
 
-  if (saved) {
-    return (
-      <div className="max-w-2xl mx-auto px-4 py-12 text-center">
-        <div className="bg-white rounded-2xl shadow-sm border border-emerald-200 p-8">
-          <CheckCircle2 size={48} className="text-emerald-500 mx-auto mb-4"/>
-          <h2 className="text-xl font-bold text-slate-800 mb-2">บันทึกสำเร็จ</h2>
-          <p className="text-slate-600 mb-6">บันทึกข้อมูล {totalItems} รายการจาก {invoices.length} บิล เข้าระบบแล้ว</p>
-          <button onClick={onDone}
-            className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-xl py-2.5 px-6 font-semibold text-sm transition-colors">
-            กลับหน้าหลัก
+  const dateThai = (iso) => {
+    const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${m[3]}/${m[2]}/${Number(m[1]) + 543}` : (iso || '-');
+  };
+
+  // filter raw rows ตามคำค้น + ช่วงวันที่ แล้ว group ตามวัน
+  const histQ = histQuery.trim().toLowerCase();
+  const histFiltered = history.filter(r => {
+    const d = r.receive_date || '';
+    if (histFrom && d < histFrom) return false;
+    if (histTo && d > histTo) return false;
+    if (histQ && !`${r.bill_number || ''} ${r.drug_name || ''} ${r.supplier_current || ''} ${r.drug_code || ''}`.toLowerCase().includes(histQ)) return false;
+    return true;
+  });
+  const histGrouped = groupScannedByDate(histFiltered);
+
+  // group บิลรายใบในแต่ละวัน (composite key กัน bill_number ซ้ำ — Rule #19)
+  // เก็บ item_ids (row id) ไว้ใช้ลบบิลรายใบด้วย .in('id', ...) ไม่ใช่ bill_number
+  const billsOfDay = (rows) => {
+    const m = {};
+    for (const r of rows) {
+      const k = `${r.bill_number || '-'}|${r.supplier_current || '-'}`;
+      const g = (m[k] = m[k] || { bill_number: r.bill_number, supplier: r.supplier_current, items: [], item_ids: [], images: [] });
+      g.items.push(r);
+      if (r.id != null) g.item_ids.push(r.id);
+      if (r.scan_image_url && !g.images.includes(r.scan_image_url)) g.images.push(r.scan_image_url);
+    }
+    return Object.values(m);
+  };
+
+  // นับ "รอบสแกน" ต่อวันจาก created_at — กลุ่มที่ห่างกันเกิน threshold = คนละรอบ
+  const ROUND_GAP_MS = 2 * 60 * 1000; // ห่างเกิน 2 นาที = คนละรอบสแกน
+  const countScanRounds = (rows) => {
+    const ts = rows.map(r => r.created_at ? new Date(r.created_at).getTime() : null)
+      .filter(Boolean).sort((a, b) => a - b);
+    if (!ts.length) return 1;
+    let rounds = 1;
+    for (let i = 1; i < ts.length; i++) if (ts[i] - ts[i - 1] > ROUND_GAP_MS) rounds++;
+    return rounds;
+  };
+
+  // ลบบิลสแกนตาม row id → confirm modal (สไตล์ app — window.confirm ใช้ใน LINE WebView ไม่สวย) → ลบ + audit + รีโหลด
+  const handleDeleteScanned = (ids, confirmMsg, details) => {
+    if (!ids?.length) return;
+    setConfirmBox({
+      message: confirmMsg,
+      confirmLabel: 'ลบ',
+      onConfirm: async () => {
+        setHistError('');
+        try {
+          await deleteScannedBillRows(ids, auth, details);
+          await loadHistory();
+        } catch (err) {
+          setHistError('ลบไม่สำเร็จ: ' + err.message);
+        }
+      },
+    });
+  };
+
+  // confirm modal กลาง — ใช้ทั้งลบบิลในประวัติ และ "สแกนใหม่" (ทิ้งผลที่แก้ไว้)
+  const confirmModal = confirmBox && (
+    <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
+        <div className="flex items-center gap-3 text-rose-600 mb-3">
+          <AlertTriangle size={24}/>
+          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">ยืนยันการทำรายการ</h3>
+        </div>
+        <p className="text-sm text-slate-600 dark:text-slate-300 mb-5 leading-relaxed">{confirmBox.message}</p>
+        <div className="flex justify-end gap-2">
+          <button onClick={() => setConfirmBox(null)}
+            className="px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-medium transition-colors">
+            ยกเลิก
+          </button>
+          <button onClick={() => { const fn = confirmBox.onConfirm; setConfirmBox(null); fn(); }}
+            className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm">
+            {confirmBox.confirmLabel || 'ยืนยัน'}
           </button>
         </div>
+      </div>
+    </div>
+  );
+
+  // panel ประวัติบิลสแกน — ใช้ทั้งหน้า upload (ตลอด) และหน้า saved
+  const historyPanel = (
+    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-5">
+          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3 flex items-center gap-2">
+            <History size={16} className="text-emerald-600"/> ประวัติบิลที่สแกน (แยกตามวันที่อัพโหลด)
+          </h3>
+
+          {histError && (
+            <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-lg px-3 py-2 mb-3">{histError}</p>
+          )}
+
+          {/* ตัวกรอง: ค้นหา (ยา/เลขบิล/บริษัท) + ช่วงวันที่ */}
+          <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 mb-4 space-y-2.5">
+            <DrugSearchBar
+              value={histQuery}
+              onChange={setHistQuery}
+              options={scanDrugNames}
+              placeholder="ค้นหายา / เลขบิล / บริษัท / รหัส"
+              ringClass="focus:ring-emerald-400"
+              hoverClass="hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
+            />
+            <div className="flex items-center gap-2 flex-wrap text-sm">
+              <CalendarDays size={15} className="text-slate-400 dark:text-slate-500 shrink-0"/>
+              <span className="text-slate-600 dark:text-slate-300">วันที่:</span>
+              <IsoDateInput value={histFrom} onChange={setHistFrom} className="w-32"/>
+              <span className="text-slate-400 dark:text-slate-500">ถึง</span>
+              <IsoDateInput value={histTo} onChange={setHistTo} className="w-32"/>
+              {(histQuery || histFrom || histTo) && (
+                <button onClick={() => { setHistQuery(''); setHistFrom(''); setHistTo(''); }}
+                  className="flex items-center gap-1 text-slate-500 dark:text-slate-400 hover:text-red-500 text-xs px-2 py-1 transition-colors">
+                  <X size={13}/> ล้าง
+                </button>
+              )}
+            </div>
+          </div>
+
+          {historyLoading ? (
+            <div className="text-center text-slate-400 dark:text-slate-500 text-sm py-6 flex items-center justify-center gap-2">
+              <RefreshCcw size={15} className="animate-spin"/> กำลังโหลด...
+            </div>
+          ) : histGrouped.length === 0 ? (
+            <p className="text-center text-slate-400 dark:text-slate-500 text-sm py-6">
+              {history.length === 0 ? 'ยังไม่มีบิลที่สแกน' : 'ไม่พบบิลตามเงื่อนไข — ลองล้างตัวกรอง'}
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {histGrouped.map(({ date, rows }) => {
+                const dayBills = billsOfDay(rows);
+                const rounds = countScanRounds(rows);
+                const value = rows.reduce((s, r) => s + (parseFloat(String(r.total_price_vat || 0).replace(/,/g, '')) || 0), 0);
+                const open = !!histExpanded[date];
+                return (
+                  <div key={date} className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                    <div className="bg-slate-50 dark:bg-slate-800 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+                      <button
+                        onClick={() => setHistExpanded(p => ({ ...p, [date]: !p[date] }))}
+                        className="flex items-center gap-2 text-sm hover:text-emerald-700 transition-colors">
+                        {open ? <ChevronUp size={15} className="text-emerald-600"/> : <ChevronDown size={15} className="text-slate-400 dark:text-slate-500"/>}
+                        <CalendarDays size={15} className="text-emerald-600"/>
+                        <span className="font-semibold text-slate-700 dark:text-slate-200">{dateThai(date)}</span>
+                        <span className="text-slate-400 dark:text-slate-500">· {rounds} รอบ · {dayBills.length} บิล · {rows.length} รายการ · {value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>
+                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => exportToExcel(rows, SCAN_EXCEL_COLS, 'บิลสแกน', `บิลสแกน_${date}.xlsx`, auth)}
+                          className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                        >
+                          <FileDown size={15}/> Excel
+                        </button>
+                        <button
+                          onClick={() => handleDeleteScanned(
+                            rows.map(r => r.id).filter(id => id != null),
+                            `ลบบิลสแกนของวันที่ ${dateThai(date)} ทั้งหมด ${rows.length} รายการ?`,
+                            { date, reason: 'scan_delete_day' },
+                          )}
+                          className="flex items-center gap-1.5 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-950/70 text-red-600 border border-red-200 dark:border-red-900/60 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                        >
+                          <Trash2 size={15}/> ลบ
+                        </button>
+                      </div>
+                    </div>
+                    {open && (
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {dayBills.map((b, bi) => {
+                          const bv = b.items.reduce((s, r) => s + (parseFloat(String(r.total_price_vat || 0).replace(/,/g, '')) || 0), 0);
+                          return (
+                            <div key={bi} className="px-4 py-2 flex items-center justify-between gap-3 text-xs">
+                              <div className="min-w-0">
+                                <span className="font-medium text-slate-700 dark:text-slate-200">{b.bill_number || '-'}</span>
+                                <span className="text-slate-400 dark:text-slate-500"> · {b.supplier || '-'}</span>
+                                <span className="text-slate-400 dark:text-slate-500"> · {b.items.length} รายการ · {bv.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>
+                              </div>
+                              <div className="flex items-center gap-2.5 shrink-0">
+                                {b.images.map((url, ui) => (
+                                  <a key={ui} href={url} target="_blank" rel="noreferrer"
+                                    className="flex items-center gap-1 text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
+                                    title="ดูรูปบิลต้นฉบับ">
+                                    <ImageIcon size={14}/> รูป{b.images.length > 1 ? ` ${ui + 1}` : ''}
+                                  </a>
+                                ))}
+                                <button
+                                  onClick={() => handleDeleteScanned(
+                                    b.item_ids,
+                                    `ลบบิล ${b.bill_number || '-'} (${b.items.length} รายการ)?`,
+                                    { bill_number: b.bill_number, reason: 'scan_delete_bill' },
+                                  )}
+                                  className="flex items-center gap-1 text-slate-400 dark:text-slate-500 hover:text-red-500 transition-colors"
+                                  title="ลบบิลนี้"
+                                >
+                                  <Trash2 size={14}/>
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+  );
+
+  if (saved) {
+    return (
+      <div className="max-w-5xl mx-auto px-4 py-8 space-y-5">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-emerald-200 dark:border-emerald-900/60 p-6 text-center">
+          <CheckCircle2 size={40} className="text-emerald-500 mx-auto mb-3"/>
+          <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-1">บันทึกสำเร็จ</h2>
+          <p className="text-slate-600 dark:text-slate-300 text-sm mb-4">บันทึกข้อมูล {totalItems} รายการจาก {invoices.length} บิล เข้าระบบแล้ว</p>
+          <div className="flex items-center justify-center gap-2">
+            <button onClick={() => {
+                invoices.forEach(inv => { try { URL.revokeObjectURL(inv.previewUrl); } catch { /* noop */ } });
+                setSaved(false); setFiles([]); setInvoices([]);
+              }}
+              className="bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded-xl py-2 px-5 font-semibold text-sm transition-colors">
+              สแกนบิลต่อ
+            </button>
+            <button onClick={onDone}
+              className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-xl py-2 px-5 font-semibold text-sm transition-colors">
+              กลับหน้าหลัก
+            </button>
+          </div>
+        </div>
+        {historyPanel}
+        {confirmModal}
       </div>
     );
   }
@@ -557,8 +1008,8 @@ function ScanInvoice({ onDone, auth }) {
 
       {/* Upload Area */}
       {!invoices.length && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-          <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
+          <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
             <ScanLine size={18} className="text-emerald-600"/> อัพโหลดภาพบิลยา
           </h2>
 
@@ -567,11 +1018,11 @@ function ScanInvoice({ onDone, auth }) {
             onDrop={handleDrop}
             onDragOver={e => e.preventDefault()}
             onClick={() => fileInputRef.current?.click()}
-            className="border-2 border-dashed border-emerald-300 rounded-xl p-8 text-center cursor-pointer hover:bg-emerald-50 transition-colors"
+            className="border-2 border-dashed border-emerald-300 dark:border-emerald-800/60 rounded-xl p-8 text-center cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors"
           >
             <ImagePlus size={36} className="text-emerald-400 mx-auto mb-3"/>
-            <p className="text-sm font-medium text-slate-700 mb-1">ลากวางหรือคลิกเพื่อเลือกรูปบิล</p>
-            <p className="text-xs text-slate-500">รองรับหลายรูปพร้อมกัน · JPG, PNG, HEIC</p>
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">ลากวางหรือคลิกเพื่อเลือกรูปบิล</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">รองรับหลายรูปพร้อมกัน · JPG, PNG, HEIC</p>
             <input
               ref={fileInputRef}
               type="file"
@@ -585,43 +1036,69 @@ function ScanInvoice({ onDone, auth }) {
           {files.length > 0 && (
             <div className="mt-4 space-y-2">
               {files.map((f, i) => (
-                <div key={i} className="flex items-center gap-3 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200">
-                  <img src={URL.createObjectURL(f)} alt="" className="w-10 h-10 object-cover rounded-lg border border-slate-200"/>
-                  <span className="flex-1 text-sm text-slate-700 truncate">{f.name}</span>
-                  <span className="text-xs text-slate-400">{(f.size/1024).toFixed(0)} KB</span>
-                  <button onClick={(e) => { e.stopPropagation(); removeFile(i); }} className="text-slate-400 hover:text-red-500 transition-colors">
-                    <X size={16}/>
-                  </button>
+                <div key={i} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 rounded-xl px-3 py-2 border border-slate-200 dark:border-slate-700">
+                  <img src={filePreviews[i]} alt="" className="w-10 h-10 object-cover rounded-lg border border-slate-200 dark:border-slate-700"/>
+                  <span className="flex-1 text-sm text-slate-700 dark:text-slate-200 truncate">{f.name}</span>
+                  {scanning && (
+                    fileStatus[i] === 'reading' ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-900/60 rounded-full px-2 py-0.5"><RefreshCcw size={11} className="animate-spin"/> กำลังอ่าน</span>
+                    ) : fileStatus[i] === 'done' ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-full px-2 py-0.5"><CheckCircle2 size={11}/> เสร็จ</span>
+                    ) : fileStatus[i] === 'error' ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-full px-2 py-0.5"><AlertCircle size={11}/> อ่านไม่ได้</span>
+                    ) : (
+                      <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-2 py-0.5">รอคิว</span>
+                    )
+                  )}
+                  <span className="text-xs text-slate-400 dark:text-slate-500">{(f.size/1024).toFixed(0)} KB</span>
+                  {!scanning && (
+                    <button onClick={(e) => { e.stopPropagation(); removeFile(i); }} className="text-slate-400 dark:text-slate-500 hover:text-red-500 transition-colors">
+                      <X size={16}/>
+                    </button>
+                  )}
                 </div>
               ))}
 
-              <button
-                onClick={handleScan}
-                disabled={scanning}
-                className="mt-2 w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:opacity-60 text-white rounded-xl py-2.5 font-semibold text-sm transition-colors shadow-sm"
-              >
-                {scanning
-                  ? <><RefreshCcw size={16} className="animate-spin"/> กำลังอ่านบิล {scanProgress.done}/{scanProgress.total}...</>
-                  : <><ScanLine size={16}/> เริ่มอ่านบิล AI ({files.length} รูป)</>
-                }
-              </button>
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={handleScan}
+                  disabled={scanning}
+                  className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:opacity-60 text-white rounded-xl py-2.5 font-semibold text-sm transition-colors shadow-sm"
+                >
+                  {scanning
+                    ? <><RefreshCcw size={16} className="animate-spin"/> กำลังอ่านบิล {scanProgress.done}/{scanProgress.total}...</>
+                    : <><ScanLine size={16}/> เริ่มอ่านบิล AI ({files.length} รูป)</>
+                  }
+                </button>
+                {scanning && (
+                  <button
+                    onClick={() => { cancelRef.current = true; }}
+                    className="px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-red-400 hover:text-red-600 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-medium transition-colors"
+                  >
+                    หยุดหลังรูปนี้
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>
       )}
 
+      {/* ประวัติบิลสแกน — แสดงใต้ upload area เสมอ (เมื่อยังไม่มีรายการกำลังตรวจ) */}
+      {!invoices.length && historyPanel}
+
       {/* Preview per invoice */}
       {invoices.map((inv, invIdx) => (
-        <div key={invIdx} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <div key={invIdx} className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
 
           {/* Invoice header */}
-          <div className="bg-emerald-50 border-b border-emerald-100 px-5 py-4">
+          <div className="bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-100 dark:border-emerald-900/50 px-5 py-4">
             <div className="flex items-start gap-4">
-              <img src={inv.previewUrl} alt="" className="w-16 h-16 object-cover rounded-xl border border-emerald-200 shrink-0"/>
+              <img src={inv.previewUrl} alt="" className="w-16 h-16 object-cover rounded-xl border border-emerald-200 dark:border-emerald-900/60 shrink-0"/>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-2">ข้อมูลบิล #{invIdx + 1}</p>
+                <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 uppercase tracking-wide mb-2">ข้อมูลบิล #{invIdx + 1}</p>
                 {inv.error ? (
-                  <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                  <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2">
                     <AlertCircle size={16}/> อ่านบิลไม่สำเร็จ: {inv.error}
                   </div>
                 ) : (
@@ -632,10 +1109,15 @@ function ScanInvoice({ onDone, auth }) {
                       { label: 'วันที่บิล',     field: 'invoice_date' },
                     ].map(({ label, field }) => (
                       <div key={field}>
-                        <p className="text-xs text-slate-500 mb-0.5">{label}</p>
-                        <EditableCell value={inv.header[field]} onChange={v => updateHeader(invIdx, field, v)}/>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">{label}</p>
+                        <EditableCell value={inv.header[field]} onChange={v => updateHeader(invIdx, field, v)}
+                          className={field === 'invoice_date' && !isValidDateText(inv.header[field]) ? 'border-red-400 bg-red-50 dark:bg-red-950/40' : ''}/>
                       </div>
                     ))}
+                    <div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">วันที่รับเข้า</p>
+                      <IsoDateInput value={inv.header.receive_date} onChange={v => updateHeader(invIdx, 'receive_date', v)} className="w-full min-h-[30px]"/>
+                    </div>
                     {[
                       { label: 'VAT (%)',    field: 'vat_percent' },
                       { label: 'ก่อน VAT',  field: 'subtotal' },
@@ -643,7 +1125,7 @@ function ScanInvoice({ onDone, auth }) {
                       { label: 'รวมทั้งบิล', field: 'invoice_total' },
                     ].map(({ label, field }) => (
                       <div key={field}>
-                        <p className="text-xs text-slate-500 mb-0.5">{label}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">{label}</p>
                         <EditableCell value={inv.header[field]} onChange={v => updateHeader(invIdx, field, v)} type="number"/>
                       </div>
                     ))}
@@ -652,22 +1134,35 @@ function ScanInvoice({ onDone, auth }) {
               </div>
             </div>
 
+            {/* เตือนบิลซ้ำ — เลขบิลนี้มีใน receive_logs แล้ว (เตือนอย่างเดียว ไม่ block) */}
+            {!inv.error && inv._dup && (
+              <div className="mt-3 flex items-start gap-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/60 rounded-xl px-3 py-2">
+                <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5"/>
+                <p className="text-xs text-amber-800 dark:text-amber-300">
+                  <span className="font-bold">เลขบิลนี้มีในระบบแล้ว {inv._dup.count} รายการ</span>
+                  {inv._dup.suppliers.length > 0 && <> · {inv._dup.suppliers.join(', ')}</>}
+                  {inv._dup.lastDate && <> · รับล่าสุด {dateThai(inv._dup.lastDate)}</>}
+                  {' '}— ตรวจสอบก่อนบันทึก กันข้อมูลรับซ้ำ
+                </p>
+              </div>
+            )}
+
             {/* VAT toggle */}
             {!inv.error && (
               <div className="mt-3 flex items-center gap-3">
-                <Info size={13} className="text-slate-400 shrink-0"/>
-                <span className="text-xs text-slate-600">ราคาในบิลนี้:</span>
+                <Info size={13} className="text-slate-400 dark:text-slate-500 shrink-0"/>
+                <span className="text-xs text-slate-600 dark:text-slate-300">ราคาในบิลนี้:</span>
                 {['included','excluded'].map(mode => (
                   <button
                     key={mode}
                     onClick={() => setVatMode(invIdx, mode)}
-                    className={`text-xs px-3 py-1 rounded-full border font-medium transition-colors ${inv.vatMode === mode ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-300 hover:border-emerald-400'}`}
+                    className={`text-xs px-3 py-1 rounded-full border font-medium transition-colors ${inv.vatMode === mode ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:border-emerald-400'}`}
                   >
                     {mode === 'included' ? 'รวม VAT แล้ว' : 'ยังไม่รวม VAT'}
                   </button>
                 ))}
                 {inv.vatMode === 'excluded' && parseFloat(inv.header.vat_percent) > 0 && (
-                  <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-0.5">
+                  <span className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-lg px-2 py-0.5">
                     ระบบจะคำนวณ +{inv.header.vat_percent}% ให้อัตโนมัติ
                   </span>
                 )}
@@ -675,69 +1170,179 @@ function ScanInvoice({ onDone, auth }) {
             )}
           </div>
 
-          {/* Items table */}
+          {/* Items — mobile: card ต่อรายการ (Rule #5) / desktop: ตาราง */}
           {!inv.error && inv.items.length > 0 && (
-            <div className="overflow-x-auto">
+            <>
+            <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+              {inv.items.map((it, itemIdx) => (
+                <div key={itemIdx} className="p-3.5 space-y-2.5">
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">ชื่อยา (ตามบิล)</p>
+                      <EditableCell value={it.drug_name} onChange={v => updateItem(invIdx, itemIdx, 'drug_name', v)}/>
+                    </div>
+                    <button onClick={() => removeItem(invIdx, itemIdx)} className="mt-5 text-slate-300 dark:text-slate-500 hover:text-red-500 transition-colors shrink-0"><Trash2 size={16}/></button>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">จับคู่ยาในระบบ</p>
+                    <SearchableSelect
+                      value={it.matched_name || it._candidateName || ''}
+                      onChange={v => mapItemToInventory(invIdx, itemIdx, v)}
+                      options={invNames}
+                      placeholder="-- เลือกยาในระบบ --"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">รหัสยา</p>
+                      <div className="relative">
+                        <EditableCell value={it.drug_code} onChange={v => updateItem(invIdx, itemIdx, 'drug_code', v)}/>
+                        {it._autoCode && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" title="จับคู่แล้ว"/>}
+                        {it._needConfirm && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-orange-400" title="แนะนำจากชื่อยา — ต้องตรวจ/ยืนยัน"/>}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">จำนวน</p>
+                      <EditableCell value={it.qty_received} onChange={v => updateItem(invIdx, itemIdx, 'qty_received', v)} type="number"/>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Lot</p>
+                      <EditableCell value={it.lot} onChange={v => updateItem(invIdx, itemIdx, 'lot', v)}/>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Exp</p>
+                      <EditableCell value={it.exp} onChange={v => updateItem(invIdx, itemIdx, 'exp', v)} className={isValidDateText(it.exp) ? '' : 'border-red-400 bg-red-50 dark:bg-red-950/40'}/>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">หน่วย</p>
+                      <EditableCell value={it.drug_unit} onChange={v => updateItem(invIdx, itemIdx, 'drug_unit', v)}/>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Mfg</p>
+                      <EditableCell value={it.mfg_date} onChange={v => updateItem(invIdx, itemIdx, 'mfg_date', v)} className={isValidDateText(it.mfg_date) ? '' : 'border-red-400 bg-red-50 dark:bg-red-950/40'}/>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">ราคา/หน่วย</p>
+                      <EditableCell value={it.price_per_unit} onChange={v => updateItem(invIdx, itemIdx, 'price_per_unit', v)} type="number"/>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">มูลค่า</p>
+                      <EditableCell value={it.total_price_vat} onChange={v => updateItem(invIdx, itemIdx, 'total_price_vat', v)} type="number"/>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">GPU</p>
+                      <EditableCell value={it.gpu_code} onChange={v => updateItem(invIdx, itemIdx, 'gpu_code', v)}/>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">TPU</p>
+                      <EditableCell value={it.tpu_code} onChange={v => updateItem(invIdx, itemIdx, 'tpu_code', v)}/>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">TTMP</p>
+                      <EditableCell value={it.ttmp_code} onChange={v => updateItem(invIdx, itemIdx, 'ttmp_code', v)}/>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="overflow-x-auto hidden md:block">
               <table className="w-full text-xs">
-                <thead className="bg-slate-50 border-b border-slate-200">
+                <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
                   <tr>
-                    {['ชื่อยา','รหัสยา','GPU','TPU','TTMP','Lot','Exp','Mfg','จำนวน','หน่วย','ราคา/หน่วย','มูลค่า',''].map(h => (
-                      <th key={h} className="text-left px-3 py-2 font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                    {['ชื่อยา','รหัสยา','จับคู่ยาในระบบ','GPU','TPU','TTMP','Lot','Exp','Mfg','จำนวน','หน่วย','ราคา/หน่วย','มูลค่า',''].map(h => (
+                      <th key={h} className="text-left px-3 py-2 font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {inv.items.map((it, itemIdx) => (
-                    <tr key={itemIdx} className="hover:bg-slate-50">
-                      <td className="px-3 py-1.5 min-w-40"><EditableCell value={it.drug_name} onChange={v => updateItem(invIdx, itemIdx, 'drug_name', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-24">
+                    <tr key={itemIdx} className="hover:bg-slate-50 dark:hover:bg-slate-800">
+                      <td className="px-3 py-1.5 min-w-56"><EditableCell value={it.drug_name} onChange={v => updateItem(invIdx, itemIdx, 'drug_name', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-28">
                         <div className="relative">
                           <EditableCell value={it.drug_code} onChange={v => updateItem(invIdx, itemIdx, 'drug_code', v)}/>
-                          {it._autoCode && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" title="จับคู่อัตโนมัติ"/>}
+                          {it._autoCode && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" title="จับคู่แล้ว"/>}
+                          {it._needConfirm && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-orange-400" title="แนะนำจากชื่อยา — ต้องตรวจ/ยืนยัน"/>}
                         </div>
                       </td>
-                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.gpu_code} onChange={v => updateItem(invIdx, itemIdx, 'gpu_code', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.tpu_code} onChange={v => updateItem(invIdx, itemIdx, 'tpu_code', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.ttmp_code} onChange={v => updateItem(invIdx, itemIdx, 'ttmp_code', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.lot} onChange={v => updateItem(invIdx, itemIdx, 'lot', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.exp} onChange={v => updateItem(invIdx, itemIdx, 'exp', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.mfg_date} onChange={v => updateItem(invIdx, itemIdx, 'mfg_date', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-16"><EditableCell value={it.qty_received} onChange={v => updateItem(invIdx, itemIdx, 'qty_received', v)} type="number"/></td>
-                      <td className="px-3 py-1.5 min-w-16"><EditableCell value={it.drug_unit} onChange={v => updateItem(invIdx, itemIdx, 'drug_unit', v)}/></td>
-                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.price_per_unit} onChange={v => updateItem(invIdx, itemIdx, 'price_per_unit', v)} type="number"/></td>
-                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.total_price_vat} onChange={v => updateItem(invIdx, itemIdx, 'total_price_vat', v)} type="number"/></td>
+                      <td className="px-3 py-1.5 min-w-56">
+                        <SearchableSelect
+                          value={it.matched_name || it._candidateName || ''}
+                          onChange={v => mapItemToInventory(invIdx, itemIdx, v)}
+                          options={invNames}
+                          placeholder="-- เลือกยาในระบบ --"
+                        />
+                      </td>
+                      <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.gpu_code} onChange={v => updateItem(invIdx, itemIdx, 'gpu_code', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.tpu_code} onChange={v => updateItem(invIdx, itemIdx, 'tpu_code', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-24"><EditableCell value={it.ttmp_code} onChange={v => updateItem(invIdx, itemIdx, 'ttmp_code', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-28"><EditableCell value={it.lot} onChange={v => updateItem(invIdx, itemIdx, 'lot', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-32"><EditableCell value={it.exp} onChange={v => updateItem(invIdx, itemIdx, 'exp', v)} className={isValidDateText(it.exp) ? '' : 'border-red-400 bg-red-50 dark:bg-red-950/40'}/></td>
+                      <td className="px-3 py-1.5 min-w-32"><EditableCell value={it.mfg_date} onChange={v => updateItem(invIdx, itemIdx, 'mfg_date', v)} className={isValidDateText(it.mfg_date) ? '' : 'border-red-400 bg-red-50 dark:bg-red-950/40'}/></td>
+                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.qty_received} onChange={v => updateItem(invIdx, itemIdx, 'qty_received', v)} type="number"/></td>
+                      <td className="px-3 py-1.5 min-w-20"><EditableCell value={it.drug_unit} onChange={v => updateItem(invIdx, itemIdx, 'drug_unit', v)}/></td>
+                      <td className="px-3 py-1.5 min-w-28"><EditableCell value={it.price_per_unit} onChange={v => updateItem(invIdx, itemIdx, 'price_per_unit', v)} type="number"/></td>
+                      <td className="px-3 py-1.5 min-w-28"><EditableCell value={it.total_price_vat} onChange={v => updateItem(invIdx, itemIdx, 'total_price_vat', v)} type="number"/></td>
                       <td className="px-3 py-1.5">
-                        <button onClick={() => removeItem(invIdx, itemIdx)} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={14}/></button>
+                        <button onClick={() => removeItem(invIdx, itemIdx)} className="text-slate-300 dark:text-slate-500 hover:text-red-500 transition-colors"><Trash2 size={14}/></button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            </>
           )}
 
-          {!inv.error && (
-            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-              <span>{inv.items.length} รายการ</span>
-              <span className="font-semibold text-slate-700">
-                รวมทั้งบิล: {Number(inv.header.invoice_total || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
-              </span>
-            </div>
-          )}
+          {!inv.error && (() => {
+            // ตรวจยอด: Σ มูลค่ารายการ (logic เดียวกับตอน save) เทียบ "รวมทั้งบิล" ที่ AI อ่าน — จับเลขอ่านผิดก่อนบันทึก
+            const fmtBaht = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const sumItems = inv.items.reduce((s, it) => s + (effItemTotal(inv, it).total || 0), 0);
+            const headerTotal = parseFloat(String(inv.header.invoice_total).replace(/,/g, '')) || 0;
+            const diff = Math.abs(sumItems - headerTotal);
+            const TOL = 1; // เศษสตางค์จากการปัดรายแถว
+            return (
+              <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-x-4 gap-y-1.5 flex-wrap text-xs text-slate-500 dark:text-slate-400">
+                <span>{inv.items.length} รายการ</span>
+                <div className="flex items-center gap-x-4 gap-y-1.5 flex-wrap">
+                  <span>Σ มูลค่ารายการ: <span className="font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{fmtBaht(sumItems)}</span> บาท</span>
+                  <span>รวมทั้งบิล: <span className="font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{fmtBaht(headerTotal)}</span> บาท</span>
+                  {headerTotal > 0 && (diff <= TOL ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60 px-2 py-0.5 font-bold">
+                      <CheckCircle2 size={11}/> ยอดตรงกับบิล
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60 px-2 py-0.5 font-bold">
+                      <AlertTriangle size={11}/> ต่างจากยอดบิล {fmtBaht(diff)} บาท — ตรวจเลขก่อนบันทึก
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       ))}
 
       {/* Action bar */}
       {invoices.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 px-5 py-4 flex items-center justify-between gap-4">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 px-5 py-4 flex items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold text-slate-800">{invoices.length} บิล · {totalItems} รายการ</p>
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{invoices.length} บิล · {totalItems} รายการ</p>
             {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
           </div>
           <div className="flex gap-3">
             <button
-              onClick={() => { setInvoices([]); setFiles([]); setSaved(false); setError(''); }}
-              className="px-4 py-2 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-xl text-sm font-medium transition-colors"
+              onClick={() => setConfirmBox({
+                message: `ทิ้งผลการอ่านทั้งหมด (${invoices.length} บิล) และเริ่มสแกนใหม่? ข้อมูลที่แก้ไขไว้จะหายไป`,
+                confirmLabel: 'ทิ้งและเริ่มใหม่',
+                onConfirm: () => {
+                  invoices.forEach(inv => { try { URL.revokeObjectURL(inv.previewUrl); } catch { /* noop */ } });
+                  setInvoices([]); setFiles([]); setSaved(false); setError('');
+                },
+              })}
+              className="px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-medium transition-colors"
             >
               สแกนใหม่
             </button>
@@ -751,6 +1356,7 @@ function ScanInvoice({ onDone, auth }) {
           </div>
         </div>
       )}
+      {confirmModal}
     </div>
   );
 }
@@ -813,6 +1419,7 @@ function ReceiveImport({ onDone, auth = {} }) {
       const rows = activeRaws.flatMap(({ row, rowNum }) => {
           const drugName   = getVal(row, 'drug_name');
           const drugCode   = normalizeCode(getVal(row, 'drug_code'));
+          const drugType   = getVal(row, 'drug_type') || '';
           const lot        = getVal(row, 'lot') || '-';
           const billNumber = getVal(row, 'bill_number') || '-';
 
@@ -822,11 +1429,14 @@ function ReceiveImport({ onDone, auth = {} }) {
           const issues = [];
           if (!drugName) issues.push('ไม่มีชื่อยา');
           if (!drugCode || drugCode === '-') issues.push('ไม่มีรหัสยา');
-          if (!lot || lot === '-') issues.push('ไม่มี Lot');
+          // เวชภัณฑ์มิใช่ยา (ถุง/ขวด/ตลับ) ไม่มี lot ตามธรรมชาติ — ใช้ '-' ถูกต้อง ไม่เตือน
+          if ((!lot || lot === '-') && drugType !== 'เวชภัณฑ์มิใช่ยา') issues.push('ไม่มี Lot');
           if (!billNumber || billNumber === '-') issues.push('ไม่มีเลขที่บิล');
           if (issues.length > 0) warnRows.push({ row: rowNum, name: drugName || '-', code: drugCode || '-', issues });
 
-          const swapFromCsv = [getVal(row, 'swap_condition'), getVal(row, 'swap_items')].filter(Boolean).join(' | ') || null;
+          // merge คอลัมน์ swap (#20 condition + #21 note + #22 items + Auto-Match รายละเอียด) — ตรงกับ importReceiveLogs ใน db.js
+          // เดิมใช้แค่ 2 → #21 (ระบุเงื่อนไข) หาย 746 บิล (แก้ 2026-07-05); เพิ่ม Auto-Match ให้ "N เดือน" ครบขึ้น (2026-07-11)
+          const swapFromCsv = [getVal(row, 'swap_condition'), getVal(row, 'swap_note'), getVal(row, 'swap_items'), getVal(row, 'swap_automatch')].filter(Boolean).join(' | ') || null;
           return [{
             order_date:           parseDate(getVal(row, 'order_date')),
             receive_date:         parseDate(getVal(row, 'receive_date')),
@@ -859,6 +1469,10 @@ function ReceiveImport({ onDone, auth = {} }) {
             safety_stock:         parseFloat(String(getVal(row, 'safety_stock') || '').replace(/,/g,'')) || null,
             sum_of_lead_time:     getVal(row, 'sum_of_lead_time') || null,
             drug_swap_policy:     swapFromCsv,
+            // เฟส 2 (ADR-0014): structured tier detail (col 28) + % คืน (col 29) — parseReturnPolicyV2 ใช้
+            swap_tier_detail:     getVal(row, 'swap_automatch'),
+            swap_return_pct:      getVal(row, 'swap_return_pct'),
+            swap_condition_am:    getVal(row, 'swap_condition_am'),   // finding #2
           }];
         });
 
@@ -880,7 +1494,7 @@ function ReceiveImport({ onDone, auth = {} }) {
       {/* Upload Warning Modal */}
       {uploadWarnings && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
             <div className="bg-amber-500 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
               <div>
                 <p className="font-bold text-lg flex items-center gap-2"><AlertCircle size={20}/>พบ Row ที่ไม่ผ่านเงื่อนไข</p>
@@ -890,15 +1504,15 @@ function ReceiveImport({ onDone, auth = {} }) {
             </div>
             <div className="overflow-y-auto flex-1 p-4 space-y-2">
               {uploadWarnings.rows.map((r, i) => (
-                <div key={i} className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-sm">
+                <div key={i} className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-4 py-2 text-sm">
                   <div className="flex gap-3 items-start">
-                    <span className="font-mono bg-amber-200 text-amber-900 px-2 py-0.5 rounded text-xs font-bold shrink-0">Row {r.row}</span>
+                    <span className="font-mono bg-amber-200 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded text-xs font-bold shrink-0">Row {r.row}</span>
                     <div className="flex-1">
-                      <span className="font-semibold text-slate-800">{r.name}</span>
-                      {r.code && r.code !== '-' && <span className="text-slate-400 ml-2 text-xs">[{r.code}]</span>}
+                      <span className="font-semibold text-slate-800 dark:text-slate-100">{r.name}</span>
+                      {r.code && r.code !== '-' && <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">[{r.code}]</span>}
                       <div className="flex flex-wrap gap-1 mt-1">
                         {r.issues.map((issue, j) => (
-                          <span key={j} className="bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full text-xs">{issue}</span>
+                          <span key={j} className="bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-900/60 px-2 py-0.5 rounded-full text-xs">{issue}</span>
                         ))}
                       </div>
                     </div>
@@ -906,8 +1520,8 @@ function ReceiveImport({ onDone, auth = {} }) {
                 </div>
               ))}
             </div>
-            <div className="px-6 py-4 border-t border-slate-100 flex justify-between items-center">
-              <p className="text-sm text-slate-500">ข้อมูลที่ถูกต้องถูกบันทึกแล้ว — แก้ไข CSV แล้วอัปโหลดใหม่</p>
+            <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+              <p className="text-sm text-slate-500 dark:text-slate-400">ข้อมูลที่ถูกต้องถูกบันทึกแล้ว — แก้ไข CSV แล้วอัปโหลดใหม่</p>
               <button onClick={() => setUploadWarnings(null)} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm">รับทราบ</button>
             </div>
           </div>
@@ -915,21 +1529,21 @@ function ReceiveImport({ onDone, auth = {} }) {
       )}
 
       <div onClick={() => fileRef.current?.click()}
-        className="border-2 border-dashed border-slate-300 hover:border-emerald-400 bg-white rounded-2xl p-10 text-center cursor-pointer transition-colors">
-        <FileSpreadsheet size={40} className="mx-auto mb-3 text-slate-400" />
-        <p className="font-semibold text-slate-700">คลิกเพื่อเลือกไฟล์ CSV คลังรับ</p>
-        <p className="text-xs text-slate-400 mt-1">รองรับ .csv (UTF-8 หรือ TIS-620)</p>
+        className="border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-emerald-400 bg-white dark:bg-slate-900 rounded-2xl p-10 text-center cursor-pointer transition-colors">
+        <FileSpreadsheet size={40} className="mx-auto mb-3 text-slate-400 dark:text-slate-500" />
+        <p className="font-semibold text-slate-700 dark:text-slate-200">คลิกเพื่อเลือกไฟล์ CSV คลังรับ</p>
+        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">รองรับ .csv (UTF-8 หรือ TIS-620)</p>
         <input ref={fileRef} type="file" accept=".csv" onChange={handleFile} className="hidden" />
       </div>
 
-      {error  && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-xl px-4 py-2 flex items-center gap-2"><AlertCircle size={16}/>{error}</p>}
-      {status && <p className="text-emerald-700 text-sm bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2">{status}</p>}
+      {error  && <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-4 py-2 flex items-center gap-2"><AlertCircle size={16}/>{error}</p>}
+      {status && <p className="text-emerald-700 dark:text-emerald-300 text-sm bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-xl px-4 py-2">{status}</p>}
 
       {/* Column reference — shown before file is selected */}
       {!preview && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
-          <p className="text-sm font-semibold text-slate-700">หัวคอลัมน์ที่รองรับในไฟล์ CSV</p>
-          <p className="text-xs text-slate-400">ชื่อหัวคอลัมน์ใน CSV ต้องตรงกับชื่อด้านล่าง (ไม่ต้องเว้นวรรค / ไม่ต้องตรงทุกตัว)</p>
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm space-y-3">
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">หัวคอลัมน์ที่รองรับในไฟล์ CSV</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500">ชื่อหัวคอลัมน์ใน CSV ต้องตรงกับชื่อด้านล่าง (ไม่ต้องเว้นวรรค / ไม่ต้องตรงทุกตัว)</p>
           <div className="flex flex-wrap gap-2">
             {[
               { label: 'วันที่รับ',         req: true,  hints: ['วันที่รับ', 'receive_date', 'วันรับ'] },
@@ -952,14 +1566,14 @@ function ReceiveImport({ onDone, auth = {} }) {
               { label: 'บริษัทก่อนหน้า',   req: false, hints: ['บริษัทก่อนหน้า', 'บริษัทก่อนนาน', 'supplier_prev'] },
               { label: 'หมายเหตุ',          req: false, hints: ['หมายเหตุ', 'note', 'remark'] },
             ].map(({ label, req, hints }) => (
-              <div key={label} className="bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
+              <div key={label} className="bg-slate-50 dark:bg-slate-800 rounded-xl px-3 py-2 border border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">{label}</span>
-                  {req && <span className="text-[10px] font-bold bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded-full">จำเป็น</span>}
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap">{label}</span>
+                  {req && <span className="text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-600 px-1.5 py-0.5 rounded-full">จำเป็น</span>}
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {hints.map(h => (
-                    <code key={h} className="text-[10px] bg-white border border-slate-200 text-slate-500 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">{h}</code>
+                    <code key={h} className="text-[10px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">{h}</code>
                   ))}
                 </div>
               </div>
@@ -969,21 +1583,21 @@ function ReceiveImport({ onDone, auth = {} }) {
       )}
 
       {preview && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-4 shadow-sm">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 space-y-4 shadow-sm">
           <div className="flex items-center justify-between">
-            <p className="font-semibold text-slate-800">{preview.fileName}</p>
-            <span className="text-xs text-slate-500">{preview.total.toLocaleString()} แถว</span>
+            <p className="font-semibold text-slate-800 dark:text-slate-100">{preview.fileName}</p>
+            <span className="text-xs text-slate-500 dark:text-slate-400">{preview.total.toLocaleString()} แถว</span>
           </div>
 
           {/* CSV header tags */}
           <div>
-            <p className="text-xs font-semibold text-slate-500 mb-2">หัวคอลัมน์ CSV ที่ตรวจพบ ({rawHeaders.length} คอลัมน์):</p>
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">หัวคอลัมน์ CSV ที่ตรวจพบ ({rawHeaders.length} คอลัมน์):</p>
             <div className="flex flex-wrap gap-1.5">
               {rawHeaders.map((h, i) => {
                 const matchedField = Object.entries(mapping).find(([, idx]) => idx === i)?.[0];
                 return (
                   <span key={i} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium border ${
-                    matchedField ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-400 border-slate-200'
+                    matchedField ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700'
                   }`}>
                     {matchedField ? <CheckCircle2 size={12}/> : <HelpCircle size={12}/>} {h}
                     {matchedField && <span className="text-[10px] text-emerald-500 ml-0.5">→ {FIELD_LABELS[matchedField] || matchedField}</span>}
@@ -1002,10 +1616,10 @@ function ReceiveImport({ onDone, auth = {} }) {
             <div className="grid grid-cols-1 gap-1.5 max-h-72 overflow-y-auto mt-2 pr-1">
               {Object.keys(RECEIVE_COL_MAP).map(field => (
                 <div key={field} className="grid gap-2 items-center" style={{gridTemplateColumns:'10rem 1fr'}}>
-                  <span className="text-xs text-slate-600 font-medium truncate">{FIELD_LABELS[field] || field}</span>
+                  <span className="text-xs text-slate-600 dark:text-slate-300 font-medium truncate">{FIELD_LABELS[field] || field}</span>
                   <select value={mapping[field] ?? ''}
                     onChange={e => setMapping(p => ({ ...p, [field]: e.target.value === '' ? undefined : Number(e.target.value) }))}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400">
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400">
                     <option value="">-- ไม่ใช้ --</option>
                     {rawHeaders.map((h, i) => <option key={i} value={i}>{h}</option>)}
                   </select>
@@ -1016,11 +1630,11 @@ function ReceiveImport({ onDone, auth = {} }) {
 
           {/* Full preview table - all matched fields */}
           <div>
-            <p className="text-xs font-semibold text-slate-500 mb-2">ตัวอย่างข้อมูล 3 แถวแรก (เฉพาะคอลัมน์ที่ match):</p>
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">ตัวอย่างข้อมูล 3 แถวแรก (เฉพาะคอลัมน์ที่ match):</p>
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
               <table className="text-xs w-full">
                 <thead>
-                  <tr className="text-slate-600 border-b border-slate-200 bg-slate-50">
+                  <tr className="text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
                     {Object.keys(RECEIVE_COL_MAP).filter(f => mapping[f] != null).map(f => (
                       <th key={f} className="px-3 py-2 text-left font-semibold whitespace-nowrap">{FIELD_LABELS[f] || f}</th>
                     ))}
@@ -1028,11 +1642,11 @@ function ReceiveImport({ onDone, auth = {} }) {
                 </thead>
                 <tbody>
                   {rawRows.slice(0, 3).map((row, i) => (
-                    <tr key={i} className="border-b border-slate-100">
+                    <tr key={i} className="border-b border-slate-100 dark:border-slate-800">
                       {Object.keys(RECEIVE_COL_MAP).filter(f => mapping[f] != null).map(f => {
                         const val = getVal(row, f);
                         return (
-                          <td key={f} className={`px-3 py-1.5 truncate max-w-[140px] ${val ? 'text-slate-700' : 'text-rose-300'}`}>
+                          <td key={f} className={`px-3 py-1.5 truncate max-w-[140px] ${val ? 'text-slate-700 dark:text-slate-200' : 'text-rose-300'}`}>
                             {val || '—'}
                           </td>
                         );
@@ -1064,7 +1678,7 @@ function ReceiveImport({ onDone, auth = {} }) {
 // ============================================================
 // View
 // ============================================================
-function ReceiveView({ isAdmin = false, auth = {} }) {
+function ReceiveView({ auth = {} }) {
   const [rows, setRows]               = useState([]);
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState('');
@@ -1137,6 +1751,7 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
     if (!supabase) { setLoading(false); return; }
     setLoading(true);
     let q = supabase.from('receive_logs').select('*')
+      .neq('receive_status', 'สแกนบิล AI') // บิลสแกนแยกอยู่ในหน้าสแกนบิล ไม่ปนประวัติรับยา (ADR-0006)
       .order('receive_date', { ascending: false })
       .order('id', { ascending: false });
     if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%,bill_number.ilike.%${search}%`); }
@@ -1167,6 +1782,7 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
     const isoFrom = thaiToIso(dateFrom) || dateFrom;
     const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
     const applyFilters = (q) => {
+      q = q.neq('receive_status', 'สแกนบิล AI'); // แยกบิลสแกนออก ให้ stat ตรงกับตาราง (Rule #6)
       if (search.trim())    q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%,bill_number.ilike.%${search}%`);
       if (isoFrom && isoTo)  { q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo); }
       else if (isoFrom)      { q = q.gte('receive_date', isoFrom); }
@@ -1176,7 +1792,7 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
     };
     // ดึงทุก field ที่ต้องใช้กรอง blank+dedup เพื่อให้ stat card ตรงกับ displayRows ในตาราง
     const [data, minResult, maxResult] = await Promise.all([
-      fetchAllRows(() => applyFilters(supabase.from('receive_logs').select('drug_name, drug_code, lot, exp, bill_number, receive_date, qty_received, total_price_vat'))),
+      fetchAllRows(() => applyFilters(supabase.from('receive_logs').select('id, drug_name, drug_code, lot, exp, bill_number, supplier_current, receive_date, qty_received, total_price_vat'))),
       applyFilters(supabase.from('receive_logs').select('receive_date').not('receive_date', 'is', null).order('receive_date', { ascending: true }).limit(1)),
       applyFilters(supabase.from('receive_logs').select('receive_date').not('receive_date', 'is', null).order('receive_date', { ascending: false }).limit(1)),
     ]);
@@ -1193,11 +1809,13 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
       seen.add(key);
       return true;
     });
-    const totalQty   = filtered.reduce((s, r) => s + (r.qty_received    || 0), 0);
+    // นับ "บิลจริง" ด้วย composite key (bill_number|supplier|receive_date) — เลขบิลไม่ unique (Rule #19)
+    // ไม่รวม qty ดิบข้ามหน่วย (กล่อง/ขวด/เม็ด/amp ปนกัน = ไร้ความหมายทางคลัง) — ใช้จำนวนบิลแทน
+    const billCount  = new Set(filtered.map(billGroupKey)).size;
     const totalValue = filtered.reduce((s, r) => s + (r.total_price_vat || 0), 0);
     const minDate = minResult.data?.[0]?.receive_date || null;
     const maxDate = maxResult.data?.[0]?.receive_date || null;
-    setAggStats({ count: filtered.length, totalQty, totalValue, minDate, maxDate });
+    setAggStats({ count: filtered.length, billCount, totalValue, minDate, maxDate });
   }, [search, supplierFilter, dateFrom, dateTo]);
 
   useEffect(() => { const t = setTimeout(loadAgg, 300); return () => clearTimeout(t); }, [loadAgg]);
@@ -1210,6 +1828,7 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
       const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
       const allRows = await fetchAllRows(() => {
         let q = supabase.from('receive_logs').select('*')
+          .neq('receive_status', 'สแกนบิล AI') // export ตรงกับตาราง — ไม่รวมบิลสแกน (Rule #6)
           .order('receive_date', { ascending: false })
           .order('id', { ascending: false });
         if (search.trim())  q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%,bill_number.ilike.%${search}%`);
@@ -1375,52 +1994,35 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
 
   const clearAll = () => { clearSearch(); setSupplier(''); setSupplierSearch(''); setDateFrom(''); setDateTo(''); };
 
-  const deleteBlankRows = async () => {
-    if (!supabase) return;
-    if (!window.confirm('ลบ row ที่ชื่อยาเป็น (blank) หรือ - ออกจากฐานข้อมูล?')) return;
-    const { error, count } = await supabase
-      .from('receive_logs')
-      .delete({ count: 'exact' })
-      .or('drug_name.ilike.(blank),drug_name.eq.-,drug_name.is.null');
-    if (error) { alert('เกิดข้อผิดพลาด: ' + error.message); return; }
-    await insertAuditLog({
-      action: 'delete_receive', table_name: 'receive_logs',
-      user_name: resolveAuditUserName(auth), department: auth?.department || '-',
-      record_count: count ?? null,
-      details: { reason: 'cleanup_blank_rows' },
-    });
-    alert('ลบเรียบร้อย');
-    load();
-  };
 
   return (
     <div className="p-4 space-y-4 max-w-5xl mx-auto">
       {/* Filter card */}
-      <div className="bg-white/95 backdrop-blur border border-slate-200 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
+      <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
         <div className="flex flex-wrap gap-2">
           <div className="relative flex-[2] min-w-[160px]" ref={searchRef}>
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input
               type="text"
               value={search}
               onChange={e => { setSearch(e.target.value); setSelectedDrug(''); setDrugRows([]); setPage(0); setShowDropdown(true); }}
               onFocus={() => { if (search.trim()) setShowDropdown(true); }}
               placeholder="ค้นหาชื่อยา, รหัส, Lot, เลขบิล..."
-              className="w-full bg-white border border-slate-300 rounded-xl pl-9 pr-4 py-2 text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl pl-9 pr-4 py-2 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
             />
             {search && (
-              <button onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <button onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
                 <X size={14}/>
               </button>
             )}
             {/* Dropdown ชื่อยา */}
             {showDropdown && filteredDrugs.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 overflow-hidden">
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg z-20 overflow-hidden">
                 {filteredDrugs.map(({ name, type }) => (
                   <button
                     key={name}
                     onMouseDown={e => { e.preventDefault(); selectDrug(name); }}
-                    className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors border-b border-slate-100 last:border-0"
+                    className="w-full text-left px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:text-emerald-700 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-0"
                   >
                     <div className="flex items-center gap-2 flex-wrap">
                       <span>{name}</span>
@@ -1438,25 +2040,25 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
               onChange={e => { setSupplierSearch(e.target.value); setShowSupplierDd(true); }}
               onFocus={() => setShowSupplierDd(true)}
               placeholder={supplierFilter || 'ค้นหาบริษัท...'}
-              className={`bg-white border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 w-64 ${supplierFilter ? 'border-emerald-400 text-emerald-700 font-medium' : 'border-slate-300 text-slate-800'}`}
+              className={`bg-white dark:bg-slate-900 border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 w-64 ${supplierFilter ? 'border-emerald-400 text-emerald-700 dark:text-emerald-300 font-medium' : 'border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-100'}`}
             />
             {supplierFilter && (
               <button onClick={() => { setSupplier(''); setSupplierSearch(''); setPage(0); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
                 <X size={14}/>
               </button>
             )}
             {showSupplierDd && (
-              <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-30 w-64 max-h-60 overflow-y-auto">
+              <div className="absolute top-full left-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg z-30 w-64 max-h-60 overflow-y-auto">
                 <button onMouseDown={e => { e.preventDefault(); setSupplier(''); setSupplierSearch(''); setShowSupplierDd(false); setPage(0); }}
-                  className="w-full text-left px-3 py-2 text-sm text-slate-500 hover:bg-slate-50 border-b border-slate-100">
+                  className="w-full text-left px-3 py-2 text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 border-b border-slate-100 dark:border-slate-800">
                   ทุกบริษัท
                 </button>
                 {suppliers
                   .filter(s => !supplierSearch || s.toLowerCase().includes(supplierSearch.toLowerCase()))
                   .map(s => (
                     <button key={s} onMouseDown={e => { e.preventDefault(); setSupplier(s); setSupplierSearch(''); setShowSupplierDd(false); setPage(0); }}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-emerald-50 hover:text-emerald-700 border-b border-slate-100 last:border-0 ${supplierFilter === s ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-slate-700'}`}>
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:text-emerald-700 border-b border-slate-100 dark:border-slate-800 last:border-0 ${supplierFilter === s ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold' : 'text-slate-700 dark:text-slate-200'}`}>
                       {s}
                     </button>
                   ))
@@ -1464,7 +2066,7 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
               </div>
             )}
           </div>
-          <button onClick={clearAll} className="text-slate-400 hover:text-slate-600 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
+          <button onClick={clearAll} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
             <RefreshCcw size={16}/>
           </button>
           <button
@@ -1474,29 +2076,24 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
             title="ส่งออก Excel ทุกแถว">
             <FileDown size={14} /> {exportLoading ? 'กำลังโหลด...' : 'Excel'}
           </button>
-          {isAdmin && (
-            <button onClick={deleteBlankRows} className="text-rose-400 hover:text-rose-600 text-xs px-2 py-1.5 rounded-lg border border-rose-200 hover:bg-rose-50 transition-colors" title="ลบ row ที่เป็น (blank)">
-              ลบ blank
-            </button>
-          )}
         </div>
         {/* Date range */}
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          <span className="text-xs text-slate-500 font-medium">ตั้งแต่</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">ตั้งแต่</span>
           <ThaiDateInput value={dateFrom} onChange={v => { setDateFrom(v); setPage(0); }} />
-          <span className="text-xs text-slate-400">ถึง</span>
+          <span className="text-xs text-slate-400 dark:text-slate-500">ถึง</span>
           <ThaiDateInput value={dateTo} onChange={v => { setDateTo(v); setPage(0); }}
             placeholder={dateFrom ? isoToThai(new Date().toISOString().split('T')[0]) : 'dd/mm/yyyy'} />
           {(dateFrom || dateTo) && (
             <button onClick={() => { setDateFrom(''); setDateTo(''); setPage(0); }}
-              className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1"><X size={12}/>ล้างวันที่</button>
+              className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1"><X size={12}/>ล้างวันที่</button>
           )}
         </div>
       </div>
 
       {/* ตารางประวัติรับยาที่เลือก */}
       {selectedDrug && (
-        <div className="bg-white border border-emerald-300 rounded-xl shadow-md overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-800/60 rounded-xl shadow-md overflow-hidden">
           {/* Header */}
           <div className="bg-emerald-700 px-4 py-3">
             <div className="flex items-start justify-between gap-3">
@@ -1521,40 +2118,41 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
 
           {/* Summary cards */}
           <div className="grid grid-cols-3 gap-3 px-4 py-3">
-            <div className="bg-slate-700 border border-slate-600 rounded-xl p-3 text-center shadow-sm">
-              <p className="text-2xl font-bold text-white">{filteredDrugRows.length.toLocaleString()}</p>
+            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
+              <p className="text-2xl font-bold text-white tabular-nums">{filteredDrugRows.length.toLocaleString()}</p>
               <p className="text-xs text-slate-300 mt-0.5">รายการ (กรอง)</p>
             </div>
-            <div className="bg-emerald-700 border border-emerald-600 rounded-xl p-3 text-center shadow-sm">
-              <p className="text-2xl font-bold text-white">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-              <p className="text-xs text-emerald-200 mt-0.5">ปริมาณรับรวม</p>
+            <div className="relative overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-700 rounded-2xl p-3.5 text-center shadow-lg shadow-emerald-300/60">
+              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
+              <p className="relative text-2xl font-bold text-white tabular-nums">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+              <p className="relative text-xs text-emerald-50 mt-0.5">ปริมาณรับรวม</p>
             </div>
-            <div className="bg-amber-600 border border-amber-500 rounded-xl p-3 text-center shadow-sm">
-              <p className="text-2xl font-bold text-white">{drugTotalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-              <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวมภาษี (บาท)</p>
+            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
+              <p className="text-2xl font-bold text-white tabular-nums">{drugTotalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+              <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวมภาษี (บาท)</p>
             </div>
           </div>
 
           {/* Table */}
           {drugLoading ? (
-            <p className="text-center text-slate-400 py-8 text-sm">กำลังโหลด...</p>
+            <p className="text-center text-slate-400 dark:text-slate-500 py-8 text-sm">กำลังโหลด...</p>
           ) : filteredDrugRows.length === 0 ? (
-            <p className="text-center text-slate-400 py-8 text-sm">ไม่พบข้อมูลในช่วงที่เลือก</p>
+            <p className="text-center text-slate-400 dark:text-slate-500 py-8 text-sm">ไม่พบข้อมูลในช่วงที่เลือก</p>
           ) : (
             <div className="overflow-x-auto overflow-y-auto max-h-[480px]">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-[5]">
-                  <tr className="text-xs text-white font-bold border-b border-slate-600">
-                    <th className="px-4 py-2.5 text-left bg-slate-700">วันที่รับ</th>
-                    <th className="px-4 py-2.5 text-right bg-slate-700">จำนวน</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-700">หน่วย</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-700">Lot</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-700">Exp</th>
-                    <th className="px-4 py-2.5 text-right bg-slate-700">ราคา/หน่วย</th>
-                    <th className="px-4 py-2.5 text-right bg-slate-700">มูลค่ารวมภาษี (บาท)</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-700">บริษัท</th>
-                    <th className="px-4 py-2.5 text-left bg-slate-700">เลขบิล</th>
-                    <th className="px-4 py-2.5 w-6 bg-slate-700"></th>
+                  <tr className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
+                    <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">วันที่รับ</th>
+                    <th className="px-4 py-3.5 text-right bg-slate-50 dark:bg-slate-800/80">จำนวน</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">หน่วย</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">Lot</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">Exp</th>
+                    <th className="px-4 py-3.5 text-right bg-slate-50 dark:bg-slate-800/80">ราคา/หน่วย</th>
+                    <th className="px-4 py-3.5 text-right bg-slate-50 dark:bg-slate-800/80">มูลค่ารวมภาษี (บาท)</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">บริษัท</th>
+                    <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">เลขบิล</th>
+                    <th className="px-4 py-3.5 w-6 bg-slate-50 dark:bg-slate-800/80"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1562,27 +2160,37 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
                     <React.Fragment key={r.id}>
                       <tr
                         onClick={() => setDrugExpanded(drugExpanded === r.id ? null : r.id)}
-                        className={`border-b border-slate-200 cursor-pointer transition-colors ${drugExpanded === r.id ? 'bg-emerald-100' : i % 2 === 0 ? 'hover:bg-emerald-50' : 'bg-slate-50 hover:bg-emerald-50'}`}
+                        className={`border-b border-slate-50 cursor-pointer transition-colors ${drugExpanded === r.id ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'hover:bg-emerald-50 dark:hover:bg-emerald-950/50'}`}
                       >
-                        <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(r.receive_date)}</td>
-                        <td className="px-4 py-2.5 text-emerald-800 font-bold text-right whitespace-nowrap">{r.qty_received ? `+${r.qty_received.toLocaleString()}` : '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{r.drug_unit || r.unit_per_bill || '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{r.lot || '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
-                        <td className="px-4 py-2.5 text-slate-800 font-medium text-right whitespace-nowrap">{r.price_per_unit != null ? Number(r.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                        <td className="px-4 py-2.5 text-amber-800 font-bold text-right whitespace-nowrap">{r.total_price_vat != null ? Number(r.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                        <td className="px-4 py-2.5 max-w-[160px]">
-                          <span className="text-slate-800 font-medium truncate block text-xs">
+                        <td className="px-4 py-3 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDate(r.receive_date)}</td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          {r.qty_received ? <span className="inline-flex items-center justify-end rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold px-2.5 py-0.5 text-xs tabular-nums">+{r.qty_received.toLocaleString()}</span> : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap font-medium">{r.drug_unit || r.unit_per_bill || '-'}</td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{r.lot || '-'}</td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
+                        <td className="px-4 py-3 text-slate-800 dark:text-slate-100 font-medium text-right whitespace-nowrap tabular-nums">{r.price_per_unit != null ? Number(r.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                        <td className="px-4 py-3 text-amber-800 dark:text-amber-300 font-bold text-right whitespace-nowrap tabular-nums">{r.total_price_vat != null ? Number(r.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                        <td className="px-4 py-3 max-w-[160px]">
+                          <span className="text-slate-800 dark:text-slate-100 font-medium truncate block text-xs">
                             {getDetailSupplier(r) || r.supplier_current || '-'}
                           </span>
+                          {r.supplier_changed && r.supplier_changed !== '-' && (
+                            <span
+                              title={r.supplier_prev && r.supplier_prev !== '-' ? `เดิม: ${r.supplier_prev}` : 'เปลี่ยนบริษัทจากเดิม'}
+                              className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-900/60"
+                            >
+                              <ArrowLeftRight size={10}/> เปลี่ยนบริษัท
+                            </span>
+                          )}
                         </td>
-                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{r.bill_number || '-'}</td>
-                        <td className="px-4 py-2.5 text-slate-500">
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{r.bill_number || '-'}</td>
+                        <td className="px-4 py-3 text-slate-400 dark:text-slate-500">
                           {drugExpanded === r.id ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
                         </td>
                       </tr>
                       {drugExpanded === r.id && (
-                        <tr className="bg-emerald-50/70 border-b border-emerald-100">
+                        <tr className="bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-100 dark:border-emerald-900/50">
                           <td colSpan={10} className="px-6 py-3">
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-1.5 text-sm">
                               {[
@@ -1595,13 +2203,12 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
                                 ['สถานะตรวจรับ',      r.receive_status],
                                 ['รูปแบบ',            r.drug_type],
                                 ['บริษัทก่อนหน้า',    r.supplier_prev && r.supplier_prev !== '-' ? r.supplier_prev : null],
-                                ['เคยเปลี่ยนบริษัท',  r.supplier_changed && r.supplier_changed !== '-' ? r.supplier_changed : null],
                                 ['หมายเหตุหมดอายุ',   r.exp_note],
                                 ['ราคารวมภาษี/สูตร',  r.total_price_formula],
                               ].map(([label, val]) => val != null && val !== '-' && val !== '' ? (
                                 <div key={label}>
-                                  <span className="text-slate-400 text-xs">{label}: </span>
-                                  <span className="text-slate-700 font-medium">{val}</span>
+                                  <span className="text-slate-400 dark:text-slate-500 text-xs">{label}: </span>
+                                  <span className={label === 'บริษัทก่อนหน้า' ? 'text-orange-700 dark:text-orange-300 font-medium' : 'text-slate-700 dark:text-slate-200 font-medium'}>{val}</span>
                                 </div>
                               ) : null)}
                             </div>
@@ -1612,12 +2219,12 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="bg-emerald-50 border-t-2 border-emerald-200 font-semibold text-sm">
-                    <td className="px-4 py-2.5 text-slate-700">รวม {filteredDrugRows.length} รายการ</td>
-                    <td className="px-4 py-2.5 text-emerald-700 text-right">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-                    <td className="px-4 py-2.5 text-slate-500 text-xs">{drugUnit}</td>
+                  <tr className="bg-emerald-50 dark:bg-emerald-950/40 border-t-2 border-emerald-200 dark:border-emerald-900/60 font-semibold text-sm">
+                    <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200">รวม {filteredDrugRows.length} รายการ</td>
+                    <td className="px-4 py-2.5 text-emerald-700 dark:text-emerald-300 text-right">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+                    <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 text-xs">{drugUnit}</td>
                     <td colSpan={3}></td>
-                    <td className="px-4 py-2.5 text-amber-700 text-right">{drugTotalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+                    <td className="px-4 py-2.5 text-amber-700 dark:text-amber-300 text-right">{drugTotalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
                     <td colSpan={3}></td>
                   </tr>
                 </tfoot>
@@ -1630,41 +2237,42 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
       {!selectedDrug && rows.length > 0 && (
         <div className="space-y-2">
           {aggStats?.minDate && aggStats?.maxDate && (
-            <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 flex-wrap">
-              <CalendarDays size={13} className="text-slate-400 shrink-0" />
-              <span>ข้อมูลตั้งแต่ <span className="font-semibold text-slate-700">{isoToThai(aggStats.minDate)}</span> – <span className="font-semibold text-slate-700">{isoToThai(aggStats.maxDate)}</span></span>
-              <span className="text-slate-400">·</span>
-              <span className="text-slate-600">{dateDiff(aggStats.minDate, aggStats.maxDate)}</span>
+            <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 flex-wrap">
+              <CalendarDays size={13} className="text-slate-400 dark:text-slate-500 shrink-0" />
+              <span>ข้อมูลตั้งแต่ <span className="font-semibold text-slate-700 dark:text-slate-200">{isoToThai(aggStats.minDate)}</span> – <span className="font-semibold text-slate-700 dark:text-slate-200">{isoToThai(aggStats.maxDate)}</span></span>
+              <span className="text-slate-400 dark:text-slate-500">·</span>
+              <span className="text-slate-600 dark:text-slate-300">{dateDiff(aggStats.minDate, aggStats.maxDate)}</span>
             </div>
           )}
         <div className="grid grid-cols-3 gap-3">
-          <div className="bg-slate-700 border border-slate-600 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-white">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
+          <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
+            <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
             <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
           </div>
-          <div className="bg-emerald-700 border border-emerald-600 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-white">{aggStats ? aggStats.totalQty.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
-            <p className="text-xs text-emerald-200 mt-0.5">ปริมาณรับรวม{supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
+          <div className="relative overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-700 rounded-2xl p-3.5 text-center shadow-lg shadow-emerald-300/60">
+            <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
+            <p className="relative text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.billCount.toLocaleString() : '...'}</p>
+            <p className="relative text-xs text-emerald-50 mt-0.5">จำนวนบิล{supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
           </div>
-          <div className="bg-amber-600 border border-amber-500 rounded-xl p-3 text-center shadow-sm">
-            <p className="text-2xl font-bold text-white">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
-            <p className="text-xs text-amber-100 mt-0.5">มูลค่ารวมภาษี (บาท){supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
+          <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
+            <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
+            <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวมภาษี (บาท){supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
           </div>
         </div>
         </div>
       )}
 
-      {!selectedDrug && loading && <p className="text-center text-slate-400 py-10">กำลังโหลด...</p>}
+      {!selectedDrug && loading && <p className="text-center text-slate-400 dark:text-slate-500 py-10">กำลังโหลด...</p>}
       {!selectedDrug && !loading && rows.length === 0 && (
-        <div className="text-center text-slate-400 py-20">
+        <div className="text-center text-slate-400 dark:text-slate-500 py-20">
           <TrendingUp size={48} className="mx-auto mb-3 opacity-30" />
           <p>ไม่พบข้อมูล{hasFilter ? ' — ลองเปลี่ยนตัวกรอง' : ' — กด Import CSV เพื่อนำเข้าข้อมูล'}</p>
         </div>
       )}
       {!selectedDrug && !loading && rows.length > 0 && displayRows.length === 0 && supplierFilter && (
-        <div className="text-center text-slate-400 py-16 bg-white border border-slate-200 rounded-2xl">
+        <div className="text-center text-slate-400 dark:text-slate-500 py-16 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl">
           <Search size={40} className="mx-auto mb-3 opacity-30" />
-          <p className="text-sm">ไม่พบรายการของบริษัท <span className="font-semibold text-slate-600">"{supplierFilter}"</span> ในช่วงนี้</p>
+          <p className="text-sm">ไม่พบรายการของบริษัท <span className="font-semibold text-slate-600 dark:text-slate-300">"{supplierFilter}"</span> ในช่วงนี้</p>
           <button onClick={() => setSupplier('')} className="mt-3 text-xs text-indigo-600 hover:text-indigo-800 underline">ล้างตัวกรองบริษัท</button>
         </div>
       )}
@@ -1673,29 +2281,34 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
       {mobileDetail && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setMobileDetail(null)}>
           <div className="absolute inset-0 bg-black/40" />
-          <div className="relative bg-white rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="relative bg-white dark:bg-slate-900 rounded-t-2xl shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
             {/* handle */}
             <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 bg-slate-300 rounded-full"/></div>
             {/* header */}
-            <div className="px-4 pb-3 border-b border-slate-100">
-              <p className="font-bold text-slate-900 text-base leading-tight">{mobileDetail.drug_name}</p>
-              <p className="text-xs text-slate-500 mt-0.5">{mobileDetail.drug_code} · {fmtDate(mobileDetail.receive_date)}</p>
+            <div className="px-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <p className="font-bold text-slate-900 dark:text-slate-50 text-base leading-tight">{mobileDetail.drug_name}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{mobileDetail.drug_code} · {fmtDate(mobileDetail.receive_date)}</p>
+              {mobileDetail.supplier_changed && mobileDetail.supplier_changed !== '-' && (
+                <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-900/60">
+                  <ArrowLeftRight size={11}/> เปลี่ยนบริษัท{mobileDetail.supplier_prev && mobileDetail.supplier_prev !== '-' ? ` (เดิม: ${mobileDetail.supplier_prev})` : ''}
+                </span>
+              )}
             </div>
             {/* body */}
             <div className="overflow-y-auto px-4 py-3 space-y-3">
               {/* key stats */}
               <div className="grid grid-cols-3 gap-2">
-                <div className="bg-emerald-50 rounded-xl p-2.5 text-center">
-                  <p className="text-lg font-bold text-emerald-700">+{(mobileDetail.qty_received||0).toLocaleString()}</p>
+                <div className="bg-emerald-50 dark:bg-emerald-950/40 rounded-xl p-2.5 text-center">
+                  <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">+{(mobileDetail.qty_received||0).toLocaleString()}</p>
                   <p className="text-[10px] text-emerald-600">{mobileDetail.drug_unit || mobileDetail.unit_per_bill || '-'}</p>
                 </div>
-                <div className="bg-amber-50 rounded-xl p-2.5 text-center">
-                  <p className="text-base font-bold text-amber-700">{mobileDetail.total_price_vat != null ? Number(mobileDetail.total_price_vat).toLocaleString(undefined,{maximumFractionDigits:0}) : '-'}</p>
+                <div className="bg-amber-50 dark:bg-amber-950/40 rounded-xl p-2.5 text-center">
+                  <p className="text-base font-bold text-amber-700 dark:text-amber-300">{mobileDetail.total_price_vat != null ? Number(mobileDetail.total_price_vat).toLocaleString(undefined,{maximumFractionDigits:0}) : '-'}</p>
                   <p className="text-[10px] text-amber-600">มูลค่า (บาท)</p>
                 </div>
-                <div className="bg-slate-50 rounded-xl p-2.5 text-center">
-                  <p className="text-base font-bold text-slate-700">{mobileDetail.price_per_unit != null ? Number(mobileDetail.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</p>
-                  <p className="text-[10px] text-slate-500">ราคา/หน่วย</p>
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-2.5 text-center">
+                  <p className="text-base font-bold text-slate-700 dark:text-slate-200">{mobileDetail.price_per_unit != null ? Number(mobileDetail.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">ราคา/หน่วย</p>
                 </div>
               </div>
               {/* detail fields */}
@@ -1716,16 +2329,16 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
                   ['ราคารวมภาษี/สูตร', mobileDetail.total_price_formula],
                   ['หมายเหตุหมดอายุ', mobileDetail.exp_note],
                 ].filter(([, val]) => val != null && val !== '-' && val !== '').map(([label, val]) => (
-                  <div key={label} className="flex justify-between items-start gap-2 py-1.5 border-b border-slate-100 last:border-0">
-                    <span className="text-xs text-slate-400 shrink-0">{label}</span>
-                    <span className="text-sm text-slate-800 font-medium text-right">{val}</span>
+                  <div key={label} className="flex justify-between items-start gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-0">
+                    <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0">{label}</span>
+                    <span className="text-sm text-slate-800 dark:text-slate-100 font-medium text-right">{val}</span>
                   </div>
                 ))}
               </div>
             </div>
             {/* close */}
-            <div className="px-4 py-3 border-t border-slate-100">
-              <button onClick={() => setMobileDetail(null)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl py-2.5 text-sm font-medium transition-colors">ปิด</button>
+            <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800">
+              <button onClick={() => setMobileDetail(null)} className="w-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl py-2.5 text-sm font-medium transition-colors">ปิด</button>
             </div>
           </div>
         </div>
@@ -1736,20 +2349,26 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
         <div className="space-y-2">
           {displayRows.map(row => (
             <button key={row.id} onClick={() => setMobileDetail(row)}
-              className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm text-left active:bg-emerald-50 transition-colors">
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3 shadow-sm text-left active:bg-emerald-50 transition-colors">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-slate-900 text-sm leading-tight truncate">{row.drug_name}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{row.drug_code} · {fmtDate(row.receive_date)}</p>
+                  <p className="font-semibold text-slate-900 dark:text-slate-50 text-sm leading-tight truncate">{row.drug_name}</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{row.drug_code} · {fmtDate(row.receive_date)}</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-emerald-700 font-bold text-sm">+{(row.qty_received||0).toLocaleString()}</p>
-                  <p className="text-[10px] text-slate-400">{row.drug_unit || row.unit_per_bill || '-'}</p>
+                  <span className="inline-flex items-center rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold px-2.5 py-0.5 text-xs tabular-nums">+{(row.qty_received||0).toLocaleString()}</span>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{row.drug_unit || row.unit_per_bill || '-'}</p>
                 </div>
               </div>
+              {((row.lot && row.lot !== '-') || (row.exp && row.exp !== '-')) && (
+                <div className="flex items-center gap-1.5 mt-2 text-[11px]">
+                  {row.lot && row.lot !== '-' && <span className="font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md">Lot {row.lot}</span>}
+                  {row.exp && row.exp !== '-' && <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md">Exp {fmtAnyDate(row.exp)}</span>}
+                </div>
+              )}
               <div className="flex items-center justify-between mt-2">
-                <span className="text-xs text-slate-500 truncate max-w-[60%]">{getDetailSupplier(row) || row.supplier_current || '-'}</span>
-                <span className="text-amber-700 font-bold text-sm">
+                <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[60%]">{getDetailSupplier(row) || row.supplier_current || '-'}</span>
+                <span className="text-amber-700 dark:text-amber-300 font-bold text-sm">
                   {row.total_price_vat != null ? Number(row.total_price_vat).toLocaleString(undefined,{maximumFractionDigits:0}) + ' ฿' : '-'}
                 </span>
               </div>
@@ -1759,23 +2378,23 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
       )}
 
       {!selectedDrug && rows.length > 0 && !isMobile && (
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-260px)]">
             <table className="w-full min-w-[900px] text-sm">
               <thead className="sticky top-0 z-[5]">
-                <tr className="text-xs text-white font-bold border-b border-slate-600">
-                  <th className="px-4 py-2.5 text-left bg-slate-700">วันที่รับ</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">ชื่อรายการยา</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">ชนิดยา</th>
-                  <th className="px-4 py-2.5 text-right bg-slate-700">จำนวน</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">หน่วย</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">Lot</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">Exp</th>
-                  <th className="px-4 py-2.5 text-right bg-slate-700">ราคา/หน่วย</th>
-                  <th className="px-4 py-2.5 text-right bg-slate-700">มูลค่ารวมภาษี (บาท)</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">บริษัท</th>
-                  <th className="px-4 py-2.5 text-left bg-slate-700">เลขบิล</th>
-                  <th className="px-4 py-2.5 w-8 bg-slate-700"></th>
+                <tr className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide border-b border-slate-200 dark:border-slate-700">
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">วันที่รับ</th>
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">ชื่อรายการยา</th>
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">ชนิดยา</th>
+                  <th className="px-4 py-3 text-right bg-slate-50 dark:bg-slate-800">จำนวน</th>
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">หน่วย</th>
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">Lot</th>
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">Exp</th>
+                  <th className="px-4 py-3 text-right bg-slate-50 dark:bg-slate-800">ราคา/หน่วย</th>
+                  <th className="px-4 py-3 text-right bg-slate-50 dark:bg-slate-800">มูลค่ารวมภาษี (บาท)</th>
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">บริษัท</th>
+                  <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">เลขบิล</th>
+                  <th className="px-4 py-3 w-8 bg-slate-50 dark:bg-slate-800"></th>
                 </tr>
               </thead>
               <tbody>
@@ -1783,30 +2402,38 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
                   <React.Fragment key={row.id}>
                     <tr
                       onClick={() => setExpanded(expanded === row.id ? null : row.id)}
-                      className={`border-b border-slate-200 cursor-pointer transition-colors ${expanded === row.id ? 'bg-emerald-100' : i % 2 === 0 ? 'hover:bg-emerald-50' : 'bg-slate-50 hover:bg-emerald-50'}`}
+                      className={`border-b border-slate-100 dark:border-slate-800 cursor-pointer transition-colors ${expanded === row.id ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'hover:bg-emerald-50 dark:hover:bg-emerald-950/50'}`}
                     >
-                      <td className="px-4 py-2.5 text-slate-800 whitespace-nowrap font-medium">{fmtDate(row.receive_date)}</td>
-                      <td className="px-4 py-2.5 font-semibold text-slate-900 max-w-[220px]">
+                      <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDate(row.receive_date)}</td>
+                      <td className="px-4 py-2.5 font-semibold text-slate-900 dark:text-slate-50 max-w-[220px]">
                         <span className="block truncate">{row.drug_name}</span>
-                        <span className="text-xs text-slate-600 font-normal">{row.drug_code}</span>
+                        <span className="text-xs text-slate-600 dark:text-slate-300 font-normal">{row.drug_code}</span>
                       </td>
-                      <td className="px-4 py-2.5 text-slate-600 text-xs whitespace-nowrap">{row.drug_type || '-'}</td>
-                      <td className="px-4 py-2.5 text-emerald-800 font-bold text-right whitespace-nowrap">+{(row.qty_received || 0).toLocaleString()}</td>
-                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap font-medium">{row.drug_unit || row.unit_per_bill || '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{row.lot || '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>
-                      <td className="px-4 py-2.5 text-slate-800 font-medium text-right whitespace-nowrap">{row.price_per_unit != null ? Number(row.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-2.5 text-amber-800 font-bold text-right whitespace-nowrap">{row.total_price_vat != null ? Number(row.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-800 max-w-[160px] truncate font-medium text-xs">
-                        {getDetailSupplier(row) || row.supplier_current || '-'}
+                      <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300 text-xs whitespace-nowrap">{row.drug_type || '-'}</td>
+                      <td className="px-4 py-2.5 text-emerald-800 dark:text-emerald-300 font-bold text-right whitespace-nowrap">+{(row.qty_received || 0).toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap font-medium">{row.drug_unit || row.unit_per_bill || '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{row.lot || '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>
+                      <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 font-medium text-right whitespace-nowrap">{row.price_per_unit != null ? Number(row.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                      <td className="px-4 py-2.5 text-amber-800 dark:text-amber-300 font-bold text-right whitespace-nowrap">{row.total_price_vat != null ? Number(row.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 max-w-[160px] font-medium text-xs">
+                        <span className="block truncate">{getDetailSupplier(row) || row.supplier_current || '-'}</span>
+                        {row.supplier_changed && row.supplier_changed !== '-' && (
+                          <span
+                            title={row.supplier_prev && row.supplier_prev !== '-' ? `เดิม: ${row.supplier_prev}` : 'เปลี่ยนบริษัทจากเดิม'}
+                            className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-900/60"
+                          >
+                            <ArrowLeftRight size={10}/> เปลี่ยนบริษัท
+                          </span>
+                        )}
                       </td>
-                      <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">{row.bill_number || '-'}</td>
-                      <td className="px-4 py-2.5 text-slate-500">
+                      <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{row.bill_number || '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">
                         {expanded === row.id ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
                       </td>
                     </tr>
                     {expanded === row.id && (
-                      <tr className="bg-emerald-50/60 border-b border-emerald-100">
+                      <tr className="bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-100 dark:border-emerald-900/50">
                         <td colSpan={12} className="px-6 py-3">
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-1.5 text-sm">
                             {[
@@ -1818,14 +2445,13 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
                               ['ประเภทการซื้อ',      row.purchase_type],
                               ['สถานะตรวจรับ',      row.receive_status],
                               ['รูปแบบ',            row.drug_type],
-                              ['บริษัทก่อนหน้า',    row.supplier_prev],
-                              ['เปลี่ยนบริษัท',     row.supplier_changed],
+                              ['บริษัทก่อนหน้า',    row.supplier_changed && row.supplier_changed !== '-' ? row.supplier_prev : null],
                               ['หมายเหตุหมดอายุ',   row.exp_note],
                               ['ราคารวมภาษี/สูตร',  row.total_price_formula],
                             ].map(([label, val]) => val != null && val !== '-' && val !== '' ? (
                               <div key={label}>
-                                <span className="text-slate-400 text-xs">{label}: </span>
-                                <span className="text-slate-700 font-medium">{val}</span>
+                                <span className="text-slate-400 dark:text-slate-500 text-xs">{label}: </span>
+                                <span className={label === 'บริษัทก่อนหน้า' ? 'text-orange-700 dark:text-orange-300 font-medium' : 'text-slate-700 dark:text-slate-200 font-medium'}>{val}</span>
                               </div>
                             ) : null)}
                           </div>
@@ -1844,9 +2470,9 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
         const totalPages = aggStats ? Math.ceil(aggStats.count / PAGE_SIZE) : null;
         return (
           <div className="flex items-center gap-3 justify-center pt-2 flex-wrap">
-            {page > 0 && <button onClick={() => setPage(p => p-1)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl px-4 py-2 text-sm shadow-sm">← ก่อนหน้า</button>}
+            {page > 0 && <button onClick={() => setPage(p => p-1)} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl px-4 py-2 text-sm shadow-sm">← ก่อนหน้า</button>}
             {aggStats && (
-              <div className="flex items-center gap-1.5 text-xs text-slate-500">
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                 <span>หน้า</span>
                 <input
                   type="number" min={1} max={totalPages || undefined}
@@ -1861,13 +2487,13 @@ function ReceiveView({ isAdmin = false, auth = {} }) {
                     const v = parseInt(e.target.value, 10);
                     if (v >= 1 && (!totalPages || v <= totalPages)) setPage(v - 1);
                   }}
-                  className="w-14 text-center border border-slate-300 rounded-lg px-1 py-1 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                  className="w-14 text-center border border-slate-300 dark:border-slate-600 rounded-lg px-1 py-1 text-xs bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-400"
                 />
                 <span>/ {totalPages}</span>
-                <span className="text-slate-400 ml-1">({aggStats.count.toLocaleString()} รายการ)</span>
+                <span className="text-slate-400 dark:text-slate-500 ml-1">({aggStats.count.toLocaleString()} รายการ)</span>
               </div>
             )}
-            {rows.length === PAGE_SIZE && <button onClick={() => setPage(p => p+1)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl px-4 py-2 text-sm shadow-sm">ถัดไป →</button>}
+            {rows.length === PAGE_SIZE && <button onClick={() => setPage(p => p+1)} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl px-4 py-2 text-sm shadow-sm">ถัดไป →</button>}
           </div>
         );
       })()}
@@ -1890,6 +2516,7 @@ function ReceiveSummaryModal({ onClose }) {
   const [allTimeTotal, setAllTimeTotal]           = useState(null);
   const [allTimeValue, setAllTimeValue]           = useState(null);
   const [allTimeUniqueDays, setAllTimeUniqueDays] = useState(null);
+  const [dataRange, setDataRange]                 = useState({ from: '', to: '' }); // ช่วงข้อมูลจริง (วันแรก–วันล่าสุด)
 
   useEffect(() => {
     if (!supabase) return;
@@ -1904,11 +2531,11 @@ function ReceiveSummaryModal({ onClose }) {
       setAllTimeValue(data.reduce((s, r) => s + (r.total_price_vat || 0), 0));
       setAllTimeUniqueDays(new Set(data.map(r => r.receive_date).filter(Boolean)).size);
     });
-    // วันแรก–วันล่าสุด → set dateFrom/dateTo อัตโนมัติ
+    // วันแรก–วันล่าสุด → set dateFrom/dateTo อัตโนมัติ + เก็บช่วงข้อมูลจริงไว้แสดง
     supabase.from('receive_logs').select('receive_date').order('receive_date', { ascending: true  }).limit(1)
-      .then(({ data }) => { if (data?.[0]?.receive_date) setDateFrom(isoToThai(data[0].receive_date)); });
+      .then(({ data }) => { if (data?.[0]?.receive_date) { const t = isoToThai(data[0].receive_date); setDateFrom(t); setDataRange(r => ({ ...r, from: t })); } });
     supabase.from('receive_logs').select('receive_date').order('receive_date', { ascending: false }).limit(1)
-      .then(({ data }) => { if (data?.[0]?.receive_date) setDateTo(isoToThai(data[0].receive_date)); });
+      .then(({ data }) => { if (data?.[0]?.receive_date) { const t = isoToThai(data[0].receive_date); setDateTo(t); setDataRange(r => ({ ...r, to: t })); } });
   }, []);
 
   useEffect(() => {
@@ -1954,6 +2581,21 @@ function ReceiveSummaryModal({ onClose }) {
       return Object.entries(map).sort((a, b) => b[1] - a[1]);
     };
 
+    // --- map "เต็ม" ต่อยา (ทุกตัว ไม่ slice) ใช้ lookup ในกราฟยารับเข้าบ่อย+มูลค่า ---
+    // กันบั๊กแถบมูลค่า = 0 เมื่อยาติดอันดับเพราะ "ความถี่" แต่ไม่ติด top-10 "มูลค่า"
+    const freqSet = {};   // ยา → set ของ receive_date (1 วัน = 1 ครั้ง)
+    const valFull = {};   // ยา → มูลค่ารับเข้ารวม
+    rows.forEach(r => {
+      const k = r.drug_name || 'ไม่ระบุ';
+      (freqSet[k] || (freqSet[k] = new Set())).add(r.receive_date || `id_${r.id}`);
+      const rowVal = (r.total_price_vat && r.total_price_vat > 0)
+        ? r.total_price_vat
+        : (r.qty_received || 0) * (r.price_per_unit || 0);
+      valFull[k] = (valFull[k] || 0) + rowVal;
+    });
+    const drugFreqMap  = Object.fromEntries(Object.entries(freqSet).map(([n, s]) => [n, s.size]));
+    const drugValueMap = Object.fromEntries(Object.entries(valFull).map(([n, t]) => [n, Math.round(t)]));
+
     setStats({
       total: rows.length,
       totalQty,
@@ -1973,28 +2615,12 @@ function ReceiveSummaryModal({ onClose }) {
           .map(([name, val]) => [name, parseFloat((val / grand * 100).toFixed(1)), isGPO(name)])
           .sort((a, b) => b[1] - a[1]).slice(0, 10);
       })(),
-      topDrugsByFreq:        (() => {
-        // นับ unique receive_date ต่อยา (1 วัน = 1 ครั้ง)
-        const dateSet = {};
-        rows.forEach(r => {
-          const k = r.drug_name || 'ไม่ระบุ';
-          if (!dateSet[k]) dateSet[k] = new Set();
-          dateSet[k].add(r.receive_date || `id_${r.id}`);
-        });
-        return Object.entries(dateSet).map(([name, s]) => [name, s.size]).sort((a, b) => b[1] - a[1]).slice(0, 10);
-      })(),
-      topDrugsByValuePerTx:  (() => {
-        // มูลค่ารับเข้ารวม = qty_received × price_per_unit (ใช้ total_price_vat ถ้ามี)
-        const val = {};
-        rows.forEach(r => {
-          const k = r.drug_name || 'ไม่ระบุ';
-          const rowVal = (r.total_price_vat && r.total_price_vat > 0)
-            ? r.total_price_vat
-            : (r.qty_received || 0) * (r.price_per_unit || 0);
-          val[k] = (val[k] || 0) + rowVal;
-        });
-        return Object.entries(val).map(([name, total]) => [name, Math.round(total)]).sort((a, b) => b[1] - a[1]).slice(0, 10);
-      })(),
+      // top-10 ตามความถี่ / ตามมูลค่า — ใช้เลือกว่าจะโชว์ยาตัวไหน
+      topDrugsByFreq:       Object.entries(drugFreqMap).sort((a, b) => b[1] - a[1]).slice(0, 10),
+      topDrugsByValuePerTx: Object.entries(drugValueMap).sort((a, b) => b[1] - a[1]).slice(0, 10),
+      // map เต็ม — ใช้ lookup ค่าจริงของยาทุกตัวที่ถูกโชว์ (กันแถบมูลค่า = 0)
+      drugFreqMap,
+      drugValueMap,
     });
     setLoading(false);
   }, [dateFrom, dateTo, supplierFilter, drugFilter]);
@@ -2003,7 +2629,7 @@ function ReceiveSummaryModal({ onClose }) {
 
   return (
     <div className="fixed inset-0 bg-slate-900/70 flex items-start justify-center z-50 p-3 pt-4 backdrop-blur-sm overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col mb-6">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col mb-6">
         {/* Header */}
         <div className="bg-gradient-to-r from-slate-800 to-emerald-800 p-5 flex justify-between items-center text-white rounded-t-2xl">
           <h3 className="text-xl font-bold flex items-center gap-3">
@@ -2014,18 +2640,18 @@ function ReceiveSummaryModal({ onClose }) {
 
         <div className="p-5 space-y-5">
           {/* Filters */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-wrap items-center gap-3">
-            <span className="text-sm font-semibold text-slate-600">กรองข้อมูล:</span>
+          <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 flex flex-wrap items-center gap-3">
+            <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">กรองข้อมูล:</span>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">ตั้งแต่</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">ตั้งแต่</span>
               <ThaiDateInput value={dateFrom} onChange={setDateFrom} />
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">ถึง</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">ถึง</span>
               <ThaiDateInput value={dateTo} onChange={setDateTo} />
             </div>
             <select value={supplierFilter} onChange={e => setSupplier(e.target.value)}
-              className="border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400">
+              className="border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-sm text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-400">
               <option value="">ทุกบริษัท</option>
               {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -2036,58 +2662,106 @@ function ReceiveSummaryModal({ onClose }) {
               placeholder="ค้นหายา..."
               className="w-44"
               ringClass="focus:ring-emerald-400"
-              hoverClass="hover:bg-emerald-50"
+              hoverClass="hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
             />
             {(dateFrom || dateTo || supplierFilter || drugFilter) && (
               <button onClick={() => { setDateFrom(''); setDateTo(''); setSupplier(''); setDrugFilter(''); }}
-                className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1"><X size={12}/>ล้าง</button>
+                className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1"><X size={12}/>ล้าง</button>
             )}
           </div>
 
+          {/* ช่วงข้อมูลจริง — ระบุว่า "ทุกช่วงเวลา" คือวันไหนถึงวันไหน */}
+          {dataRange.from && dataRange.to && (
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 -mt-2 px-1 flex-wrap">
+              <CalendarDays size={13} className="text-slate-400 dark:text-slate-500" />
+              ช่วงข้อมูลทั้งหมดในระบบ: <span className="font-semibold text-slate-700 dark:text-slate-200">{dataRange.from}</span> ถึง <span className="font-semibold text-slate-700 dark:text-slate-200">{dataRange.to}</span>
+              <span className="text-slate-400 dark:text-slate-500">(ค่าในการ์ดสรุปนับจากข้อมูลทั้งหมดนี้ เว้นแต่จะกรองบริษัท/ยา)</span>
+            </div>
+          )}
+
           {loading ? (
-            <p className="text-center text-slate-400 py-16">กำลังโหลด...</p>
+            <p className="text-center text-slate-400 dark:text-slate-500 py-16">กำลังโหลด...</p>
           ) : !stats ? (
-            <p className="text-center text-slate-400 py-16">ไม่มีข้อมูลในช่วงที่เลือก</p>
+            <p className="text-center text-slate-400 dark:text-slate-500 py-16">ไม่มีข้อมูลในช่วงที่เลือก</p>
           ) : (
             (() => {
               const isFiltered  = !!(supplierFilter || drugFilter);
+              const rangeLabel  = (dataRange.from && dataRange.to) ? `${dataRange.from} – ${dataRange.to}` : 'ทุกช่วงเวลา';
               const filterLabel = supplierFilter || (drugFilter ? `ยา: ${drugFilter}` : 'ทุกช่วงเวลา');
+              const periodLabel = isFiltered ? filterLabel : rangeLabel; // ช่วงที่ใช้สรุป — โชว์วันที่จริงเมื่อดูทั้งหมด
               const cardTotal   = isFiltered ? stats.total      : (allTimeTotal      ?? null);
               const cardDays    = isFiltered ? stats.uniqueDays : (allTimeUniqueDays ?? null);
               const cardValue   = isFiltered ? stats.totalValue : (allTimeValue      ?? null);
+              // --- สรุปอัตโนมัติ (insight) จากข้อมูลที่กรอง ---
+              const topSup      = stats.topSuppliers[0];
+              const topSupShare = stats.topSuppliersShare[0];
+              const topShPct    = topSupShare?.[1] || 0;
+              const topShGpo    = topSupShare?.[2];
+              const avgPerDay   = stats.uniqueDays > 0 ? Math.round(stats.totalValue / stats.uniqueDays) : 0;
+              const concentRisk = !topShGpo && topShPct >= 40;
+              const topFreqDrug = stats.topDrugsByFreq[0];
+              const topValDrug  = stats.topDrugsByValuePerTx[0];
               return (<>
               {/* KPI */}
               <div className="grid grid-cols-3 gap-3">
                 {[
-                  { label:'รายการรับทั้งหมด',   value: cardTotal != null ? cardTotal.toLocaleString() : '...', unit:`รายการ (${filterLabel})`, bg:'bg-indigo-50',  bd:'border-indigo-200',  lbl:'text-indigo-600',  val:'text-indigo-900'  },
-                  { label:'จำนวนวันที่มีการรับ', value: cardDays  != null ? cardDays.toLocaleString()  : '...', unit:`วัน (${filterLabel})`,    bg:'bg-emerald-50', bd:'border-emerald-200', lbl:'text-emerald-600', val:'text-emerald-900' },
-                  { label:'มูลค่ารับรวม (บาท)',  value: cardValue != null ? cardValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:`บาท (${filterLabel})`, bg:'bg-amber-50', bd:'border-amber-200', lbl:'text-amber-600', val:'text-amber-900' },
+                  { label:'รายการรับทั้งหมด',   value: cardTotal != null ? cardTotal.toLocaleString() : '...', unit:`รายการ (${filterLabel})`, Icon: ClipboardList, bg:'bg-indigo-50 dark:bg-indigo-950/40',  bd:'border-indigo-200 dark:border-indigo-900/60',  lbl:'text-indigo-600',  val:'text-indigo-900 dark:text-indigo-200'  },
+                  { label:'จำนวนวันที่มีการรับ', value: cardDays  != null ? cardDays.toLocaleString()  : '...', unit:`วัน (${filterLabel})`,    Icon: CalendarDays,  bg:'bg-emerald-50 dark:bg-emerald-950/40', bd:'border-emerald-200 dark:border-emerald-900/60', lbl:'text-emerald-600', val:'text-emerald-900 dark:text-emerald-200' },
+                  { label:'มูลค่ารับรวม (บาท)',  value: cardValue != null ? cardValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...', unit:`บาท (${filterLabel})`, Icon: TrendingUp, bg:'bg-amber-50 dark:bg-amber-950/40', bd:'border-amber-200 dark:border-amber-900/60', lbl:'text-amber-600', val:'text-amber-900 dark:text-amber-200' },
                 ].map((k,i) => (
-                  <div key={i} className={`${k.bg} border ${k.bd} rounded-xl p-4 shadow-sm`}>
-                    <div className={`text-xs font-bold uppercase tracking-wide ${k.lbl} mb-1`}>{k.label}</div>
-                    <div className={`text-2xl font-black ${k.val}`}>{k.value}</div>
-                    <div className="text-xs text-slate-500">{k.unit}</div>
+                  <div key={i} className={`${k.bg} border ${k.bd} rounded-xl p-4 shadow-sm relative overflow-hidden`}>
+                    <k.Icon size={44} className={`absolute -right-2 -bottom-2 opacity-10 ${k.lbl}`} />
+                    <div className={`text-xs font-bold uppercase tracking-wide ${k.lbl} mb-1 flex items-center gap-1.5`}><k.Icon size={13}/>{k.label}</div>
+                    <div className={`text-2xl font-black ${k.val} relative z-10`}>{k.value}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">{k.unit}</div>
                   </div>
                 ))}
               </div>
 
+              {/* สรุปอัตโนมัติ — อ่านประเด็นสำคัญได้ทันที */}
+              <div className="bg-gradient-to-r from-slate-50 dark:from-slate-900 to-emerald-50 dark:to-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+                <div className="flex items-start gap-2.5">
+                  <Info size={18} className="text-emerald-600 shrink-0 mt-0.5" />
+                  <div className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
+                    <span className="font-semibold text-slate-800 dark:text-slate-100">สรุป:</span>{' '}
+                    ในช่วง <span className="font-semibold">{periodLabel}</span> รับเข้า{' '}
+                    <span className="font-bold text-indigo-700 dark:text-indigo-300">{stats.total.toLocaleString()}</span> รายการ มูลค่ารวม{' '}
+                    <span className="font-bold text-amber-700 dark:text-amber-300">{stats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</span> บาท
+                    {stats.uniqueDays > 0 && <> (เฉลี่ย <span className="font-semibold">{avgPerDay.toLocaleString()}</span> บาท/วันที่มีการรับ)</>}
+                    {topSup && <> · บริษัทที่ซื้อมากสุดคือ <span className="font-semibold text-emerald-800 dark:text-emerald-300">{topSup[0]}</span> คิดเป็น <span className="font-bold">{topShPct}%</span> ของมูลค่า</>}
+                    {topValDrug && <> · ยาที่ใช้งบรับเข้าสูงสุดคือ <span className="font-semibold">{topValDrug[0]}</span></>}
+                    {concentRisk && (
+                      <span className="inline-flex items-center gap-1 ml-1 text-xs font-bold text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 px-2 py-0.5 rounded-full align-middle">
+                        <AlertCircle size={12}/> พึ่งพาบริษัทเดียวเกิน 40% ควรกระจายแหล่งซื้อ
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Bar charts */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <BarSection title="บริษัทที่มูลค่าสูงสุด (บาท)"       items={stats.topSuppliers}      barColor="bg-emerald-500" unit="บาท" />
-                <BarSection title="สัดส่วนมูลค่าต่อบริษัท (%)"        items={stats.topSuppliersShare} shareMode />
+                <BarSection title="บริษัทที่มูลค่าสูงสุด (บาท)" items={stats.topSuppliers} barColor="bg-emerald-500" unit="บาท"
+                  caption="เรียงบริษัทตามมูลค่าการรับซื้อรวม — ดูว่างบจัดซื้อกระจุกอยู่ที่บริษัทใด แท่งยาวสุด = ซื้อมากสุด" />
+                <BarSection title="สัดส่วนมูลค่าต่อบริษัท (%)" items={stats.topSuppliersShare} shareMode
+                  caption="% ของมูลค่ารวมที่ซื้อจากแต่ละบริษัท — เตือนความเสี่ยงพึ่งพาแหล่งเดียว (single-source) สีแดง ≥40% = เสี่ยงสูง" />
               </div>
               {/* Drug comparison — frequency vs value/tx */}
-              <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-                <h4 className="font-bold text-slate-700 mb-1 flex items-center gap-2">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
+                <h4 className="font-bold text-slate-700 dark:text-slate-200 mb-1 flex items-center gap-2">
                   <BarChart3 size={16} className="text-emerald-500"/> ยาที่รับเข้าบ่อยและมูลค่าต่อครั้ง
                 </h4>
-                <div className="flex gap-5 mb-4 pt-2 border-b border-slate-100 pb-3">
-                  <span className="flex items-center gap-1.5 text-xs text-slate-500"><span className="inline-block w-3 h-3 rounded-full bg-indigo-400"/>&nbsp;จำนวนครั้งที่รับ (วัน)</span>
-                  <span className="flex items-center gap-1.5 text-xs text-slate-500"><span className="inline-block w-3 h-3 rounded-full bg-amber-400"/>&nbsp;มูลค่ารับเข้ารวม (บาท)</span>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-2 leading-snug">
+                  เทียบ "ความถี่การรับเข้า" (แท่งม่วง = จำนวนวันที่รับ) กับ "มูลค่ารวม" (แท่งเหลือง) ของยาแต่ละตัว —
+                  รับบ่อยแต่มูลค่าต่ำ = ของใช้ประจำ · รับน้อยแต่มูลค่าสูง = ยาราคาแพง ควรคุมสต็อกใกล้ชิด
+                </p>
+                <div className="flex gap-5 mb-4 pt-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <span className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400"><span className="inline-block w-3 h-3 rounded-full bg-indigo-400"/>&nbsp;จำนวนครั้งที่รับ (วัน)</span>
+                  <span className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400"><span className="inline-block w-3 h-3 rounded-full bg-amber-400"/>&nbsp;มูลค่ารับเข้ารวม (บาท)</span>
                 </div>
                 {(() => {
-                  const freqMap  = Object.fromEntries(stats.topDrugsByFreq);
-                  const valTxMap = Object.fromEntries(stats.topDrugsByValuePerTx);
+                  const freqMap  = stats.drugFreqMap;   // map เต็ม — ค่าจริงของยาทุกตัว
+                  const valTxMap = stats.drugValueMap;   // map เต็ม — กันแถบมูลค่า = 0
                   const maxFreq  = stats.topDrugsByFreq[0]?.[1] || 1;
                   const maxValTx = stats.topDrugsByValuePerTx[0]?.[1] || 1;
                   // merge: union ของทั้งสองลิสต์ เรียงตามความถี่
@@ -2098,24 +2772,24 @@ function ReceiveSummaryModal({ onClose }) {
                         const freq  = freqMap[name]  || 0;
                         const valTx = valTxMap[name] || 0;
                         return (
-                          <div key={i} className="flex items-center gap-3 hover:bg-slate-50 rounded-lg px-1 py-0.5 transition-colors">
-                            <span className={`text-xs font-black w-5 text-center shrink-0 ${i === 0 ? 'text-amber-500' : i === 1 ? 'text-slate-400' : i === 2 ? 'text-orange-400' : 'text-slate-300'}`}>
+                          <div key={i} className="flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg px-1 py-0.5 transition-colors">
+                            <span className={`text-xs font-black w-5 text-center shrink-0 ${i === 0 ? 'text-amber-500' : i === 1 ? 'text-slate-400 dark:text-slate-500' : i === 2 ? 'text-orange-400' : 'text-slate-300 dark:text-slate-500'}`}>
                               {i + 1}
                             </span>
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold text-slate-700 truncate mb-1">{name}</p>
+                              <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate mb-1">{name}</p>
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2">
-                                  <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                  <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
                                     <div className="bg-indigo-400 h-1.5 rounded-full" style={{width:`${(freq/maxFreq)*100}%`}}/>
                                   </div>
-                                  <span className="text-xs font-bold text-indigo-700 w-16 text-right shrink-0">{freq} ครั้ง</span>
+                                  <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300 w-16 text-right shrink-0">{freq} ครั้ง</span>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <div className="flex-1 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                  <div className="flex-1 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
                                     <div className="bg-amber-400 h-1.5 rounded-full" style={{width:`${(valTx/maxValTx)*100}%`}}/>
                                   </div>
-                                  <span className="text-xs font-bold text-amber-700 w-20 text-right shrink-0">{Number(valTx).toLocaleString(undefined,{maximumFractionDigits:0})} ฿</span>
+                                  <span className="text-xs font-bold text-amber-700 dark:text-amber-300 w-20 text-right shrink-0">{Number(valTx).toLocaleString(undefined,{maximumFractionDigits:0})} ฿</span>
                                 </div>
                               </div>
                             </div>
@@ -2131,7 +2805,7 @@ function ReceiveSummaryModal({ onClose }) {
           )}
         </div>
 
-        <div className="bg-slate-50 p-4 border-t border-slate-200 flex justify-end rounded-b-2xl">
+        <div className="bg-slate-50 dark:bg-slate-800 p-4 border-t border-slate-200 dark:border-slate-700 flex justify-end rounded-b-2xl">
           <button onClick={onClose} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-medium transition-colors shadow-sm">ปิด</button>
         </div>
       </div>
@@ -2142,7 +2816,7 @@ function ReceiveSummaryModal({ onClose }) {
 // ============================================================
 // Shared bar chart section
 // ============================================================
-function BarSection({ title, items, barColor, unit, shareMode = false }) {
+function BarSection({ title, items, barColor, unit, shareMode = false, caption }) {
   if (!items || items.length === 0) return null;
   const max = items[0][1] || 1;
 
@@ -2154,19 +2828,21 @@ function BarSection({ title, items, barColor, unit, shareMode = false }) {
     return 'bg-emerald-400';
   };
   const shareBadge = (pct, gpo) => {
-    if (gpo) return <span className="ml-1 text-[10px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-full shrink-0">รัฐ</span>;
-    if (pct >= 40) return <span className="ml-1 text-[10px] font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full shrink-0">เสี่ยงสูง</span>;
-    if (pct >= 20) return <span className="ml-1 text-[10px] font-bold text-orange-600 bg-orange-100 px-1.5 py-0.5 rounded-full shrink-0">ระวัง</span>;
+    if (gpo) return <span className="ml-1 text-[10px] font-bold text-blue-600 bg-blue-100 dark:bg-blue-950/60 px-1.5 py-0.5 rounded-full shrink-0">รัฐ</span>;
+    if (pct >= 40) return <span className="ml-1 text-[10px] font-bold text-red-600 bg-red-100 dark:bg-red-950/60 px-1.5 py-0.5 rounded-full shrink-0">เสี่ยงสูง</span>;
+    if (pct >= 20) return <span className="ml-1 text-[10px] font-bold text-orange-600 bg-orange-100 dark:bg-orange-950/60 px-1.5 py-0.5 rounded-full shrink-0">ระวัง</span>;
     return null;
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-      <h4 className="font-bold text-slate-700 mb-1 flex items-center gap-2 border-b border-slate-100 pb-3">
-        <BarChart3 size={16} className="text-slate-400"/> {title}
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
+      <h4 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+        <BarChart3 size={16} className="text-slate-400 dark:text-slate-500"/> {title}
       </h4>
+      {caption && <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 mb-2 leading-snug">{caption}</p>}
+      <div className={caption ? 'border-b border-slate-100 dark:border-slate-800 mb-3' : 'border-b border-slate-100 dark:border-slate-800 mb-3 mt-3'} />
       {shareMode && (
-        <p className="text-[11px] text-slate-400 mb-3">
+        <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-3">
           <span className="inline-block w-2 h-2 rounded-full bg-blue-400 mr-1"/>รัฐ (ยกเว้นประเมิน) &nbsp;
           <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1"/>≥40% เสี่ยงสูง &nbsp;
           <span className="inline-block w-2 h-2 rounded-full bg-orange-400 mr-1"/>≥20% ระวัง &nbsp;
@@ -2176,16 +2852,16 @@ function BarSection({ title, items, barColor, unit, shareMode = false }) {
       <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
         {items.map(([name, val, gpo], i) => (
           <div key={i}>
-            <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1 gap-1">
+            <div className="flex justify-between text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 gap-1">
               <span className="truncate">{name}</span>
               <div className="flex items-center shrink-0">
-                <span className="font-bold text-slate-700">
+                <span className="font-bold text-slate-700 dark:text-slate-200">
                   {shareMode ? `${val}%` : Number(val).toLocaleString(undefined,{maximumFractionDigits:0}) + ' ' + unit}
                 </span>
                 {shareMode && shareBadge(val, gpo)}
               </div>
             </div>
-            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+            <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
               <div
                 className={`${shareMode ? shareBarColor(val, gpo) : barColor} h-2 rounded-full transition-all`}
                 style={{ width:`${shareMode ? val : (val/max)*100}%` }}
@@ -2202,11 +2878,11 @@ function BarSection({ title, items, barColor, unit, shareMode = false }) {
 // AP Workflow — ติดตาม + ส่งบัญชี (Weekly Batch)
 // ============================================================
 const AP_STAGE_LABEL = {
-  null:           { label: 'รอจัดซื้อรับ',  bg: 'bg-amber-100',  text: 'text-amber-700',  dot: 'bg-amber-500' },
-  acked:          { label: 'จัดซื้อรับแล้ว', bg: 'bg-sky-100',    text: 'text-sky-700',    dot: 'bg-sky-500' },
-  inspected:      { label: 'รอส่งบัญชี',   bg: 'bg-orange-100', text: 'text-orange-700', dot: 'bg-orange-500' },
-  sent_batch:     { label: 'ส่งบัญชีแล้ว(รอตั้งหนี้)', bg: 'bg-indigo-100', text: 'text-indigo-700', dot: 'bg-indigo-500' },
-  posted:         { label: 'ตั้งหนี้แล้ว',  bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500' },
+  null:           { label: 'รอจัดซื้อรับเอกสาร',  bg: 'bg-amber-100 dark:bg-amber-950/60',  text: 'text-amber-700 dark:text-amber-300',  dot: 'bg-amber-500' },
+  acked:          { label: 'จัดซื้อรับเอกสารแล้ว', bg: 'bg-sky-100 dark:bg-sky-950/60',    text: 'text-sky-700 dark:text-sky-300',    dot: 'bg-sky-500' },
+  inspected:      { label: 'รอนำส่งบัญชี',   bg: 'bg-orange-100 dark:bg-orange-950/60', text: 'text-orange-700 dark:text-orange-300', dot: 'bg-orange-500' },
+  sent_batch:     { label: 'นำส่งบัญชีแล้ว (รอตั้งหนี้)', bg: 'bg-indigo-100 dark:bg-indigo-950/60', text: 'text-indigo-700 dark:text-indigo-300', dot: 'bg-indigo-500' },
+  posted:         { label: 'ตั้งหนี้แล้ว',  bg: 'bg-emerald-100 dark:bg-emerald-950/60', text: 'text-emerald-700 dark:text-emerald-300', dot: 'bg-emerald-500' },
 };
 
 function daysSince(iso) {
@@ -2239,10 +2915,10 @@ const HOSPITAL_NAME = 'โรงพยาบาลประชาธิปัต
 
 function printApBatch(rows, batchId, meta = {}) {
   if (!rows || rows.length === 0) return;
-  // kind: 'ap' = ใบนำส่งบิลตั้งหนี้ (คลัง → บัญชี) | 'ack' = ใบส่งจัดซื้อรับบิล (คลัง → จัดซื้อ)
+  // kind: 'ap' = ใบนำส่งบิลตั้งหนี้ (คลัง → บัญชี) | 'ack' = ใบส่งมอบเอกสาร (คลัง → จัดซื้อ)
   const kind = meta.kind || 'ap';
   const isAck = kind === 'ack';
-  const docTitle    = isAck ? 'ใบส่งจัดซื้อรับบิล'            : 'ใบนำส่งบิลตั้งหนี้';
+  const docTitle    = isAck ? 'ใบส่งมอบเอกสาร'            : 'ใบนำส่งบิลตั้งหนี้';
   const docSubtitle = isAck ? 'Bills for Procurement Acknowledgement' : 'Weekly AP Batch Submission';
   const batchLabel  = isAck ? 'วันที่ส่งจัดซื้อ'                : 'รหัสรอบส่ง';
   const sigLeftTitle  = isAck ? 'เจ้าหน้าที่คลัง'   : 'กรรมการตรวจรับ';
@@ -2252,9 +2928,12 @@ function printApBatch(rows, batchId, meta = {}) {
   const bills = (function group(){
     const m = new Map();
     for (const r of rows) {
-      const b = r.bill_number || '-';
-      if (!m.has(b)) m.set(b, { bill_number: b, supplier: r.supplier_current || '-', receive_date: r.receive_date, items: [], total_value: 0 });
-      const g = m.get(b);
+      // group ด้วย composite key เดียวกับ groupRowsByBill — เลขบิลซ้ำ (คนละบริษัท/วัน) แยกใบ
+      const billNo = (r.bill_number || '').trim();
+      const b = (billNo && billNo !== '-') ? billNo : '-';
+      const key = billGroupKey(r);
+      if (!m.has(key)) m.set(key, { bill_number: b, supplier: r.supplier_current || '-', receive_date: r.receive_date, items: [], total_value: 0 });
+      const g = m.get(key);
       g.items.push(r);
       const qty = parseFloat(r.qty_received) || 0;
       const price = parseFloat(r.price_per_unit) || 0;
@@ -2445,6 +3124,164 @@ function printApBatch(rows, batchId, meta = {}) {
   else     URL.revokeObjectURL(url);
 }
 
+// match บิลกับคำค้น — เลขบิล / บริษัท / ชื่อยา / รหัสยา / lot (ค้นในรายการยาของบิลด้วย)
+// ใช้ร่วมกันทุกแท็บ (รอตรวจรับ/ส่งบัญชี + ประวัติ batch) เพื่อให้ค้นได้เหมือนกันทุกขั้น
+function billMatchesQuery(bill, q) {
+  if (!q) return true;
+  if ((bill.bill_number || '').toLowerCase().includes(q)) return true;
+  if ((bill.supplier || '').toLowerCase().includes(q)) return true;
+  return (bill.items || []).some(it =>
+    (it.drug_name || '').toLowerCase().includes(q) ||
+    (it.drug_code || '').toLowerCase().includes(q) ||
+    (it.lot || '').toLowerCase().includes(q)
+  );
+}
+
+// วันที่ feature "บังคับรูปตรวจรับ" เริ่มใช้ (ISO) — บิลที่ตรวจรับก่อนวันนี้ไม่ flag badge "ไม่มีรูป"
+// (บิลเก่าหลายร้อยใบ inspect_meta=null โดยธรรมชาติ — ไม่ใช่ความผิดพลาด)
+const INSPECT_PHOTO_SINCE = '2026-06-27';
+
+// รายการ checklist บังคับติ๊กก่อนยืนยันตรวจรับ (qty/exp/lot/doc) — ปิดช่องโหว่ "เซ็นโดยไม่ตรวจ"
+const INSPECT_CHECKLIST = [
+  { key: 'qty', label: 'จำนวนยาตรงกับบิล' },
+  { key: 'exp', label: 'วันหมดอายุ (Exp) ตรงกับของจริง' },
+  { key: 'lot', label: 'Lot ตรงกับของจริง' },
+  { key: 'doc', label: 'เอกสาร/ใบกำกับครบถ้วน' },
+];
+
+// Modal บังคับ checklist + แนบรูป ก่อน Mark "ตรวจรับแล้ว"
+// บังคับ: ติ๊กครบทุกข้อ + รูป >= 1 ถึงกดยืนยันได้ (แก้ปัญหา 1.2/1.3/1.7)
+function InspectChecklistModal({ bills, defaultInspector, onConfirm, onClose, busy }) {
+  const [checks, setChecks]       = useState({});
+  const [inspector, setInspector] = useState(defaultInspector || '');
+  const [images, setImages]       = useState([]); // [{ file, preview }]
+  const [localErr, setLocalErr]   = useState('');
+  const fileRef = useRef(null);
+
+  const allChecked = INSPECT_CHECKLIST.every(c => checks[c.key]);
+  const canConfirm = allChecked && images.length > 0 && !busy;
+
+  async function handleAddFiles(e) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const next = [];
+    for (const file of files) {
+      try { next.push({ file, preview: await readAsDataUrl(file) }); }
+      catch { next.push({ file, preview: '' }); }
+    }
+    setImages(cur => [...cur, ...next]);
+    if (fileRef.current) fileRef.current.value = '';
+  }
+  const removeImage = (idx) => setImages(cur => cur.filter((_, i) => i !== idx));
+
+  function handleConfirm() {
+    if (!allChecked) { setLocalErr('ต้องติ๊กยืนยันให้ครบทุกข้อก่อน'); return; }
+    if (images.length === 0) { setLocalErr('ต้องแนบรูปการตรวจรับอย่างน้อย 1 รูป'); return; }
+    setLocalErr('');
+    onConfirm({ checklist: { ...checks }, inspector: inspector.trim(), images });
+  }
+
+  const billCount = bills.length;
+  const itemCount = bills.reduce((s, b) => s + (b.item_count || 0), 0);
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 shadow-xl" onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 flex items-center justify-between border-b bg-white dark:bg-slate-900 px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={18} className="text-orange-500" />
+            <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">ยืนยันการตรวจรับยา</h3>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={18} /></button>
+        </div>
+
+        <div className="space-y-4 px-5 py-4">
+          <p className="rounded-lg bg-orange-50 dark:bg-orange-950/40 px-3 py-2 text-xs text-orange-700 dark:text-orange-300">
+            กำลังตรวจรับ <b>{billCount} บิล</b> ({itemCount} รายการ) — ติ๊กยืนยันครบทุกข้อ + แนบรูป ถึงจะบันทึกได้
+          </p>
+
+          {/* Checklist */}
+          <div className="space-y-2">
+            {INSPECT_CHECKLIST.map(c => (
+              <label key={c.key} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800">
+                <input
+                  type="checkbox"
+                  checked={!!checks[c.key]}
+                  onChange={e => setChecks(cur => ({ ...cur, [c.key]: e.target.checked }))}
+                  className="h-4 w-4 rounded border-slate-300 dark:border-slate-600 text-orange-500 focus:ring-orange-400"
+                />
+                <span className="text-sm text-slate-700 dark:text-slate-200">{c.label}</span>
+              </label>
+            ))}
+          </div>
+
+          {/* ชื่อกรรมการตรวจรับ */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">กรรมการตรวจรับ (ไม่กรอกก็ได้ — เซ็นเอง)</label>
+            <input
+              value={inspector}
+              onChange={e => setInspector(e.target.value)}
+              placeholder="ชื่อกรรมการตรวจรับ"
+              className="w-full rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-400"
+            />
+          </div>
+
+          {/* รูปตรวจรับ */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+              รูปการตรวจรับ <span className="text-red-500">*</span> (อย่างน้อย 1 รูป)
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {images.map((img, idx) => (
+                <div key={idx} className="relative h-20 w-20 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                  {img.preview
+                    ? <img src={img.preview} alt="" className="h-full w-full object-cover" />
+                    : <div className="flex h-full w-full items-center justify-center bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-400 dark:text-slate-500">ไฟล์</div>}
+                  <button
+                    onClick={() => removeImage(idx)}
+                    className="absolute right-0.5 top-0.5 rounded-full bg-black/50 p-0.5 text-white hover:bg-black/70"
+                  ><Trash2 size={12} /></button>
+                </div>
+              ))}
+              <button
+                onClick={() => fileRef.current?.click()}
+                className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500 hover:border-orange-400 hover:text-orange-500"
+              >
+                <ImagePlus size={20} />
+                <span className="text-[10px]">เพิ่มรูป</span>
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                multiple
+                onChange={handleAddFiles}
+                className="hidden"
+              />
+            </div>
+          </div>
+
+          {localErr && (
+            <div className="flex items-center gap-1.5 rounded-lg bg-red-50 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600">
+              <AlertCircle size={14} /> {localErr}
+            </div>
+          )}
+        </div>
+
+        <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t bg-white dark:bg-slate-900 px-5 py-3">
+          <button onClick={onClose} disabled={busy} className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">ยกเลิก</button>
+          <button
+            onClick={handleConfirm}
+            disabled={!canConfirm}
+            className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >{busy ? 'กำลังบันทึก…' : 'ยืนยันตรวจรับ'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ApWorkflow({ auth, onBack }) {
   const [subTab, setSubTab]   = useState('pending'); // 'pending' | 'sent' | 'history'
   const [loading, setLoading] = useState(true);
@@ -2452,12 +3289,11 @@ function ApWorkflow({ auth, onBack }) {
   const [sentBills, setSentBills]       = useState([]); // ap_stage = sent_batch
   const [batches, setBatches]           = useState([]); // distinct ap_batch_id
   const [selected, setSelected]         = useState(new Set()); // bill_numbers
-  // ไม่ persist ชื่อ — ทุกครั้งเปิดหน้าให้กรอกใหม่ (ตามที่ผู้ใช้ต้องการ)
-  // ล้าง localStorage เก่าครั้งเดียว (จะถูกล้างเมื่อ component mount)
-  const [inspector, setInspector]       = useState('');
-  const [purchaser, setPurchaser]       = useState('');
+  // ไม่กรอกชื่อ จนท.จัดซื้อ ในระบบแล้ว — เซ็นด้วยมือบนใบที่พิมพ์แทน (ค่าว่าง = ช่องเซ็นเว้นว่าง)
+  // กรรมการตรวจรับ → กรอกใน InspectChecklistModal ตอน Mark ตรวจรับ
+  const purchaser = '';
   const [accountant, setAccountant]     = useState('');
-  const [returnDate, setReturnDate]     = useState(() => todayIsoLocal()); // วันที่ส่งคืนจัดซื้อ (default = วันนี้)
+  const [returnDate]                    = useState(() => todayIsoLocal()); // วันที่ส่งคืนจัดซื้อ = วันนี้ (เก็บใน inspected_at ตอน Mark ตรวจรับ)
   useEffect(() => {
     localStorage.removeItem('ap_inspector');
     localStorage.removeItem('ap_purchaser');
@@ -2474,6 +3310,7 @@ function ApWorkflow({ auth, onBack }) {
   const [stageFilter, setStageFilter]   = useState('all');          // 'all' | 'null' | 'inspected'
   const [expandedBill, setExpandedBill] = useState(null);
   const toggleExpand = (bn) => setExpandedBill(cur => cur === bn ? null : bn);
+  const [inspectModalBills, setInspectModalBills] = useState(null); // บิลที่รอยืนยันตรวจรับ (เปิด modal); null = ปิด
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -2522,7 +3359,7 @@ function ApWorkflow({ auth, onBack }) {
     const from = dateFrom || null;
     const to   = dateTo   || null;
     let arr = list.filter(b => {
-      if (q && !((b.bill_number || '').toLowerCase().includes(q) || (b.supplier || '').toLowerCase().includes(q))) return false;
+      if (!billMatchesQuery(b, q)) return false;
       const d = b.receive_date || '';
       if (from && d < from) return false;
       if (to && d > to) return false;
@@ -2583,40 +3420,64 @@ function ApWorkflow({ auth, onBack }) {
   };
   const toggleAll = (list) => {
     if (selected.size === list.length) setSelected(new Set());
-    else setSelected(new Set(list.map(b => b.bill_number)));
+    else setSelected(new Set(list.map(b => b._key)));
   };
 
   // ---- Actions ----
   async function handleMarkInspected() {
     if (selected.size === 0) { setError('เลือกบิลที่ตรวจรับเสร็จก่อน'); return; }
-    // ต้องเป็นบิลที่ "จัดซื้อรับแล้ว" (ap_stage=NULL + acknowledged_at NOT NULL) เท่านั้น
-    const ackedSelected = filteredPending.filter(b => !b.ap_stage && b.acknowledged_at && selected.has(b.bill_number));
-    const unackSelected = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number));
+    // ต้องเป็นบิลที่ "จัดซื้อรับเอกสารแล้ว" (ap_stage=NULL + acknowledged_at NOT NULL) เท่านั้น
+    const ackedSelected = filteredPending.filter(b => !b.ap_stage && b.acknowledged_at && selected.has(b._key));
+    const unackSelected = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b._key));
     if (ackedSelected.length === 0) {
       if (unackSelected.length > 0) {
-        setError(`บิลที่เลือก ${unackSelected.length} บิลยังเป็น "รอจัดซื้อรับ"\nต้องกด "จัดซื้อรับบิล" ก่อน → แล้วค่อย Mark ตรวจรับแล้ว`);
+        setError(`บิลที่เลือก ${unackSelected.length} บิลยังเป็น "รอจัดซื้อรับเอกสาร"\nต้องกด "จัดซื้อรับเอกสาร" ก่อน → แล้วค่อยยืนยันตรวจรับ`);
       } else {
-        setError('ไม่มีบิลที่จัดซื้อรับแล้วในการเลือก');
+        setError('ไม่มีบิลที่จัดซื้อรับเอกสารแล้วในการเลือก');
       }
       return;
     }
-    const name = inspector.trim();
+    // เปิด modal บังคับ checklist + แนบรูป ก่อนบันทึกจริง (กัน "เซ็นโดยไม่ตรวจ")
+    setError('');
+    setInspectModalBills(ackedSelected);
+  }
+
+  // บันทึกจริงหลังผ่าน checklist modal — upload รูป → markBillsInspected พร้อม inspect_meta
+  async function doMarkInspected({ checklist, inspector: inspectorName, images }) {
+    const ackedSelected = inspectModalBills || [];
+    if (ackedSelected.length === 0) { setInspectModalBills(null); return; }
     setBusy(true); setError(''); setMsg('');
     try {
+      // upload รูปทุกใบ → เก็บ URL
+      const ts = Date.now();
+      const imageUrls = [];
+      for (let i = 0; i < images.length; i++) {
+        const blob = await compressImageFile(images[i].file);
+        const url = await uploadInvoiceImage(blob, `inspect_${ts}_${i}.jpg`);
+        imageUrls.push(url);
+      }
+      const inspectMeta = {
+        images: imageUrls,
+        checklist,
+        inspector: inspectorName || null,
+        at: new Date().toISOString(),
+      };
       const billNumbers = ackedSelected.map(b => b.bill_number);
-      const n = await markBillsInspected(billNumbers, name, auth, returnDate);
-      setMsg(`บันทึก "ตรวจรับแล้ว" ${billNumbers.length} บิล (${n} รายการ) · ส่งคืนวันที่ ${returnDate}`);
+      const rowIds = ackedSelected.flatMap(b => b.item_ids);
+      const n = await markBillsInspected(rowIds, billNumbers, inspectorName, auth, returnDate, inspectMeta);
+      setMsg(`ยืนยันตรวจรับ ${ackedSelected.length} บิล (${n} รายการ) · แนบรูป ${imageUrls.length} รูป · ส่งคืนวันที่ ${returnDate}`);
       setSelected(new Set());
+      setInspectModalBills(null);
       await load();
     } catch (e) { setError(e.message || 'บันทึกไม่สำเร็จ'); }
     finally { setBusy(false); }
   }
 
-  // คลังพิมพ์ใบส่งจัดซื้อ — เลือกบิลรอจัดซื้อรับ (ap_stage=NULL + acknowledged_at=NULL) แล้วปริ้นใบให้จัดซื้อเซ็น
+  // คลังพิมพ์ใบส่งจัดซื้อ — เลือกบิลรอจัดซื้อรับเอกสาร (ap_stage=NULL + acknowledged_at=NULL) แล้วปริ้นใบให้จัดซื้อเซ็น
   // ไม่เปลี่ยน stage — เป็นแค่ paperwork helper
   async function handleExportAck() {
-    const unackBills = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number));
-    if (unackBills.length === 0) { setError('เลือกบิล "รอจัดซื้อรับ" ก่อน'); return; }
+    const unackBills = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b._key));
+    if (unackBills.length === 0) { setError('เลือกบิล "รอจัดซื้อรับเอกสาร" ก่อน'); return; }
     setBusy(true); setError(''); setMsg('');
     try {
       const billNumbers = unackBills.map(b => b.bill_number);
@@ -2640,12 +3501,13 @@ function ApWorkflow({ auth, onBack }) {
   }
 
   async function handleExportAndSend() {
-    const inspectedBills = filteredPending.filter(b => b.ap_stage === 'inspected' && selected.has(b.bill_number));
-    if (inspectedBills.length === 0) { setError('เลือกเฉพาะบิลที่ตรวจรับแล้ว (สถานะ "รอส่งบัญชี") ก่อน'); return; }
+    const inspectedBills = filteredPending.filter(b => b.ap_stage === 'inspected' && selected.has(b._key));
+    if (inspectedBills.length === 0) { setError('เลือกเฉพาะบิลที่ตรวจรับแล้ว (สถานะ "รอนำส่งบัญชี") ก่อน'); return; }
     setBusy(true); setError(''); setMsg('');
     try {
       const batchId = todayIsoLocal();
       const billNumbers = inspectedBills.map(b => b.bill_number);
+      const rowIds = inspectedBills.flatMap(b => b.item_ids);
       const rowsToExport = inspectedBills.flatMap(b => b.items);
       const dates = rowsToExport.map(r => r.receive_date).filter(Boolean).sort();
       const inspectorNames = Array.from(new Set(inspectedBills.map(b => b.inspected_by).filter(Boolean)));
@@ -2655,7 +3517,7 @@ function ApWorkflow({ auth, onBack }) {
         senderName: purchaserName,   // ว่างก็ได้ → ช่องเซ็นในใบนำส่งจะเว้นว่าง
         inspectorNames,              // [] ถ้าไม่มีใครกรอก → ช่องกรรมการจะเว้นว่าง
       });
-      await markBillsSentBatch(billNumbers, batchId, auth, purchaserName || null);
+      await markBillsSentBatch(rowIds, billNumbers, batchId, auth, purchaserName || null);
       await insertAuditLog({
         action: 'print_ap_batch', table_name: 'receive_logs',
         user_name: resolveAuditUserName(auth), department: auth?.department || '-',
@@ -2669,8 +3531,11 @@ function ApWorkflow({ auth, onBack }) {
     finally { setBusy(false); }
   }
 
+  // billsToPost = array ของ bill object (จากปุ่ม per-batch) — ถ้าไม่ส่ง → ใช้ selected จาก filteredSent
   async function handleMarkPosted(billsToPost) {
-    const list = billsToPost && billsToPost.length > 0 ? billsToPost : Array.from(selected);
+    const list = (billsToPost && billsToPost.length > 0)
+      ? billsToPost
+      : filteredSent.filter(b => selected.has(b._key));
     if (list.length === 0) { setError('เลือกบิลก่อน'); return; }
     const name = accountant.trim();
     const label = name ? `บัญชี (${name})` : 'บัญชี';
@@ -2678,7 +3543,7 @@ function ApWorkflow({ auth, onBack }) {
     setBusy(true); setError(''); setMsg('');
     try {
       // ถ้าไม่กรอกชื่อ → ส่ง null → ap_posted_by จะเป็น null (เว้นช่องเซ็นเอง)
-      const n = await markBillsPosted(list, auth, name || null);
+      const n = await markBillsPosted(list.flatMap(b => b.item_ids), list.map(b => b.bill_number), auth, name || null);
       setMsg(`ยืนยันบัญชี post แล้ว ${list.length} บิล (${n} รายการ)`);
       setSelected(new Set());
       await load();
@@ -2686,29 +3551,31 @@ function ApWorkflow({ auth, onBack }) {
     finally { setBusy(false); }
   }
 
+  // bills = array ของ bill object
   async function handleUnpost(bills) {
     if (!confirm(`ยกเลิกการ post กลับเป็น "รอ post" ${bills.length} บิล?`)) return;
     setBusy(true); setError('');
-    try { await unmarkBillsPosted(bills, auth); await load(); setMsg(`ยกเลิก post ${bills.length} บิล`); }
+    try { await unmarkBillsPosted(bills.flatMap(b => b.item_ids), bills.map(b => b.bill_number), auth); await load(); setMsg(`ยกเลิก post ${bills.length} บิล`); }
     catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
     finally { setBusy(false); }
   }
 
-  // จัดซื้อกด "รับบิลแล้ว" — รับ single bill หรือ bulk จาก selected
-  async function handleAcknowledge(billNumber) {
+  // จัดซื้อกด "รับบิลแล้ว" — รับ single bill (object) หรือ bulk จาก selected
+  async function handleAcknowledge(singleBill) {
     let bills;
-    if (billNumber) {
-      bills = [billNumber];
+    if (singleBill) {
+      bills = [singleBill];
     } else {
-      const unackBills = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number));
-      if (unackBills.length === 0) { setError('เลือกบิลที่ยังไม่ ack (สถานะ "รอจัดซื้อรับ") ก่อน'); return; }
-      bills = unackBills.map(b => b.bill_number);
+      bills = filteredPending.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b._key));
+      if (bills.length === 0) { setError('เลือกบิลที่ยังไม่ ack (สถานะ "รอจัดซื้อรับเอกสาร") ก่อน'); return; }
     }
+    const rowIds = bills.flatMap(b => b.item_ids);
+    const billNumbers = bills.map(b => b.bill_number);
     setBusy(true); setError(''); setMsg('');
     try {
-      const n = await markBillsAcknowledged(bills, purchaser.trim() || null, auth);
-      setMsg(`บันทึก "จัดซื้อรับบิลแล้ว" ${bills.length} บิล (${n} รายการ)`);
-      if (!billNumber) setSelected(new Set());
+      const n = await markBillsAcknowledged(rowIds, billNumbers, purchaser.trim() || null, auth);
+      setMsg(`บันทึก "จัดซื้อรับเอกสารแล้ว" ${bills.length} บิล (${n} รายการ)`);
+      if (!singleBill) setSelected(new Set());
       await load();
     } catch (e) {
       const msg = e.message || 'บันทึกไม่สำเร็จ';
@@ -2722,37 +3589,37 @@ function ApWorkflow({ auth, onBack }) {
   }
 
   // ย้อน acknowledge
-  async function handleUnacknowledge(billNumber) {
-    if (!confirm(`ย้อนบิล ${billNumber} กลับเป็น "รอจัดซื้อรับ"?`)) return;
+  async function handleUnacknowledge(bill) {
+    if (!confirm(`ย้อนบิล ${bill.bill_number} กลับเป็น "รอจัดซื้อรับเอกสาร"?`)) return;
     setBusy(true); setError('');
-    try { await unmarkBillsAcknowledged([billNumber], auth); await load(); setMsg(`ย้อน ack ${billNumber}`); }
+    try { await unmarkBillsAcknowledged(bill.item_ids, [bill.bill_number], auth); await load(); setMsg(`ย้อน ack ${bill.bill_number}`); }
     catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
     finally { setBusy(false); }
   }
 
   // ย้อนกลับหลายบิลพร้อมกัน — group ตาม stage แล้วเรียก unmark ที่เหมาะสม
   async function handleBulkUndo() {
-    const selectedBills = filteredPending.filter(b => selected.has(b.bill_number));
+    const selectedBills = filteredPending.filter(b => selected.has(b._key));
     if (selectedBills.length === 0) { setError('เลือกบิลก่อน'); return; }
 
-    const toUnack    = selectedBills.filter(b => !b.ap_stage && b.acknowledged_at).map(b => b.bill_number);
-    const toUninspect = selectedBills.filter(b => b.ap_stage === 'inspected').map(b => b.bill_number);
+    const unackBills    = selectedBills.filter(b => !b.ap_stage && b.acknowledged_at);
+    const uninspectBills = selectedBills.filter(b => b.ap_stage === 'inspected');
 
-    if (toUnack.length === 0 && toUninspect.length === 0) {
+    if (unackBills.length === 0 && uninspectBills.length === 0) {
       setError('ไม่มีบิลที่ย้อนได้ในการเลือก');
       return;
     }
     const lines = [];
-    if (toUninspect.length) lines.push(`• ย้อน "ตรวจรับแล้ว" → "จัดซื้อรับแล้ว": ${toUninspect.length} บิล`);
-    if (toUnack.length)     lines.push(`• ย้อน "จัดซื้อรับแล้ว" → "รอจัดซื้อรับ": ${toUnack.length} บิล`);
-    if (!confirm(`ย้อนกลับ ${toUnack.length + toUninspect.length} บิล?\n${lines.join('\n')}`)) return;
+    if (uninspectBills.length) lines.push(`• ย้อน "ตรวจรับแล้ว" → "จัดซื้อรับเอกสารแล้ว": ${uninspectBills.length} บิล`);
+    if (unackBills.length)     lines.push(`• ย้อน "จัดซื้อรับเอกสารแล้ว" → "รอจัดซื้อรับเอกสาร": ${unackBills.length} บิล`);
+    if (!confirm(`ย้อนกลับ ${unackBills.length + uninspectBills.length} บิล?\n${lines.join('\n')}`)) return;
 
     setBusy(true); setError(''); setMsg('');
     try {
       let n = 0;
       // เรียงลำดับสำคัญ — inspect ย้อนก่อน (กรณีบิลเดียวกันถูกเลือกซ้ำสาย)
-      if (toUninspect.length > 0) n += await unmarkBillsInspected(toUninspect, auth);
-      if (toUnack.length > 0)    n += await unmarkBillsAcknowledged(toUnack, auth);
+      if (uninspectBills.length > 0) n += await unmarkBillsInspected(uninspectBills.flatMap(b => b.item_ids), uninspectBills.map(b => b.bill_number), auth);
+      if (unackBills.length > 0)    n += await unmarkBillsAcknowledged(unackBills.flatMap(b => b.item_ids), unackBills.map(b => b.bill_number), auth);
       setMsg(`ย้อนกลับ ${selectedBills.length} บิล สำเร็จ (${n} รายการ)`);
       setSelected(new Set());
       await load();
@@ -2761,31 +3628,31 @@ function ApWorkflow({ auth, onBack }) {
   }
 
   // ย้อน inspected → null (กลับเป็น "รอตรวจรับ")
-  async function handleUninspect(billNumber) {
-    if (!confirm(`ย้อนบิล ${billNumber} กลับเป็น "รอตรวจรับ"?`)) return;
+  async function handleUninspect(bill) {
+    if (!confirm(`ย้อนบิล ${bill.bill_number} กลับเป็น "รอตรวจรับ"?`)) return;
     setBusy(true); setError('');
-    try { await unmarkBillsInspected([billNumber], auth); await load(); setMsg(`ย้อน ${billNumber} → รอตรวจรับ`); }
+    try { await unmarkBillsInspected(bill.item_ids, [bill.bill_number], auth); await load(); setMsg(`ย้อน ${bill.bill_number} → รอตรวจรับ`); }
     catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
     finally { setBusy(false); }
   }
 
   // ย้อน sent_batch → inspected (ออกจาก batch)
-  async function handleUnsendBatch(billNumber) {
-    if (!confirm(`ย้อนบิล ${billNumber} ออกจาก batch กลับเป็น "รอส่งบัญชี"?`)) return;
+  async function handleUnsendBatch(bill) {
+    if (!confirm(`ย้อนบิล ${bill.bill_number} ออกจาก batch กลับเป็น "รอนำส่งบัญชี"?`)) return;
     setBusy(true); setError('');
-    try { await unmarkBillsSentBatch([billNumber], auth); await load(); setMsg(`ย้อน ${billNumber} → รอส่งบัญชี`); }
+    try { await unmarkBillsSentBatch(bill.item_ids, [bill.bill_number], auth); await load(); setMsg(`ย้อน ${bill.bill_number} → รอนำส่งบัญชี`); }
     catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
     finally { setBusy(false); }
   }
 
   // Reset ทั้ง batch — ทุกบิลกลับเป็น inspected, batch หาย
   async function handleResetBatch(batch) {
-    if (!confirm(`Reset batch ${batch.batch_id}?\nทุกบิล (${batch.bill_count} บิล) จะกลับเป็น "รอส่งบัญชี"\nbatch นี้จะหายจากประวัติ`)) return;
+    if (!confirm(`Reset batch ${batch.batch_id}?\nทุกบิล (${batch.bill_count} บิล) จะกลับเป็น "รอนำส่งบัญชี"\nbatch นี้จะหายจากประวัติ`)) return;
     setBusy(true); setError('');
     try {
       const n = await resetApBatch(batch.batch_id, auth);
       await load();
-      setMsg(`Reset batch ${batch.batch_id} เรียบร้อย (${n} รายการกลับสู่ "รอส่งบัญชี")`);
+      setMsg(`Reset batch ${batch.batch_id} เรียบร้อย (${n} รายการกลับสู่ "รอนำส่งบัญชี")`);
     } catch (e) { setError(e.message || 'ไม่สำเร็จ'); }
     finally { setBusy(false); }
   }
@@ -2810,24 +3677,24 @@ function ApWorkflow({ auth, onBack }) {
   // ---- UI ----
   const tabBtn = (key, label, count, icon) => (
     <button key={key} onClick={() => setSubTab(key)}
-      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab === key ? 'bg-emerald-600 text-white shadow' : 'bg-white text-slate-600 hover:bg-emerald-50 border border-slate-200'}`}>
-      {icon}{label} <span className={`ml-1 px-1.5 py-0.5 rounded text-xs ${subTab === key ? 'bg-white/20' : 'bg-slate-100'}`}>{count}</span>
+      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab === key ? 'bg-emerald-600 text-white shadow' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 border border-slate-200 dark:border-slate-700'}`}>
+      {icon}{label} <span className={`ml-1 px-1.5 py-0.5 rounded text-xs ${subTab === key ? 'bg-white/20' : 'bg-slate-100 dark:bg-slate-800'}`}>{count}</span>
     </button>
   );
 
   return (
     <div className="p-4 max-w-7xl mx-auto">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-4">
-        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-2">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 mb-4">
+        <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-2">
           <Send size={20} className="text-emerald-600" /> ส่งบัญชีรายอาทิตย์ (AP Workflow)
         </h2>
-        <p className="text-xs text-slate-500">ตรวจรับ → ส่งบัญชี (export Excel batch) → ยืนยันบัญชี post แล้ว — track ทุก stage มี audit trail</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">ตรวจรับ → ส่งบัญชี (export Excel batch) → ยืนยันบัญชี post แล้ว — track ทุก stage มี audit trail</p>
       </div>
 
       <div className="flex flex-wrap gap-2 mb-4">
-        {tabBtn('pending', 'รอส่งบัญชี', filteredPending.length, <ClipboardList size={16}/>)}
-        {tabBtn('sent',    'ส่งบัญชีแล้ว(รอตั้งหนี้)', filteredSent.length, <FileCheck2 size={16}/>)}
-        {tabBtn('history', 'ประวัติตั้งหนี้',  batches.length,   <History size={16}/>)}
+        {tabBtn('pending', 'รอนำส่งบัญชี', filteredPending.length, <ClipboardList size={16}/>)}
+        {tabBtn('sent',    'นำส่งบัญชีแล้ว', filteredSent.length, <FileCheck2 size={16}/>)}
+        {tabBtn('history', 'ประวัติการตั้งหนี้',  batches.length,   <History size={16}/>)}
       </div>
 
       {(msg || error) && (
@@ -2835,53 +3702,43 @@ function ApWorkflow({ auth, onBack }) {
           onClose={() => { setMsg(''); setError(''); }}/>
       )}
 
-      <div className="bg-white rounded-xl border border-slate-200 p-3 mb-3 space-y-2">
+      {inspectModalBills && (
+        <InspectChecklistModal
+          bills={inspectModalBills}
+          defaultInspector=""
+          busy={busy}
+          onConfirm={doMarkInspected}
+          onClose={() => { if (!busy) setInspectModalBills(null); }}
+        />
+      )}
+
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 mb-3 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-            <Search size={16} className="text-slate-400"/>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาเลขบิล / บริษัท"
+            <Search size={16} className="text-slate-400 dark:text-slate-500"/>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาเลขบิล / ชื่อยา / บริษัท"
               className="flex-1 outline-none text-sm" />
-            {search && <button onClick={() => setSearch('')}><X size={14} className="text-slate-400"/></button>}
+            {search && <button onClick={() => setSearch('')}><X size={14} className="text-slate-400 dark:text-slate-500"/></button>}
           </div>
-          <div className="flex items-center gap-2 text-xs text-slate-600">
-            <CalendarDays size={14} className="text-slate-400"/>
+          <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <CalendarDays size={14} className="text-slate-400 dark:text-slate-500"/>
             <span>{subTab === 'history' ? 'วันที่ส่ง:' : 'วันรับ:'}</span>
             <IsoDateInput value={dateFrom} onChange={setDateFrom} className="w-28" />
             <span>ถึง</span>
             <IsoDateInput value={dateTo} onChange={setDateTo} className="w-28" />
             {(dateFrom || dateTo) && (
               <button onClick={() => { setDateFrom(''); setDateTo(''); }}
-                className="text-slate-400 hover:text-slate-600"><X size={14}/></button>
+                className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"><X size={14}/></button>
             )}
           </div>
         </div>
-        {subTab === 'pending' && (
-            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
-              <span className="text-xs text-slate-500">สถานะ:</span>
-              {[
-                { key: 'all',       label: 'ทั้งหมด',         color: 'bg-slate-600' },
-                { key: 'unack',     label: 'รอจัดซื้อรับ',   color: 'bg-amber-500' },
-                { key: 'acked',     label: 'จัดซื้อรับแล้ว', color: 'bg-sky-500' },
-                { key: 'inspected', label: 'รอส่งบัญชี',     color: 'bg-orange-500' },
-              ].map(opt => (
-                <button key={opt.key} onClick={() => setStageFilter(opt.key)}
-                  className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${stageFilter === opt.key ? `${opt.color} text-white shadow` : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${stageFilter === opt.key ? 'bg-white' : opt.color}`}/>
-                  {opt.label}
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${stageFilter === opt.key ? 'bg-white/20' : 'bg-slate-200 text-slate-600'}`}>{stageCount[opt.key] || 0}</span>
-                </button>
-              ))}
-            </div>
-          )}
       </div>
 
-      {loading ? <div className="text-center text-slate-500 py-8">กำลังโหลด...</div> : (
+      {loading ? <div className="text-center text-slate-500 dark:text-slate-400 py-8">กำลังโหลด...</div> : (
         <>
           {subTab === 'pending' && (
             <PendingTab bills={filteredPending} selected={selected} toggleBill={toggleBill} toggleAll={toggleAll}
-              inspector={inspector} setInspector={setInspector}
-              purchaser={purchaser} setPurchaser={setPurchaser}
-              returnDate={returnDate} setReturnDate={setReturnDate}
+              stageFilter={stageFilter} setStageFilter={setStageFilter} stageCount={stageCount}
               busy={busy}
               onMarkInspected={handleMarkInspected} onExportSend={handleExportAndSend}
               onExportAck={handleExportAck}
@@ -2909,22 +3766,73 @@ function ApWorkflow({ auth, onBack }) {
 }
 
 // แสดงรายละเอียด lot ทั้งหมดในบิล — ใช้ทั้ง PendingTab + SentTab + HistoryTab
+// แสดงหลักฐานการตรวจรับ (checklist + ชื่อกรรมการ + รูป) ที่บันทึกตอน "ยืนยันตรวจรับ"
+// อ่านจาก bill.inspect_meta (jsonb { images, checklist, inspector, at }) — ดู docs/features/ap-workflow.md
+function InspectEvidence({ bill }) {
+  const meta = bill.inspect_meta;
+  const [lightbox, setLightbox] = useState(null); // url ของรูปที่กำลังขยาย หรือ null
+  if (!meta || (!meta.images?.length && !meta.checklist && !bill.inspected_by)) return null;
+  const images = meta.images || [];
+  const checklist = meta.checklist || {};
+  const inspector = meta.inspector || bill.inspected_by || '-';
+  const at = meta.at || bill.inspected_at;
+  return (
+    <div className="mt-3 rounded-lg border border-emerald-200 dark:border-emerald-900/60 bg-white dark:bg-slate-900 p-3">
+      <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+        <FileCheck2 size={14}/> หลักฐานการตรวจรับ
+      </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600 dark:text-slate-300">
+        <span><span className="text-slate-400 dark:text-slate-500">กรรมการตรวจรับ:</span> <span className="font-medium text-slate-800 dark:text-slate-100">{inspector}</span></span>
+        {at && <span className="inline-flex items-center gap-1"><CalendarDays size={12} className="text-slate-400 dark:text-slate-500"/> {fmtDateThaiShort(at)}</span>}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+        {INSPECT_CHECKLIST.map(c => (
+          <span key={c.key} className={`inline-flex items-center gap-1 text-[11px] ${checklist[c.key] ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-400 dark:text-slate-500'}`}>
+            {checklist[c.key]
+              ? <CheckCircle2 size={12} className="text-emerald-600"/>
+              : <AlertCircle size={12} className="text-slate-300 dark:text-slate-500"/>}
+            {c.label}
+          </span>
+        ))}
+      </div>
+      {images.length > 0 && (
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          {images.map((url, i) => (
+            <button key={i} type="button" onClick={() => setLightbox(url)}
+              className="h-16 w-16 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 hover:border-emerald-400 transition-colors">
+              <img src={url} alt={`รูปตรวจรับ ${i+1}`} className="h-full w-full object-cover" loading="lazy"/>
+            </button>
+          ))}
+        </div>
+      )}
+      {lightbox && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 p-4" onClick={() => setLightbox(null)}>
+          <button type="button" className="absolute top-4 right-4 text-white/80 hover:text-white" onClick={() => setLightbox(null)}>
+            <X size={28}/>
+          </button>
+          <img src={lightbox} alt="รูปตรวจรับ" className="max-h-full max-w-full rounded-lg object-contain" onClick={e => e.stopPropagation()}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BillItemsDetail({ bill }) {
   const items = bill.items || [];
   const totalQty = items.reduce((s, r) => s + (parseFloat(r.qty_received) || 0), 0);
   return (
-    <div className="bg-slate-50/70 border-t-2 border-emerald-200 p-3">
-      <div className="mb-2 text-xs text-slate-600 flex items-center gap-3 flex-wrap">
-        <span><span className="text-slate-400">บิล:</span> <span className="font-semibold text-slate-800">{bill.bill_number}</span></span>
-        <span><span className="text-slate-400">บริษัท:</span> <span className="font-medium">{bill.supplier}</span></span>
-        <span><span className="text-slate-400">วันรับ:</span> {fmtDateThaiShort(bill.receive_date)}</span>
-        <span><span className="text-slate-400">รายการยา:</span> <span className="font-semibold">{bill.drug_count}</span></span>
-        <span><span className="text-slate-400">Lot รวม:</span> <span className="font-semibold">{bill.item_count}</span></span>
-        <span className="ml-auto"><span className="text-slate-400">มูลค่ารวม:</span> <span className="font-bold text-emerald-700">{fmtBahtDisplay(bill.total_value)} บาท</span></span>
+    <div className="bg-slate-50 dark:bg-slate-800/70 border-t-2 border-emerald-200 dark:border-emerald-900/60 p-3">
+      <div className="mb-2 text-xs text-slate-600 dark:text-slate-300 flex items-center gap-3 flex-wrap">
+        <span><span className="text-slate-400 dark:text-slate-500">บิล:</span> <span className="font-semibold text-slate-800 dark:text-slate-100">{bill.bill_number}</span></span>
+        <span><span className="text-slate-400 dark:text-slate-500">บริษัท:</span> <span className="font-medium">{bill.supplier}</span></span>
+        <span><span className="text-slate-400 dark:text-slate-500">วันรับ:</span> {fmtDateThaiShort(bill.receive_date)}</span>
+        <span><span className="text-slate-400 dark:text-slate-500">รายการยา:</span> <span className="font-semibold">{bill.drug_count}</span></span>
+        <span><span className="text-slate-400 dark:text-slate-500">Lot รวม:</span> <span className="font-semibold">{bill.item_count}</span></span>
+        <span className="ml-auto"><span className="text-slate-400 dark:text-slate-500">มูลค่ารวม:</span> <span className="font-bold text-emerald-700 dark:text-emerald-300">{fmtBahtDisplay(bill.total_value)} บาท</span></span>
       </div>
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+      <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
         <table className="w-full text-xs">
-          <thead className="bg-slate-100 text-slate-600">
+          <thead className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
             <tr>
               <th className="p-2 text-center w-8">#</th>
               <th className="p-2 text-left">รหัสยา</th>
@@ -2945,33 +3853,34 @@ function BillItemsDetail({ bill }) {
               const price = parseFloat(r.price_per_unit) || 0;
               const v = (r.total_price_vat != null && r.total_price_vat > 0) ? parseFloat(r.total_price_vat) : qty * price;
               return (
-                <tr key={r.id || i} className="border-t border-slate-100 hover:bg-slate-50">
-                  <td className="p-2 text-center text-slate-400">{i+1}</td>
-                  <td className="p-2 font-mono text-slate-700">{r.drug_code || '-'}</td>
-                  <td className="p-2 font-medium text-slate-800">{r.drug_name || '-'}</td>
+                <tr key={r.id || i} className="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800">
+                  <td className="p-2 text-center text-slate-400 dark:text-slate-500">{i+1}</td>
+                  <td className="p-2 font-mono text-slate-700 dark:text-slate-200">{r.drug_code || '-'}</td>
+                  <td className="p-2 font-medium text-slate-800 dark:text-slate-100">{r.drug_name || '-'}</td>
                   <td className="p-2 text-center"><DrugTypeBadge type={r.drug_type}/></td>
                   <td className="p-2 font-mono">{r.lot || '-'}</td>
-                  <td className="p-2 text-center text-slate-600">{r.exp || '-'}</td>
+                  <td className="p-2 text-center text-slate-600 dark:text-slate-300">{r.exp || '-'}</td>
                   <td className="p-2 text-right font-mono">{fmtBahtDisplay(qty)}</td>
-                  <td className="p-2 text-center text-slate-500">{r.drug_unit || '-'}</td>
-                  <td className="p-2 text-right font-mono text-slate-600">{fmtBahtDisplay(price)}</td>
-                  <td className="p-2 text-right font-mono font-semibold text-emerald-700">{fmtBahtDisplay(v)}</td>
-                  <td className="p-2 text-center text-slate-500 text-[11px]">{r.receive_status || '-'}</td>
+                  <td className="p-2 text-center text-slate-500 dark:text-slate-400">{r.drug_unit || '-'}</td>
+                  <td className="p-2 text-right font-mono text-slate-600 dark:text-slate-300">{fmtBahtDisplay(price)}</td>
+                  <td className="p-2 text-right font-mono font-semibold text-emerald-700 dark:text-emerald-300">{fmtBahtDisplay(v)}</td>
+                  <td className="p-2 text-center text-slate-500 dark:text-slate-400 text-[11px]">{r.receive_status || '-'}</td>
                 </tr>
               );
             })}
           </tbody>
           <tfoot>
-            <tr className="border-t-2 border-slate-300 bg-emerald-50">
-              <td colSpan={6} className="p-2 text-right font-semibold text-slate-700">รวม</td>
+            <tr className="border-t-2 border-slate-300 dark:border-slate-600 bg-emerald-50 dark:bg-emerald-950/40">
+              <td colSpan={6} className="p-2 text-right font-semibold text-slate-700 dark:text-slate-200">รวม</td>
               <td className="p-2 text-right font-mono font-bold">{fmtBahtDisplay(totalQty)}</td>
               <td/><td/>
-              <td className="p-2 text-right font-mono font-bold text-emerald-700">{fmtBahtDisplay(bill.total_value)}</td>
+              <td className="p-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-300">{fmtBahtDisplay(bill.total_value)}</td>
               <td/>
             </tr>
           </tfoot>
         </table>
       </div>
+      <InspectEvidence bill={bill}/>
     </div>
   );
 }
@@ -2983,97 +3892,108 @@ function BillCard({ bill, selected, onToggleSelect, isExpanded, onToggleExpand, 
   const days = daysSince(baseTimestamp);
   const overdue = days > 7;
   const isAcked = !stage && !!bill.acknowledged_at;
+  // บิลที่ผ่านการตรวจรับแล้ว (inspected ขึ้นไป) แต่ไม่มีรูปแนบ → flag ช่องโหว่ "เซ็นโดยไม่ตรวจ"
+  // เฉพาะบิลที่ตรวจรับตั้งแต่ feature live (INSPECT_PHOTO_SINCE) — บิลเก่าก่อนหน้านั้นไม่ flag (ไม่ใช่ noise)
+  const isInspectedStage = stage === 'inspected' || stage === 'sent_batch' || stage === 'posted';
+  const inspectedSinceFeature = bill.inspected_at && bill.inspected_at.slice(0, 10) >= INSPECT_PHOTO_SINCE;
+  const missingInspectPhoto = isInspectedStage && inspectedSinceFeature && !(bill.inspect_meta?.images?.length > 0);
   return (
-    <div className={`border-b border-slate-100 last:border-b-0 ${isExpanded ? 'bg-emerald-50/40' : ''}`}>
-      <div className={`p-3 cursor-pointer hover:bg-slate-50 transition-colors ${selected ? 'bg-emerald-50/60' : ''}`}
-           onClick={() => onToggleExpand(bill.bill_number)}>
+    <div className={`border-b border-slate-100 dark:border-slate-800 last:border-b-0 ${isExpanded ? 'bg-emerald-50 dark:bg-emerald-950/40' : ''}`}>
+      <div className={`p-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${selected ? 'bg-emerald-50 dark:bg-emerald-950/40' : ''}`}
+           onClick={() => onToggleExpand(bill._key)}>
         <div className="flex items-start gap-2.5">
           {onToggleSelect && (
             <input type="checkbox" className="mt-1.5 shrink-0" onClick={e => e.stopPropagation()}
-              checked={selected} onChange={() => onToggleSelect(bill.bill_number)}/>
+              checked={selected} onChange={() => onToggleSelect(bill._key)}/>
           )}
-          <div className="mt-0.5 shrink-0 text-slate-400">
+          <div className="mt-0.5 shrink-0 text-slate-400 dark:text-slate-500">
             {isExpanded ? <ChevronDown size={16} className="text-emerald-600"/> : <ChevronUp size={16} className="rotate-180"/>}
           </div>
           <div className="flex-1 min-w-0">
             {/* row 1: เลขบิล + รายการยา */}
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                <span className="font-bold text-slate-800 text-sm">{bill.bill_number}</span>
+                <span className="font-bold text-slate-800 dark:text-slate-100 text-sm">{bill.bill_number}</span>
                 <StageBadge stage={stage} acknowledged={bill.acknowledged_at}/>
+                {missingInspectPhoto && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 dark:bg-red-950/60 px-2 py-0.5 text-[11px] font-medium text-red-700 dark:text-red-300"
+                    title="ตรวจรับแล้วแต่ไม่มีรูปหลักฐาน">
+                    <AlertCircle size={12}/> ไม่มีรูปตรวจรับ
+                  </span>
+                )}
               </div>
               <span className="text-emerald-600 font-bold text-sm whitespace-nowrap">
-                <span className="text-slate-400 font-normal">จำนวนรายการยา </span>{bill.drug_count} รายการ
+                <span className="text-slate-400 dark:text-slate-500 font-normal">จำนวนรายการยา </span>{bill.drug_count} รายการ
               </span>
             </div>
             {/* row 2: บริษัท · วันรับ + lot */}
-            <div className="flex items-center justify-between text-xs text-slate-500 mt-0.5 gap-2">
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mt-0.5 gap-2">
               <span className="truncate">
                 {bill.supplier}
-                <span className="text-slate-400"> · วันที่รับ: </span>{fmtDateThaiShort(bill.receive_date)}
+                <span className="text-slate-400 dark:text-slate-500"> · วันที่รับ: </span>{fmtDateThaiShort(bill.receive_date)}
               </span>
-              <span className="text-slate-400 whitespace-nowrap">{bill.item_count} lot</span>
+              <span className="text-slate-400 dark:text-slate-500 whitespace-nowrap">{bill.item_count} lot</span>
             </div>
             {/* row 3: timeline (วันที่แต่ละขั้น + ผู้รับผิดชอบ) + มูลค่า + action */}
             <div className="flex items-center justify-between mt-1.5 gap-2">
               <div className="flex items-center gap-x-3 gap-y-1 text-xs flex-wrap">
-                <span className="text-emerald-700">
-                  <span className="text-slate-400">คลังรับ:</span> {fmtDateThaiShort(bill.receive_date)}
+                <span className="text-emerald-700 dark:text-emerald-300">
+                  <span className="text-slate-400 dark:text-slate-500">คลังรับ:</span> {fmtDateThaiShort(bill.receive_date)}
                 </span>
                 {bill.acknowledged_at && (
                   <span className="text-sky-600">
-                    <span className="text-slate-400">→ จัดซื้อรับ:</span> {fmtDateThaiShort(bill.acknowledged_at.slice(0,10))}
+                    <span className="text-slate-400 dark:text-slate-500">→ จัดซื้อรับ:</span> {fmtDateThaiShort(bill.acknowledged_at.slice(0,10))}
                     {bill.acknowledged_by && ` · ${bill.acknowledged_by}`}
                   </span>
                 )}
                 {bill.inspected_at && (
-                  <span className="text-orange-700">
-                    <span className="text-slate-400">→ ตรวจรับ:</span> {fmtDateThaiShort(bill.inspected_at.slice(0,10))}
+                  <span className="text-orange-700 dark:text-orange-300">
+                    <span className="text-slate-400 dark:text-slate-500">→ ตรวจรับ:</span> {fmtDateThaiShort(bill.inspected_at.slice(0,10))}
                     {bill.inspected_by && ` · ${bill.inspected_by}`}
                   </span>
                 )}
                 {bill.ap_sent_at && (
-                  <span className="text-indigo-700">
-                    <span className="text-slate-400">→ ส่งบัญชี:</span> {fmtDateThaiShort(bill.ap_sent_at.slice(0,10))}
+                  <span className="text-indigo-700 dark:text-indigo-300">
+                    <span className="text-slate-400 dark:text-slate-500">→ ส่งบัญชี:</span> {fmtDateThaiShort(bill.ap_sent_at.slice(0,10))}
                     {bill.ap_sent_by && ` · ${bill.ap_sent_by}`}
                   </span>
                 )}
                 {bill.ap_posted_at && (
-                  <span className="text-violet-700">
-                    <span className="text-slate-400">→ ตั้งหนี้:</span> {fmtDateThaiShort(bill.ap_posted_at.slice(0,10))}
+                  <span className="text-violet-700 dark:text-violet-300">
+                    <span className="text-slate-400 dark:text-slate-500">→ ตั้งหนี้:</span> {fmtDateThaiShort(bill.ap_posted_at.slice(0,10))}
                     {bill.ap_posted_by && ` · ${bill.ap_posted_by}`}
                   </span>
                 )}
-                <span className={`font-semibold ${overdue ? 'text-red-600' : 'text-slate-500'}`}>
-                  <span className="text-slate-400 font-normal">{sentTimestamp ? '· ค้างที่บัญชี ' : '· รวม '}</span>{days} วัน
+                <span className={`font-semibold ${overdue ? 'text-red-600' : 'text-slate-500 dark:text-slate-400'}`}>
+                  <span className="text-slate-400 dark:text-slate-500 font-normal">{sentTimestamp ? '· ค้างที่บัญชี ' : '· รวม '}</span>{days} วัน
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-bold text-orange-600 font-mono text-sm">
-                  <span className="text-slate-400 font-normal font-sans">มูลค่ารวม </span>
+                  <span className="text-slate-400 dark:text-slate-500 font-normal font-sans">มูลค่ารวม </span>
                   {Number(bill.total_value || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })} บาท
                 </span>
                 {/* ปุ่มรับบิล (เฉพาะ unack) */}
                 {onAcknowledge && !stage && !bill.acknowledged_at && (
-                  <button onClick={(e) => { e.stopPropagation(); onAcknowledge(bill.bill_number); }}
-                    disabled={busy} title="จัดซื้อรับบิลแล้ว"
-                    className="text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2 py-0.5 rounded inline-flex items-center gap-1 text-xs disabled:opacity-50 font-medium">
+                  <button onClick={(e) => { e.stopPropagation(); onAcknowledge(bill); }}
+                    disabled={busy} title="จัดซื้อรับเอกสารแล้ว"
+                    className="text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 hover:bg-sky-100 dark:hover:bg-sky-950/70 border border-sky-200 dark:border-sky-900/60 px-2 py-0.5 rounded inline-flex items-center gap-1 text-xs disabled:opacity-50 font-medium">
                     <CheckCircle2 size={12}/> รับบิล
                   </button>
                 )}
                 {/* ปุ่มย้อน ack */}
                 {onUnacknowledge && isAcked && (
-                  <button onClick={(e) => { e.stopPropagation(); onUnacknowledge(bill.bill_number); }}
-                    disabled={busy} title="ย้อนเป็นรอจัดซื้อรับ"
-                    className="text-sky-600 hover:bg-sky-50 p-1 rounded inline-flex items-center text-xs disabled:opacity-50">
+                  <button onClick={(e) => { e.stopPropagation(); onUnacknowledge(bill); }}
+                    disabled={busy} title="ย้อนเป็นรอจัดซื้อรับเอกสาร"
+                    className="text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/50 p-1 rounded inline-flex items-center text-xs disabled:opacity-50">
                     <Undo2 size={13}/>
                   </button>
                 )}
                 {/* ปุ่ม undo (inspected/sent) */}
                 {onUndo && (stage === 'inspected' || stage === 'sent_batch') && (
-                  <button onClick={(e) => { e.stopPropagation(); onUndo(bill.bill_number); }}
+                  <button onClick={(e) => { e.stopPropagation(); onUndo(bill); }}
                     disabled={busy} title={undoTitle || 'ย้อนกลับ'}
-                    className="text-amber-600 hover:bg-amber-50 p-1 rounded inline-flex items-center text-xs disabled:opacity-50">
+                    className="text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/50 p-1 rounded inline-flex items-center text-xs disabled:opacity-50">
                     <Undo2 size={13}/>
                   </button>
                 )}
@@ -3099,16 +4019,16 @@ function SortToolbar({ sortKey, sortDir, toggleSort, allSelected, onToggleAll, t
   ];
   const arrow = sortDir === 'asc' ? '▲' : '▼';
   return (
-    <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/60 flex items-center flex-wrap gap-1.5 text-xs">
-      <span className="text-slate-500 mr-1">เรียง:</span>
+    <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 flex items-center flex-wrap gap-1.5 text-xs">
+      <span className="text-slate-500 dark:text-slate-400 mr-1">เรียง:</span>
       {options.map(opt => (
         <button key={opt.key} onClick={() => toggleSort(opt.key)}
-          className={`px-2 py-0.5 rounded font-medium transition-colors ${sortKey === opt.key ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}>
+          className={`px-2 py-0.5 rounded font-medium transition-colors ${sortKey === opt.key ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
           {opt.label}{sortKey === opt.key && <span className="ml-1">{arrow}</span>}
         </button>
       ))}
       {!hideSelectAll && onToggleAll && (
-        <label className="ml-auto flex items-center gap-1.5 text-slate-600 cursor-pointer">
+        <label className="ml-auto flex items-center gap-1.5 text-slate-600 dark:text-slate-300 cursor-pointer">
           <input type="checkbox" checked={allSelected} onChange={onToggleAll}/>
           เลือกทั้งหมด ({totalSelected}/{totalBills})
         </label>
@@ -3122,7 +4042,7 @@ function ToastPopup({ type = 'success', message, onClose }) {
   const Icon = isError ? AlertCircle : CheckCircle2;
   return (
     <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-top duration-200">
-      <div className={`flex items-start gap-3 px-4 py-3 rounded-xl shadow-2xl border-2 max-w-md min-w-[280px] ${isError ? 'bg-red-50 border-red-300 text-red-800' : 'bg-emerald-50 border-emerald-300 text-emerald-800'}`}>
+      <div className={`flex items-start gap-3 px-4 py-3 rounded-xl shadow-2xl border-2 max-w-md min-w-[280px] ${isError ? 'bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-800/60 text-red-800 dark:text-red-300' : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300'}`}>
         <Icon size={20} className={`shrink-0 mt-0.5 ${isError ? 'text-red-600' : 'text-emerald-600'}`}/>
         <div className="flex-1 text-sm font-medium leading-relaxed whitespace-pre-line">{message}</div>
         <button onClick={onClose} className={`shrink-0 -mr-1 -mt-1 p-1 rounded hover:bg-white/40 ${isError ? 'text-red-600' : 'text-emerald-600'}`}>
@@ -3144,79 +4064,143 @@ function StageBadge({ stage, acknowledged }) {
   );
 }
 
-function PendingTab({ bills, selected, toggleBill, toggleAll, inspector, setInspector, purchaser, setPurchaser, returnDate, setReturnDate, busy, onMarkInspected, onExportSend, onExportAck, onUninspect, onAcknowledge, onUnacknowledge, onBulkUndo, toggleSort, sortKey, sortDir, expandedBill, toggleExpand }) {
-  const allSelected = bills.length > 0 && selected.size === bills.length;
-  const someInspectedSelected = bills.some(b => b.ap_stage === 'inspected' && selected.has(b.bill_number));
-  const someAckedSelected    = bills.some(b => !b.ap_stage && b.acknowledged_at && selected.has(b.bill_number));   // ack แล้ว (พร้อมตรวจรับ)
-  const someUnackSelected    = bills.some(b => !b.ap_stage && !b.acknowledged_at && selected.has(b.bill_number)); // ยังไม่ ack (พร้อมรับบิล)
-  const undoableCount = bills.filter(b => selected.has(b.bill_number) && ((b.ap_stage === 'inspected') || (!b.ap_stage && b.acknowledged_at))).length;
+// Pipeline ขั้นตอนงาน AP — รวม "สถานะ (กรองได้) + จำนวน + ปุ่ม action" ของแต่ละขั้นเป็นการ์ดเดียว
+// คลิกหัวการ์ด = กรองบิลตามสถานะนั้น, ปุ่มในการ์ด = ดำเนินการขั้นนั้นกับบิลที่เลือก
+function StagePipeline({
+  stageFilter, setStageFilter, stageCount,
+  selUnack, selAcked, selInspected,
+  busy, someUnackSelected, someAckedSelected, someInspectedSelected,
+  onExportAck, onAcknowledge, onMarkInspected, onExportSend,
+  onBulkUndo, undoableCount,
+}) {
+  const toggleStage = (key) => setStageFilter(stageFilter === key ? 'all' : key);
+  const cardBase = 'flex flex-col min-w-[200px] flex-1 rounded-xl border-2 bg-white dark:bg-slate-900 transition-all overflow-hidden';
+  const arrow = <ArrowRight size={18} className="text-slate-300 dark:text-slate-500 shrink-0 self-center"/>;
+
+  // หัวการ์ด (คลิกเพื่อกรอง) — แสดงเลขขั้น, สถานะ, จำนวนบิลในสถานะนั้น
+  const renderHead = (no, title, count, dot, active) => (
+    <button onClick={() => toggleStage(active.key)}
+      className={`text-left px-3 pt-2.5 pb-2 cursor-pointer transition-colors ${stageFilter === active.key ? active.head : 'hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500">ขั้น {no}</span>
+        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${active.pill}`}>{count} บิล</span>
+      </div>
+      <div className="flex items-center gap-1.5 mt-1">
+        <span className={`w-2 h-2 rounded-full ${dot}`}/>
+        <span className="font-semibold text-sm text-slate-700 dark:text-slate-200">{title}</span>
+      </div>
+    </button>
+  );
+
+  const cfg = {
+    unack:     { key: 'unack',     border: stageFilter === 'unack'     ? 'border-amber-400'  : 'border-slate-200 dark:border-slate-700', head: 'bg-amber-50 dark:bg-amber-950/40',  pill: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300' },
+    acked:     { key: 'acked',     border: stageFilter === 'acked'     ? 'border-sky-400'    : 'border-slate-200 dark:border-slate-700', head: 'bg-sky-50 dark:bg-sky-950/40',    pill: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300' },
+    inspected: { key: 'inspected', border: stageFilter === 'inspected' ? 'border-orange-400' : 'border-slate-200 dark:border-slate-700', head: 'bg-orange-50 dark:bg-orange-950/40', pill: 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300' },
+  };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <div className="p-3 border-b border-slate-100 bg-slate-50 space-y-3">
-        {/* Input row — ชื่อผู้รับผิดชอบ + วันที่ส่งคืน */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
-            <span className="text-xs text-slate-500 whitespace-nowrap w-24 shrink-0">จนท.จัดซื้อ:</span>
-            <input value={purchaser} onChange={e => setPurchaser(e.target.value)}
-              placeholder=""
-              className="flex-1 min-w-0 outline-none text-sm"/>
-          </div>
-          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
-            <span className="text-xs text-slate-500 whitespace-nowrap w-28 shrink-0">กรรมการตรวจรับ:</span>
-            <input value={inspector} onChange={e => setInspector(e.target.value)}
-              placeholder=""
-              className="flex-1 min-w-0 outline-none text-sm"/>
-          </div>
-          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
-            <span className="text-xs text-slate-500 whitespace-nowrap w-28 shrink-0">ส่งคืนจัดซื้อ:</span>
-            <ThaiDateInput
-              value={isoToThai(returnDate)}
-              onChange={v => setReturnDate(thaiToIso(v) || '')}
-              size="flex-1 min-w-0"
-            />
-          </div>
-        </div>
-
-        {/* Action row — flow ตามลำดับซ้าย→ขวา, ปุ่ม undo อยู่สุดทางขวา */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button onClick={onExportAck}
-            disabled={busy || !someUnackSelected}
-            title={!someUnackSelected ? 'เลือกบิล "รอจัดซื้อรับ" ก่อน' : 'พิมพ์ใบส่งจัดซื้อให้เซ็น'}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
-            <Printer size={15}/> Print ส่งจัดซื้อ ({Array.from(selected).filter(bn => bills.find(b => b.bill_number === bn && !b.ap_stage && !b.acknowledged_at)).length})
-          </button>
-          <ChevronUp size={14} className="text-slate-300 rotate-90"/>
-          <button onClick={() => onAcknowledge()}
-            disabled={busy || !someUnackSelected}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-sky-500 text-white hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
-            <CheckCircle2 size={15}/> จัดซื้อรับบิล ({Array.from(selected).filter(bn => bills.find(b => b.bill_number === bn && !b.ap_stage && !b.acknowledged_at)).length})
-          </button>
-          <ChevronUp size={14} className="text-slate-300 rotate-90"/>
-          <button onClick={onMarkInspected}
-            disabled={busy || !someAckedSelected}
-            title={!someAckedSelected ? 'ต้อง จัดซื้อรับบิล ก่อน (กรุณาเลือกบิลที่ "จัดซื้อรับแล้ว")' : ''}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
-            <CheckCircle2 size={15}/> Mark ตรวจรับแล้ว ({Array.from(selected).filter(bn => bills.find(b => b.bill_number === bn && !b.ap_stage && b.acknowledged_at)).length})
-          </button>
-          <ChevronUp size={14} className="text-slate-300 rotate-90"/>
-          <button onClick={onExportSend}
-            disabled={busy || !someInspectedSelected}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
-            <Printer size={15}/> Print & ส่งบัญชี ({Array.from(selected).filter(bn => bills.find(b => b.bill_number === bn && b.ap_stage === 'inspected')).length})
+    <div className="space-y-2">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <span className="text-xs text-slate-500 dark:text-slate-400">ลำดับงาน — คลิกการ์ดเพื่อกรองบิลตามสถานะ แล้วเลือกบิลเพื่อกดปุ่มในขั้นนั้น</span>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setStageFilter('all')}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${stageFilter === 'all' ? 'bg-slate-700 text-white shadow' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'}`}>
+            ดูทั้งหมด ({stageCount.all || 0})
           </button>
           {onBulkUndo && (
             <button onClick={onBulkUndo}
               disabled={busy || undoableCount === 0}
               title={undoableCount === 0 ? 'เลือกบิลที่ ack แล้ว หรือ ตรวจรับแล้ว ก่อน' : ''}
-              className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-white text-amber-700 border border-amber-300 hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60 hover:bg-amber-50 dark:hover:bg-amber-950/50 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
               <Undo2 size={12}/> ย้อนกลับ ({undoableCount})
             </button>
           )}
         </div>
       </div>
+
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {/* ขั้น 1 — รอจัดซื้อรับเอกสาร: พิมพ์ใบส่งมอบเอกสาร + บันทึกจัดซื้อรับเอกสาร */}
+        <div className={`${cardBase} ${cfg.unack.border}`}>
+          {renderHead(1, 'รอจัดซื้อรับเอกสาร', stageCount.unack || 0, 'bg-amber-500', cfg.unack)}
+          <div className="border-t border-slate-100 dark:border-slate-800 p-2 space-y-1.5">
+            <button onClick={onExportAck} disabled={busy || !someUnackSelected}
+              title={!someUnackSelected ? 'เลือกบิล "รอจัดซื้อรับเอกสาร" ก่อน' : 'พิมพ์ใบส่งมอบเอกสารให้เซ็น'}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+              <Printer size={15}/> พิมพ์ใบส่งมอบเอกสาร ({selUnack})
+            </button>
+            <button onClick={() => onAcknowledge()} disabled={busy || !someUnackSelected}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-sky-500 text-white hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+              <CheckCircle2 size={15}/> บันทึกจัดซื้อรับเอกสาร ({selUnack})
+            </button>
+          </div>
+        </div>
+
+        {arrow}
+
+        {/* ขั้น 2 — จัดซื้อรับเอกสารแล้ว: ยืนยันตรวจรับ (เปิด checklist modal) */}
+        <div className={`${cardBase} ${cfg.acked.border}`}>
+          {renderHead(2, 'จัดซื้อรับเอกสารแล้ว', stageCount.acked || 0, 'bg-sky-500', cfg.acked)}
+          <div className="border-t border-slate-100 dark:border-slate-800 p-2 space-y-1.5">
+            <button onClick={onMarkInspected} disabled={busy || !someAckedSelected}
+              title={!someAckedSelected ? 'ต้องบันทึกจัดซื้อรับเอกสารก่อน (กรุณาเลือกบิลที่ "จัดซื้อรับเอกสารแล้ว")' : ''}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+              <CheckCircle2 size={15}/> ยืนยันตรวจรับ ({selAcked})
+            </button>
+          </div>
+        </div>
+
+        {arrow}
+
+        {/* ขั้น 3 — รอนำส่งบัญชี: พิมพ์ใบนำส่ง + นำส่งบัญชี */}
+        <div className={`${cardBase} ${cfg.inspected.border}`}>
+          {renderHead(3, 'รอนำส่งบัญชี', stageCount.inspected || 0, 'bg-orange-500', cfg.inspected)}
+          <div className="border-t border-slate-100 dark:border-slate-800 p-2 space-y-1.5">
+            <button onClick={onExportSend} disabled={busy || !someInspectedSelected}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+              <Printer size={15}/> พิมพ์ใบนำส่ง & นำส่งบัญชี ({selInspected})
+            </button>
+          </div>
+        </div>
+
+        {arrow}
+
+        {/* ปลายทาง — นำส่งบัญชีแล้ว (ดูที่แท็บถัดไป) */}
+        <div className="flex flex-col items-center justify-center min-w-[140px] flex-1 rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700 p-3 text-center bg-slate-50 dark:bg-slate-800/50">
+          <FileCheck2 size={20} className="text-slate-300 dark:text-slate-500 mb-1"/>
+          <span className="font-semibold text-sm text-slate-400 dark:text-slate-500">นำส่งบัญชีแล้ว</span>
+          <span className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">ดูที่แท็บ “นำส่งบัญชีแล้ว”</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PendingTab({ bills, selected, toggleBill, toggleAll, stageFilter, setStageFilter, stageCount, busy, onMarkInspected, onExportSend, onExportAck, onUninspect, onAcknowledge, onUnacknowledge, onBulkUndo, toggleSort, sortKey, sortDir, expandedBill, toggleExpand }) {
+  const allSelected = bills.length > 0 && selected.size === bills.length;
+  const someInspectedSelected = bills.some(b => b.ap_stage === 'inspected' && selected.has(b._key));
+  const someAckedSelected    = bills.some(b => !b.ap_stage && b.acknowledged_at && selected.has(b._key));   // ack แล้ว (พร้อมตรวจรับ)
+  const someUnackSelected    = bills.some(b => !b.ap_stage && !b.acknowledged_at && selected.has(b._key)); // ยังไม่ ack (พร้อมรับบิล)
+  const undoableCount = bills.filter(b => selected.has(b._key) && ((b.ap_stage === 'inspected') || (!b.ap_stage && b.acknowledged_at))).length;
+  // จำนวนบิลที่เลือกในแต่ละขั้น — โชว์บนปุ่ม action ของขั้นนั้น
+  const selUnack     = bills.filter(b => !b.ap_stage && !b.acknowledged_at && selected.has(b._key)).length;
+  const selAcked     = bills.filter(b => !b.ap_stage && b.acknowledged_at && selected.has(b._key)).length;
+  const selInspected = bills.filter(b => b.ap_stage === 'inspected' && selected.has(b._key)).length;
+
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <div className="p-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 space-y-3">
+        {/* Pipeline ขั้นตอนงาน — สถานะ + จำนวน + ปุ่ม action ของแต่ละขั้นรวมเป็นการ์ดเดียว */}
+        <StagePipeline
+          stageFilter={stageFilter} setStageFilter={setStageFilter} stageCount={stageCount}
+          selUnack={selUnack} selAcked={selAcked} selInspected={selInspected}
+          busy={busy}
+          someUnackSelected={someUnackSelected} someAckedSelected={someAckedSelected} someInspectedSelected={someInspectedSelected}
+          onExportAck={onExportAck} onAcknowledge={onAcknowledge}
+          onMarkInspected={onMarkInspected} onExportSend={onExportSend}
+          onBulkUndo={onBulkUndo} undoableCount={undoableCount} />
+      </div>
       {bills.length === 0 ? (
-        <div className="text-center text-slate-400 py-12 text-sm">ไม่มีบิลรอตรวจรับ/ส่งบัญชี</div>
+        <div className="text-center text-slate-400 dark:text-slate-500 py-12 text-sm">ไม่มีบิลรอตรวจรับ/ส่งบัญชี</div>
       ) : (
         <>
           <SortToolbar sortKey={sortKey} sortDir={sortDir} toggleSort={toggleSort}
@@ -3224,9 +4208,9 @@ function PendingTab({ bills, selected, toggleBill, toggleAll, inspector, setInsp
             totalSelected={selected.size} totalBills={bills.length}/>
           <div>
             {bills.map(b => (
-              <BillCard key={b.bill_number} bill={b}
-                selected={selected.has(b.bill_number)} onToggleSelect={toggleBill}
-                isExpanded={expandedBill === b.bill_number} onToggleExpand={toggleExpand}
+              <BillCard key={b._key} bill={b}
+                selected={selected.has(b._key)} onToggleSelect={toggleBill}
+                isExpanded={expandedBill === b._key} onToggleExpand={toggleExpand}
                 busy={busy} onUndo={onUninspect} undoTitle="ย้อนกลับเป็นรอตรวจรับ"
                 onAcknowledge={onAcknowledge} onUnacknowledge={onUnacknowledge}/>
             ))}
@@ -3250,46 +4234,46 @@ function SentTab({ bills, selected, toggleBill, toggleAll, accountant, setAccoun
 
   return (
     <div>
-      <div className="bg-white rounded-xl border border-slate-200 p-3 mb-3 flex flex-wrap items-center gap-2">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 mb-3 flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1.5">
-          <span className="text-xs text-slate-500 whitespace-nowrap">จนท.บัญชี:</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">จนท.บัญชี:</span>
           <input value={accountant} onChange={e => setAccountant(e.target.value)}
             placeholder=""
-            className="px-2 py-1 border border-slate-300 rounded text-sm w-52"/>
+            className="px-2 py-1 border border-slate-300 dark:border-slate-600 rounded text-sm w-52"/>
         </div>
         <button onClick={() => toggleAll(bills)} disabled={bills.length === 0}
-          className="px-3 py-1.5 rounded-lg text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-40">
+          className="px-3 py-1.5 rounded-lg text-sm bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 disabled:opacity-40">
           {allSelected ? 'ยกเลิกเลือกทั้งหมด' : 'เลือกทั้งหมด'} ({selected.size}/{bills.length})
         </button>
         <button onClick={() => onMarkPosted()} disabled={busy || selected.size === 0}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all">
-          <CheckCircle2 size={15}/> Mark ตั้งหนี้แล้ว ({selected.size})
+          <CheckCircle2 size={15}/> ยืนยันตั้งหนี้ ({selected.size})
         </button>
       </div>
 
       {batchKeys.length === 0 ? (
-        <div className="bg-white rounded-xl border border-slate-200 text-center text-slate-400 py-12 text-sm">ไม่มีบิลรอ post</div>
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 text-center text-slate-400 dark:text-slate-500 py-12 text-sm">ไม่มีบิลรอ post</div>
       ) : (
         <>
-          <div className="bg-white rounded-xl border border-slate-200 mb-3">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 mb-3">
             <SortToolbar sortKey={sortKey} sortDir={sortDir} toggleSort={toggleSort} hideSelectAll/>
           </div>
           {batchKeys.map(bk => (
-            <div key={bk} className="bg-white rounded-xl border border-slate-200 overflow-hidden mb-3">
-              <div className="p-2 bg-sky-50 border-b border-sky-100 flex items-center justify-between">
-                <div className="text-sm font-medium text-sky-800">Batch: {bk}  <span className="text-xs text-slate-500">({byBatch[bk].length} บิล)</span></div>
-                <button onClick={() => onMarkPosted(byBatch[bk].map(b => b.bill_number))}
+            <div key={bk} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden mb-3">
+              <div className="p-2 bg-sky-50 dark:bg-sky-950/40 border-b border-sky-100 dark:border-sky-900/50 flex items-center justify-between">
+                <div className="text-sm font-medium text-sky-800 dark:text-sky-300">Batch: {bk}  <span className="text-xs text-slate-500 dark:text-slate-400">({byBatch[bk].length} บิล)</span></div>
+                <button onClick={() => onMarkPosted(byBatch[bk])}
                   disabled={busy}
                   className="text-xs px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
-                  Mark all posted in batch
+                  ยืนยันตั้งหนี้ทั้งรอบ
                 </button>
               </div>
               <div>
                 {byBatch[bk].map(b => (
-                  <BillCard key={b.bill_number} bill={b}
-                    selected={selected.has(b.bill_number)} onToggleSelect={toggleBill}
-                    isExpanded={expandedBill === b.bill_number} onToggleExpand={toggleExpand}
-                    busy={busy} onUndo={onUnsendBatch} undoTitle="ย้อนกลับเป็นรอส่งบัญชี (ออกจาก batch)"
+                  <BillCard key={b._key} bill={b}
+                    selected={selected.has(b._key)} onToggleSelect={toggleBill}
+                    isExpanded={expandedBill === b._key} onToggleExpand={toggleExpand}
+                    busy={busy} onUndo={onUnsendBatch} undoTitle="ย้อนกลับเป็นรอนำส่งบัญชี (ออกจาก batch)"
                     sentTimestamp/>
                 ))}
               </div>
@@ -3328,14 +4312,11 @@ function HistoryTab({ batches, busy, search = '', onReExport, onUnpost, onResetB
   const visibleBatches = !q ? batches : batches.filter(b => {
     const bills = batchBills[b.batch_id];
     if (!bills) return true; // ยังโหลดไม่เสร็จ — แสดงไว้ก่อน
-    return bills.some(bill =>
-      (bill.bill_number || '').toLowerCase().includes(q) ||
-      (bill.supplier || '').toLowerCase().includes(q)
-    );
+    return bills.some(bill => billMatchesQuery(bill, q));
   });
 
-  if (batches.length === 0) return <div className="bg-white rounded-xl border border-slate-200 text-center text-slate-400 py-12 text-sm">ไม่มี batch ตรงเงื่อนไข — ลองล้างตัวกรองวันที่ส่ง หรือไปแท็บ "รอส่งบัญชี" เพื่อสร้าง batch แรก</div>;
-  if (visibleBatches.length === 0) return <div className="bg-white rounded-xl border border-slate-200 text-center text-slate-400 py-12 text-sm">ไม่พบบิล/บริษัท ที่ตรงกับคำค้น "{q}"</div>;
+  if (batches.length === 0) return <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 text-center text-slate-400 dark:text-slate-500 py-12 text-sm">ไม่มี batch ตรงเงื่อนไข — ลองล้างตัวกรองวันที่ส่ง หรือไปแท็บ "รอนำส่งบัญชี" เพื่อสร้าง batch แรก</div>;
+  if (visibleBatches.length === 0) return <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 text-center text-slate-400 dark:text-slate-500 py-12 text-sm">ไม่พบบิล/บริษัท ที่ตรงกับคำค้น "{q}"</div>;
 
   async function toggleExpand(batchId) {
     if (expandedBatch === batchId) { setExpandedBatch(null); return; }
@@ -3350,9 +4331,9 @@ function HistoryTab({ batches, busy, search = '', onReExport, onUnpost, onResetB
   }
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
       <table className="w-full text-sm">
-        <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
+        <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs uppercase">
           <tr>
             <th className="p-2 text-left">Batch ID</th>
             <th className="p-2 text-left">ส่งโดย</th>
@@ -3369,16 +4350,16 @@ function HistoryTab({ batches, busy, search = '', onReExport, onUnpost, onResetB
             const isExpanded = expandedBatch === b.batch_id || (!!q && !!batchBills[b.batch_id]); // auto-expand เมื่อ search
             return (
               <React.Fragment key={b.batch_id}>
-                <tr className={`border-t border-slate-100 hover:bg-slate-50 cursor-pointer ${isExpanded ? 'bg-emerald-50/60' : ''}`}
+                <tr className={`border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer ${isExpanded ? 'bg-emerald-50 dark:bg-emerald-950/40' : ''}`}
                     onClick={() => toggleExpand(b.batch_id)}>
-                  <td className="p-2 font-mono font-medium text-slate-800">
+                  <td className="p-2 font-mono font-medium text-slate-800 dark:text-slate-100">
                     <span className="inline-flex items-center gap-1">
-                      {isExpanded ? <ChevronDown size={14} className="text-emerald-600"/> : <ChevronUp size={14} className="text-slate-400 rotate-180"/>}
+                      {isExpanded ? <ChevronDown size={14} className="text-emerald-600"/> : <ChevronUp size={14} className="text-slate-400 dark:text-slate-500 rotate-180"/>}
                       {b.batch_id}
                     </span>
                   </td>
-                  <td className="p-2 text-slate-600">{b.sent_by || '-'}</td>
-                  <td className="p-2 text-center text-slate-600">{fmtDateThaiShort(b.sent_at?.slice(0,10))}</td>
+                  <td className="p-2 text-slate-600 dark:text-slate-300">{b.sent_by || '-'}</td>
+                  <td className="p-2 text-center text-slate-600 dark:text-slate-300">{fmtDateThaiShort(b.sent_at?.slice(0,10))}</td>
                   <td className="p-2 text-center">{b.bill_count}</td>
                   <td className="p-2 text-center">
                     <span className={done ? 'text-emerald-600 font-semibold' : 'text-sky-600'}>{b.posted_count}/{b.bill_count}</span>
@@ -3387,30 +4368,30 @@ function HistoryTab({ batches, busy, search = '', onReExport, onUnpost, onResetB
                   <td className="p-2 text-center" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-center gap-1 flex-wrap">
                       <button onClick={() => onReExport(b)} disabled={busy}
-                        className="px-2 py-1 rounded text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1 disabled:opacity-50">
+                        className="px-2 py-1 rounded text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 flex items-center gap-1 disabled:opacity-50">
                         <Printer size={12}/> พิมพ์ซ้ำ
                       </button>
                       <button onClick={() => onResetBatch(b)} disabled={busy}
-                        title={`Reset batch — ทุกบิล (${b.bill_count} บิล) จะกลับเป็น "รอส่งบัญชี"`}
-                        className="px-2 py-1 rounded text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 flex items-center gap-1 disabled:opacity-50">
+                        title={`Reset batch — ทุกบิล (${b.bill_count} บิล) จะกลับเป็น "รอนำส่งบัญชี"`}
+                        className="px-2 py-1 rounded text-xs bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/70 text-amber-700 dark:text-amber-300 flex items-center gap-1 disabled:opacity-50">
                         <Undo2 size={12}/> Reset
                       </button>
                     </div>
                   </td>
                 </tr>
                 {isExpanded && (
-                  <tr className="bg-slate-50/70 border-t-2 border-emerald-200">
+                  <tr className="bg-slate-50 dark:bg-slate-800/70 border-t-2 border-emerald-200 dark:border-emerald-900/60">
                     <td colSpan={7} className="p-3">
-                      <div className="mb-2 text-xs text-slate-600 flex items-center gap-3 flex-wrap">
-                        <span><span className="text-slate-400">Batch:</span> <span className="font-semibold">{b.batch_id}</span></span>
-                        <span><span className="text-slate-400">บิลทั้งหมด:</span> <span className="font-semibold">{b.bill_count}</span></span>
-                        <span><span className="text-slate-400">Post แล้ว:</span> <span className={done ? 'text-emerald-600 font-semibold' : 'text-sky-600 font-semibold'}>{b.posted_count}/{b.bill_count}</span></span>
-                        <span className="ml-auto"><span className="text-slate-400">มูลค่ารวม:</span> <span className="font-bold text-emerald-700">{fmtBahtDisplay(b.total_value)} บาท</span></span>
+                      <div className="mb-2 text-xs text-slate-600 dark:text-slate-300 flex items-center gap-3 flex-wrap">
+                        <span><span className="text-slate-400 dark:text-slate-500">Batch:</span> <span className="font-semibold">{b.batch_id}</span></span>
+                        <span><span className="text-slate-400 dark:text-slate-500">บิลทั้งหมด:</span> <span className="font-semibold">{b.bill_count}</span></span>
+                        <span><span className="text-slate-400 dark:text-slate-500">Post แล้ว:</span> <span className={done ? 'text-emerald-600 font-semibold' : 'text-sky-600 font-semibold'}>{b.posted_count}/{b.bill_count}</span></span>
+                        <span className="ml-auto"><span className="text-slate-400 dark:text-slate-500">มูลค่ารวม:</span> <span className="font-bold text-emerald-700 dark:text-emerald-300">{fmtBahtDisplay(b.total_value)} บาท</span></span>
                       </div>
                       {loadingBatch === b.batch_id ? (
-                        <div className="text-center text-slate-400 py-4 text-sm">กำลังโหลด...</div>
+                        <div className="text-center text-slate-400 dark:text-slate-500 py-4 text-sm">กำลังโหลด...</div>
                       ) : !batchBills[b.batch_id] || batchBills[b.batch_id].length === 0 ? (
-                        <div className="text-center text-slate-400 py-4 text-sm">ไม่พบรายการ</div>
+                        <div className="text-center text-slate-400 dark:text-slate-500 py-4 text-sm">ไม่พบรายการ</div>
                       ) : (
                         <BatchBillsList bills={batchBills[b.batch_id]} search={q} />
                       )}
@@ -3429,18 +4410,15 @@ function HistoryTab({ batches, busy, search = '', onReExport, onUnpost, onResetB
 function BatchBillsList({ bills, search = '' }) {
   const [expandedBill, setExpandedBill] = useState(null);
   const q = search.trim().toLowerCase();
-  const filteredBills = !q ? bills : bills.filter(b =>
-    (b.bill_number || '').toLowerCase().includes(q) ||
-    (b.supplier || '').toLowerCase().includes(q)
-  );
+  const filteredBills = !q ? bills : bills.filter(b => billMatchesQuery(b, q));
   if (filteredBills.length === 0) {
-    return <div className="text-center text-slate-400 py-3 text-xs italic">— ไม่มีบิลที่ตรงกับคำค้น "{q}" ใน batch นี้ —</div>;
+    return <div className="text-center text-slate-400 dark:text-slate-500 py-3 text-xs italic">— ไม่มีบิลที่ตรงกับคำค้น "{q}" ใน batch นี้ —</div>;
   }
   return (
-    <div className="rounded-lg border border-slate-200 bg-white">
+    <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
       {filteredBills.map(b => (
-        <BillCard key={b.bill_number} bill={b}
-          isExpanded={expandedBill === b.bill_number}
+        <BillCard key={b._key} bill={b}
+          isExpanded={expandedBill === b._key}
           onToggleExpand={(bn) => setExpandedBill(cur => cur === bn ? null : bn)}/>
       ))}
     </div>

@@ -1,84 +1,9 @@
 /**
- * unitParser.test.js
- * ทดลองฟังก์ชันแยก "หน่วยยา" จาก string ผสม เช่น "1000เม็ด", "Tablet (500เม็ด)"
- * ยังไม่ได้ใช้งานจริง — เป็นไฟล์ทดสอบเท่านั้น
+ * unitParser.test.js — golden test สำหรับ src/lib/unitParser.js
+ * รัน: node src/unitParser.test.js
  */
 
-// ============================================================
-// ฟังก์ชันหลัก
-// ============================================================
-
-/**
- * แยก unit string ออกเป็น { packSize, baseUnit }
- * ตัวอย่าง:
- *   "1000เม็ด"          → { packSize: 1000, baseUnit: "เม็ด" }
- *   "500 เม็ด"          → { packSize: 500,  baseUnit: "เม็ด" }
- *   "Tablet (100เม็ด)"  → { packSize: 100,  baseUnit: "เม็ด" }
- *   "Apply (15เม็ด)"    → { packSize: 15,   baseUnit: "เม็ด" }
- *   "เม็ด"              → { packSize: null,  baseUnit: "เม็ด" }
- *   "500ml"             → { packSize: 500,  baseUnit: "ml" }
- *   "10แผง×10เม็ด"      → { packSize: 100,  baseUnit: "เม็ด", note: "10แผง×10" }
- */
-function parseUnit(raw) {
-  if (!raw || raw === '-') return { packSize: null, baseUnit: raw || '-', original: raw };
-
-  const s = String(raw).trim();
-
-  // กรณี "แผง×เม็ด" เช่น "10แผง×10เม็ด"
-  const blisterMatch = s.match(/(\d+)\s*แผง\s*[×x]\s*(\d+)\s*(เม็ด|แคปซูล|cap|tab)/i);
-  if (blisterMatch) {
-    const sheets = parseInt(blisterMatch[1]);
-    const perSheet = parseInt(blisterMatch[2]);
-    return {
-      packSize: sheets * perSheet,
-      baseUnit: blisterMatch[3],
-      original: s,
-      note: `${sheets}แผง×${perSheet}`,
-    };
-  }
-
-  // กรณีมีวงเล็บ เช่น "Tablet (500เม็ด)", "Apply (15เม็ด)"
-  const parenMatch = s.match(/\((\d[\d,]*)\s*(เม็ด|แคปซูล|cap|tab|ml|mg|g|iu|unit|วาย|ซอง|ขวด|หลอด|แผ่น|อัน|ชิ้น|pack|pcs)\)/i);
-  if (parenMatch) {
-    return {
-      packSize: parseInt(parenMatch[1].replace(/,/g, '')),
-      baseUnit: parenMatch[2],
-      original: s,
-    };
-  }
-
-  // กรณีตัวเลข + หน่วยติดกัน เช่น "1000เม็ด", "500ml"
-  const directMatch = s.match(/^([\d,]+)\s*(เม็ด|แคปซูล|cap|tab|ml|mg|g|iu|unit|วาย|ซอง|ขวด|หลอด|แผ่น|อัน|ชิ้น|pack|pcs)$/i);
-  if (directMatch) {
-    return {
-      packSize: parseInt(directMatch[1].replace(/,/g, '')),
-      baseUnit: directMatch[2],
-      original: s,
-    };
-  }
-
-  // ไม่มีตัวเลข → เก็บเป็น baseUnit เฉยๆ
-  return { packSize: null, baseUnit: s, original: s };
-}
-
-// ============================================================
-// คำนวณ qty จริงจาก bill qty × packSize
-// ============================================================
-
-/**
- * qty_received = 10 (กล่อง), unit_per_bill = "1000เม็ด"
- * → totalUnits = 10,000 เม็ด
- */
-function calcTotalUnits(qtyReceived, unitPerBill) {
-  const parsed = parseUnit(unitPerBill);
-  if (!parsed.packSize) return { total: qtyReceived, unit: parsed.baseUnit };
-  return {
-    total: qtyReceived * parsed.packSize,
-    unit: parsed.baseUnit,
-    packSize: parsed.packSize,
-    qtyBills: qtyReceived,
-  };
-}
+import { parseUnit, calcTotalUnits } from './lib/unitParser.js';
 
 // ============================================================
 // ทดสอบ
@@ -97,6 +22,13 @@ const TEST_CASES = [
   ['-',                null,  '-'],
   ['Tablet',           null,  'Tablet'],
   ['1,000เม็ด',        1000,  'เม็ด'],
+  // unit aliases (sheet "หน่วยย่อย") — normalize ชื่อ packSize ยังเป็น null
+  ['bott',             null,  'ขวด'],
+  ['neb',              null,  'หลอด'],
+  ['gm',               null,  'กรัม'],
+  ['Vial',             null,  'vial'],
+  ['capsules',         null,  'แคปซูล'],
+  ['amp',              null,  'amp'],
 ];
 
 console.log('=== ทดสอบ parseUnit ===\n');
@@ -126,5 +58,3 @@ CALC_CASES.forEach(({ qty, unit, label }) => {
   console.log(`📦 ${label}`);
   console.log(`   รับ ${qty} × packSize ${r.packSize || '?'} = ${r.total.toLocaleString()} ${r.unit}\n`);
 });
-
-export { parseUnit, calcTotalUnits };

@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Test artifacts
+test-results/
+playwright-report/
+
 # Environment variables
 .env
 .env.local
@@ -19,6 +23,9 @@ dist-ssr
 
 # MCP config (contains personal access token — do not commit)
 .mcp.json
+
+# Supabase CLI local state
+supabase/.temp/
 
 # Editor directories and files
 .vscode/*
@@ -30,3 +37,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# ไฟล์ข้อมูล CSV ต้นทาง (ยอดคลังยา) — ไม่เก็บใน git
+csvfile/

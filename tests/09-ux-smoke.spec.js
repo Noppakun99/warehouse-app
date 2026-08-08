@@ -11,7 +11,7 @@
  *   inventory · requisition · receive · dispense · return · analytics
  * (audit + users + ส่งบัญชี ทดสอบใน 05/08/permissions แล้ว)
  */
-import { test, expect } from './fixtures.js';
+import { test, expect, waitForAppShell } from './fixtures.js';
 
 const SUB_APPS = [
   { card: 'ระบบแผนผังคลังยา',       key: 'inventory',   waitText: /ค้นหา|คลังยา|รายการยา/ },
@@ -24,7 +24,7 @@ const SUB_APPS = [
 
 async function gotoDashboard(page) {
   await page.goto('/');
-  await page.waitForSelector('text=สวัสดี,', { timeout: 8_000 });
+  await waitForAppShell(page);
 }
 
 async function openSubApp(page, cardText) {
@@ -79,8 +79,8 @@ test.describe('UX Smoke — ทุก sub-app เปิดได้ไม่ cra
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     const { login } = await import('./helpers/auth.js');
-    const STAFF_USER = process.env.TEST_STAFF_USER || 'test2';
-    const STAFF_PASS = process.env.TEST_STAFF_PASS || '555555';
+    const STAFF_USER = process.env.TEST_STAFF_USER || 'Kao_9';
+    const STAFF_PASS = process.env.TEST_STAFF_PASS || '96409999';
     try { await login(page, STAFF_USER, STAFF_PASS); }
     catch { await ctx.close(); test.skip(); return; }
 
@@ -169,8 +169,8 @@ test.describe('UX Consistency — กฎจาก CLAUDE.md', () => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     const { login } = await import('./helpers/auth.js');
-    const STAFF_USER = process.env.TEST_STAFF_USER || 'test2';
-    const STAFF_PASS = process.env.TEST_STAFF_PASS || '555555';
+    const STAFF_USER = process.env.TEST_STAFF_USER || 'Kao_9';
+    const STAFF_PASS = process.env.TEST_STAFF_PASS || '96409999';
     try { await login(page, STAFF_USER, STAFF_PASS); }
     catch { await ctx.close(); test.skip(); return; }
 

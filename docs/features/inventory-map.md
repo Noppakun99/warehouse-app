@@ -11,6 +11,26 @@
 - **Summary modal header**: `bg-indigo-600`
 - ต้อง import `ArrowLeft` จาก `lucide-react` ใน App.jsx — ขาดแล้วหน้าขาว
 
+## Slot Heatmap + List of sections
+
+- **Slot** (`Slot` component) เป็น **square heatmap เล็ก** (`w-9 h-9`, ไม่มี label ตัวอักษร) — รหัสตำแหน่ง + รายการยา (สูงสุด 4) แสดงใน **hover tooltip** (สี indigo) เท่านั้น
+  - สี: ว่าง = `bg-slate-100 border-dashed` · มีของ = `bg-indigo-400` (opacity ตามความหนาแน่น 0.45→1) · ใกล้หมดอายุ = `bg-amber-500` · หมดอายุ = `bg-rose-500` (expiry override density)
+  - คง `onClick={handleLocationClick(id)}` + highlight (`ring-yellow-400`) เดิม — flow คลิกดูตำแหน่งไม่เปลี่ยน
+  - container ของ slot ใช้ `flex flex-wrap gap-1.5` (เดิม `gap-2`)
+- **List of sections** (panel เหนือแผนผัง, ซ่อนตอน `searchTerm`) — progress bar % การใช้พื้นที่ต่อ zone จาก `sectionUsage` useMemo
+  - `sectionUsage` = slot ที่มี item `qty>0` ÷ slot ทั้งหมดต่อ zone (อ้างอิง `layout` + `inventory`) — **คนละค่ากับ Slot Utilization ใน summary modal** ที่นับ qty>0 ระดับ slot เหมือนกันแต่ต่อ cab
+  - bar color: ≥85% rose, ≥60% amber, <60% indigo — คลิกแถว = `setActiveZone(cab)`
+  - มี slot legend (ว่าง/มีของ/ใกล้หมด/หมดอายุ) ใน header ของ panel นี้
+- **ไม่มี** donut "Section usage" และ feed Received/Sent/Expected (ไม่มีข้อมูล Sent/Expected — ไม่ทำ mock) — ดู design ref "Warehouse Logistics" ที่ปรับมาเฉพาะ heatmap + section list, คงธีม indigo
+
+## ทุก query จาก inventory ต้อง paginate (1000-row limit)
+
+ทุก function ที่ aggregate ตาราง `inventory` **ต้องดึงทุก row ผ่าน helper `fetchAllInventoryRows(selectCols, { orderBy })`** ([db.js](../../src/lib/db.js)) — ห้าม `.select(...)` เดี่ยวๆ เพราะติด Supabase 1000-row limit (Critical Rule #2)
+
+- `.order('location')` เรียง Latin (`A-1-1`…) ก่อน Thai → คลังชื่อไทย (เช่น `คลังน้ำเกลือ`) มาท้าย ถ้า inventory > 1000 row จะ**ถูกตัดทิ้งเงียบๆ** (พบจริง: inventory 1,108 row, น้ำเกลือ row 1,023–1,108 หาย)
+- อาการเมื่อพลาด: ยา (เช่นน้ำเกลือ/Saline) **หายจากแผนผัง + ค้นหาไม่เจอ + รายการคงเหลือ + dashboard alert + ReorderApp คำนวณคงเหลือ = 0** (สั่งซื้อเกินทั้งที่มีของ)
+- 3 function ที่เคยพลาดและถูกแก้ให้เรียก helper: `fetchInventory` (แผนผัง+ReorderApp), `fetchStockSummary` (StockSummaryModal), `fetchDashboardAlerts` (dashboard alert)
+
 ## Inventory Alert Rules
 
 - `fetchDashboardAlerts()` ต้องดึง `receive_status` ใน `.select()` เสมอ — ใช้ตรวจยาตัดออกจากบัญชี
@@ -50,7 +70,7 @@
 
 - **ห้ามใช้ emoji** ใน UI ทุกที่ — ใช้ lucide-react เท่านั้น
 - **Header buttons** (สรุปข้อมูล + จัดการข้อมูล) ใช้ outline pattern เดียวกัน: `bg-white border border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50 text-indigo-600`
-- **Card "ต่ำกว่าจุดสั่งซื้อ"** (เดิม "ระบบสั่งยา") — label สื่อความหมายตัวเลข (count ของ `lowStockItems`); คลิกแล้วยังไปหน้า order view เหมือนเดิม
+- **Alert stat cards** เหลือ 3 ใบ (`sm:grid-cols-3`): หมดอายุแล้ว / ใกล้หมดอายุ (16 เดือน) / รอตรวจรับ — การ์ด "ต่ำกว่าจุดสั่งซื้อ" ถูกนำออก (2026-06-27) เพราะตัวเลขนี้แสดงใน Dashboard (Top 5 ยาต้องสั่งซื้อ จาก `fetchDashboardAlerts.lowStock`) + ReorderApp (single source of truth) อยู่แล้ว — เลยลบ `lowStockItems`/`usageRates`/`fetchUsageRates` ที่เป็น consumer เดียวออกด้วย
 - **หมายเหตุช่วง 16 เดือน** อยู่ภายใน card "ใกล้หมดอายุ" (text-[10px] text-slate-400)
 - **Toggle ซ่อนช่องว่าง** ใช้ `Eye` / `EyeOff` icon — EyeOff = ซ่อนอยู่ (active state indigo)
 - **Empty state**: เมื่อ `Object.keys(inventory).length === 0` → card dashed border + ปุ่ม "อัปโหลด Log คลังยา" (staff) หรือ hint "ติดต่อเจ้าหน้าที่" (requester)

@@ -2,23 +2,26 @@
 // อ้างอิง spec §3 — logic อยู่ใน src/lib/reorder.js (pure functions + tests)
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  ArrowLeft, AlertTriangle, Package, Building2, CheckCircle2, XCircle, Clock,
+  ShoppingCart, AlertTriangle, Package, Building2, CheckCircle2, XCircle, Clock,
   ChevronDown, FileSpreadsheet, Printer, Save, History, Search, Upload,
-  Pencil, ListChecks, AlertCircle, Loader2, RefreshCw, X, ClipboardList,
-  Database, Calendar, ShieldAlert, TrendingDown, Trash2,
+  Pencil, ListChecks, AlertCircle, Loader2, RefreshCw, X,
+  Database, Calendar, ShieldAlert, TrendingDown, Trash2, GitCompare,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import DrugSearchBar from './DrugSearchBar';
+import BackButton from './BackButton';
 import { supabase } from './lib/supabase';
 import {
   fetchInventory, fetchDrugReorderConfig, upsertDrugReorderConfig,
   bulkUpsertDrugReorderConfig, fetchMonthlyDispenseUsage, saveAnalysisRun,
   fetchAnalysisRuns, deleteAnalysisRun, logReorderAction,
+  fetchLatestReceiptInfo, parseUnitFactor,
+  fetchReorderOrders, setReorderOrder,
 } from './lib/db';
 import { exportToExcel } from './lib/exportExcel';
 import {
-  analyzeBatch, analyzeDrug, STATUS, REFILL_FACTOR, DEFAULT_LEAD_TIME,
-  computeSafetyStock,
+  analyzeBatch, analyzeDrug, STATUS, DEFAULT_LEAD_TIME,
+  computeSafetyStock, reconcileRows,
 } from './lib/reorder';
 
 // ────────────────────────────────────────────────────────────
@@ -39,19 +42,25 @@ const STATUS_META = {
 };
 
 const TONE_CLASSES = {
-  rose:    { chip: 'bg-rose-50 text-rose-700 border-rose-200',     bar: 'bg-rose-500',    text: 'text-rose-700' },
-  amber:   { chip: 'bg-amber-50 text-amber-700 border-amber-200',  bar: 'bg-amber-500',   text: 'text-amber-700' },
-  orange:  { chip: 'bg-orange-50 text-orange-700 border-orange-200',bar: 'bg-orange-500', text: 'text-orange-700' },
-  emerald: { chip: 'bg-emerald-50 text-emerald-700 border-emerald-200',bar:'bg-emerald-500',text:'text-emerald-700' },
-  sky:     { chip: 'bg-sky-50 text-sky-700 border-sky-200',        bar: 'bg-sky-500',     text: 'text-sky-700' },
-  slate:   { chip: 'bg-slate-100 text-slate-600 border-slate-200', bar: 'bg-slate-400',   text: 'text-slate-600' },
+  rose:    { chip: 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60',     bar: 'bg-rose-500',    text: 'text-rose-700 dark:text-rose-300' },
+  amber:   { chip: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900/60',  bar: 'bg-amber-500',   text: 'text-amber-700 dark:text-amber-300' },
+  orange:  { chip: 'bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-900/60',bar: 'bg-orange-500', text: 'text-orange-700 dark:text-orange-300' },
+  emerald: { chip: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60',bar:'bg-emerald-500',text:'text-emerald-700 dark:text-emerald-300' },
+  sky:     { chip: 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-900/60',        bar: 'bg-sky-500',     text: 'text-sky-700 dark:text-sky-300' },
+  slate:   { chip: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700', bar: 'bg-slate-400',   text: 'text-slate-600 dark:text-slate-300' },
 };
 
+// VEN (Excel) ↔ risk_group (schema เดิม): V=Vital=Critical, E=Essential, N=Non-essential=Normal
 const RISK_OPTIONS = [
-  { value: 'Normal',    label: 'Normal (1.0×)',    color: 'text-slate-600' },
-  { value: 'Essential', label: 'Essential (1.5×)', color: 'text-amber-700' },
-  { value: 'Critical',  label: 'Critical (2.0×)',  color: 'text-rose-700'  },
+  { value: 'Critical',  label: 'V — Vital (2.0×)',         color: 'text-rose-700 dark:text-rose-300'  },
+  { value: 'Essential', label: 'E — Essential (1.5×)',     color: 'text-amber-700 dark:text-amber-300' },
+  { value: 'Normal',    label: 'N — Non-essential (1.0×)', color: 'text-slate-600 dark:text-slate-300' },
 ];
+
+// risk_group → ตัวอักษร VEN (สำหรับ badge)
+// ว่าง/null = ยังไม่จัดกลุ่ม → "E?" (คำนวณด้วย default 1.5 = Essential, ? = ค่า default ไม่ใช่จัดกลุ่มจริง — ดู docs/adr/0002)
+const venLetter = (risk) =>
+  risk === 'Critical' ? 'V' : risk === 'Essential' ? 'E' : risk === 'Normal' ? 'N' : 'E?';
 
 const EXCLUDE_OPTIONS = [
   { value: '',                label: 'คำนวณตามปกติ' },
@@ -88,12 +97,55 @@ const fmtBaht = (n) => new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2
 const fmtNum  = (n) => new Intl.NumberFormat('th-TH').format(Math.round(n || 0));
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+// ISO → DD/MM/YY (พ.ศ.) สั้น
+const fmtThaiDate = (iso) => {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${(Number(m[1]) + 543) % 100}` : '-';
+};
+
+// คงอยู่ได้อีก (Coverage): คงเหลือ ÷ Avg/วัน → "X ปี Y ด. Z วัน" (หน่วยเดียวกันทั้งคู่)
+const fmtCoverage = (stock, avgDay) => {
+  if (!avgDay || avgDay <= 0) return stock > 0 ? '∞' : '—';
+  let days = Math.floor(stock / avgDay);
+  if (days <= 0) return '0 วัน';
+  const y = Math.floor(days / 365); days -= y * 365;
+  const mo = Math.floor(days / 30); days -= mo * 30;
+  const parts = [];
+  if (y) parts.push(`${y} ปี`);
+  if (mo) parts.push(`${mo} ด.`);
+  if (days) parts.push(`${days} วัน`);
+  return parts.join(' ') || '0 วัน';
+};
+
 function isoMonthsAgo(months) {
   const d = new Date();
   d.setDate(1);
   d.setMonth(d.getMonth() - months);
   return d.toISOString().slice(0, 10);
 }
+
+// วันสุดท้ายของเดือนก่อนหน้า (ปิดงวดเดือนปัจจุบันที่ยังไม่ครบออก)
+function isoPrevMonthEnd() {
+  const d = new Date();
+  d.setDate(0);
+  return d.toISOString().slice(0, 10);
+}
+
+// วันที่ 1 ของ N เดือนเต็มที่จบแล้ว (นับย้อนจากเดือนก่อนหน้า) — คู่กับ isoPrevMonthEnd
+// n=3 → 3 เดือนเต็มก่อนเดือนปัจจุบัน (เช่น ก.ค. → 01/04); n='all' → null (ให้ backend ใช้ทั้งหมด)
+function isoMonthStartBack(n) {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - n); // ถอย n เดือน จากวันที่ 1 เดือนปัจจุบัน = วันที่ 1 ของ n เดือนก่อน
+  return d.toISOString().slice(0, 10);
+}
+
+// ตัวเลือกช่วงเร็ว — set statsFrom/statsTo ทีเดียว (ถึง = สิ้นเดือนก่อนเสมอ)
+const QUICK_RANGES = [
+  { months: 3,  label: '3 เดือน' },
+  { months: 6,  label: '6 เดือน' },
+  { months: 12, label: '12 เดือน' },
+];
 
 function listMonthYM(fromIso, toIso) {
   const out = [];
@@ -126,7 +178,13 @@ function fmtDateTimeThai(iso) {
 
 // ISO date input — overlay pattern แสดง DD/MM/YYYY (พ.ศ.) ตาม docs/patterns.md
 // ห้ามใช้ plain <input type="date"> เพราะ browser US locale แสดง MM/DD/YYYY
-function IsoDateInput({ value, onChange, className = '' }) {
+// resetValue: ถ้ากำหนด → ปุ่มมุมขวา = reset กลับค่า default (แสดงเมื่อ value ต่างจาก default);
+//             ถ้าไม่กำหนด → ปุ่ม = ล้างเป็นว่าง (แสดงเมื่อมีค่า)
+function IsoDateInput({ value, onChange, className = '', resetValue }) {
+  const hasReset = resetValue !== undefined;
+  const showBtn = hasReset ? value !== resetValue : !!value;
+  const btnTitle = hasReset ? 'คืนค่าวันที่เริ่มต้น' : 'ล้างวันที่';
+  const onBtn = () => onChange(hasReset ? resetValue : '');
   const display = (iso) => {
     if (!iso) return null;
     const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -134,12 +192,19 @@ function IsoDateInput({ value, onChange, className = '' }) {
     return `${m[3]}/${m[2]}/${Number(m[1]) + 543}`;
   };
   return (
-    <div className={`relative flex items-center bg-white border border-slate-300 rounded-lg focus-within:ring-2 focus-within:ring-orange-400 ${className}`}>
-      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
+    <div className={`relative flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus-within:ring-2 focus-within:ring-orange-400 ${className}`}>
+      <span className={`pl-3 pr-8 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>
         {display(value) || 'dd/mm/yyyy'}
       </span>
+      {/* type=date: คลิก = showPicker (desktop) guarded ด้วย try/catch + ?. → mobile แตะเปิด native ได้ตามปกติ */}
       <input type="date" value={value || ''} onChange={(e) => onChange(e.target.value)}
+        onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch { /* noop */ } }}
         className="absolute inset-0 opacity-0 w-full cursor-pointer"/>
+      {/* ปุ่ม reset/ล้าง — z-10 เพื่ออยู่เหนือ input ที่ซ้อนเต็มพื้นที่ */}
+      {showBtn
+        ? <button type="button" onClick={onBtn} title={btnTitle}
+            className="absolute right-2 z-10 p-0.5 rounded text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={14}/></button>
+        : <Calendar size={15} className="absolute right-2.5 text-slate-400 dark:text-slate-500 pointer-events-none"/>}
     </div>
   );
 }
@@ -195,7 +260,7 @@ function MasterEditModal({ open, drug, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <div className="bg-gradient-to-r from-orange-600 to-rose-600 text-white px-5 py-3.5 rounded-t-2xl flex items-center justify-between">
           <div>
             <h2 className="font-bold flex items-center gap-2"><Pencil size={16}/> แก้ Master ยา</h2>
@@ -206,43 +271,43 @@ function MasterEditModal({ open, drug, onClose, onSave }) {
         <div className="p-5 space-y-3 text-sm">
           <Field label="บริษัทผู้จำหน่าย (supplier)">
             <input value={form.supplier} onChange={(e) => setForm(f => ({...f, supplier: e.target.value}))}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="เช่น บ.ABC จำกัด"/>
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="เช่น บ.ABC จำกัด"/>
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Risk Group">
               <select value={form.risk_group} onChange={(e) => setForm(f => ({...f, risk_group: e.target.value}))}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white">
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-900">
                 {RISK_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             </Field>
             <Field label="Lead Time (วัน)">
               <input type="number" min="0" step="0.5" value={form.lead_time_days} onChange={(e) => setForm(f => ({...f, lead_time_days: parseFloat(e.target.value) || 0}))}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2"/>
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2"/>
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="ราคา/หน่วย (บาท)">
               <input type="number" min="0" step="0.01" value={form.price_per_unit} onChange={(e) => setForm(f => ({...f, price_per_unit: parseFloat(e.target.value) || 0}))}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2"/>
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2"/>
             </Field>
             <Field label="Pack size">
               <input type="number" min="1" step="1" value={form.pack_size} onChange={(e) => setForm(f => ({...f, pack_size: parseFloat(e.target.value) || 1}))}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2"/>
+                className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2"/>
             </Field>
           </div>
           <Field label="สถานะพิเศษ">
             <select value={form.exclude_status} onChange={(e) => setForm(f => ({...f, exclude_status: e.target.value}))}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white">
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-900">
               {EXCLUDE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </Field>
           <Field label="หมายเหตุ">
             <textarea rows={2} value={form.notes} onChange={(e) => setForm(f => ({...f, notes: e.target.value}))}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 resize-none"/>
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 resize-none"/>
           </Field>
         </div>
-        <div className="border-t border-slate-200 px-5 py-3 flex items-center justify-end gap-2 bg-slate-50 rounded-b-2xl">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-200 rounded-lg">ยกเลิก</button>
+        <div className="border-t border-slate-200 dark:border-slate-700 px-5 py-3 flex items-center justify-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-b-2xl">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-200 rounded-lg">ยกเลิก</button>
           <button onClick={submit} disabled={saving} className="px-4 py-2 text-sm bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-1.5">
             {saving ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>}
             บันทึก
@@ -256,7 +321,7 @@ function MasterEditModal({ open, drug, onClose, onSave }) {
 function Field({ label, children }) {
   return (
     <label className="block">
-      <span className="text-xs font-semibold text-slate-600 mb-1 block">{label}</span>
+      <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1 block">{label}</span>
       {children}
     </label>
   );
@@ -276,22 +341,33 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const arr = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      // ไฟล์ export จาก Excel "วิเคราะห์สั่งซื้อ" มีแถว title/คำเตือนนำหน้า header จริง
+      // → หาแถว header (cell ใดมีคำว่า "รหัส"/"code") แล้วใช้เป็นจุดเริ่ม ไม่งั้น key เพี้ยนทั้งไฟล์
+      const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      const headerRow = grid.findIndex(row =>
+        row.some(c => { const s = String(c).trim(); return s === 'รหัส' || s.toLowerCase() === 'code'; }));
+      const arr = XLSX.utils.sheet_to_json(ws, { defval: '', range: headerRow >= 0 ? headerRow : 0 });
       const parsed = arr.map(r => {
         const code = String(r['รหัส'] ?? r['code'] ?? r['Code'] ?? '').trim();
         if (!code) return null;
-        const risk = String(r['risk'] ?? r['risk_group'] ?? r['Risk'] ?? 'Normal').trim();
-        const riskNorm = ['Normal','Essential','Critical'].includes(risk) ? risk : 'Normal';
+        // รับได้ทั้ง risk_group เดิม (Normal/Essential/Critical) และ VEN (V/E/N) → map เป็น enum
+        // VEN ว่าง/ไม่ระบุ → null (ไม่ใช่ Normal) เพื่อให้ analyzeDrug fallback เป็น 1.5 ตาม ADR-0002
+        const risk = String(r['VEN'] ?? r['ven'] ?? r['กลุ่ม VEN'] ?? r['risk'] ?? r['risk_group'] ?? r['Risk'] ?? '').trim();
+        const VEN_MAP = { V: 'Critical', E: 'Essential', N: 'Normal' };
+        const riskNorm = VEN_MAP[risk.toUpperCase()] ?? (['Normal','Essential','Critical'].includes(risk) ? risk : null);
         return {
           code,
-          name: String(r['ชื่อยา'] ?? r['name'] ?? r['Name'] ?? '').trim() || null,
-          supplier: String(r['บริษัท'] ?? r['supplier'] ?? r['Supplier'] ?? '').trim() || null,
+          name: String(r['รายการยา'] ?? r['ชื่อยา'] ?? r['name'] ?? r['Name'] ?? '').trim() || null,
+          supplier: String(r['บริษัทล่าสุด'] ?? r['บริษัท'] ?? r['supplier'] ?? r['Supplier'] ?? '').trim() || null,
           risk_group: riskNorm,
           lead_time_days: parseFloat(r['lead_time'] ?? r['lead_time_days'] ?? r['LT'] ?? 15) || 15,
           price_per_unit: parseFloat(r['ราคา'] ?? r['price'] ?? r['price_per_unit'] ?? 0) || 0,
           exclude_status: (() => {
-            const v = String(r['exclude_status'] ?? r['สถานะ'] ?? '').trim();
-            if (v === STATUS.EXCLUDED || v === STATUS.ON_DEMAND) return v;
+            // CSV จริงมี emoji นำหน้า (เช่น "✂️ ตัดออก" / "📋 สั่งเมื่อขอ") → strip ก่อนเทียบด้วย includes
+            const v = String(r['exclude_status'] ?? r['ตัดออกจากบัญชี ,สั่งเมื่อขอ'] ?? r['สถานะ'] ?? '')
+              .replace(/[^฀-๿a-zA-Z]/g, '');
+            if (v.includes('ตัดออก')) return STATUS.EXCLUDED;
+            if (v.includes('สั่งเมื่อขอ')) return STATUS.ON_DEMAND;
             return null;
           })(),
           pack_size: parseFloat(r['pack_size'] ?? r['pack'] ?? 1) || 1,
@@ -317,29 +393,29 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-3.5 rounded-t-2xl flex items-center justify-between">
           <h2 className="font-bold flex items-center gap-2"><Upload size={16}/> Import Master ยา</h2>
           <button onClick={onClose} className="text-white/80 hover:text-white"><X size={20}/></button>
         </div>
         <div className="p-5 space-y-3 text-sm">
-          <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-800">
-            <p className="font-bold mb-1">รูปแบบคอลัมน์ที่รองรับ (header row 1)</p>
-            <p className="text-indigo-700">รหัส · ชื่อยา · บริษัท · risk_group · lead_time_days · price_per_unit · exclude_status · pack_size · notes</p>
+          <div className="bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/60 rounded-lg p-3 text-xs text-indigo-800 dark:text-indigo-300">
+            <p className="font-bold mb-1">รองรับไฟล์ "วิเคราะห์สั่งซื้อ" จาก Excel โดยตรง</p>
+            <p className="text-indigo-700 dark:text-indigo-300">ใช้คอลัมน์ รหัส · กลุ่ม VEN · ตัดออก/สั่งเมื่อขอ เป็นหลัก (ราคา/บริษัท/LT คำนวณสดจากบิลรับเข้า) — ข้ามแถวหัวตารางให้อัตโนมัติ</p>
           </div>
           <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-            className="block w-full text-sm border border-slate-300 rounded-lg p-2 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-indigo-600 file:text-white"/>
-          {parsing && <p className="text-slate-500 flex items-center gap-1.5"><Loader2 size={14} className="animate-spin"/> กำลังประมวลผล…</p>}
+            className="block w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-indigo-600 file:text-white"/>
+          {parsing && <p className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5"><Loader2 size={14} className="animate-spin"/> กำลังประมวลผล…</p>}
           {error && <p className="text-rose-600 text-xs">{error}</p>}
           {rows.length > 0 && (
-            <div className="border border-slate-200 rounded-lg overflow-auto max-h-64">
+            <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-auto max-h-64">
               <table className="w-full text-xs">
-                <thead className="bg-slate-100 sticky top-0">
+                <thead className="bg-slate-100 dark:bg-slate-800 sticky top-0">
                   <tr><th className="px-2 py-1.5 text-left">รหัส</th><th className="px-2 py-1.5 text-left">ชื่อ</th><th className="px-2 py-1.5 text-left">บริษัท</th><th className="px-2 py-1.5 text-right">LT</th><th className="px-2 py-1.5 text-right">ราคา</th></tr>
                 </thead>
                 <tbody>
                   {rows.slice(0, 100).map((r, i) => (
-                    <tr key={i} className="border-t border-slate-100">
+                    <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
                       <td className="px-2 py-1 font-mono">{r.code}</td>
                       <td className="px-2 py-1 truncate max-w-[160px]">{r.name || '—'}</td>
                       <td className="px-2 py-1">{r.supplier || '—'}</td>
@@ -349,12 +425,12 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
                   ))}
                 </tbody>
               </table>
-              {rows.length > 100 && <p className="text-center text-xs text-slate-400 py-1.5">…และอีก {rows.length - 100} รายการ</p>}
+              {rows.length > 100 && <p className="text-center text-xs text-slate-400 dark:text-slate-500 py-1.5">…และอีก {rows.length - 100} รายการ</p>}
             </div>
           )}
         </div>
-        <div className="border-t border-slate-200 px-5 py-3 flex items-center justify-end gap-2 bg-slate-50 rounded-b-2xl">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-200 rounded-lg">ยกเลิก</button>
+        <div className="border-t border-slate-200 dark:border-slate-700 px-5 py-3 flex items-center justify-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-b-2xl">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-200 rounded-lg">ยกเลิก</button>
           <button onClick={apply} disabled={rows.length === 0 || parsing} className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-1.5">
             {parsing ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>}
             Import {rows.length > 0 && `(${rows.length})`}
@@ -368,11 +444,10 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
 // ────────────────────────────────────────────────────────────
 // Main App
 // ────────────────────────────────────────────────────────────
-export default function ReorderApp({ onBack, auth = {} }) {
+export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysis', onGoBack, canGoBack }) {
   // ── Filters / control state ──
   const [statsFrom, setStatsFrom] = useState(isoMonthsAgo(4));
-  const [statsTo,   setStatsTo]   = useState(todayIso());
-  const [mode,      setMode]      = useState('normal');
+  const [statsTo,   setStatsTo]   = useState(isoPrevMonthEnd());
   const [excludedMonth, setExcludedMonth] = useState('');
   const [leadDefault,   setLeadDefault]   = useState(DEFAULT_LEAD_TIME);
   const [search, setSearch] = useState('');
@@ -395,6 +470,8 @@ export default function ReorderApp({ onBack, auth = {} }) {
   // ── Data ──
   const [inventory, setInventory] = useState({});
   const [configMap, setConfigMap] = useState({}); // code -> config
+  const [rerunToken, setRerunToken] = useState(0); // bump เพื่อสั่ง re-run analysis หลัง Import Master
+  const [receiptInfo, setReceiptInfo] = useState({}); // codeLower -> { unit, factor, supplier, pricePerUnit, receiveDate, leadTimeAvg }
   const [, setUsage] = useState({});              // raw usage cache (set for debugging)
   const [loadingData, setLoadingData] = useState(true);
   const [running, setRunning] = useState(false);
@@ -402,13 +479,10 @@ export default function ReorderApp({ onBack, auth = {} }) {
 
   // ── Results ──
   const [result, setResult] = useState(null); // { rows, suppliers, totals }
-  const [orderedMap, setOrderedMap] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('reorder.ordered') || '{}'); }
-    catch { return {}; }
-  });
+  const [orderedMap, setOrderedMap] = useState({});   // { codeKey: ordered_at } — โหลดจาก DB (reorder_orders)
 
   // ── UI ──
-  const [tab, setTab] = useState('analysis'); // analysis | supplier | verify | history
+  const [tab, setTab] = useState(initialTab); // analysis | supplier | verify | history
   const [editingDrug, setEditingDrug] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
 
@@ -417,9 +491,12 @@ export default function ReorderApp({ onBack, auth = {} }) {
     (async () => {
       setLoadingData(true);
       try {
-        const [inv, cfg] = await Promise.all([fetchInventory(), fetchDrugReorderConfig()]);
+        const [inv, cfg, receipt, orders] = await Promise.all([fetchInventory(), fetchDrugReorderConfig(), fetchLatestReceiptInfo(), fetchReorderOrders()]);
         setInventory(inv || {});
         setConfigMap(Object.fromEntries((cfg || []).map(c => [codeKey(c.code), c])));
+        setReceiptInfo(receipt || {});
+        // normalize key ให้ตรงกับ codeKey ที่ UI ใช้ (กัน case/space drift)
+        setOrderedMap(Object.fromEntries(Object.entries(orders || {}).map(([code, at]) => [codeKey(code), at])));
       } catch (e) { setRunError(e.message || 'โหลดข้อมูลไม่สำเร็จ'); }
       finally { setLoadingData(false); }
     })();
@@ -432,7 +509,7 @@ export default function ReorderApp({ onBack, auth = {} }) {
     Object.values(inventory).forEach(items => items.forEach(item => {
       const ck = codeKey(item.code);
       if (!ck) return;
-      const qty = parseFloat(String(item.qty ?? '0').replace(/,/g, '')) || 0;
+      const qty = (parseFloat(String(item.qty ?? '0').replace(/,/g, '')) || 0) * parseUnitFactor(item.unit).factor; // → เม็ด
       if (!out[ck]) out[ck] = { stock: 0, nearestExpiryDays: null, name: item.name || '', unit: item.unit || '', type: item.type || '', rawCode: item.code };
       out[ck].stock += qty;
       if (qty > 0) {
@@ -453,6 +530,7 @@ export default function ReorderApp({ onBack, auth = {} }) {
   const monthsInRange = useMemo(() => listMonthYM(statsFrom, statsTo), [statsFrom, statsTo]);
 
   const runAnalysis = useCallback(async () => {
+    if (!statsFrom || !statsTo) { setRunError('กรุณาเลือกช่วงสถิติให้ครบทั้งวันเริ่มและวันสิ้นสุด'); return; }
     if (statsFrom > statsTo) { setRunError('ช่วงสถิติไม่ถูกต้อง'); return; }
     setRunning(true); setRunError('');
     try {
@@ -460,42 +538,54 @@ export default function ReorderApp({ onBack, auth = {} }) {
       setUsage(u);
       // Build payload again with fresh usage
       const allCodes = new Set([...Object.keys(stockInfo), ...Object.keys(u)]);
+      // re-key receipt info ด้วย codeKey ให้ตรงกับ stockInfo (กัน sci-notation / leading zero)
+      const receiptByCk = {};
+      for (const [k, v] of Object.entries(receiptInfo)) receiptByCk[codeKey(k)] = v;
       const arr = [];
       for (const ck of allCodes) {
         const info = stockInfo[ck] || {};
         const ur = u[ck];
         const cfg = configMap[ck] || {};
+        const rc = receiptByCk[ck] || {};
+        // stock + usage เก็บเป็นเม็ด → แปลงเป็นหน่วยซื้อล่าสุด (pack) ก่อนคำนวณ
+        // ตัวหาร = factor หน่วยซื้อล่าสุด (fallback: หน่วย inventory → pack_size → 1)
+        const packFactor = rc.factor || parseUnitFactor(info.unit).factor || parseFloat(cfg.pack_size) || 1;
+        const toPack = (qtyBase) => packFactor > 0 ? qtyBase / packFactor : qtyBase;
         const monthlyUsage = monthsInRange
           .filter(mm => mm !== excludedMonth)
-          .map(mm => ur?.months?.[mm] || 0);
+          .map(mm => toPack(ur?.months?.[mm] || 0));
         arr.push({
           code: info.rawCode || ck,
           name: cfg.name || info.name || ur?.name || '',
           monthlyUsage,
-          stock: info.stock || 0,
-          leadTimeDays: cfg.lead_time_days ?? leadDefault,
-          riskGroup: cfg.risk_group || 'Normal',
+          stock: toPack(info.stock || 0),
+          leadTimeDays: cfg.lead_time_days ?? (rc.leadTimeAvg > 0 ? rc.leadTimeAvg : leadDefault),
+          riskGroup: cfg.risk_group || null,   // ว่าง → null เพื่อให้ถึง default 1.5 (ดู docs/adr/0002)
           excludeStatus: cfg.exclude_status || null,
-          pricePerUnit: parseFloat(cfg.price_per_unit) || 0,
-          supplier: cfg.supplier || '',
+          pricePerUnit: rc.pricePerUnit || parseFloat(cfg.price_per_unit) || 0,
+          supplier: rc.supplier || cfg.supplier || '',
           nearestExpiryDays: info.nearestExpiryDays,
-          unit: info.unit, type: info.type, _ck: ck,
+          unit: rc.unit || info.unit, type: info.type, _ck: ck,
+          packFactor, receiveDate: rc.receiveDate || null,
         });
       }
-      const out = analyzeBatch(arr, { mode });
-      // attach unit/type back
-      const ckUnit = Object.fromEntries(arr.map(d => [d._ck, d]));
-      out.rows = out.rows.map(r => ({ ...r, unit: ckUnit[codeKey(r.code)]?.unit, type: ckUnit[codeKey(r.code)]?.type, nearestExpiryDays: ckUnit[codeKey(r.code)]?.nearestExpiryDays }));
+      const out = analyzeBatch(arr);
+      // attach unit/type/packFactor/receiveDate back
+      const ckMeta = Object.fromEntries(arr.map(d => [d._ck, d]));
+      out.rows = out.rows.map(r => {
+        const m = ckMeta[codeKey(r.code)] || {};
+        return { ...r, unit: m.unit, type: m.type, nearestExpiryDays: m.nearestExpiryDays, packFactor: m.packFactor || 1, receiveDate: m.receiveDate || null };
+      });
       out.reorderRows = out.rows.filter(r => r.orderQty > 0).length;
       setResult(out);
       await logReorderAction('analysis_view', {
-        mode, stats_from: statsFrom, stats_to: statsTo,
+        mode: 'normal', stats_from: statsFrom, stats_to: statsTo,
         total_rows: out.rows.length, reorder_rows: out.reorderRows,
         total_amount: out.totals.totalAmount,
       }, auth);
     } catch (e) { setRunError(e.message || 'รันวิเคราะห์ไม่สำเร็จ'); }
     finally { setRunning(false); }
-  }, [statsFrom, statsTo, mode, excludedMonth, leadDefault, stockInfo, configMap, monthsInRange, auth]);
+  }, [statsFrom, statsTo, excludedMonth, leadDefault, stockInfo, configMap, receiptInfo, monthsInRange, auth]);
 
   // Auto-run when initial data loaded
   useEffect(() => {
@@ -503,15 +593,25 @@ export default function ReorderApp({ onBack, auth = {} }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingData]);
 
+  // Re-run หลัง Import Master — token bump หลัง configMap ใหม่ commit แล้ว จึงรอ effect (ไม่เรียก runAnalysis ตรงๆ ที่ยังจับ configMap เก่า)
+  useEffect(() => {
+    if (rerunToken > 0) runAnalysis();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rerunToken]);
+
   const toggleOrdered = useCallback(async (code) => {
     const ck = codeKey(code);
     const now = orderedMap[ck];
+    // optimistic update — เก็บ prev ไว้ rollback ถ้า DB ล้ม
     const next = { ...orderedMap };
-    if (now) { delete next[ck]; }
-    else { next[ck] = todayIso(); }
+    if (now) { delete next[ck]; } else { next[ck] = todayIso(); }
     setOrderedMap(next);
-    localStorage.setItem('reorder.ordered', JSON.stringify(next));
-    await logReorderAction(now ? 'unmark_ordered' : 'mark_ordered', { code }, auth);
+    try {
+      await setReorderOrder(ck, !now, auth);   // เก็บ normalized key (codeKey) — ตรงกับ orderedMap + กัน drift ตอน untick
+    } catch (e) {
+      setOrderedMap(orderedMap);                 // rollback
+      alert('บันทึกสถานะ"สั่งแล้ว"ไม่สำเร็จ: ' + (e?.message || e));
+    }
   }, [orderedMap, auth]);
 
   const onMasterSaved = useCallback(async (config) => {
@@ -522,6 +622,7 @@ export default function ReorderApp({ onBack, auth = {} }) {
   const onMasterImported = useCallback(async (count) => {
     const cfg = await fetchDrugReorderConfig();
     setConfigMap(Object.fromEntries((cfg || []).map(c => [codeKey(c.code), c])));
+    setRerunToken(t => t + 1); // สั่ง re-run เพื่อให้การ์ด/ตารางสะท้อน exclude_status ใหม่ (ไม่งั้นค้างผลเก่า)
     alert(`Import สำเร็จ ${count} รายการ`);
   }, []);
 
@@ -529,7 +630,7 @@ export default function ReorderApp({ onBack, auth = {} }) {
     if (!result) return;
     try {
       const id = await saveAnalysisRun({
-        mode, stats_from: statsFrom, stats_to: statsTo,
+        mode: 'normal', stats_from: statsFrom, stats_to: statsTo,
         excluded_month: excludedMonth || null,
         lead_time_default: leadDefault,
         snapshot_date: todayIso(),
@@ -541,7 +642,7 @@ export default function ReorderApp({ onBack, auth = {} }) {
       }, auth);
       alert(`บันทึก Snapshot สำเร็จ (ID #${id})`);
     } catch (e) { alert('บันทึก Snapshot ไม่สำเร็จ: ' + (e.message || e)); }
-  }, [result, mode, statsFrom, statsTo, excludedMonth, leadDefault, auth]);
+  }, [result, statsFrom, statsTo, excludedMonth, leadDefault, auth]);
 
   // Filtered rows based on search + status filter
   const filteredRows = useMemo(() => {
@@ -565,26 +666,23 @@ export default function ReorderApp({ onBack, auth = {} }) {
 
   // ────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-slate-100 font-sans text-slate-800 pb-20">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-orange-700 to-rose-700 text-white px-4 sm:px-6 py-4 sticky top-0 z-30 shadow-md">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-800 font-sans text-slate-800 dark:text-slate-100 pb-20">
+      {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + action */}
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 sticky top-0 z-30">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">
-            <button onClick={onBack} className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-xl text-sm font-medium">
-              <ArrowLeft size={14}/> กลับ
+            <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
+            <div className="p-1.5 rounded-lg bg-orange-100 dark:bg-orange-950/60 text-orange-600 shrink-0"><ShoppingCart size={18}/></div>
+            <button onClick={onRefresh} className="text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
+              <h1 className="text-base sm:text-lg font-bold leading-tight text-slate-800 dark:text-slate-100">ระบบวิเคราะห์การสั่งซื้อยา</h1>
+              <p className="text-xs text-slate-400 dark:text-slate-500">คำนวณ ROP · Safety Stock · ใบสั่งซื้อแยกบริษัท · ตามสูตรจาก Excel "วิเคราะห์สั่งซื้อ"</p>
             </button>
-            <div>
-              <h1 className="text-lg sm:text-xl font-bold flex items-center gap-2">
-                <ClipboardList size={18}/> ระบบวิเคราะห์การสั่งซื้อยา
-              </h1>
-              <p className="text-xs text-orange-100">คำนวณ ROP · Safety Stock · ใบสั่งซื้อแยกบริษัท · ตามสูตรจาก Excel "วิเคราะห์สั่งซื้อ"</p>
-            </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={() => setImportOpen(true)} className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium">
+            <button onClick={() => setImportOpen(true)} className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
               <Upload size={14}/> Import Master
             </button>
-            <button onClick={saveSnapshot} disabled={!result || running} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium">
+            <button onClick={saveSnapshot} disabled={!result || running} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
               <Save size={14}/> บันทึก Snapshot
             </button>
           </div>
@@ -594,11 +692,11 @@ export default function ReorderApp({ onBack, auth = {} }) {
       <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-4 space-y-4">
         {/* Control Bar */}
         <ControlBar
-          {...{ statsFrom, setStatsFrom, statsTo, setStatsTo, mode, setMode, excludedMonth, setExcludedMonth, leadDefault, setLeadDefault, search, setSearch, drugNames, monthsInRange, running, onRun: runAnalysis }}
+          {...{ statsFrom, setStatsFrom, statsTo, setStatsTo, excludedMonth, setExcludedMonth, leadDefault, setLeadDefault, search, setSearch, drugNames, monthsInRange, running, onRun: runAnalysis }}
         />
 
         {runError && (
-          <div className="bg-rose-50 border border-rose-300 text-rose-800 rounded-xl p-3 text-sm flex items-center gap-2">
+          <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800/60 text-rose-800 dark:text-rose-300 rounded-xl p-3 text-sm flex items-center gap-2">
             <ShieldAlert size={16}/> {runError}
           </div>
         )}
@@ -616,10 +714,11 @@ export default function ReorderApp({ onBack, auth = {} }) {
         )}
 
         {/* Tabs */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-          <div className="flex border-b border-slate-200 overflow-x-auto bg-gradient-to-r from-slate-50 to-white">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
+          <div className="flex border-b border-slate-200 dark:border-slate-700 overflow-x-auto bg-gradient-to-r from-slate-50 dark:from-slate-900 to-white">
             <TabBtn id="analysis" cur={tab} set={setTab} icon={<ListChecks size={14}/>}>ตารางวิเคราะห์</TabBtn>
             <TabBtn id="supplier" cur={tab} set={setTab} icon={<Building2 size={14}/>}>ใบสั่งซื้อแยกบริษัท {result?.suppliers?.length ? `(${result.suppliers.length})` : ''}</TabBtn>
+            <TabBtn id="reconcile" cur={tab} set={setTab} icon={<GitCompare size={14}/>}>เทียบกับ Excel</TabBtn>
             <TabBtn id="verify"   cur={tab} set={setTab} icon={<ShieldAlert size={14}/>}>Verification</TabBtn>
             <TabBtn id="history"  cur={tab} set={setTab} icon={<History size={14}/>}>History</TabBtn>
           </div>
@@ -636,10 +735,12 @@ export default function ReorderApp({ onBack, auth = {} }) {
                 rows={filteredRows}
                 orderedMap={orderedMap} toggleOrdered={toggleOrdered}
                 onEdit={setEditingDrug} auth={auth}
-                mode={mode}
+                months={monthsInRange.filter(mm => mm !== excludedMonth)}
               />
             ) : tab === 'supplier' ? (
               <SupplierTab suppliers={result.suppliers} totalAmount={result.totals.totalAmount} auth={auth}/>
+            ) : tab === 'reconcile' ? (
+              <ReconcileTab appRows={result.rows} auth={auth}/>
             ) : tab === 'verify' ? (
               <VerifyTab/>
             ) : (
@@ -658,48 +759,56 @@ export default function ReorderApp({ onBack, auth = {} }) {
 // ────────────────────────────────────────────────────────────
 // Sub-components
 // ────────────────────────────────────────────────────────────
-function ControlBar({ statsFrom, setStatsFrom, statsTo, setStatsTo, mode, setMode, excludedMonth, setExcludedMonth, leadDefault, setLeadDefault, search, setSearch, drugNames, monthsInRange, running, onRun }) {
+function ControlBar({ statsFrom, setStatsFrom, statsTo, setStatsTo, excludedMonth, setExcludedMonth, leadDefault, setLeadDefault, search, setSearch, drugNames, monthsInRange, running, onRun }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-3 sm:p-4 space-y-3">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm p-3 sm:p-4 space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Calendar size={11}/> ช่วงสถิติ (จาก)</label>
-          <IsoDateInput value={statsFrom} onChange={setStatsFrom} className="w-full"/>
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1"><Calendar size={11}/> ช่วงสถิติ (จาก)</label>
+          <IsoDateInput value={statsFrom} onChange={setStatsFrom} resetValue={isoMonthsAgo(4)} className="w-full"/>
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Calendar size={11}/> ถึง</label>
-          <IsoDateInput value={statsTo} onChange={setStatsTo} className="w-full"/>
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1"><Calendar size={11}/> ถึง</label>
+          <IsoDateInput value={statsTo} onChange={setStatsTo} resetValue={isoPrevMonthEnd()} className="w-full"/>
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">โหมด</label>
-          <div className="flex bg-slate-100 rounded-lg p-1 gap-1">
-            <button onClick={() => setMode('normal')} className={`flex-1 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors ${mode === 'normal' ? 'bg-white shadow-sm text-orange-700' : 'text-slate-600 hover:text-slate-800'}`}>Normal ({REFILL_FACTOR.normal}×)</button>
-            <button onClick={() => setMode('refill')} className={`flex-1 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors ${mode === 'refill' ? 'bg-white shadow-sm text-rose-700' : 'text-slate-600 hover:text-slate-800'}`}>Refill ({REFILL_FACTOR.refill}×)</button>
-          </div>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Lead Time default (วัน)</label>
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Lead Time default (วัน)</label>
           <input type="number" min="1" step="0.5" value={leadDefault} onChange={(e) => setLeadDefault(parseFloat(e.target.value) || DEFAULT_LEAD_TIME)}
-            className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"/>
+            className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-400"/>
         </div>
+      </div>
+
+      {/* ช่วงเวลาเร็ว — กดแล้วเซ็ต จาก/ถึง ทีเดียว (ถึง = สิ้นเดือนก่อน, จาก = ย้อน N เดือนเต็ม) */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-xs text-slate-400 dark:text-slate-500 mr-0.5">ช่วงด่วน:</span>
+        {QUICK_RANGES.map(({ months, label }) => {
+          const active = statsFrom === isoMonthStartBack(months) && statsTo === isoPrevMonthEnd();
+          return (
+            <button key={months} type="button"
+              onClick={() => { setStatsFrom(isoMonthStartBack(months)); setStatsTo(isoPrevMonthEnd()); }}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${active ? 'bg-orange-600 text-white border-orange-600' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-orange-300 hover:bg-orange-50 dark:hover:bg-orange-950/50'}`}>
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         <div className="sm:col-span-2">
-          <label className="block text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Search size={11}/> ค้นหา</label>
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1"><Search size={11}/> ค้นหา</label>
           <DrugSearchBar
             value={search}
             onChange={setSearch}
             options={drugNames}
             placeholder="พิมพ์ชื่อยา/รหัส เช่น Atorvastatin หรือ ATOR40"
             ringClass="focus:ring-orange-400"
-            hoverClass="hover:bg-orange-50"
+            hoverClass="hover:bg-orange-50 dark:hover:bg-orange-950/50"
           />
         </div>
         <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">เดือนตัดออก (Refill)</label>
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">เดือนตัดออก (ช่วง Refill)</label>
           <select value={excludedMonth} onChange={(e) => setExcludedMonth(e.target.value)}
-            className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+            className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-slate-900">
             <option value="">— ไม่ตัด —</option>
             {monthsInRange.map(m => <option key={m} value={m}>{thaiMonthLabel(m)}</option>)}
           </select>
@@ -718,21 +827,21 @@ function ControlBar({ statsFrom, setStatsFrom, statsTo, setStatsTo, mode, setMod
 
 function StatusStrip({ counts, total, reorderRows, totalAmount, active, onPick }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-3 sm:p-4">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm p-3 sm:p-4">
       <div className="flex items-center gap-2 flex-wrap mb-3">
         {STATUS_ORDER.map(s => (
           <StatusChip key={s} status={s} count={counts[s] || 0} active={active === s} onClick={() => onPick(s)}/>
         ))}
         {active && (
-          <button onClick={() => onPick(active)} className="text-xs text-slate-500 hover:text-slate-800 px-2 py-1 flex items-center gap-1">
+          <button onClick={() => onPick(active)} className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 px-2 py-1 flex items-center gap-1">
             <X size={12}/> ล้าง filter
           </button>
         )}
       </div>
-      <div className="flex items-center gap-4 text-xs sm:text-sm text-slate-600 flex-wrap pt-3 border-t border-slate-100">
-        <span>ทั้งหมด <b className="text-slate-800">{fmtNum(total)}</b> รายการ</span>
-        <span className="text-orange-700">ต้องสั่ง <b>{fmtNum(reorderRows)}</b> รายการ</span>
-        <span className="text-emerald-700">มูลค่ารวม <b>฿{fmtBaht(totalAmount)}</b></span>
+      <div className="flex items-center gap-4 text-xs sm:text-sm text-slate-600 dark:text-slate-300 flex-wrap pt-3 border-t border-slate-100 dark:border-slate-800">
+        <span>ทั้งหมด <b className="text-slate-800 dark:text-slate-100">{fmtNum(total)}</b> รายการ</span>
+        <span className="text-orange-700 dark:text-orange-300">ต้องสั่ง <b>{fmtNum(reorderRows)}</b> รายการ</span>
+        <span className="text-emerald-700 dark:text-emerald-300">มูลค่ารวม <b>฿{fmtBaht(totalAmount)}</b></span>
       </div>
     </div>
   );
@@ -742,26 +851,141 @@ function TabBtn({ id, cur, set, icon, children }) {
   const active = cur === id;
   return (
     <button onClick={() => set(id)} className={`flex items-center gap-1.5 px-4 py-2.5 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition-colors
-      ${active ? 'border-orange-600 text-orange-700 bg-orange-50' : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'}`}>
+      ${active ? 'border-orange-600 text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-950/40' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
       {icon} {children}
     </button>
   );
 }
 
 function LoadingState({ text }) {
-  return <div className="flex flex-col items-center justify-center py-16 text-slate-500"><Loader2 size={28} className="animate-spin mb-2 text-orange-500"/><p className="text-sm">{text}</p></div>;
+  return <div className="flex flex-col items-center justify-center py-16 text-slate-500 dark:text-slate-400"><Loader2 size={28} className="animate-spin mb-2 text-orange-500"/><p className="text-sm">{text}</p></div>;
 }
 
 function EmptyState({ text }) {
-  return <div className="flex flex-col items-center justify-center py-16 text-slate-400"><Database size={32} className="mb-2"/><p className="text-sm">{text}</p></div>;
+  return <div className="flex flex-col items-center justify-center py-16 text-slate-400 dark:text-slate-500"><Database size={32} className="mb-2"/><p className="text-sm">{text}</p></div>;
 }
+
+// ────────────────────────────────────────────────────────────
+// Row-detail side panel — เห็นรายละเอียดยา 1 รหัสโดยไม่ออกจากตาราง
+// ใช้ field ที่ row มีอยู่แล้ว ไม่ query เพิ่ม (monthlyUsage = เบิกรายเดือนหน้าต่าง SS)
+// ────────────────────────────────────────────────────────────
+function DetailField({ label, children }) {
+  return (
+    <div className="flex justify-between gap-3 py-1.5 border-b border-slate-50 text-sm">
+      <span className="text-slate-400 dark:text-slate-500 shrink-0">{label}</span>
+      <span className="text-slate-700 dark:text-slate-200 text-right font-medium min-w-0">{children}</span>
+    </div>
+  );
+}
+
+function DrugDetailPanel({ r, months, onClose }) {
+  if (!r) return null;
+  const meta = STATUS_META[r.status] || STATUS_META[STATUS.SUFFICIENT];
+  const tone = TONE_CLASSES[meta.tone];
+  const usage = r.monthlyUsage || [];
+  const maxU = Math.max(1, ...usage);
+  const base = parseUnitFactor(r.unit).base;
+  return (
+    <>
+      {/* backdrop */}
+      <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose}/>
+      {/* panel */}
+      <div className="fixed top-0 right-0 h-full w-full max-w-md bg-white dark:bg-slate-900 z-50 shadow-2xl flex flex-col">
+        <div className="flex items-start justify-between gap-2 px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+          <div className="min-w-0">
+            <h3 className="font-bold text-slate-800 dark:text-slate-100 leading-tight">{r.name || '-'}</h3>
+            <p className="text-xs text-slate-400 dark:text-slate-500 font-mono mt-0.5">{r.code}{r.unit ? ` · ${r.unit}` : ''}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0" title="ปิด"><X size={18}/></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {/* สถานะ */}
+          <span className={`inline-flex items-center gap-1 ${tone.chip} px-2.5 py-1 rounded-full text-xs font-semibold border`}>
+            <meta.icon size={12}/> {r.status}
+          </span>
+
+          {/* ตัวเลขตัดสินใจ */}
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg py-2.5">
+              <div className="text-lg font-bold text-slate-800 dark:text-slate-100 tabular-nums">{fmtNum(r.stock)}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500">คงเหลือ</div>
+            </div>
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg py-2.5">
+              <div className="text-lg font-bold text-slate-800 dark:text-slate-100 tabular-nums">{fmtNum(r.ss)}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500">Safety Stock</div>
+            </div>
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg py-2.5">
+              <div className="text-lg font-bold text-slate-800 dark:text-slate-100 tabular-nums">{fmtNum(r.rop)}</div>
+              <div className="text-[10px] text-slate-400 dark:text-slate-500">ROP</div>
+            </div>
+          </div>
+
+          {/* mini bar chart — เบิกรายเดือน (หน้าต่าง SS) */}
+          {usage.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">ยอดเบิกรายเดือน (หน่วยซื้อ)</h4>
+              <div className="flex items-end gap-2 h-24">
+                {usage.map((v, i) => (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-1" title={`${fmtNum(v)} ${r.unit || ''}`}>
+                    <div className="w-full flex items-end h-16">
+                      <div className="w-full bg-orange-400 rounded-t hover:bg-orange-500 transition-colors"
+                        style={{ height: `${(v / maxU) * 100}%`, minHeight: v > 0 ? '3px' : '0' }}/>
+                    </div>
+                    <span className="text-[9px] text-slate-400 dark:text-slate-500 tabular-nums">{fmtNum(Math.round(v))}</span>
+                    {months?.[i] && <span className="text-[9px] text-slate-300 dark:text-slate-500">{thaiMonthLabel(months[i])}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* รายละเอียด */}
+          <div>
+            <DetailField label="ใช้เฉลี่ย/เดือน">{fmtNum(Math.round(r.avgMonth || 0))}</DetailField>
+            <DetailField label="หน่วย">{r.unit || '—'}</DetailField>
+            <DetailField label="คงอยู่ได้อีก">{fmtCoverage(r.stock, r.avgDay)}</DetailField>
+            <DetailField label="ต้องซื้อ">
+              {r.orderQty > 0 ? <>{fmtNum(r.orderQty)} {r.unit}{(r.packFactor||1)>1 && <span className="text-slate-400 dark:text-slate-500"> = {fmtNum(r.orderQty*r.packFactor)} {base}</span>}</> : '—'}
+            </DetailField>
+            {r.amount > 0 && <DetailField label="มูลค่าที่ต้องซื้อ"><span className="text-emerald-700 dark:text-emerald-300 font-bold">฿{fmtBaht(r.amount)}</span></DetailField>}
+            <DetailField label="ราคา/หน่วยซื้อ">{r.pricePerUnit > 0 ? `฿${fmtBaht(r.pricePerUnit)}` : '—'}</DetailField>
+            <DetailField label="VEN">{venLetter(r.riskGroup)}</DetailField>
+            <DetailField label="Lead Time">{r.leadTimeDays ? `${Math.round(r.leadTimeDays)} วัน` : '—'}</DetailField>
+            <DetailField label="บริษัทล่าสุด">{r.supplier || '—'}</DetailField>
+            <DetailField label="วันรับล่าสุด">{r.receiveDate ? fmtThaiDate(r.receiveDate) : '—'}</DetailField>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// คอลัมน์ที่ซ่อน/แสดงได้ (desktop) — รายการยา + จัดการ เป็น fixed ไม่อยู่ในนี้
+const TOGGLE_COLS = [
+  { key: 'status', label: 'สถานะ' },
+  { key: 'stock',  label: 'คงเหลือ' },
+  { key: 'order',  label: 'ต้องซื้อ · มูลค่า' },
+  { key: 'ssrop',  label: 'SS · ROP' },
+  { key: 'usage',  label: 'ใช้/เดือน' },
+  { key: 'ven',    label: 'VEN' },
+];
 
 // ────────────────────────────────────────────────────────────
 // Analysis tab — table (desktop) + cards (mobile)
 // ────────────────────────────────────────────────────────────
-function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, mode }) {
+function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, months }) {
   const [sortBy, setSortBy] = useState('status'); // status | amount | gap
   const [exporting, setExporting] = useState(false);
+  const [detailRow, setDetailRow] = useState(null); // แถวที่เปิด side panel
+  const [visibleCols, setVisibleCols] = useState(() => new Set(TOGGLE_COLS.map(c => c.key))); // แสดงครบเป็น default
+  const [colMenuOpen, setColMenuOpen] = useState(false);
+  const showCol = (k) => visibleCols.has(k);
+  const toggleCol = (k) => setVisibleCols(prev => {
+    const next = new Set(prev);
+    next.has(k) ? next.delete(k) : next.add(k);
+    return next;
+  });
 
   const sorted = useMemo(() => {
     const arr = [...rows];
@@ -771,28 +995,48 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, mode }) {
     return arr;
   }, [rows, sortBy]);
 
+  // ยอดรวมท้ายตาราง — รวมจาก sorted (แถวที่แสดงจริงหลัง filter) ให้ตรงกับที่ user เห็น (Rule #6)
+  // รวมเฉพาะค่าที่รวมข้ามรหัสได้: คงเหลือ/ต้องซื้อ (หน่วยซื้อ) / มูลค่าบาท — SS/ROP/coverage รวมไม่ได้ (ต่อรหัส)
+  const footTotals = useMemo(() => sorted.reduce((a, r) => ({
+    stock:    a.stock + (r.stock || 0),
+    orderQty: a.orderQty + (r.orderQty || 0),
+    amount:   a.amount + (r.amount || 0),
+  }), { stock: 0, orderQty: 0, amount: 0 }), [sorted]);
+
   const exportCsv = async () => {
     setExporting(true);
     try {
+      // breakdown เบิกรายเดือน — index ตรงกับ monthlyUsage (จัดตาม months ที่ตัด excludedMonth แล้ว)
+      const monthCols = (months || []).map((mm, i) => ({
+        header: `เบิก ${thaiMonthLabel(mm)}`,
+        value: r => Math.round(r.monthlyUsage?.[i] || 0),
+      }));
       await exportToExcel(sorted, [
         { header: 'รหัส',  key: 'code' },
+        { header: 'ชนิด', key: 'type' },
         { header: 'ชื่อยา', key: 'name' },
-        { header: 'Risk',  key: 'riskGroup' },
-        { header: 'หน่วย', key: 'unit' },
-        { header: 'บริษัท', key: 'supplier' },
+        { header: 'VEN',  value: r => venLetter(r.riskGroup) },
+        { header: 'หน่วยซื้อ', key: 'unit' },
+        { header: 'บริษัทล่าสุด', key: 'supplier' },
+        { header: 'วันรับล่าสุด', value: r => fmtThaiDate(r.receiveDate) },
+        ...monthCols,
+        { header: 'รวมทุกเดือน', value: r => Math.round((r.monthlyUsage || []).reduce((a, b) => a + b, 0)) },
         { header: 'Max',   value: r => Math.round(r.max) },
         { header: 'Avg/mo', value: r => Math.round(r.avgMonth) },
         { header: 'Avg/d',  value: r => Math.round(r.avgDay * 100) / 100 },
-        { header: 'คงเหลือ', key: 'stock' },
+        { header: 'คงเหลือ', value: r => Math.round(r.stock) },
+        { header: 'คงอยู่ได้อีก', value: r => fmtCoverage(r.stock, r.avgDay) },
         { header: 'SS',    key: 'ss' },
         { header: 'ROP',   key: 'rop' },
-        { header: 'Lead Time', key: 'leadTimeDays' },
-        { header: 'ต้องซื้อ',  key: 'orderQty' },
-        { header: 'ราคา/หน่วย', key: 'pricePerUnit' },
+        { header: 'คงเหลือ−ROP', value: r => Math.round(r.stock - r.rop) },
+        { header: 'Lead Time', value: r => Math.round((r.leadTimeDays || 0) * 100) / 100 },
+        { header: 'ต้องซื้อ(หน่วยซื้อ)',  value: r => Math.round(r.orderQty) },
+        { header: 'ต้องซื้อ(เม็ด)', value: r => Math.round(r.orderQty * (r.packFactor || 1)) },
+        { header: 'ราคา/หน่วยซื้อ', key: 'pricePerUnit' },
         { header: 'มูลค่า',     key: 'amount' },
         { header: 'สถานะ',     key: 'status' },
         { header: 'หมดอายุ (วัน)', key: 'nearestExpiryDays' },
-      ], 'reorder', `วิเคราะห์สั่งซื้อ_${todayIso()}_${mode}.xlsx`, auth);
+      ], 'reorder', `วิเคราะห์สั่งซื้อ_${todayIso()}.xlsx`, auth);
     } finally { setExporting(false); }
   };
 
@@ -801,100 +1045,177 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, onEdit, auth, mode }) {
     <>
       <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
         <div className="flex items-center gap-2 text-xs">
-          <span className="text-slate-500">เรียง:</span>
+          <span className="text-slate-500 dark:text-slate-400">เรียง:</span>
           {[
             { v: 'status', l: 'สถานะ' },
             { v: 'amount', l: 'มูลค่า' },
             { v: 'gap', l: 'ช่องว่าง ROP' },
           ].map(o => (
-            <button key={o.v} onClick={() => setSortBy(o.v)} className={`px-2.5 py-1 rounded-md ${sortBy === o.v ? 'bg-orange-100 text-orange-700 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`}>{o.l}</button>
+            <button key={o.v} onClick={() => setSortBy(o.v)} className={`px-2.5 py-1 rounded-md ${sortBy === o.v ? 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 font-semibold' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>{o.l}</button>
           ))}
         </div>
-        <button onClick={exportCsv} disabled={exporting} className="flex items-center gap-1.5 text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-medium">
-          {exporting ? <Loader2 size={13} className="animate-spin"/> : <FileSpreadsheet size={13}/>} Export Excel
-        </button>
+        <div className="flex items-center gap-2">
+          {/* จัดการคอลัมน์ — desktop เท่านั้น (mobile เป็น card แสดงทุก field) */}
+          <div className="relative hidden md:block">
+            <button onClick={() => setColMenuOpen(o => !o)}
+              className="flex items-center gap-1.5 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 px-3 py-1.5 rounded-lg font-medium transition-colors">
+              <ListChecks size={13}/> จัดการคอลัมน์
+            </button>
+            {colMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setColMenuOpen(false)}/>
+                <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-slate-900 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 py-1.5 z-20">
+                  {TOGGLE_COLS.map(c => (
+                    <button key={c.key} onClick={() => toggleCol(c.key)}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-left">
+                      <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${showCol(c.key) ? 'bg-orange-500 border-orange-500 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
+                        {showCol(c.key) && <CheckCircle2 size={11}/>}
+                      </span>
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <button onClick={exportCsv} disabled={exporting} className="flex items-center gap-1.5 text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-medium">
+            {exporting ? <Loader2 size={13} className="animate-spin"/> : <FileSpreadsheet size={13}/>} Export Excel
+          </button>
+        </div>
       </div>
 
-      {/* Desktop table */}
-      <div className="hidden md:block overflow-auto rounded-xl border border-slate-200">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-700 text-white sticky top-0 z-10">
-            <tr>
-              <th className="px-3 py-2.5 text-left font-semibold sticky left-0 bg-slate-700 z-20">รายการยา</th>
-              <th className="px-3 py-2.5 text-center font-semibold">Risk</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Max</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Avg/mo</th>
-              <th className="px-3 py-2.5 text-right font-semibold">คงเหลือ</th>
-              <th className="px-3 py-2.5 text-right font-semibold bg-rose-800">SS</th>
-              <th className="px-3 py-2.5 text-right font-semibold bg-orange-800">ROP</th>
-              <th className="px-3 py-2.5 text-right font-semibold bg-cyan-800">ต้องซื้อ</th>
-              <th className="px-3 py-2.5 text-right font-semibold bg-emerald-800">มูลค่า</th>
-              <th className="px-3 py-2.5 text-center font-semibold">สถานะ</th>
-              <th className="px-3 py-2.5 text-center font-semibold">⚙</th>
+      {/* Desktop table — light sticky header + frozen first column (ดู /sticky-table) */}
+      <div className="hidden md:block overflow-auto rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm bg-white dark:bg-slate-900" style={{ maxHeight: 'calc(100vh - 240px)' }}>
+        <table className="w-full text-sm min-w-[920px]">
+          <thead className="sticky top-0 z-20">
+            <tr className="text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+              <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide sticky left-0 z-30 bg-slate-50 dark:bg-slate-800 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">รายการยา</th>
+              {showCol('status') && <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50 dark:bg-slate-800 whitespace-nowrap">สถานะ</th>}
+              {showCol('stock') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 dark:bg-slate-800 whitespace-nowrap">คงเหลือ</th>}
+              {showCol('order') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 dark:bg-slate-800 whitespace-nowrap">ต้องซื้อ · มูลค่า</th>}
+              {showCol('ssrop') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 dark:bg-slate-800 whitespace-nowrap">SS · ROP</th>}
+              {showCol('usage') && <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide bg-slate-50 dark:bg-slate-800 whitespace-nowrap">ใช้/เดือน</th>}
+              {showCol('ven') && <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50 dark:bg-slate-800">VEN</th>}
+              <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide bg-slate-50 dark:bg-slate-800">จัดการ</th>
             </tr>
           </thead>
           <tbody>
-            {sorted.map((r, i) => <AnalysisRow key={r.code + i} r={r} ordered={!!orderedMap[codeKey(r.code)]} toggleOrdered={() => toggleOrdered(r.code)} onEdit={() => onEdit({ code: r.code, name: r.name, supplier: r.supplier, risk_group: r.riskGroup, lead_time_days: r.leadTimeDays, price_per_unit: r.pricePerUnit })}/>)}
+            {sorted.map((r, i) => <AnalysisRow key={r.code + i} r={r} visibleCols={visibleCols} ordered={!!orderedMap[codeKey(r.code)]} toggleOrdered={() => toggleOrdered(r.code)} onOpen={() => setDetailRow(r)} onEdit={() => onEdit({ code: r.code, name: r.name, supplier: r.supplier, risk_group: r.riskGroup, lead_time_days: r.leadTimeDays, price_per_unit: r.pricePerUnit })}/>)}
           </tbody>
+          {/* ยอดรวมท้ายตาราง — sticky ล่าง รวมเฉพาะแถวที่แสดง (Rule #6) */}
+          <tfoot className="sticky bottom-0 z-20">
+            <tr className="bg-slate-100 dark:bg-slate-800 border-t-2 border-slate-300 dark:border-slate-600 font-bold text-slate-700 dark:text-slate-200">
+              <td className="px-3 py-2.5 sticky left-0 z-30 bg-slate-100 dark:bg-slate-800 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
+                รวม <span className="font-normal text-slate-400 dark:text-slate-500 text-xs">({fmtNum(sorted.length)} รายการ)</span>
+              </td>
+              {showCol('status') && <td className="bg-slate-100 dark:bg-slate-800"/>}
+              {showCol('stock') && <td className="px-3 py-2.5 text-right tabular-nums bg-slate-100 dark:bg-slate-800">{fmtNum(footTotals.stock)}</td>}
+              {showCol('order') && (
+                <td className="px-3 py-2.5 text-right tabular-nums bg-slate-100 dark:bg-slate-800">
+                  {footTotals.orderQty > 0 && <div>{fmtNum(footTotals.orderQty)}</div>}
+                  {footTotals.amount > 0 && <div className="text-emerald-700 dark:text-emerald-300">฿{fmtBaht(footTotals.amount)}</div>}
+                </td>
+              )}
+              {showCol('ssrop') && <td className="bg-slate-100 dark:bg-slate-800"/>}
+              {showCol('usage') && <td className="bg-slate-100 dark:bg-slate-800"/>}
+              {showCol('ven') && <td className="bg-slate-100 dark:bg-slate-800"/>}
+              <td className="bg-slate-100 dark:bg-slate-800"/>
+            </tr>
+          </tfoot>
         </table>
       </div>
 
       {/* Mobile cards */}
       <div className="md:hidden space-y-2">
-        {sorted.map((r, i) => <AnalysisCard key={r.code + i} r={r} ordered={!!orderedMap[codeKey(r.code)]} toggleOrdered={() => toggleOrdered(r.code)} onEdit={() => onEdit({ code: r.code, name: r.name, supplier: r.supplier, risk_group: r.riskGroup, lead_time_days: r.leadTimeDays, price_per_unit: r.pricePerUnit })}/>)}
+        {sorted.map((r, i) => <AnalysisCard key={r.code + i} r={r} ordered={!!orderedMap[codeKey(r.code)]} toggleOrdered={() => toggleOrdered(r.code)} onOpen={() => setDetailRow(r)} onEdit={() => onEdit({ code: r.code, name: r.name, supplier: r.supplier, risk_group: r.riskGroup, lead_time_days: r.leadTimeDays, price_per_unit: r.pricePerUnit })}/>)}
       </div>
+
+      <DrugDetailPanel r={detailRow} months={months} onClose={() => setDetailRow(null)}/>
     </>
   );
 }
 
-function AnalysisRow({ r, ordered, toggleOrdered, onEdit }) {
+function AnalysisRow({ r, ordered, toggleOrdered, onEdit, onOpen, visibleCols }) {
   const meta = STATUS_META[r.status] || STATUS_META[STATUS.SUFFICIENT];
   const tone = TONE_CLASSES[meta.tone];
   const Icon = meta.icon;
   const gap = r.stock - r.rop;
+  const ropPct = r.rop > 0 ? Math.min(100, Math.round((r.stock / r.rop) * 100)) : null;
+  const showCol = (k) => !visibleCols || visibleCols.has(k);
   return (
-    <tr className={`border-t border-slate-100 ${ordered ? 'bg-emerald-50/40 opacity-70' : 'hover:bg-slate-50'}`}>
-      <td className="px-3 py-2.5 sticky left-0 z-10 bg-inherit">
-        <div className="font-semibold text-slate-800 flex items-center gap-1.5">
-          {ordered && <CheckCircle2 size={13} className="text-emerald-600"/>}
-          <span className={ordered ? 'line-through text-slate-400' : ''}>{r.name || '-'}</span>
+    <tr className={`border-t border-slate-100 dark:border-slate-800 transition-colors ${ordered ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+      {/* รายการยา + แถบสีสถานะซ้าย (scan เร็วโดยไม่ต้องอ่าน chip) — คลิกชื่อเปิดรายละเอียด */}
+      <td className="p-0 sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.04)]">
+        <div className="flex items-stretch gap-2.5 px-3 py-2.5">
+          <span className={`w-1 rounded-full shrink-0 ${tone.bar}`} aria-hidden="true"/>
+          <button onClick={onOpen} className="min-w-0 text-left hover:opacity-70 transition-opacity" title="ดูรายละเอียด">
+            <div className="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+              {ordered && <CheckCircle2 size={13} className="text-emerald-600 shrink-0"/>}
+              <span className={ordered ? 'line-through text-slate-400 dark:text-slate-500' : ''}>{r.name || '-'}</span>
+            </div>
+            <div className="text-xs text-slate-400 dark:text-slate-500 font-mono truncate">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}{r.receiveDate ? ` · รับ ${fmtThaiDate(r.receiveDate)}` : ''}</div>
+          </button>
         </div>
-        <div className="text-xs text-slate-400 font-mono">{r.code}{r.supplier ? ` · ${r.supplier}` : ''}</div>
       </td>
-      <td className="px-3 py-2.5 text-center">
-        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.riskGroup === 'Critical' ? 'bg-rose-50 border-rose-200 text-rose-700' : r.riskGroup === 'Essential' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>{r.riskGroup?.[0] || 'N'}</span>
-      </td>
-      <td className="px-3 py-2.5 text-right tabular-nums">{fmtNum(r.max)}</td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{fmtNum(r.avgMonth)}</td>
-      <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-        <div>{fmtNum(r.stock)}</div>
-        {r.rop > 0 && (
-          <div className="w-20 bg-slate-200 rounded-full h-1 mt-1 ml-auto">
-            <div className={`h-1 rounded-full ${tone.bar}`} style={{ width: `${Math.min(100, (r.stock / r.rop) * 100)}%` }}/>
-          </div>
-        )}
-      </td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-rose-700 font-semibold">{fmtNum(r.ss)}</td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-orange-700 font-semibold">{fmtNum(r.rop)}</td>
-      <td className="px-3 py-2.5 text-right tabular-nums font-bold">
-        {r.orderQty > 0 ? <span className="text-cyan-700">{fmtNum(r.orderQty)}</span> : <span className="text-slate-300">—</span>}
-      </td>
-      <td className="px-3 py-2.5 text-right tabular-nums">
-        {r.amount > 0 ? <span className="font-bold text-emerald-700">฿{fmtBaht(r.amount)}</span> : <span className="text-slate-300">—</span>}
-      </td>
-      <td className="px-3 py-2.5 text-center">
-        <span className={`inline-flex items-center gap-1 ${tone.chip} px-2 py-0.5 rounded-full text-[11px] font-semibold border`}>
-          <Icon size={11}/> {r.status}
-        </span>
-        {gap < 0 && r.orderQty > 0 && <div className="text-[10px] text-rose-600 mt-0.5">ขาด {fmtNum(-gap)}</div>}
-      </td>
+      {/* สถานะ — ติดชื่อยา เพื่อเห็นก่อนตัวเลข */}
+      {showCol('status') && (
+        <td className="px-3 py-2.5 text-center">
+          <span className={`inline-flex items-center gap-1 ${tone.chip} px-2 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap`}>
+            <Icon size={11}/> {r.status}
+          </span>
+        </td>
+      )}
+      {/* คงเหลือ + coverage + bar เทียบ ROP */}
+      {showCol('stock') && (
+        <td className="px-3 py-2.5 text-right">
+          <div className="font-bold tabular-nums text-slate-800 dark:text-slate-100">{fmtNum(r.stock)}</div>
+          <div className="text-[10px] text-slate-400 dark:text-slate-500">อยู่ได้ {fmtCoverage(r.stock, r.avgDay)}</div>
+          {ropPct != null && (
+            <div className="w-24 bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 mt-1 ml-auto overflow-hidden" title={`${ropPct}% ของ ROP`}>
+              <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${ropPct}%` }}/>
+            </div>
+          )}
+        </td>
+      )}
+      {/* ต้องซื้อ + มูลค่า — ข้อมูลตัดสินใจรวม cell เดียว */}
+      {showCol('order') && (
+        <td className="px-3 py-2.5 text-right tabular-nums">
+          {r.orderQty > 0 ? (
+            <>
+              <div className="font-bold text-slate-800 dark:text-slate-100">{fmtNum(r.orderQty)}</div>
+              {(r.packFactor || 1) > 1 && <div className="text-[10px] text-slate-400 dark:text-slate-500">= {fmtNum(r.orderQty * r.packFactor)} {parseUnitFactor(r.unit).base}</div>}
+              {r.amount > 0 && <div className="text-xs font-bold text-emerald-700 dark:text-emerald-300">฿{fmtBaht(r.amount)}</div>}
+            </>
+          ) : <span className="text-slate-300 dark:text-slate-500">—</span>}
+        </td>
+      )}
+      {/* SS · ROP + ขาดเท่าไหร่ (เฉพาะต่ำกว่า ROP) */}
+      {showCol('ssrop') && (
+        <td className="px-3 py-2.5 text-right text-xs tabular-nums whitespace-nowrap">
+          <div className="text-slate-400 dark:text-slate-500">SS <span className="font-semibold text-slate-700 dark:text-slate-200">{fmtNum(r.ss)}</span></div>
+          <div className="text-slate-400 dark:text-slate-500 mt-0.5">ROP <span className="font-semibold text-slate-700 dark:text-slate-200">{fmtNum(r.rop)}</span></div>
+          {gap < 0 && <div className="text-rose-600 font-semibold mt-0.5">ขาด {fmtNum(-gap)}</div>}
+        </td>
+      )}
+      {/* การใช้ต่อเดือน (Avg เด่น, Max รอง) */}
+      {showCol('usage') && (
+        <td className="px-3 py-2.5 text-right tabular-nums">
+          <div className="font-semibold text-slate-700 dark:text-slate-200">{fmtNum(r.avgMonth)}</div>
+          <div className="text-[10px] text-slate-400 dark:text-slate-500">Max {fmtNum(r.max)}</div>
+        </td>
+      )}
+      {showCol('ven') && (
+        <td className="px-3 py-2.5 text-center">
+          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${r.riskGroup === 'Critical' ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300' : r.riskGroup === 'Normal' ? 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300' : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/60 text-amber-700 dark:text-amber-300'}`}>{venLetter(r.riskGroup)}</span>
+        </td>
+      )}
       <td className="px-3 py-2.5 text-center">
         <div className="flex items-center justify-center gap-1">
           <button onClick={toggleOrdered} title={ordered ? 'ยกเลิกการสั่ง' : 'สั่งแล้ว'}
-            className={`w-6 h-6 rounded-md border flex items-center justify-center transition-colors ${ordered ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 hover:bg-emerald-50 hover:border-emerald-400'}`}>
+            className={`w-6 h-6 rounded-md border flex items-center justify-center transition-colors ${ordered ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 dark:border-slate-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:border-emerald-400'}`}>
             {ordered && <CheckCircle2 size={12}/>}
           </button>
-          <button onClick={onEdit} title="แก้ Master" className="w-6 h-6 rounded-md border border-slate-300 hover:bg-orange-50 hover:border-orange-400 flex items-center justify-center text-slate-500 hover:text-orange-700">
+          <button onClick={onEdit} title="แก้ Master" className="w-6 h-6 rounded-md border border-slate-300 dark:border-slate-600 hover:bg-orange-50 dark:hover:bg-orange-950/50 hover:border-orange-400 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-orange-700">
             <Pencil size={11}/>
           </button>
         </div>
@@ -903,17 +1224,17 @@ function AnalysisRow({ r, ordered, toggleOrdered, onEdit }) {
   );
 }
 
-function AnalysisCard({ r, ordered, toggleOrdered, onEdit }) {
+function AnalysisCard({ r, ordered, toggleOrdered, onEdit, onOpen }) {
   const meta = STATUS_META[r.status] || STATUS_META[STATUS.SUFFICIENT];
   const tone = TONE_CLASSES[meta.tone];
   const Icon = meta.icon;
   return (
-    <div className={`bg-white border rounded-xl p-3 shadow-sm ${ordered ? 'border-emerald-200 opacity-75' : 'border-slate-200'}`}>
+    <div className={`bg-white dark:bg-slate-900 border rounded-xl p-3 shadow-sm ${ordered ? 'border-emerald-200 dark:border-emerald-900/60 opacity-75' : 'border-slate-200 dark:border-slate-700'}`}>
       <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="flex-1 min-w-0">
-          <div className={`font-bold text-sm leading-tight ${ordered ? 'line-through text-slate-400' : 'text-slate-800'}`}>{r.name || '-'}</div>
-          <div className="text-[11px] text-slate-400 font-mono">{r.code}{r.supplier ? ` · ${r.supplier}` : ''}</div>
-        </div>
+        <button onClick={onOpen} className="flex-1 min-w-0 text-left" title="ดูรายละเอียด">
+          <div className={`font-bold text-sm leading-tight ${ordered ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-100'}`}>{r.name || '-'}</div>
+          <div className="text-[11px] text-slate-400 dark:text-slate-500 font-mono">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}</div>
+        </button>
         <span className={`inline-flex items-center gap-1 ${tone.chip} px-2 py-0.5 rounded-full text-[10px] font-semibold border whitespace-nowrap`}>
           <Icon size={10}/> {r.status}
         </span>
@@ -924,15 +1245,20 @@ function AnalysisCard({ r, ordered, toggleOrdered, onEdit }) {
         <Stat label="ROP"     value={fmtNum(r.rop)}   tone="orange"/>
         <Stat label="ต้องซื้อ" value={r.orderQty > 0 ? fmtNum(r.orderQty) : '—'} tone="cyan"/>
       </div>
-      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+      <div className="text-[10px] text-slate-400 dark:text-slate-500 mb-2">
+        อยู่ได้ {fmtCoverage(r.stock, r.avgDay)}
+        {(r.packFactor || 1) > 1 && r.orderQty > 0 ? ` · สั่ง ${fmtNum(r.orderQty * r.packFactor)} ${parseUnitFactor(r.unit).base}` : ''}
+        {r.receiveDate ? ` · รับ ${fmtThaiDate(r.receiveDate)}` : ''}
+      </div>
+      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
         <div className="text-sm">
-          {r.amount > 0 ? <span className="font-bold text-emerald-700">฿{fmtBaht(r.amount)}</span> : <span className="text-slate-400 text-xs">ไม่ต้องสั่ง</span>}
+          {r.amount > 0 ? <span className="font-bold text-emerald-700 dark:text-emerald-300">฿{fmtBaht(r.amount)}</span> : <span className="text-slate-400 dark:text-slate-500 text-xs">ไม่ต้องสั่ง</span>}
         </div>
         <div className="flex items-center gap-1.5">
-          <button onClick={toggleOrdered} className={`px-2.5 py-1 rounded-md text-xs font-medium ${ordered ? 'bg-emerald-500 text-white' : 'bg-slate-100 hover:bg-emerald-100 text-slate-600'}`}>
+          <button onClick={toggleOrdered} className={`px-2.5 py-1 rounded-md text-xs font-medium ${ordered ? 'bg-emerald-500 text-white' : 'bg-slate-100 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-slate-600 dark:text-slate-300'}`}>
             {ordered ? '✓ สั่งแล้ว' : 'สั่งแล้ว'}
           </button>
-          <button onClick={onEdit} className="w-7 h-7 rounded-md border border-slate-300 hover:bg-orange-50 flex items-center justify-center text-slate-500">
+          <button onClick={onEdit} className="w-7 h-7 rounded-md border border-slate-300 dark:border-slate-600 hover:bg-orange-50 dark:hover:bg-orange-950/50 flex items-center justify-center text-slate-500 dark:text-slate-400">
             <Pencil size={11}/>
           </button>
         </div>
@@ -944,8 +1270,8 @@ function AnalysisCard({ r, ordered, toggleOrdered, onEdit }) {
 function Stat({ label, value, tone = 'slate' }) {
   const t = TONE_CLASSES[tone] || TONE_CLASSES.slate;
   return (
-    <div className="bg-slate-50 rounded-md px-1.5 py-1.5">
-      <div className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">{label}</div>
+    <div className="bg-slate-50 dark:bg-slate-800 rounded-md px-1.5 py-1.5">
+      <div className="text-[9px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider">{label}</div>
       <div className={`text-sm font-black tabular-nums ${t.text}`}>{value}</div>
     </div>
   );
@@ -958,9 +1284,9 @@ function SupplierTab({ suppliers, totalAmount, auth }) {
   if (!suppliers || suppliers.length === 0) return <EmptyState text="ไม่มีรายการที่ต้องสั่งซื้อ"/>;
   return (
     <div className="space-y-4">
-      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm flex items-center justify-between flex-wrap gap-2">
-        <span className="text-emerald-800"><b>{suppliers.length}</b> บริษัท · <b>{suppliers.reduce((s, g) => s + g.items.length, 0)}</b> รายการ</span>
-        <span className="text-emerald-700">มูลค่ารวม <b className="text-base">฿{fmtBaht(totalAmount)}</b></span>
+      <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-xl p-3 text-sm flex items-center justify-between flex-wrap gap-2">
+        <span className="text-emerald-800 dark:text-emerald-300"><b>{suppliers.length}</b> บริษัท · <b>{suppliers.reduce((s, g) => s + g.items.length, 0)}</b> รายการ</span>
+        <span className="text-emerald-700 dark:text-emerald-300">มูลค่ารวม <b className="text-base">฿{fmtBaht(totalAmount)}</b></span>
       </div>
       {suppliers.map((g, i) => <SupplierCard key={i} group={g} auth={auth}/>)}
     </div>
@@ -973,11 +1299,13 @@ function SupplierCard({ group, auth }) {
     await exportToExcel(group.items, [
       { header: 'รหัส', key: 'code' },
       { header: 'ชื่อยา', key: 'name' },
-      { header: 'หน่วย', key: 'unit' },
-      { header: 'คงเหลือ', key: 'stock' },
+      { header: 'หน่วยซื้อ', key: 'unit' },
+      { header: 'บริษัทล่าสุด', key: 'supplier' },
+      { header: 'คงเหลือ', value: r => Math.round(r.stock) },
       { header: 'ROP', key: 'rop' },
-      { header: 'ต้องซื้อ', key: 'orderQty' },
-      { header: 'ราคา/หน่วย', key: 'pricePerUnit' },
+      { header: 'ต้องซื้อ(หน่วยซื้อ)', value: r => Math.round(r.orderQty) },
+      { header: 'ต้องซื้อ(เม็ด)', value: r => Math.round(r.orderQty * (r.packFactor || 1)) },
+      { header: 'ราคา/หน่วยซื้อ', key: 'pricePerUnit' },
       { header: 'มูลค่า', key: 'amount' },
     ], group.supplier, `PO_${group.supplier.replace(/\s+/g, '_')}_${todayIso()}.xlsx`, auth);
   };
@@ -1023,58 +1351,58 @@ function SupplierCard({ group, auth }) {
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm">
-      <button onClick={() => setExpanded(v => !v)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 rounded-t-2xl">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm">
+      <button onClick={() => setExpanded(v => !v)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-t-2xl">
         <div className="flex items-center gap-2">
           <Building2 size={16} className="text-orange-600"/>
-          <span className="font-bold text-slate-800">{group.supplier}</span>
-          <span className="text-xs text-slate-500">· {group.items.length} รายการ</span>
+          <span className="font-bold text-slate-800 dark:text-slate-100">{group.supplier}</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">· {group.items.length} รายการ</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-emerald-700">฿{fmtBaht(group.totalAmount)}</span>
-          <ChevronDown size={14} className={`text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`}/>
+          <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">฿{fmtBaht(group.totalAmount)}</span>
+          <ChevronDown size={14} className={`text-slate-400 dark:text-slate-500 transition-transform ${expanded ? 'rotate-180' : ''}`}/>
         </div>
       </button>
       {expanded && (
         <>
-          <div className="border-t border-slate-200">
+          <div className="border-t border-slate-200 dark:border-slate-700">
             <table className="w-full text-xs">
-              <thead className="bg-slate-50">
+              <thead className="bg-slate-50 dark:bg-slate-800">
                 <tr>
-                  <th className="px-3 py-2 text-left font-semibold text-slate-600">รหัส / ชื่อยา</th>
-                  <th className="px-3 py-2 text-right font-semibold text-slate-600">คงเหลือ</th>
-                  <th className="px-3 py-2 text-right font-semibold text-slate-600">ROP</th>
-                  <th className="px-3 py-2 text-right font-semibold text-cyan-700">ต้องซื้อ</th>
-                  <th className="px-3 py-2 text-right font-semibold text-slate-600">฿/หน่วย</th>
-                  <th className="px-3 py-2 text-right font-semibold text-emerald-700">มูลค่า</th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">รหัส / ชื่อยา</th>
+                  <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">คงเหลือ</th>
+                  <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">ROP</th>
+                  <th className="px-3 py-2 text-right font-semibold text-cyan-700 dark:text-cyan-300">ต้องซื้อ</th>
+                  <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">฿/หน่วย</th>
+                  <th className="px-3 py-2 text-right font-semibold text-emerald-700 dark:text-emerald-300">มูลค่า</th>
                 </tr>
               </thead>
               <tbody>
                 {group.items.map((it, i) => (
-                  <tr key={i} className="border-t border-slate-100">
+                  <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
                     <td className="px-3 py-2">
-                      <div className="font-semibold text-slate-700">{it.name || '-'}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">{it.code}</div>
+                      <div className="font-semibold text-slate-700 dark:text-slate-200">{it.name || '-'}</div>
+                      <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{it.code}</div>
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{fmtNum(it.stock)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-orange-700">{fmtNum(it.rop)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-bold text-cyan-700">{fmtNum(it.orderQty)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-slate-500">{fmtBaht(it.pricePerUnit)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-bold text-emerald-700">฿{fmtBaht(it.amount)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-orange-700 dark:text-orange-300">{fmtNum(it.rop)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-bold text-cyan-700 dark:text-cyan-300">{fmtNum(it.orderQty)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-500 dark:text-slate-400">{fmtBaht(it.pricePerUnit)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-bold text-emerald-700 dark:text-emerald-300">฿{fmtBaht(it.amount)}</td>
                   </tr>
                 ))}
               </tbody>
-              <tfoot className="bg-amber-50">
+              <tfoot className="bg-amber-50 dark:bg-amber-950/40">
                 <tr>
-                  <td colSpan={3} className="px-3 py-2 text-right font-bold text-slate-700">รวม</td>
-                  <td className="px-3 py-2 text-right font-bold text-cyan-700 tabular-nums">{fmtNum(group.totalQty)}</td>
+                  <td colSpan={3} className="px-3 py-2 text-right font-bold text-slate-700 dark:text-slate-200">รวม</td>
+                  <td className="px-3 py-2 text-right font-bold text-cyan-700 dark:text-cyan-300 tabular-nums">{fmtNum(group.totalQty)}</td>
                   <td></td>
-                  <td className="px-3 py-2 text-right font-black text-emerald-700 tabular-nums text-sm">฿{fmtBaht(group.totalAmount)}</td>
+                  <td className="px-3 py-2 text-right font-black text-emerald-700 dark:text-emerald-300 tabular-nums text-sm">฿{fmtBaht(group.totalAmount)}</td>
                 </tr>
               </tfoot>
             </table>
           </div>
-          <div className="border-t border-slate-200 px-4 py-2.5 flex items-center justify-end gap-2 bg-slate-50 rounded-b-2xl">
+          <div className="border-t border-slate-200 dark:border-slate-700 px-4 py-2.5 flex items-center justify-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-b-2xl">
             <button onClick={exportOne} className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-medium">
               <FileSpreadsheet size={12}/> Export Excel
             </button>
@@ -1084,6 +1412,173 @@ function SupplierCard({ group, auth }) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Reconcile tab — เทียบผลแอป (recompute) กับ Excel "วิเคราะห์สั่งซื้อ" (ADR-0001)
+// read-only diff กลางๆ — upload CSV → เทียบ SS/ROP/สถานะ/จำนวนสั่ง ต่อรหัสยา
+// ────────────────────────────────────────────────────────────
+function ReconcileTab({ appRows, auth }) {
+  const [parsing, setParsing] = useState(false);
+  const [error, setError] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [res, setRes] = useState(null);
+
+  const handleFile = async (file) => {
+    setParsing(true); setError(''); setRes(null); setFileName(file.name);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      // ไฟล์ export มีแถว title/คำเตือนนำหน้า header จริง → detect แถวที่มี cell = "รหัส"
+      const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      const headerRow = grid.findIndex(row =>
+        row.some(c => { const s = String(c).trim(); return s === 'รหัส' || s.toLowerCase() === 'code'; }));
+      const arr = XLSX.utils.sheet_to_json(ws, { defval: '', range: headerRow >= 0 ? headerRow : 0 });
+      const out = reconcileRows(appRows || [], arr, codeKey);   // ส่ง codeKey กัน Excel drift; reconcileRows parse CSV เอง
+      if (out.summary.total === 0) throw new Error('ไม่พบรายการในไฟล์ — ต้องมีคอลัมน์ "รหัส"');
+      setRes(out);
+      logReorderAction?.('reconcile_excel', {
+        file: file.name, ...out.summary,
+      }, auth);
+    } catch (e) { setError(e.message || 'อ่านไฟล์ไม่ได้'); }
+    finally { setParsing(false); }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2"><GitCompare size={16}/> เทียบผลแอปกับ Excel</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              อัปโหลดไฟล์ "วิเคราะห์สั่งซื้อ" (.csv/.xlsx) → เทียบ Safety Stock · ROP · สถานะ · จำนวนสั่ง กับที่แอปคำนวณ
+              <br/>ต่างเกิน ±1 = ไม่ตรง · อ่านอย่างเดียว ไม่แก้ข้อมูล (Excel = source of truth ตาม ADR-0001)
+            </p>
+          </div>
+          <label className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5 cursor-pointer shrink-0">
+            {parsing ? <Loader2 size={14} className="animate-spin"/> : <Upload size={14}/>} เลือกไฟล์
+            <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
+              onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}/>
+          </label>
+        </div>
+        {fileName && <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">ไฟล์: {fileName}</p>}
+        {error && <p className="text-xs text-rose-600 mt-2 flex items-center gap-1"><AlertCircle size={12}/> {error}</p>}
+      </div>
+
+      {res && (
+        <>
+          {/* summary strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <ReconStat label="ตรงกัน" value={res.summary.matched} tone="emerald" icon={CheckCircle2}/>
+            <ReconStat label="ไม่ตรง" value={res.summary.differing} tone="amber" icon={AlertTriangle}/>
+            <ReconStat label="มีใน Excel ไม่มีในแอป" value={res.summary.excelOnly} tone="sky" icon={FileSpreadsheet}/>
+            <ReconStat label="มีในแอป ไม่มีใน Excel" value={res.summary.appOnly} tone="slate" icon={Database}/>
+          </div>
+
+          {/* differing rows */}
+          {res.differing.length > 0 && (
+            <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/60 rounded-xl overflow-hidden">
+              <div className="bg-amber-50 dark:bg-amber-950/40 px-4 py-2 text-sm font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                <AlertTriangle size={14}/> ไม่ตรง {res.differing.length} รายการ
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                    <tr>
+                      <th className="text-left px-3 py-2">รหัส / ชื่อยา</th>
+                      <th className="text-center px-2 py-2">Safety Stock<br/><span className="font-normal">แอป / Excel</span></th>
+                      <th className="text-center px-2 py-2">ROP<br/><span className="font-normal">แอป / Excel</span></th>
+                      <th className="text-center px-2 py-2">จำนวนสั่ง<br/><span className="font-normal">แอป / Excel</span></th>
+                      <th className="text-center px-2 py-2">สถานะ<br/><span className="font-normal">แอป / Excel</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {res.differing.map(d => (
+                      <tr key={d.code} className="border-t border-slate-100 dark:border-slate-800">
+                        <td className="px-3 py-2"><b className="text-slate-800 dark:text-slate-100">{d.code}</b><div className="text-slate-400 dark:text-slate-500">{d.name}</div></td>
+                        <DiffCell diff={d.diffs.ss} app={d.app.ss} csv={d.csv.ss}/>
+                        <DiffCell diff={d.diffs.rop} app={d.app.rop} csv={d.csv.rop}/>
+                        <DiffCell diff={d.diffs.orderQty} app={Math.round(d.app.orderQty)} csv={d.csv.orderQty}/>
+                        <td className={`text-center px-2 py-2 ${d.diffs.status ? 'bg-amber-50 dark:bg-amber-950/40' : ''}`}>
+                          {d.diffs.status
+                            ? <span className="text-amber-700 dark:text-amber-300">{d.app.status || '—'}<br/><span className="text-slate-400 dark:text-slate-500">{d.csv.status || '—'}</span></span>
+                            : <span className="text-slate-400 dark:text-slate-500">{d.app.status}</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* excel-only / app-only */}
+          {res.excelOnly.length > 0 && (
+            <ReconOnlyList title={`มีใน Excel แต่ไม่มีในแอป (${res.excelOnly.length})`}
+              hint="รหัสยาในไฟล์ที่แอปไม่ได้วิเคราะห์ — อาจไม่มีในคลัง/ไม่มียอดเบิก" tone="sky"
+              items={res.excelOnly.map(r => ({ code: r.code, name: r.name }))}/>
+          )}
+          {res.appOnly.length > 0 && (
+            <ReconOnlyList title={`มีในแอป แต่ไม่มีใน Excel (${res.appOnly.length})`}
+              hint="รหัสยาที่แอปวิเคราะห์แต่ไม่อยู่ในไฟล์ Excel รอบนี้" tone="slate"
+              items={res.appOnly.map(r => ({ code: r.code, name: r.name }))}/>
+          )}
+
+          {res.differing.length === 0 && res.excelOnly.length === 0 && res.appOnly.length === 0 && (
+            <div className="bg-emerald-50 dark:bg-emerald-950/40 border-2 border-emerald-300 dark:border-emerald-800/60 rounded-xl p-4 flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-semibold">
+              <CheckCircle2 size={18}/> ตรงกันทุกรายการ — แอปคำนวณตรงกับ Excel
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ReconStat({ label, value, tone, icon: Icon }) {
+  const map = {
+    emerald: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60',
+    amber: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900/60',
+    sky: 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-900/60',
+    slate: 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700',
+  };
+  return (
+    <div className={`border rounded-xl p-3 ${map[tone]}`}>
+      <div className="flex items-center gap-1.5 text-xs font-medium"><Icon size={13}/> {label}</div>
+      <div className="text-2xl font-bold mt-1">{value}</div>
+    </div>
+  );
+}
+
+// เซลล์ตัวเลข: ถ้าต่าง (diff != null) ไฮไลต์ + แสดง app/excel + delta; ถ้าตรง แสดงค่าเดียว
+function DiffCell({ diff, app, csv }) {
+  if (!diff) return <td className="text-center px-2 py-2 text-slate-400 dark:text-slate-500">{app ?? '—'}</td>;
+  return (
+    <td className="text-center px-2 py-2 bg-amber-50 dark:bg-amber-950/40">
+      <span className="text-slate-800 dark:text-slate-100 font-semibold">{app ?? '—'}</span>
+      <span className="text-slate-400 dark:text-slate-500"> / {csv ?? '—'}</span>
+      <div className="text-[10px] text-rose-600">Δ {diff.delta > 0 ? '+' : ''}{diff.delta}</div>
+    </td>
+  );
+}
+
+function ReconOnlyList({ title, hint, tone, items }) {
+  const head = tone === 'sky' ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-800 dark:text-sky-300' : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200';
+  return (
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+      <div className={`px-4 py-2 text-sm font-semibold ${head}`}>{title}</div>
+      <p className="text-xs text-slate-400 dark:text-slate-500 px-4 pt-2">{hint}</p>
+      <div className="flex flex-wrap gap-1.5 p-3">
+        {items.map(it => (
+          <span key={it.code} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg px-2 py-1 text-xs">
+            <b className="text-slate-700 dark:text-slate-200">{it.code}</b>
+            <span className="text-slate-400 dark:text-slate-500">{it.name}</span>
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1104,18 +1599,18 @@ function VerifyTab() {
       cases.push({ label, actual, expected, ok });
     };
 
-    // Test 1: Atorvastatin Refill
+    // Test 1: Atorvastatin (สูตร Excel — SS ฐาน 30, factor 2.3)
     const r1 = analyzeDrug({
       code: 'ATOR40', name: 'Atorvastatin 40mg',
       monthlyUsage: [2833, 1477, 1960, 2603], stock: 4400,
       leadTimeDays: 15.5, riskGroup: 'Essential', pricePerUnit: 33.30,
-    }, { mode: 'refill' });
+    });
     assert('Atorvastatin · Max', r1.max, 2833);
     assert('Atorvastatin · Avg/mo', r1.avgMonth, 2218.25);
-    assert('Atorvastatin · SS', r1.ss, 6655);
-    assert('Atorvastatin · ROP', r1.rop, 7801);
-    assert('Atorvastatin · V', r1.orderQty, 3401);
-    assert('Atorvastatin · Amount', r1.amount, 113253.30);
+    assert('Atorvastatin · SS', r1.ss, 3327);
+    assert('Atorvastatin · ROP', r1.rop, 4473);
+    assert('Atorvastatin · V', r1.orderQty, 1266);
+    assert('Atorvastatin · Amount', r1.amount, 42157.80);
     assert('Atorvastatin · Status', r1.status, STATUS.REORDER);
 
     // Test 2: Excluded
@@ -1126,19 +1621,37 @@ function VerifyTab() {
     const r3 = analyzeDrug({ code: 'X', monthlyUsage: [100,100,100,100], stock: 0 });
     assert('หมดสต็อค · status', r3.status, STATUS.OUT_OF_STOCK);
 
-    // Test 4: Refill > Normal
-    const drug4 = { code: 'X', monthlyUsage: [100,100,100,100], stock: 0, leadTimeDays: 5 };
-    const normal = analyzeDrug(drug4, { mode: 'normal' });
-    const refill = analyzeDrug(drug4, { mode: 'refill' });
-    assert('Refill V > Normal V', refill.orderQty > normal.orderQty, true);
+    // Test 4: Acetaminophen syrup — Excel reference (SS=506, ROP=686)
+    const r4 = analyzeDrug({
+      code: 'PARA-SYR', name: 'Acetaminophen 120mg/5ml',
+      monthlyUsage: [337.5, 337.5, 337.5, 337.5], stock: 900,
+      leadTimeDays: 16, riskGroup: 'Essential',
+    });
+    assert('Para syrup · SS = 506', r4.ss, 506);
+    assert('Para syrup · ROP = 686', r4.rop, 686);
+    assert('Para syrup · status = เพียงพอ', r4.status, STATUS.SUFFICIENT);
 
     // Test 5: Edge case (no usage)
     const r5 = analyzeDrug({ code: 'X', monthlyUsage: [0,0,0,0], stock: 0 });
     assert('ไม่เคยเบิก · V = 1 (fallback)', r5.orderQty, 1);
     assert('ไม่เคยเบิก · SS = 1', r5.ss, 1);
 
-    // SS cap
-    assert('SS cap Critical (avg/d=10) = 900', computeSafetyStock(10, 2.0), 900);
+    // Test 6: Lidocaine (แถวจริง Excel) — round avgDay 4 ตำแหน่ง
+    const r6 = analyzeDrug({
+      code: 'LIDO', name: 'Lidocaine',
+      monthlyUsage: [100, 0, 0, 0], stock: 0, leadTimeDays: 20, riskGroup: 'Essential',
+    });
+    assert('Lidocaine · SS = 37 (ไม่ใช่ 38)', r6.ss, 37);
+    assert('Lidocaine · ROP = 54 (ไม่ใช่ 55)', r6.rop, 54);
+    assert('Lidocaine · V = 200', r6.orderQty, 200);
+
+    // Test 7: VEN ว่าง → default 1.5 = Essential (ADR-0002)
+    const rBlank = analyzeDrug({ code: 'B', monthlyUsage: [300,300,300,300], stock: 0, leadTimeDays: 15 });
+    const rEss   = analyzeDrug({ code: 'E', monthlyUsage: [300,300,300,300], stock: 0, leadTimeDays: 15, riskGroup: 'Essential' });
+    assert('VEN ว่าง · SS = Essential (×1.5)', rBlank.ss, rEss.ss);
+
+    // SS ฐาน 30 ไม่ cap
+    assert('SS Critical (avg/d=10) = 600', computeSafetyStock(10, 2.0), 600);
 
     setResults(cases);
     setRunning(false);
@@ -1149,11 +1662,11 @@ function VerifyTab() {
 
   return (
     <div className="space-y-3">
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+      <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
-            <h3 className="font-bold text-slate-800 flex items-center gap-2"><ShieldAlert size={16}/> Golden Test Suite</h3>
-            <p className="text-xs text-slate-500 mt-0.5">ทดสอบสูตรคำนวณตาม Excel reference — ต้องผ่าน 100% ก่อน trust ผลลัพธ์</p>
+            <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2"><ShieldAlert size={16}/> Golden Test Suite</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">ทดสอบสูตรคำนวณตาม Excel reference — ต้องผ่าน 100% ก่อน trust ผลลัพธ์</p>
           </div>
           <button onClick={runTests} disabled={running} className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5">
             {running ? <Loader2 size={14} className="animate-spin"/> : <RefreshCw size={14}/>} Run tests
@@ -1162,16 +1675,16 @@ function VerifyTab() {
       </div>
 
       {results && (
-        <div className={`rounded-xl border-2 p-3 ${failCount === 0 ? 'bg-emerald-50 border-emerald-300' : 'bg-rose-50 border-rose-300'}`}>
+        <div className={`rounded-xl border-2 p-3 ${failCount === 0 ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800/60' : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800/60'}`}>
           <div className="flex items-center gap-2 font-bold mb-2">
-            {failCount === 0 ? <CheckCircle2 size={18} className="text-emerald-700"/> : <XCircle size={18} className="text-rose-700"/>}
-            <span className={failCount === 0 ? 'text-emerald-800' : 'text-rose-800'}>
+            {failCount === 0 ? <CheckCircle2 size={18} className="text-emerald-700 dark:text-emerald-300"/> : <XCircle size={18} className="text-rose-700 dark:text-rose-300"/>}
+            <span className={failCount === 0 ? 'text-emerald-800 dark:text-emerald-300' : 'text-rose-800 dark:text-rose-300'}>
               {passCount} ผ่าน · {failCount} ล้มเหลว · จาก {results.length} cases
             </span>
           </div>
           <div className="space-y-1 text-xs font-mono max-h-96 overflow-auto">
             {results.map((c, i) => (
-              <div key={i} className={`flex items-start gap-2 px-2 py-1 rounded ${c.ok ? 'text-emerald-700' : 'text-rose-700 bg-white border border-rose-200'}`}>
+              <div key={i} className={`flex items-start gap-2 px-2 py-1 rounded ${c.ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300 bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900/60'}`}>
                 <span>{c.ok ? '✓' : '✗'}</span>
                 <span className="flex-1">{c.label}</span>
                 {!c.ok && <span className="text-[10px]">expected {String(c.expected)} got {String(c.actual)}</span>}
@@ -1209,9 +1722,9 @@ function HistoryTab({ auth }) {
   if (runs.length === 0) return <EmptyState text="ยังไม่มี snapshot — กด 'บันทึก Snapshot' จากหน้าผลวิเคราะห์"/>;
 
   return (
-    <div className="overflow-auto rounded-xl border border-slate-200">
+    <div className="overflow-auto rounded-xl border border-slate-200 dark:border-slate-700">
       <table className="w-full text-sm">
-        <thead className="bg-slate-100">
+        <thead className="bg-slate-100 dark:bg-slate-800">
           <tr>
             <th className="px-3 py-2 text-left">เวลา</th>
             <th className="px-3 py-2 text-left">โดย</th>
@@ -1225,18 +1738,18 @@ function HistoryTab({ auth }) {
         </thead>
         <tbody>
           {runs.map(r => (
-            <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
-              <td className="px-3 py-2 text-slate-600">{fmtDateTimeThai(r.run_at)}</td>
-              <td className="px-3 py-2 text-slate-600">{r.run_by || '-'}</td>
+            <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800">
+              <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{fmtDateTimeThai(r.run_at)}</td>
+              <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{r.run_by || '-'}</td>
               <td className="px-3 py-2 text-center">
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${r.mode === 'refill' ? 'bg-rose-100 text-rose-700' : 'bg-orange-100 text-orange-700'}`}>{r.mode}</span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${r.mode === 'refill' ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300' : 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300'}`}>{r.mode}</span>
               </td>
-              <td className="px-3 py-2 text-xs text-slate-500">{r.stats_from} → {r.stats_to}</td>
+              <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">{r.stats_from} → {r.stats_to}</td>
               <td className="px-3 py-2 text-right tabular-nums">{fmtNum(r.total_rows)}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-orange-700 font-semibold">{fmtNum(r.reorder_rows)}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-emerald-700 font-semibold">฿{fmtBaht(r.total_amount)}</td>
+              <td className="px-3 py-2 text-right tabular-nums text-orange-700 dark:text-orange-300 font-semibold">{fmtNum(r.reorder_rows)}</td>
+              <td className="px-3 py-2 text-right tabular-nums text-emerald-700 dark:text-emerald-300 font-semibold">฿{fmtBaht(r.total_amount)}</td>
               <td className="px-3 py-2 text-center">
-                <button onClick={() => remove(r.id)} className="text-rose-500 hover:bg-rose-50 rounded p-1" title="ลบ">
+                <button onClick={() => remove(r.id)} className="text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded p-1" title="ลบ">
                   <Trash2 size={13}/>
                 </button>
               </td>

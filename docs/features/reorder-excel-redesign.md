@@ -1,7 +1,10 @@
 # แผนออกแบบใหม่: ReorderApp แบบ Excel-as-source
 
-> สถานะ: **แผน (ยังไม่ implement)** — บันทึกไว้ทำต่อ
-> ตัดสินใจแล้ว 2026-05-30 · ทำต่อโดยอ่านไฟล์นี้ + [reorder.md](reorder.md)
+> ⛔ **SUPERSEDED (2026-06-13)** — แผนนี้ (import เลข Excel มาแสดงตรงๆ ไม่ recompute)
+> ถูกแทนที่ด้วย [ADR-0001](../adr/0001-reorder-recompute-vs-import.md) (recompute ในแอป) และ
+> [reorder-excel-spec.md](reorder-excel-spec.md) (เทียบสูตร Excel↔แอป). เก็บไว้เป็นประวัติเท่านั้น —
+> **อย่าทำตามแนว import** ส่วน "การ parse ชีต" ยังใช้อ้างได้ถ้าทำ reconcile view (Phase 2).
+> ตัดสินใจเดิม 2026-05-30
 
 ## บริบท / ที่มา
 

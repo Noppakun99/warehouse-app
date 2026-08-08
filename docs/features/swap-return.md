@@ -1,0 +1,55 @@
+# นโยบายเปลี่ยน/คืนยาก่อนพ้นเงื่อนไขบริษัท (Swap/Return Alert)
+
+แจ้งเตือนก่อนยาพ้นช่วงที่บริษัทรับเปลี่ยน/คืน — กันยาหมดอายุคาคลังโดยคืนไม่ทัน
+
+## แนวคิด
+
+- นโยบายคืนของแต่ละบริษัทเก็บใน `receive_logs.drug_swap_policy` เป็น **ข้อความอิสระ** (เครื่องอ่านตัวเลขเดือนไม่ได้)
+- เฟส 1 สกัดเป็น **ตารางมีโครงสร้าง** `swap_return_policy` (ต่อบริษัท): `return_months` + `can_return` + `differs_by_item`
+- โมดอลใกล้หมดอายุ (ระบบแผนผัง [App.jsx](../../src/App.jsx)) จับ lot → บริษัท (supplier) → นโยบาย → คำนวณ **deadline คืน = exp − return_months**
+- ถ้า deadline ใกล้ถึง (ภายใน buffer) → เด้ง popup + ปุ่ม "แจ้งหัวหน้า" → audit `flag_swap_return` → กระดิ่งแจ้งเตือน
+
+## ตรรกะ (pure module — golden-tested)
+
+`src/lib/swapPolicy.js` (`npm run test:swappolicy`, 31 assertions):
+
+- **`parseReturnPolicy(text)`** → `{ canReturn, months, differsByItem }`
+  - `months`: ดึง "N เดือน/ปี/วัน" (ปี×12, วัน→ceil(N/30)) เลือก**ค่าน้อยสุด** (deadline ปลอดภัยสุด/เตือนเร็วสุด)
+  - `canReturn`: `true` ถ้ามีเดือน (แม้ข้อความมี "ไม่รับ" ในข้อยกเว้น — conservative), `false` ถ้าปฏิเสธชัด, `null` ถ้าไม่รู้
+  - `differsByItem`: `true` เมื่อ "เงื่อนไขแตกต่างกัน แล้วแต่รายการ" → ผูกระดับบริษัทไม่ได้ → badge "ต้องเช็กเอกสาร"
+- **`computeReturnStatus({ exp, months, today, bufferDays })`** → `{ status, deadline, daysToDeadline }`
+  - `status`: `ok` (เหลือ > buffer) / `due` (0 < เหลือ ≤ buffer → เด้ง popup) / `overdue` (พ้น) / `no_policy` (ไม่มีเดือน → ไม่เด้ง)
+- **`RETURN_ALERT_BUFFER_DAYS = 60`** — จาก p90 lead time การรับของจริง 49 วัน + เผื่อ (ปรับที่ const เดียว)
+
+## Data layer ([db.js](../../src/lib/db.js))
+
+- **`fetchSwapPolicies()`** → `{ [company]: { returnMonths, canReturn, differsByItem, rawNote } }`
+- **`fetchSwapReturnDue()`** — แต่ละ row มี `receiveDate` (ISO) = **วันที่คลังรับ lot นั้นล่าสุด** จาก `receive_logs` (แถวเรียง `receive_date` DESC อยู่แล้ว — แถวแรกต่อ code|lot คือล่าสุด) — แสดงเป็น chip "คลังรับ" ใน `SwapReturnPopup` ([AppRoot.jsx](../../src/AppRoot.jsx)) + คอลัมน์ "วันที่คลังรับ" ในใบพิมพ์และ Excel
+- **`seedSwapPolicies(auth)`** — derive นโยบายต่อบริษัท (most-frequent) จาก `receive_logs` ผ่าน `parseReturnPolicy` → upsert (ไม่แตะแถว `source='manual'`); audit `seed_swap_policy`
+- **`flagSwapReturn({...}, auth)`** — audit `flag_swap_return` (ไม่แตะ inventory — แค่ flag ติดตามงาน)
+
+## ประวัติรับยาในโมดอล = strict display (บิลอ้างอิงของ lot)
+
+`ReceiveHistoryDetail` ([AppRoot.jsx](../../src/AppRoot.jsx)) แสดง**การ์ดบิลเต็มเฉพาะ scope `code_lot_exp`** (รหัส+lot+EXP ตรงทั้งสาม — ดู CONTEXT.md §บิลอ้างอิงของ lot) เพราะใช้เป็นหลักฐานแจ้งหัวหน้าเปลี่ยน/คืนยา — ข้อมูลผิดบิลอันตรายกว่าไม่มีข้อมูล (2026-07-19):
+
+- **ตรงเป๊ะ** → การ์ดบิล + note เขียว "ตรงกับ lot + EXP รายการนี้" (`ShieldCheck`) + ช่อง **Lot (ตาม log)** / **EXP (ตาม log)** (พ.ศ. ผ่าน `swapFmtExp`) ให้ผู้ใช้พิสูจน์เองได้
+- **scope `code_lot`** (lot ตรง EXP ไม่ตรง/ไม่ระบุ = บิลใกล้เคียง) → ไม่โชว์การ์ด แต่ขึ้น "ไม่พบบิลของ lot/EXP รายการนี้" + กล่องใบ้ **เลขที่บิล + EXP ตาม log + วันที่รับ** (cap 5 ใบ — lot `-` เวชภัณฑ์บิลเยอะ) ให้ไป verify เองในระบบประวัติรับยา
+- **scope `code_only`/`none`** → "ไม่พบบิล/ไม่พบข้อมูล" เฉยๆ — **ห้ามโชว์บิลระดับรหัสยาเสมือนเป็นบิลของ lot นี้**
+- ⚠️ `matchReceiveDetails` **ยังคง fallback แคบ→กว้างเหมือนเดิม** — strict เฉพาะชั้นแสดงผล เพราะ `supplierForLot`/การเติมบริษัท-นโยบายใน `ExpiryAlertSection` ต้องพึ่ง fallback ระดับรหัส (ถ้า strict ทั้ง helper → banner เตือนคืนบริษัทหายทั้งแผง). helper + `normExpDate` ย้ายไป pure module [src/lib/receiveMatch.js](../../src/lib/receiveMatch.js) (App.jsx import จาก AppRoot ไม่ได้ — circular)
+- **โมดอลแผนผัง ([App.jsx](../../src/App.jsx) `renderItemCard`) strict แล้ว (2026-07-19)** — `allMatchedDetails` (fallback 4 ชั้นเดิม) คงไว้เลี้ยง `hasReceiveMatch`/waitTime รอตรวจรับ; ชั้นแสดงผลใช้ `strictDetails`: เลขบิลตรง (`exactMatch` code|lot|invoice — inventory ฝั่งแผนผังมีเลขบิล) หรือถ้า inventory ไม่มีเลขบิล (`-`) → รหัส+lot+EXP ตรงทั้งสาม; ไม่ตรง → "ไม่พบบิลเลขที่ X" + กล่องใบ้บิลใกล้เคียง (cap 5)
+- E2E: [tests/12-expiry-swap-return.spec.js](../../tests/12-expiry-swap-return.spec.js) (แผนผังไม่มี E2E ถาวร — verify ด้วย spec ชั่วคราวแล้ว 19/07)
+
+## Schema
+
+`swap_return_policy` (PK = `company`): `return_months numeric`, `can_return bool`, `differs_by_item bool`, `raw_note text`, `source text ('auto'|'manual')` — migration: `swap_return_policy_migration.sql`
+
+## เฟส 1 ไม่รวม (ทำทีหลัง)
+
+- tier % (คืน 100/50/25 ตามช่วงอายุ) — เก็บ `raw_note` ไว้ให้คนอ่านก่อน
+- UI ให้ admin แก้ `return_months`/`can_return` (เฟส 1 seed ด้วย SQL/`seedSwapPolicies`)
+- บริษัท `differs_by_item` = ไม่คำนวณ deadline (แสดง badge "ต้องเช็กเอกสาร")
+- บริษัทที่นโยบายเป็น "วัน" ที่ regex พลาด (rare) → `source='auto'` แก้มือทีหลังได้
+
+## Import CSV (Auto-Match)
+
+`RECEIVE_COL_MAP.swap_automatch` (คอลัมน์ `รายละเอียดเงื่อนไขการแลกเปลี่ยน (Auto-Match)`, Z–AD ในไฟล์รับยา) ถูก merge เข้า `drug_swap_policy` ด้วย เพื่อให้ข้อความ "N เดือน" ครบขึ้น (ทั้ง `importReceiveLogs` ใน db.js และ path ใน ReceiveLogApp.jsx)

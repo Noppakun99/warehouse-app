@@ -13,7 +13,8 @@ Pattern ที่ใช้ซ้ำหลายๆ ที่ — ต้องร
 
 ### Pattern ที่ถูกต้อง (mobile-safe)
 
-ใช้ `<input type="date">` แบบ `absolute inset-0 opacity-0` ซ่อนใต้ `<span>` ที่แสดงผล — **ไม่** ใช้ `showPicker()`
+ใช้ `<input type="date">` แบบ `absolute inset-0 opacity-0` ซ่อนใต้ `<span>` ที่แสดงผล + ไอคอนปฏิทินมองเห็นได้ (affordance) + `onClick` เรียก `showPicker?.()` แบบ guarded
+— desktop คลิกที่ไหนก็เปิด, mobile แตะ = native picker เปิดเอง (ถ้า showPicker ถูก block จะ catch เงียบ)
 
 ```jsx
 function IsoDateInput({ value, onChange, className = '' }) {
@@ -24,12 +25,14 @@ function IsoDateInput({ value, onChange, className = '' }) {
   };
   return (
     <div className={`relative flex items-center bg-white border border-slate-300 rounded-lg focus-within:ring-2 ${className}`}>
-      <span className={`px-3 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
+      <span className={`pl-3 pr-8 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800' : 'text-slate-400'}`}>
         {display(value) || 'dd/mm/yyyy'}
       </span>
+      <Calendar size={15} className="absolute right-2.5 text-slate-400 pointer-events-none" />
       <input type="date"
         value={value || ''}
         onChange={e => onChange(e.target.value)}
+        onClick={e => { try { e.currentTarget.showPicker?.(); } catch { /* noop */ } }}
         className="absolute inset-0 opacity-0 w-full cursor-pointer" />
     </div>
   );
@@ -38,7 +41,7 @@ function IsoDateInput({ value, onChange, className = '' }) {
 
 ### Do Not (Date Input)
 
-- **อย่าใช้ `showPicker()`** — iOS Safari / Android Chrome block ทำให้ date picker ไม่เปิดบน mobile
+- **อย่าใช้ bare `showPicker()` เป็นกลไกเดียวเปิด picker** — iOS/Android อาจ block. ใช้ได้เฉพาะแบบ guarded `onClick={e => { try { e.currentTarget.showPicker?.(); } catch {} }}` (เสริม desktop click-to-open) โดยยังพึ่ง native tap ของ `<input type="date">` เป็นหลักบน mobile — ดู `IsoDateInput`/`ThaiDateInput` ใน [ReceiveLogApp.jsx](../src/ReceiveLogApp.jsx)
 - **อย่าซ่อน input ด้วย `w-0 h-0 pointer-events-none`** — touch ไม่โดน input
 - **อย่าใช้ font-size < 16px** บน hidden `<input type="date">` — iOS Safari auto-zoom เมื่อ focus
 - **อย่าใช้ plain `<input type="date">`** โดยตรง — show MM/DD/YYYY บน US locale

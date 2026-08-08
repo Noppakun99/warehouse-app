@@ -21,7 +21,23 @@ scanInvoiceImage(base64, mimeType)         // invoke edge function
 insertScannedBillRows(rows, auth)          // APPEND ONLY ไม่ DELETE (ต่างจาก insertReceiveRows)
 uploadInvoiceImage(file, fileName)         // upload ไป bucket invoice-images
 lookupDrugCodes(names)                     // จับคู่ drug_code อัตโนมัติจาก receive_logs เดิม
+checkExistingBills(billNumbers)            // เช็คเลขบิลซ้ำก่อนบันทึก → map bill → {count,lastDate,suppliers}
+                                           // key ระดับเลขบิล (ไม่ผูก supplier — ชื่อที่ AI อ่านสะกดต่างได้) ใช้เตือน ไม่ block
 ```
+
+## พฤติกรรมสำคัญใน ScanInvoice (2026-07-19)
+
+- **วันที่รับเข้า แก้ได้ต่อบิล** — `header.receive_date` (ISO, default วันนี้) ผ่าน `IsoDateInput` → สแกนบิลย้อนหลังไม่ทำ `receive_date` เพี้ยน (เดิม hardcode วันกดบันทึก)
+- **เตือนบิลซ้ำ** — หลังสแกนเสร็จเรียก `checkExistingBills` → banner เหลืองบนการ์ดบิล (เตือนอย่างเดียว ไม่ block เพราะเลขบิลชนข้ามบริษัทได้ Rule #19)
+- **ตรวจยอดท้ายบิล** — `Σ มูลค่ารายการ` (helper `effItemTotal` — logic เดียวกับตอน save เสมอ) เทียบ `รวมทั้งบิล` ที่ AI อ่าน; ต่างเกิน 1 บาท (เศษปัดรายแถว) → badge เหลือง "ตรวจเลขก่อนบันทึก"
+- **รูปบิลดูย้อนหลังได้** — `fetchScannedBills` ดึง `scan_image_url` + ลิงก์ "รูป" ในประวัติรายบิล (`<a target="_blank">` — เปิดจาก LINE WebView ได้)
+- **Upload รูปบีบก่อนเสมอ** — ผ่าน `compressImageFile` (~1600px jpeg) ก่อนเข้า Storage; เส้นทางส่ง AI บีบอยู่แล้วใน `toBase64`
+- **Mobile < 768px** — ตาราง review 14 คอลัมน์กลายเป็น card ต่อรายการ (Rule #5); ปุ่ม tab บน title bar ใช้ `flex-wrap` ไม่ล้นจอ
+- **Permission gate ตาม Rule #23** — tab ส่งบัญชี/สแกนบิล เปิดด้วย `isStaff OR auth.permissions.includes('receive-ap'/'receive-scan')` — requester ที่ถูก grant ใช้งานได้จริง (เดิม hard guard `isStaff` → หน้าว่าง); Import CSV ยัง staff-only
+- **Validate วันที่ก่อนบันทึก** — `isValidDateText` (ว่าง/`-`/`วว/ดด/ปปปป` เท่านั้น) ใช้ทั้งไฮไลต์แดง (วันที่บิล/Exp/Mfg) และ block `handleSave` พร้อมข้อความระบุจุดผิด
+- **สแกนหลายรูป** — chip สถานะรายรูป (รอคิว/กำลังอ่าน/เสร็จ/อ่านไม่ได้) + ปุ่ม "หยุดหลังรูปนี้" (เก็บผลรูปที่เสร็จแล้วไว้)
+- **Confirm modal สไตล์ app** — แทน `window.confirm`/`alert` ทั้งลบบิลในประวัติ (error แสดงเป็น banner ใน panel) และ "สแกนใหม่" (เตือนก่อนทิ้งผลที่แก้ไว้)
+- **หมายเหตุ refactor ค้าง** — `fetchScannedBills` และอีก ~15 จุดใน ReceiveLogApp.jsx เรียก `supabase` ตรงในไฟล์ (มี `fetchAllRows` local) — ผิดกฎ data-layer ควรย้ายเข้า db.js ทั้งชุดเป็นงานแยก อย่าย้ายทีละฟังก์ชัน
 
 ## New columns ใน receive_logs (scan-specific)
 

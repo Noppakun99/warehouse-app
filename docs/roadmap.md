@@ -26,7 +26,7 @@
 1. ออกแบบ import schema (เพิ่ม column ใน `drug_details` หรือสร้าง table `drug_usage_rates`)
 2. สร้าง CSV/Excel import UI ใน order view พร้อม preview + unmatched drugs
 3. แสดง "อัพเดตล่าสุด: DD/MM/YYYY" + เตือนถ้าข้อมูลเกิน 30 วัน
-4. ย้าย `orderedItems` จาก localStorage → Supabase table (ให้ sync ระหว่าง user)
+4. ~~ย้าย `orderedItems` จาก localStorage → Supabase table~~ **เสร็จ 2026-07-03** — `reorder_orders` table (ดู [reorder.md](./features/reorder.md))
 
 **ยังไม่ต้องทำ** — รอ user ส่งโครงสร้าง Excel ให้ดูก่อน
 

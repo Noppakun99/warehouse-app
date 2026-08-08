@@ -8,7 +8,7 @@
  *   → submit ขณะ empty ถูก block โดย browser (JS error ไม่แสดง)
  *   → ต้องกรอก qty='0' เพื่อทดสอบ JS validation (ผ่าน HTML5 แต่ fail JS)
  */
-import { test, expect } from './fixtures.js';
+import { test, expect, waitForAppShell } from './fixtures.js';
 
 test.describe('Form Validation', () => {
 
@@ -16,7 +16,7 @@ test.describe('Form Validation', () => {
   test.describe('ReturnApp', () => {
     async function goToReturn(page) {
       await page.goto('/');
-      await page.waitForSelector('text=สวัสดี,', { timeout: 8_000 });
+      await waitForAppShell(page);
       await page.getByText('ระบบคืนยา / ยาเสียหาย').click();
       await page.waitForSelector('text=ประเภทการคืน / บันทึก', { timeout: 8_000 });
     }
@@ -76,7 +76,7 @@ test.describe('Form Validation', () => {
   test.describe('RequisitionApp (requester)', () => {
     async function goToReq(page) {
       await page.goto('/');
-      await page.waitForSelector('text=สวัสดี,', { timeout: 8_000 });
+      await waitForAppShell(page);
       await page.getByText('ระบบเบิกยาออนไลน์').click();
       await page.waitForSelector('text=ค้นหายาในคลัง', { timeout: 8_000 });
     }

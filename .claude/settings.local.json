@@ -30,10 +30,36 @@
       "Bash(awk 'NR>=1371 && NR<=1782 {print}' src/App.jsx)",
       "Bash(awk 'NR==1371 || NR==1782 {print NR\": \"$0}' src/App.jsx)",
       "Bash(awk 'NR<1371 || NR>1782' src/App.jsx)",
-      "Bash(grep -n \"setView\\\\|view ===\\\\|\\\\\\\\bview\\\\\\\\b\" src/App.jsx)"
+      "Bash(grep -n \"setView\\\\|view ===\\\\|\\\\\\\\bview\\\\\\\\b\" src/App.jsx)",
+      "Bash(npm run *)",
+      "Read(//tmp/**)",
+      "Bash(mkdir -p \"c:/Users/Admin/OneDrive/Desktop/warehouse-app/docs/adr\")",
+      "Read(//c/Users/Admin/.claude/**)",
+      "Read(//c/Users/Admin/.claude/plugins/**)",
+      "PowerShell(Get-ChildItem -Path $env:TEMP -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'handoff|reorder|วิเคราะห|analysis' } | Sort-Object LastWriteTime -Descending | Select-Object -First 20 FullName, LastWriteTime)",
+      "mcp__supabase__execute_sql",
+      "PowerShell(npx eslint src/lib/db.js 2>&1 | Select-Object -Last 15; \"exit=$LASTEXITCODE\")",
+      "PowerShell(npm run test:reorder 2>&1 | Select-Object -Last 25; \"exit=$LASTEXITCODE\")",
+      "PowerShell(npx eslint src/lib/db.js src/lib/reorder.js 2>&1 | Select-Object -Last 10; \"exit=$LASTEXITCODE\")",
+      "PowerShell(npx eslint src/lib/db.js 2>&1 | Select-Object -Last 6; \"exit=$LASTEXITCODE\")",
+      "PowerShell(npm run test:reorder 2>&1 | Select-Object -Last 4; \"test_exit=$LASTEXITCODE\"; npx eslint src/lib/db.js src/lib/reorder.js 2>&1 | Select-Object -Last 4; \"lint_exit=$LASTEXITCODE\")",
+      "PowerShell(npx eslint src/lib/db.js 2>&1 | Select-Object -Last 6; \"lint_exit=$LASTEXITCODE\")",
+      "PowerShell(npx eslint src/lib/db.js src/ReorderApp.jsx 2>&1 | Select-Object -Last 12; \"lint_exit=$LASTEXITCODE\")",
+      "PowerShell(npm run build 2>&1 | Select-Object -Last 18; \"build_exit=$LASTEXITCODE\")",
+      "PowerShell(npm run test:reorder 2>&1 | Select-Object -Last 4; \"test_exit=$LASTEXITCODE\")",
+      "PowerShell(npx eslint src/ReorderApp.jsx 2>&1 | Select-Object -Last 6; \"lint_exit=$LASTEXITCODE\"; npm run build 2>&1 | Select-Object -Last 5; \"build_exit=$LASTEXITCODE\")",
+      "Bash(cd \"c:/Users/Admin/OneDrive/Desktop/warehouse-app\" && echo \"===== untracked: node =====\" && git diff --no-index --stat /dev/null node 2>/dev/null | head -5; echo \"\\(size\\)\"; ls -la node npm 2>/dev/null; echo \"===== docs/adr contents =====\" && ls -la docs/adr/ 2>/dev/null)",
+      "Read(//dev/**)",
+      "Bash(grep -nE \"^/?\\(node|npm\\)$\" .gitignore)",
+      "PowerShell(npx eslint src/AppRoot.jsx 2>&1 | Select-Object -Last 20; \"lint_exit=$LASTEXITCODE\")",
+      "PowerShell(npm run build 2>&1 | Select-Object -Last 12; \"build_exit=$LASTEXITCODE\")",
+      "PowerShell(npm run dev)",
+      "Bash(git rev-parse *)",
+      "Bash(git rev-list *)"
     ],
     "additionalDirectories": [
-      "C:\\Users\\Admin\\OneDrive\\Desktop\\warehouse-app\\.git\\rebase-merge"
+      "C:\\Users\\Admin\\OneDrive\\Desktop\\warehouse-app\\.git\\rebase-merge",
+      "c:\\Users\\Admin\\OneDrive\\Desktop\\warehouse-app\\docs"
     ]
   }
 }
