@@ -1,7 +1,9 @@
 // แบบฟอร์มคืนยา (เปล่า) — พิมพ์ให้กรอกมือ ไม่ดึงข้อมูลจากระบบ — ดู CONTEXT.md §Return
 //   printReturnForm()          = คืนภายใน รพ. (ward/or/er/opd) — portrait
 //   printVendorExchangeForm()  = เปลี่ยน/คืนยาใกล้หมดอายุกับบริษัท (vendor) — landscape
-// UI helper: build HTML + window.open (Blob URL, iOS-safe) — ไม่ใช่ pure module (มี window.open)
+// UI helper: build HTML แล้วส่งให้ openPrintView (Blob URL + fallback WebView) — ไม่ใช่ pure module
+import { openPrintView } from './openPrintView';
+
 const HOSPITAL_NAME = 'โรงพยาบาลประชาธิปัตย์';
 
 function todayThaiDate() {
@@ -11,17 +13,6 @@ function todayThaiDate() {
   return `${dd}/${mm}/${d.getFullYear() + 543}`;
 }
 
-// เปิด print view ผ่าน Blob URL + fallback <a> click (in-app WebView LINE/FB บล็อก window.open) — Critical Rule #4
-function openPrintView(html) {
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const url  = URL.createObjectURL(blob);
-  const win  = window.open(url, '_blank');
-  if (win) { setTimeout(() => URL.revokeObjectURL(url), 30000); return; }
-  const a = document.createElement('a');
-  a.href = url; a.target = '_blank'; a.rel = 'noopener';
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 30000);
-}
 
 // ── ฟอร์ม 1: คืนยาภายใน รพ. (portrait) ──────────────────────────────
 export function printReturnForm() {

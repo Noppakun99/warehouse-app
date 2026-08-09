@@ -1,6 +1,8 @@
 // พิมพ์รายการจากโมดอลติดตาม (รอตรวจรับ / ใกล้หมดอายุ / หมดอายุแล้ว) ในระบบแผนผังคลังยา
 // คอลัมน์ตรงกับ Excel export ของโมดอลเดียวกัน (Critical Rule #6 — ตัวเลข/รายการที่ user เห็นต้องตรงกันทุกช่องทาง)
-// UI helper: build HTML + Blob URL (ไม่ใช่ pure module — มี window.open)
+// UI helper: build HTML แล้วส่งให้ openPrintView (Blob URL + fallback WebView) — ไม่ใช่ pure module
+import { openPrintView } from './openPrintView';
+
 const HOSPITAL_NAME = 'โรงพยาบาลประชาธิปัตย์';
 
 function todayThaiDateTime() {
@@ -150,14 +152,5 @@ export function printTrackingList(rows, { title, isExpiryMode = false, filterNot
 </div>
 </body></html>`;
 
-  // Blob URL เสมอ — document.write พังบน iOS Safari (Critical Rule #4)
-  const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
-  const win = window.open(url, '_blank');
-  if (win) { setTimeout(() => URL.revokeObjectURL(url), 30000); return; }
-  // fallback: in-app WebView (LINE/FB) บล็อก window.open('_blank') → คืน null
-  // นำทางผ่าน <a> click แทน (WebView ยอมให้คลิกลิงก์ แต่บล็อก popup)
-  const a = document.createElement('a');
-  a.href = url; a.target = '_blank'; a.rel = 'noopener';
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 30000);
+  openPrintView(html);
 }
