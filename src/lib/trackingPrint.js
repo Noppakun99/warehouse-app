@@ -77,6 +77,9 @@ export function printTrackingList(rows, { title, isExpiryMode = false, filterNot
     { header: 'นโยบายเปลี่ยนยา', get: r => r.swapPolicy },
     { header: 'คงเหลือ', get: r => r.qty, cls: 'c' },
     { header: 'หน่วย',   get: r => r.unit, cls: 'c' },
+    // สถานะดำเนินการคืนบริษัท (ตรงกับ EXPIRY_EXCEL_COLS) — '-' ถ้ายังไม่เคยคีย์
+    { header: 'ดำเนินการ', get: r => r.actionLabel || '-', cls: 'c nowrap' },
+    { header: 'วันที่ดำเนินการ', get: r => r.actionDateLabel || '-', cls: 'c nowrap' },
   ] : [
     { header: 'ลำดับ',   get: (_r, i) => i + 1, cls: 'c w-no' },
     { header: 'ชื่อยา',  get: r => r.name },

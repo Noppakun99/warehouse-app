@@ -21,7 +21,7 @@ import RequisitionApp     from './RequisitionApp';
 import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
-import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS } from './lib/db';
+import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS, fetchSwapReturnActions, swapActionKey } from './lib/db';
 import { computeReturnStatus } from './lib/swapPolicy';
 import { matchReceiveDetails } from './lib/receiveMatch';
 import ReturnApp          from './ReturnApp';
@@ -944,6 +944,9 @@ const EXPIRY_EXCEL_COLS = [
   { header: 'นโยบายเปลี่ยนยา', key: 'swapPolicy' },
   { header: 'คงเหลือ',     key: 'qty' },
   { header: 'หน่วย',       key: 'unit' },
+  // สถานะดำเนินการคืนบริษัท — ให้กระดาษ/ไฟล์บอกได้ว่าตัวไหนตามแล้ว (ตรงกับ dropdown ในโมดอล)
+  { header: 'ดำเนินการ',   value: r => SWAP_ACTION_STATUS[r.actionStatus] || SWAP_ACTION_STATUS.pending },
+  { header: 'วันที่ดำเนินการ', value: r => swapFmtDeadline(r.actionDate) },
 ];
 
 // รายละเอียดจากประวัติรับยา (receive_logs) — กางใต้ card/row ในโมดอลใกล้หมดอายุ
@@ -1049,9 +1052,11 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
   }, []);
 
   // โหลด drugDetails + นโยบายคืนยา ตอนเปิดโมดอลเท่านั้น (query receive_logs ทั้งหมด — หนัก จึง lazy)
+  const [swapActions, setSwapActions] = React.useState({});   // code|lot|company → สถานะดำเนินการคืนบริษัท (ลง Excel/พิมพ์ด้วย)
   React.useEffect(() => {
     fetchDrugDetails().then(setDrugDetails).catch(() => setDrugDetails(null));
     fetchSwapPolicies().then(setSwapPolicies).catch(() => setSwapPolicies({}));
+    fetchSwapReturnActions().then(setSwapActions).catch(() => setSwapActions({}));
   }, []);
 
   if (expiring.length === 0) return null;
@@ -1107,6 +1112,8 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
     const d = lookupDetail(item);
     const lotSupplier = supplierForLot(item);
     const det = allDetailsFor(item);
+    // สถานะดำเนินการคืนบริษัท — key เดียวกับ fetchSwapReturnDue (code|lot|company)
+    const act = swapActions[swapActionKey(item.code, item.lot, lotSupplier || d?.supplier_current || '')] || null;
     return {
       ...item,
       supplier: d?.supplier_current || d?._company || '',
@@ -1115,6 +1122,8 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
       returnInfo: buildReturnInfo(lotSupplier, item),
       details: det.rows,
       detailScope: det.scope,
+      actionStatus: act?.status || 'pending',
+      actionDate: act?.action_date || null,
     };
   });
 
@@ -1224,7 +1233,13 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
     if (filter !== 'all') {
       notes.push(`ช่วงเวลา ${({ expired: 'หมดอายุแล้ว', soon30: 'ภายใน 30 วัน', soon90: '1–3 เดือน', soon180: '3–6 เดือน', soon16m: '6–16 เดือน' })[filter] || filter}`);
     }
-    printTrackingList(filtered, {
+    // แปลง label ที่นี่ — trackingPrint.js ใช้ร่วมกับ App.jsx จึงไม่ควร import ค่าคงที่จาก db เข้าไป
+    const forPrint = filtered.map(r => ({
+      ...r,
+      actionLabel: SWAP_ACTION_STATUS[r.actionStatus] || SWAP_ACTION_STATUS.pending,
+      actionDateLabel: r.actionDate ? swapFmtDeadline(r.actionDate) : '-',
+    }));
+    printTrackingList(forPrint, {
       title: 'แจ้งเตือนยาใกล้หมดอายุ',
       dashboardMode: true,
       filterNote: notes.length ? `ตัวกรอง: ${notes.join(' · ')}` : '',
