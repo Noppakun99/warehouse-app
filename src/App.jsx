@@ -2258,7 +2258,8 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           const n = Number(r.qty);
           const qStr = Number.isFinite(n) ? n.toLocaleString('th-TH') : (r.qty || '-');
           const u = (r.unit && String(r.unit).trim()) || 'หน่วย';
-          return `${qStr} × ${u}`;
+          // วงเล็บครอบหน่วย ให้ตรงกับโมดอลใกล้หมดอายุของ Dashboard — "1 500เม็ด" อ่านเป็น 1,500 ได้
+          return `${qStr} (${u})`;
         };
         const lookupDetail = (item) => {
           const code = (item.code || '-').trim().toLowerCase();
@@ -2471,16 +2472,29 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         const handleModalExport = async () => {
           setModalExporting(true);
           try {
-            const cols = [
+            // โหมดใกล้หมดอายุ/หมดอายุ → ใช้ชุดคอลัมน์ **เดียวกับโมดอลใกล้หมดอายุของ Dashboard**
+            // (EXPIRY_EXCEL_COLS ใน AppRoot.jsx) เพื่อให้ Excel/กระดาษของ 2 หน้าอ่านเหมือนกัน:
+            // มี "สถานะ" (นับวัน) แทน "สถานะตรวจรับ" ที่ไม่มีความหมายกับของที่ตรวจรับแล้ว
+            const cols = isExpiryMode ? [
               { header: 'ชื่อยา', key: 'name' },
               { header: 'รหัสยา', key: 'code' },
               { header: 'ชนิด', key: 'type' },
               { header: 'ตำแหน่ง', key: 'location' },
               { header: 'Lot', key: 'lot' },
-              ...(isExpiryMode ? [] : [
-                { header: 'บิลยา', key: 'invoice' },
-                { header: 'PO', key: 'po' },
-              ]),
+              { header: 'วันหมดอายุ', key: 'exp' },
+              { header: 'สถานะ', value: r => r.daysLeft < 0 ? `หมดอายุแล้ว ${Math.abs(r.daysLeft)} วัน` : r.daysLeft === 0 ? 'หมดอายุวันนี้' : `อีก ${r.daysLeft} วัน` },
+              { header: 'บริษัท', key: 'supplier' },
+              { header: 'นโยบายเปลี่ยนยา', key: 'swapPolicy' },
+              { header: 'คงเหลือ', key: 'qty' },
+              { header: 'หน่วย', key: 'unit' },
+            ] : [
+              { header: 'ชื่อยา', key: 'name' },
+              { header: 'รหัสยา', key: 'code' },
+              { header: 'ชนิด', key: 'type' },
+              { header: 'ตำแหน่ง', key: 'location' },
+              { header: 'Lot', key: 'lot' },
+              { header: 'บิลยา', key: 'invoice' },
+              { header: 'PO', key: 'po' },
               { header: 'วันหมดอายุ', key: 'exp' },
               { header: 'คงเหลือ', key: 'qty' },
               { header: 'หน่วย', key: 'unit' },
@@ -2506,6 +2520,8 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           printTrackingList(timeFiltered, {
             title: trackingModal.title,
             isExpiryMode,
+            // โหมดใกล้หมดอายุ → คอลัมน์ชุดเดียวกับโมดอล Dashboard (ตรงกับ Excel ด้านบน, Rule #6)
+            dashboardMode: isExpiryMode,
             filterNote: notes.length ? `ตัวกรอง: ${notes.join(' · ')}` : '',
             printedBy: auth?.name || auth?.username || '',
           });
