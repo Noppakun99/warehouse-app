@@ -21,7 +21,7 @@ import RequisitionApp     from './RequisitionApp';
 import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
-import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies } from './lib/db';
+import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS } from './lib/db';
 import { computeReturnStatus } from './lib/swapPolicy';
 import { matchReceiveDetails } from './lib/receiveMatch';
 import ReturnApp          from './ReturnApp';
@@ -580,17 +580,16 @@ function Dashboard({ auth, onNavigate }) {
     if (!supabase) return;
     // ยาต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด — เด้ง popup อัตโนมัติ "ครั้งเดียวต่อรอบ login"
     // (Dashboard remount ทุกครั้งที่กลับมาหน้าหลัก → กันเด้งซ้ำด้วย sessionStorage flag; ล้างตอน logout)
-    if (isStaff) {
-      const shownKey = `swap_popup_shown_${auth.id}`;
-      fetchSwapReturnDue().then(rows => {
-        setSwapDue(rows);
-        if (rows.length > 0 && !sessionStorage.getItem(shownKey)) {
-          setSwapPopupOpen(true);
-          sessionStorage.setItem(shownKey, '1');
-        }
-      }).catch(() => {});
-    }
-  }, [isStaff, auth.id]);
+    // แสดงทุก role — ไม่ใช่แค่เจ้าหน้าที่คลังยา (ผู้ใช้อื่นต้องเห็นด้วยเพื่อช่วยกันไม่ให้ของตกหล่น)
+    const shownKey = `swap_popup_shown_${auth.id}`;
+    fetchSwapReturnDue().then(rows => {
+      setSwapDue(rows);
+      if (rows.length > 0 && !sessionStorage.getItem(shownKey)) {
+        setSwapPopupOpen(true);
+        sessionStorage.setItem(shownKey, '1');
+      }
+    }).catch(() => {});
+  }, [auth.id]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-200 via-slate-100 to-indigo-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-900 font-sans">
@@ -679,12 +678,20 @@ const SWAP_RETURN_EXCEL_COLS = [
   { header: 'บริษัท',            key: 'company' },
   { header: 'ต้องคืนภายใน',     value: r => swapFmtDeadline(r.deadline) },
   { header: 'เบิกเฉลี่ย/เดือน (6ด.)', value: swapRateText },
+  { header: 'ดำเนินการ',        value: r => SWAP_ACTION_STATUS[r.actionStatus] || SWAP_ACTION_STATUS.pending },
+  { header: 'วันที่ดำเนินการ',  value: r => swapFmtDeadline(r.actionDate) },
+  { header: 'ผู้บันทึก',         value: r => r.actionBy || '-' },
   { header: 'นโยบายเปลี่ยน/คืน', value: r => r.policyText || '-' },
 ];
 
 function SwapReturnPopup({ rows = [], auth, onClose }) {
   const [flagged, setFlagged] = React.useState({});
   const [exporting, setExporting] = React.useState(false);
+  // สถานะดำเนินการที่แก้ในหน้านี้ (override ค่าที่มาจาก DB จนกว่าจะโหลดใหม่)
+  const [actions, setActions] = React.useState({});
+  const [savingKey, setSavingKey] = React.useState(null);
+  // แก้สถานะได้เฉพาะเจ้าหน้าที่คลังยา + admin — role อื่นเห็นอย่างเดียว (read-only)
+  const canEdit = auth?.role === 'staff' || auth?.role === 'admin';
   const [drugDetails, setDrugDetails] = React.useState(null); // receive_logs — คลิกรายการดูประวัติรับยา (ชุดเดียวกับโมดอลใกล้หมดอายุ)
   const [expandedKey, setExpandedKey] = React.useState(null);
   React.useEffect(() => {
@@ -704,6 +711,22 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
       setFlagged(prev => ({ ...prev, [keyOf(r)]: true }));
     } catch { /* เงียบ — ไม่บล็อกการใช้งาน */ }
   };
+  // บันทึกสถานะดำเนินการ (status และ/หรือ วันที่) — upsert ต่อ code|lot|company
+  const saveAction = async (r, patch) => {
+    const k = keyOf(r);
+    const cur = actions[k] || { status: r.actionStatus || 'pending', date: r.actionDate || '' };
+    const next = { ...cur, ...patch };
+    setActions(prev => ({ ...prev, [k]: next }));   // optimistic — ผู้ใช้เห็นผลทันที
+    setSavingKey(k);
+    try {
+      await upsertSwapReturnAction({
+        drugCode: r.code, drugName: r.name, lot: r.lot, company: r.company,
+        status: next.status, actionDate: next.date || null,
+      }, auth);
+    } catch {
+      setActions(prev => ({ ...prev, [k]: cur }));  // ล้มเหลว → คืนค่าเดิม ไม่หลอกว่าบันทึกแล้ว
+    } finally { setSavingKey(null); }
+  };
   const handleExport = async () => {
     if (exporting || rows.length === 0) return;
     setExporting(true);
@@ -720,7 +743,7 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
       <h2 style="color:${tone};margin:14px 0 4px">${title} (${list.length})</h2>
       <table><thead><tr>
         <th>สถานะ</th><th>ชื่อยา</th><th>รหัสยา</th><th>Lot</th><th>ที่เก็บ</th><th>วันที่คลังรับ</th><th>EXP</th>
-        <th>คงเหลือ</th><th>บริษัท</th><th>ต้องคืนภายใน</th><th>เบิก/เดือน</th><th>นโยบาย</th>
+        <th>คงเหลือ</th><th>บริษัท</th><th>ต้องคืนภายใน</th><th>เบิก/เดือน</th><th>ดำเนินการ</th><th>วันที่</th><th>นโยบาย</th>
       </tr></thead><tbody>
       ${list.map(r => `<tr>
         <td>${esc(swapStatusText(r))}</td><td>${esc(r.name)}</td><td>${esc(r.code)}</td>
@@ -728,6 +751,8 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
         <td style="text-align:right">${esc(r.qty)}${r.unit ? ` (${esc(r.unit)})` : ''}</td>
         <td>${esc(r.company)}</td><td>${esc(swapFmtDeadline(r.deadline))}</td>
         <td style="text-align:right">${esc(swapRateText(r))}</td>
+        <td>${esc(SWAP_ACTION_STATUS[r.actionStatus] || SWAP_ACTION_STATUS.pending)}</td>
+        <td>${esc(swapFmtDeadline(r.actionDate))}</td>
         <td style="font-size:10px">${esc(r.policyText || '-')}</td>
       </tr>`).join('')}
       </tbody></table>`;
@@ -764,6 +789,8 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
   const Row = (r) => {
     const isFlagged = flagged[keyOf(r)];
     const isOpen = expandedKey === keyOf(r);
+    // สถานะที่แก้ในหน้านี้ชนะค่าที่มาจาก DB (ยังไม่ refetch)
+    const curAction = actions[keyOf(r)] || { status: r.actionStatus || 'pending', date: r.actionDate || '' };
     const det = matchReceiveDetails(drugDetails, r); // ประวัติรับยา — helper กลางชุดเดียวกับโมดอลใกล้หมดอายุ
     // willDeplete = ของจะหมดเองก่อนถึง deadline (ตามเรทเบิก) → ไม่ต้องคืน (flag จาง ไม่ซ่อน — ดู CONTEXT.md §ความจำเป็นต้องคืน)
     return (
@@ -788,6 +815,39 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
                 className="ml-auto text-[11px] font-semibold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded-md transition-colors shrink-0">
                 แจ้งหัวหน้า
               </button>
+            )}
+          </div>
+          {/* ดำเนินการ + วันที่ — staff/admin แก้ได้, role อื่นเห็นอย่างเดียว. stopPropagation กันคลิกแล้วไปพับ/กางประวัติ */}
+          <div className="flex items-center gap-2 flex-wrap mt-1.5" onClick={(e) => e.stopPropagation()}>
+            <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 shrink-0">ดำเนินการ:</span>
+            {canEdit ? (
+              <>
+                <select
+                  value={curAction.status}
+                  onChange={(e) => saveAction(r, { status: e.target.value })}
+                  className="text-[11px] border border-slate-300 dark:border-slate-600 rounded-md px-2 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                >
+                  {Object.entries(SWAP_ACTION_STATUS).map(([v, label]) => (
+                    <option key={v} value={v}>{label}</option>
+                  ))}
+                </select>
+                <input
+                  type="date"
+                  value={curAction.date || ''}
+                  onChange={(e) => saveAction(r, { date: e.target.value })}
+                  onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch { /* mobile ไม่รองรับ — ปล่อยให้ native เปิดเอง */ } }}
+                  className="text-[11px] border border-slate-300 dark:border-slate-600 rounded-md px-2 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+                {curAction.date && <span className="text-[11px] text-slate-500 dark:text-slate-400">{fmtThai(curAction.date)}</span>}
+                {savingKey === keyOf(r) && <RefreshCcw size={12} className="animate-spin text-amber-600" />}
+              </>
+            ) : (
+              <>
+                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${curAction.status === 'pending' ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60'}`}>
+                  {SWAP_ACTION_STATUS[curAction.status] || SWAP_ACTION_STATUS.pending}
+                </span>
+                {curAction.date && <span className="text-[11px] text-slate-500 dark:text-slate-400">{fmtThai(curAction.date)}</span>}
+              </>
             )}
           </div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">

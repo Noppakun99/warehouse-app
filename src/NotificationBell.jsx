@@ -29,6 +29,7 @@ const NOTIF_LABELS = {
   update_return:                { label: 'แก้ไขรายการคืนยา',     color: 'text-amber-600',  dot: 'bg-amber-400' },
   delete_return:                { label: 'ลบรายการคืนยา',        color: 'text-red-600',    dot: 'bg-red-400'   },
   flag_swap_return:             { label: 'แจ้งเปลี่ยน/คืนยา',    color: 'text-amber-700 dark:text-amber-300',  dot: 'bg-amber-500' },
+  swap_return_action:           { label: 'ดำเนินการคืนบริษัท',   color: 'text-amber-700 dark:text-amber-300',  dot: 'bg-amber-500' },
   delete_dispense:              { label: 'ลบรายการจ่ายยา',       color: 'text-red-600',    dot: 'bg-red-400'   },
   update_dispense:              { label: 'แก้ไขรายการจ่ายยา',    color: 'text-amber-600',  dot: 'bg-amber-400' },
   import_dispense:              { label: 'นำเข้าประวัติเบิกจ่าย', color: 'text-rose-600',  dot: 'bg-rose-400'  },
@@ -82,6 +83,8 @@ function notifMessage(n) {
       return `${who} ลบรายการคืนยา · ${n.department}`;
     case 'flag_swap_return':
       return `${who} แจ้งเปลี่ยน/คืนยา "${d.drug_name || ''}"${d.lot ? ` Lot ${d.lot}` : ''}${d.company ? ` · ${d.company}` : ''}${d.deadline ? ` — ต้องคืนภายใน ${d.deadline}` : ''}`;
+    case 'swap_return_action':
+      return `${who} อัปเดตการดำเนินการคืนบริษัท "${d.drug_name || ''}"${d.lot ? ` Lot ${d.lot}` : ''} — ${d.status_label || d.status}${d.action_date ? ` (${d.action_date})` : ''}`;
     case 'update_dispense':
       return `${who} แก้ไขรายการจ่ายยา${d.drug_name ? ` "${d.drug_name}"` : ''}`;
     case 'delete_dispense':

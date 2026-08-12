@@ -1125,11 +1125,24 @@ export async function fetchSwapReturnDue() {
       baseUnit: parseUnitFactor(item.unit).base,                // หน่วยย่อยสุด (เม็ด) สำหรับ label เรท
     })
   }
+  // ผนวกสถานะ "ดำเนินการ" ที่คลังคีย์ไว้ + ตัด "ไม่คืน" ออกจาก popup (ตัดสินแล้วว่าไม่คืน = ไม่ต้องเตือนซ้ำ)
+  const actions = await fetchSwapReturnActions()
+  const withAction = []
+  for (const r of out) {
+    const act = actions[swapActionKey(r.code, r.lot, r.company)] || null
+    if (act?.status === 'no_return') continue
+    withAction.push({
+      ...r,
+      actionStatus: act?.status || 'pending',
+      actionDate: act?.action_date || null,
+      actionBy: act?.updated_by || null,
+    })
+  }
   // ต้องคืนจริง (ไม่ willDeplete) ก่อน → ในกลุ่มเดียวกัน overdue/เหลือน้อยก่อน
-  out.sort((a, b) => (a.willDeplete === b.willDeplete)
+  withAction.sort((a, b) => (a.willDeplete === b.willDeplete)
     ? (a.daysToDeadline ?? 0) - (b.daysToDeadline ?? 0)
     : (a.willDeplete ? 1 : -1))
-  return out
+  return withAction
 }
 
 // staff กด "แจ้งหัวหน้า" ให้ดำเนินการเปลี่ยน/คืนยาที่ใกล้พ้นกำหนด → audit log (เด้งกระดิ่ง)
@@ -1144,6 +1157,73 @@ export async function flagSwapReturn({ drugCode, drugName, lot, company, returnM
       return_months: returnMonths, deadline, days_left: daysLeft,
     },
   })
+}
+
+// --- สถานะ "ดำเนินการ" ของยาที่ต้องเปลี่ยน/คืนบริษัท (ตาราง swap_return_action) ---
+// key = code|lot|company (ไม่ใช่ inventory.id — inventory มีแถวซ้ำ code+lot จริง)
+// เก็บแยกจาก inventory เพราะ inventory ถูก replace ทั้งตารางทุกครั้งที่ import CSV
+export const SWAP_ACTION_STATUS = {
+  pending:   'ยังไม่ทำ',
+  notified:  'แจ้งบริษัทแล้ว',
+  sent:      'ส่งคืนแล้ว',
+  accepted:  'บริษัทรับแล้ว',
+  no_return: 'ไม่คืน',
+}
+
+export function swapActionKey(code, lot, company) {
+  return `${String(code || '').trim()}|${String(lot || '-').trim()}|${String(company || '').trim()}`
+}
+
+// → { 'code|lot|company': { status, action_date, note, updated_by, updated_at } }
+export async function fetchSwapReturnActions() {
+  if (!supabase) return {}
+  // paginate — เกิน 1000 แถวแล้วจะขาดเงียบๆ (Critical Rule #2)
+  const PAGE = 1000
+  let from = 0, rows = []
+  for (;;) {
+    const { data, error } = await supabase.from('swap_return_action')
+      .select('drug_code, lot, company, status, action_date, note, updated_by, updated_at')
+      .order('id').range(from, from + PAGE - 1)
+    if (error) throw error
+    rows = rows.concat(data || [])
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+  const map = {}
+  for (const r of rows || []) {
+    map[swapActionKey(r.drug_code, r.lot, r.company)] = r
+  }
+  return map
+}
+
+// upsert สถานะ 1 รายการ + audit log (ทุก mutation ต้อง log — Critical Rule #1)
+export async function upsertSwapReturnAction({ drugCode, drugName, lot, company, status, actionDate, note }, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!SWAP_ACTION_STATUS[status]) throw new Error(`สถานะไม่ถูกต้อง: ${status}`)
+  const row = {
+    drug_code: String(drugCode || '').trim(),
+    lot: String(lot || '-').trim(),
+    company: String(company || '').trim(),
+    drug_name: drugName || null,
+    status,
+    action_date: actionDate || null,
+    note: note || null,
+    updated_by: resolveUserName(auth),
+    updated_at: new Date().toISOString(),
+  }
+  const { error } = await supabase
+    .from('swap_return_action')
+    .upsert(row, { onConflict: 'drug_code,lot,company' })
+  if (error) throw error
+  await insertAuditLog({
+    action: 'swap_return_action', table_name: 'swap_return_action',
+    user_name: resolveUserName(auth), department: auth.department,
+    details: {
+      drug_code: row.drug_code, drug_name: row.drug_name, lot: row.lot, company: row.company,
+      status, status_label: SWAP_ACTION_STATUS[status], action_date: row.action_date,
+    },
+  })
+  return row
 }
 
 // --- Audit Log ---
@@ -1266,6 +1346,7 @@ export async function fetchNotifications(scope = null) {
     'update_return',
     'delete_return',
     'flag_swap_return',
+    'swap_return_action',
     'delete_dispense',
     'update_dispense',
     'import_dispense',
