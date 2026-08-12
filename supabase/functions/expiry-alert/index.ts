@@ -348,15 +348,17 @@ function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMa
   // ถ้าอยู่กลางตารางจะดันคอลัมน์หลังหลุดขอบจอ Gmail (เลื่อนขวาไม่ได้ desktop ไม่มี scrollbar)
   // เอาข้อมูลสั้น/สำคัญไว้ซ้ายทั้งหมด แล้วให้ "นโยบาย" เป็นคอลัมน์สุดท้าย ล้นได้ไม่บังใคร
   // ชื่อหัวต้องไม่กำกวม: เดิม "คงเหลือ (วัน)" กับ "คงเหลือ" อ่านแล้วสับสนว่าอันไหนจำนวน อันไหนวัน
-  const HEADERS = ["ตำแหน่ง","รหัสยา","ชนิดยา","ชื่อยา","Lot","Exp", isExpired ? "เกินมาแล้ว" : "เหลืออีก","จำนวนคงเหลือ","หน่วย","บริษัท","นโยบายเปลี่ยนยา"];
+  // "จำนวนคงเหลือ" รวมหน่วยไว้ในวงเล็บแล้ว — ไม่มีคอลัมน์ "หน่วย" แยก (ซ้ำซ้อน) ให้ตรงกับโมดอลในแอป
+  const HEADERS = ["ตำแหน่ง","รหัสยา","ชนิดยา","ชื่อยา","Lot","Exp", isExpired ? "เกินมาแล้ว" : "เหลืออีก","จำนวนคงเหลือ","บริษัท","นโยบายเปลี่ยนยา"];
   const headRow = `<tr>${HEADERS.map(h => `<th ${th}>${h}</th>`).join("")}</tr>`;
 
   // table-layout:fixed + width คุมต่อคอลัมน์ = Gmail คำนวณความกว้างตามที่สั่ง ไม่ยืดตามเนื้อหา
   let html = `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;table-layout:fixed;font-size:13px;margin-bottom:20px;">`;
   html += `<colgroup>`;
-  html += `<col style="width:7%"/><col style="width:7%"/><col style="width:7%"/><col style="width:16%"/>`;
-  html += `<col style="width:8%"/><col style="width:8%"/><col style="width:8%"/><col style="width:8%"/>`;
-  html += `<col style="width:7%"/><col style="width:12%"/><col style="width:12%"/>`;
+  // 10 คอลัมน์ (เอา "หน่วย" ออก คืนที่ให้ ชื่อยา/จำนวน/นโยบาย) — รวมต้องได้ 100%
+  html += `<col style="width:7%"/><col style="width:7%"/><col style="width:7%"/><col style="width:17%"/>`;
+  html += `<col style="width:8%"/><col style="width:8%"/><col style="width:8%"/><col style="width:11%"/>`;
+  html += `<col style="width:13%"/><col style="width:14%"/>`;
   html += `</colgroup>`;
   html += `<thead>${headRow}</thead><tbody>`;
 
@@ -393,8 +395,9 @@ function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMa
     html += `<td ${td}>${row.lot || "-"}</td>`;
     html += `<td ${td}><b>${fmtDate(item.expDate)}</b></td>`;
     html += `<td style="padding:8px 8px;border:1px solid #e2e8f0;background:${bg};text-align:right;font-weight:bold;font-size:13px;color:${dc};vertical-align:top;">${Math.abs(days)} วัน</td>`;
-    html += `<td style="padding:8px 8px;border:1px solid #e2e8f0;background:${bg};font-size:13px;text-align:right;vertical-align:top;">${row.qty || "-"}</td>`;
-    html += `<td ${td}>${row.unit || "-"}</td>`;
+    // "จำนวนคงเหลือ" แสดงหน่วยในวงเล็บต่อท้าย เช่น 1 (500เม็ด) — ให้ตรงกับโมดอลใกล้หมดอายุในแอป
+    // (เลขล้วนติดกับหน่วยคนละช่องอ่านเป็น "1 500เม็ด" = 1,500 ได้)
+    html += `<td style="padding:8px 8px;border:1px solid #e2e8f0;background:${bg};font-size:13px;text-align:right;vertical-align:top;">${row.qty || "-"}${row.unit ? ` (${row.unit})` : ""}</td>`;
     html += `<td ${td}>${supplier}</td>`;
     // แสดงนโยบายเต็ม ไม่ตัด — คนอ่านต้องเห็นเงื่อนไขครบในแถวของยานั้น (ตัดแล้วอ่านไม่จบ ใช้ตัดสินใจไม่ได้)
     // ปลอดภัยเพราะ table-layout:fixed + word-break บังคับให้ข้อความ wrap ในช่อง ไม่ดันตารางล้นจอ

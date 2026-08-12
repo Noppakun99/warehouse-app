@@ -1442,7 +1442,8 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                   <div><span className="text-slate-400 dark:text-slate-500">ตำแหน่ง:</span> <span className="text-slate-700 dark:text-slate-200 font-medium">{r.location || '-'}</span></div>
                   <div><span className="text-slate-400 dark:text-slate-500">Lot:</span> <span className="text-slate-700 dark:text-slate-200">{r.lot || '-'}</span></div>
                   <div><span className="text-slate-400 dark:text-slate-500">Exp:</span> <span className="text-slate-700 dark:text-slate-200">{fmtExp(r.exp)}</span></div>
-                  <div className="col-span-2"><span className="text-slate-400 dark:text-slate-500">คงเหลือ:</span> <span className="text-slate-800 dark:text-slate-100 font-bold">{r.qty || '-'}</span> <span className="text-slate-500 dark:text-slate-400">{r.unit || ''}</span></div>
+                  {/* วงเล็บครอบหน่วย — "1 500เม็ด" อ่านเป็น 1,500 ได้ ต้องเป็น "1 (500เม็ด)" (ล้อ pattern ที่ใช้อยู่แล้วในไฟล์นี้) */}
+                  <div className="col-span-2"><span className="text-slate-400 dark:text-slate-500">คงเหลือ:</span> <span className="text-slate-800 dark:text-slate-100 font-bold">{r.qty || '-'}</span>{r.unit ? <span className="text-slate-500 dark:text-slate-400"> ({r.unit})</span> : null}</div>
                   {r.supplier && (
                     <div className="col-span-2"><span className="text-slate-400 dark:text-slate-500">บริษัท:</span> <span className="text-slate-700 dark:text-slate-200">{r.supplier}</span></div>
                   )}
