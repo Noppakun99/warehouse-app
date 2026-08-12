@@ -204,6 +204,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   }, []);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [successPopup, setSuccessPopup] = useState('');   // อัปโหลดเสร็จ = popup ต้องกดรับทราบ (successMsg = ข้อความสถานะระหว่างทำ ยังเป็นแถบ inline)
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [summaryStorageView, setSummaryStorageView] = useState('chart'); // 'chart' | 'table'
@@ -715,8 +716,8 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         saveInventory(newInventory, auth, file.name)
           .then(() => saveUploadMeta('inventory', file.name))
           .then(() => {
-            setSuccessMsg(`อัปโหลด Log คลังยาและ "แทนที่ข้อมูลเดิม" ด้วยไฟล์ "${file.name}" สำเร็จ`);
-            setTimeout(() => setSuccessMsg(''), 5000);
+            setSuccessMsg('');
+            setSuccessPopup(`อัปโหลด Log คลังยาและ "แทนที่ข้อมูลเดิม" ด้วยไฟล์ "${file.name}" สำเร็จ`);
           })
           .catch(err => setErrorMsg('บันทึกขึ้น Supabase ล้มเหลว: ' + err.message));
         
@@ -1464,6 +1465,23 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         {successMsg && (
           <div className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 p-4 rounded-xl border border-emerald-200 dark:border-emerald-900/60 flex items-center gap-3 shadow-sm mb-6 animate-in fade-in slide-in-from-top-2">
             <Check size={20} className="text-emerald-500" /> <span className="font-medium">{successMsg}</span>
+          </div>
+        )}
+
+        {successPopup && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSuccessPopup('')}>
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+              <div className="bg-emerald-500 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
+                <p className="font-bold text-lg flex items-center gap-2"><Check size={20}/> อัปโหลดสำเร็จ</p>
+                <button onClick={() => setSuccessPopup('')} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={18}/></button>
+              </div>
+              <div className="px-6 py-5">
+                <p className="text-slate-700 dark:text-slate-200">{successPopup}</p>
+              </div>
+              <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                <button onClick={() => setSuccessPopup('')} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium text-sm">รับทราบ</button>
+              </div>
+            </div>
           </div>
         )}
 
