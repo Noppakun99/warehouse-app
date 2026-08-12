@@ -60,6 +60,7 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
   const [tab, setTab] = useState('outstanding');   // outstanding | borrow | lend
   const [sub, setSub] = useState('all');           // กรองย่อยในแท็บ: all | open (ค้างคืน) | returned (คืนแล้ว)
   const [search, setSearch] = useState('');
+  const [company, setCompany] = useState('all');   // กรองตามบริษัท (ยาตัวนั้นของบริษัทไหน) — คนละมิติกับคู่สัญญา (รพ.)
   const [formOpen, setFormOpen] = useState(false);
   const [editRow, setEditRow] = useState(null);
   const [exporting, setExporting] = useState(false);
@@ -103,15 +104,23 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
     return { borrow: mk('borrow'), lend: mk('lend') };
   }, [outstanding]);
 
+  // รายชื่อบริษัททั้งหมด (ทั้งตอนยืมและตอนคืน — บริษัทเปลี่ยนระหว่างทางได้)
+  const companies = useMemo(() => {
+    const s = new Set();
+    rows.forEach(r => { if (r.loan_company) s.add(r.loan_company); if (r.return_company) s.add(r.return_company); });
+    return [...s].sort((a, b) => a.localeCompare(b, 'th'));
+  }, [rows]);
+
   const filtered = useMemo(() => {
     let base = tabRows;
     if (sub === 'open') base = base.filter(r => !r.return_date);
     else if (sub === 'returned') base = base.filter(r => r.return_date);
+    if (company !== 'all') base = base.filter(r => r.loan_company === company || r.return_company === company);
     const q = search.trim().toLowerCase();
     if (!q) return base;
     return base.filter(r => [r.drug_name, r.drug_code, r.lot, r.counterparty, r.loan_doc, r.return_doc]
       .some(v => String(v || '').toLowerCase().includes(q)));
-  }, [tabRows, sub, search]);
+  }, [tabRows, sub, company, search]);
 
   const handleExport = async () => {
     if (exporting || filtered.length === 0) return;
@@ -119,7 +128,8 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
     try {
       // ชื่อไฟล์ต้องบอกตัวกรองที่ใช้จริง ไม่งั้นไฟล์ที่ export ตอนกรองอยู่ดูเหมือนทั้งหมด (Rule #6)
       const subLabel = tab === 'outstanding' || sub === 'all' ? '' : `_${sub === 'open' ? 'ค้างคืน' : 'คืนแล้ว'}`;
-      const label = (tab === 'outstanding' ? 'ค้างคืน' : LOAN_DIRECTION[tab]) + subLabel;
+      const coLabel = company === 'all' ? '' : `_${company.replace(/[\\/:*?"<>|]/g, '')}`;   // strip อักขระที่ใช้ในชื่อไฟล์ไม่ได้
+      const label = (tab === 'outstanding' ? 'ค้างคืน' : LOAN_DIRECTION[tab]) + subLabel + coLabel;
       await exportToExcel(filtered, LOAN_EXCEL_COLS, 'ยืมคืนยา',
         `ยืมคืนยา_${label}_${new Date().toISOString().slice(0, 10)}.xlsx`, auth);
     } catch (e) { setErr(e?.message || 'ส่งออก Excel ไม่สำเร็จ'); }
@@ -129,7 +139,8 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
   const handlePrint = () => {
     const esc = (s) => String(s ?? '-').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
     const subLabel = tab === 'outstanding' || sub === 'all' ? '' : ` · ${sub === 'open' ? 'ค้างคืน' : 'คืนแล้ว'}`;
-    const label = (tab === 'outstanding' ? 'ค้างคืน' : LOAN_DIRECTION[tab]) + subLabel;
+    const coLabel = company === 'all' ? '' : ` · บริษัท ${company}`;
+    const label = (tab === 'outstanding' ? 'ค้างคืน' : LOAN_DIRECTION[tab]) + subLabel + coLabel;
     const html = `<!DOCTYPE html><html lang="th"><head><meta charset="utf-8">
       <title>ยืม-คืนยาระหว่าง รพ. (${esc(label)})</title>
       <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
@@ -148,12 +159,13 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
         filtered.some(r => !r.return_date) ? ` · ค้างคืน ${filtered.filter(r => !r.return_date).length}` : ''}</p>
       <table><thead><tr>
         <th>ทิศทาง</th><th>คู่สัญญา</th><th>รหัส</th><th>ชื่อยา</th><th>Lot</th><th>EXP</th>
-        <th>จำนวน</th><th>วันที่ให้ยืม</th><th>เลขที่ใบยืม</th><th>วันที่รับคืน</th><th>สถานะ</th>
+        <th>จำนวน</th><th>บริษัท</th><th>วันที่ให้ยืม</th><th>เลขที่ใบยืม</th><th>วันที่รับคืน</th><th>สถานะ</th>
       </tr></thead><tbody>
       ${filtered.map(r => `<tr>
         <td>${esc(LOAN_DIRECTION[r.direction])}</td><td>${esc(r.counterparty)}</td>
         <td>${esc(r.drug_code)}</td><td>${esc(r.drug_name)}</td><td>${esc(r.lot)}</td><td>${esc(r.exp)}</td>
         <td style="text-align:right">${esc(fmtQty(r))}</td>
+        <td style="font-size:9.5px">${esc(r.return_company || r.loan_company)}</td>
         <td>${esc(fmtThai(r.loan_date))}</td><td>${esc(r.loan_doc)}</td><td>${esc(fmtThai(r.return_date))}</td>
         <td>${r.return_date ? 'คืนแล้ว' : `ค้างคืน ${loanOverdueDays(r) ?? '-'} วัน`}</td>
       </tr>`).join('')}
@@ -301,12 +313,30 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
           </div>
         )}
 
-        <div className="relative">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-          <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="ค้นหา ชื่อยา / รหัส / lot / รพ. / เลขที่ใบยืม…"
-            className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-9 pr-4 py-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500" />
+        <div className="flex gap-2 flex-col sm:flex-row">
+          <div className="relative flex-1 min-w-0">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="ค้นหา ชื่อยา / รหัส / lot / รพ. / เลขที่ใบยืม…"
+              className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-9 pr-4 py-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500" />
+          </div>
+          {/* กรองตามบริษัท — match ทั้งบริษัทตอนยืมและตอนคืน (เปลี่ยนบริษัทระหว่างทางได้ พบจริง 3 แถว) */}
+          <select value={company} onChange={e => setCompany(e.target.value)}
+            title="กรองตามบริษัทเจ้าของยา"
+            className="sm:w-72 border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
+            <option value="all">ทุกบริษัท ({companies.length})</option>
+            {companies.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
         </div>
+        {(company !== 'all' || search) && (
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            แสดง {filtered.length} รายการ
+            {company !== 'all' && <> · บริษัท <b className="text-slate-700 dark:text-slate-200">{company}</b></>}
+            {search && <> · คำค้น "{search}"</>}
+            <button onClick={() => { setCompany('all'); setSearch(''); }}
+              className="ml-2 text-sky-600 dark:text-sky-400 hover:underline font-medium">ล้างตัวกรอง</button>
+          </p>
+        )}
 
         {loading ? (
           <p className="text-center text-slate-400 dark:text-slate-500 py-10 text-sm">กำลังโหลด…</p>
