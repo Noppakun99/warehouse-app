@@ -31,6 +31,7 @@ import AnalyticsApp       from './AnalyticsApp';
 import ReorderApp         from './ReorderApp';
 import StockLedgerApp     from './StockLedgerApp';
 import StockCountApp      from './StockCountApp';
+import DrugLoanApp        from './DrugLoanApp';
 import StockCardApp       from './StockCardApp';
 import NotificationBell   from './NotificationBell';
 import DashboardV2Preview from './DashboardV2Preview'; // prototype ชั่วคราว — เปิดด้วย ?v2 (ลบได้ทั้งบรรทัด)
@@ -181,6 +182,9 @@ export default function AppRoot() {
         break;
       case 'ledger':
         content = <StockLedgerApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
+        break;
+      case 'loan':
+        content = <DrugLoanApp key={subKey} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'stockcount':
         content = <StockCountApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;

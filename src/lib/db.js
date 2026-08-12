@@ -1226,6 +1226,96 @@ export async function upsertSwapReturnAction({ drugCode, drugName, lot, company,
   return row
 }
 
+// --- ยืม-คืนยาระหว่างโรงพยาบาล (ตาราง drug_loan) ---
+// direction: 'borrow' = เรายืมเขา (ต้องคืน) · 'lend' = เราให้เขายืม (รอรับคืน)
+// return_date = null → ยังค้างคืน. **ไม่หักสต็อก** — ขาเข้า/ออกอยู่ใน receive_logs/dispense_logs แล้ว
+export const LOAN_DIRECTION = { borrow: 'เรายืมเขา', lend: 'เราให้เขายืม' }
+
+// จำนวนวันที่ค้างคืน (null = คืนแล้ว) — ใช้จัดสีเตือน
+export function loanOverdueDays(row, today = new Date()) {
+  if (!row || row.return_date) return null
+  if (!row.loan_date) return null
+  const d = new Date(row.loan_date)
+  if (isNaN(d)) return null
+  return Math.floor((today - d) / 86400000)
+}
+
+export async function fetchDrugLoans() {
+  if (!supabase) return []
+  const PAGE = 1000
+  let from = 0, all = []
+  for (;;) {
+    const { data, error } = await supabase.from('drug_loan')
+      .select('*').order('loan_date', { ascending: false }).order('id').range(from, from + PAGE - 1)
+    if (error) throw error
+    all = all.concat(data || [])
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+  return all
+}
+
+export async function insertDrugLoan(row, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!row?.drug_name) throw new Error('ต้องระบุชื่อยา')
+  if (!row?.counterparty) throw new Error('ต้องระบุคู่สัญญา (รพ./บริษัท)')
+  if (!LOAN_DIRECTION[row.direction]) throw new Error('ทิศทางไม่ถูกต้อง')
+  const payload = {
+    ...row,
+    lot: row.lot || '-',
+    created_by: resolveUserName(auth), updated_by: resolveUserName(auth),
+  }
+  const { data, error } = await supabase.from('drug_loan').insert(payload).select().single()
+  if (error) throw error
+  await insertAuditLog({
+    action: 'insert_drug_loan', table_name: 'drug_loan',
+    user_name: resolveUserName(auth), department: auth.department,
+    details: {
+      direction: row.direction, direction_label: LOAN_DIRECTION[row.direction],
+      counterparty: row.counterparty, drug_code: row.drug_code, drug_name: row.drug_name,
+      lot: payload.lot, qty: row.qty, loan_date: row.loan_date,
+    },
+  })
+  return data
+}
+
+export async function updateDrugLoan(id, fields, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const { data: before } = await supabase.from('drug_loan').select('*').eq('id', id).single()
+  const { data, error } = await supabase.from('drug_loan')
+    .update({ ...fields, updated_by: resolveUserName(auth), updated_at: new Date().toISOString() })
+    .eq('id', id).select().single()
+  if (error) throw error
+  // บันทึกรับคืน = action แยก ให้เห็นชัดในกระดิ่ง/audit ว่าปิดยอดค้างแล้ว
+  const isReturn = !before?.return_date && !!fields?.return_date
+  await insertAuditLog({
+    action: isReturn ? 'return_drug_loan' : 'update_drug_loan', table_name: 'drug_loan',
+    user_name: resolveUserName(auth), department: auth.department,
+    details: {
+      id, drug_code: data?.drug_code, drug_name: data?.drug_name, lot: data?.lot,
+      counterparty: data?.counterparty, direction: data?.direction,
+      direction_label: LOAN_DIRECTION[data?.direction],
+      return_date: data?.return_date, changed: Object.keys(fields || {}),
+    },
+  })
+  return data
+}
+
+export async function deleteDrugLoan(id, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const { data: before } = await supabase.from('drug_loan').select('*').eq('id', id).single()
+  const { error } = await supabase.from('drug_loan').delete().eq('id', id)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'delete_drug_loan', table_name: 'drug_loan',
+    user_name: resolveUserName(auth), department: auth.department,
+    details: {
+      id, drug_code: before?.drug_code, drug_name: before?.drug_name, lot: before?.lot,
+      counterparty: before?.counterparty, direction: before?.direction, qty: before?.qty,
+    },
+  })
+}
+
 // --- Audit Log ---
 
 // normalize lot number สำหรับ search — strip leading zeros เฉพาะกรณีตัวเลขล้วน
@@ -1347,6 +1437,8 @@ export async function fetchNotifications(scope = null) {
     'delete_return',
     'flag_swap_return',
     'swap_return_action',
+    'insert_drug_loan',
+    'return_drug_loan',
     'delete_dispense',
     'update_dispense',
     'import_dispense',

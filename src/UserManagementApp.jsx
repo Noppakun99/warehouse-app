@@ -37,6 +37,7 @@ const GRANTABLE_SYSTEMS = [
   { key: 'ledger',     label: 'ทะเบียนคงคลัง',       color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300',    defaultRoles: ['admin'] },
   { key: 'stockcount', label: 'ตรวจนับคงคลัง',       color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300', defaultRoles: ['staff','admin'] },
   { key: 'stockcard',  label: 'Stockcard',            color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300',    defaultRoles: ['requester','staff','admin'] },
+  { key: 'loan',       label: 'ยืม-คืนยาระหว่าง รพ.', color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300',       defaultRoles: ['requester','staff','admin'] },
 ];
 
 // สรุปสิทธิ์ต่อ user — นับจาก GRANTABLE_SYSTEMS (แหล่งเดียวกับโมดอลสิทธิ์) ไม่ใช่ลิสต์แยก
