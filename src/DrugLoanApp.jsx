@@ -85,6 +85,24 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
     returned: tabRows.filter(r => r.return_date).length,
   }), [tabRows]);
 
+  // สรุปของค้างคืน แยกตาม "ทิศทาง + คู่สัญญา" — ตอบคำถาม "รพ.ไหนเราค้างอยู่กี่รายการ / ใครค้างเรา"
+  // เรียง: ค้างนานสุดก่อน (งานเร่งอยู่บนสุด) แล้วค่อยจำนวนมาก
+  const summary = useMemo(() => {
+    const mk = (dir) => {
+      const map = new Map();
+      for (const r of outstanding.filter(x => x.direction === dir)) {
+        const key = r.counterparty || '(ไม่ระบุ)';
+        const cur = map.get(key) || { counterparty: key, count: 0, maxDays: 0, rows: [] };
+        cur.count += 1;
+        cur.maxDays = Math.max(cur.maxDays, loanOverdueDays(r) ?? 0);
+        cur.rows.push(r);
+        map.set(key, cur);
+      }
+      return [...map.values()].sort((a, b) => b.maxDays - a.maxDays || b.count - a.count);
+    };
+    return { borrow: mk('borrow'), lend: mk('lend') };
+  }, [outstanding]);
+
   const filtered = useMemo(() => {
     let base = tabRows;
     if (sub === 'open') base = base.filter(r => !r.return_date);
@@ -230,14 +248,20 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
           </div>
         )}
 
+        {/* สรุปของค้างคืน แยก "เราค้างเขา" / "เขาค้างเรา" รายโรงพยาบาล
+            ตอบคำถาม "รพ.ปทุมธานี เรายังไม่ได้คืนกี่รายการ" ได้ในหน้าเดียว คลิกเพื่อกรองต่อ */}
         {outstanding.length > 0 && (
-          <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-4 py-3 flex items-center gap-2 text-sm">
-            <AlertTriangle size={16} className="text-amber-600 shrink-0" />
-            <span className="text-amber-800 dark:text-amber-300">
-              มี <b>{outstanding.length}</b> รายการยังไม่ได้คืน
-              {outstanding.some(r => (loanOverdueDays(r) ?? 0) > OVERDUE_RED) &&
-                ` · ค้างเกิน ${OVERDUE_RED} วัน ${outstanding.filter(r => (loanOverdueDays(r) ?? 0) > OVERDUE_RED).length} รายการ`}
-            </span>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <SummaryCard
+              title="เราค้างคืนเขา" subtitle="ยืมมาแล้วยังไม่ได้คืน" tone="sky"
+              groups={summary.borrow}
+              onPick={(cp) => { setTab('borrow'); setSub('open'); setSearch(cp); }}
+            />
+            <SummaryCard
+              title="เขาค้างคืนเรา" subtitle="ให้ยืมไปแล้วยังไม่ได้รับคืน" tone="violet"
+              groups={summary.lend}
+              onPick={(cp) => { setTab('lend'); setSub('open'); setSearch(cp); }}
+            />
           </div>
         )}
 
@@ -343,6 +367,61 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
           onSaved={async () => { setFormOpen(false); setEditRow(null); await load(); }}
           onError={setErr}
         />
+      )}
+    </div>
+  );
+}
+
+// ---- การ์ดสรุปของค้างคืน รายโรงพยาบาล ----
+// tone เขียน class เต็ม — Tailwind purge ตัด class ที่ประกอบจาก template string
+const SUMMARY_TONE = {
+  sky: {
+    box: 'bg-sky-50 dark:bg-sky-950/40 border-sky-200 dark:border-sky-900/60',
+    head: 'text-sky-800 dark:text-sky-300',
+    pill: 'bg-sky-600 text-white',
+    row: 'hover:bg-sky-100/70 dark:hover:bg-sky-900/40',
+  },
+  violet: {
+    box: 'bg-violet-50 dark:bg-violet-950/40 border-violet-200 dark:border-violet-900/60',
+    head: 'text-violet-800 dark:text-violet-300',
+    pill: 'bg-violet-600 text-white',
+    row: 'hover:bg-violet-100/70 dark:hover:bg-violet-900/40',
+  },
+};
+
+function SummaryCard({ title, subtitle, tone, groups, onPick }) {
+  const t = SUMMARY_TONE[tone] || SUMMARY_TONE.sky;
+  const total = groups.reduce((a, g) => a + g.count, 0);
+  return (
+    <div className={`border rounded-xl px-4 py-3 ${t.box}`}>
+      <div className="flex items-baseline justify-between gap-2 mb-2">
+        <div className="min-w-0">
+          <p className={`text-sm font-bold ${t.head}`}>{title}</p>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">{subtitle}</p>
+        </div>
+        <span className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${t.pill}`}>{total} รายการ</span>
+      </div>
+      {groups.length === 0 ? (
+        <p className="text-[11px] text-slate-500 dark:text-slate-400 py-1">ไม่มีของค้างคืน</p>
+      ) : (
+        <div className="space-y-1">
+          {groups.map(g => (
+            <button key={g.counterparty} onClick={() => onPick(g.counterparty)}
+              title="คลิกเพื่อดูเฉพาะรายการของที่นี่"
+              className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg text-left transition-colors ${t.row}`}>
+              <span className="text-[12px] font-medium text-slate-700 dark:text-slate-200 truncate min-w-0">{g.counterparty}</span>
+              <span className="flex items-center gap-1.5 shrink-0">
+                {g.maxDays > OVERDUE_RED && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60">
+                    ค้างนานสุด {g.maxDays} วัน
+                  </span>
+                )}
+                <span className="text-[12px] font-bold text-slate-800 dark:text-slate-100">{g.count}</span>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">รายการ</span>
+              </span>
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
