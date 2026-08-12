@@ -142,6 +142,25 @@ function UsageAnalyticsPanel() {
   );
 }
 
+// role ในระบบ → คำที่คนอ่านเข้าใจ (audit log ไม่ควรโชว์ศัพท์ระบบดิบ)
+const ROLE_TH = {
+  admin: 'ผู้ดูแลระบบ',
+  staff: 'เจ้าหน้าที่คลังยา',
+  requester: 'ผู้เบิก',
+};
+
+// id/uuid ภายใน — ไม่มีความหมายกับคนอ่าน ซ่อนจากบรรทัดรายละเอียด (ยังอยู่ใน DB ใช้คำนวณสถิติได้)
+const HIDDEN_DETAIL_KEYS = new Set(['user_id', 'session_id', 'row_id', 'id', 'item_ids', 'ids']);
+
+// ชื่อฟิลด์ดิบ → ภาษาไทย สำหรับ action ที่ยังไม่มี case เฉพาะ
+const DETAIL_LABELS = {
+  role: 'สิทธิ์', drug_code: 'รหัสยา', drug_name: 'ยา', lot: 'Lot', qty: 'จำนวน',
+  company: 'บริษัท', supplier: 'บริษัท', department: 'หน่วยงาน', reason: 'เหตุผล',
+  count: 'จำนวนรายการ', rows: 'จำนวนแถว', file_name: 'ไฟล์', filename: 'ไฟล์',
+  sheet: 'ชีต', period: 'งวด', status: 'สถานะ', note: 'หมายเหตุ', exp: 'วันหมดอายุ',
+  deadline: 'กำหนด', bill_number: 'เลขที่บิล', po_number: 'เลขที่ PO',
+};
+
 const ACTION_LABELS = {
   import_inventory:             { label: 'นำเข้า Inventory',       color: 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'      },
   import_receive:               { label: 'นำเข้าประวัติรับยา',      color: 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'  },
@@ -296,9 +315,23 @@ function formatDetails(action, details, recordCount) {
     case 'import_inventory':
       return recordCount != null ? `${recordCount.toLocaleString()} รายการ` : '-';
 
-    default:
+    case 'login':
+      // เดิมโชว์ "role: admin · user_id: 633b0c5c-…" = ศัพท์ระบบ + UUID ที่คนอ่านไม่ได้ความหมาย
+      // user_id ยังใช้ในการนับ DAU/WAU (fetchUserActivityStats) แต่ไม่ต้องโชว์ให้คนอ่าน
+      return `เข้าสู่ระบบในสิทธิ์${ROLE_TH[d.role] || d.role || 'ไม่ระบุ'}`;
+
+    default: {
       if (!details) return '-';
-      return Object.entries(d).filter(([, v]) => v != null).map(([k, v]) => `${k}: ${v}`).join(' · ') || '-';
+      // แปลชื่อฟิลด์เป็นไทย + ซ่อน id ภายในที่ไม่มีความหมายกับคนอ่าน
+      const parts = Object.entries(d)
+        .filter(([k, v]) => v != null && !HIDDEN_DETAIL_KEYS.has(k))
+        .map(([k, v]) => {
+          const label = DETAIL_LABELS[k] || k;
+          const val = k === 'role' ? (ROLE_TH[v] || v) : v;
+          return `${label}: ${val}`;
+        });
+      return parts.join(' · ') || '-';
+    }
   }
 }
 
