@@ -40,3 +40,6 @@ supabase/.temp/
 
 # ไฟล์ข้อมูล CSV ต้นทาง (ยอดคลังยา) — ไม่เก็บใน git
 csvfile/
+
+# Local Netlify folder
+.netlify
