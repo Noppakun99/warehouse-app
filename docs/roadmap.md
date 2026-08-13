@@ -36,3 +36,18 @@
 - ปัจจุบัน ReceiveLogApp.handleImport เรียก supabase โดยตรง (ละเมิด convention)
 - มีฟีเจอร์เพิ่ม (preview rows, warnRows, drug_swap_policy backfill) ที่ db.js ไม่มี
 - ย้ายเข้า `importReceiveLogs()` ใน db.js เมื่อมีเวลา
+
+## ปิดช่อง anon key เข้าถึง DB เต็มสิทธิ์
+
+ดู [ADR-0016](./adr/0016-anon-key-full-db-access.md) — บริบท ตัวเลขที่วัดได้ และการเปรียบเทียบทางเลือกทั้งหมดอยู่ที่นั่น
+
+**สรุปปัญหา**: ทั้ง 21 ตารางของแอปมี policy `FOR ALL USING(true)` → ใครมี `VITE_SUPABASE_ANON_KEY` (อยู่ใน bundle) อ่าน/แก้/ลบข้อมูลได้ทั้งหมดโดยไม่ต้อง login รวม `password_hash` ใน `app_users` ที่เป็น SHA-256 ไม่มี salt
+
+**ก้าวแรกที่แนะนำ (ทางเลือก A ใน ADR)** — ขอบเขตจำกัด ไม่แตะ sub-app อื่น:
+1. Edge Function สำหรับ login / สมัคร / เปลี่ยนรหัสผ่าน (ถือ `service_role`)
+2. แก้ `loginUser` / `registerUser` / `UserManagementApp` ให้เรียก function แทน query ตรง
+3. `REVOKE ALL ON app_users FROM anon` แล้วทดสอบว่า login ยังผ่าน
+
+**ทำไปแล้ว** — ปิด RLS ตาราง backup 2 ตัว (`_bak_inventory_ss_20260704`, `_bak_inventory_lot_20260731`) 2026-08-13
+
+**ยังไม่ต้องทำ** — รอ user ตัดสินใจว่าจะเดินทาง A / B / C

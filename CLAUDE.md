@@ -92,6 +92,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | Domain glossary (ภาษากลาง: หน่วยซื้อ/เบิก, packsize, เรท, Refill mode ฯลฯ) | [CONTEXT.md](CONTEXT.md) | **ก่อนคุย/แก้ domain logic** — คำศัพท์ต้องตรง glossary |
 | Architecture Decision Records (เหตุผลของ decision ที่กลับยาก) | [docs/adr/](docs/adr/) | ก่อนเปลี่ยน architecture / หาเหตุผลของ decision เดิม |
 | Auth & Roles, permissions | [docs/auth.md](docs/auth.md) | แก้ login/role/permission |
+| ความปลอดภัย DB: anon key เข้าถึงได้เต็มสิทธิ์ (ความเสี่ยงที่ยอมรับไว้) | [ADR-0016](docs/adr/0016-anon-key-full-db-access.md) | **ก่อนสร้างตารางใหม่** หรือก่อนเก็บข้อมูลประเภทใหม่ลง Supabase |
 | Common patterns (date, mobile, print, dept, audit auth, stats) | [docs/patterns.md](docs/patterns.md) | **อ่านทุกครั้ง** ก่อนแก้ component |
 | DB schema, migrations, Excel cols | [docs/schema.md](docs/schema.md) | แก้ DB schema / Excel export |
 | Monthly Stock Ledger (บัญชีคงคลังรายเดือน — seed/ปิดงวด/cost layer) | [docs/adr/0007](docs/adr/0007-monthly-stock-ledger.md) | แก้ `StockLedgerApp` / ledger logic / seed master CSV |
