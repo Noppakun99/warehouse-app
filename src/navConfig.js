@@ -7,7 +7,7 @@ import {
   Package, Database, RotateCcw, TrendingUp, TrendingDown,
   Activity, ShoppingCart, ClipboardList, Users, History, BarChart3, Layers,
   FileText, ClipboardCheck, Send, ScanLine, ListChecks, Building2, ShieldAlert,
-  Undo2, CalendarClock, ScrollText,
+  Undo2, CalendarClock, ScrollText, ArrowLeftRight,
 } from 'lucide-react';
 
 // โครงสร้างเมนู — รองรับ 3 แบบใน group.items / children:
@@ -22,6 +22,7 @@ export const NAV_GROUPS = [
       { page: 'requisition', icon: Package,  title: 'เบิกยาออนไลน์',     c: 'blue',   roles: ['requester', 'staff', 'admin'] },
       { page: 'inventory',   icon: Database,  title: 'แผนผังคลังยา',       c: 'indigo', roles: ['requester', 'staff', 'admin'] },
       { page: 'return',      icon: RotateCcw, title: 'คืนยา / ยาเสียหาย', c: 'violet', roles: ['requester', 'staff', 'admin'] },
+      { page: 'loan',        icon: ArrowLeftRight, title: 'ยืม-คืนยาระหว่าง รพ.', c: 'sky', roles: ['requester', 'staff', 'admin'] },
     ],
   },
   {
@@ -88,4 +89,5 @@ export const COLOR = {
   amber:   { icon: 'bg-amber-100 text-amber-600',     darkIcon: 'dark:bg-amber-950 dark:text-amber-400',     activeBg: 'bg-amber-50 text-amber-700',     darkActive: 'dark:bg-amber-950 dark:text-amber-300',     bar: 'bg-amber-500',   hover: 'hover:bg-amber-50 hover:text-amber-700',     cardBg: 'bg-amber-50 hover:bg-amber-100 border-amber-200' },
   teal:    { icon: 'bg-teal-100 text-teal-600',       darkIcon: 'dark:bg-teal-950 dark:text-teal-400',       activeBg: 'bg-teal-50 text-teal-700',       darkActive: 'dark:bg-teal-950 dark:text-teal-300',       bar: 'bg-teal-500',    hover: 'hover:bg-teal-50 hover:text-teal-700',       cardBg: 'bg-teal-50 hover:bg-teal-100 border-teal-200' },
   slate:   { icon: 'bg-slate-200 text-slate-600',     darkIcon: 'dark:bg-slate-800 dark:text-slate-300',     activeBg: 'bg-slate-100 text-slate-700',    darkActive: 'dark:bg-slate-800 dark:text-slate-200',     bar: 'bg-slate-500',   hover: 'hover:bg-slate-100 hover:text-slate-700',    cardBg: 'bg-slate-50 hover:bg-slate-100 border-slate-200' },
+  sky:     { icon: 'bg-sky-100 text-sky-600',         darkIcon: 'dark:bg-sky-950 dark:text-sky-400',         activeBg: 'bg-sky-50 text-sky-700',         darkActive: 'dark:bg-sky-950 dark:text-sky-300',         bar: 'bg-sky-500',     hover: 'hover:bg-sky-50 hover:text-sky-700',         cardBg: 'bg-sky-50 hover:bg-sky-100 border-sky-200' },
 };

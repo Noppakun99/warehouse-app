@@ -204,6 +204,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   }, []);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [successPopup, setSuccessPopup] = useState('');   // อัปโหลดเสร็จ = popup ต้องกดรับทราบ (successMsg = ข้อความสถานะระหว่างทำ ยังเป็นแถบ inline)
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [summaryStorageView, setSummaryStorageView] = useState('chart'); // 'chart' | 'table'
@@ -715,8 +716,8 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         saveInventory(newInventory, auth, file.name)
           .then(() => saveUploadMeta('inventory', file.name))
           .then(() => {
-            setSuccessMsg(`อัปโหลด Log คลังยาและ "แทนที่ข้อมูลเดิม" ด้วยไฟล์ "${file.name}" สำเร็จ`);
-            setTimeout(() => setSuccessMsg(''), 5000);
+            setSuccessMsg('');
+            setSuccessPopup(`อัปโหลด Log คลังยาและ "แทนที่ข้อมูลเดิม" ด้วยไฟล์ "${file.name}" สำเร็จ`);
           })
           .catch(err => setErrorMsg('บันทึกขึ้น Supabase ล้มเหลว: ' + err.message));
         
@@ -1467,6 +1468,23 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           </div>
         )}
 
+        {successPopup && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSuccessPopup('')}>
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+              <div className="bg-emerald-500 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
+                <p className="font-bold text-lg flex items-center gap-2"><Check size={20}/> อัปโหลดสำเร็จ</p>
+                <button onClick={() => setSuccessPopup('')} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={18}/></button>
+              </div>
+              <div className="px-6 py-5">
+                <p className="text-slate-700 dark:text-slate-200">{successPopup}</p>
+              </div>
+              <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                <button onClick={() => setSuccessPopup('')} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium text-sm">รับทราบ</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {errorMsg && (
           <div className="bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 p-4 rounded-xl border border-red-200 dark:border-red-900/60 flex items-center gap-3 shadow-sm mb-6">
             <AlertCircle size={20} /> <span className="font-medium">{errorMsg}</span>
@@ -1626,7 +1644,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
               {uploadWarnings.rows.map((r, i) => (
                 <div key={i} className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-4 py-2 text-sm">
                   <div className="flex gap-3 items-start">
-                    <span className="font-mono bg-amber-200 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded text-xs font-bold shrink-0">Row {r.row}</span>
+                    <span className="font-mono bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded text-xs font-bold shrink-0">Row {r.row}</span>
                     <div className="flex-1">
                       <span className="font-semibold text-slate-800 dark:text-slate-100">{r.name}</span>
                       {r.code && r.code !== '-' && <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">[{r.code}]</span>}
@@ -1747,7 +1765,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                     <div className="space-y-1.5">
                       {duplicates.map((d, i) => (
                         <div key={`dup${i}`} className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-4 py-2 text-sm flex gap-3 items-start">
-                          <span className="font-mono bg-amber-200 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded text-xs font-bold shrink-0">lot {d.lot}</span>
+                          <span className="font-mono bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded text-xs font-bold shrink-0">lot {d.lot}</span>
                           <div className="flex-1">
                             <span className="font-semibold text-slate-800 dark:text-slate-100">{d.name}</span>
                             {d.code && d.code !== '-' && <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">[{d.code}]</span>}
@@ -2240,7 +2258,8 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           const n = Number(r.qty);
           const qStr = Number.isFinite(n) ? n.toLocaleString('th-TH') : (r.qty || '-');
           const u = (r.unit && String(r.unit).trim()) || 'หน่วย';
-          return `${qStr} × ${u}`;
+          // วงเล็บครอบหน่วย ให้ตรงกับโมดอลใกล้หมดอายุของ Dashboard — "1 500เม็ด" อ่านเป็น 1,500 ได้
+          return `${qStr} (${u})`;
         };
         const lookupDetail = (item) => {
           const code = (item.code || '-').trim().toLowerCase();
@@ -2453,16 +2472,29 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         const handleModalExport = async () => {
           setModalExporting(true);
           try {
-            const cols = [
+            // โหมดใกล้หมดอายุ/หมดอายุ → ใช้ชุดคอลัมน์ **เดียวกับโมดอลใกล้หมดอายุของ Dashboard**
+            // (EXPIRY_EXCEL_COLS ใน AppRoot.jsx) เพื่อให้ Excel/กระดาษของ 2 หน้าอ่านเหมือนกัน:
+            // มี "สถานะ" (นับวัน) แทน "สถานะตรวจรับ" ที่ไม่มีความหมายกับของที่ตรวจรับแล้ว
+            const cols = isExpiryMode ? [
               { header: 'ชื่อยา', key: 'name' },
               { header: 'รหัสยา', key: 'code' },
               { header: 'ชนิด', key: 'type' },
               { header: 'ตำแหน่ง', key: 'location' },
               { header: 'Lot', key: 'lot' },
-              ...(isExpiryMode ? [] : [
-                { header: 'บิลยา', key: 'invoice' },
-                { header: 'PO', key: 'po' },
-              ]),
+              { header: 'วันหมดอายุ', key: 'exp' },
+              { header: 'สถานะ', value: r => r.daysLeft < 0 ? `หมดอายุแล้ว ${Math.abs(r.daysLeft)} วัน` : r.daysLeft === 0 ? 'หมดอายุวันนี้' : `อีก ${r.daysLeft} วัน` },
+              { header: 'บริษัท', key: 'supplier' },
+              { header: 'นโยบายเปลี่ยนยา', key: 'swapPolicy' },
+              { header: 'คงเหลือ', key: 'qty' },
+              { header: 'หน่วย', key: 'unit' },
+            ] : [
+              { header: 'ชื่อยา', key: 'name' },
+              { header: 'รหัสยา', key: 'code' },
+              { header: 'ชนิด', key: 'type' },
+              { header: 'ตำแหน่ง', key: 'location' },
+              { header: 'Lot', key: 'lot' },
+              { header: 'บิลยา', key: 'invoice' },
+              { header: 'PO', key: 'po' },
               { header: 'วันหมดอายุ', key: 'exp' },
               { header: 'คงเหลือ', key: 'qty' },
               { header: 'หน่วย', key: 'unit' },
@@ -2488,6 +2520,8 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           printTrackingList(timeFiltered, {
             title: trackingModal.title,
             isExpiryMode,
+            // โหมดใกล้หมดอายุ → คอลัมน์ชุดเดียวกับโมดอล Dashboard (ตรงกับ Excel ด้านบน, Rule #6)
+            dashboardMode: isExpiryMode,
             filterNote: notes.length ? `ตัวกรอง: ${notes.join(' · ')}` : '',
             printedBy: auth?.name || auth?.username || '',
           });

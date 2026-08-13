@@ -544,8 +544,9 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
                   />
                 </div>
               </div>
-              <div className="overflow-x-auto max-h-[60vh]">
-                <table className="w-full text-sm">
+              <div className="overflow-auto max-h-[60vh]">
+                {/* min-w-max: ปล่อยตารางกว้างตามเนื้อหาเพื่อให้ overflow-x เลื่อนได้จริง — w-full บีบตารางให้พอดีจอ เลยไม่มีอะไรให้เลื่อน */}
+                <table className="min-w-max w-full text-sm">
                   <thead className="bg-slate-700 text-white sticky top-0 z-10">
                     <tr>
                       {LEDGER_TABLE_COLS.map(col => (
@@ -566,10 +567,11 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
                         <td className="px-3 py-2 text-slate-500 dark:text-slate-400 whitespace-nowrap">{r.lot}</td>
                         <td className="px-3 py-2 text-slate-500 dark:text-slate-400 whitespace-nowrap">{r.item_type}</td>
                         <td className="px-3 py-2 text-right text-slate-600 dark:text-slate-300 whitespace-nowrap">{fmtBaht(r.price_per_unit)}</td>
-                        <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400 whitespace-nowrap bg-slate-50 dark:bg-slate-800">{fmtNum(r.opening_qty)}</td>
-                        <td className="px-3 py-2 text-right text-emerald-700 dark:text-emerald-300 whitespace-nowrap bg-slate-50 dark:bg-slate-800">{fmtNum(r.in_qty)}</td>
-                        <td className="px-3 py-2 text-right text-rose-600 whitespace-nowrap bg-slate-50 dark:bg-slate-800">{fmtNum(r.out_qty)}</td>
-                        <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-200 font-medium whitespace-nowrap bg-slate-50 dark:bg-slate-800">{fmtNum(r.closing_qty)}</td>
+                        {/* กลุ่มจำนวน: ใช้พื้นโปร่ง (/60) ให้ hover ของแถวทะลุขึ้นมาได้ — bg ทึบจะทับ hover ทำให้แถวสีไม่เท่ากัน */}
+                        <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400 whitespace-nowrap bg-slate-100/60 dark:bg-slate-800/60">{fmtNum(r.opening_qty)}</td>
+                        <td className="px-3 py-2 text-right text-emerald-700 dark:text-emerald-300 whitespace-nowrap bg-slate-100/60 dark:bg-slate-800/60">{fmtNum(r.in_qty)}</td>
+                        <td className="px-3 py-2 text-right text-rose-600 whitespace-nowrap bg-slate-100/60 dark:bg-slate-800/60">{fmtNum(r.out_qty)}</td>
+                        <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-200 font-medium whitespace-nowrap bg-slate-100/60 dark:bg-slate-800/60">{fmtNum(r.closing_qty)}</td>
                         <td className="px-3 py-2 text-right text-slate-500 dark:text-slate-400 whitespace-nowrap">{fmtBaht(r.carry_in_value)}</td>
                         <td className="px-3 py-2 text-right text-emerald-700 dark:text-emerald-300 whitespace-nowrap">{fmtBaht(r.in_value)}</td>
                         <td className="px-3 py-2 text-right text-rose-600 whitespace-nowrap">{fmtBaht(r.out_value)}</td>

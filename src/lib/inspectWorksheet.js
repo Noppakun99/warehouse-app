@@ -1,6 +1,8 @@
 // ฟอร์มตรวจรับยา (เปล่า) — พิมพ์ให้กรรมการตรวจรับกรอกมือขณะตรวจของจริง ไม่ดึงข้อมูลจากระบบ
 // (กรรมการเลือกเองว่าจะตรวจอะไร ดูจากบิล+PO ก่อนมาตรวจ คลังไม่รู้ล่วงหน้า) — ดู CONTEXT.md "ฟอร์มตรวจรับ"
-// UI helper: build HTML + window.open (Blob URL, iOS-safe) — ไม่ใช่ pure module (มี window.open)
+// UI helper: build HTML แล้วส่งให้ openPrintView (Blob URL + fallback WebView) — ไม่ใช่ pure module
+import { openPrintView } from './openPrintView';
+
 const HOSPITAL_NAME = 'โรงพยาบาลประชาธิปัตย์';
 
 function todayThaiDate() {
@@ -121,14 +123,5 @@ export function printInspectWorksheet() {
 <p class="foot">พิมพ์เมื่อ ${todayThaiDate()}</p>
 <script>document.getElementById('btnPrint').addEventListener('click', function(){ window.print(); });</script>
 </body></html>`;
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const url  = URL.createObjectURL(blob);
-  const win  = window.open(url, '_blank');
-  if (win) { setTimeout(() => URL.revokeObjectURL(url), 30000); return; }
-  // fallback: in-app WebView (LINE/FB) บล็อก window.open('_blank') → คืน null
-  // นำทางผ่าน <a> click แทน (WebView ยอมให้คลิกลิงก์ แต่บล็อก popup)
-  const a = document.createElement('a');
-  a.href = url; a.target = '_blank'; a.rel = 'noopener';
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 30000);
+  openPrintView(html);
 }

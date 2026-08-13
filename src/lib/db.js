@@ -1125,11 +1125,24 @@ export async function fetchSwapReturnDue() {
       baseUnit: parseUnitFactor(item.unit).base,                // หน่วยย่อยสุด (เม็ด) สำหรับ label เรท
     })
   }
+  // ผนวกสถานะ "ดำเนินการ" ที่คลังคีย์ไว้ + ตัด "ไม่คืน" ออกจาก popup (ตัดสินแล้วว่าไม่คืน = ไม่ต้องเตือนซ้ำ)
+  const actions = await fetchSwapReturnActions()
+  const withAction = []
+  for (const r of out) {
+    const act = actions[swapActionKey(r.code, r.lot, r.company)] || null
+    if (act?.status === 'no_return') continue
+    withAction.push({
+      ...r,
+      actionStatus: act?.status || 'pending',
+      actionDate: act?.action_date || null,
+      actionBy: act?.updated_by || null,
+    })
+  }
   // ต้องคืนจริง (ไม่ willDeplete) ก่อน → ในกลุ่มเดียวกัน overdue/เหลือน้อยก่อน
-  out.sort((a, b) => (a.willDeplete === b.willDeplete)
+  withAction.sort((a, b) => (a.willDeplete === b.willDeplete)
     ? (a.daysToDeadline ?? 0) - (b.daysToDeadline ?? 0)
     : (a.willDeplete ? 1 : -1))
-  return out
+  return withAction
 }
 
 // staff กด "แจ้งหัวหน้า" ให้ดำเนินการเปลี่ยน/คืนยาที่ใกล้พ้นกำหนด → audit log (เด้งกระดิ่ง)
@@ -1142,6 +1155,163 @@ export async function flagSwapReturn({ drugCode, drugName, lot, company, returnM
     details: {
       drug_code: drugCode, drug_name: drugName, lot, company,
       return_months: returnMonths, deadline, days_left: daysLeft,
+    },
+  })
+}
+
+// --- สถานะ "ดำเนินการ" ของยาที่ต้องเปลี่ยน/คืนบริษัท (ตาราง swap_return_action) ---
+// key = code|lot|company (ไม่ใช่ inventory.id — inventory มีแถวซ้ำ code+lot จริง)
+// เก็บแยกจาก inventory เพราะ inventory ถูก replace ทั้งตารางทุกครั้งที่ import CSV
+export const SWAP_ACTION_STATUS = {
+  pending:   'ยังไม่ทำ',
+  notified:  'แจ้งบริษัทแล้ว',
+  sent:      'ส่งคืนแล้ว',
+  accepted:  'บริษัทรับแล้ว',
+  no_return: 'ไม่คืน',
+}
+
+export function swapActionKey(code, lot, company) {
+  return `${String(code || '').trim()}|${String(lot || '-').trim()}|${String(company || '').trim()}`
+}
+
+// → { 'code|lot|company': { status, action_date, note, updated_by, updated_at } }
+export async function fetchSwapReturnActions() {
+  if (!supabase) return {}
+  // paginate — เกิน 1000 แถวแล้วจะขาดเงียบๆ (Critical Rule #2)
+  const PAGE = 1000
+  let from = 0, rows = []
+  for (;;) {
+    const { data, error } = await supabase.from('swap_return_action')
+      .select('drug_code, lot, company, status, action_date, note, updated_by, updated_at')
+      .order('id').range(from, from + PAGE - 1)
+    if (error) throw error
+    rows = rows.concat(data || [])
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+  const map = {}
+  for (const r of rows || []) {
+    map[swapActionKey(r.drug_code, r.lot, r.company)] = r
+  }
+  return map
+}
+
+// upsert สถานะ 1 รายการ + audit log (ทุก mutation ต้อง log — Critical Rule #1)
+export async function upsertSwapReturnAction({ drugCode, drugName, lot, company, status, actionDate, note }, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!SWAP_ACTION_STATUS[status]) throw new Error(`สถานะไม่ถูกต้อง: ${status}`)
+  const row = {
+    drug_code: String(drugCode || '').trim(),
+    lot: String(lot || '-').trim(),
+    company: String(company || '').trim(),
+    drug_name: drugName || null,
+    status,
+    action_date: actionDate || null,
+    note: note || null,
+    updated_by: resolveUserName(auth),
+    updated_at: new Date().toISOString(),
+  }
+  const { error } = await supabase
+    .from('swap_return_action')
+    .upsert(row, { onConflict: 'drug_code,lot,company' })
+  if (error) throw error
+  await insertAuditLog({
+    action: 'swap_return_action', table_name: 'swap_return_action',
+    user_name: resolveUserName(auth), department: auth.department,
+    details: {
+      drug_code: row.drug_code, drug_name: row.drug_name, lot: row.lot, company: row.company,
+      status, status_label: SWAP_ACTION_STATUS[status], action_date: row.action_date,
+    },
+  })
+  return row
+}
+
+// --- ยืม-คืนยาระหว่างโรงพยาบาล (ตาราง drug_loan) ---
+// direction: 'borrow' = เรายืมเขา (ต้องคืน) · 'lend' = เราให้เขายืม (รอรับคืน)
+// return_date = null → ยังค้างคืน. **ไม่หักสต็อก** — ขาเข้า/ออกอยู่ใน receive_logs/dispense_logs แล้ว
+export const LOAN_DIRECTION = { borrow: 'เรายืมเขา', lend: 'เราให้เขายืม' }
+
+// จำนวนวันที่ค้างคืน (null = คืนแล้ว) — ใช้จัดสีเตือน
+export function loanOverdueDays(row, today = new Date()) {
+  if (!row || row.return_date) return null
+  if (!row.loan_date) return null
+  const d = new Date(row.loan_date)
+  if (isNaN(d)) return null
+  return Math.floor((today - d) / 86400000)
+}
+
+export async function fetchDrugLoans() {
+  if (!supabase) return []
+  const PAGE = 1000
+  let from = 0, all = []
+  for (;;) {
+    const { data, error } = await supabase.from('drug_loan')
+      .select('*').order('loan_date', { ascending: false }).order('id').range(from, from + PAGE - 1)
+    if (error) throw error
+    all = all.concat(data || [])
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+  return all
+}
+
+export async function insertDrugLoan(row, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!row?.drug_name) throw new Error('ต้องระบุชื่อยา')
+  if (!row?.counterparty) throw new Error('ต้องระบุคู่สัญญา (รพ./บริษัท)')
+  if (!LOAN_DIRECTION[row.direction]) throw new Error('ทิศทางไม่ถูกต้อง')
+  const payload = {
+    ...row,
+    lot: row.lot || '-',
+    created_by: resolveUserName(auth), updated_by: resolveUserName(auth),
+  }
+  const { data, error } = await supabase.from('drug_loan').insert(payload).select().single()
+  if (error) throw error
+  await insertAuditLog({
+    action: 'insert_drug_loan', table_name: 'drug_loan',
+    user_name: resolveUserName(auth), department: auth.department,
+    details: {
+      direction: row.direction, direction_label: LOAN_DIRECTION[row.direction],
+      counterparty: row.counterparty, drug_code: row.drug_code, drug_name: row.drug_name,
+      lot: payload.lot, qty: row.qty, loan_date: row.loan_date,
+    },
+  })
+  return data
+}
+
+export async function updateDrugLoan(id, fields, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const { data: before } = await supabase.from('drug_loan').select('*').eq('id', id).single()
+  const { data, error } = await supabase.from('drug_loan')
+    .update({ ...fields, updated_by: resolveUserName(auth), updated_at: new Date().toISOString() })
+    .eq('id', id).select().single()
+  if (error) throw error
+  // บันทึกรับคืน = action แยก ให้เห็นชัดในกระดิ่ง/audit ว่าปิดยอดค้างแล้ว
+  const isReturn = !before?.return_date && !!fields?.return_date
+  await insertAuditLog({
+    action: isReturn ? 'return_drug_loan' : 'update_drug_loan', table_name: 'drug_loan',
+    user_name: resolveUserName(auth), department: auth.department,
+    details: {
+      id, drug_code: data?.drug_code, drug_name: data?.drug_name, lot: data?.lot,
+      counterparty: data?.counterparty, direction: data?.direction,
+      direction_label: LOAN_DIRECTION[data?.direction],
+      return_date: data?.return_date, changed: Object.keys(fields || {}),
+    },
+  })
+  return data
+}
+
+export async function deleteDrugLoan(id, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const { data: before } = await supabase.from('drug_loan').select('*').eq('id', id).single()
+  const { error } = await supabase.from('drug_loan').delete().eq('id', id)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'delete_drug_loan', table_name: 'drug_loan',
+    user_name: resolveUserName(auth), department: auth.department,
+    details: {
+      id, drug_code: before?.drug_code, drug_name: before?.drug_name, lot: before?.lot,
+      counterparty: before?.counterparty, direction: before?.direction, qty: before?.qty,
     },
   })
 }
@@ -1266,6 +1436,9 @@ export async function fetchNotifications(scope = null) {
     'update_return',
     'delete_return',
     'flag_swap_return',
+    'swap_return_action',
+    'insert_drug_loan',
+    'return_drug_loan',
     'delete_dispense',
     'update_dispense',
     'import_dispense',

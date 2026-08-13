@@ -142,6 +142,25 @@ function UsageAnalyticsPanel() {
   );
 }
 
+// role ในระบบ → คำที่คนอ่านเข้าใจ (audit log ไม่ควรโชว์ศัพท์ระบบดิบ)
+const ROLE_TH = {
+  admin: 'ผู้ดูแลระบบ',
+  staff: 'เจ้าหน้าที่คลังยา',
+  requester: 'ผู้เบิก',
+};
+
+// id/uuid ภายใน — ไม่มีความหมายกับคนอ่าน ซ่อนจากบรรทัดรายละเอียด (ยังอยู่ใน DB ใช้คำนวณสถิติได้)
+const HIDDEN_DETAIL_KEYS = new Set(['user_id', 'session_id', 'row_id', 'id', 'item_ids', 'ids']);
+
+// ชื่อฟิลด์ดิบ → ภาษาไทย สำหรับ action ที่ยังไม่มี case เฉพาะ
+const DETAIL_LABELS = {
+  role: 'สิทธิ์', drug_code: 'รหัสยา', drug_name: 'ยา', lot: 'Lot', qty: 'จำนวน',
+  company: 'บริษัท', supplier: 'บริษัท', department: 'หน่วยงาน', reason: 'เหตุผล',
+  count: 'จำนวนรายการ', rows: 'จำนวนแถว', file_name: 'ไฟล์', filename: 'ไฟล์',
+  sheet: 'ชีต', period: 'งวด', status: 'สถานะ', note: 'หมายเหตุ', exp: 'วันหมดอายุ',
+  deadline: 'กำหนด', bill_number: 'เลขที่บิล', po_number: 'เลขที่ PO',
+};
+
 const ACTION_LABELS = {
   import_inventory:             { label: 'นำเข้า Inventory',       color: 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'      },
   import_receive:               { label: 'นำเข้าประวัติรับยา',      color: 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'  },
@@ -153,6 +172,11 @@ const ACTION_LABELS = {
   update_return:                { label: 'แก้ไขรายการคืนยา',         color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'   },
   delete_return:                { label: 'ลบรายการคืนยา',            color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'       },
   flag_swap_return:             { label: 'แจ้งเปลี่ยน/คืนยา',        color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'   },
+  swap_return_action:           { label: 'ดำเนินการคืนบริษัท',       color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'   },
+  insert_drug_loan:             { label: 'บันทึกยืมยา',               color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
+  return_drug_loan:             { label: 'รับคืนยาที่ยืม',            color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
+  update_drug_loan:             { label: 'แก้ไขรายการยืม-คืน',       color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
+  delete_drug_loan:             { label: 'ลบรายการยืม-คืน',          color: 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300'        },
   seed_swap_policy:             { label: 'อัปเดตนโยบายคืนยา',        color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'   },
   export_excel:                 { label: 'ส่งออก Excel',             color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
   submit_requisition:           { label: 'ส่งใบเบิกยา',             color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'        },
@@ -261,6 +285,29 @@ function formatDetails(action, details, recordCount) {
         d.deadline && `ต้องคืนภายใน ${d.deadline}`,
       ].filter(Boolean).join(' · ') || '-';
 
+    case 'swap_return_action':
+      return [
+        d.drug_name && `ยา: ${d.drug_name}`,
+        d.lot && `Lot ${d.lot}`,
+        d.company && `บริษัท: ${d.company}`,
+        (d.status_label || d.status) && `สถานะ: ${d.status_label || d.status}`,
+        d.action_date && `วันที่ดำเนินการ ${d.action_date}`,
+      ].filter(Boolean).join(' · ') || '-';
+
+    case 'insert_drug_loan':
+    case 'return_drug_loan':
+    case 'update_drug_loan':
+    case 'delete_drug_loan':
+      return [
+        d.direction_label && `ทิศทาง: ${d.direction_label}`,
+        d.counterparty && `คู่สัญญา: ${d.counterparty}`,
+        d.drug_name && `ยา: ${d.drug_name}`,
+        d.lot && `Lot ${d.lot}`,
+        d.qty != null && `จำนวน ${d.qty}`,
+        d.loan_date && `วันที่ยืม ${d.loan_date}`,
+        d.return_date && `วันที่คืน ${d.return_date}`,
+      ].filter(Boolean).join(' · ') || '-';
+
     case 'export_excel':
       return d.file ? `ไฟล์: ${d.file}` : '-';
 
@@ -268,9 +315,23 @@ function formatDetails(action, details, recordCount) {
     case 'import_inventory':
       return recordCount != null ? `${recordCount.toLocaleString()} รายการ` : '-';
 
-    default:
+    case 'login':
+      // เดิมโชว์ "role: admin · user_id: 633b0c5c-…" = ศัพท์ระบบ + UUID ที่คนอ่านไม่ได้ความหมาย
+      // user_id ยังใช้ในการนับ DAU/WAU (fetchUserActivityStats) แต่ไม่ต้องโชว์ให้คนอ่าน
+      return `เข้าสู่ระบบในสิทธิ์${ROLE_TH[d.role] || d.role || 'ไม่ระบุ'}`;
+
+    default: {
       if (!details) return '-';
-      return Object.entries(d).filter(([, v]) => v != null).map(([k, v]) => `${k}: ${v}`).join(' · ') || '-';
+      // แปลชื่อฟิลด์เป็นไทย + ซ่อน id ภายในที่ไม่มีความหมายกับคนอ่าน
+      const parts = Object.entries(d)
+        .filter(([k, v]) => v != null && !HIDDEN_DETAIL_KEYS.has(k))
+        .map(([k, v]) => {
+          const label = DETAIL_LABELS[k] || k;
+          const val = k === 'role' ? (ROLE_TH[v] || v) : v;
+          return `${label}: ${val}`;
+        });
+      return parts.join(' · ') || '-';
+    }
   }
 }
 
@@ -444,7 +505,8 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
     { label: 'ใบเบิกยา',   keys: ['submit_requisition', 'requester_edit_requisition', 'requester_delete_requisition', 'update_requisition', 'delete_requisition', 'picking_requisition', 'verify_requisition', 'dispense_requisition', 'received_requisition'] },
     { label: 'รับยา',      keys: ['import_receive', 'scan_invoice', 'map_drug_alias', 'update_receive', 'delete_receive'] },
     { label: 'จ่ายยา',     keys: ['import_dispense', 'update_dispense', 'delete_dispense'] },
-    { label: 'คืนยา',      keys: ['insert_return', 'confirm_return', 'update_return', 'delete_return', 'flag_swap_return', 'seed_swap_policy'] },
+    { label: 'คืนยา',      keys: ['insert_return', 'confirm_return', 'update_return', 'delete_return', 'flag_swap_return', 'swap_return_action', 'seed_swap_policy'] },
+    { label: 'ยืม-คืนยา',  keys: ['insert_drug_loan', 'return_drug_loan', 'update_drug_loan', 'delete_drug_loan'] },
     { label: 'คลัง/Inventory', keys: ['import_inventory', 'create_stock_count', 'update_stock_count', 'delete_stock_count', 'seed_ledger', 'close_ledger_period', 'reopen_ledger_period', 'add_ledger_adjustment'] },
     { label: 'ส่งบัญชี (AP)', keys: ['ap_acknowledge', 'ap_unacknowledge', 'ap_mark_inspected', 'ap_uninspect', 'ap_send_batch', 'ap_unsend_batch', 'ap_mark_posted', 'ap_unpost', 'ap_reset_batch', 'print_ap_batch', 'print_ack_batch', 'export_ap_batch'] },
     { label: 'วิเคราะห์สั่งซื้อ', keys: ['analysis_run', 'analysis_view', 'delete_analysis_run', 'update_reorder_config', 'import_reorder_config', 'mark_ordered', 'unmark_ordered', 'print_po', 'reconcile_excel'] },

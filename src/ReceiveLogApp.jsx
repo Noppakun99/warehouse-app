@@ -15,6 +15,7 @@ import {
   ClipboardList, Send, FileCheck2, History, Undo2, Printer, ArrowRight, ArrowLeftRight,
 } from 'lucide-react';
 import { exportToExcel } from './lib/exportExcel';
+import { openPrintView } from './lib/openPrintView';
 import { insertAuditLog, resolveAuditUserName } from './lib/db';
 
 function DrugTypeBadge({ type }) {
@@ -1506,7 +1507,7 @@ function ReceiveImport({ onDone, auth = {} }) {
               {uploadWarnings.rows.map((r, i) => (
                 <div key={i} className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-4 py-2 text-sm">
                   <div className="flex gap-3 items-start">
-                    <span className="font-mono bg-amber-200 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded text-xs font-bold shrink-0">Row {r.row}</span>
+                    <span className="font-mono bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded text-xs font-bold shrink-0">Row {r.row}</span>
                     <div className="flex-1">
                       <span className="font-semibold text-slate-800 dark:text-slate-100">{r.name}</span>
                       {r.code && r.code !== '-' && <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">[{r.code}]</span>}
@@ -3117,11 +3118,7 @@ function printApBatch(rows, batchId, meta = {}) {
 
 <p class="foot">พิมพ์เมื่อ ${today}</p>
 </body></html>`;
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const url  = URL.createObjectURL(blob);
-  const win  = window.open(url, '_blank');
-  if (win) setTimeout(() => URL.revokeObjectURL(url), 30000);
-  else     URL.revokeObjectURL(url);
+  openPrintView(html);   // Blob URL + fallback <a> สำหรับ LINE WebView (Critical Rule #4)
 }
 
 // match บิลกับคำค้น — เลขบิล / บริษัท / ชื่อยา / รหัสยา / lot (ค้นในรายการยาของบิลด้วย)
