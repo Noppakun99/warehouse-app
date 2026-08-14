@@ -35,6 +35,7 @@ npm run test:consistency # Golden tests สำหรับ src/lib/consistencyCh
 npm run test:countmatch  # Golden tests สำหรับ src/lib/countMatch.js — ตรวจนับ: 3 สถานะต่อมิติ + set equality ที่เก็บ/exp (33 assertions)
 npm run test:stockcard   # Golden tests สำหรับ src/lib/stockCard.js — การ์ดคลัง lot: running balance ต่อ lot + drift detection (105 assertions)
 npm run test:vendorexchange # Golden tests สำหรับ src/lib/vendorExchange.js — รอบเปลี่ยน/คืนบริษัท: จับคู่ขาส่ง↔ขารับ หา "ของลอย" (30 assertions)
+npm run test:announce # Golden tests สำหรับ supabase/functions/_shared/announceSchedule.js — ปฏิทินรอบเบิก-รับ + วันหยุด (108 assertions)
 ```
 
 ไม่มี test runner ทั่วไป — golden tests เป็น standalone `node` (ไม่มี framework): `src/unitParser.test.js` (`npm run test:unit`), `src/lib/reorder.test.js` (`npm run test:reorder`), `src/lib/billGroup.test.js` (`npm run test:billgroup`), `src/lib/lotAllocation.test.js` (`npm run test:alloc`), `src/ledgerRollover.test.js` (`npm run test:ledger`), `src/ledgerSeed.test.js` (`npm run test:ledgerseed`), `src/lib/swapPolicy.test.js` (`npm run test:swappolicy`), `src/lib/consistencyCheck.test.js` (`npm run test:consistency`). **กฎ**: logic ที่ test แบบนี้ได้ต้องเป็น pure module ไม่ import `supabase` (เพราะ `supabase.js` ใช้ `import.meta.env` ที่ node รันไม่ได้) — ดู `billGroup.js`/`lotAllocation.js`/`ledgerRollover.js`/`ledgerSeed.js` แยกจาก `db.js` ด้วยเหตุนี้. **หมายเหตุ layout**: source module ของ ledger อยู่ใน `src/lib/` แต่ test file (`ledgerRollover.test.js`/`ledgerSeed.test.js`) อยู่ที่ `src/` root — ต่างจาก golden test อื่นที่วาง test ข้าง source
@@ -100,6 +101,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | Roadmap | [docs/roadmap.md](docs/roadmap.md) | วางแผน feature ใหม่ |
 | Testing | [docs/testing.md](docs/testing.md) | รัน/แก้ test |
 | Deployment (Netlify + env vars + verify) | [docs/deployment.md](docs/deployment.md) | ขึ้นเว็บจริง / deploy ไม่ผ่าน / แก้ env var |
+| ประกาศรอบเบิก-รับ เข้ากลุ่ม LINE (บอทวันเบิก/วันรับ + ปฏิทินวันหยุด) | [docs/features/requisition-announce.md](docs/features/requisition-announce.md) | แก้บอทประกาศ / ปฏิทินวันหยุด / โควตา LINE |
 | Expiry Alert Edge Function (แทน Apps Script) | [docs/expiry-alert-edge-function.md](docs/expiry-alert-edge-function.md) | แก้/deploy expiry alert |
 | External: Apps Script แจ้งเตือนยาใกล้หมดอายุ (backup) | [docs/apps-script-expiry-alert.md](docs/apps-script-expiry-alert.md) | reference สคริปต์เดิม |
 

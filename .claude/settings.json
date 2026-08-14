@@ -17,7 +17,14 @@
       "PowerShell(git add CLAUDE.md src/App.jsx)",
       "PowerShell(git push origin main)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:api.github.com)",
+      "PowerShell(git pull)",
+      "Read(//c/Users/PRH0000484/**)",
+      "Bash(cd \"c:/Users/PRH0000484/warehouse-app\" && echo \"=== AppRoot: route ของ users/audit ===\" && grep -n \"case 'users'\\\\|case 'audit'\\\\|UserManagementApp\\\\|AuditLogApp\" src/AppRoot.jsx | head -8 && echo \"=== GRANTABLE_SYSTEMS ===\" && grep -n \"GRANTABLE_SYSTEMS\" src/UserManagementApp.jsx | head -3 && sed -n \"/const GRANTABLE_SYSTEMS/,/^\\\\]/p\" src/UserManagementApp.jsx | tail -8 && echo \"=== ACTION_LABELS ท้าย ===\" && grep -n \"ACTION_LABELS = {\" src/AuditLogApp.jsx)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\PRH0000484\\warehouse-app\\src"
     ]
   }
 }

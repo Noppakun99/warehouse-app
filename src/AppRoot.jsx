@@ -27,6 +27,7 @@ import { matchReceiveDetails } from './lib/receiveMatch';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
+import HolidayCalendarApp from './HolidayCalendarApp';
 import AnalyticsApp       from './AnalyticsApp';
 import ReorderApp         from './ReorderApp';
 import StockLedgerApp     from './StockLedgerApp';

@@ -3320,3 +3320,76 @@ export async function fetchConsistencyReport() {
 
   return buildConsistencyReport(inventoryRows, receiveRows)
 }
+
+// --- ปฏิทินวันหยุดราชการ (public_holiday) ---
+// ใช้โดยหน้า admin + edge function `requisition-announce`
+// logic ที่กินข้อมูลนี้อยู่ที่ supabase/functions/_shared/announceSchedule.js (pure ไฟล์เดียวใช้ทั้ง Deno/node)
+// ดู CONTEXT.md §"วันทำการ (Working Day)" — ตารางนี้เป็นแหล่งความจริง ห้ามคำนวณวันหยุดเอง
+
+/** วันหยุดทั้งหมด (เรียงตามวัน) — กรองช่วงปีได้ */
+export async function fetchPublicHolidays({ fromDate, toDate } = {}) {
+  if (!supabase) return []
+  let q = supabase.from('public_holiday').select('holiday_date, name, is_observed').order('holiday_date')
+  if (fromDate) q = q.gte('holiday_date', fromDate)
+  if (toDate)   q = q.lte('holiday_date', toDate)
+  const { data, error } = await q
+  if (error) throw error
+  return data || []
+}
+
+/** Map ymd → ชื่อวันหยุด — รูปแบบที่ announceSchedule.js ต้องการ */
+export async function fetchHolidayMap({ fromDate, toDate } = {}) {
+  const rows = await fetchPublicHolidays({ fromDate, toDate })
+  return new Map(rows.map(r => [r.holiday_date, r.name]))
+}
+
+/** เพิ่ม/แก้วันหยุด 1 วัน — PK คือ holiday_date จึง upsert ได้ตรงๆ */
+export async function upsertPublicHoliday({ holiday_date, name, is_observed = false }, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  if (!holiday_date || !String(name || '').trim()) throw new Error('ต้องระบุวันที่และชื่อวันหยุด')
+
+  const { data: before } = await supabase.from('public_holiday')
+    .select('name, is_observed').eq('holiday_date', holiday_date).maybeSingle()
+
+  const { error } = await supabase.from('public_holiday')
+    .upsert([{ holiday_date, name: String(name).trim(), is_observed: !!is_observed }], { onConflict: 'holiday_date' })
+  if (error) throw error
+
+  await insertAuditLog({
+    action: before ? 'edit_holiday' : 'add_holiday',
+    table_name: 'public_holiday',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: 1,
+    details: { holiday_date, name: String(name).trim(), is_observed: !!is_observed, before: before || null },
+  })
+}
+
+export async function deletePublicHoliday(holiday_date, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { data: before } = await supabase.from('public_holiday')
+    .select('name, is_observed').eq('holiday_date', holiday_date).maybeSingle()
+  const { error } = await supabase.from('public_holiday').delete().eq('holiday_date', holiday_date)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'delete_holiday', table_name: 'public_holiday',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: 1,
+    details: { holiday_date, name: before?.name || null },
+  })
+}
+
+/**
+ * จำนวนวันหยุดที่กรอกไว้ต่อปี — ใช้เตือนบน Dashboard ว่าปีหน้ายังว่าง
+ * ปฏิทินว่าง = ระบบจะประกาศทับวันหยุด (ไม่ใช่แค่ "ไม่มีข้อมูล")
+ */
+export async function fetchHolidayCoverage() {
+  if (!supabase) return {}
+  const { data, error } = await supabase.from('public_holiday').select('holiday_date')
+  if (error) throw error
+  const byYear = {}
+  for (const r of data || []) {
+    const y = String(r.holiday_date).slice(0, 4)
+    byYear[y] = (byYear[y] || 0) + 1
+  }
+  return byYear
+}
