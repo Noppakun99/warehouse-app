@@ -22,9 +22,13 @@ SELECT vault.create_secret(
 -- ยิงทุกวัน — ฟังก์ชันตัดสินเองว่าวันนี้เป็นวันประกาศไหม
 -- ทำไมยิงทุกวันแทนที่จะตั้ง cron เฉพาะ จ/พ: วันประกาศ "เลื่อนได้" ตามวันหยุด
 -- ถ้า cron ล็อกไว้แค่ จ/พ วันที่เลื่อนไปอังคาร/พฤหัส จะไม่มีใครยิง
+-- (โครงสร้างเดียวกับบอทเดิม Kao-Bot: trigger ยิงทุกวัน แล้ว mainAlert() เช็ควันเอง)
+--
+-- เวลา 09:00 ไม่ใช่ 08:00 — บอทเดิมยิง 09:13 (ดูจาก trigger last-run) ward คุ้นเวลานี้
+-- และ 09:00 คือเวลาเปิดรับของพอดี ("มารับได้ตั้งแต่ 9.00-15.00น." ในตัวข้อความ)
 SELECT cron.schedule(
   'requisition-announce-daily',
-  '0 1 * * *',  -- UTC 01:00 = 08:00 Asia/Bangkok
+  '0 2 * * *',  -- UTC 02:00 = 09:00 Asia/Bangkok
   $$
   SELECT net.http_post(
     url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'requisition_announce_url'),
