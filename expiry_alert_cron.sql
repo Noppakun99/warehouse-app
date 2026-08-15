@@ -24,6 +24,13 @@ SELECT vault.create_secret(
   'expiry_alert_auth'
 );
 
+-- ⚠️ สถานะจริงใน DB (ตรวจ 2026-08-15) ต่างจากไฟล์นี้ — ของจริงมี job เดียวชื่อ
+--    `expiry-alert-weekdays` schedule '0 1 * * 1-5' body '{}' (email อย่างเดียว จ-ศ)
+--    และใช้ vault secret ชื่อ `requisition_announce_auth` (ไม่ใช่ `expiry_alert_auth`
+--    ซึ่งไม่มีอยู่จริงใน vault) — job ตามไฟล์นี้ทั้ง 2 ตัวด้านล่าง "ไม่เคยถูกสร้าง"
+--    ⇒ ช่องทาง LINE ของ expiry-alert ยังไม่เคยทำงานเลยจนถึงวันที่ตรวจ
+--    ถ้าจะรัน ให้ยึด vault name ที่มีจริง: SELECT name FROM vault.decrypted_secrets;
+
 -- 3a. cron EMAIL — ยิงทุกวัน 08:00 ตามเวลาไทย (= 01:00 UTC). body {} → channel=email (default)
 SELECT cron.schedule(
   'expiry-alert-daily',
@@ -40,13 +47,18 @@ SELECT cron.schedule(
   $$
 );
 
--- 3b. cron LINE — ยิง "สัปดาห์ละครั้ง" จันทร์ 08:00 ตามเวลาไทย. body {"channel":"line"}
+-- 3b. cron LINE — "สัปดาห์ละครั้ง วันจันทร์ที่เป็นวันทำการ" 08:00 ตามเวลาไทย. body {"channel":"line"}
 --     เหตุผลสัปดาห์ละครั้ง (ไม่ใช่รายวัน): LINE push นับ "รายหัว" (กลุ่ม 19 คน = 19 ข้อความ/ครั้ง)
 --     free tier = 200 ข้อความ/เดือน → 19 × 4 = 76 < 200 (มี headroom). รายวันจะทะลุ.
 --     ดู docs/expiry-alert-edge-function.md + CONTEXT.md §"เกณฑ์แจ้งเตือน LINE vs email"
+--
+--     ⚠️ ยิงทุกวัน แล้วให้ "ฟังก์ชันตัดสินเอง" ว่าวันนี้เป็นรอบไหม (ไม่ใช่ล็อก cron ไว้แค่จันทร์)
+--     เพราะถ้าจันทร์เป็นวันหยุดราชการ รอบต้องเลื่อนไปวันทำการถัดไป — cron ที่ล็อก '* * 1'
+--     จะไม่มีใครยิงในวันที่เลื่อนไป (โครงสร้างเดียวกับ requisition-announce-daily)
+--     ฟังก์ชันเช็ค public_holiday + เสาร์/อาทิตย์ แล้วส่งสัปดาห์ละครั้งพอดีเสมอ
 SELECT cron.schedule(
   'expiry-alert-line-weekly',
-  '0 1 * * 1',  -- UTC: 01:00 จันทร์ = 08:00 Asia/Bangkok จันทร์
+  '0 1 * * *',  -- UTC: 01:00 ทุกวัน = 08:00 Asia/Bangkok (ฟังก์ชันกรองเป็นรอบสัปดาห์เอง)
   $$
   SELECT net.http_post(
     url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'expiry_alert_url'),
@@ -79,5 +91,9 @@ SELECT cron.schedule(
 --
 -- ทดสอบ manual (ก่อน enable cron):
 --   email:  body {}                      (หรือ {"channel":"email"})
---   LINE:   body {"channel":"line"}
+--   LINE:   body {"channel":"line"}      ← เคารพรอบวันทำการ (ไม่ใช่รอบ = ไม่ส่ง ตอบ lineSkip)
 --   ทั้งคู่: body {"channel":"both"}
+--
+--   LINE ส่งเดี๋ยวนี้เลยไม่สนรอบ:  body {"channel":"line","force":true}
+--   ทดสอบว่าวันนั้นเป็นรอบไหม:     body {"channel":"line","date":"2026-10-13"}
+--   (response: lineSkip = เหตุผลที่ไม่ส่ง · lineSlot = เหตุผลที่ส่ง)

@@ -66,6 +66,72 @@ async function fetchTable(table: string, select: string, extraQuery = ""): Promi
 }
 
 // ============================================================
+// วันทำการ (สำหรับ LINE รายสัปดาห์)
+// ============================================================
+/** วันนี้ตามเวลาไทย (YYYY-MM-DD) — Edge Function รันบน UTC, ห้ามใช้ new Date() ตรงๆ
+ *  ไม่งั้นก่อน 07:00 ไทยจะได้วันก่อนหน้า (กับดักเดียวกับ requisition-announce) */
+function todayBangkokYmd(): string {
+  const now = new Date();
+  const d = new Date(now.getTime() + 7 * 3600_000);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * คลังปิดวันนี้ไหม — เสาร์/อาทิตย์ หรือวันหยุดราชการใน `public_holiday`
+ * คืน `null` = เปิดทำการ, คืนชื่อวันหยุด (string) = ปิด
+ *
+ * ปฏิทินชุดเดียวกับบอทประกาศรอบเบิก-รับ (ตาราง `public_holiday`)
+ * ⚠️ ปฏิทินว่าง = ถือว่า "ไม่มีวันหยุด" ไม่ใช่ "ไม่มีข้อมูล" — ตรงกับพฤติกรรม
+ *    ของ requisition-announce (ดู docs/features/requisition-announce.md §ข้อควรระวัง)
+ */
+async function closedReason(ymd: string): Promise<string | null> {
+  const wd = new Date(ymd + "T00:00:00Z").getUTCDay();
+  if (wd === 0) return "วันอาทิตย์";
+  if (wd === 6) return "วันเสาร์";
+  try {
+    const rows = await fetchTable("public_holiday", "holiday_date,name", `holiday_date=eq.${ymd}`);
+    if (rows.length > 0) return String(rows[0].name || "วันหยุดราชการ");
+  } catch (_e) {
+    // โหลดปฏิทินไม่ได้ → ถือว่าเปิดทำการ (ส่งดีกว่าเงียบ — แจ้งเตือนยาหมดอายุพลาดวันแล้ว
+    // ต้องรออีกสัปดาห์ ต่างจากประกาศรอบเบิกที่ส่งผิดวันแล้วคนมาเก้อ)
+    return null;
+  }
+  return null;
+}
+
+/** บวกวัน (YYYY-MM-DD) แบบ UTC — ไม่ยุ่งกับ timezone ท้องถิ่น */
+function addDaysYmd(ymd: string, n: number): string {
+  const d = new Date(ymd + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * วันนี้เป็น "รอบ LINE รายสัปดาห์" ไหม
+ *
+ * กติกา: ส่งวันจันทร์ที่เป็นวันทำการ · ถ้าจันทร์เป็นวันหยุด → เลื่อนไปวันทำการแรกถัดไป
+ * (อังคาร, ถ้าอังคารหยุดอีกก็พุธ … ) — สัปดาห์ละครั้งเสมอ ไม่ข้ามสัปดาห์ ไม่ส่งซ้ำ
+ *
+ * วิธีตัดสิน: เดินถอยหลังจากวันนี้ไปหาจันทร์ของสัปดาห์นี้ แล้วไล่หาวันทำการแรก
+ * ตั้งแต่จันทร์เป็นต้นมา — ถ้าตรงกับวันนี้ = วันนี้คือรอบ
+ * ผู้เรียกต้องเช็ค closedReason() มาก่อนแล้ว (วันนี้เป็นวันทำการแน่นอน)
+ */
+async function isWeeklyLineSlot(ymd: string): Promise<{ send: boolean; reason: string }> {
+  const wd = new Date(ymd + "T00:00:00Z").getUTCDay();   // 0=อา 1=จ … 6=ส
+  const monday = addDaysYmd(ymd, wd === 0 ? -6 : 1 - wd); // จันทร์ของสัปดาห์นี้
+  // ไล่จากจันทร์หาวันทำการแรกของสัปดาห์ (สแกน 7 วันพอ — เกินนั้นคือทั้งสัปดาห์หยุด)
+  for (let i = 0; i < 7; i++) {
+    const cur = addDaysYmd(monday, i);
+    if (await closedReason(cur) === null) {
+      return cur === ymd
+        ? { send: true, reason: i === 0 ? "วันจันทร์ (วันทำการ)" : `วันทำการแรกของสัปดาห์ แทนวันจันทร์ที่หยุด` }
+        : { send: false, reason: `ไม่ใช่รอบ — รอบสัปดาห์นี้คือ ${cur}` };
+    }
+  }
+  return { send: false, reason: "ทั้งสัปดาห์เป็นวันหยุด" };
+}
+
+// ============================================================
 // แปลง exp string → Date
 // ============================================================
 function parseExpDate(raw: string | null | undefined): Date | null {
@@ -627,12 +693,38 @@ Deno.serve(async (req) => {
     // 0. อ่าน channel จาก body — "email" (default, cron รายวัน) | "line" (cron สัปดาห์ละครั้ง) | "both" (manual)
     //    body {} → email (backward-compat กับ cron เดิม + ปุ่มในแอป)
     let channel = "email";
+    let force = false;
+    let dateOverride = "";
     try {
       const body = await req.json();
       if (body && typeof body.channel === "string") channel = body.channel;
+      if (body && body.force === true) force = true;              // ข้ามการเช็ควันทำการ (ทดสอบ/ส่งย้อน)
+      if (body && typeof body.date === "string") dateOverride = body.date;  // ทดสอบวันอื่น
     } catch { /* body ว่าง/ไม่ใช่ JSON → email ตาม default */ }
     const doEmail = channel === "email" || channel === "both";
-    const doLine  = channel === "line"  || channel === "both";
+    let   doLine  = channel === "line"  || channel === "both";
+
+    // LINE = จันทร์ที่เป็นวันทำการเท่านั้น (email ยังรายวันตามเดิม ไม่แตะ)
+    // จันทร์หยุด → เลื่อนไปวันทำการถัดไป โดย cron ยิงทุกวันแล้วให้ฟังก์ชันตัดสินเอง
+    // (โครงสร้างเดียวกับ requisition-announce — cron ล็อกวันไม่ได้เพราะวันเลื่อนตามวันหยุด)
+    const result: Record<string, unknown> = { ok: true, channel };
+    if (doLine && !force) {
+      const ymd = dateOverride || todayBangkokYmd();
+      const closed = await closedReason(ymd);
+      if (closed) {
+        result.lineSkip = `ไม่ส่ง: ${ymd} คลังปิด (${closed})`;
+        doLine = false;
+      } else {
+        // เปิดทำการ → ส่งเฉพาะเมื่อเป็น "จันทร์ หรือวันทำการแรกแทนจันทร์ที่หยุด"
+        const slot = await isWeeklyLineSlot(ymd);
+        if (!slot.send) {
+          result.lineSkip = `ไม่ส่ง: ${ymd} ${slot.reason}`;
+          doLine = false;
+        } else {
+          result.lineSlot = slot.reason;
+        }
+      }
+    }
 
     // 1. ดึง inventory + receive_logs + dispense_logs (6 เดือน สำหรับ coverage)
     const usageFrom = new Date();
@@ -794,7 +886,7 @@ Deno.serve(async (req) => {
     const lineTotal = expired.length + lineNear.length;
 
     // 4. ส่งตาม channel
-    const result: Record<string, unknown> = { ok: true, channel, expired: expired.length };
+    result.expired = expired.length;
 
     if (doEmail) {
       const transporter = nodemailer.createTransport({
