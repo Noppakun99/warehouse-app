@@ -171,10 +171,22 @@ export function resolveCycles(ymd, holidays) {
 /**
  * วันนี้ต้องประกาศไหม และประกาศว่าอะไร
  *
+ * ประกาศมี 2 ชนิด (`kind`) — วันหนึ่งเป็นได้อย่างเดียว:
+ *   'requisition' = วันส่งใบเบิก (จ/พ ตาม REQUISITION_WEEKDAYS)
+ *   'pickup'      = วันมารับของ (วันทำการถัดจากวันเบิก — ปกติ อ/พฤ)
+ *
+ * ⚠️ วันรับ **ไม่ได้** มาจากการใส่ อ/พฤ ลงใน REQUISITION_WEEKDAYS
+ * เพราะนั่นจะทำให้ระบบเข้าใจว่าอังคารเป็น "วันเบิก" แล้วคำนวณวันรับเป็นพุธ (ผิด)
+ * วันรับต้อง derive จากรอบเดิมเสมอ จึงเลื่อนตามวันหยุดได้ถูกอัตโนมัติ
+ *
+ * ถ้าวันเดียวเป็นทั้งวันรับ (รอบก่อน) และวันเบิก (รอบใหม่) → **วันเบิกชนะ**
+ * เพราะข้อความวันเบิกพูดถึงวันรับอยู่ในตัวแล้ว ไม่งั้นกลุ่มได้ 2 ข้อความในวันเดียว
+ *
  * @param {string} today 'YYYY-MM-DD'
  * @param {Map|Object|Set} holidays ymd → ชื่อวันหยุด
  * @returns {{
  *   send: boolean,
+ *   kind: 'requisition'|'pickup'|null,
  *   requisitionDate: string|null,
  *   pickupDate: string|null,
  *   shiftedFrom: { date: string, holidayName: string|null }|null,
@@ -184,13 +196,27 @@ export function resolveCycles(ymd, holidays) {
  */
 export function announcementFor(today, holidays) {
   const empty = {
-    send: false, requisitionDate: null, pickupDate: null,
+    send: false, kind: null, requisitionDate: null, pickupDate: null,
     shiftedFrom: null, mergedFrom: [], pickupSkipped: [], clearance: null,
   }
 
   const cycles = resolveCycles(today, holidays)
   const idx = cycles.findIndex(c => c.requisitionDate === today)
-  if (idx === -1) return empty
+
+  // วันนี้ไม่ใช่วันเบิก → เป็นวันรับของรอบไหนหรือเปล่า
+  if (idx === -1) {
+    const pickupCycle = cycles.find(c => c.pickupDate === today)
+    if (!pickupCycle) return empty
+    return {
+      ...empty,
+      send: true,
+      kind: 'pickup',
+      requisitionDate: pickupCycle.requisitionDate,
+      pickupDate: pickupCycle.pickupDate,
+      mergedFrom: pickupCycle.mergedFrom,
+    }
+  }
+
   const cycle = cycles[idx]
   const nextCycle = cycles[idx + 1] ?? null
 
@@ -220,6 +246,7 @@ export function announcementFor(today, holidays) {
 
   return {
     send: true,
+    kind: 'requisition',
     requisitionDate: cycle.requisitionDate,
     pickupDate: cycle.pickupDate,
     shiftedFrom,
@@ -255,6 +282,15 @@ export function formatThaiShort(ymd) {
  * — ห้ามเปลี่ยนเป็น '@All' ตรงๆ เพราะจะกลายเป็นตัวอักษรธรรมดา ไม่เด้ง noti
  */
 export function buildAnnouncementText(info) {
+  // วันมารับของ — ข้อความสั้น ไม่ซ้ำกับวันเบิก (ward เบิกไปแล้ว เหลือแค่มารับ)
+  if (info.kind === 'pickup') {
+    return [
+      `📢 {everyone} วันนี้ (${formatThaiDate(info.pickupDate)})` +
+      ' ฝ่ายไหนที่พร้อม มารับ ,ยา ,น้ำเกลือ ,ถุง' +
+      ' ให้แท็กไลน์ระบุเวลาที่พร้อมได้เลยครับ ตั้งแต่เวลา 9.00-15.00น.',
+    ].join('\n')
+  }
+
   // "พรุ่งนี้" ใช้ได้เฉพาะเมื่อวันรับ = วันถัดไปจริงๆ
   // เคสที่ไม่ใช่: ประกาศศุกร์ วันรับจันทร์ (ข้ามเสาร์อาทิตย์) — เรียก "พรุ่งนี้" จะผิดและทำให้ ward มาผิดวัน
   const isTomorrow = addDays(info.requisitionDate, 1) === info.pickupDate

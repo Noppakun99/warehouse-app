@@ -180,8 +180,21 @@ section('Test 7: สัปดาห์ปกติต้องไม่มีค
   assertEq(wed.clearance, null, 'พุธปกติ: รับพฤหัส ปิดถัดไป ส-อา 2 วัน (ศุกร์เปิด) → ไม่เตือน')
   assertEq(wed.mergedFrom, ['2026-08-19'], 'ไม่ยุบ → mergedFrom มีตัวเดียว')
 
-  assertEq(announcementFor('2026-08-18', NO_HOLIDAY).send, false, 'อังคารปกติ = วันรับ ไม่ใช่วันประกาศ (แบบ B)')
-  assertEq(announcementFor('2026-08-20', NO_HOLIDAY).send, false, 'พฤหัสปกติ → ไม่ประกาศ')
+  // แบบ 4 วัน: อ/พฤ = ประกาศวันมารับของ (kind='pickup')
+  const tueP = announcementFor('2026-08-18', NO_HOLIDAY)
+  assertEq(tueP.send, true, 'อังคารปกติ → ประกาศวันมารับของ')
+  assertEq(tueP.kind, 'pickup', 'อังคาร kind = pickup')
+  assertEq(tueP.pickupDate, '2026-08-18', 'อังคาร: วันรับ = วันนี้')
+  assertEq(tueP.requisitionDate, '2026-08-17', 'อังคาร: มาจากรอบวันเบิกจันทร์')
+
+  const thuP = announcementFor('2026-08-20', NO_HOLIDAY)
+  assertEq(thuP.send, true, 'พฤหัสปกติ → ประกาศวันมารับของ')
+  assertEq(thuP.kind, 'pickup', 'พฤหัส kind = pickup')
+  assertEq(thuP.requisitionDate, '2026-08-19', 'พฤหัส: มาจากรอบวันเบิกพุธ')
+
+  assertEq(mon.kind, 'requisition', 'จันทร์ kind = requisition')
+  assertEq(wed.kind, 'requisition', 'พุธ kind = requisition')
+
   assertEq(announcementFor('2026-08-21', NO_HOLIDAY).send, false, 'ศุกร์ปกติ → ไม่ประกาศ')
   assertEq(announcementFor('2026-08-15', NO_HOLIDAY).send, false, 'เสาร์ → ไม่ประกาศ')
 }
@@ -198,7 +211,10 @@ section('Test 8: เดือนที่มี 5 จันทร์ — ทุ�
   for (const d of ['2026-03-04', '2026-03-11', '2026-03-18', '2026-03-25']) {
     assertEq(announcementFor(d, NO_HOLIDAY).send, true, `พุธ ${d} → ประกาศ`)
   }
-  assertEq(announcementFor('2026-03-31', NO_HOLIDAY).send, false, 'อังคาร 31 มี.ค. → ไม่ประกาศ')
+  // อังคาร 31 มี.ค. = วันรับของรอบจันทร์ 30 → ประกาศแบบ pickup
+  const mar31 = announcementFor('2026-03-31', NO_HOLIDAY)
+  assertEq(mar31.send, true, 'อังคาร 31 มี.ค. → ประกาศวันมารับของ')
+  assertEq(mar31.kind, 'pickup', 'อังคาร 31 มี.ค. kind = pickup')
 }
 
 // ────────────────────────────────────────────────────────────────────

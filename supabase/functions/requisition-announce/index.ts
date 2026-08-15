@@ -31,6 +31,9 @@ const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LINE_TOKEN   = Deno.env.get("LINE_REQ_CHANNEL_TOKEN") || "";
 const LINE_GROUP   = Deno.env.get("LINE_REQ_GROUP_ID") || "";
 
+/** เหลือส่งได้กี่ครั้งถึงเริ่มเตือนในตัวข้อความ (0 = ครั้งสุดท้าย) */
+const QUOTA_WARN_SENDS = 2;
+
 /** วันนี้ตามเวลาไทย — Edge Function รันบน UTC, ห้ามใช้ new Date() ตรงๆ ไม่งั้นก่อน 07:00 จะได้วันก่อนหน้า */
 function todayBangkok(): string {
   const now = new Date();
@@ -131,10 +134,10 @@ Deno.serve(async (req) => {
     const info = announcementFor(today, holidays);
 
     if (!info.send) {
-      return json({ ok: true, date: today, sent: false, reason: "วันนี้ไม่ใช่วันส่งใบเบิก" });
+      return json({ ok: true, date: today, sent: false, reason: "วันนี้ไม่ใช่วันส่งใบเบิกและไม่ใช่วันมารับของ" });
     }
 
-    const text = buildAnnouncementText(info);
+    let text = buildAnnouncementText(info);
 
     if (opts.dryRun) {
       return json({ ok: true, date: today, sent: false, dryRun: true, info, text });
@@ -152,14 +155,51 @@ Deno.serve(async (req) => {
         date: today, sent: false, reason: "โควตา LINE ไม่พอ",
         quota_remain: quota.remain, group_members: members,
       });
+      // เด้งกระดิ่งด้วย — วันที่ประกาศไม่ออกคือวันที่คลังต้องรู้ที่สุด
+      await insertAudit("line_quota_low", {
+        date: today,
+        sends_left: 0,
+        quota_limit: quota.limit,
+        quota_used: quota.used,
+        quota_remain: quota.remain,
+        group_members: members,
+        exhausted: true,
+        skipped_announcement: true,
+      }, 0);
       return json({ ok: false, date: today, sent: false, error: "โควตา LINE ไม่พอสำหรับกลุ่มนี้", quota, members }, 429);
     }
 
+    // เตือนโควตาใกล้หมด — ประกาศ 4 วัน/สัปดาห์ (~418 ข้อความ) เกินโควตา 300 จึงเงียบท้ายเดือนเป็นปกติ
+    //
+    // ⚠️ เตือน "ในแอปคลังยา" เท่านั้น ไม่ต่อท้ายข้อความในกลุ่ม LINE (ตัดสินใจ 2026-08-15)
+    // เหตุผล: เรื่องโควตาเป็นงานหลังบ้านของคลัง ward รู้ไปก็ทำอะไรไม่ได้ + ข้อความยาวขึ้นโดยเปล่าประโยชน์
+    // ช่องทาง = audit action `line_quota_low` → เด้งในกระดิ่งแจ้งเตือน (staff/admin เห็น)
+    //
+    // นับ "ส่งได้อีกกี่ครั้ง" = โควตาเหลือ ÷ จำนวนคนในกลุ่ม (push นับรายหัว)
+    // -1 เพราะครั้งนี้กำลังจะส่ง → เลขที่บอกคือจำนวนครั้งที่เหลือ "หลังจากข้อความนี้"
+    const sendsLeftAfter = quota.remain != null && members
+      ? Math.floor(quota.remain / members) - 1
+      : null;
+
     await pushAnnouncement(text);
+
+    if (sendsLeftAfter != null && sendsLeftAfter <= QUOTA_WARN_SENDS) {
+      await insertAudit("line_quota_low", {
+        date: today,
+        sends_left: sendsLeftAfter,
+        quota_limit: quota.limit,
+        quota_used: quota.used,
+        quota_remain: quota.remain,
+        group_members: members,
+        exhausted: sendsLeftAfter <= 0,
+      }, sendsLeftAfter);
+    }
 
     await insertAudit("line_announce", {
       date: today,
       sent: true,
+      kind: info.kind,
+      sends_left_after: sendsLeftAfter,
       requisition_date: info.requisitionDate,
       pickup_date: info.pickupDate,
       shifted_from: info.shiftedFrom,

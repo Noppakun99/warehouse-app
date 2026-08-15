@@ -1,22 +1,30 @@
 -- ============================================================
 -- pg_cron: เรียก Edge Function `requisition-announce` ทุกวัน 08:00 (Asia/Bangkok)
 -- ============================================================
--- ⚠️ อย่ารันจนกว่าจะทดสอบ @All ผ่านแล้ว (ขั้น 6 ในแผน) — รันแล้วมันจะเริ่มยิงกลุ่มจริงทันที
+-- ✅ รันจริงแล้ว 2026-08-15 — ไฟล์นี้อัปเดตให้ตรงกับที่รันจริง (ของเดิมมีกับดัก ดูหมายเหตุล่าง)
 -- ⚠️ ต้องปิดบอทเดิม Kao-Bot (Apps Script) ก่อน ไม่งั้นกลุ่มได้ประกาศซ้ำ 2 ตัว และเผาโควตาคู่
 --
--- ก่อนรัน: deploy edge function + ตั้ง secrets ครบ
---   supabase secrets set LINE_REQ_CHANNEL_TOKEN=...
---   supabase secrets set LINE_REQ_GROUP_ID=...
+-- ก่อนรัน: deploy edge function + ตั้ง secrets ครบ (ตั้งใน Dashboard → Edge Functions → Secrets)
+--   LINE_REQ_CHANNEL_TOKEN, LINE_REQ_GROUP_ID
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS pg_cron;
-CREATE EXTENSION IF NOT EXISTS pg_net;
+CREATE EXTENSION IF NOT EXISTS pg_net;   -- ⚠️ ไม่ได้ติดตั้งมาแต่แรก ต้องรันบรรทัดนี้จริง
 
--- vault secret ใช้ร่วมกับ expiry-alert ได้ (auth ตัวเดียวกัน) — สร้างเฉพาะ url ใหม่
--- ถ้ามีอยู่แล้วจะ error (ignore ได้)
+-- ⚠️ กับดักของไฟล์เวอร์ชันแรก: เดิมอ้าง vault secret ชื่อ `expiry_alert_auth`
+-- โดยเข้าใจว่า "ใช้ร่วมกับ expiry-alert ได้" — แต่ตรวจแล้ว vault ว่างเปล่า (0 แถว)
+-- และ expiry-alert ก็ไม่เคยตั้ง cron เลย → cron จะยิงด้วย Authorization ว่าง = 401 เงียบทุกวัน
+-- จึงต้องสร้าง secret ทั้ง 2 ตัวเอง
+SELECT vault.create_secret(
+  '<VITE_SUPABASE_ANON_KEY>',   -- ค่าจริงอยู่ใน .env — อย่า commit ค่า key ลงไฟล์นี้
+  'requisition_announce_auth',
+  'anon key สำหรับ cron เรียก Edge Function requisition-announce'
+);
+
 SELECT vault.create_secret(
   'https://kgjocnfafhqqioneqapk.supabase.co/functions/v1/requisition-announce',
-  'requisition_announce_url'
+  'requisition_announce_url',
+  'endpoint ของบอทประกาศรอบเบิก-รับ'
 );
 
 -- ยิงทุกวัน — ฟังก์ชันตัดสินเองว่าวันนี้เป็นวันประกาศไหม
@@ -34,7 +42,7 @@ SELECT cron.schedule(
     url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'requisition_announce_url'),
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'expiry_alert_auth')
+      'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'requisition_announce_auth')
     ),
     body := '{}'::jsonb
   ) AS request_id;
