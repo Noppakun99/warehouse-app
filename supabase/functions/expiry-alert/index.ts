@@ -334,50 +334,31 @@ interface DetailEntry {
 }
 interface AlertItem { r: InvRow; expDate: Date; }
 
-// หัวตารางซ้ำทุก N แถว — Gmail ตัด position:sticky ทิ้ง (email client ไม่รองรับ)
-// การซ้ำหัวคือวิธีมาตรฐานที่ทำได้จริง ให้คนเลื่อนกลางตารางยังรู้ว่าคอลัมน์ไหนคืออะไร
-const HEADER_REPEAT_EVERY = 20;
-
+/**
+ * รายการยา — เรนเดอร์เป็น "การ์ดรายตัว" ไม่ใช่ตาราง
+ *
+ * ⚠️ ห้ามกลับไปใช้ตารางหลายคอลัมน์ (เหตุการณ์ 2026-08-15)
+ * ตาราง 10 คอลัมน์ + `table-layout:fixed;width:100%` บนจอมือถือ ~390px
+ * → แต่ละคอลัมน์เหลือ ~35px → ตัวอักษรแตกเป็นแนวตั้งทีละตัว อ่านไม่ได้เลย
+ * และ **Gmail app ตัด `@media` ทิ้ง** → แก้ด้วย CSS responsive ไม่ได้
+ *
+ * การ์ดคือรูปแบบเดียวที่อ่านได้ทั้งมือถือและคอมพิวเตอร์โดยไม่ต้องพึ่ง media query:
+ * แต่ละการ์ดกว้างเต็มบรรทัด ข้อมูลเรียงลงล่าง ไม่มีการบีบคอลัมน์
+ */
 function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMap: Record<string, DetailEntry>): string {
-  // ห้ามใส่ white-space:nowrap ในหัว — table-layout:fixed บีบช่องตาม % ที่สั่ง
-  // หัวที่ nowrap จะล้นไปทับหัวถัดไป (เหตุการณ์: "คงเหลือ (วัน)" ทับ "คงเหลือ")
-  const th = `style="background:#e2e8f0;padding:10px 8px;text-align:left;border:1px solid #cbd5e1;font-size:13px;font-weight:bold;color:#334155;word-break:break-word;"`;
-  // ตัด "โซน" ออก (= ตัวอักษรแรกของตำแหน่ง ซ้ำซ้อน 100%) เอาที่ว่างให้ "รหัสยา"
-  // ที่แอป/Excel มีแต่ email ไม่มี → เอาไปค้นต่อในระบบไม่ได้ (Rule #6)
-  // ลำดับคอลัมน์: ย้ายคอลัมน์นับวันมาก่อน "นโยบาย" — นโยบายเป็น free-text ยาว (200+ ตัวอักษร)
-  // ถ้าอยู่กลางตารางจะดันคอลัมน์หลังหลุดขอบจอ Gmail (เลื่อนขวาไม่ได้ desktop ไม่มี scrollbar)
-  // เอาข้อมูลสั้น/สำคัญไว้ซ้ายทั้งหมด แล้วให้ "นโยบาย" เป็นคอลัมน์สุดท้าย ล้นได้ไม่บังใคร
-  // ชื่อหัวต้องไม่กำกวม: เดิม "คงเหลือ (วัน)" กับ "คงเหลือ" อ่านแล้วสับสนว่าอันไหนจำนวน อันไหนวัน
-  // "จำนวนคงเหลือ" รวมหน่วยไว้ในวงเล็บแล้ว — ไม่มีคอลัมน์ "หน่วย" แยก (ซ้ำซ้อน) ให้ตรงกับโมดอลในแอป
-  const HEADERS = ["ตำแหน่ง","รหัสยา","ชนิดยา","ชื่อยา","Lot","Exp", isExpired ? "เกินมาแล้ว" : "เหลืออีก","จำนวนคงเหลือ","บริษัท","นโยบายเปลี่ยนยา"];
-  const headRow = `<tr>${HEADERS.map(h => `<th ${th}>${h}</th>`).join("")}</tr>`;
+  let html = "";
 
-  // table-layout:fixed + width คุมต่อคอลัมน์ = Gmail คำนวณความกว้างตามที่สั่ง ไม่ยืดตามเนื้อหา
-  let html = `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;table-layout:fixed;font-size:13px;margin-bottom:20px;">`;
-  html += `<colgroup>`;
-  // 10 คอลัมน์ (เอา "หน่วย" ออก คืนที่ให้ ชื่อยา/จำนวน/นโยบาย) — รวมต้องได้ 100%
-  html += `<col style="width:7%"/><col style="width:7%"/><col style="width:7%"/><col style="width:17%"/>`;
-  html += `<col style="width:8%"/><col style="width:8%"/><col style="width:8%"/><col style="width:11%"/>`;
-  html += `<col style="width:13%"/><col style="width:14%"/>`;
-  html += `</colgroup>`;
-  html += `<thead>${headRow}</thead><tbody>`;
-
-  items.forEach((item, idx) => {
-    // ซ้ำหัวกลางตาราง (ไม่ซ้ำที่แถวแรก — thead แสดงอยู่แล้ว)
-    if (idx > 0 && idx % HEADER_REPEAT_EVERY === 0) html += headRow;
-
+  items.forEach((item) => {
     const row = item.r;
     const days = daysLeft(item.expDate, today);
     const bg = isExpired ? "#fef2f2" : (days <= 90 ? "#fffbeb" : "#f0fdf4");
+    const bd = isExpired ? "#fecaca" : (days <= 90 ? "#fde68a" : "#bbf7d0");
     const dc = isExpired ? "#dc2626" : (days <= 90 ? "#d97706" : "#16a34a");
-    // ทุก cell ต้อง word-break — table-layout:fixed บีบช่องตาม % เนื้อหาที่ยาวเกินจะล้นทับช่องข้าง
-    const td = `style="padding:8px 8px;border:1px solid #e2e8f0;background:${bg};font-size:13px;vertical-align:top;word-break:break-word;"`;
 
     const code = String(row.code || "").trim().toLowerCase();
     const lot  = String(row.lot  || "-").trim().toLowerCase() || "-";
     // strict per-lot เท่านั้น — ห้าม fallback `code|` (CONTEXT §นโยบายเปลี่ยนยา + ADR-0012)
     // ยา 1 รหัสซื้อหลายบริษัทได้ (~23%) → หยิบแถวอื่นของรหัสเดียวกัน = บริษัทผิด → คืนผิดเจ้า
-    // ไม่รู้บริษัท ≠ ตัดแถวทิ้ง: แถวยังอยู่ในรายการเสมอ แค่ช่องบริษัท/นโยบายเป็น '-'
     const d = detailMap[`${code}|${lot}`] || ({} as DetailEntry);
 
     const supplier = d.supplier_current || "-";
@@ -386,26 +367,33 @@ function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMa
     if (d.supplier_changed && d.supplier_changed !== "-") swapParts.push(d.supplier_changed);
     const swapText = swapParts.length > 0 ? swapParts.join(" | ") : "-";
 
-    // ลำดับต้องตรงกับ HEADERS + colgroup
-    html += "<tr>";
-    html += `<td ${td}>${row.location || "-"}</td>`;
-    html += `<td ${td}>${row.code || "-"}</td>`;
-    html += `<td ${td}>${row.type || "-"}</td>`;
-    html += `<td ${td}><b style="font-size:13px;">${row.name || "-"}</b></td>`;
-    html += `<td ${td}>${row.lot || "-"}</td>`;
-    html += `<td ${td}><b>${fmtDate(item.expDate)}</b></td>`;
-    html += `<td style="padding:8px 8px;border:1px solid #e2e8f0;background:${bg};text-align:right;font-weight:bold;font-size:13px;color:${dc};vertical-align:top;">${Math.abs(days)} วัน</td>`;
-    // "จำนวนคงเหลือ" แสดงหน่วยในวงเล็บต่อท้าย เช่น 1 (500เม็ด) — ให้ตรงกับโมดอลใกล้หมดอายุในแอป
-    // (เลขล้วนติดกับหน่วยคนละช่องอ่านเป็น "1 500เม็ด" = 1,500 ได้)
-    html += `<td style="padding:8px 8px;border:1px solid #e2e8f0;background:${bg};font-size:13px;text-align:right;vertical-align:top;">${row.qty || "-"}${row.unit ? ` (${row.unit})` : ""}</td>`;
-    html += `<td ${td}>${supplier}</td>`;
-    // แสดงนโยบายเต็ม ไม่ตัด — คนอ่านต้องเห็นเงื่อนไขครบในแถวของยานั้น (ตัดแล้วอ่านไม่จบ ใช้ตัดสินใจไม่ได้)
-    // ปลอดภัยเพราะ table-layout:fixed + word-break บังคับให้ข้อความ wrap ในช่อง ไม่ดันตารางล้นจอ
-    html += `<td style="padding:8px 8px;border:1px solid #e2e8f0;background:${bg};font-size:11px;line-height:1.5;color:#475569;vertical-align:top;word-break:break-word;">${swapText}</td>`;
-    html += "</tr>";
+    // label/value เรียงเป็นคู่ — ใช้ตาราง 2 คอลัมน์ต่อการ์ด (label แคบ value กว้าง)
+    // 2 คอลัมน์ยังอ่านได้บนมือถือ ต่างจาก 10 คอลัมน์
+    const field = (label: string, value: string, strong = false) =>
+      `<tr>
+        <td style="padding:3px 8px 3px 0;font-size:13px;color:#64748b;white-space:nowrap;vertical-align:top;width:34%;">${label}</td>
+        <td style="padding:3px 0;font-size:13px;color:#1e293b;vertical-align:top;word-break:break-word;${strong ? "font-weight:bold;" : ""}">${value}</td>
+      </tr>`;
+
+    html += `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;margin:0 0 12px;background:${bg};border:1px solid ${bd};border-radius:8px;">
+      <tr><td style="padding:12px 14px;">
+        <div style="font-size:16px;font-weight:bold;color:#1e293b;line-height:1.4;word-break:break-word;">${row.name || "-"}</div>
+        <div style="font-size:12px;color:#94a3b8;margin:2px 0 8px;">${row.code || "-"}${row.type ? ` · ${row.type}` : ""}</div>
+        <div style="display:inline-block;background:${dc};color:#ffffff;font-size:13px;font-weight:bold;padding:4px 10px;border-radius:999px;margin-bottom:10px;">
+          ${isExpired ? "หมดอายุแล้ว" : "เหลืออีก"} ${Math.abs(days)} วัน
+        </div>
+        <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;">
+          ${field("Lot", row.lot || "-")}
+          ${field("วันหมดอายุ", fmtDate(item.expDate), true)}
+          ${field("ตำแหน่ง", row.location || "-")}
+          ${field("คงเหลือ", `${row.qty || "-"}${row.unit ? ` (${row.unit})` : ""}`)}
+          ${field("บริษัท", supplier)}
+          ${swapText !== "-" ? field("นโยบายเปลี่ยน/คืน", `<span style="font-size:12px;color:#475569;line-height:1.5;">${swapText}</span>`) : ""}
+        </table>
+      </td></tr>
+    </table>`;
   });
 
-  html += "</tbody></table>";
   return html;
 }
 
@@ -416,35 +404,41 @@ interface ReturnDueItem {
   returnPct?: number | null; statusNote?: string | null;   // เฟส 2 (ADR-0014)
 }
 
+// การ์ดรายตัวเหมือน makeTable — ห้ามกลับไปใช้ตารางหลายคอลัมน์ (อ่านไม่ได้บนมือถือ ดูคอมเมนต์ makeTable)
 function makeReturnDueTable(items: ReturnDueItem[]): string {
-  const th = `style="background:#ffedd5;padding:10px 12px;text-align:left;border:1px solid #fdba74;font-size:14px;font-weight:bold;color:#9a3412;white-space:nowrap;"`;
-  let html = `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:20px;">`;
-  html += "<thead><tr>";
-  ["สถานะ","ชื่อยา","Lot","บริษัท","Exp","ต้องคืนภายใน","% คืน","นโยบาย (เต็ม)"].forEach(h => { html += `<th ${th}>${h}</th>`; });
-  html += "</tr></thead><tbody>";
+  let html = "";
   for (const it of items) {
-    // willDeplete = คาดว่าจะหมดเองก่อน deadline (ตามเรทเบิก) → แถวจาง เตือนว่าอาจไม่ต้องคืน
+    // willDeplete = คาดว่าจะหมดเองก่อน deadline (ตามเรทเบิก) → การ์ดจาง เตือนว่าอาจไม่ต้องคืน
     const bg = it.willDeplete ? "#f8fafc" : (it.overdue ? "#fef2f2" : "#fff7ed");
     const border = it.willDeplete ? "#e2e8f0" : "#fed7aa";
-    const td = `style="padding:9px 12px;border:1px solid ${border};background:${bg};font-size:14px;vertical-align:middle;${it.willDeplete ? "color:#64748b;" : ""}"`;
     const statusLabel = it.overdue ? "พ้นกำหนด" : `เหลือ ${it.daysToDeadline} วัน`;
     const statusColor = it.willDeplete ? "#94a3b8" : (it.overdue ? "#dc2626" : "#ea580c");
-    const nameHtml = it.willDeplete
-      ? `${it.r.name || "-"}<br><span style="font-size:12px;color:#059669;">คาดว่าจะหมดเองก่อน (ใช้ ~${Math.round(it.avgPerDay)}/วัน · พอ ~${it.coverageDays} วัน)</span>`
-      : `<b style="font-size:15px;">${it.r.name || "-"}</b>`;
-    html += "<tr>";
-    html += `<td style="padding:9px 12px;border:1px solid ${border};background:${bg};font-weight:bold;color:${statusColor};white-space:nowrap;vertical-align:middle;">${statusLabel}</td>`;
-    html += `<td ${td}>${nameHtml}</td>`;
-    html += `<td ${td}>${it.r.lot || "-"}</td>`;
-    html += `<td ${td}>${it.company || "-"}</td>`;
-    html += `<td ${td}>${fmtDate(parseExpDate(it.r.exp) || new Date())}</td>`;
-    html += `<td style="padding:9px 12px;border:1px solid ${border};background:${bg};font-weight:bold;color:${statusColor};white-space:nowrap;vertical-align:middle;">${fmtDate(it.deadline)}</td>`;
     const pctLabel = it.returnPct != null ? `${it.returnPct}%` : (it.statusNote ? "—" : "-");
-    html += `<td ${td}>${pctLabel}${it.statusNote ? `<br><span style="font-size:11px;color:#94a3b8;">${it.statusNote}</span>` : ""}</td>`;
-    html += `<td style="padding:9px 12px;border:1px solid ${border};background:${bg};font-size:12px;color:#475569;vertical-align:middle;">${it.policyText || "-"}</td>`;
-    html += "</tr>";
+
+    const field = (label: string, value: string, strong = false) =>
+      `<tr>
+        <td style="padding:3px 8px 3px 0;font-size:13px;color:#9a3412;white-space:nowrap;vertical-align:top;width:34%;">${label}</td>
+        <td style="padding:3px 0;font-size:13px;color:#1e293b;vertical-align:top;word-break:break-word;${strong ? "font-weight:bold;" : ""}">${value}</td>
+      </tr>`;
+
+    html += `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;margin:0 0 12px;background:${bg};border:1px solid ${border};border-radius:8px;">
+      <tr><td style="padding:12px 14px;">
+        <div style="font-size:16px;font-weight:bold;color:${it.willDeplete ? "#64748b" : "#1e293b"};line-height:1.4;word-break:break-word;">${it.r.name || "-"}</div>
+        ${it.willDeplete ? `<div style="font-size:12px;color:#059669;margin-top:2px;">คาดว่าจะหมดเองก่อน (ใช้ ~${Math.round(it.avgPerDay)}/วัน · พอ ~${it.coverageDays} วัน)</div>` : ""}
+        <div style="display:inline-block;background:${statusColor};color:#ffffff;font-size:13px;font-weight:bold;padding:4px 10px;border-radius:999px;margin:8px 0 10px;">
+          ${statusLabel}
+        </div>
+        <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;">
+          ${field("Lot", it.r.lot || "-")}
+          ${field("บริษัท", it.company || "-")}
+          ${field("วันหมดอายุ", fmtDate(parseExpDate(it.r.exp) || new Date()))}
+          ${field("ต้องคืนภายใน", fmtDate(it.deadline), true)}
+          ${field("% คืน", `${pctLabel}${it.statusNote ? ` <span style="font-size:11px;color:#94a3b8;">(${it.statusNote})</span>` : ""}`)}
+          ${it.policyText ? field("นโยบาย", `<span style="font-size:12px;color:#475569;line-height:1.5;">${it.policyText}</span>`) : ""}
+        </table>
+      </td></tr>
+    </table>`;
   }
-  html += "</tbody></table>";
   return html;
 }
 
@@ -453,11 +447,7 @@ function makeReturnDueTable(items: ReturnDueItem[]): string {
 // ไม่จมไปกับตารางใกล้หมดอายุ 96 แถว. ส่งเฉพาะเมื่อมีของค้างจริง (qty>0)
 // → เห็นอีเมลนี้ในกล่อง = มีปัญหาแน่นอน ไม่ต้องเปิดก็รู้
 function buildExpiredEmail(expired: AlertItem[], today: Date, detailMap: Record<string, DetailEntry>): string {
-  // ไม่ใส่ nowrap — ตารางนี้ใช้ table-layout:fixed เหมือนตารางหลัก หัวที่ nowrap จะล้นทับช่องข้าง
-  const th = `style="background:#fecaca;padding:10px 8px;text-align:left;border:1px solid #f87171;font-size:13px;font-weight:bold;color:#7f1d1d;word-break:break-word;"`;
-  const HEADERS = ["ตำแหน่ง","รหัสยา","ชนิดยา","ชื่อยา","Lot","Exp","เลยมาแล้ว","คงเหลือ","หน่วย","บริษัท"];
-  const headRow = `<tr>${HEADERS.map(h => `<th ${th}>${h}</th>`).join("")}</tr>`;
-
+  // ใช้การ์ดรายตัวเหมือน makeTable — ห้ามกลับไปใช้ตารางหลายคอลัมน์ (อ่านไม่ได้บนมือถือ ดู makeTable)
   let html = `<div style="font-family:'Sarabun','Noto Sans Thai',sans-serif;max-width:1100px;margin:auto;color:#1e293b;font-size:15px;">`;
   html += `<h2 style="color:#b91c1c;border-bottom:3px solid #fecaca;padding-bottom:10px;font-size:22px;">ยาหมดอายุค้างคลัง — ต้องเก็บออกจากคลังทันที</h2>`;
   html += `<p style="color:#7f1d1d;font-size:15px;font-weight:bold;margin:12px 0 4px;">พบ ${expired.length} รายการที่หมดอายุแล้วแต่ยังมีของค้างอยู่บนชั้น (${fmtDate(today)})</p>`;
@@ -474,34 +464,36 @@ function buildExpiredEmail(expired: AlertItem[], today: Date, detailMap: Record<
   html += `<p style="margin:8px 0 0;color:#b45309;font-size:13px;"><b>หมายเหตุ:</b> ถ้ายังไม่อัพเดตระบบ อีเมลฉบับนี้จะแจ้งเตือนซ้ำทุกวันจนกว่าจะอัพเดต</p>`;
   html += `</div>`;
 
-  html += `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;table-layout:fixed;font-size:13px;margin-bottom:20px;">`;
-  html += `<colgroup>`;
-  html += `<col style="width:9%"/><col style="width:9%"/><col style="width:9%"/><col style="width:22%"/><col style="width:11%"/>`;
-  html += `<col style="width:10%"/><col style="width:10%"/><col style="width:7%"/><col style="width:7%"/><col style="width:16%"/>`;
-  html += `</colgroup>`;
-  html += `<thead>${headRow}</thead><tbody>`;
-  expired.forEach((item, idx) => {
-    if (idx > 0 && idx % HEADER_REPEAT_EVERY === 0) html += headRow;
+  expired.forEach((item) => {
     const row = item.r;
     const over = Math.abs(daysLeft(item.expDate, today));
-    const td = `style="padding:8px 10px;border:1px solid #fecaca;background:#fef2f2;font-size:13px;vertical-align:middle;word-break:break-word;"`;
     const code = String(row.code || "").trim().toLowerCase();
     const lot  = String(row.lot  || "-").trim().toLowerCase() || "-";
     const d = detailMap[`${code}|${lot}`] || ({} as DetailEntry);   // strict per-lot
-    html += "<tr>";
-    html += `<td ${td}>${row.location || "-"}</td>`;
-    html += `<td ${td}>${row.code || "-"}</td>`;
-    html += `<td ${td}>${row.type || "-"}</td>`;
-    html += `<td ${td}><b style="font-size:15px;">${row.name || "-"}</b></td>`;
-    html += `<td ${td}>${row.lot || "-"}</td>`;
-    html += `<td ${td}><b>${fmtDate(item.expDate)}</b></td>`;
-    html += `<td style="padding:9px 12px;border:1px solid #fecaca;background:#fef2f2;text-align:right;font-weight:bold;font-size:15px;color:#dc2626;white-space:nowrap;vertical-align:middle;">${over} วัน</td>`;
-    html += `<td style="padding:9px 12px;border:1px solid #fecaca;background:#fef2f2;font-size:14px;text-align:right;vertical-align:middle;">${row.qty || "-"}</td>`;
-    html += `<td ${td}>${row.unit || "-"}</td>`;
-    html += `<td ${td}>${d.supplier_current || "-"}</td>`;
-    html += "</tr>";
+
+    const field = (label: string, value: string, strong = false) =>
+      `<tr>
+        <td style="padding:3px 8px 3px 0;font-size:13px;color:#9a3412;white-space:nowrap;vertical-align:top;width:34%;">${label}</td>
+        <td style="padding:3px 0;font-size:13px;color:#1e293b;vertical-align:top;word-break:break-word;${strong ? "font-weight:bold;" : ""}">${value}</td>
+      </tr>`;
+
+    html += `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;margin:0 0 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;">
+      <tr><td style="padding:12px 14px;">
+        <div style="font-size:16px;font-weight:bold;color:#1e293b;line-height:1.4;word-break:break-word;">${row.name || "-"}</div>
+        <div style="font-size:12px;color:#94a3b8;margin:2px 0 8px;">${row.code || "-"}${row.type ? ` · ${row.type}` : ""}</div>
+        <div style="display:inline-block;background:#dc2626;color:#ffffff;font-size:13px;font-weight:bold;padding:4px 10px;border-radius:999px;margin-bottom:10px;">
+          หมดอายุแล้ว ${over} วัน
+        </div>
+        <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;">
+          ${field("Lot", row.lot || "-")}
+          ${field("วันหมดอายุ", fmtDate(item.expDate), true)}
+          ${field("ตำแหน่ง", row.location || "-", true)}
+          ${field("คงเหลือ", `${row.qty || "-"}${row.unit ? ` (${row.unit})` : ""}`)}
+          ${field("บริษัท", d.supplier_current || "-")}
+        </table>
+      </td></tr>
+    </table>`;
   });
-  html += `</tbody></table>`;
   html += `<p style="color:#94a3b8;font-size:13px;margin-top:32px;border-top:1px solid #e2e8f0;padding-top:12px;">ส่งอัตโนมัติโดย Supabase Edge Function · ระบบแผนผังคลังยา</p>`;
   html += "</div>";
   return html;
