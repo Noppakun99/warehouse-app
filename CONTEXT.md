@@ -393,6 +393,14 @@ lifecycle 2 สถานะของ 1 รายการคืน (ADR-0009): `
 - **cross-check:** parse structured (col 28) เทียบ free-text ดิบ (col 20-22) — ขัดกัน → flag. ไม่เชื่อ source เดียว.
 - **Related:** [[deadline เปลี่ยนยา (Return-Exchange Deadline)]], [[นโยบายเปลี่ยนยารายบริษัท (Supplier Swap Policy)]].
 
+### สถานะดำเนินการคืนบริษัท (Swap-Return Action Identity)
+สถานะที่คลังคีย์ว่าตามเรื่องคืนบริษัทถึงไหนแล้ว (ยังไม่ทำ / แจ้งบริษัทแล้ว / ส่งคืนแล้ว / บริษัทรับแล้ว / ไม่คืน) เก็บที่ตาราง `swap_return_action` **แยกจาก `inventory`** เพราะ inventory ถูก replace ทั้งตารางทุกครั้งที่ import CSV (เก็บในนั้น = งานที่คีย์ไว้หายทุกรอบ).
+
+- **Identity = `drug_code | lot | company`** (unique index) — **ไม่ใช่ `inventory.id`** เพราะ inventory มีแถวซ้ำ `code+lot` ได้จริง (CSV แยกแถว เช่น Norepinephrine lot 27H091 = 2 แถว 10+4). ผูกกับ row id จะทำให้สถานะกระจัดกระจายคนละแถวทั้งที่เป็นยา lot เดียวกัน.
+- **ฝั่ง UI ต้อง key ให้ตรงกับ DB:** `SwapReturnPopup` ([AppRoot.jsx](src/AppRoot.jsx)) แยก 2 key คนละหน้าที่ — `rowKey` (= `inventory.id`) สำหรับ React key / กาง-พับ / flag แจ้งหัวหน้า และ `actionKey` (= `swapActionKey()` ตัวเดียวกับ db.js) สำหรับสถานะ+วันที่. **ถ้า key สถานะด้วย rowKey แถวซ้ำจะโชว์คนละค่าทั้งที่ DB มีแถวเดียว** แล้วเขียนทับกันเงียบๆ → คลังคีย์ซ้ำเพราะเชื่อว่าอีกแถวยังไม่ได้ทำ (แก้ 2026-08-15).
+- **ข้อจำกัดที่ยอมรับไว้ — `exp` ไม่อยู่ใน key:** deadline คำนวณจาก `exp` แต่ identity ไม่มี `exp` → ถ้ารหัสเดียวกัน + lot เดียวกัน + บริษัทเดียวกัน แต่ **EXP ต่างกัน** จะใช้สถานะร่วมกัน (กด "ไม่คืน" ทีเดียว **หายจาก popup ทั้งคู่** เพราะ `fetchSwapReturnDue` ตัด `no_return` ออก). **ยังไม่แก้เพราะปัจจุบันไม่มีเคสที่ไปถึงจุดนั้น** — ตรวจ 2026-08-15: ทั้งฐานข้อมูลมี 1 รายการที่เข้าเงื่อนไขนี้ (Glucose powder 454gm lot `-`, EXP 3/2/2028 vs 30/9/2028) และรายการนั้น **ไม่มีนโยบายคืน** (`drug_swap_policy` = null) จึงเข้า popup ไม่ได้เลย. **เฝ้าระวัง:** มี 25 รหัส/40 แถวที่ใช้ lot `-` — ถ้าวันหนึ่งมีรหัสแบบนั้นที่ *มีนโยบายคืน* และ EXP ต่างกัน ต้องเพิ่ม `exp` เข้า key (migration: drop unique index เดิม + สร้างใหม่ + backfill).
+- **Related:** [[deadline เปลี่ยนยา (Return-Exchange Deadline)]], [[ความจำเป็นต้องคืน (Return-Need = Coverage vs Deadline)]].
+
 ### บิลอ้างอิงของ lot (Receive-Bill Evidence)
 บิลใน `receive_logs` ที่ใช้เป็น**หลักฐาน**ประกอบการแจ้งหัวหน้าเปลี่ยน/คืนยา — นับเป็น "บิลของรายการนี้จริง" ก็ต่อเมื่อ **รหัส + lot + EXP ตรงทั้งสาม** เท่านั้น.
 

@@ -886,7 +886,13 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
   React.useEffect(() => {
     fetchDrugDetails().then(setDrugDetails).catch(() => setDrugDetails(null));
   }, []);
-  const keyOf = (r) => r.id ?? `${r.code}|${r.lot}|${r.location}`; // id = inventory row id — business key ซ้ำได้จริง (แถวซ้ำ code+lot+location) ทำ React key ชน
+  // 2 key คนละหน้าที่ — อย่ารวมเป็นตัวเดียว:
+  //   rowKey    = ต่อแถวที่แสดง (inventory row id) — React key / กาง-พับ / flag แจ้งหัวหน้า
+  //   actionKey = identity ของ "สถานะดำเนินการ" ใน DB (code|lot|company ตาม unique index ของ
+  //               swap_return_action) — inventory มีแถวซ้ำ code+lot จริง หลายแถวจึงใช้สถานะร่วมกัน
+  // ถ้า key สถานะด้วย rowKey แถวซ้ำจะโชว์สถานะคนละค่าทั้งที่ DB มีแถวเดียว (เขียนทับกันเงียบๆ)
+  const rowKey = (r) => r.id ?? `${r.code}|${r.lot}|${r.location}`;
+  const actionKey = (r) => swapActionKey(r.code, r.lot, r.company);
   const fmtThai = swapFmtDeadline;
   const fmtExp = swapFmtExp;
   const overdue = rows.filter(r => r.status === 'overdue');
@@ -897,12 +903,13 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
         drugCode: r.code, drugName: r.name, lot: r.lot, company: r.company,
         returnMonths: r.returnMonths, deadline: r.deadline, daysLeft: r.daysToDeadline,
       }, auth);
-      setFlagged(prev => ({ ...prev, [keyOf(r)]: true }));
+      setFlagged(prev => ({ ...prev, [rowKey(r)]: true }));
     } catch { /* เงียบ — ไม่บล็อกการใช้งาน */ }
   };
   // บันทึกสถานะดำเนินการ (status และ/หรือ วันที่) — upsert ต่อ code|lot|company
+  // key ด้วย actionKey ให้ตรงกับ DB — แถว inventory ที่ซ้ำ code+lot จะอัปเดตพร้อมกันทุกแถว
   const saveAction = async (r, patch) => {
-    const k = keyOf(r);
+    const k = actionKey(r);
     const cur = actions[k] || { status: r.actionStatus || 'pending', date: r.actionDate || '' };
     const next = { ...cur, ...patch };
     setActions(prev => ({ ...prev, [k]: next }));   // optimistic — ผู้ใช้เห็นผลทันที
@@ -976,15 +983,18 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
   const Row = (r) => {
-    const isFlagged = flagged[keyOf(r)];
-    const isOpen = expandedKey === keyOf(r);
-    // สถานะที่แก้ในหน้านี้ชนะค่าที่มาจาก DB (ยังไม่ refetch)
-    const curAction = actions[keyOf(r)] || { status: r.actionStatus || 'pending', date: r.actionDate || '' };
+    const rk = rowKey(r);
+    const ak = actionKey(r);
+    const isFlagged = flagged[rk];
+    const isOpen = expandedKey === rk;
+    // สถานะที่แก้ในหน้านี้ชนะค่าที่มาจาก DB (ยังไม่ refetch) — key ด้วย actionKey
+    // แถวซ้ำ code+lot จึงเห็นค่าเดียวกันทันทีที่แก้แถวใดแถวหนึ่ง (ตรงกับที่ DB เก็บจริง)
+    const curAction = actions[ak] || { status: r.actionStatus || 'pending', date: r.actionDate || '' };
     const det = matchReceiveDetails(drugDetails, r); // ประวัติรับยา — helper กลางชุดเดียวกับโมดอลใกล้หมดอายุ
     // willDeplete = ของจะหมดเองก่อนถึง deadline (ตามเรทเบิก) → ไม่ต้องคืน (flag จาง ไม่ซ่อน — ดู CONTEXT.md §ความจำเป็นต้องคืน)
     return (
-      <div key={keyOf(r)} className={`rounded-lg border overflow-hidden ${r.willDeplete ? 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 opacity-80' : 'bg-white dark:bg-slate-900 border-amber-200 dark:border-amber-900/60'}`}>
-        <div onClick={() => setExpandedKey(isOpen ? null : keyOf(r))} className="px-3 py-2 cursor-pointer hover:bg-amber-50/60 dark:hover:bg-amber-950/50">
+      <div key={rk} className={`rounded-lg border overflow-hidden ${r.willDeplete ? 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 opacity-80' : 'bg-white dark:bg-slate-900 border-amber-200 dark:border-amber-900/60'}`}>
+        <div onClick={() => setExpandedKey(isOpen ? null : rk)} className="px-3 py-2 cursor-pointer hover:bg-amber-50/60 dark:hover:bg-amber-950/50">
           <div className="flex items-center gap-2 flex-wrap">
             <ChevronDown size={13} className={`text-amber-600 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
             <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.status === 'overdue' ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300'}`}>
@@ -1025,7 +1035,7 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
                   onChange={(v) => saveAction(r, { date: v })}
                   className="w-32"
                 />
-                {savingKey === keyOf(r) && <RefreshCcw size={12} className="animate-spin text-amber-600" />}
+                {savingKey === ak && <RefreshCcw size={12} className="animate-spin text-amber-600" />}
               </>
             ) : (
               <>
