@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -21,7 +21,7 @@ import RequisitionApp     from './RequisitionApp';
 import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
-import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS, fetchSwapReturnActions, swapActionKey } from './lib/db';
+import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS, fetchSwapReturnActions, swapActionKey, fetchLatestLineQuotaAlert } from './lib/db';
 import { computeReturnStatus } from './lib/swapPolicy';
 import { matchReceiveDetails } from './lib/receiveMatch';
 import ReturnApp          from './ReturnApp';
@@ -565,15 +565,34 @@ function Dashboard({ auth, onNavigate }) {
   const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock' | 'stock'
   const [swapDue, setSwapDue] = useState([]);          // ยาต้องคืนบริษัทก่อนพ้นกำหนด (staff/admin)
   const [swapPopupOpen, setSwapPopupOpen] = useState(false); // popup เด้งอัตโนมัติตอน login
+  const [expiredPopupOpen, setExpiredPopupOpen] = useState(false); // popup ยาหมดอายุค้างคลัง
+  const [quotaPopup, setQuotaPopup] = useState(null);  // popup โควตา LINE ใกล้หมด (staff/admin)
   const [chartMonths, setChartMonths] = useState(6);   // ช่วงเปรียบเทียบกราฟ: 3 | 6 | 12 | 'all'
   const [chartEndYm, setChartEndYm] = useState(null);  // เดือนสิ้นสุดของช่วง (YYYY-MM); null = เดือนล่าสุด
   const [monthRange, setMonthRange] = useState([]);    // รายการเดือนให้เลือกใน dropdown
 
+  // ยาหมดอายุค้างคลัง = ของที่ยังอยู่บนชั้นทั้งที่เลย exp แล้ว (CONTEXT §Expired-On-Shelf)
+  // ⚠️ ต้อง derive จาก alerts.expiring ชุดเดียวกับโมดอลส้ม — expired/near-expiry อยู่ในชุดเดียวกัน
+  // (ดู Do-Not rule เรื่องโมดอลส้มใน CLAUDE.md) แยก query ใหม่จะหลุดจากกันได้
+  const expiredItems = useMemo(
+    () => (alerts.expiring || []).filter(it => it.daysLeft < 0),
+    [alerts.expiring],
+  );
+
   useEffect(() => {
     if (!supabase) return;
-    fetchDashboardAlerts().then(setAlerts);
+    fetchDashboardAlerts().then(a => {
+      setAlerts(a);
+      // เด้ง popup ยาหมดอายุค้างคลังพร้อมกับที่ข้อมูลมาถึง — ครั้งเดียวต่อรอบ login
+      const expired = (a.expiring || []).filter(it => it.daysLeft < 0);
+      const shownKey = `expired_popup_shown_${auth.id}`;
+      if (expired.length > 0 && !sessionStorage.getItem(shownKey)) {
+        setExpiredPopupOpen(true);
+        sessionStorage.setItem(shownKey, '1');
+      }
+    });
     fetchChartMonthRange().then(setMonthRange).catch(() => {});
-  }, []);
+  }, [auth.id]);
 
   // กราฟเบิก/รับ — refetch เมื่อเปลี่ยนช่วง (3/6/12/ทั้งหมด) หรือเดือนสิ้นสุด. แสดงทุก role
   // ไม่ล้าง charts เป็น null ระหว่างโหลด → คงกราฟเดิมไว้ ไม่กระพริบว่าง (race: ค่าล่าสุดชนะด้วย alive flag)
@@ -598,6 +617,25 @@ function Dashboard({ auth, onNavigate }) {
       }
     }).catch(() => {});
   }, [auth.id]);
+
+  // ยาหมดอายุค้างคลัง (ของยังอยู่บนชั้นทั้งที่เลย exp) — เด้งครั้งเดียวต่อรอบ login
+  // ใช้ alerts.expiring ชุดเดียวกับโมดอลส้ม แล้วกรอง daysLeft < 0 (Do-Not rule: expired อยู่ในชุดเดียวกัน)
+  //
+  // ตั้ง flag "เคยเด้งแล้ว" ตอน fetch เสร็จ (ไม่ใช่ setState ใน effect แยก — cascading render)
+  // pattern เดียวกับ swap popup แต่ต้องรอ alerts โหลดก่อน จึงเช็คใน callback ของ fetchDashboardAlerts
+
+  // โควตาแจ้งเตือน LINE ใกล้หมด — staff/admin เท่านั้น (ward ทำอะไรกับโควตาไม่ได้)
+  // อ่านจาก audit action `line_quota_low` ที่บอทบันทึกไว้ (ดู docs/features/requisition-announce.md)
+  useEffect(() => {
+    if (!supabase || !isStaff) return;
+    const shownKey = `line_quota_popup_shown_${auth.id}`;
+    if (sessionStorage.getItem(shownKey)) return;
+    fetchLatestLineQuotaAlert().then(row => {
+      if (!row) return;
+      setQuotaPopup(row);
+      sessionStorage.setItem(shownKey, '1');
+    }).catch(() => {});
+  }, [auth.id, isStaff]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-200 via-slate-100 to-indigo-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-900 font-sans">
@@ -649,6 +687,20 @@ function Dashboard({ auth, onNavigate }) {
       {swapPopupOpen && swapDue.length > 0 && (
         <SwapReturnPopup rows={swapDue} auth={auth} onClose={() => setSwapPopupOpen(false)} />
       )}
+
+      {/* Popup ยาหมดอายุค้างคลัง — ของที่ยังอยู่บนชั้นทั้งที่เลย exp แล้ว ต้องเก็บออก */}
+      {expiredPopupOpen && expiredItems.length > 0 && (
+        <ExpiredStockPopup
+          rows={expiredItems}
+          onClose={() => setExpiredPopupOpen(false)}
+          onOpenAll={() => { setExpiredPopupOpen(false); setAlertModal('expiry'); }}
+        />
+      )}
+
+      {/* Popup โควตาแจ้งเตือน LINE ใกล้หมด — staff/admin เท่านั้น (ward ไม่เกี่ยว) */}
+      {quotaPopup && (
+        <LineQuotaPopup info={quotaPopup} onClose={() => setQuotaPopup(null)} />
+      )}
     </div>
   );
 }
@@ -666,6 +718,18 @@ const swapFmtExp = (raw) => {
   const [d, m, y] = String(raw).split('/').map(Number);
   return (d && m && y) ? `${d}/${m}/${y + 543}` : String(raw);
 };
+// date input แสดง DD/MM/YYYY (พ.ศ.) ทับ hidden <input type="date"> — Rule #3/#14
+// ห้ามใช้ plain <input type="date"> เพราะ browser US locale แสดง MM/DD/YYYY
+function SwapActionDateInput({ value, onChange, className = '' }) {
+  return (
+    <div className={`relative flex items-center bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md focus-within:ring-2 focus-within:ring-amber-500 ${className}`}>
+      <span className={`px-2 py-1 text-[11px] w-full select-none pointer-events-none ${value ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'}`}>{value ? swapFmtDeadline(value) : 'dd/mm/yyyy'}</span>
+      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)}
+        onClick={e => { try { e.currentTarget.showPicker?.(); } catch { /* mobile ไม่รองรับ — ปล่อยให้ native เปิดเอง */ } }}
+        className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+    </div>
+  );
+}
 const swapStatusText = (r) => r.status === 'overdue' ? 'พ้นกำหนดแล้ว' : `เหลือ ${r.daysToDeadline} วัน`;
 const swapRateText = (r) => r.avgBaseUnit ? `~${Math.round(r.avgBaseUnit).toLocaleString()} ${r.baseUnit || 'หน่วย'}/เดือน` : 'ไม่มีการเบิก';
 
@@ -691,6 +755,123 @@ const SWAP_RETURN_EXCEL_COLS = [
   { header: 'ผู้บันทึก',         value: r => r.actionBy || '-' },
   { header: 'นโยบายเปลี่ยน/คืน', value: r => r.policyText || '-' },
 ];
+
+// ---- Popup ยาหมดอายุค้างคลัง (เด้งตอน login) ----
+// "ค้างคลัง" = เลย exp แล้วแต่ qty ยังไม่ 0 → ของจริงยังอยู่บนชั้น ต้องเก็บออก
+// ต่างจากโมดอลส้ม (ใกล้หมดอายุ) ตรงที่อันนี้เจาะเฉพาะของที่ **เลยกำหนดไปแล้ว** — ด่วนกว่า
+function ExpiredStockPopup({ rows = [], onClose, onOpenAll }) {
+  const SHOW = 8;
+  const shown = rows.slice(0, SHOW);
+  const rest = rows.length - shown.length;
+  return (
+    <div className="fixed inset-0 bg-slate-900/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+      <div className="bg-red-50 dark:bg-red-950/40 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col animate-in fade-in zoom-in duration-200">
+        <div className="p-4 border-b border-red-200 dark:border-red-900/60 flex items-start gap-3 shrink-0">
+          <div className="p-2 bg-red-100 dark:bg-red-900/50 rounded-xl shrink-0">
+            <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-300" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">ยาหมดอายุค้างคลัง {rows.length} รายการ</h3>
+            <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
+              เลยวันหมดอายุแล้วแต่ยังมีของค้างอยู่บนชั้น — ต้องเก็บออกจากคลังและบันทึกตัดจ่าย
+            </p>
+          </div>
+        </div>
+
+        <div className="p-3 overflow-y-auto space-y-2 flex-1">
+          {shown.map((it, i) => (
+            <div key={`${it.code}|${it.lot}|${it.location}|${i}`}
+              className="rounded-lg border border-red-200 dark:border-red-900/60 bg-white dark:bg-slate-900 p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm break-words">{it.name}</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">{it.code}</p>
+                </div>
+                <span className="shrink-0 px-2 py-1 rounded-full bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-300 text-[11px] font-semibold">
+                  หมดอายุแล้ว {Math.abs(it.daysLeft)} วัน
+                </span>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[12px] text-slate-600 dark:text-slate-300">
+                <p>Lot: <span className="font-medium text-slate-800 dark:text-slate-100">{it.lot || '-'}</span></p>
+                <p>Exp: <span className="font-medium text-slate-800 dark:text-slate-100">{it.exp || '-'}</span></p>
+                <p>ที่เก็บ: <span className="font-medium text-slate-800 dark:text-slate-100">{it.location || '-'}</span></p>
+                <p>คงเหลือ: <span className="font-medium text-slate-800 dark:text-slate-100">{it.qty}{it.unit ? ` (${it.unit})` : ''}</span></p>
+              </div>
+            </div>
+          ))}
+          {rest > 0 && (
+            <p className="text-center text-xs text-slate-500 dark:text-slate-400 py-2">และอีก {rest} รายการ</p>
+          )}
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-3 border-t border-red-200 dark:border-red-900/60 flex justify-end items-center gap-2 shrink-0 rounded-b-2xl">
+          <button onClick={onOpenAll}
+            className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-medium transition-colors">
+            ดูรายการทั้งหมด
+          </button>
+          <button onClick={onClose}
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition-colors">
+            รับทราบ
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Popup โควตาแจ้งเตือน LINE ใกล้หมด (staff/admin, เด้งตอน login) ----
+// โควตา LINE = 300 ข้อความ/เดือน · push เข้ากลุ่มนับรายหัว → ส่งได้จำกัดครั้งต่อเดือน
+// ดู docs/features/requisition-announce.md §โควตา
+function LineQuotaPopup({ info, onClose }) {
+  const d = info?.details || {};
+  const left = Number(d.sends_left ?? 0);
+  const exhausted = d.exhausted || left <= 0;
+  return (
+    <div className="fixed inset-0 bg-slate-900/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+      <div className="bg-amber-50 dark:bg-amber-950/40 rounded-2xl shadow-2xl w-full max-w-md flex flex-col animate-in fade-in zoom-in duration-200">
+        <div className="p-4 border-b border-amber-200 dark:border-amber-900/60 flex items-start gap-3">
+          <div className="p-2 bg-amber-100 dark:bg-amber-900/50 rounded-xl shrink-0">
+            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-300" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">
+              {exhausted ? 'โควตาแจ้งเตือน LINE หมดแล้ว' : 'โควตาแจ้งเตือน LINE ใกล้หมด'}
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">ประกาศรอบเบิก-รับเข้ากลุ่ม LINE</p>
+          </div>
+        </div>
+
+        <div className="p-4 space-y-3">
+          <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
+            {d.skipped_announcement
+              ? 'ประกาศรอบเบิก-รับวันนี้ไม่ได้ส่งเข้ากลุ่ม เพราะโควตาเดือนนี้หมดแล้ว ระบบจะกลับมาส่งอัตโนมัติต้นเดือนหน้า'
+              : exhausted
+                ? 'ส่งประกาศครั้งสุดท้ายของเดือนนี้แล้ว หลังจากนี้กลุ่มจะไม่ได้รับประกาศจนถึงสิ้นเดือน'
+                : `ส่งประกาศเข้ากลุ่มได้อีก ${left} ครั้ง หลังจากนั้นประกาศจะขาดช่วงจนถึงสิ้นเดือน`}
+          </p>
+          {d.quota_used != null && d.quota_limit != null && (
+            <div className="rounded-lg bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/60 p-3 text-[12px] text-slate-600 dark:text-slate-300 space-y-1">
+              <p>ใช้ไปแล้ว: <span className="font-semibold text-slate-800 dark:text-slate-100">{d.quota_used} / {d.quota_limit}</span> ข้อความ</p>
+              {d.group_members != null && (
+                <p>สมาชิกกลุ่ม: <span className="font-semibold text-slate-800 dark:text-slate-100">{d.group_members}</span> คน (ส่ง 1 ครั้ง = หัก {d.group_members} ข้อความ)</p>
+              )}
+            </div>
+          )}
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            ward ยังดูรอบเบิก-รับได้ที่ปฏิทินในระบบคลังยา · โควตารีเซ็ตต้นเดือนถัดไป
+          </p>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-3 border-t border-amber-200 dark:border-amber-900/60 flex justify-end rounded-b-2xl">
+          <button onClick={onClose}
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-semibold transition-colors">
+            รับทราบ
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function SwapReturnPopup({ rows = [], auth, onClose }) {
   const [flagged, setFlagged] = React.useState({});
@@ -839,14 +1020,11 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
                     <option key={v} value={v}>{label}</option>
                   ))}
                 </select>
-                <input
-                  type="date"
-                  value={curAction.date || ''}
-                  onChange={(e) => saveAction(r, { date: e.target.value })}
-                  onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch { /* mobile ไม่รองรับ — ปล่อยให้ native เปิดเอง */ } }}
-                  className="text-[11px] border border-slate-300 dark:border-slate-600 rounded-md px-2 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                <SwapActionDateInput
+                  value={curAction.date}
+                  onChange={(v) => saveAction(r, { date: v })}
+                  className="w-32"
                 />
-                {curAction.date && <span className="text-[11px] text-slate-500 dark:text-slate-400">{fmtThai(curAction.date)}</span>}
                 {savingKey === keyOf(r) && <RefreshCcw size={12} className="animate-spin text-amber-600" />}
               </>
             ) : (

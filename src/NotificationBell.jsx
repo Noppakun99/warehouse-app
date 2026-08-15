@@ -54,6 +54,8 @@ const NOTIF_LABELS = {
   import_reorder_config:        { label: 'Import Master ยา',      color: 'text-indigo-600',  dot: 'bg-indigo-400' },
   mark_ordered:                 { label: 'ทำเครื่องหมายสั่งแล้ว',  color: 'text-emerald-600', dot: 'bg-emerald-400' },
   print_po:                     { label: 'พิมพ์ใบสั่งซื้อ',        color: 'text-slate-700 dark:text-slate-200',   dot: 'bg-slate-500'  },
+  // ── บอทประกาศ LINE ──
+  line_quota_low:               { label: 'โควตาแจ้งเตือน LINE ใกล้หมด', color: 'text-amber-700 dark:text-amber-300', dot: 'bg-amber-500' },
   // ── Stock Count (ตรวจนับคงคลัง) ──
   create_stock_count:           { label: 'ตรวจนับคงคลัง',         color: 'text-emerald-600', dot: 'bg-emerald-400' },
   update_stock_count:           { label: 'แก้ไขผลตรวจนับ',        color: 'text-amber-600',   dot: 'bg-amber-400' },
@@ -97,6 +99,17 @@ function notifMessage(n) {
       return `${who} แก้ไขรายการยืม-คืน "${d.drug_name || ''}"${d.counterparty ? ` · ${d.counterparty}` : ''}`;
     case 'delete_drug_loan':
       return `${who} ลบรายการยืม-คืน "${d.drug_name || ''}"${d.counterparty ? ` · ${d.counterparty}` : ''}`;
+    case 'line_quota_low': {
+      // ประกาศเข้ากลุ่ม LINE นับโควตารายหัว → เดือนหนึ่งส่งได้จำกัด
+      // ข้อความนี้เห็นเฉพาะในแอป (ไม่ส่งเข้ากลุ่ม) — คลังเป็นคนต้องรู้ ไม่ใช่ ward
+      const used = d.quota_used != null && d.quota_limit != null
+        ? ` (ใช้ ${d.quota_used}/${d.quota_limit})` : '';
+      if (d.skipped_announcement)
+        return `โควตาแจ้งเตือน LINE หมดแล้ว${used} — ประกาศรอบเบิก-รับวันนี้ไม่ได้ส่งเข้ากลุ่ม จะกลับมาส่งอัตโนมัติต้นเดือนหน้า`;
+      if (d.exhausted)
+        return `ส่งประกาศครั้งสุดท้ายของเดือนแล้ว${used} — หลังจากนี้กลุ่มจะไม่ได้รับประกาศจนถึงสิ้นเดือน`;
+      return `โควตาแจ้งเตือน LINE ใกล้หมด${used} — ส่งประกาศเข้ากลุ่มได้อีก ${d.sends_left} ครั้ง`;
+    }
     case 'update_dispense':
       return `${who} แก้ไขรายการจ่ายยา${d.drug_name ? ` "${d.drug_name}"` : ''}`;
     case 'delete_dispense':

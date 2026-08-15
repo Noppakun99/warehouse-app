@@ -27,6 +27,9 @@ playwright-report/
 # Supabase CLI local state
 supabase/.temp/
 
+# Playwright MCP session artifacts (snapshots/console logs ของ browser)
+.playwright-mcp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

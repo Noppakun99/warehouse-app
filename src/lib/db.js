@@ -1462,6 +1462,8 @@ export async function fetchNotifications(scope = null) {
     'create_stock_count',
     'update_stock_count',
     'delete_stock_count',
+    // ── บอทประกาศ LINE ──
+    'line_quota_low',
   ]
   let query = supabase
     .from('audit_logs')
@@ -1478,6 +1480,28 @@ export async function fetchNotifications(scope = null) {
     .limit(30)
   if (error) throw error
   return data || []
+}
+
+/**
+ * คำเตือนโควตา LINE ล่าสุด — ใช้เด้ง popup ตอน staff/admin login
+ *
+ * บอทประกาศ (`requisition-announce`) บันทึก action `line_quota_low` เมื่อโควตาเดือนนั้นใกล้หมด
+ * โควตา LINE **รีเซ็ตต้นเดือน** → สนใจเฉพาะ record ของเดือนปัจจุบัน ไม่งั้นจะเด้งคำเตือนเดือนที่แล้ว
+ * คืน null ถ้าไม่มี = ไม่ต้องเด้ง popup
+ */
+export async function fetchLatestLineQuotaAlert() {
+  if (!supabase) return null
+  const now = new Date()
+  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+  const { data, error } = await supabase
+    .from('audit_logs')
+    .select('id, action, details, created_at')
+    .eq('action', 'line_quota_low')
+    .gte('created_at', monthStart)
+    .order('created_at', { ascending: false })
+    .limit(1)
+  if (error) return null
+  return data?.[0] || null
 }
 
 // --- Usage Analytics (สรุปการใช้งานระบบ, admin-only) ---
