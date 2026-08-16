@@ -160,7 +160,8 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
   };
   const openEdit = (u) => {
     setTarget(u);
-    setFFullName(u.full_name); setFDepartment(u.department || '');
+    // full_name เป็น null ได้ (ผู้ใช้เก่าที่สมัครมาแต่ username) — ต้อง fallback '' ไม่งั้น input กลายเป็น uncontrolled
+    setFFullName(u.full_name || ''); setFDepartment(u.department || '');
     setFRole(u.role); setFActive(u.is_active);
     if (u.is_active) {
       setFSuspendMode('active'); setFSuspendUntil('');
@@ -244,7 +245,7 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
   const filtered = users.filter(u => {
     const matchSearch = !search ||
       u.username.toLowerCase().includes(search.toLowerCase()) ||
-      u.full_name.toLowerCase().includes(search.toLowerCase()) ||
+      (u.full_name || '').toLowerCase().includes(search.toLowerCase()) ||
       (u.department || '').toLowerCase().includes(search.toLowerCase());
     const matchRole = roleFilter === 'all' || u.role === roleFilter;
     return matchSearch && matchRole && (!suspendedOnly || !u.is_active);
@@ -446,14 +447,14 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
                   </Field>
                   <Field label="หน่วยงาน">
                     <select value={fDepartment} onChange={e => setFDepartment(e.target.value)}
-                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500">
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500">
                       <option value="">-- ไม่ระบุ --</option>
                       {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </Field>
                   <Field label="บทบาท">
                     <select value={fRole} onChange={e => setFRole(e.target.value)}
-                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500">
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500">
                       <option value="requester">ผู้เบิก (Requester)</option>
                       <option value="staff">เจ้าหน้าที่คลัง (Staff)</option>
                       <option value="admin">ผู้ดูแลระบบ (Admin)</option>
@@ -476,20 +477,23 @@ export default function UserManagementApp({ auth, onGoBack, canGoBack }) {
               <form onSubmit={handleEdit}>
                 <ModalHeader title={`แก้ไข: ${target.username}`} icon={<Pencil size={18}/>} onClose={closeModal}/>
                 <div className="p-5 space-y-3.5">
-                  <Field label="ชื่อ-สกุล">
-                    <input value={fFullName} onChange={e => setFFullName(e.target.value)} required
-                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500"/>
+                  {/* ไม่บังคับกรอก — ผู้ใช้เก่าหลายคนไม่มีชื่อ-สกุลในระบบ (สมัครมาแต่ username)
+                      ถ้าบังคับ จะแก้ หน่วยงาน/บทบาท/สถานะ ไม่ได้เลยจนกว่าจะพิมพ์ชื่อให้ก่อน */}
+                  <Field label="ชื่อ-สกุล (ไม่บังคับ)">
+                    <input value={fFullName} onChange={e => setFFullName(e.target.value)}
+                      placeholder="เว้นว่างได้ — ระบบจะใช้ username แทน"
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500"/>
                   </Field>
                   <Field label="หน่วยงาน">
                     <select value={fDepartment} onChange={e => setFDepartment(e.target.value)}
-                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500">
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500">
                       <option value="">-- ไม่ระบุ --</option>
                       {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </Field>
                   <Field label="บทบาท">
                     <select value={fRole} onChange={e => setFRole(e.target.value)}
-                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500">
+                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500">
                       <option value="requester">ผู้เบิก (Requester)</option>
                       <option value="staff">เจ้าหน้าที่คลัง (Staff)</option>
                       <option value="admin">ผู้ดูแลระบบ (Admin)</option>
