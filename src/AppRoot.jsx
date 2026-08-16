@@ -32,6 +32,7 @@ import AnalyticsApp       from './AnalyticsApp';
 import ReorderApp         from './ReorderApp';
 import StockLedgerApp     from './StockLedgerApp';
 import StockCountApp      from './StockCountApp';
+import TemperatureLogApp  from './TemperatureLogApp';
 import DrugLoanApp        from './DrugLoanApp';
 import StockCardApp       from './StockCardApp';
 import NotificationBell   from './NotificationBell';
@@ -195,6 +196,9 @@ export default function AppRoot() {
         break;
       case 'stockcard':
         content = <StockCardApp key={subKey} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
+        break;
+      case 'temperature':
+        content = <TemperatureLogApp key={subKey} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       default:
         content = <Dashboard key={subKey} auth={auth} onNavigate={setPage} />;

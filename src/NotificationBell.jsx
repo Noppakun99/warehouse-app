@@ -58,6 +58,8 @@ const NOTIF_LABELS = {
   line_quota_low:               { label: 'โควตาแจ้งเตือน LINE ใกล้หมด', color: 'text-amber-700 dark:text-amber-300', dot: 'bg-amber-500' },
   // ── Stock Count (ตรวจนับคงคลัง) ──
   create_stock_count:           { label: 'ตรวจนับคงคลัง',         color: 'text-emerald-600', dot: 'bg-emerald-400' },
+  create_temperature_log:       { label: 'บันทึกอุณหภูมิตู้เย็น',  color: 'text-sky-600',     dot: 'bg-sky-400' },
+  import_temperature_log:       { label: 'นำเข้าอุณหภูมิจากเครื่อง', color: 'text-sky-600',    dot: 'bg-sky-400' },
   update_stock_count:           { label: 'แก้ไขผลตรวจนับ',        color: 'text-amber-600',   dot: 'bg-amber-400' },
   delete_stock_count:           { label: 'ลบรอบตรวจนับ',          color: 'text-red-600',     dot: 'bg-red-400' },
 };

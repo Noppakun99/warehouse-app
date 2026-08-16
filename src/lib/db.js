@@ -1462,6 +1462,9 @@ export async function fetchNotifications(scope = null) {
     'create_stock_count',
     'update_stock_count',
     'delete_stock_count',
+    // ── อุณหภูมิตู้เย็น (ADR-0018) ──
+    'create_temperature_log',
+    'import_temperature_log',
     // ── บอทประกาศ LINE ──
     'line_quota_low',
   ]
@@ -3576,4 +3579,256 @@ export async function fetchHolidayCoverage() {
     byYear[y] = (byYear[y] || 0) + 1
   }
   return byYear
+}
+
+// ═══════════════════════════════════════════════════════════════
+// อุณหภูมิตู้เย็นคลังยา (Cold Chain Temperature) — ADR-0018
+// ═══════════════════════════════════════════════════════════════
+//
+// ⚠️ กฎเหล็กของโมดูลนี้: **ค่าที่ source='generated' ไม่ใช่การวัดจริง**
+//    (Apps Script เคยสุ่มค่าด้วย Math.random ใส่ชีทวันละ 2 แถว — ดู ADR-0018)
+//    ทุกฟังก์ชันที่คำนวณสถิติ/กราฟ/ความครบถ้วน **กรองออกที่ชั้นนี้เสมอ**
+//    เพื่อไม่ให้ component ต้องจำเอง (ลืมจุดเดียว = ตัวเลขเพี้ยนทั้งหน้า)
+
+export const TEMP_LOCATION_DEFAULT = 'ตู้เย็นคลังยา'
+
+/**
+ * อุปกรณ์ที่ใช้วัด — สำคัญกับงานตรวจ GDP/HA ที่ขอ "ใบสอบเทียบของเครื่องที่ใช้วัด"
+ * `fridge_display` (จอตู้เย็น) = สภาพปัจจุบัน — วัดอากาศใกล้คอยล์ ไม่ใช่อุณหภูมิของยา
+ * และไม่มีใบสอบเทียบ จึงใช้ยืนยันกับผู้ตรวจไม่ได้ (ดู ADR-0018)
+ */
+export const TEMP_DEVICES = [
+  { key: 'fridge_display', label: 'จอแสดงผลของตู้เย็น', calibrated: false },
+  { key: 'thermometer',    label: 'เทอร์โมมิเตอร์แยก',   calibrated: false },
+  { key: 'data_logger',    label: 'เครื่องบันทึกอัตโนมัติ (data logger)', calibrated: true },
+]
+export const TEMP_DEVICE_DEFAULT = 'fridge_display'
+export const tempDeviceLabel = (k) =>
+  TEMP_DEVICES.find(d => d.key === k)?.label || (k === 'none' ? 'ไม่ได้วัด' : k || '-')
+export const TEMP_MIN_DEFAULT = 2
+export const TEMP_MAX_DEFAULT = 8
+
+/**
+ * normalize ชื่อผู้บันทึก — ฟอร์มเดิมเป็น free text จึงมีชื่อคนเดียวกันเขียนหลายแบบ
+ * เคสจริง: P'Jeab (') กับ P’Jeab (’) = คนเดียวกัน แต่เป็นคนละ string
+ * ใช้จัดกลุ่มใน dropdown ตัวกรอง — **ไม่แก้ค่าใน DB** (ค่าเดิมคือสิ่งที่คนกรอกจริง)
+ */
+export const normRecorder = (s) => String(s || '').replace(/[’‘`´]/g, "'").trim()
+
+/** ค่าที่ "วัดจริง" เท่านั้น — generated ไม่นับ (ADR-0018) */
+export const isRealReading = (r) => r?.source !== 'generated'
+
+/** หลุดช่วงยอมรับไหม — ใช้เกณฑ์ที่ snapshot ไว้ในแถว ไม่ใช่ค่าคงที่ในโค้ด */
+export function isExcursion(r) {
+  if (!r) return false
+  const lo = r.min_c ?? TEMP_MIN_DEFAULT
+  const hi = r.max_c ?? TEMP_MAX_DEFAULT
+  const t = Number(r.temp_c)
+  return Number.isFinite(t) && (t < Number(lo) || t > Number(hi))
+}
+
+/**
+ * ประวัติการวัด — default กรอง generated ออก
+ * @param {object} opts { from, to, includeGenerated }
+ *   includeGenerated=true ใช้เฉพาะหน้าประวัติที่ต้องการโชว์หลักฐานว่าเคยมีค่าปลอม
+ */
+export async function fetchTemperatureLogs({ from, to, includeGenerated = false, recordedBy } = {}) {
+  if (!supabase) return []
+  let q = supabase.from('temperature_log').select('*')
+  if (from) q = q.gte('reading_date', from)
+  if (to)   q = q.lte('reading_date', to)
+  if (!includeGenerated) q = q.neq('source', 'generated')
+  const { data, error } = await q
+    .order('reading_date', { ascending: false })
+    .order('reading_time', { ascending: false, nullsFirst: false })
+    .limit(2000)
+  if (error) throw error
+  let rows = data || []
+  // กรองชื่อฝั่ง client เพราะต้อง normalize apostrophe ก่อนเทียบ (P'Jeab = P’Jeab)
+  if (recordedBy) rows = rows.filter(r => normRecorder(r.recorded_by) === normRecorder(recordedBy))
+  return rows
+}
+
+/** รายชื่อผู้บันทึก (distinct, normalize แล้ว) สำหรับ dropdown ตัวกรอง */
+export async function fetchTemperatureRecorders() {
+  if (!supabase) return []
+  const { data, error } = await supabase.from('temperature_log')
+    .select('recorded_by').neq('source', 'generated')
+  if (error) throw error
+  const counts = new Map()
+  for (const r of data || []) {
+    const k = normRecorder(r.recorded_by)
+    if (!k || k === '-') continue
+    counts.set(k, (counts.get(k) || 0) + 1)
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, count]) => ({ name, count }))
+}
+
+/**
+ * สรุปสถิติ + ความครบถ้วนของการบันทึก
+ * **ไม่เติมแถวให้รอบที่ไม่มีคนวัด** — ความครบถ้วนคำนวณจากแถวจริง ÷ รอบที่ควรมี (ADR-0018 ข้อ 6)
+ */
+export async function fetchTemperatureStats({ from, to, roundsPerDay = 2, recordedBy } = {}) {
+  const rows = await fetchTemperatureLogs({ from, to, includeGenerated: true, recordedBy })
+  const real = rows.filter(isRealReading)
+  const generated = rows.length - real.length
+
+  const temps = real.map(r => Number(r.temp_c)).filter(Number.isFinite)
+  const excursions = real.filter(isExcursion)
+  // excursion ที่ยังไม่มีใครบันทึกการดำเนินการ = ช่องว่างที่ผู้ตรวจถามหา
+  const unhandled = excursions.filter(r => !String(r.action_taken || '').trim())
+
+  // ความครบถ้วน: นับ "วัน" ที่ควรมีจากช่วงที่เลือก (ถ้าไม่ระบุ ใช้ช่วงข้อมูลจริง)
+  const days = (() => {
+    const ds = real.map(r => r.reading_date).sort()
+    const a = from || ds[0]
+    const b = to || ds[ds.length - 1]
+    if (!a || !b) return 0
+    return Math.floor((new Date(b) - new Date(a)) / 86400000) + 1
+  })()
+  const expected = days * roundsPerDay
+  const pct = expected > 0 ? Math.min(100, Math.round((real.length / expected) * 100)) : 0
+
+  return {
+    count: real.length,
+    generatedCount: generated,
+    min: temps.length ? Math.min(...temps) : null,
+    max: temps.length ? Math.max(...temps) : null,
+    avg: temps.length ? temps.reduce((s, t) => s + t, 0) / temps.length : null,
+    excursionCount: excursions.length,
+    unhandledCount: unhandled.length,
+    expected,
+    pct,
+    dataFrom: real.length ? real[real.length - 1].reading_date : null,
+    dataTo: real.length ? real[0].reading_date : null,
+  }
+}
+
+/** บันทึกค่าใหม่ (คนกรอกในแอป) — source='manual' เสมอ ห้ามให้ caller override */
+export async function insertTemperatureLog(row, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const payload = {
+    reading_date: row.reading_date,
+    reading_time: row.reading_time || null,
+    round_label: row.round_label || '',
+    temp_c: Number(row.temp_c),
+    humidity_pct: row.humidity_pct === '' || row.humidity_pct == null ? null : Number(row.humidity_pct),
+    min_c: row.min_c ?? TEMP_MIN_DEFAULT,
+    max_c: row.max_c ?? TEMP_MAX_DEFAULT,
+    location: row.location || TEMP_LOCATION_DEFAULT,
+    device: row.device || TEMP_DEVICE_DEFAULT,
+    source: 'manual',
+    recorded_by: resolveAuditUserName(auth),
+    note: row.note || '',
+    action_taken: row.action_taken || '',
+  }
+  const { data, error } = await supabase.from('temperature_log').insert(payload).select('id').single()
+  if (error) throw error
+  await insertAuditLog({
+    action: 'create_temperature_log', table_name: 'temperature_log',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: 1,
+    details: {
+      reading_date: payload.reading_date, reading_time: payload.reading_time,
+      temp_c: payload.temp_c, excursion: isExcursion(payload), device: payload.device,
+    },
+  })
+  return data?.id
+}
+
+/** แก้ไขแถว — ใช้บันทึกการดำเนินการ (corrective action) ย้อนหลังได้ */
+export async function updateTemperatureLog(id, patch, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const allowed = {}
+  for (const k of ['temp_c', 'humidity_pct', 'note', 'action_taken', 'round_label', 'reading_time', 'device']) {
+    if (k in patch) allowed[k] = patch[k] === '' ? null : patch[k]
+  }
+  const { error } = await supabase.from('temperature_log').update(allowed).eq('id', id)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'update_temperature_log', table_name: 'temperature_log',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: 1,
+    details: { id, fields: Object.keys(allowed) },
+  })
+}
+
+/** ลบแถว (admin) — เช่น กรอกผิดวัน */
+export async function deleteTemperatureLog(id, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { error } = await supabase.from('temperature_log').delete().eq('id', id)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'delete_temperature_log', table_name: 'temperature_log',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: 1, details: { id },
+  })
+}
+
+/**
+ * นำเข้าค่าจาก data logger (CSV) — source='device'
+ * **ต้องระบุ device ว่าเครื่องอะไร** (ADR-0018 ข้อ 6 — ผู้ตรวจขอใบสอบเทียบของเครื่องที่ใช้วัด)
+ * ใช้ upsert แบบ ignore-duplicate: รอบที่มีอยู่แล้วจะไม่ทับ (unique = date+time+location)
+ * @returns {{ inserted:number, skipped:number }}
+ */
+export async function importTemperatureRows(rows, { device = 'data_logger' } = {}, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const payload = (rows || []).map(r => ({
+    reading_date: r.reading_date,
+    reading_time: r.reading_time || null,
+    round_label: r.round_label || '',
+    temp_c: Number(r.temp_c),
+    humidity_pct: r.humidity_pct == null || r.humidity_pct === '' ? null : Number(r.humidity_pct),
+    min_c: r.min_c ?? TEMP_MIN_DEFAULT,
+    max_c: r.max_c ?? TEMP_MAX_DEFAULT,
+    location: r.location || TEMP_LOCATION_DEFAULT,
+    device,
+    source: 'device',
+    recorded_by: resolveAuditUserName(auth),
+    note: r.note || '',
+    source_ref: r.source_ref || '',
+  })).filter(p => p.reading_date && Number.isFinite(p.temp_c))
+
+  let inserted = 0
+  for (let i = 0; i < payload.length; i += CHUNK_SIZE) {
+    const chunk = payload.slice(i, i + CHUNK_SIZE)
+    // ignoreDuplicates: รอบที่บันทึกไว้แล้วไม่ถูกทับ (ค่าเดิมเป็นหลักฐาน)
+    const { data, error } = await supabase.from('temperature_log')
+      .upsert(chunk, { onConflict: 'reading_date,reading_time,location', ignoreDuplicates: true })
+      .select('id')
+    if (error) throw error
+    inserted += (data || []).length
+  }
+
+  await insertAuditLog({
+    action: 'import_temperature_log', table_name: 'temperature_log',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: inserted,
+    details: { device, parsed: payload.length, inserted, skipped: payload.length - inserted },
+  })
+  return { inserted, skipped: payload.length - inserted }
+}
+
+/**
+ * หา "รอบที่บันทึกไปแล้ว" ของวันนั้น — ใช้เตือนก่อนบันทึกซ้ำ
+ * รอบ = ครึ่งวัน (เช้า < 12:00 / บ่าย >= 12:00) เพราะคนวัดจริงเวลาไม่ตรงเป๊ะทุกวัน
+ * (09:13 กับ 09:50 = รอบเช้าเหมือนกัน ไม่ใช่คนละรอบ)
+ * @returns {Array} แถวที่อยู่รอบเดียวกันในวันนั้น (ไม่รวม generated)
+ */
+export async function findTemperatureSameRound(reading_date, reading_time, location = TEMP_LOCATION_DEFAULT) {
+  if (!supabase || !reading_date) return []
+  const { data, error } = await supabase.from('temperature_log')
+    .select('*')
+    .eq('reading_date', reading_date)
+    .eq('location', location)
+    .neq('source', 'generated')
+  if (error) throw error
+  const hour = Number(String(reading_time || '00:00').slice(0, 2))
+  const half = hour < 12 ? 'am' : 'pm'
+  return (data || []).filter(r => {
+    const h = Number(String(r.reading_time || '00:00').slice(0, 2))
+    return (h < 12 ? 'am' : 'pm') === half
+  })
 }

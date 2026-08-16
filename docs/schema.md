@@ -18,6 +18,7 @@
 | `stock_ledger_migration.sql` | ตาราง `stock_ledger` — ทะเบียนคงคลังรายเดือน (ADR-0007) | รอ deploy + seed |
 | `stock_count_migration.sql` | ตาราง `stock_count_session` + `stock_count_item` — ตรวจนับคงคลัง (ADR-0008). ทั้งคู่มี `created_at TIMESTAMPTZ DEFAULT NOW()` (ใช้แสดง "นับเมื่อไหร่" — เวลาจริง). `stock_count_item.note` = หมายเหตุรายบรรทัด (per-lot) แยกจาก `stock_count_session.note` (หมายเหตุรอบ) | ใช้งาน |
 | `reorder_orders_migration.sql` | ตาราง `reorder_orders` — สถานะ "สั่งแล้ว" ของ ReorderApp (ย้ายจาก localStorage → DB, sync ข้ามเครื่อง). 1 แถว = 1 รหัสยา; untick = ลบแถว | ใช้งาน (apply prod 2026-07-04 ผ่าน MCP + verify round-trip) |
+| `temperature_log_migration.sql` | ตาราง `temperature_log` — อุณหภูมิตู้เย็นคลังยา (ADR-0018). **`source` = ที่มาของค่า** (`manual`/`form_import`/`generated`/`device`) — `generated` คือค่าที่ Apps Script สุ่มขึ้น **ต้องกรองออกจากทุกสถิติ/กราฟ**. `min_c`/`max_c` = เกณฑ์ snapshot ต่อแถว (ไม่ hardcode 2–8). unique ที่ `(reading_date, COALESCE(reading_time,'00:00'), location)` | ใช้งาน (apply prod 2026-08-16 + import 455 แถว: form_import 115 / generated 340) |
 
 > ⚠️ **"ใช้งาน" = ไฟล์ migration มีอยู่ ไม่ได้แปลว่า apply บน prod แล้วเสมอ** — ก่อนพึ่งคอลัมน์ใดให้ verify schema จริง (`information_schema.columns` ผ่าน MCP) โดยเฉพาะถ้าเจอ error `column "x" does not exist` ทั้งที่ doc บอก "ใช้งาน" (เคสจริง: `suspend_until` ข้างบน)
 
