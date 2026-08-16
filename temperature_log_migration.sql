@@ -66,10 +66,19 @@ CREATE INDEX IF NOT EXISTS idx_temperature_log_source
   ON temperature_log (source);
 
 -- กันบันทึกซ้ำรอบเดียวกัน — วันเดียวกัน + เวลาเดียวกัน + ตู้เดียวกัน ควรมีแถวเดียว
--- ⚠️ ใช้ COALESCE กับ reading_time เพราะ NULL ไม่ชนกันเองใน unique index ปกติ
---    (กับดักเดียวกับ drug_loan — ดู memory project_drug_loan_between_hospitals)
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_temperature_log_slot
-  ON temperature_log (reading_date, COALESCE(reading_time, '00:00:00'::TIME), location);
+--
+-- ⚠️ ต้องเป็น **CONSTRAINT ไม่ใช่ expression index** — ตอนแรกทำเป็น
+--    `CREATE UNIQUE INDEX ... (reading_date, COALESCE(reading_time,'00:00'), location)`
+--    แล้วพบว่า upsert `onConflict: 'reading_date,reading_time,location'` **ไม่ match**
+--    → insert เงียบๆ ไม่เข้าและไม่ error (นำเข้า CSV ได้ 0 แถวโดยไม่มีใครรู้)
+--    Postgres ให้ ON CONFLICT อ้าง expression index ตรงๆ ไม่ได้
+--
+-- ที่ไม่ต้องใช้ COALESCE แล้วเพราะ reading_time เป็น NOT NULL DEFAULT '00:00:00'
+-- (ถ้าปล่อย NULL ได้ NULL <> NULL จะทำให้ constraint ไม่ชนกันเอง → import ซ้ำได้แถวซ้ำ
+--  กับดักเดียวกับ drug_loan — ดู memory project_drug_loan_between_hospitals)
+ALTER TABLE temperature_log
+  ADD CONSTRAINT uniq_temperature_log_slot
+  UNIQUE (reading_date, reading_time, location);
 
 COMMENT ON TABLE temperature_log IS
   'บันทึกอุณหภูมิตู้เย็นเก็บยา (ADR-0018). source=generated คือค่าที่ Apps Script สุ่มขึ้น ไม่ใช่การวัดจริง — ห้ามนำเข้าสถิติ/กราฟ';
