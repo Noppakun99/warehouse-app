@@ -21,7 +21,7 @@ import RequisitionApp     from './RequisitionApp';
 import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
-import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS, fetchSwapReturnActions, swapActionKey, fetchLatestLineQuotaAlert } from './lib/db';
+import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS, fetchSwapReturnActions, swapActionKey, fetchLatestLineQuotaAlerts } from './lib/db';
 import { computeReturnStatus } from './lib/swapPolicy';
 import { matchReceiveDetails } from './lib/receiveMatch';
 import ReturnApp          from './ReturnApp';
@@ -630,9 +630,9 @@ function Dashboard({ auth, onNavigate }) {
     if (!supabase || !isStaff) return;
     const shownKey = `line_quota_popup_shown_${auth.id}`;
     if (sessionStorage.getItem(shownKey)) return;
-    fetchLatestLineQuotaAlert().then(row => {
-      if (!row) return;
-      setQuotaPopup(row);
+    fetchLatestLineQuotaAlerts().then(rows => {
+      if (!rows?.length) return;
+      setQuotaPopup(rows);   // เด้งทีละตัวตามลำดับ (บอทละ 1 คำเตือน)
       sessionStorage.setItem(shownKey, '1');
     }).catch(() => {});
   }, [auth.id, isStaff]);
@@ -697,9 +697,13 @@ function Dashboard({ auth, onNavigate }) {
         />
       )}
 
-      {/* Popup โควตาแจ้งเตือน LINE ใกล้หมด — staff/admin เท่านั้น (ward ไม่เกี่ยว) */}
-      {quotaPopup && (
-        <LineQuotaPopup info={quotaPopup} onClose={() => setQuotaPopup(null)} />
+      {/* Popup โควตาแจ้งเตือน LINE ใกล้หมด — staff/admin เท่านั้น (ward ไม่เกี่ยว)
+          บอทหลายตัวเตือนพร้อมกันได้ → เด้งทีละตัว ปิดแล้วขึ้นตัวถัดไป */}
+      {quotaPopup?.length > 0 && (
+        <LineQuotaPopup
+          info={quotaPopup[0]}
+          onClose={() => setQuotaPopup(prev => prev.slice(1))}
+        />
       )}
     </div>
   );
@@ -826,6 +830,11 @@ function LineQuotaPopup({ info, onClose }) {
   const d = info?.details || {};
   const left = Number(d.sends_left ?? 0);
   const exhausted = d.exhausted || left <= 0;
+  // บอท 2 ตัวใช้ audit action `line_quota_low` ร่วมกัน แยกด้วย details.bot
+  // (ไม่มี field = บอทประกาศ — record เก่าก่อนเพิ่มบอทแจ้งเตือนยา)
+  const isExpiryBot = d.bot === 'expiry';
+  const botLabel = isExpiryBot ? 'แจ้งเตือนยาใกล้หมดอายุเข้ากลุ่ม LINE' : 'ประกาศรอบเบิก-รับเข้ากลุ่ม LINE';
+  const msgNoun = isExpiryBot ? 'การแจ้งเตือนยาใกล้หมดอายุ' : 'ประกาศรอบเบิก-รับ';
   return (
     <div className="fixed inset-0 bg-slate-900/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
       <div className="bg-amber-50 dark:bg-amber-950/40 rounded-2xl shadow-2xl w-full max-w-md flex flex-col animate-in fade-in zoom-in duration-200">
@@ -837,17 +846,17 @@ function LineQuotaPopup({ info, onClose }) {
             <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">
               {exhausted ? 'โควตาแจ้งเตือน LINE หมดแล้ว' : 'โควตาแจ้งเตือน LINE ใกล้หมด'}
             </h3>
-            <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">ประกาศรอบเบิก-รับเข้ากลุ่ม LINE</p>
+            <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">{botLabel}</p>
           </div>
         </div>
 
         <div className="p-4 space-y-3">
           <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
             {d.skipped_announcement
-              ? 'ประกาศรอบเบิก-รับวันนี้ไม่ได้ส่งเข้ากลุ่ม เพราะโควตาเดือนนี้หมดแล้ว ระบบจะกลับมาส่งอัตโนมัติต้นเดือนหน้า'
+              ? `${msgNoun}วันนี้ไม่ได้ส่งเข้ากลุ่ม เพราะโควตาเดือนนี้หมดแล้ว ระบบจะกลับมาส่งอัตโนมัติต้นเดือนหน้า`
               : exhausted
-                ? 'ส่งประกาศครั้งสุดท้ายของเดือนนี้แล้ว หลังจากนี้กลุ่มจะไม่ได้รับประกาศจนถึงสิ้นเดือน'
-                : `ส่งประกาศเข้ากลุ่มได้อีก ${left} ครั้ง หลังจากนั้นประกาศจะขาดช่วงจนถึงสิ้นเดือน`}
+                ? `ส่ง${msgNoun}ครั้งสุดท้ายของเดือนนี้แล้ว หลังจากนี้กลุ่มจะไม่ได้รับจนถึงสิ้นเดือน`
+                : `ส่ง${msgNoun}เข้ากลุ่มได้อีก ${left} ครั้ง หลังจากนั้นจะขาดช่วงจนถึงสิ้นเดือน`}
           </p>
           {d.quota_used != null && d.quota_limit != null && (
             <div className="rounded-lg bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/60 p-3 text-[12px] text-slate-600 dark:text-slate-300 space-y-1">

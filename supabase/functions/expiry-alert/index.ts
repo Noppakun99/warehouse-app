@@ -660,6 +660,49 @@ function buildLineText(expired: AlertItem[], nearExpiry: AlertItem[], today: Dat
 }
 
 // ส่ง push เข้ากลุ่ม LINE ผ่าน Messaging API. คืน { sent, recipients } เพื่อ log volume
+/** เหลือส่งได้กี่ครั้งถึงเริ่มเตือนในแอป (ค่าเดียวกับ requisition-announce) */
+const QUOTA_WARN_SENDS = 2;
+
+/**
+ * บันทึก audit — ไม่ throw (audit ล้มต้องไม่ทำให้การแจ้งเตือนล้ม)
+ * pattern เดียวกับ insertAudit ใน requisition-announce + insertAuditLog ใน db.js
+ */
+async function insertAudit(action: string, details: unknown, recordCount: number | null = null) {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/audit_logs`, {
+      method: "POST",
+      headers: {
+        apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`,
+        "Content-Type": "application/json", Prefer: "return=minimal",
+      },
+      body: JSON.stringify([{
+        action, table_name: "inventory", user_name: "ระบบ (บอทแจ้งเตือนยาใกล้หมดอายุ)",
+        department: "คลังยา", record_count: recordCount, details,
+      }]),
+    });
+  } catch (_e) { /* noop */ }
+}
+
+/** โควตา LINE ที่เหลือ + จำนวนคนในกลุ่ม — กันเคส "ส่งไม่ออกแล้วเงียบ" */
+async function lineQuotaStatus(): Promise<{ limit: number | null; used: number | null; remain: number | null; members: number | null }> {
+  try {
+    const h = { Authorization: `Bearer ${LINE_TOKEN}` };
+    const [q, c, m] = await Promise.all([
+      fetch("https://api.line.me/v2/bot/message/quota", { headers: h }).then(r => r.json()),
+      fetch("https://api.line.me/v2/bot/message/quota/consumption", { headers: h }).then(r => r.json()),
+      LINE_GROUP_ID
+        ? fetch(`https://api.line.me/v2/bot/group/${LINE_GROUP_ID}/members/count`, { headers: h })
+            .then(r => (r.ok ? r.json() : null)).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    const limit = q?.type === "limited" ? Number(q.value) : null;   // null = ไม่จำกัด
+    const used = Number(c?.totalUsage ?? 0);
+    return { limit, used, remain: limit == null ? null : limit - used, members: m?.count ?? null };
+  } catch (_e) {
+    return { limit: null, used: null, remain: null, members: null };
+  }
+}
+
 async function sendLine(text: string): Promise<{ ok: boolean; error?: string }> {
   if (!LINE_TOKEN || !LINE_GROUP_ID) {
     return { ok: false, error: "LINE_CHANNEL_ACCESS_TOKEN/LINE_GROUP_ID ไม่ได้ตั้ง — ข้าม LINE" };
@@ -937,11 +980,62 @@ Deno.serve(async (req) => {
         // ไม่มีของเข้าเกณฑ์ LINE (365) → ไม่ push (คุม volume + ไม่รบกวนกลุ่ม)
         result.line = "skip: ไม่มียาเข้าเกณฑ์ LINE";
       } else {
-        const text = buildLineText(expired, lineNear, today, detailMap);
-        const r = await sendLine(text);
-        // log จำนวนรายการเพื่อดูแนวโน้ม volume (push นับรายหัว — ดู Major #4 ใน CONTEXT)
-        console.log(`LINE push: ${r.ok ? "ok" : "FAIL"} · expired=${expired.length} near=${lineNear.length}${r.error ? " · " + r.error : ""}`);
-        result.line = r.ok ? { sent: true, expired: expired.length, nearExpiry: lineNear.length } : { sent: false, error: r.error };
+        // อ่านโควตาก่อนส่ง — ทุกเส้นทางหลังจากนี้ต้องลง audit เสมอ ไม่งั้น "ส่งพลาดแล้วเงียบ"
+        // (ปัญหาเดิมของบอท Apps Script ที่ย้ายหนีมา — ดู docs/features/requisition-announce.md §7)
+        const quota = await lineQuotaStatus();
+        // ⚠️ ต้องเป็นวันจริงเสมอ ห้ามใช้ dateOverride — รายการยา (expired/nearExpiry) คำนวณจาก
+        // `today = new Date()` ซึ่งไม่สนใจ dateOverride เลย ถ้าเอา dateOverride มาลง audit
+        // จะได้แถวที่เขียนว่าส่งวันนั้นแต่เนื้อหาเป็นของวันนี้ = audit โกหก
+        // dateOverride เก็บแยกเป็น simulated_date ไว้ให้รู้ว่าแถวนี้มาจากการทดสอบ
+        const ymdNow = todayBangkokYmd();
+
+        // โควตาไม่พอสำหรับกลุ่มนี้ → ไม่ต้องยิงให้เสียเที่ยว แต่ต้องดังในแอป
+        if (quota.remain != null && quota.members != null && quota.remain < quota.members) {
+          result.line = { sent: false, error: "โควตา LINE ไม่พอสำหรับกลุ่มนี้" };
+          await insertAudit("line_expiry_alert", {
+            date: ymdNow, sent: false, reason: "โควตา LINE ไม่พอ",
+            quota_remain: quota.remain, group_members: quota.members,
+          });
+          await insertAudit("line_quota_low", {
+            date: ymdNow, sends_left: 0,
+            quota_limit: quota.limit, quota_used: quota.used, quota_remain: quota.remain,
+            group_members: quota.members, exhausted: true, skipped_announcement: true,
+            bot: "expiry",
+          }, 0);
+        } else {
+          const text = buildLineText(expired, lineNear, today, detailMap);
+          const r = await sendLine(text);
+          // -1 เพราะครั้งนี้กำลังจะส่ง → เลขที่บอกคือจำนวนครั้งที่เหลือ "หลังข้อความนี้"
+          const sendsLeftAfter = quota.remain != null && quota.members
+            ? Math.floor(quota.remain / quota.members) - 1
+            : null;
+          // log จำนวนรายการเพื่อดูแนวโน้ม volume (push นับรายหัว — ดู Major #4 ใน CONTEXT)
+          console.log(`LINE push: ${r.ok ? "ok" : "FAIL"} · expired=${expired.length} near=${lineNear.length}${r.error ? " · " + r.error : ""}`);
+          result.line = r.ok ? { sent: true, expired: expired.length, nearExpiry: lineNear.length } : { sent: false, error: r.error };
+
+          if (r.ok && sendsLeftAfter != null && sendsLeftAfter <= QUOTA_WARN_SENDS) {
+            await insertAudit("line_quota_low", {
+              date: ymdNow, sends_left: sendsLeftAfter,
+              quota_limit: quota.limit, quota_used: quota.used, quota_remain: quota.remain,
+              group_members: quota.members, exhausted: sendsLeftAfter <= 0,
+              bot: "expiry",
+            }, sendsLeftAfter);
+          }
+
+          // ลง audit ทั้งกรณีสำเร็จและล้มเหลว — วันที่ส่งไม่ออกคือวันที่คลังต้องรู้ที่สุด
+          await insertAudit("line_expiry_alert", {
+            date: ymdNow,
+            simulated_date: dateOverride || undefined,   // มีค่า = ยิงทดสอบด้วย {"date":...}
+            sent: r.ok,
+            error: r.ok ? undefined : r.error,
+            expired: expired.length,
+            near_expiry: lineNear.length,
+            slot: result.lineSlot ?? (force ? "force (ข้ามการเช็ครอบ)" : undefined),
+            sends_left_after: sendsLeftAfter,
+            quota_remain_before: quota.remain,
+            group_members: quota.members,
+          }, lineTotal);
+        }
       }
     }
 

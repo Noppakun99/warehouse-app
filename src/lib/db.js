@@ -1485,12 +1485,18 @@ export async function fetchNotifications(scope = null) {
 /**
  * คำเตือนโควตา LINE ล่าสุด — ใช้เด้ง popup ตอน staff/admin login
  *
- * บอทประกาศ (`requisition-announce`) บันทึก action `line_quota_low` เมื่อโควตาเดือนนั้นใกล้หมด
+ * **บอท 2 ตัวเขียน action `line_quota_low` ร่วมกัน** (ประกาศรอบเบิก-รับ / แจ้งเตือนยาใกล้หมดอายุ)
+ * แยกด้วย `details.bot` — ไม่มี field = บอทประกาศ (record เก่าก่อนมีบอทที่ 2)
+ *
+ * ⚠️ ห้ามใช้ `.limit(1)` เฉยๆ: บอทประกาศเผาโควตาเร็วกว่ามาก (4 วัน/สัปดาห์ × 24 คน)
+ * จะเขียนคำเตือนถี่จนเบียดของอีกบอทหายตลอด → staff เห็นคำเตือนผิดตัว ไปแก้ผิดบอท
+ * จึงดึงหลายแถวแล้วคัด "ล่าสุดต่อบอท"
+ *
  * โควตา LINE **รีเซ็ตต้นเดือน** → สนใจเฉพาะ record ของเดือนปัจจุบัน ไม่งั้นจะเด้งคำเตือนเดือนที่แล้ว
- * คืน null ถ้าไม่มี = ไม่ต้องเด้ง popup
+ * คืน `[]` ถ้าไม่มี = ไม่ต้องเด้ง popup
  */
-export async function fetchLatestLineQuotaAlert() {
-  if (!supabase) return null
+export async function fetchLatestLineQuotaAlerts() {
+  if (!supabase) return []
   const now = new Date()
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
   const { data, error } = await supabase
@@ -1499,9 +1505,37 @@ export async function fetchLatestLineQuotaAlert() {
     .eq('action', 'line_quota_low')
     .gte('created_at', monthStart)
     .order('created_at', { ascending: false })
-    .limit(1)
-  if (error) return null
-  return data?.[0] || null
+    .limit(50)
+  if (error) return []
+  // เรียง desc มาแล้ว → แถวแรกที่เจอของแต่ละบอทคือล่าสุดของบอทนั้น
+  const seen = new Set()
+  const out = []
+  for (const row of data || []) {
+    const bot = row.details?.bot || 'announce'
+    if (seen.has(bot)) continue
+    seen.add(bot)
+    out.push(row)
+  }
+  return out
+}
+
+/**
+ * โควตา LINE ที่เหลือ "ตอนนี้" ของบอททั้ง 2 ตัว — ถามสดจาก LINE API ผ่าน Edge Function
+ *
+ * ต่างจาก `fetchLatestLineQuotaAlerts()` ที่อ่านคำเตือนย้อนหลังจาก audit log:
+ * ตัวนี้เรียก LINE API สดตอนกด จึงเห็นตัวเลขล่าสุดโดยไม่ต้องรอบอทส่งรอบถัดไป
+ *
+ * คืน `[{ key, label, configured, limit, used, remain, members, sendsLeft }]`
+ * - `sendsLeft` = remain ÷ members (push เข้ากลุ่มนับ "รายหัว" — กลุ่ม N คน = N ข้อความ/ครั้ง)
+ * - `limit`/`remain` = null แปลว่าแพ็กเกจไม่จำกัด ไม่ใช่ "อ่านไม่ได้"
+ * - token ไม่ถูกส่งกลับมาฝั่ง client (Edge Function อ่านจาก secrets เอง)
+ */
+export async function fetchLineQuota() {
+  if (!supabase) throw new Error('Supabase not configured')
+  const { data, error } = await supabase.functions.invoke('line-quota', { body: {} })
+  if (error) throw new Error(error.message || 'Edge Function error')
+  if (data?.error) throw new Error(data.error)
+  return data?.bots || []
 }
 
 // --- Usage Analytics (สรุปการใช้งานระบบ, admin-only) ---
