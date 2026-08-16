@@ -12,6 +12,7 @@ import {
 import { exportToExcel } from './lib/exportExcel';
 import { seedFromMasterCsv } from './lib/ledgerSeed';
 import BackButton from './BackButton';
+import UploadSuccessModal from './UploadSuccessModal';
 
 const fmtBaht = (n) => new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
 const fmtNum = (n) => new Intl.NumberFormat('th-TH').format(n || 0);
@@ -91,11 +92,12 @@ function SeedModal({ open, onClose, onSeeded, auth }) {
   const [preview, setPreview] = useState(null); // { rows, skipped, tieOut }
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [fileName, setFileName] = useState('');
 
-  const reset = () => { setParsing(false); setPreview(null); setError(''); setSaving(false); };
+  const reset = () => { setParsing(false); setPreview(null); setError(''); setSaving(false); setFileName(''); };
 
   const handleFile = async (file) => {
-    reset(); setParsing(true);
+    reset(); setParsing(true); setFileName(file.name);
     try {
       const text = await file.text();
       if (!period || !/^\d{4}-\d{2}$/.test(period)) {
@@ -116,7 +118,7 @@ function SeedModal({ open, onClose, onSeeded, auth }) {
     setSaving(true); setError('');
     try {
       const n = await bulkInsertLedgerRows(preview.rows, auth);
-      onSeeded(period, n);
+      onSeeded(period, n, fileName);
       reset(); onClose();
     } catch (e) {
       setError(e.message || String(e)); setSaving(false);
@@ -327,6 +329,7 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
   const [sort, setSort] = useState({ key: null, dir: 'asc' }); // คลิกหัวตาราง sort
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [successPopup, setSuccessPopup] = useState(null); // { message, fileName } — popup ยืนยันหลังนำเข้างวดเสร็จ
 
   const isAdmin = auth?.role === 'admin';
 
@@ -385,8 +388,12 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
   // คลิกหัว: คอลัมน์เดิม → สลับ asc/desc; คอลัมน์ใหม่ → เริ่ม asc
   const toggleSort = (key) => setSort(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
 
-  const onSeeded = async (p, n) => {
+  const onSeeded = async (p, n, fileName) => {
     setMsg(`นำเข้างวด ${periodLabel(p)} สำเร็จ (${fmtNum(n)} แถว)`);
+    setSuccessPopup({
+      message: `นำเข้างวด ${periodLabel(p)} จำนวน ${fmtNum(n)} แถว เรียบร้อยแล้ว`,
+      fileName,
+    });
     setPeriod(p);
     await loadPeriod(p);
   };
@@ -586,6 +593,13 @@ export default function StockLedgerApp({ onRefresh, auth = {}, onGoBack, canGoBa
         )}
       </div>
 
+      <UploadSuccessModal
+        open={!!successPopup}
+        title="นำเข้างวดจาก Master CSV สำเร็จ"
+        message={successPopup?.message}
+        fileName={successPopup?.fileName}
+        onClose={() => setSuccessPopup(null)}
+      />
       <SeedModal open={seedOpen} onClose={() => setSeedOpen(false)} onSeeded={onSeeded} auth={auth} />
       <AdjustModal open={adjustOpen} period={period} onClose={() => setAdjustOpen(false)} onAdded={onAdjustAdded} auth={auth} />
     </div>

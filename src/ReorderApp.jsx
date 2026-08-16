@@ -10,6 +10,8 @@ import {
 import * as XLSX from 'xlsx';
 import DrugSearchBar from './DrugSearchBar';
 import BackButton from './BackButton';
+import UploadSuccessModal from './UploadSuccessModal';
+import Toast from './Toast';
 import { supabase } from './lib/supabase';
 import {
   fetchInventory, fetchDrugReorderConfig, upsertDrugReorderConfig,
@@ -335,9 +337,10 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
   const [parsing, setParsing] = useState(false);
   const [rows, setRows] = useState([]);
   const [error, setError] = useState('');
+  const [fileName, setFileName] = useState('');
 
   const handleFile = async (file) => {
-    setParsing(true); setError(''); setRows([]);
+    setParsing(true); setError(''); setRows([]); setFileName(file.name);
     try {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array' });
@@ -385,7 +388,7 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
     setParsing(true);
     try {
       const n = await bulkUpsertDrugReorderConfig(rows, auth);
-      onImported(n);
+      onImported(n, fileName);
       onClose();
     } catch (e) { setError(e.message || 'บันทึกไม่สำเร็จ'); }
     finally { setParsing(false); }
@@ -486,6 +489,8 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
   const [tab, setTab] = useState(initialTab); // analysis | supplier | verify | history
   const [editingDrug, setEditingDrug] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [successPopup, setSuccessPopup] = useState(null); // { message, fileName } — popup ยืนยันหลัง Import Master เสร็จ
+  const [toast, setToast] = useState(null);               // { tone, message } — แจ้งผลแทน alert()
 
   // Initial fetch
   useEffect(() => {
@@ -611,20 +616,25 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
       await setReorderOrder(ck, !now, auth);   // เก็บ normalized key (codeKey) — ตรงกับ orderedMap + กัน drift ตอน untick
     } catch (e) {
       setOrderedMap(orderedMap);                 // rollback
-      alert('บันทึกสถานะ"สั่งแล้ว"ไม่สำเร็จ: ' + (e?.message || e));
+      setToast({ tone: 'error', message: 'บันทึกสถานะ"สั่งแล้ว"ไม่สำเร็จ: ' + (e?.message || e) });
     }
   }, [orderedMap, auth]);
+
+  const clearToast = useCallback(() => setToast(null), []);
 
   const onMasterSaved = useCallback(async (config) => {
     await upsertDrugReorderConfig(config, auth);
     setConfigMap(prev => ({ ...prev, [codeKey(config.code)]: { ...config } }));
   }, [auth]);
 
-  const onMasterImported = useCallback(async (count) => {
+  const onMasterImported = useCallback(async (count, fileName) => {
     const cfg = await fetchDrugReorderConfig();
     setConfigMap(Object.fromEntries((cfg || []).map(c => [codeKey(c.code), c])));
     setRerunToken(t => t + 1); // สั่ง re-run เพื่อให้การ์ด/ตารางสะท้อน exclude_status ใหม่ (ไม่งั้นค้างผลเก่า)
-    alert(`Import สำเร็จ ${count} รายการ`);
+    setSuccessPopup({
+      message: `นำเข้าข้อมูลตั้งค่ายา ${count.toLocaleString()} รายการ เรียบร้อยแล้ว`,
+      fileName,
+    });
   }, []);
 
   const saveSnapshot = useCallback(async () => {
@@ -641,8 +651,8 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
         summary: { byStatus: result.totals.byStatus, supplierCount: result.suppliers.length },
         results: result.rows,
       }, auth);
-      alert(`บันทึก Snapshot สำเร็จ (ID #${id})`);
-    } catch (e) { alert('บันทึก Snapshot ไม่สำเร็จ: ' + (e.message || e)); }
+      setToast({ tone: 'success', message: `บันทึก Snapshot สำเร็จ (ID #${id})` });
+    } catch (e) { setToast({ tone: 'error', message: 'บันทึก Snapshot ไม่สำเร็จ: ' + (e.message || e) }); }
   }, [result, statsFrom, statsTo, excludedMonth, leadDefault, auth]);
 
   // Filtered rows based on search + status filter
@@ -752,6 +762,14 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
       </div>
 
       <MasterEditModal open={!!editingDrug} drug={editingDrug} onClose={() => setEditingDrug(null)} onSave={onMasterSaved}/>
+      {toast && <Toast message={toast.message} tone={toast.tone} onClose={clearToast} />}
+      <UploadSuccessModal
+        open={!!successPopup}
+        title="นำเข้าข้อมูลตั้งค่ายาสำเร็จ"
+        message={successPopup?.message}
+        fileName={successPopup?.fileName}
+        onClose={() => setSuccessPopup(null)}
+      />
       <ImportMasterModal open={importOpen} onClose={() => setImportOpen(false)} onImported={onMasterImported} auth={auth}/>
     </div>
   );

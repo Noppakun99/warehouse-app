@@ -3,6 +3,7 @@ import { fetchInventory, saveInventory, fetchDrugDetails, fetchUploadMeta, saveU
 import { computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './lib/swapPolicy';
 import { normExpDate } from './lib/receiveMatch';
 import BackButton from './BackButton';
+import UploadSuccessModal from './UploadSuccessModal';
 import { exportToExcel } from './lib/exportExcel';
 import { printTrackingList } from './lib/trackingPrint';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
@@ -204,11 +205,10 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   }, []);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const [successPopup, setSuccessPopup] = useState('');   // อัปโหลดเสร็จ = popup ต้องกดรับทราบ (successMsg = ข้อความสถานะระหว่างทำ ยังเป็นแถบ inline)
+  const [successPopup, setSuccessPopup] = useState(null); // { message, fileName, warnings } — อัปโหลดเสร็จ = popup ต้องกดรับทราบ (successMsg = ข้อความสถานะระหว่างทำ ยังเป็นแถบ inline)
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [summaryStorageView, setSummaryStorageView] = useState('chart'); // 'chart' | 'table'
-  const [uploadWarnings, setUploadWarnings] = useState(null); // { fileName, rows: [{row, issues[]}] }
   const [consistency, setConsistency] = useState(null);       // report จาก fetchConsistencyReport
   const [consistencyLoading, setConsistencyLoading] = useState(false);
 
@@ -710,14 +710,17 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         setLogFileName(file.name);
         setLogUpdateDate(now);
         setErrorMsg('');
-        if (warnRows.length > 0) setUploadWarnings({ fileName: file.name, type: 'Log คลังยา', rows: warnRows });
         setSuccessMsg(`กำลังบันทึก Log คลังยา "${file.name}" ขึ้น Supabase...`);
 
         saveInventory(newInventory, auth, file.name)
           .then(() => saveUploadMeta('inventory', file.name))
           .then(() => {
             setSuccessMsg('');
-            setSuccessPopup(`อัปโหลด Log คลังยาและ "แทนที่ข้อมูลเดิม" ด้วยไฟล์ "${file.name}" สำเร็จ`);
+            setSuccessPopup({
+              message: `อัปโหลด Log คลังยาและ "แทนที่ข้อมูลเดิม" ด้วยไฟล์นี้เรียบร้อยแล้ว`,
+              fileName: file.name,
+              warnings: warnRows,
+            });
           })
           .catch(err => setErrorMsg('บันทึกขึ้น Supabase ล้มเหลว: ' + err.message));
         
@@ -1468,22 +1471,14 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           </div>
         )}
 
-        {successPopup && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSuccessPopup('')}>
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
-              <div className="bg-emerald-500 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
-                <p className="font-bold text-lg flex items-center gap-2"><Check size={20}/> อัปโหลดสำเร็จ</p>
-                <button onClick={() => setSuccessPopup('')} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={18}/></button>
-              </div>
-              <div className="px-6 py-5">
-                <p className="text-slate-700 dark:text-slate-200">{successPopup}</p>
-              </div>
-              <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end">
-                <button onClick={() => setSuccessPopup('')} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium text-sm">รับทราบ</button>
-              </div>
-            </div>
-          </div>
-        )}
+        <UploadSuccessModal
+          open={!!successPopup}
+          title="อัปโหลด Log คลังยาสำเร็จ"
+          message={successPopup?.message}
+          fileName={successPopup?.fileName}
+          warnings={successPopup?.warnings}
+          onClose={() => setSuccessPopup(null)}
+        />
 
         {errorMsg && (
           <div className="bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 p-4 rounded-xl border border-red-200 dark:border-red-900/60 flex items-center gap-3 shadow-sm mb-6">
@@ -1628,44 +1623,6 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
 
 
       </div>
-
-      {/* Upload Warning Modal */}
-      {uploadWarnings && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
-            <div className="bg-amber-500 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
-              <div>
-                <p className="font-bold text-lg flex items-center gap-2"><AlertTriangle size={20}/> พบ Row ที่ไม่ผ่านเงื่อนไข</p>
-                <p className="text-amber-100 text-sm">{uploadWarnings.type}: {uploadWarnings.fileName} — {uploadWarnings.rows.length} row มีปัญหา</p>
-              </div>
-              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={16}/></button>
-            </div>
-            <div className="overflow-y-auto flex-1 p-4 space-y-2">
-              {uploadWarnings.rows.map((r, i) => (
-                <div key={i} className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-4 py-2 text-sm">
-                  <div className="flex gap-3 items-start">
-                    <span className="font-mono bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded text-xs font-bold shrink-0">Row {r.row}</span>
-                    <div className="flex-1">
-                      <span className="font-semibold text-slate-800 dark:text-slate-100">{r.name}</span>
-                      {r.code && r.code !== '-' && <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">[{r.code}]</span>}
-                      {r.location && <span className="text-slate-500 dark:text-slate-400 ml-2 text-xs inline-flex items-center gap-0.5"><MapPin size={11}/>{r.location}</span>}
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {r.issues.map((issue, j) => (
-                          <span key={j} className="bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-900/60 px-2 py-0.5 rounded-full text-xs">{issue}</span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
-              <p className="text-sm text-slate-500 dark:text-slate-400">ข้อมูลที่ถูกต้องถูกบันทึกแล้ว — แก้ไข CSV แล้วอัปโหลดใหม่</p>
-              <button onClick={() => setUploadWarnings(null)} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm">รับทราบ</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Consistency Check Modal */}
       {consistency && (() => {

@@ -7,6 +7,7 @@ import { fetchDrugDetails, RECEIVE_COL_MAP, insertReceiveRows, normalizeLotSearc
 import DrugSearchBar from './DrugSearchBar';
 import SearchableSelect from './SearchableSelect';
 import BackButton from './BackButton';
+import UploadSuccessModal from './UploadSuccessModal';
 import {
   ArrowLeft, UploadCloud, RefreshCcw, Search, X,
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
@@ -1373,7 +1374,7 @@ function ReceiveImport({ onDone, auth = {} }) {
   const [rawHeaders, setRawHeaders] = useState([]);
   const [rawRows, setRawRows]       = useState([]);
   const [loading, setLoading]       = useState(false);
-  const [uploadWarnings, setUploadWarnings] = useState(null);
+  const [successPopup, setSuccessPopup] = useState(null); // { message, fileName, warnings } — popup ยืนยันหลังนำเข้าเสร็จ
   const fileRef = useRef(null);
 
   const handleFile = (e) => {
@@ -1481,8 +1482,12 @@ function ReceiveImport({ onDone, auth = {} }) {
       const now = new Date();
       const importTime = now.toLocaleString('th-TH', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
       setStatus(`นำเข้าสำเร็จ ${rows.length.toLocaleString()} รายการ · นำเข้าเมื่อ ${importTime}`);
+      setSuccessPopup({
+        message: `นำเข้าข้อมูลรับยา ${rows.length.toLocaleString()} รายการ เรียบร้อยแล้ว (นำเข้าเมื่อ ${importTime})`,
+        fileName: preview?.fileName || '',
+        warnings: warnRows,
+      });
       setPreview(null); setRawRows([]); setRawHeaders([]);
-      if (warnRows.length > 0) setUploadWarnings({ fileName: preview?.fileName || '', type: 'CSV คลังรับ', rows: warnRows });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -1492,42 +1497,14 @@ function ReceiveImport({ onDone, auth = {} }) {
 
   return (
     <div className="p-4 space-y-4 max-w-3xl mx-auto">
-      {/* Upload Warning Modal */}
-      {uploadWarnings && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
-            <div className="bg-amber-500 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
-              <div>
-                <p className="font-bold text-lg flex items-center gap-2"><AlertCircle size={20}/>พบ Row ที่ไม่ผ่านเงื่อนไข</p>
-                <p className="text-amber-100 text-sm">{uploadWarnings.type}: {uploadWarnings.fileName} — {uploadWarnings.rows.length} row มีปัญหา</p>
-              </div>
-              <button onClick={() => setUploadWarnings(null)} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-2 rounded-xl transition-colors"><X size={18}/></button>
-            </div>
-            <div className="overflow-y-auto flex-1 p-4 space-y-2">
-              {uploadWarnings.rows.map((r, i) => (
-                <div key={i} className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-4 py-2 text-sm">
-                  <div className="flex gap-3 items-start">
-                    <span className="font-mono bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded text-xs font-bold shrink-0">Row {r.row}</span>
-                    <div className="flex-1">
-                      <span className="font-semibold text-slate-800 dark:text-slate-100">{r.name}</span>
-                      {r.code && r.code !== '-' && <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">[{r.code}]</span>}
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {r.issues.map((issue, j) => (
-                          <span key={j} className="bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-900/60 px-2 py-0.5 rounded-full text-xs">{issue}</span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
-              <p className="text-sm text-slate-500 dark:text-slate-400">ข้อมูลที่ถูกต้องถูกบันทึกแล้ว — แก้ไข CSV แล้วอัปโหลดใหม่</p>
-              <button onClick={() => setUploadWarnings(null)} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm">รับทราบ</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <UploadSuccessModal
+        open={!!successPopup}
+        title="นำเข้า CSV คลังรับสำเร็จ"
+        message={successPopup?.message}
+        fileName={successPopup?.fileName}
+        warnings={successPopup?.warnings}
+        onClose={() => setSuccessPopup(null)}
+      />
 
       <div onClick={() => fileRef.current?.click()}
         className="border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-emerald-400 bg-white dark:bg-slate-900 rounded-2xl p-10 text-center cursor-pointer transition-colors">
