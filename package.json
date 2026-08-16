@@ -17,6 +17,7 @@
     "test:consistency": "node src/lib/consistencyCheck.test.js",
     "test:swappolicy": "node src/lib/swapPolicy.test.js",
     "test:countmatch": "node src/lib/countMatch.test.js",
+    "test:countpriority": "node src/lib/countPriority.test.js",
     "test:stockcard": "node src/lib/stockCard.test.js",
     "test:vendorexchange": "node src/lib/vendorExchange.test.js",
     "test:announce": "node src/lib/announceSchedule.test.js"

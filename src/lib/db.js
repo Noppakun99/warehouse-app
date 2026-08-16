@@ -3316,6 +3316,132 @@ export async function updateStockCountItem(itemId, fields, auth = {}) {
   })
 }
 
+/**
+ * ข้อมูลดิบสำหรับจัดอันดับ "ควรตรวจนับตัวไหนก่อน" — ป้อนให้ `rankCountPriority` (countPriority.js)
+ *
+ * รวม 4 สัญญาณจาก 3 ตาราง — **paginate ทุกตัว** (Critical Rule #2: dispense 6.9k / receive 2.6k แถว
+ * เกิน 1000-row limit ถ้าดึงตรงจะได้อันดับจากข้อมูลบางส่วน = แนะนำผิด)
+ *
+ * - `drugs`        จาก inventory เฉพาะ qty > 0 (ของที่ไม่มีในคลังไม่ต้องเดินไปนับ) + นับชั้นวาง/lot
+ * - `dispenseFreq` นับ **จำนวนครั้งที่เบิก** (ไม่ใช่ปริมาณ) — ความถี่คือสัญญาณของโอกาสคลาดเคลื่อน
+ *                  ไม่ใช่ขนาด และ qty ข้ามยาคนละหน่วยรวมกันไม่ได้ (ดู CONTEXT §หน่วย)
+ * - `receiveValue` Σ total_price_vat ตรงกับ `totalValue` ใน ReceiveLogApp (บาทรวมข้ามแถวได้)
+ * - `lastCounted`  วันที่นับล่าสุดต่อรหัส จาก stock_count_item + session
+ */
+export async function fetchCountPriorityData({ months = 6 } = {}) {
+  if (!supabase) return { drugs: [], dispenseFreq: {}, receiveValue: {}, lastCounted: {} }
+  const since = new Date()
+  since.setMonth(since.getMonth() - months)
+  const sinceStr = since.toISOString().slice(0, 10)
+  const PAGE = 1000
+
+  const pageAll = async (table, cols, apply) => {
+    const rows = []
+    let from = 0
+    while (true) {
+      let q = supabase.from(table).select(cols).range(from, from + PAGE - 1)
+      if (apply) q = apply(q)
+      const { data, error } = await q
+      if (error) throw error
+      if (!data?.length) break
+      rows.push(...data)
+      if (data.length < PAGE) break
+      from += PAGE
+    }
+    return rows
+  }
+
+  // 1) inventory → รายการยา + จำนวนชั้นวาง/lot (ชั้นวางอาจเก็บรวมคั่น comma ในช่องเดียว)
+  const invRows = await pageAll('inventory', 'code, name, lot, qty, location')
+  const byCode = new Map()
+  for (const r of invRows) {
+    if (toNum(r.qty) <= 0) continue
+    const code = String(r.code || '').trim()
+    if (!code) continue
+    if (!byCode.has(code)) byCode.set(code, { code, name: r.name || '-', locs: new Set(), lots: new Set() })
+    const e = byCode.get(code)
+    String(r.location || '').split(',').map(s => s.trim()).filter(s => s && s !== '-').forEach(l => e.locs.add(l))
+    if (r.lot && r.lot !== '-') e.lots.add(String(r.lot))
+  }
+  const drugs = [...byCode.values()].map(e => ({
+    code: e.code, name: e.name, locations: e.locs.size || 1, lots: e.lots.size || 1,
+  }))
+
+  // 2) dispense_logs → จำนวนครั้งที่เบิกต่อรหัส (ช่วง months ล่าสุด)
+  const dispRows = await pageAll('dispense_logs', 'drug_code, dispense_date', q => q.gte('dispense_date', sinceStr))
+  const dispenseFreq = {}
+  for (const r of dispRows) {
+    const c = String(r.drug_code || '').trim()
+    if (c) dispenseFreq[c] = (dispenseFreq[c] || 0) + 1
+  }
+
+  // 3) receive_logs → มูลค่ารับเข้ารวมต่อรหัส
+  const recRows = await pageAll('receive_logs', 'drug_code, total_price_vat, receive_date', q => q.gte('receive_date', sinceStr))
+  const receiveValue = {}
+  for (const r of recRows) {
+    const c = String(r.drug_code || '').trim()
+    if (c) receiveValue[c] = (receiveValue[c] || 0) + toNum(r.total_price_vat)
+  }
+
+  // 4) นับล่าสุดต่อรหัส — join item → session เพื่อเอา counted_at (วันที่ของรอบ)
+  const itemRows = await pageAll('stock_count_item', 'code, session_id')
+  const sessRows = await pageAll('stock_count_session', 'id, counted_at')
+  const sessDate = {}
+  for (const s of sessRows) sessDate[s.id] = s.counted_at
+  const lastCounted = {}
+  for (const it of itemRows) {
+    const c = String(it.code || '').trim()
+    const d = sessDate[it.session_id]
+    if (!c || !d) continue
+    if (!lastCounted[c] || d > lastCounted[c]) lastCounted[c] = d
+  }
+
+  return { drugs, dispenseFreq, receiveValue, lastCounted }
+}
+
+/** สถานะติดตามส่วนต่างของบรรทัดนับ (ADR-0017) — key = ค่าที่เก็บใน DB */
+export const FOLLOWUP_STATUS = {
+  pending:        'ยังไม่จัดการ',
+  fixed_source:   'แก้ที่ต้นทางแล้ว',
+  confirmed_diff: 'ยืนยันส่วนต่างจริง',
+  fixed_entry:    'แก้ค่าที่กรอกผิดแล้ว',
+}
+
+/**
+ * อัปเดตสถานะติดตามของบรรทัดนับ — **ไม่แตะค่านับ/ค่าระบบ หรือ match**
+ *
+ * แยกจาก `updateStockCountItem` โดยเจตนา: ตัวนั้นแก้ "ผลนับ" (แล้ว recompute diff/match)
+ * ตัวนี้แก้ "สถานะการตามเรื่อง" เท่านั้น — ส่วนต่างต้องยังอยู่ในประวัติตาม ADR-0008
+ * (append-only: ระบบหา discrepancy ให้เห็น ไม่กลบทิ้ง)
+ *
+ * `status` ต้องเป็น key ของ FOLLOWUP_STATUS; 'pending' = ล้างสถานะ (เคลียร์ by/at)
+ */
+export async function updateStockCountFollowup(itemId, status, note = '', auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  if (!FOLLOWUP_STATUS[status]) throw new Error(`สถานะติดตามไม่ถูกต้อง: ${status}`)
+  const { data: before } = await supabase.from('stock_count_item')
+    .select('code, lot, followup_status').eq('id', itemId).single()
+  const isPending = status === 'pending'
+  const patch = {
+    followup_status: status,
+    followup_note: note || '',
+    // pending = ยังไม่มีใครจัดการ → ไม่ควรค้างชื่อ/เวลาของคนที่เคยกดไว้
+    followup_by: isPending ? '' : resolveAuditUserName(auth),
+    followup_at: isPending ? null : new Date().toISOString(),
+  }
+  const { error } = await supabase.from('stock_count_item').update(patch).eq('id', itemId)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'followup_stock_count', table_name: 'stock_count_item',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    details: {
+      item_id: itemId, code: before?.code, lot: before?.lot,
+      from: before?.followup_status || 'pending', to: status,
+      label: FOLLOWUP_STATUS[status], note: note || undefined,
+    },
+  })
+}
+
 // แก้ไข header ของรอบ (วันที่/หมายเหตุ) — audit เก็บ before→after
 export async function updateStockCountSession(sessionId, fields, auth = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')

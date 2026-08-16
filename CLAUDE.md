@@ -33,6 +33,7 @@ npm run test:ledgerseed # Golden tests สำหรับ src/lib/ledgerSeed.js 
 npm run test:swappolicy # Golden tests สำหรับ src/lib/swapPolicy.js — parse นโยบายคืนยา + deadline (88 assertions — V1 free-text + V2 structured tier % 6 หมวดฐานเวลา, ADR-0014)
 npm run test:consistency # Golden tests สำหรับ src/lib/consistencyCheck.js — ตรวจความสอดคล้อง CSV→DB (33 assertions)
 npm run test:countmatch  # Golden tests สำหรับ src/lib/countMatch.js — ตรวจนับ: 3 สถานะต่อมิติ + set equality ที่เก็บ/exp (33 assertions)
+npm run test:countpriority # Golden tests สำหรับ src/lib/countPriority.js — จัดอันดับ "ควรตรวจนับตัวไหนก่อน" 4 สัญญาณถ่วงน้ำหนัก (29 assertions)
 npm run test:stockcard   # Golden tests สำหรับ src/lib/stockCard.js — การ์ดคลัง lot: running balance ต่อ lot + drift detection (105 assertions)
 npm run test:vendorexchange # Golden tests สำหรับ src/lib/vendorExchange.js — รอบเปลี่ยน/คืนบริษัท: จับคู่ขาส่ง↔ขารับ หา "ของลอย" (30 assertions)
 npm run test:announce # Golden tests สำหรับ supabase/functions/_shared/announceSchedule.js — ปฏิทินรอบเบิก-รับ + วันหยุด (108 assertions)
