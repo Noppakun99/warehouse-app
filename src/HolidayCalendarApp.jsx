@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   CalendarDays, Plus, RefreshCcw, Trash2, Pencil, X, AlertTriangle,
-  CheckCircle2, MessageSquare,
+  CheckCircle2, MessageSquare, Gauge,
 } from 'lucide-react';
 import BackButton from './BackButton';
 import {
-  fetchPublicHolidays, upsertPublicHoliday, deletePublicHoliday,
+  fetchPublicHolidays, upsertPublicHoliday, deletePublicHoliday, fetchLineQuota,
 } from './lib/db';
 import {
   announcementFor, buildAnnouncementText, addDays, toYmd, formatThaiDate,
@@ -76,6 +76,92 @@ function HolidayForm({ initial, onSave, onCancel, saving }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * โควตา LINE คงเหลือของบอททั้ง 2 ตัว
+ *
+ * โหลดเมื่อกดเท่านั้น (ไม่ auto-load ตอนเปิดหน้า) เพราะเรียก LINE API จริงทุกครั้ง
+ * และคนดูแลไม่ได้ต้องการตัวเลขนี้ทุกครั้งที่เข้าหน้าปฏิทิน
+ */
+function LineQuotaPanel() {
+  const [bots, setBots] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
+  const [at, setAt] = useState(null);
+
+  const load = async () => {
+    setLoading(true); setErr('');
+    try {
+      setBots(await fetchLineQuota());
+      setAt(new Date());
+    } catch (e) {
+      setErr(e.message || 'อ่านโควตาไม่สำเร็จ');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Gauge size={16} className="text-sky-600" />
+        <h2 className="font-bold text-slate-800 dark:text-slate-100">โควตาแจ้งเตือน LINE</h2>
+        <button onClick={load} disabled={loading}
+          className="ml-auto inline-flex items-center gap-1.5 text-[13px] font-semibold px-3 py-1.5 rounded-lg bg-[#1E90FF] text-white hover:bg-blue-600 disabled:opacity-50">
+          <RefreshCcw size={13} className={loading ? 'animate-spin' : ''} />
+          {loading ? 'กำลังตรวจ...' : bots ? 'ตรวจอีกครั้ง' : 'ตรวจโควตาคงเหลือ'}
+        </button>
+      </div>
+      <p className="text-[13px] text-slate-500 dark:text-slate-400">
+        ส่งเข้ากลุ่มนับ &quot;รายหัว&quot; — กลุ่ม 10 คน ส่ง 1 ครั้ง หัก 10 ข้อความ · โควตารีเซ็ตต้นเดือน
+      </p>
+
+      {err && (
+        <div className="flex items-start gap-2 text-[13px] text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-lg px-3 py-2">
+          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+          <span>{err}</span>
+        </div>
+      )}
+
+      {bots?.map(b => (
+        <div key={b.key} className="bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{b.label}</span>
+            {!b.configured && (
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">ยังไม่ได้ตั้งค่า</span>
+            )}
+            {b.sendsLeft != null && (
+              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                b.sendsLeft <= 2
+                  ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-900/60'
+                  : b.sendsLeft <= 5
+                    ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-900/60'
+                    : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-900/60'
+              }`}>
+                ส่งได้อีก {b.sendsLeft.toLocaleString()} ครั้ง
+              </span>
+            )}
+          </div>
+          {b.error && <p className="text-[13px] text-rose-600 dark:text-rose-400 mt-1">{b.error}</p>}
+          {b.configured && !b.error && (
+            <div className="text-[13px] text-slate-600 dark:text-slate-300 mt-1.5 space-y-0.5">
+              {b.limit == null
+                ? <p>แพ็กเกจไม่จำกัดจำนวนข้อความ (ใช้ไป {b.used?.toLocaleString()})</p>
+                : <p>ใช้ไป <span className="font-semibold text-slate-800 dark:text-slate-100">{b.used?.toLocaleString()} / {b.limit?.toLocaleString()}</span> ข้อความ · เหลือ {b.remain?.toLocaleString()}</p>}
+              <p>สมาชิกในกลุ่ม: {b.members == null ? 'อ่านไม่ได้ (บอทอาจยังไม่อยู่ในกลุ่ม)' : `${b.members} คน`}</p>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {at && (
+        <p className="text-[11px] text-slate-400 dark:text-slate-500">
+          ข้อมูล ณ {at.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+        </p>
+      )}
     </div>
   );
 }
@@ -263,6 +349,9 @@ export default function HolidayCalendarApp({ auth, onGoBack, canGoBack, onRefres
             )}
           </div>
         </div>
+
+        {/* โควตา LINE คงเหลือ — ถามสดตอนกด ไม่โหลดอัตโนมัติ (เรียก LINE API ทุกครั้ง) */}
+        <LineQuotaPanel />
 
         {/* ตัวอย่างประกาศ 4 สัปดาห์ข้างหน้า */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-4 space-y-3">
