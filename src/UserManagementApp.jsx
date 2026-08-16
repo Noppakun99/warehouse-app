@@ -9,6 +9,7 @@ import {
   deleteAppUser, changeAppUserPassword, updateUserPermissions,
 } from './lib/db';
 import BackButton from './BackButton';
+import Toast from './Toast';
 import { useSort, SortableTh } from './SortableTable';
 
 const ROLE_CONFIG = {
@@ -763,21 +764,6 @@ function RowMenu({ onPermissions, onPassword, onDelete, disableDelete }) {
 }
 
 // Toast แจ้งผลสำเร็จ — มุมล่างขวา หายเองใน 2.5 วิ
-function Toast({ message, onClose }) {
-  // onClose ต้องเป็น callback เสถียร (useCallback ฝั่ง parent) ไม่งั้น timer reset ทุก render
-  useEffect(() => {
-    const t = setTimeout(onClose, 2500);
-    return () => clearTimeout(t);
-  }, [message, onClose]);
-  return (
-    <div className="fixed bottom-5 right-5 z-[60] flex items-center gap-2.5 bg-slate-800 text-white rounded-xl shadow-2xl pl-4 pr-3 py-3 text-sm max-w-sm">
-      <CheckCircle size={16} className="text-emerald-400 shrink-0"/>
-      <span className="flex-1">{message}</span>
-      <button type="button" onClick={onClose} className="text-slate-400 dark:text-slate-500 hover:text-white transition-colors"><X size={15}/></button>
-    </div>
-  );
-}
-
 function ModalHeader({ title, icon, onClose, danger = false }) {
   return (
     <div className={`flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 ${danger ? 'bg-red-50 dark:bg-red-950/40' : 'bg-slate-50 dark:bg-slate-800'} rounded-t-2xl`}>

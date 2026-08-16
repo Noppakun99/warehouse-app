@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   ClipboardCheck, X, Printer, Save, CheckCircle, AlertTriangle,
   ChevronDown, ChevronUp, Search, Package, Pencil, Trash2, Calendar, Eye, History,
@@ -14,6 +14,7 @@ import { dimStatus, diffLabel, computeCountMatch } from './lib/countMatch'
 import { rankCountPriority } from './lib/countPriority'
 import DrugSearchBar from './DrugSearchBar'
 import BackButton from './BackButton'
+import Toast from './Toast'
 
 // ============================================================
 // helper
@@ -345,6 +346,7 @@ function CountTab({ auth }) {
   const [lines, setLines] = useState([])           // บรรทัดนับ (1 ต่อ code+lot)
   const [addedDrugs, setAddedDrugs] = useState([]) // [{code,name}] ตามลำดับที่เพิ่ม — แทน Set เดิม (ต้องมี name ไว้แสดง placeholder ยาที่ไม่มีบรรทัด)
   const [zeroLots, setZeroLots] = useState({})     // { code: [lot ที่ระบบคงเหลือ 0] } — ซ่อนจนกด "แสดงเพื่อนับ" (phantom stock)
+  const [toast, setToast] = useState(null)         // { tone, message } — แจ้งผลแทน alert()
   const [countDate, setCountDate] = useState(today)
   const [loading, setLoading] = useState(false)
   const [note, setNote] = useState('')
@@ -497,6 +499,8 @@ function CountTab({ auth }) {
     return { ...d, fillable, all: d.qty === 'ok' && !d.anyDiff, counted: d.qty !== 'unchecked' }
   }
 
+  const clearToast = useCallback(() => setToast(null), [])
+
   const handleSave = async () => {
     const toSave = lines.filter(l => l._selected)
     if (!toSave.length) return
@@ -504,7 +508,7 @@ function CountTab({ auth }) {
     const missing = toSave.filter(l => l.counted_qty === '' || l.counted_qty == null)
     if (missing.length) {
       const names = missing.slice(0, 3).map(l => `${l.name} (lot ${l.lot})`).join(', ')
-      alert(`ยังไม่ได้กรอกจำนวนนับ ${missing.length} รายการ: ${names}${missing.length > 3 ? ' ...' : ''}\nกรอกจำนวนให้ครบ หรือเอาติ๊กออกจากรายการที่ไม่ได้นับ`)
+      setToast({ tone: 'error', message: `ยังไม่ได้กรอกจำนวนนับ ${missing.length} รายการ: ${names}${missing.length > 3 ? ' ...' : ''}\nกรอกจำนวนให้ครบ หรือเอาติ๊กออกจากรายการที่ไม่ได้นับ` })
       return
     }
     setSaving(true)
@@ -516,7 +520,7 @@ function CountTab({ auth }) {
       setSaved(res)
       setLines([]); setAddedDrugs([]); setZeroLots({}); setNote('')
     } catch (e) {
-      alert('บันทึกไม่สำเร็จ: ' + (e?.message || e))
+      setToast({ tone: 'error', message: 'บันทึกไม่สำเร็จ: ' + (e?.message || e) })
     } finally { setSaving(false) }
   }
 
@@ -531,6 +535,7 @@ function CountTab({ auth }) {
 
   return (
     <div className="space-y-4">
+      {toast && <Toast message={toast.message} tone={toast.tone} onClose={clearToast} />}
       {pendingDraft && (
         <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl p-3 flex flex-wrap items-center gap-2 text-sm text-amber-800 dark:text-amber-300">
           <AlertTriangle size={17} className="shrink-0" />
@@ -846,6 +851,7 @@ function HistoryTab({ auth }) {
   const [editVal, setEditVal] = useState({})
   const [busy, setBusy] = useState(false)
   const [allItems, setAllItems] = useState({})      // { session_id: [items] } ทุกรอบ — ใช้ค้นยา/lot + timeline
+  const [toast, setToast] = useState(null)          // { tone, message } — แจ้งผลแทน alert()
   const [dateFrom, setDateFrom] = useState('')      // filter ช่วงวันที่ตรวจนับ (ISO)
   const [dateTo, setDateTo] = useState('')
   const [drugQ, setDrugQ] = useState('')            // ค้นชื่อยา/รหัส/lot
@@ -998,6 +1004,8 @@ function HistoryTab({ auth }) {
   const editMatch = (it) =>
     dimStatus({ ...editVal, system_qty: it.system_qty, system_exp: it.system_exp, system_location: it.system_location })
 
+  const clearToast = useCallback(() => setToast(null), [])
+
   const saveEdit = async (it) => {
     setBusy(true)
     try {
@@ -1009,7 +1017,7 @@ function HistoryTab({ auth }) {
       setItems(prev => ({ ...prev, [it.session_id]: data }))
       setAllItems(prev => ({ ...prev, [it.session_id]: data })) // sync badge/timeline ให้ตรงกับที่แก้
       setEditId(null)
-    } catch (e) { alert('แก้ไขไม่สำเร็จ: ' + (e?.message || e)) }
+    } catch (e) { setToast({ tone: 'error', message: 'แก้ไขไม่สำเร็จ: ' + (e?.message || e) }) }
     finally { setBusy(false) }
   }
 
@@ -1026,7 +1034,7 @@ function HistoryTab({ auth }) {
       setItems(prev => ({ ...prev, [it.session_id]: data }))
       setAllItems(prev => ({ ...prev, [it.session_id]: data }))
     } catch (e) {
-      alert('บันทึกสถานะไม่สำเร็จ: ' + (e?.message || e))
+      setToast({ tone: 'error', message: 'บันทึกสถานะไม่สำเร็จ: ' + (e?.message || e) })
       const data = await fetchStockCountItems(it.session_id).catch(() => null)  // rollback จากของจริง
       if (data) {
         setItems(prev => ({ ...prev, [it.session_id]: data }))
@@ -1041,7 +1049,7 @@ function HistoryTab({ auth }) {
       await updateStockCountSession(sessEdit.id, { counted_at: sessEdit.counted_at, note: sessEdit.note }, auth)
       setSessions(prev => prev.map(s => s.id === sessEdit.id ? { ...s, counted_at: sessEdit.counted_at, note: sessEdit.note } : s))
       setSessEdit(null)
-    } catch (e) { alert('แก้ไขไม่สำเร็จ: ' + (e?.message || e)) }
+    } catch (e) { setToast({ tone: 'error', message: 'แก้ไขไม่สำเร็จ: ' + (e?.message || e) }) }
     finally { setBusy(false) }
   }
 
@@ -1052,7 +1060,7 @@ function HistoryTab({ auth }) {
       await deleteStockCountSession(s.id, auth)
       setSessions(prev => prev.filter(x => x.id !== s.id))
       if (openId === s.id) setOpenId(null)
-    } catch (e) { alert('ลบไม่สำเร็จ: ' + (e?.message || e)) }
+    } catch (e) { setToast({ tone: 'error', message: 'ลบไม่สำเร็จ: ' + (e?.message || e) }) }
     finally { setBusy(false) }
   }
 
@@ -1063,6 +1071,7 @@ function HistoryTab({ auth }) {
 
   return (
     <div className="space-y-3">
+      {toast && <Toast message={toast.message} tone={toast.tone} onClose={clearToast} />}
       {/* แถบค้นหา: ช่วงวันที่ + ค้นชื่อยา/lot ที่เคยนับ */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-3">
         <div className="flex flex-wrap items-center gap-2">

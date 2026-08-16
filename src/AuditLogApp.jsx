@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCcw, Search, ClipboardList, Pencil, Trash2, X, Save, CheckSquare, BarChart3, Users, TrendingUp, Filter, ChevronDown } from 'lucide-react';
 import { fetchAuditLogs, updateAuditLog, deleteAuditLog, bulkDeleteAuditLogs, fetchUserActivityStats } from './lib/db';
 import BackButton from './BackButton';
+import Toast from './Toast';
 import { useSort, SortableTh } from './SortableTable';
 
 const ROLE_LABELS = { admin: 'ผู้ดูแลระบบ', staff: 'เจ้าหน้าที่คลัง', requester: 'ผู้เบิก' };
@@ -407,6 +408,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkConfirm, setBulkConfirm] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [toast, setToast] = useState(null); // { tone, message } — แจ้งผลแทน alert()
 
   const isAdmin = auth?.role === 'admin';
   const [mainView, setMainView] = useState('logs'); // 'logs' | 'usage' (usage = admin-only)
@@ -433,7 +435,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
       setLogs(prev => prev.filter(r => !selectedIds.has(r.id)));
       setSelectedIds(new Set());
       setBulkConfirm(false);
-    } catch (e) { alert('ลบไม่สำเร็จ: ' + e.message); }
+    } catch (e) { setToast({ tone: 'error', message: 'ลบไม่สำเร็จ: ' + e.message }); }
     setBulkDeleting(false);
   };
 
@@ -442,6 +444,8 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
     window.addEventListener('resize', fn);
     return () => window.removeEventListener('resize', fn);
   }, []);
+
+  const clearToast = useCallback(() => setToast(null), []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -453,7 +457,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
       });
       setLogs(data);
     } catch (e) {
-      alert('โหลดข้อมูลล้มเหลว: ' + e.message);
+      setToast({ tone: 'error', message: 'โหลดข้อมูลล้มเหลว: ' + e.message });
     } finally {
       setLoading(false);
     }
@@ -501,7 +505,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
       await deleteAuditLog(id);
       setLogs(prev => prev.filter(r => r.id !== id));
       setDeleteId(null);
-    } catch (e) { alert('ลบไม่สำเร็จ: ' + e.message); }
+    } catch (e) { setToast({ tone: 'error', message: 'ลบไม่สำเร็จ: ' + e.message }); }
     setDeleting(false);
   };
 
@@ -522,6 +526,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-800">
+      {toast && <Toast message={toast.message} tone={toast.tone} onClose={clearToast} />}
       {/* Title bar — sidebar (AppShell) คุม navigation แล้ว header เดิมเหลือแค่ title + refresh */}
       <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 flex items-center gap-3">
         <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
