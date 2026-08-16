@@ -463,21 +463,22 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
           <p className="text-slate-400 dark:text-slate-500 text-xs">บันทึกและติดตามอุณหภูมิ (เกณฑ์ {TEMP_MIN_DEFAULT}–{TEMP_MAX_DEFAULT} °C)</p>
         </button>
         <button onClick={load} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title="โหลดใหม่"><RefreshCcw size={16} /></button>
+        {/* จอแคบซ่อนแค่ "ข้อความ" ไม่ซ่อนปุ่ม — ไม่งั้นผู้ใช้หา Excel/นำเข้าไม่เจอเลย */}
         <button onClick={() => exportToExcel(rows, TEMP_EXCEL_COLS, 'อุณหภูมิตู้เย็น',
             `temperature_${todayIso()}.xlsx`, auth)}
-          disabled={!rows.length}
-          className="hidden sm:flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-900/60 disabled:opacity-40 rounded-lg px-3 py-2 text-sm font-medium shrink-0">
-          <FileDown size={16} /> Excel
+          disabled={!rows.length} title="Export Excel"
+          className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-900/60 disabled:opacity-40 rounded-lg px-2.5 sm:px-3 py-2 text-sm font-medium shrink-0">
+          <FileDown size={16} /> <span className="hidden sm:inline">Excel</span>
         </button>
         <button onClick={() => fileRef.current?.click()} disabled={saving}
-          className="hidden sm:flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 disabled:opacity-40 rounded-lg px-3 py-2 text-sm font-medium shrink-0"
+          className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 disabled:opacity-40 rounded-lg px-2.5 sm:px-3 py-2 text-sm font-medium shrink-0"
           title="นำเข้า CSV จากเครื่องบันทึกอุณหภูมิ (data logger)">
-          <Upload size={16} /> นำเข้า CSV
+          <Upload size={16} /> <span className="hidden sm:inline">นำเข้า CSV</span>
         </button>
         <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={handleImportFile} className="hidden" />
-        <button onClick={() => setModal(true)}
-          className="bg-sky-600 hover:bg-sky-700 text-white px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5 shrink-0">
-          <Plus size={16} /> บันทึก
+        <button onClick={() => setModal(true)} title="บันทึกอุณหภูมิ"
+          className="bg-sky-600 hover:bg-sky-700 text-white px-2.5 sm:px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5 shrink-0">
+          <Plus size={16} /> <span className="hidden sm:inline">บันทึก</span>
         </button>
       </div>
 
