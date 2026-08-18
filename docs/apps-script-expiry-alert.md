@@ -42,7 +42,19 @@ External script (ไม่ใช่ส่วนของ React app) — รั�
 
 ## Trigger ใน Apps Script
 
-ตั้ง Time-driven trigger:
+> ⛔ **ปิดแล้ว 17 ส.ค. 2026 — สคริปต์นี้เป็น backup อย่างเดียว ไม่ได้ทำงานอยู่**
+>
+> ลบ time-driven trigger (โปรเจกต์ `AlertExp` · function `sendExpiryAlert` · run ล่าสุด 17 ส.ค. 2026 09:26)
+> ออกจาก [My Triggers](https://script.google.com/home/triggers) แล้ว **เก็บโค้ดไว้** — ตั้ง trigger ใหม่
+> ได้ทันทีถ้าต้องย้อนกลับ
+>
+> **เหตุผล:** [Edge Function `expiry-alert`](expiry-alert-edge-function.md) ทำงานแทนตั้งแต่ ก.ค. 2026 แต่ไม่มีใคร
+> ปิดตัวเก่า → ผู้ใช้ได้อีเมล **2 ฉบับ/วัน ที่ตัวเลขไม่ตรงกัน** (17 ส.ค.: ตัวใหม่ 08:00 ว่า "ใกล้หมดอายุ 97 ·
+> ถึงกำหนดคืน 17" ตัวเก่า 09:26 ว่า "68 รายการ") เพราะนับคนละเกณฑ์ — คนอ่านแยกไม่ออกว่าเลขไหนจริง
+> เป็นกับดักเดียวกับบอทประกาศรอบเบิก-รับ ที่ปิดไปเมื่อ 14 ส.ค. (commit `899b4bf`)
+
+ถ้าต้องย้อนกลับมาใช้ — ตั้ง Time-driven trigger:
 - Function: `sendExpiryAlert`
 - Type: Day timer
 - Time: 08:00–09:00 (หรือเวลาที่ต้องการ)
+- ⚠️ ต้อง **ปิด cron ฝั่ง Supabase ก่อน** (`SELECT cron.unschedule('expiry-alert-weekdays');`) ไม่งั้นได้อีเมลซ้ำอีก
