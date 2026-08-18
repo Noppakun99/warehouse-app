@@ -107,7 +107,7 @@ function addDaysYmd(ymd: string, n: number): string {
 }
 
 /**
- * วันนี้เป็น "รอบ LINE รายสัปดาห์" ไหม
+ * วันนี้เป็น "รอบรายสัปดาห์" ไหม (ใช้ร่วมกันทั้ง LINE และอีเมลฉบับหลัก)
  *
  * กติกา: ส่งวันจันทร์ที่เป็นวันทำการ · ถ้าจันทร์เป็นวันหยุด → เลื่อนไปวันทำการแรกถัดไป
  * (อังคาร, ถ้าอังคารหยุดอีกก็พุธ … ) — สัปดาห์ละครั้งเสมอ ไม่ข้ามสัปดาห์ ไม่ส่งซ้ำ
@@ -116,7 +116,7 @@ function addDaysYmd(ymd: string, n: number): string {
  * ตั้งแต่จันทร์เป็นต้นมา — ถ้าตรงกับวันนี้ = วันนี้คือรอบ
  * ผู้เรียกต้องเช็ค closedReason() มาก่อนแล้ว (วันนี้เป็นวันทำการแน่นอน)
  */
-async function isWeeklyLineSlot(ymd: string): Promise<{ send: boolean; reason: string }> {
+async function isWeeklySlot(ymd: string): Promise<{ send: boolean; reason: string }> {
   const wd = new Date(ymd + "T00:00:00Z").getUTCDay();   // 0=อา 1=จ … 6=ส
   const monday = addDaysYmd(ymd, wd === 0 ? -6 : 1 - wd); // จันทร์ของสัปดาห์นี้
   // ไล่จากจันทร์หาวันทำการแรกของสัปดาห์ (สแกน 7 วันพอ — เกินนั้นคือทั้งสัปดาห์หยุด)
@@ -747,24 +747,33 @@ Deno.serve(async (req) => {
     const doEmail = channel === "email" || channel === "both";
     let   doLine  = channel === "line"  || channel === "both";
 
-    // LINE = จันทร์ที่เป็นวันทำการเท่านั้น (email ยังรายวันตามเดิม ไม่แตะ)
-    // จันทร์หยุด → เลื่อนไปวันทำการถัดไป โดย cron ยิงทุกวันแล้วให้ฟังก์ชันตัดสินเอง
-    // (โครงสร้างเดียวกับ requisition-announce — cron ล็อกวันไม่ได้เพราะวันเลื่อนตามวันหยุด)
+    // รอบการส่ง — ฟังก์ชันตัดสินเอง ไม่ผูกกับ cron (วันเลื่อนตามวันหยุดราชการ cron ล็อกวันไม่ได้
+    // โครงสร้างเดียวกับ requisition-announce)
+    //   ฉบับหลัก + LINE  = สัปดาห์ละครั้ง — จันทร์ ถ้าจันทร์หยุดเลื่อนเป็นวันทำการแรกของสัปดาห์
+    //   "[ด่วน] ยาหมดอายุค้างคลัง" = ทุกวันทำการ (ของค้างคลังต้องตามทุกวันจนกว่าจะเก็บออก —
+    //   ตัวอีเมลเขียนไว้เองว่าจะเตือนซ้ำทุกวันจนกว่าจะอัพเดต) ข้ามเฉพาะวันที่คลังปิด
     const result: Record<string, unknown> = { ok: true, channel };
-    if (doLine && !force) {
+    let doMainEmail    = doEmail;
+    let doExpiredEmail = doEmail;
+    if (!force) {
       const ymd = dateOverride || todayBangkokYmd();
       const closed = await closedReason(ymd);
       if (closed) {
-        result.lineSkip = `ไม่ส่ง: ${ymd} คลังปิด (${closed})`;
-        doLine = false;
+        const why = `ไม่ส่ง: ${ymd} คลังปิด (${closed})`;
+        if (doLine)  result.lineSkip  = why;
+        if (doEmail) result.emailSkip = why;
+        doLine = false; doMainEmail = false; doExpiredEmail = false;
       } else {
-        // เปิดทำการ → ส่งเฉพาะเมื่อเป็น "จันทร์ หรือวันทำการแรกแทนจันทร์ที่หยุด"
-        const slot = await isWeeklyLineSlot(ymd);
+        // เปิดทำการ → ฉบับหลัก/LINE ส่งเฉพาะเมื่อเป็น "จันทร์ หรือวันทำการแรกแทนจันทร์ที่หยุด"
+        const slot = await isWeeklySlot(ymd);
         if (!slot.send) {
-          result.lineSkip = `ไม่ส่ง: ${ymd} ${slot.reason}`;
-          doLine = false;
+          const why = `ไม่ส่ง: ${ymd} ${slot.reason}`;
+          if (doLine)  result.lineSkip  = why;
+          if (doEmail) result.emailSkip = why;
+          doLine = false; doMainEmail = false;
         } else {
-          result.lineSlot = slot.reason;
+          if (doLine)  result.lineSlot  = slot.reason;
+          if (doEmail) result.emailSlot = slot.reason;
         }
       }
     }
@@ -931,7 +940,7 @@ Deno.serve(async (req) => {
     // 4. ส่งตาม channel
     result.expired = expired.length;
 
-    if (doEmail) {
+    if (doMainEmail || doExpiredEmail) {
       const transporter = nodemailer.createTransport({
         host: "smtp.gmail.com",
         port: 465,
@@ -941,7 +950,9 @@ Deno.serve(async (req) => {
 
       // ── ฉบับหลัก: ใกล้หมดอายุ + ถึงกำหนดคืน (ไม่รวมของหมดอายุแล้ว) ──
       // นับจาก nearExpiry ตรงๆ ไม่ใช่ total (ซึ่งรวม expired ที่ย้ายไปฉบับแยกแล้ว)
-      if (nearExpiry.length === 0 && returnDue.length === 0) {
+      if (!doMainEmail) {
+        result.email = "skip: ไม่ใช่รอบรายสัปดาห์";
+      } else if (nearExpiry.length === 0 && returnDue.length === 0) {
         result.email = "skip: ไม่มียาที่ต้องแจ้งเตือน";
       } else {
         const subjParts: string[] = [];
