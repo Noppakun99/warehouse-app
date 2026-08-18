@@ -94,7 +94,7 @@ Edge Function เดียวกันส่งได้ทั้ง email + LIN
 
 | body | ช่องทาง | ใช้โดย |
 |---|---|---|
-| `{}` หรือ `{"channel":"email"}` | email | cron `expiry-alert-weekdays` + ปุ่มในแอป |
+| `{}` หรือ `{"channel":"email"}` | email | cron `expiry-alert-weekdays` (แอปไม่ได้เรียกฟังก์ชันนี้ — ไม่มีปุ่ม ตรวจ 17 ส.ค. 2026: `src/` invoke แค่ `line-quota`/`scan-invoice`) |
 | `{"channel":"line"}` | LINE | cron `expiry-alert-line-weekly` |
 | `{"channel":"both"}` | ทั้งคู่ | ทดสอบ manual |
 
