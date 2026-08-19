@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Thermometer, Plus, RefreshCcw, X, AlertTriangle, CheckCircle2,
-  ShieldAlert, Pencil, Trash2, FlaskConical, FileDown, Upload,
+  ShieldAlert, Pencil, Trash2, FlaskConical, FileDown, Upload, Snowflake, Building2,
 } from 'lucide-react';
 import BackButton from './BackButton';
 import Toast from './Toast';
@@ -10,7 +10,7 @@ import { exportToExcel } from './lib/exportExcel';
 import {
   fetchTemperatureLogs, fetchTemperatureStats, insertTemperatureLog,
   updateTemperatureLog, deleteTemperatureLog, isExcursion,
-  TEMP_MIN_DEFAULT, TEMP_MAX_DEFAULT, TEMP_DEVICES, TEMP_DEVICE_DEFAULT, tempDeviceLabel,
+  TEMP_POINTS, tempPoint, TEMP_DEVICES, TEMP_DEVICE_DEFAULT, tempDeviceLabel,
   findTemperatureSameRound, importTemperatureRows, fetchTemperatureRecorders,
 } from './lib/db';
 
@@ -124,15 +124,22 @@ function StatCard({ label, value, sub, tone = 'slate', icon: Icon }) {
   );
 }
 
-function RecordModal({ initial, onSave, onCancel, saving }) {
+function RecordModal({ initial, onSave, onCancel, saving, point }) {
   const isEdit = !!initial;
+  // เกณฑ์มาจาก "จุดวัดที่เลือก" ไม่ใช่ค่าคงที่ของทั้งระบบ — ห้อง 30°C ถ้าตัดสินด้วยเกณฑ์ตู้เย็น 2-8
+  // จะหลุดช่วงทุกแถวแล้วบังคับกรอกการดำเนินการทุกครั้งจนคนเลิกใช้
+  // แก้ไขแถวเก่า = ใช้เกณฑ์ที่ snapshot ไว้ในแถวนั้น ไม่ใช่เกณฑ์ปัจจุบันของจุดวัด
+  const pt = tempPoint(initial?.location || point);
+  const lo = isEdit ? Number(initial.min_c ?? pt.min) : pt.min;
+  const hi = isEdit ? Number(initial.max_c ?? pt.max) : pt.max;
   const [date, setDate] = useState(initial?.reading_date || todayIso());
   const [time, setTime] = useState(initial?.reading_time ? String(initial.reading_time).slice(0, 5) : '');
   const [temp, setTemp] = useState(initial?.temp_c != null ? String(Number(initial.temp_c)) : '');
   const [humidity, setHumidity] = useState(initial?.humidity_pct != null ? String(Number(initial.humidity_pct)) : '');
   const [note, setNote] = useState(initial?.note || '');
   const [action, setAction] = useState(initial?.action_taken || '');
-  const [device, setDevice] = useState(initial?.device || TEMP_DEVICE_DEFAULT);
+  // อุปกรณ์เริ่มต้นตามจุดวัด — ห้องเก็บไม่มี "จอแสดงผลของตู้เย็น" ให้อ่าน
+  const [device, setDevice] = useState(initial?.device || pt.device || TEMP_DEVICE_DEFAULT);
 
   // เตือนถ้ารอบนั้นบันทึกไปแล้ว (เช้า/บ่าย) — ไม่บล็อก แต่ต้องกดยืนยัน
   const [dupRows, setDupRows] = useState([]);
@@ -144,7 +151,7 @@ function RecordModal({ initial, onSave, onCancel, saving }) {
   useEffect(() => {
     let alive = true;
     Promise.resolve()
-      .then(() => (date ? findTemperatureSameRound(date, time || '00:00') : []))
+      .then(() => (date ? findTemperatureSameRound(date, time || '00:00', pt.key) : []))
       .then((found) => {
         if (!alive) return;
         setDupRows((found || []).filter(r => r.id !== initial?.id)); // ตอนแก้ไข ไม่นับแถวตัวเอง
@@ -153,10 +160,10 @@ function RecordModal({ initial, onSave, onCancel, saving }) {
       })
       .catch(() => { if (alive) setDupChecked(true); });
     return () => { alive = false; };
-  }, [date, time, initial?.id]);
+  }, [date, time, initial?.id, pt.key]);
 
   const tempNum = parseFloat(temp);
-  const out = Number.isFinite(tempNum) && (tempNum < TEMP_MIN_DEFAULT || tempNum > TEMP_MAX_DEFAULT);
+  const out = Number.isFinite(tempNum) && (tempNum < lo || tempNum > hi);
   const hasDup = dupChecked && dupRows.length > 0;
   const canSave = !!date && Number.isFinite(tempNum) && (!out || action.trim()) && (!hasDup || confirmedDup);
   const roundName = Number(String(time || '00:00').slice(0, 2)) < 12 ? 'เช้า' : 'บ่าย';
@@ -198,7 +205,10 @@ function RecordModal({ initial, onSave, onCancel, saving }) {
             </div>
           </div>
 
-          <p className="text-xs text-slate-400 dark:text-slate-500">ช่วงที่ยอมรับได้ {TEMP_MIN_DEFAULT}–{TEMP_MAX_DEFAULT} °C</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500">
+            <span className="font-semibold text-slate-500 dark:text-slate-400">{pt.key}</span> · ช่วงที่ยอมรับได้ {lo}–{hi} °C
+            {pt.kind === 'ambient' && <span className="text-slate-400"> (ห้องเก็บ — ไม่เกิน {hi}°C และต้องไม่แช่แข็ง)</span>}
+          </p>
 
           {out && (
             <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-xl p-3 space-y-2">
@@ -260,6 +270,7 @@ function RecordModal({ initial, onSave, onCancel, saving }) {
               reading_date: date, reading_time: time || null,
               round_label: time ? (Number(time.slice(0, 2)) < 12 ? 'เช้า' : 'บ่าย') : '',
               temp_c: tempNum, humidity_pct: humidity, note, action_taken: action, device,
+              location: pt.key, min_c: lo, max_c: hi,
             })}
             className="px-5 py-2 bg-sky-600 hover:bg-sky-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white rounded-lg text-sm font-semibold">
             {saving ? 'กำลังบันทึก…' : isEdit ? 'บันทึกการแก้ไข' : 'บันทึก'}
@@ -299,6 +310,7 @@ function ActionModal({ row, onSave, onCancel, saving }) {
 
 export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
   const [rows, setRows] = useState([]);
+  const [point, setPoint] = useState(TEMP_POINTS[0].key);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showGenerated, setShowGenerated] = useState(false);
@@ -321,8 +333,8 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
     setLoading(true);
     try {
       const [r, s] = await Promise.all([
-        fetchTemperatureLogs({ from: from || undefined, to: to || undefined, includeGenerated: showGenerated, recordedBy: recordedBy || undefined }),
-        fetchTemperatureStats({ from: from || undefined, to: to || undefined, recordedBy: recordedBy || undefined }),
+        fetchTemperatureLogs({ from: from || undefined, to: to || undefined, includeGenerated: showGenerated, recordedBy: recordedBy || undefined, location: point }),
+        fetchTemperatureStats({ from: from || undefined, to: to || undefined, recordedBy: recordedBy || undefined, location: point }),
       ]);
       setRows(r);
       setStats(s);
@@ -331,7 +343,7 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
     } finally {
       setLoading(false);
     }
-  }, [from, to, showGenerated, recordedBy]);
+  }, [from, to, showGenerated, recordedBy, point]);
 
   // รายชื่อผู้บันทึกโหลดครั้งเดียว (ไม่ผูกกับตัวกรอง ไม่งั้นเลือกแล้วชื่ออื่นหาย)
   useEffect(() => {
@@ -459,13 +471,13 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
         <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
         <div className="p-1.5 rounded-lg bg-sky-100 dark:bg-sky-950/60 text-sky-600 shrink-0"><Thermometer size={18} /></div>
         <button onClick={onRefresh} className="flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
-          <h1 className="font-bold text-base leading-tight text-slate-800 dark:text-slate-100">อุณหภูมิตู้เย็นคลังยา</h1>
-          <p className="text-slate-400 dark:text-slate-500 text-xs">บันทึกและติดตามอุณหภูมิ (เกณฑ์ {TEMP_MIN_DEFAULT}–{TEMP_MAX_DEFAULT} °C)</p>
+          <h1 className="font-bold text-base leading-tight text-slate-800 dark:text-slate-100">อุณหภูมิที่เก็บยา</h1>
+          <p className="text-slate-400 dark:text-slate-500 text-xs">{point} · เกณฑ์ {tempPoint(point).min}–{tempPoint(point).max} °C</p>
         </button>
         <button onClick={load} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title="โหลดใหม่"><RefreshCcw size={16} /></button>
         {/* จอแคบซ่อนแค่ "ข้อความ" ไม่ซ่อนปุ่ม — ไม่งั้นผู้ใช้หา Excel/นำเข้าไม่เจอเลย */}
         <button onClick={() => exportToExcel(rows, TEMP_EXCEL_COLS, 'อุณหภูมิตู้เย็น',
-            `temperature_${todayIso()}.xlsx`, auth)}
+            `temperature_${point}_${todayIso()}.xlsx`, auth)}
           disabled={!rows.length} title="Export Excel"
           className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-900/60 disabled:opacity-40 rounded-lg px-2.5 sm:px-3 py-2 text-sm font-medium shrink-0">
           <FileDown size={16} /> <span className="hidden sm:inline">Excel</span>
@@ -483,6 +495,27 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
       </div>
 
       <div className="p-4 space-y-4 max-w-5xl mx-auto">
+        {/* เลือกจุดวัด — สถิติ/กราฟ/ตารางทั้งหน้าคิดเฉพาะจุดที่เลือก
+            ไม่มีตัวเลือก "ทุกจุด" โดยเจตนา: ค่าเฉลี่ยของตู้เย็น 5°C กับห้อง 28°C ไม่มีความหมาย */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-2 flex flex-wrap gap-2">
+          {TEMP_POINTS.map((p) => {
+            const on = p.key === point;
+            const Icon = p.kind === 'fridge' ? Snowflake : Building2;
+            return (
+              <button key={p.key} onClick={() => setPoint(p.key)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                  on ? 'bg-sky-600 text-white shadow-sm'
+                     : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                <Icon size={15} className={on ? 'text-white' : 'text-slate-400'} />
+                {p.key}
+                <span className={`text-[11px] font-medium tabular-nums ${on ? 'text-sky-100' : 'text-slate-400'}`}>
+                  {p.min}–{p.max}°C
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
         {stats && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <StatCard label="ค่าที่วัดจริง" value={stats.count.toLocaleString()} sub={stats.dataFrom ? `${thaiDate(stats.dataFrom)} – ${thaiDate(stats.dataTo)}` : null} tone="sky" icon={Thermometer} />
@@ -613,7 +646,7 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
       </div>
 
       {(modal || editRow) && (
-        <RecordModal initial={editRow} onSave={handleSave}
+        <RecordModal initial={editRow} onSave={handleSave} point={point}
           onCancel={() => { setModal(false); setEditRow(null); }} saving={saving} />
       )}
       <UploadSuccessModal

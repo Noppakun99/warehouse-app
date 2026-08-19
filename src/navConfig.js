@@ -63,7 +63,7 @@ export const NAV_GROUPS = [
     items: [
       { page: 'ledger',     icon: Layers,         title: 'ทะเบียนคงคลัง',   c: 'teal',    roles: ['admin'] },
       { page: 'stockcount', icon: ClipboardCheck, title: 'ตรวจนับคงคลัง',   c: 'emerald', roles: ['staff', 'admin'] },
-      { page: 'temperature', icon: Thermometer, title: 'อุณหภูมิตู้เย็น',  c: 'sky',   roles: ['staff', 'admin'] },
+      { page: 'temperature', icon: Thermometer, title: 'อุณหภูมิที่เก็บยา', c: 'sky',   roles: ['staff', 'admin'] },
       { page: 'holiday', icon: CalendarDays,  title: 'ปฏิทินวันหยุด',   c: 'sky',   roles: ['admin'] },
       { page: 'audit',  icon: ClipboardList,  title: 'Audit Log',        c: 'amber', roles: ['staff', 'admin'] },
       { page: 'users',  icon: Users,          title: 'จัดการผู้ใช้งาน', c: 'slate', roles: ['admin'] },

@@ -3593,6 +3593,26 @@ export async function fetchHolidayCoverage() {
 export const TEMP_LOCATION_DEFAULT = 'ตู้เย็นคลังยา'
 
 /**
+ * จุดวัดอุณหภูมิ — **แต่ละจุดมีช่วงยอมรับของตัวเอง** (CONTEXT §จุดวัดอุณหภูมิ)
+ *
+ * ตู้เย็น  = 2–8°C  ผิดได้ทั้งสูงเกินและต่ำเกิน
+ * ห้องเก็บ = 0–30°C ขอบบน 30 มาจากฉลากยาไทยที่ทดสอบความคงตัวตาม ASEAN zone IVb
+ *            (30°C/75%RH) **ไม่ใช่ 25°C แบบ USP** — ตั้ง 25 กับห้องที่ไม่ได้เปิดแอร์ตลอด
+ *            จะทำให้ทุกแถวหลุดช่วงจนคำว่า "หลุดช่วง" หมดความหมาย
+ *            ขอบล่าง 0 = "ต้องไม่แช่แข็ง" (มหิดล: "ไม่เกิน 30 องศา และไม่แช่แข็ง";
+ *            package insert น้ำเกลือ: "Protect from freezing") ไม่ใช่ตัวเลขที่ตั้งลอยๆ
+ *
+ * ⚠️ ค่าที่บันทึกไปแล้วตัดสินด้วยเกณฑ์ที่ snapshot ไว้ในแถว (min_c/max_c) **ไม่ใช่ค่าจากที่นี่**
+ *    แก้ตัวเลขตรงนี้จึงมีผลกับการบันทึกครั้งใหม่เท่านั้น ประวัติเดิมไม่เปลี่ยนความหมาย
+ */
+export const TEMP_POINTS = [
+  { key: 'ตู้เย็นคลังยา',    kind: 'fridge',  min: 2, max: 8,  device: 'fridge_display' },
+  { key: 'ห้องคลังยา',       kind: 'ambient', min: 0, max: 30, device: 'thermometer' },
+  { key: 'ห้องคลังน้ำเกลือ', kind: 'ambient', min: 0, max: 30, device: 'thermometer' },
+]
+export const tempPoint = (key) => TEMP_POINTS.find(p => p.key === key) || TEMP_POINTS[0]
+
+/**
  * อุปกรณ์ที่ใช้วัด — สำคัญกับงานตรวจ GDP/HA ที่ขอ "ใบสอบเทียบของเครื่องที่ใช้วัด"
  * `fridge_display` (จอตู้เย็น) = สภาพปัจจุบัน — วัดอากาศใกล้คอยล์ ไม่ใช่อุณหภูมิของยา
  * และไม่มีใบสอบเทียบ จึงใช้ยืนยันกับผู้ตรวจไม่ได้ (ดู ADR-0018)
@@ -3632,11 +3652,13 @@ export function isExcursion(r) {
  * @param {object} opts { from, to, includeGenerated }
  *   includeGenerated=true ใช้เฉพาะหน้าประวัติที่ต้องการโชว์หลักฐานว่าเคยมีค่าปลอม
  */
-export async function fetchTemperatureLogs({ from, to, includeGenerated = false, recordedBy } = {}) {
+export async function fetchTemperatureLogs({ from, to, includeGenerated = false, recordedBy, location } = {}) {
   if (!supabase) return []
   let q = supabase.from('temperature_log').select('*')
   if (from) q = q.gte('reading_date', from)
   if (to)   q = q.lte('reading_date', to)
+  // จุดวัดต่างชนิดกันเอาค่ามารวมกันไม่ได้ (ตู้เย็น 5°C กับห้อง 28°C) — กรองที่ชั้นนี้ชั้นเดียว
+  if (location) q = q.eq('location', location)
   if (!includeGenerated) q = q.neq('source', 'generated')
   const { data, error } = await q
     .order('reading_date', { ascending: false })
@@ -3670,8 +3692,10 @@ export async function fetchTemperatureRecorders() {
  * สรุปสถิติ + ความครบถ้วนของการบันทึก
  * **ไม่เติมแถวให้รอบที่ไม่มีคนวัด** — ความครบถ้วนคำนวณจากแถวจริง ÷ รอบที่ควรมี (ADR-0018 ข้อ 6)
  */
-export async function fetchTemperatureStats({ from, to, roundsPerDay = 2, recordedBy } = {}) {
-  const rows = await fetchTemperatureLogs({ from, to, includeGenerated: true, recordedBy })
+export async function fetchTemperatureStats({ from, to, roundsPerDay = 2, recordedBy, location } = {}) {
+  // ⚠️ ต้องส่ง location เสมอ — min/max/avg ที่คิดข้ามจุดวัดไม่มีความหมายทางกายภาพ
+  // (ค่าเฉลี่ยของตู้เย็น 5°C กับห้อง 28°C = 16°C ซึ่งไม่ใช่อุณหภูมิของอะไรเลย)
+  const rows = await fetchTemperatureLogs({ from, to, includeGenerated: true, recordedBy, location })
   const real = rows.filter(isRealReading)
   const generated = rows.length - real.length
 
