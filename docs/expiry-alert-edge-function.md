@@ -137,7 +137,19 @@ cron ยิงมาทุกวัน แล้ว **ฟังก์ชัน�
 (การส่งปกติของบอทไม่ควรเด้งกระดิ่งทุกสัปดาห์; กระดิ่งเก็บไว้ให้เรื่องผิดปกติอย่าง `line_quota_low`)
 ⚠️ ผลข้างเคียงคือ **อีเมลส่งไม่ออกก็ไม่เด้งกระดิ่ง** เหมือนกัน — ต้องเข้าไปดูหน้า Audit Log เอง
 
-**สถานะ deploy:** version 25 (17 ส.ค. 2026) — เทียบแล้วตรงกับ `supabase/functions/expiry-alert/index.ts` ทุกตัวอักษร
+**สถานะ deploy:** version 26 (19 ส.ค. 2026) — เทียบแล้วตรงกับ `supabase/functions/expiry-alert/index.ts` ทุกตัวอักษร
+
+verify การลง audit (19 ส.ค. 2026): ตั้ง `ALERT_EMAILS` เป็นอีเมลคนเดียวชั่วคราว → ยิง `{"force":true,"channel":"email"}`
+→ ได้แถว `email_expiry_alert` ใน `audit_logs` (`kind: main · sent: true · near_expiry: 95 · return_due: 16 ·
+recipients: 1 · slot: "force (ข้ามการเช็ครอบ)"` · record_count 111) → เห็นป้าย "แจ้งเตือนยาใกล้หมดอายุ (Email)"
+ในหน้า Audit Log จริง → **คืนค่า `ALERT_EMAILS` แล้ว** ยืนยันด้วย digest ที่กลับมาตรงค่าเดิม `823bf6a2…`
+
+> 💡 **deploy ด้วย CLI ดีกว่าให้ agent พิมพ์เนื้อไฟล์ผ่าน MCP** — `supabase functions deploy` อัปโหลดไฟล์จริง
+> ไม่มีโอกาสพิมพ์ตก (ไฟล์นี้ ~59KB เกินลิมิต output ของ agent ด้วย). โทเค็นอยู่ใน env ของ MCP server:
+> `SUPABASE_ACCESS_TOKEN` ใน `~/.claude.json` → `mcpServers.supabase.env`
+>
+> ⚠️ **อ่านค่า secret เดิมกลับไม่ได้** (`secrets list` ให้แค่ digest) — ถ้าจะแก้ชั่วคราวต้องรู้ค่าเดิมก่อน
+> แล้วยืนยันตอนคืนด้วยการเทียบ digest. ผู้รับปัจจุบัน = 4 คนตามที่จดไว้ข้างบน (ยืนยันด้วย digest แล้ว)
 
 verify ยิงจริงกับ DB จริง 5 เคส (ใช้ `{"date":...}` ซึ่งเลือกเฉพาะวันที่ไม่ส่ง จึงไม่มีอีเมลออกระหว่างทดสอบ):
 
