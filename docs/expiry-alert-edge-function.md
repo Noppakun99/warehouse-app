@@ -160,7 +160,11 @@ cron ยิงมาทุกวัน แล้ว **ฟังก์ชัน�
 (การส่งปกติของบอทไม่ควรเด้งกระดิ่งทุกสัปดาห์; กระดิ่งเก็บไว้ให้เรื่องผิดปกติอย่าง `line_quota_low`)
 ⚠️ ผลข้างเคียงคือ **อีเมลส่งไม่ออกก็ไม่เด้งกระดิ่ง** เหมือนกัน — ต้องเข้าไปดูหน้า Audit Log เอง
 
-**สถานะ deploy:** version 26 (19 ส.ค. 2026) — เทียบแล้วตรงกับ `supabase/functions/expiry-alert/index.ts` ทุกตัวอักษร
+**สถานะ deploy:** version 31 (19 ส.ค. 2026) — เทียบแล้วตรงกับ `supabase/functions/expiry-alert/index.ts` ทุกตัวอักษร
+
+> ⚠️ **เลข version กระโดดเร็วกว่าจำนวนครั้งที่ deploy** — `supabase secrets set` ก็ bump version ของทุก
+> function ด้วย (แก้ `ALERT_EMAILS` 4 ครั้งระหว่างทดสอบ = +4 version) อย่าใช้เลข version เดาว่าโค้ดเปลี่ยนกี่รอบ
+> ให้เทียบเนื้อไฟล์แทน
 
 verify การลง audit (19 ส.ค. 2026): ตั้ง `ALERT_EMAILS` เป็นอีเมลคนเดียวชั่วคราว → ยิง `{"force":true,"channel":"email"}`
 → ได้แถว `email_expiry_alert` ใน `audit_logs` (`kind: main · sent: true · near_expiry: 95 · return_due: 16 ·
