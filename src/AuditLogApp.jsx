@@ -179,6 +179,7 @@ const ACTION_LABELS = {
   delete_holiday:               { label: 'ลบวันหยุดราชการ',          color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'       },
   line_announce:                { label: 'ประกาศรอบเบิก-รับ (LINE)', color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
   line_expiry_alert:            { label: 'แจ้งเตือนยาใกล้หมดอายุ (LINE)', color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
+  email_expiry_alert:           { label: 'แจ้งเตือนยาใกล้หมดอายุ (Email)', color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
   line_quota_low:               { label: 'โควตาแจ้งเตือน LINE ใกล้หมด', color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'    },
   insert_drug_loan:             { label: 'บันทึกยืมยา',               color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
   return_drug_loan:             { label: 'รับคืนยาที่ยืม',            color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },

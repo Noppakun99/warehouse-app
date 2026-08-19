@@ -941,6 +941,10 @@ Deno.serve(async (req) => {
     result.expired = expired.length;
 
     if (doMainEmail || doExpiredEmail) {
+      // ⚠️ วันที่ลง audit ต้องเป็นวันจริงเสมอ ห้ามใช้ dateOverride — เนื้อหาอีเมลคำนวณจาก
+      // `today = new Date()` ซึ่งไม่สนใจ dateOverride ถ้าเอา dateOverride มาลงจะได้แถวที่เขียนว่า
+      // ส่งวันนั้นแต่เนื้อหาเป็นของวันนี้ = audit โกหก (กฎเดียวกับฝั่ง LINE ด้านล่าง)
+      const ymdNow = todayBangkokYmd();
       const transporter = nodemailer.createTransport({
         host: "smtp.gmail.com",
         port: 465,
@@ -960,14 +964,35 @@ Deno.serve(async (req) => {
         if (returnDue.length > 0) subjParts.push(`ถึงกำหนดคืน ${returnDue.length}`);
         const subject = `[แจ้งเตือน] ${subjParts.join(" · ")} — ${fmtDate(today)}`;
         const html = buildEmail(expired, nearExpiry, returnDue, today, detailMap);
-        await transporter.sendMail({
-          from: GMAIL_USER,
-          to: ALERT_EMAILS.join(", "),
-          subject,
-          text: "กรุณาดูรายละเอียดใน HTML",
-          html,
-        });
-        result.email = { sent: true, nearExpiry: nearExpiry.length, returnDue: returnDue.length };
+        // ลง audit ทุกครั้งที่ "พยายามส่ง" ทั้งสำเร็จและล้มเหลว — ไม่งั้นคำถาม "อีเมลออกหรือยัง"
+        // ตอบไม่ได้เลย (เดิมสาขาอีเมลไม่เขียน audit สักบรรทัด ต่างจากฝั่ง LINE)
+        // ไม่ลง audit ตอน skip โดยเจตนา — cron ยิง จ-ศ ถ้าลงทุกครั้งจะได้แถว "ไม่ส่ง" สัปดาห์ละ 4 แถว
+        // กลบแถวที่มีความหมายจริง; เหตุผลที่ข้ามดูได้จาก response (emailSkip)
+        try {
+          await transporter.sendMail({
+            from: GMAIL_USER,
+            to: ALERT_EMAILS.join(", "),
+            subject,
+            text: "กรุณาดูรายละเอียดใน HTML",
+            html,
+          });
+          result.email = { sent: true, nearExpiry: nearExpiry.length, returnDue: returnDue.length };
+          await insertAudit("email_expiry_alert", {
+            date: ymdNow,
+            simulated_date: dateOverride || undefined,   // มีค่า = ยิงทดสอบด้วย {"date":...}
+            kind: "main", sent: true, subject,
+            near_expiry: nearExpiry.length, return_due: returnDue.length,
+            recipients: ALERT_EMAILS.length,
+            slot: result.emailSlot ?? (force ? "force (ข้ามการเช็ครอบ)" : undefined),
+          }, nearExpiry.length + returnDue.length);
+        } catch (e) {
+          result.email = { sent: false, error: String(e) };
+          await insertAudit("email_expiry_alert", {
+            date: ymdNow, kind: "main", sent: false, error: String(e),
+            near_expiry: nearExpiry.length, return_due: returnDue.length,
+          }, nearExpiry.length + returnDue.length);
+          throw e;   // คงพฤติกรรมเดิม: ส่งเมลไม่ออก = ตอบ 500 (แต่ตอนนี้มีแถว audit ไว้ตามย้อนหลังแล้ว)
+        }
       }
 
       // ── ฉบับที่ 2: ยาหมดอายุค้างคลัง — ส่งเฉพาะเมื่อมีของค้างจริง ──
@@ -975,14 +1000,30 @@ Deno.serve(async (req) => {
       if (expired.length === 0) {
         result.expiredEmail = "skip: ไม่มียาหมดอายุค้างคลัง";
       } else {
-        await transporter.sendMail({
-          from: GMAIL_USER,
-          to: ALERT_EMAILS.join(", "),
-          subject: `[ด่วน] ยาหมดอายุค้างคลัง ${expired.length} รายการ — ต้องเก็บออกจากคลัง (${fmtDate(today)})`,
-          text: "กรุณาดูรายละเอียดใน HTML",
-          html: buildExpiredEmail(expired, today, detailMap),
-        });
-        result.expiredEmail = { sent: true, count: expired.length };
+        const subjectExpired = `[ด่วน] ยาหมดอายุค้างคลัง ${expired.length} รายการ — ต้องเก็บออกจากคลัง (${fmtDate(today)})`;
+        try {
+          await transporter.sendMail({
+            from: GMAIL_USER,
+            to: ALERT_EMAILS.join(", "),
+            subject: subjectExpired,
+            text: "กรุณาดูรายละเอียดใน HTML",
+            html: buildExpiredEmail(expired, today, detailMap),
+          });
+          result.expiredEmail = { sent: true, count: expired.length };
+          await insertAudit("email_expiry_alert", {
+            date: ymdNow,
+            simulated_date: dateOverride || undefined,
+            kind: "expired", sent: true, subject: subjectExpired,
+            expired: expired.length, recipients: ALERT_EMAILS.length,
+          }, expired.length);
+        } catch (e) {
+          result.expiredEmail = { sent: false, error: String(e) };
+          await insertAudit("email_expiry_alert", {
+            date: ymdNow, kind: "expired", sent: false, error: String(e),
+            expired: expired.length,
+          }, expired.length);
+          throw e;
+        }
       }
     }
 
