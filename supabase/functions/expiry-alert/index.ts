@@ -131,6 +131,34 @@ async function isWeeklySlot(ymd: string): Promise<{ send: boolean; reason: strin
   return { send: false, reason: "ทั้งสัปดาห์เป็นวันหยุด" };
 }
 
+/**
+ * สัปดาห์นี้ (นับจากจันทร์ เวลาไทย) มีอีเมล "ฉบับหลัก" ออกไปแล้วหรือยัง — อ่านจาก audit_logs
+ *
+ * ใช้เป็นตาข่ายกันรอบวันจันทร์ล้มแล้วเงียบทั้งสัปดาห์ (ดู §รอบการส่ง ใน docs)
+ * นับแถวที่ `kind: main` + `sent: true` เท่านั้น — แถว sent:false (ส่งไม่ออก) ต้องไม่นับ
+ * ไม่งั้นวันที่ Gmail ล่มจะกลายเป็น "ส่งแล้ว" แล้วไม่มีใครตามส่งให้อีกเลย
+ *
+ * คืน sent = null เมื่อ query ล้ม → ผู้เรียก **ไม่ส่งตามหลัง** (fail-closed)
+ * ต่างจาก closedReason() ที่ fail-open โดยเจตนา: ตรงนั้นพลาดแล้วส่งเกิน 1 ฉบับ
+ * แต่ตรงนี้ถ้า fail-open แล้ว query ล้มทุกวัน จะกลายเป็นส่งทุกวันทำการ = ย้อนกลับไปปัญหาเดิม
+ */
+async function mainEmailSentThisWeek(ymd: string): Promise<{ sent: boolean | null; weekStart: string }> {
+  const wd = new Date(ymd + "T00:00:00Z").getUTCDay();
+  const monday = addDaysYmd(ymd, wd === 0 ? -6 : 1 - wd);
+  // จันทร์ 00:00 เวลาไทย = อาทิตย์ 17:00 UTC — เขียนแบบนี้เพื่อเลี่ยง "+07:00" ที่ต้อง encode ใน query string
+  const weekStartUtc = addDaysYmd(monday, -1) + "T17:00:00Z";
+  try {
+    const rows = await fetchTable(
+      "audit_logs", "id,details,created_at",
+      `action=eq.email_expiry_alert&created_at=gte.${weekStartUtc}`,
+    );
+    const sent = rows.some((r: any) => r?.details?.kind === "main" && r?.details?.sent === true);
+    return { sent, weekStart: monday };
+  } catch (_e) {
+    return { sent: null, weekStart: monday };
+  }
+}
+
 // ============================================================
 // แปลง exp string → Date
 // ============================================================
@@ -769,8 +797,24 @@ Deno.serve(async (req) => {
         if (!slot.send) {
           const why = `ไม่ส่ง: ${ymd} ${slot.reason}`;
           if (doLine)  result.lineSkip  = why;
-          if (doEmail) result.emailSkip = why;
           doLine = false; doMainEmail = false;
+          // ── ตาข่ายกันเงียบทั้งสัปดาห์ ──
+          // ไม่ใช่รอบ แต่ถ้าสัปดาห์นี้ยังไม่มีอีเมลฉบับหลักออกเลย (รอบวันจันทร์ล้ม/ฟังก์ชัน error)
+          // ให้ส่งตามหลังในวันทำการถัดมา — ก่อนหน้านี้พลาดวันจันทร์ = เงียบยาว 7 วันโดยไม่มีใครรู้
+          // เฉพาะอีเมลเท่านั้น **ไม่รวม LINE** โดยเจตนา: push นับรายหัว โควตา free 200/เดือน
+          // ถ้าตามส่งผิดพลาดจะกินโควตาทั้งกลุ่ม (ดู §ทำไม LINE สัปดาห์ละครั้ง ใน docs)
+          if (doEmail) {
+            const week = await mainEmailSentThisWeek(ymd);
+            if (week.sent === null) {
+              result.emailSkip = `${why} · ตรวจ audit ไม่ได้ → ไม่ส่งตามหลัง (กันส่งซ้ำ)`;
+            } else if (week.sent) {
+              result.emailSkip = why;
+            } else {
+              doMainEmail = true;
+              result.emailCatchUp = true;
+              result.emailSlot = `ส่งตามหลัง — สัปดาห์ของ ${week.weekStart} ยังไม่มีอีเมลฉบับหลักออกเลย`;
+            }
+          }
         } else {
           if (doLine)  result.lineSlot  = slot.reason;
           if (doEmail) result.emailSlot = slot.reason;
