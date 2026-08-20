@@ -488,7 +488,7 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
   const excursions = useMemo(() => rows.filter((r) => r.source !== 'generated' && isExcursion(r)), [rows]);
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-800">
+    <div className="min-h-screen bg-slate-200 dark:bg-slate-800">
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={clearToast} />}
 
       <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 flex items-center gap-3">
