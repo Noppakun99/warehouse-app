@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Thermometer, Plus, RefreshCcw, X, AlertTriangle, CheckCircle2,
-  ShieldAlert, Pencil, Trash2, FlaskConical, FileDown, Upload, Snowflake, Building2,
+  ShieldAlert, Pencil, Trash2, FlaskConical, FileDown, Upload, Snowflake, Building2, Sun, Sunset, Clock,
 } from 'lucide-react';
 import BackButton from './BackButton';
 import Toast from './Toast';
@@ -10,7 +10,7 @@ import { exportToExcel } from './lib/exportExcel';
 import {
   fetchTemperatureLogs, fetchTemperatureStats, insertTemperatureLog,
   updateTemperatureLog, deleteTemperatureLog, isExcursion,
-  TEMP_POINTS, tempPoint, TEMP_DEVICES, TEMP_DEVICE_DEFAULT, tempDeviceLabel,
+  TEMP_POINTS, tempPoint, TEMP_ROUNDS, TEMP_DEVICES, TEMP_DEVICE_DEFAULT, tempDeviceLabel,
   findTemperatureSameRound, importTemperatureRows, fetchTemperatureRecorders,
 } from './lib/db';
 
@@ -183,11 +183,35 @@ function RecordModal({ initial, onSave, onCancel, saving, point }) {
               <IsoDateInput value={date} onChange={setDate} />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">เวลาที่วัด</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                เวลาที่วัด {time && <span className="font-normal text-sky-600 dark:text-sky-400">· รอบ{roundName}</span>}
+              </label>
               <input type="time" value={time} onChange={(e) => setTime(e.target.value)}
                 onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch { /* noop */ } }}
                 className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100" />
             </div>
+          </div>
+
+          {/* ปุ่มลัดเวลา — รอบจริงมีแค่ 2 เวลา การเลื่อน time picker ทีละหลักช้ากว่ากดปุ่มเดียวมาก
+              ยังพิมพ์เวลาเองได้ถ้าวัดนอกรอบ (ช่องด้านบนไม่ได้ถูกล็อก) */}
+          <div className="flex flex-wrap gap-2">
+            {TEMP_ROUNDS.map((r) => {
+              const on = time === r.time;
+              const Icon = r.label === 'เช้า' ? Sun : Sunset;
+              return (
+                <button key={r.time} type="button" onClick={() => setTime(r.time)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                    on ? 'bg-sky-600 text-white'
+                       : 'bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
+                  <Icon size={15} className={on ? 'text-white' : 'text-slate-400'} />
+                  {r.label} <span className="tabular-nums font-medium">{r.time}</span>
+                </button>
+              );
+            })}
+            <button type="button" onClick={() => setTime(new Date().toTimeString().slice(0, 5))}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+              <Clock size={15} className="text-slate-400" /> ตอนนี้
+            </button>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
