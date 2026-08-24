@@ -1996,8 +1996,10 @@ function StockSummaryModal({ onClose, auth = {} }) {
     return () => window.removeEventListener('resize', fn);
   }, []);
 
-  const load = React.useCallback(async () => {
-    setLoading(true); setError('');
+  // silent = refresh จาก realtime — ห้ามขึ้น spinner เพราะลิสต์จะถูกถอดออก scroll เด้งกลับบนสุดกลางคันที่ผู้ใช้กำลังไถหายา
+  const load = React.useCallback(async (opts) => {
+    const silent = opts?.silent === true;
+    if (!silent) { setLoading(true); setError(''); }
     try {
       const [summary, meta] = await Promise.all([
         fetchStockSummary(),
@@ -2007,7 +2009,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
       setDiscontinued(summary.discontinued || []);
       setUploadInfo(meta || null);
     }
-    catch (e) { setError(e.message); }
+    catch (e) { if (!silent) setError(e.message); }
     finally { setLoading(false); }
   }, []);
 
@@ -2029,7 +2031,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
   React.useEffect(() => {
     if (!supabase) return;
     const ch = supabase.channel('stock-modal-inv')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, () => load({ silent: true }))
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, [load]);
@@ -2075,8 +2077,8 @@ function StockSummaryModal({ onClose, auth = {} }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-start justify-center sm:p-4 sm:pt-6 overflow-y-auto" onClick={onClose}>
-      <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-5xl flex flex-col min-h-[60vh] sm:min-h-0" style={{ maxHeight: '95vh' }} onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-start justify-center sm:p-4 sm:pt-6" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-5xl flex flex-col min-h-[60vh] sm:min-h-0" style={{ maxHeight: 'min(95dvh, calc(100dvh - 2.5rem))' }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-100 dark:border-slate-800 bg-sky-50 dark:bg-sky-950/40 rounded-t-2xl shrink-0">
@@ -2155,7 +2157,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
         </div>
 
         {/* Table — sticky header + frozen ชื่อยา */}
-        <div className="overflow-auto flex-1 rounded-b-2xl">
+        <div className="overflow-auto overscroll-contain flex-1 rounded-b-2xl">
           {loading ? (
             <div className="flex items-center justify-center py-16 text-slate-400 dark:text-slate-500">
               <div className="w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full animate-spin mr-3"/>
