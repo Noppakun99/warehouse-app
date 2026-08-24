@@ -108,6 +108,8 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | ประกาศรอบเบิก-รับ เข้ากลุ่ม LINE (บอทวันเบิก/วันรับ + ปฏิทินวันหยุด) | [docs/features/requisition-announce.md](docs/features/requisition-announce.md) | แก้บอทประกาศ / ปฏิทินวันหยุด / โควตา LINE |
 | Expiry Alert Edge Function (แทน Apps Script) | [docs/expiry-alert-edge-function.md](docs/expiry-alert-edge-function.md) | แก้/deploy expiry alert |
 | External: Apps Script แจ้งเตือนยาใกล้หมดอายุ (backup) | [docs/apps-script-expiry-alert.md](docs/apps-script-expiry-alert.md) | reference สคริปต์เดิม |
+| External: INVS — กระบวนการคลังมาตรฐาน สธ. + INV DataSet + ระเบียบพัสดุ | [docs/invs-warehouse-reference.md](docs/invs-warehouse-reference.md) | **ก่อนออกแบบฟีเจอร์คลังใหม่** — ดูว่าราชการทำกันยังไง / จะส่งข้อมูลกระทรวงต้องมี field อะไร |
+| แผนงานปรับกระบวนการคลังตาม INVS (roadmap 11 ข้อ + งานที่ค้าง) | [docs/handoff-invs-2026-08-24.md](docs/handoff-invs-2026-08-24.md) | สานงานโครงสร้างหน่วยงาน / จ่ายด่วน / ค้างจ่าย ต่อ |
 
 ## Skills (`.claude/skills/`)
 
