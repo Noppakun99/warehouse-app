@@ -100,6 +100,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | Common patterns (date, mobile, print, dept, audit auth, stats) | [docs/patterns.md](docs/patterns.md) | **อ่านทุกครั้ง** ก่อนแก้ component |
 | DB schema, migrations, Excel cols | [docs/schema.md](docs/schema.md) | แก้ DB schema / Excel export |
 | Monthly Stock Ledger (บัญชีคงคลังรายเดือน — seed/ปิดงวด/cost layer) | [docs/adr/0007](docs/adr/0007-monthly-stock-ledger.md) | แก้ `StockLedgerApp` / ledger logic / seed master CSV |
+| กางชีทเบิกรายเดือน (wide → `dispense_logs`) — วันที่ข้ามเดือน, คอลัมน์รวมหน่วยงาน | [ADR-0020](docs/adr/0020-dispense-sheet-unpivot-true-date.md) · [CONTEXT.md §ชีทเบิกรายเดือน](CONTEXT.md) | นำเข้าเดือนย้อนหลังจากชีท Excel ของคลัง |
 | นโยบายคืนยา: tier % + กฎ cond_am ระดับบริษัท | [ADR-0014](docs/adr/0014-structured-return-policy-tier-percent.md) · [ADR-0015](docs/adr/0015-cond-am-does-not-override-explicit-tier.md) | แก้ logic เตือนคืนบริษัท (ต้อง sync 4 ที่ + redeploy edge fn) |
 | Roadmap | [docs/roadmap.md](docs/roadmap.md) | วางแผน feature ใหม่ |
 | Testing | [docs/testing.md](docs/testing.md) | รัน/แก้ test |
