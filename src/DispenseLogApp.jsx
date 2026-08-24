@@ -251,6 +251,9 @@ function parseDate(raw) {
   return null;
 }
 
+// ลำดับคอลัมน์ล้อไฟล์ CSV ที่คลังใช้อัพโหลด (ยอดคงคลัง_เบิก.csv) — export แล้วเปิดเทียบ/แก้
+// แล้วอัพกลับได้โดยไม่ต้องสลับคอลัมน์เอง. import map ตามชื่อ header ไม่ใช่ตำแหน่ง (matchHeader)
+// ลำดับจึงเปลี่ยนได้ปลอดภัย แต่ต้องคงชื่อ header ให้ตรง alias ใน COL_MAP
 const DISPENSE_EXCEL_COLS = [
   { header: 'วันที่เบิก',        key: 'dispense_date' },
   { header: 'MainLog',            key: 'main_log' },
@@ -262,13 +265,13 @@ const DISPENSE_EXCEL_COLS = [
   { header: 'ราคา/หน่วย',       key: 'price_per_unit' },
   { header: 'Lot Number',         key: 'lot' },
   { header: 'Exp',                key: 'exp' },
-  { header: 'วันที่ใกล้exp',     key: 'near_exp_date' },
   { header: 'ชนิดรายการ',        key: 'item_type' },
   { header: 'คงเหลือก่อนเบิก',  key: 'qty_before' },
   { header: 'ปริมาณ (ออก)',      key: 'qty_out' },
   { header: 'คงเหลือหลังจ่าย',  key: 'qty_after' },
   { header: 'หน่วยงานที่เบิก',  key: 'department' },
   { header: 'หมายเหตุ',          key: 'note' },
+  { header: 'วันที่ใกล้exp',     key: 'near_exp_date' },
 ]
 
 // ============================================================
