@@ -635,7 +635,10 @@ export async function fetchDashboardCharts(months = 6, endYm = null) {
     buckets.push({ ym: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label })
   }
   const fromStr = buckets[0].ym + '-01'
-  const toStr = buckets[buckets.length - 1].ym + '-31'  // ขอบบนของช่วง (กรองเดือนหลัง endYm ออก)
+  // ขอบบนของช่วงแบบ exclusive = วันที่ 1 ของเดือนถัดจาก bucket ท้าย (กรองเดือนหลัง endYm ออก)
+  // ห้ามใช้ `<ym>-31` — เดือน 30 วัน/ก.พ. ได้วันที่ที่ไม่มีจริง → Postgres error 22008 → query ทั้งก้อนพัง กราฟเป็น 0 ทุกเดือน
+  const lastBucket = new Date(Number(buckets[buckets.length - 1].ym.slice(0, 4)), Number(buckets[buckets.length - 1].ym.slice(5, 7)), 1)
+  const toStr = `${lastBucket.getFullYear()}-${String(lastBucket.getMonth() + 1).padStart(2, '0')}-01`
 
   // นับ "ครั้ง" + รวม "มูลค่า" (qty_out × ราคา/หน่วย) ต่อเดือน — มูลค่าเป็นบาท ข้ามหน่วยได้
   // ราคา/หน่วย ต้องตรงกับ getPrice ใน DispenseLogApp (fallback drug_unit ถ้าเป็นตัวเลข) — กัน stat ไม่ตรง (Rule #6)
@@ -654,7 +657,7 @@ export async function fetchDashboardCharts(months = 6, endYm = null) {
         .from('dispense_logs')
         .select('dispense_date, qty_out, price_per_unit, drug_unit')
         .gte('dispense_date', fromStr)
-        .lte('dispense_date', toStr)
+        .lt('dispense_date', toStr)
         .range(off, off + PAGE - 1)
       if (error || !data || data.length === 0) break
       for (const r of data) {
@@ -680,7 +683,7 @@ export async function fetchDashboardCharts(months = 6, endYm = null) {
         .from('receive_logs')
         .select('receive_date, total_price_vat')
         .gte('receive_date', fromStr)
-        .lte('receive_date', toStr)
+        .lt('receive_date', toStr)
         .range(off, off + PAGE - 1)
       if (error || !data || data.length === 0) break
       for (const r of data) {
