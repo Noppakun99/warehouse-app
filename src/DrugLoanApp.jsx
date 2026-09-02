@@ -409,7 +409,7 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
 
       {importOpen && (
         <LoanImportModal
-          dbRows={rows} auth={auth}
+          dbRows={rows} loading={loading} auth={auth}
           onClose={() => setImportOpen(false)}
           onDone={async () => { setImportOpen(false); await load(); }}
           onError={setErr}
@@ -575,23 +575,30 @@ const CHANGED_LABEL = {
   return_company: 'บริษัทที่รับคืน',
 };
 
-function LoanImportModal({ dbRows, auth, onClose, onDone, onError }) {
+function LoanImportModal({ dbRows, loading, auth, onClose, onDone, onError }) {
   const [fileName, setFileName] = useState('');
-  const [plan, setPlan] = useState(null);        // ผลจาก diffLoanImport
+  const [csvRows, setCsvRows] = useState(null);   // แถวที่อ่านได้จากไฟล์ (ยังไม่เทียบ)
   const [parseErrors, setParseErrors] = useState([]);
   const [removeMissing, setRemoveMissing] = useState(true);   // ยึดไฟล์เป็นหลัก → default ลบให้ตรงไฟล์
   const [busy, setBusy] = useState(false);
+
+  // diff ต้องคำนวณใหม่เมื่อ dbRows มาถึง — ถ้า snapshot ไว้ตอนเลือกไฟล์ แล้วรายการเดิมยังโหลดไม่เสร็จ
+  // จะเทียบกับของว่าง → preview บอก "เพิ่มใหม่ทั้งไฟล์" ทั้งที่ของมีอยู่แล้ว (เจอจริงตอนเทสต์ 2026-09-02)
+  const plan = useMemo(
+    () => (csvRows?.length ? diffLoanImport(csvRows, dbRows) : null),
+    [csvRows, dbRows],
+  );
 
   const pickFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
-    setPlan(null); setParseErrors([]);
+    setCsvRows(null); setParseErrors([]);
     try {
       const text = await file.text();       // ไฟล์ต้องเป็น UTF-8 (Excel: บันทึกเป็น "CSV UTF-8")
       const { rows, errors } = parseLoanCsv(text);
       setParseErrors(errors);
-      setPlan(rows.length ? diffLoanImport(rows, dbRows) : null);
+      setCsvRows(rows);
     } catch (e2) {
       onError(e2?.message || 'อ่านไฟล์ไม่สำเร็จ');
     }
@@ -601,7 +608,7 @@ function LoanImportModal({ dbRows, auth, onClose, onDone, onError }) {
   const total = (plan?.inserts.length || 0) + (plan?.updates.length || 0) + deleteIds.length;
 
   const submit = async () => {
-    if (busy || !plan || total === 0) return;
+    if (busy || loading || !plan || total === 0) return;   // ห้ามเขียนตอนรายการเดิมยังโหลดไม่เสร็จ
     setBusy(true);
     try {
       await importDrugLoans({ inserts: plan.inserts, updates: plan.updates, deleteIds, fileName }, auth);
@@ -649,6 +656,12 @@ function LoanImportModal({ dbRows, auth, onClose, onDone, onError }) {
                   <p key={i} className="text-[11px] text-red-600 dark:text-red-300">บรรทัด {e.lineNo}{e.drug_name ? ` · ${e.drug_name}` : ''} — {e.reason}</p>
                 ))}
               </div>
+            </div>
+          )}
+
+          {loading && (
+            <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 rounded-xl p-3 text-[12px] text-blue-700 dark:text-blue-300 flex items-center gap-2">
+              <RefreshCcw size={14} className="animate-spin" /> กำลังโหลดรายการปัจจุบันจากระบบ — ตัวเลขจะยังไม่ถูกต้องจนโหลดเสร็จ
             </div>
           )}
 
@@ -722,11 +735,11 @@ function LoanImportModal({ dbRows, auth, onClose, onDone, onError }) {
 
         <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 shrink-0">
           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            {plan ? `จะเขียนจริง ${total} รายการ` : 'ยังไม่ได้เลือกไฟล์'}
+            {loading ? 'กำลังโหลดรายการปัจจุบัน…' : plan ? `จะเขียนจริง ${total} รายการ` : 'ยังไม่ได้เลือกไฟล์'}
           </p>
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800">ยกเลิก</button>
-            <button type="button" onClick={submit} disabled={busy || total === 0}
+            <button type="button" onClick={submit} disabled={busy || loading || total === 0}
               className="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50 flex items-center gap-1.5">
               {busy ? <RefreshCcw size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
               {busy ? 'กำลังนำเข้า…' : 'ยืนยันนำเข้า'}
