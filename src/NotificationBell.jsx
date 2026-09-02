@@ -34,6 +34,7 @@ const NOTIF_LABELS = {
   return_drug_loan:             { label: 'รับคืนยาที่ยืม',        color: 'text-sky-700 dark:text-sky-300',      dot: 'bg-sky-500' },
   update_drug_loan:             { label: 'แก้ไขรายการยืม-คืน',   color: 'text-sky-700 dark:text-sky-300',      dot: 'bg-sky-500' },
   delete_drug_loan:             { label: 'ลบรายการยืม-คืน',      color: 'text-rose-700 dark:text-rose-300',    dot: 'bg-rose-500' },
+  import_drug_loan:             { label: 'นำเข้าไฟล์ยืม-คืนยา',  color: 'text-sky-700 dark:text-sky-300',      dot: 'bg-sky-500' },
   delete_dispense:              { label: 'ลบรายการจ่ายยา',       color: 'text-red-600',    dot: 'bg-red-400'   },
   update_dispense:              { label: 'แก้ไขรายการจ่ายยา',    color: 'text-amber-600',  dot: 'bg-amber-400' },
   import_dispense:              { label: 'นำเข้าประวัติเบิกจ่าย', color: 'text-rose-600',  dot: 'bg-rose-400'  },
@@ -101,6 +102,8 @@ function notifMessage(n) {
       return `${who} แก้ไขรายการยืม-คืน "${d.drug_name || ''}"${d.counterparty ? ` · ${d.counterparty}` : ''}`;
     case 'delete_drug_loan':
       return `${who} ลบรายการยืม-คืน "${d.drug_name || ''}"${d.counterparty ? ` · ${d.counterparty}` : ''}`;
+    case 'import_drug_loan':
+      return `${who} นำเข้าไฟล์ยืม-คืนยา${d.file_name ? ` "${d.file_name}"` : ''} — เพิ่ม ${d.inserted || 0} · อัปเดต ${d.updated || 0}${d.deleted ? ` · ลบ ${d.deleted}` : ''} รายการ`;
     case 'line_quota_low': {
       // ประกาศเข้ากลุ่ม LINE นับโควตารายหัว → เดือนหนึ่งส่งได้จำกัด
       // ข้อความนี้เห็นเฉพาะในแอป (ไม่ส่งเข้ากลุ่ม) — คลังเป็นคนต้องรู้ ไม่ใช่ ward

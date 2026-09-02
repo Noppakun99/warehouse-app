@@ -185,6 +185,7 @@ const ACTION_LABELS = {
   return_drug_loan:             { label: 'รับคืนยาที่ยืม',            color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
   update_drug_loan:             { label: 'แก้ไขรายการยืม-คืน',       color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
   delete_drug_loan:             { label: 'ลบรายการยืม-คืน',          color: 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300'        },
+  import_drug_loan:             { label: 'นำเข้าไฟล์ยืม-คืนยา',      color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
   seed_swap_policy:             { label: 'อัปเดตนโยบายคืนยา',        color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'   },
   export_excel:                 { label: 'ส่งออก Excel',             color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
   submit_requisition:           { label: 'ส่งใบเบิกยา',             color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'        },
@@ -319,6 +320,16 @@ function formatDetails(action, details, recordCount) {
         d.qty != null && `จำนวน ${d.qty}`,
         d.loan_date && `วันที่ยืม ${d.loan_date}`,
         d.return_date && `วันที่คืน ${d.return_date}`,
+      ].filter(Boolean).join(' · ') || '-';
+
+    case 'import_drug_loan':
+      return [
+        d.file_name && `ไฟล์: ${d.file_name}`,
+        `เพิ่ม ${d.inserted || 0}`,
+        `อัปเดต ${d.updated || 0}`,
+        d.deleted ? `ลบ ${d.deleted}` : null,
+        d.inserted_drugs?.length && `ยาที่เพิ่ม: ${d.inserted_drugs.join(', ')}`,
+        d.updated_drugs?.length && `ที่แก้: ${d.updated_drugs.join(', ')}`,
       ].filter(Boolean).join(' · ') || '-';
 
     case 'export_excel':
@@ -522,7 +533,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
     { label: 'รับยา',      keys: ['import_receive', 'scan_invoice', 'map_drug_alias', 'update_receive', 'delete_receive'] },
     { label: 'จ่ายยา',     keys: ['import_dispense', 'update_dispense', 'delete_dispense'] },
     { label: 'คืนยา',      keys: ['insert_return', 'confirm_return', 'update_return', 'delete_return', 'flag_swap_return', 'swap_return_action', 'seed_swap_policy'] },
-    { label: 'ยืม-คืนยา',  keys: ['insert_drug_loan', 'return_drug_loan', 'update_drug_loan', 'delete_drug_loan'] },
+    { label: 'ยืม-คืนยา',  keys: ['insert_drug_loan', 'return_drug_loan', 'update_drug_loan', 'delete_drug_loan', 'import_drug_loan'] },
     { label: 'คลัง/Inventory', keys: ['import_inventory', 'create_stock_count', 'update_stock_count', 'followup_stock_count', 'delete_stock_count', 'seed_ledger', 'close_ledger_period', 'reopen_ledger_period', 'add_ledger_adjustment', 'create_temperature_log', 'update_temperature_log', 'delete_temperature_log', 'import_temperature_log'] },
     { label: 'ส่งบัญชี (AP)', keys: ['ap_acknowledge', 'ap_unacknowledge', 'ap_mark_inspected', 'ap_uninspect', 'ap_send_batch', 'ap_unsend_batch', 'ap_mark_posted', 'ap_unpost', 'ap_reset_batch', 'print_ap_batch', 'print_ack_batch', 'export_ap_batch'] },
     { label: 'วิเคราะห์สั่งซื้อ', keys: ['analysis_run', 'analysis_view', 'delete_analysis_run', 'update_reorder_config', 'import_reorder_config', 'mark_ordered', 'unmark_ordered', 'print_po', 'reconcile_excel'] },

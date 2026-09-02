@@ -1319,6 +1319,52 @@ export async function deleteDrugLoan(id, auth = {}) {
   })
 }
 
+// นำเข้าไฟล์ CSV ยืม-คืนยา — รับ "แผน" ที่ diffLoanImport (src/lib/loanImport.js) คำนวณไว้แล้ว
+// ไม่ทำ DELETE-then-INSERT ทั้งตาราง: อัปเดตเฉพาะช่องที่เปลี่ยน แถวเดิมจึงคง id/note/created_by ไว้
+// deleteIds = แถวที่ผู้ใช้เลือกลบเพราะไม่มีในไฟล์แล้ว (ผู้ใช้ต้องติ๊กเอง — ไม่ลบอัตโนมัติเงียบๆ)
+export async function importDrugLoans({ inserts = [], updates = [], deleteIds = [], fileName = '' }, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const user = resolveUserName(auth)
+  const now = new Date().toISOString()
+
+  let inserted = 0, updated = 0, deleted = 0
+  if (inserts.length) {
+    // _line/_seq เป็นข้อมูลของ preview ไม่ใช่คอลัมน์ในตาราง — ติดไปด้วยแล้ว PostgREST ปฏิเสธทั้งชุด
+    const payload = inserts.map(r => {
+      const out = { ...r, created_by: user, updated_by: user }
+      delete out._line; delete out._seq
+      return out
+    })
+    const { error } = await supabase.from('drug_loan').insert(payload)
+    if (error) throw error
+    inserted = payload.length
+  }
+  for (const u of updates || []) {
+    const { error } = await supabase.from('drug_loan')
+      .update({ ...u.fields, updated_by: user, updated_at: now }).eq('id', u.id)
+    if (error) throw error
+    updated++
+  }
+  if (deleteIds.length) {
+    const { error } = await supabase.from('drug_loan').delete().in('id', deleteIds)
+    if (error) throw error
+    deleted = deleteIds.length
+  }
+
+  await insertAuditLog({
+    action: 'import_drug_loan', table_name: 'drug_loan',
+    user_name: user, department: auth.department,
+    details: {
+      file_name: fileName, inserted, updated, deleted,
+      // เก็บชื่อยาไว้พอให้ไล่ย้อนได้ว่าไฟล์รอบนั้นเพิ่ม/แก้อะไร (ไม่เก็บทั้งไฟล์ — audit บวมเปล่า)
+      inserted_drugs: inserts.slice(0, 10).map(r => `${r.drug_name} (lot ${r.lot || '-'})`),
+      updated_drugs: (updates || []).slice(0, 10).map(u => `${u.row?.drug_name} → ${u.changed?.join(',')}`),
+      deleted_ids: deleteIds.slice(0, 20),
+    },
+  })
+  return { inserted, updated, deleted }
+}
+
 // --- Audit Log ---
 
 // normalize lot number สำหรับ search — strip leading zeros เฉพาะกรณีตัวเลขล้วน
@@ -1442,6 +1488,7 @@ export async function fetchNotifications(scope = null) {
     'swap_return_action',
     'insert_drug_loan',
     'return_drug_loan',
+    'import_drug_loan',
     'delete_dispense',
     'update_dispense',
     'import_dispense',

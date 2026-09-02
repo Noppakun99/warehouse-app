@@ -20,7 +20,8 @@
     "test:countpriority": "node src/lib/countPriority.test.js",
     "test:stockcard": "node src/lib/stockCard.test.js",
     "test:vendorexchange": "node src/lib/vendorExchange.test.js",
-    "test:announce": "node src/lib/announceSchedule.test.js"
+    "test:announce": "node src/lib/announceSchedule.test.js",
+    "test:loanimport": "node src/lib/loanImport.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",

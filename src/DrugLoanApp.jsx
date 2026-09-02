@@ -1,14 +1,15 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  ArrowLeftRight, Plus, Search, RefreshCcw, FileDown, Printer, X, Trash2,
+  ArrowLeftRight, Plus, Search, RefreshCcw, FileDown, FileUp, Printer, X, Trash2,
   AlertTriangle, CheckCircle2, Pencil,
 } from 'lucide-react';
 import BackButton from './BackButton';
 import { exportToExcel } from './lib/exportExcel';
 import {
-  fetchDrugLoans, insertDrugLoan, updateDrugLoan, deleteDrugLoan,
+  fetchDrugLoans, insertDrugLoan, updateDrugLoan, deleteDrugLoan, importDrugLoans,
   LOAN_DIRECTION, loanOverdueDays,
 } from './lib/db';
+import { parseLoanCsv, diffLoanImport } from './lib/loanImport';
 
 // เกณฑ์เตือนของค้างคืน (วัน) — >90 แดง, 30-90 ส้ม, <30 ปกติ
 const OVERDUE_RED = 90;
@@ -62,6 +63,7 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
   const [search, setSearch] = useState('');
   const [company, setCompany] = useState('all');   // กรองตามบริษัท (ยาตัวนั้นของบริษัทไหน) — คนละมิติกับคู่สัญญา (รพ.)
   const [formOpen, setFormOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editRow, setEditRow] = useState(null);
   const [exporting, setExporting] = useState(false);
 
@@ -244,6 +246,12 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
               {exporting ? <RefreshCcw size={15} className="animate-spin" /> : <FileDown size={15} />} Excel
             </button>
             {canEdit && (
+              <button onClick={() => setImportOpen(true)} title="นำเข้าไฟล์ CSV ยืม-คืนยา"
+                className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-sm font-medium">
+                <FileUp size={15} /> นำเข้า CSV
+              </button>
+            )}
+            {canEdit && (
               <button onClick={() => { setEditRow(null); setFormOpen(true); }}
                 className="flex items-center gap-1.5 px-3 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-sm font-medium">
                 <Plus size={15} /> บันทึกการยืม
@@ -398,6 +406,15 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
           onError={setErr}
         />
       )}
+
+      {importOpen && (
+        <LoanImportModal
+          dbRows={rows} auth={auth}
+          onClose={() => setImportOpen(false)}
+          onDone={async () => { setImportOpen(false); await load(); }}
+          onError={setErr}
+        />
+      )}
     </div>
   );
 }
@@ -544,6 +561,179 @@ function LoanFormModal({ row, auth, onClose, onSaved, onError }) {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// ---- นำเข้าไฟล์ CSV ยืม-คืนยา (ไฟล์ที่คลังทำใน Excel เป็นช่องทางบันทึกหลัก) ----
+// อ่านไฟล์ → เทียบกับของในระบบทีละแถวด้วย key เดียวกับ unique index ของตาราง → โชว์ผลก่อนเขียนจริง
+// เจตนา: ไม่ล้างตารางทิ้ง — แถวเดิมคง id/หมายเหตุที่พิมพ์ในแอปไว้ อัปเดตเฉพาะช่องที่ไฟล์เปลี่ยน
+const CHANGED_LABEL = {
+  drug_name: 'ชื่อยา', dosage_form: 'รูปแบบ', exp: 'วันหมดอายุ', unit: 'หน่วยนับ',
+  price_per_unit: 'ราคา/หน่วย', total_price: 'ราคารวม', loan_doc: 'เลขที่ใบยืม',
+  loan_company: 'บริษัทที่ให้ยืม', return_date: 'วันที่รับคืน', return_doc: 'เลขที่ใบคืน',
+  return_company: 'บริษัทที่รับคืน',
+};
+
+function LoanImportModal({ dbRows, auth, onClose, onDone, onError }) {
+  const [fileName, setFileName] = useState('');
+  const [plan, setPlan] = useState(null);        // ผลจาก diffLoanImport
+  const [parseErrors, setParseErrors] = useState([]);
+  const [removeMissing, setRemoveMissing] = useState(true);   // ยึดไฟล์เป็นหลัก → default ลบให้ตรงไฟล์
+  const [busy, setBusy] = useState(false);
+
+  const pickFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    setPlan(null); setParseErrors([]);
+    try {
+      const text = await file.text();       // ไฟล์ต้องเป็น UTF-8 (Excel: บันทึกเป็น "CSV UTF-8")
+      const { rows, errors } = parseLoanCsv(text);
+      setParseErrors(errors);
+      setPlan(rows.length ? diffLoanImport(rows, dbRows) : null);
+    } catch (e2) {
+      onError(e2?.message || 'อ่านไฟล์ไม่สำเร็จ');
+    }
+  };
+
+  const deleteIds = removeMissing ? (plan?.missing || []).map(r => r.id) : [];
+  const total = (plan?.inserts.length || 0) + (plan?.updates.length || 0) + deleteIds.length;
+
+  const submit = async () => {
+    if (busy || !plan || total === 0) return;
+    setBusy(true);
+    try {
+      await importDrugLoans({ inserts: plan.inserts, updates: plan.updates, deleteIds, fileName }, auth);
+      await onDone();
+    } catch (e2) {
+      onError(e2?.message || 'นำเข้าไม่สำเร็จ');
+      setBusy(false);
+    }
+  };
+
+  const chip = (n, label, tone) => (
+    <div className={`px-3 py-2 rounded-xl border text-center ${tone}`}>
+      <p className="text-lg font-bold leading-tight">{n}</p>
+      <p className="text-[11px] font-medium">{label}</p>
+    </div>
+  );
+  const lineCls = 'text-[12px] text-slate-600 dark:text-slate-300 py-1 border-b border-slate-100 dark:border-slate-800 last:border-0';
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="bg-sky-600 text-white px-5 py-3 rounded-t-2xl flex items-center justify-between shrink-0">
+          <p className="font-bold">นำเข้าไฟล์ CSV ยืม-คืนยา</p>
+          <button type="button" onClick={onClose} className="text-white/80 hover:text-white bg-white/20 hover:bg-white/30 p-1.5 rounded-lg"><X size={16} /></button>
+        </div>
+
+        <div className="p-5 overflow-y-auto flex-1 space-y-3">
+          <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+            <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">เลือกไฟล์ (ยืมยา-คืนยา.csv)</label>
+            <input type="file" accept=".csv,text/csv" onChange={pickFile}
+              className="w-full text-sm text-slate-700 dark:text-slate-200 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-sky-600 file:text-white hover:file:bg-sky-700" />
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2">
+              ต้องบันทึกจาก Excel เป็น <span className="font-semibold">CSV UTF-8</span> ไม่งั้นภาษาไทยเพี้ยนจนอ่านหัวคอลัมน์ไม่ออก ·
+              ทิศทาง (ยืม/ให้ยืม) ระบบดูจากคอลัมน์ &quot;รพ.ที่ขอยืม&quot; กับ &quot;รพ.ที่ให้ยืม&quot;
+            </p>
+          </div>
+
+          {parseErrors.length > 0 && (
+            <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl p-3">
+              <p className="text-[12px] font-bold text-red-700 dark:text-red-300 mb-1 flex items-center gap-1.5">
+                <AlertTriangle size={14} /> อ่านไม่ได้ {parseErrors.length} แถว (จะไม่ถูกนำเข้า)
+              </p>
+              <div className="max-h-28 overflow-y-auto">
+                {parseErrors.map((e, i) => (
+                  <p key={i} className="text-[11px] text-red-600 dark:text-red-300">บรรทัด {e.lineNo}{e.drug_name ? ` · ${e.drug_name}` : ''} — {e.reason}</p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {plan && (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {chip(plan.inserts.length, 'เพิ่มใหม่', 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300')}
+                {chip(plan.updates.length, 'อัปเดต', 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900/60 text-blue-700 dark:text-blue-300')}
+                {chip(plan.unchanged.length, 'เหมือนเดิม', 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300')}
+                {chip(plan.missing.length, 'ไม่มีในไฟล์', 'bg-orange-50 dark:bg-orange-950/40 border-orange-200 dark:border-orange-900/60 text-orange-700 dark:text-orange-300')}
+              </div>
+
+              {plan.inserts.length > 0 && (
+                <div className="bg-white dark:bg-slate-900 rounded-xl border border-emerald-200 dark:border-emerald-900/60 p-3">
+                  <p className="text-[12px] font-bold text-emerald-700 dark:text-emerald-300 mb-1">เพิ่มใหม่ {plan.inserts.length} รายการ</p>
+                  <div className="max-h-40 overflow-y-auto">
+                    {plan.inserts.map((r, i) => (
+                      <p key={i} className={lineCls}>
+                        {LOAN_DIRECTION[r.direction]} · {r.counterparty} · {r.drug_name} (lot {r.lot}) · {fmtQty(r)} · ยืม {fmtThai(r.loan_date)}
+                        {r.return_date ? ` · คืน ${fmtThai(r.return_date)}` : ' · ยังไม่คืน'}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {plan.updates.length > 0 && (
+                <div className="bg-white dark:bg-slate-900 rounded-xl border border-blue-200 dark:border-blue-900/60 p-3">
+                  <p className="text-[12px] font-bold text-blue-700 dark:text-blue-300 mb-1">อัปเดต {plan.updates.length} รายการ</p>
+                  <div className="max-h-40 overflow-y-auto">
+                    {plan.updates.map((u, i) => (
+                      <p key={i} className={lineCls}>
+                        {u.row.drug_name} (lot {u.row.lot}) · {u.row.counterparty} — แก้ {u.changed.map(f => CHANGED_LABEL[f] || f).join(', ')}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {plan.duplicates.length > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl p-3">
+                  <p className="text-[12px] font-bold text-amber-800 dark:text-amber-300 mb-1">ในไฟล์ซ้ำกันเอง {plan.duplicates.length} แถว — ข้ามแถวหลัง</p>
+                  {plan.duplicates.map((r, i) => (
+                    <p key={i} className="text-[11px] text-amber-700 dark:text-amber-300">บรรทัด {r._line} · {r.drug_name} (lot {r.lot}) · {r.counterparty}</p>
+                  ))}
+                </div>
+              )}
+
+              {plan.missing.length > 0 && (
+                <div className="bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900/60 rounded-xl p-3">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input type="checkbox" checked={removeMissing} onChange={(e) => setRemoveMissing(e.target.checked)} className="mt-0.5 accent-orange-600" />
+                    <span className="text-[12px] font-bold text-orange-800 dark:text-orange-300">
+                      ลบ {plan.missing.length} รายการที่มีในระบบแต่ไม่มีในไฟล์ (ให้ตรงกับไฟล์)
+                    </span>
+                  </label>
+                  <div className="max-h-32 overflow-y-auto mt-1">
+                    {plan.missing.map(r => (
+                      <p key={r.id} className="text-[11px] text-orange-700 dark:text-orange-300 py-0.5">
+                        {LOAN_DIRECTION[r.direction]} · {r.counterparty} · {r.drug_name} (lot {r.lot || '-'}) · ยืม {fmtThai(r.loan_date)}
+                        {!r.return_date && <span className="font-semibold"> · ยังค้างคืน</span>}
+                      </p>
+                    ))}
+                  </div>
+                  {!removeMissing && <p className="text-[11px] text-orange-700 dark:text-orange-300 mt-1">ไม่ติ๊ก = เก็บไว้ในระบบตามเดิม</p>}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 shrink-0">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            {plan ? `จะเขียนจริง ${total} รายการ` : 'ยังไม่ได้เลือกไฟล์'}
+          </p>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800">ยกเลิก</button>
+            <button type="button" onClick={submit} disabled={busy || total === 0}
+              className="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50 flex items-center gap-1.5">
+              {busy ? <RefreshCcw size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+              {busy ? 'กำลังนำเข้า…' : 'ยืนยันนำเข้า'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
