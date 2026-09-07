@@ -103,6 +103,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | Monthly Stock Ledger (บัญชีคงคลังรายเดือน — seed/ปิดงวด/cost layer) | [docs/adr/0007](docs/adr/0007-monthly-stock-ledger.md) | แก้ `StockLedgerApp` / ledger logic / seed master CSV |
 | กางชีทเบิกรายเดือน (wide → `dispense_logs`) — วันที่ข้ามเดือน, คอลัมน์รวมหน่วยงาน | [ADR-0020](docs/adr/0020-dispense-sheet-unpivot-true-date.md) · [CONTEXT.md §ชีทเบิกรายเดือน](CONTEXT.md) | นำเข้าเดือนย้อนหลังจากชีท Excel ของคลัง |
 | นโยบายคืนยา: tier % + กฎ cond_am ระดับบริษัท | [ADR-0014](docs/adr/0014-structured-return-policy-tier-percent.md) · [ADR-0015](docs/adr/0015-cond-am-does-not-override-explicit-tier.md) | แก้ logic เตือนคืนบริษัท (ต้อง sync 4 ที่ + redeploy edge fn) |
+| รอบเปลี่ยน/คืนบริษัท: เลขที่รอบ VX ผูกขาออก↔ขาเข้า | [ADR-0024](docs/adr/0024-vendor-exchange-cycle-number.md) · [CONTEXT.md §เลขที่รอบ](CONTEXT.md) | แก้ `vendorExchange.js` / ฟอร์มเปลี่ยนคืนบริษัท / ฟอร์มยาหมดอายุ |
 | Roadmap | [docs/roadmap.md](docs/roadmap.md) | วางแผน feature ใหม่ |
 | Testing | [docs/testing.md](docs/testing.md) | รัน/แก้ test |
 | Deployment (Netlify + env vars + verify) | [docs/deployment.md](docs/deployment.md) | ขึ้นเว็บจริง / deploy ไม่ผ่าน / แก้ env var |
