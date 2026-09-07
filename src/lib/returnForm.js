@@ -36,27 +36,29 @@ export function printReturnForm() {
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #1e293b; background: #fff; padding: 16px 28px 18px; }
+  body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #000; background: #fff; padding: 16px 28px 18px; }
   @page { size: A4 portrait; margin: 12mm; }
-  .h-row { text-align: center; border-bottom: 2px solid #1e293b; padding-bottom: 6px; margin-bottom: 10px; }
-  h1 { font-size: 19px; font-weight: 700; color: #1e293b; }
-  .sub { font-size: 12px; color: #334155; font-weight: 600; margin-top: 2px; }
-  .meta { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; color: #334155; margin-bottom: 10px; }
-  .meta span { display: inline-block; border-bottom: 1px dotted #94a3b8; min-width: 120px; margin-left: 6px; }
-  .legend { font-size: 10px; color: #64748b; margin-bottom: 8px; line-height: 1.5; }
-  .legend b { color: #334155; }
+  .h-row { text-align: center; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 10px; }
+  h1 { font-size: 19px; font-weight: 700; color: #000; }
+  .sub { font-size: 12px; color: #000; font-weight: 600; margin-top: 2px; }
+  .meta { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; color: #000; margin-bottom: 10px; }
+  .meta span { display: inline-block; border-bottom: 1px dotted #000; min-width: 120px; margin-left: 6px;
+    height: 14px; vertical-align: bottom; }
+  .legend { font-size: 10px; color: #000; margin-bottom: 8px; line-height: 1.5; }
+  .legend b { color: #000; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 10px; page-break-inside: avoid; }
-  th { background: #f1f5f9; color: #1e293b; font-weight: 700; padding: 5px 6px; text-align: center; border: 1px solid #000; }
-  td { padding: 4px 8px; border: 1px solid #94a3b8; height: 34px; vertical-align: middle; }
+  th { background: #fff; color: #000; font-weight: 700; padding: 5px 6px; text-align: center; border: 1px solid #000; }
+  td { padding: 4px 8px; border: 1px solid #000; height: 34px; vertical-align: middle; }
   td.c { text-align: center; }
   .sig-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 14px; page-break-inside: avoid; }
   .sig-box { padding: 8px 16px; text-align: center; }
-  .sig-title { font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 28px; }
-  .sig-line { border-bottom: 1px solid #94a3b8; }
-  .sig-label { font-size: 11px; color: #64748b; margin-top: 4px; }
-  .sig-date { font-size: 11px; color: #64748b; margin-top: 6px; }
-  .sig-date span { display: inline-block; border-bottom: 1px dotted #94a3b8; min-width: 110px; margin-left: 6px; }
-  .foot { font-size: 10px; color: #94a3b8; text-align: right; margin-top: 8px; }
+  .sig-title { font-size: 12px; font-weight: 700; color: #000; margin-bottom: 28px; }
+  .sig-line { border-bottom: 1px solid #000; }
+  .sig-label { font-size: 11px; color: #000; margin-top: 4px; }
+  .sig-date { font-size: 11px; color: #000; margin-top: 6px; }
+  .sig-date span { display: inline-block; border-bottom: 1px dotted #000; min-width: 110px; margin-left: 6px;
+    height: 14px; vertical-align: bottom; }
+  .foot { font-size: 10px; color: #000; text-align: right; margin-top: 8px; }
   @media print { button { display: none !important; } thead { display: table-header-group; } }
 </style>
 </head><body>
@@ -140,25 +142,27 @@ export function printVendorExchangeForm() {
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #1e293b; background: #fff; padding: 14px 24px 16px; }
+  body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #000; background: #fff; padding: 14px 24px 16px; }
   @page { size: A4 landscape; margin: 8mm; }
-  .h-row { text-align: center; border-bottom: 2px solid #1e293b; padding-bottom: 6px; margin-bottom: 10px; }
-  h1 { font-size: 19px; font-weight: 700; color: #1e293b; }
-  .sub { font-size: 12px; color: #334155; font-weight: 600; margin-top: 2px; }
-  .meta { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; color: #334155; margin-bottom: 10px; }
-  .meta span { display: inline-block; border-bottom: 1px dotted #94a3b8; min-width: 160px; margin-left: 6px; }
+  .h-row { text-align: center; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 10px; }
+  h1 { font-size: 19px; font-weight: 700; color: #000; }
+  .sub { font-size: 12px; color: #000; font-weight: 600; margin-top: 2px; }
+  .meta { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; color: #000; margin-bottom: 10px; }
+  .meta span { display: inline-block; border-bottom: 1px dotted #000; min-width: 160px; margin-left: 6px;
+    height: 14px; vertical-align: bottom; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 10px; page-break-inside: avoid; }
-  th { background: #f1f5f9; color: #1e293b; font-weight: 700; padding: 5px 6px; text-align: center; border: 1px solid #000; }
-  td { padding: 4px 8px; border: 1px solid #94a3b8; height: 36px; vertical-align: middle; }
+  th { background: #fff; color: #000; font-weight: 700; padding: 5px 6px; text-align: center; border: 1px solid #000; }
+  td { padding: 4px 8px; border: 1px solid #000; height: 36px; vertical-align: middle; }
   td.c { text-align: center; }
   .sig-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 12px; page-break-inside: avoid; }
   .sig-box { padding: 8px 16px; text-align: center; }
-  .sig-title { font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 28px; }
-  .sig-line { border-bottom: 1px solid #94a3b8; }
-  .sig-label { font-size: 11px; color: #64748b; margin-top: 4px; }
-  .sig-date { font-size: 11px; color: #64748b; margin-top: 6px; }
-  .sig-date span { display: inline-block; border-bottom: 1px dotted #94a3b8; min-width: 120px; margin-left: 6px; }
-  .foot { font-size: 10px; color: #94a3b8; text-align: right; margin-top: 8px; }
+  .sig-title { font-size: 12px; font-weight: 700; color: #000; margin-bottom: 28px; }
+  .sig-line { border-bottom: 1px solid #000; }
+  .sig-label { font-size: 11px; color: #000; margin-top: 4px; }
+  .sig-date { font-size: 11px; color: #000; margin-top: 6px; }
+  .sig-date span { display: inline-block; border-bottom: 1px dotted #000; min-width: 120px; margin-left: 6px;
+    height: 14px; vertical-align: bottom; }
+  .foot { font-size: 10px; color: #000; text-align: right; margin-top: 8px; }
   .tbl-wrap { width: 100%; }
   @media print { button { display: none !important; } thead { display: table-header-group; } .tbl-wrap { overflow: visible; } }
   @media screen and (max-width: 768px) {
