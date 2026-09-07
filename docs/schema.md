@@ -20,6 +20,9 @@
 | `reorder_orders_migration.sql` | ตาราง `reorder_orders` — สถานะ "สั่งแล้ว" ของ ReorderApp (ย้ายจาก localStorage → DB, sync ข้ามเครื่อง). 1 แถว = 1 รหัสยา; untick = ลบแถว | ใช้งาน (apply prod 2026-07-04 ผ่าน MCP + verify round-trip) |
 | `temperature_log_migration.sql` | ตาราง `temperature_log` — อุณหภูมิตู้เย็นคลังยา (ADR-0018). **`source` = ที่มาของค่า** (`manual`/`form_import`/`generated`/`device`) — `generated` คือค่าที่ Apps Script สุ่มขึ้น **ต้องกรองออกจากทุกสถิติ/กราฟ**. `min_c`/`max_c` = เกณฑ์ snapshot ต่อแถว (ไม่ hardcode 2–8). unique ที่ `(reading_date, COALESCE(reading_time,'00:00'), location)` | ใช้งาน (apply prod 2026-08-16 + import 455 แถว: form_import 115 / generated 340) |
 
+| `drug_loan_migration.sql` | ตาราง `drug_loan` — ยืม-คืนยาระหว่าง รพ. unique index `drug_loan_dedupe_key` = `direction\|counterparty\|drug_code\|lot\|loan_date\|qty` (key ของ `importDrugLoans` ต้องตรงเป๊ะ) | ใช้งาน |
+| `line_message_migration.sql` | ตาราง `line_message` — ข้อความจากกลุ่ม LINE (ADR-0022). **⚠️ RLS เปิดโดย*ไม่มี* policy ตั้งใจ** (ADR-0016 กฎ 1) → client อ่านไม่ได้เลย **ห้ามเขียน `supabase.from('line_message')`** (ได้ผลว่างเสมอ ไม่ error) ต้องผ่าน edge function `line-tasks`/`line-webhook` ที่ถือ service_role. `source` = `webhook` (สด) / `import` (ไฟล์ export). unique 2 ชั้น: `line_message_id` กัน webhook retry ซ้ำ · `(chat_name,sender,sent_at,body,msg_type)` กัน import ไฟล์เดิมซ้ำ (COALESCE body เพราะ NULL≠NULL). `task_status`: `candidate→task→done` หรือ `dismissed` | ใช้งาน (apply prod 2026-09-04 ผ่าน MCP + verify anon อ่านได้ `[]` / เขียนโดน 42501) |
+
 > ⚠️ **"ใช้งาน" = ไฟล์ migration มีอยู่ ไม่ได้แปลว่า apply บน prod แล้วเสมอ** — ก่อนพึ่งคอลัมน์ใดให้ verify schema จริง (`information_schema.columns` ผ่าน MCP) โดยเฉพาะถ้าเจอ error `column "x" does not exist` ทั้งที่ doc บอก "ใช้งาน" (เคสจริง: `suspend_until` ข้างบน)
 
 RLS enabled with public read/write policies (internal app)
