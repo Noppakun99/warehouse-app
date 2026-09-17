@@ -43,6 +43,7 @@ import { printInspectWorksheet } from './lib/inspectWorksheet';
 import { printReturnForm, printVendorExchangeForm } from './lib/returnForm';
 import { printExchangeOutForm, printExchangeInForm, printExchangePair } from './lib/vendorExchangeCycle';
 import { printExpiryDispositionForm, printDestroyForm } from './lib/expiryDispositionForm';
+import { printLoanOutForm, printLoanReturnForm } from './lib/drugLoanForm';
 
 
 // ============================================================
@@ -128,6 +129,8 @@ export default function AppRoot() {
     else if (action === 'vendorExchangeForm') printVendorExchangeForm();
     else if (action === 'expiryDisposition') printExpiryDispositionForm();
     else if (action === 'destroyForm') printDestroyForm();
+    else if (action === 'loanOutForm') printLoanOutForm();
+    else if (action === 'loanReturnForm') printLoanReturnForm();
     else if (action === 'exchangePair') printExchangePair();
     else if (action === 'exchangeOutForm') printExchangeOutForm();
     else if (action === 'exchangeInForm') printExchangeInForm();

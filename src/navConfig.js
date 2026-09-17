@@ -7,7 +7,7 @@ import {
   Package, Database, RotateCcw, TrendingUp, TrendingDown,
   Activity, ShoppingCart, ClipboardList, Users, History, BarChart3, Layers,
   FileText, ClipboardCheck, Send, ScanLine, ListChecks, Building2, ShieldAlert,
-  Undo2, CalendarClock, Trash2, ScrollText, ArrowLeftRight, CalendarDays, Thermometer,
+  Undo2, CalendarClock, Trash2, HandCoins, ScrollText, ArrowLeftRight, CalendarDays, Thermometer,
   MessageSquare,
 } from 'lucide-react';
 
@@ -61,6 +61,8 @@ export const NAV_GROUPS = [
           { action: 'exchangeOutForm',   icon: ArrowLeftRight, title: 'ใบส่งคืนบริษัท (ขาออก)', c: 'slate', roles: ['staff', 'admin'] },
           { action: 'exchangeInForm',    icon: ArrowLeftRight, title: 'ใบรับยาเปลี่ยนกลับ (ขาเข้า)', c: 'slate', roles: ['staff', 'admin'] },
           { action: 'destroyForm',       icon: Trash2,        title: 'ใบส่งทำลายยาหมดอายุ', c: 'rose', roles: ['staff', 'admin'] },
+          { action: 'loanOutForm',      icon: HandCoins,     title: 'ใบยืมยา (ระหว่างหน่วยงาน)', c: 'sky', roles: ['staff', 'admin'] },
+          { action: 'loanReturnForm',   icon: HandCoins,     title: 'ใบคืนยา (ตามใบยืม)', c: 'sky', roles: ['staff', 'admin'] },
         ],
       },
     ],
