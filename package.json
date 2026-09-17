@@ -21,7 +21,9 @@
     "test:stockcard": "node src/lib/stockCard.test.js",
     "test:vendorexchange": "node src/lib/vendorExchange.test.js",
     "test:announce": "node src/lib/announceSchedule.test.js",
-    "test:loanimport": "node src/lib/loanImport.test.js"
+    "test:loanimport": "node src/lib/loanImport.test.js",
+    "test:linechat": "node src/lib/lineChatImport.test.js",
+    "gen:linechat": "node gen-import-sql.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",

@@ -2,7 +2,7 @@
 // รัน: npm run test:vendorexchange
 // fixture = เคสจริงจาก DB (Omeprazole, Carvedilol, Digoxin, Pioglitazone)
 
-import { buildVendorExchanges, dateKey } from './vendorExchange.js'
+import { buildVendorExchanges, dateKey, parseVxNo } from './vendorExchange.js'
 
 let pass = 0, fail = 0
 function eq(actual, expected, label) {
@@ -164,6 +164,78 @@ section('Test 11: ยกยอด/ซื้อยา ไม่ใช่รอบ
     today: TODAY,
   })
   eq(r.summary.openCount, 0, 'ยกยอด/ยืมยา ไม่นับเป็นรอบคืนบริษัท')
+}
+
+// ── Test 12: parseVxNo — ดึงเลขรอบจากข้อความที่คนเขียนมือ ──
+section('Test 12: parseVxNo')
+{
+  eq(parseVxNo('VX-6909-001'), 'vx-6909001', 'รูปแบบมาตรฐาน')
+  eq(parseVxNo('แลกเปลี่ยนยา VX-6909-001 ส่งคืน'), 'vx-6909001', 'ปนกับข้อความอื่น')
+  eq(parseVxNo('vx 6909 001'), 'vx-6909001', 'พิมพ์เล็ก + เว้นวรรค')
+  eq(parseVxNo('VX6909-001'), 'vx-6909001', 'ไม่มีขีดหลัง VX')
+  eq(parseVxNo('ใบคืนยา'), null, 'ไม่มีเลข VX')
+  eq(parseVxNo(''), null, 'ว่าง')
+  eq(parseVxNo(null), null, 'null')
+}
+
+// ── Test 13: จับคู่ด้วยเลขรอบ VX — ข้ามรหัสยาได้ (ของชดเชยคนละตัว) ──
+// เคสจริง ABCA: คืน Lidocaine Viscous → ได้ Racser Viscous (คนละรหัส) ชั้นเดาจับไม่ได้
+section('Test 13: VX จับคู่ข้ามรหัสยา (ของชดเชย)')
+{
+  const r = buildVendorExchanges({
+    dispenseRows: [
+      { drug_code: 'LIDO', lot: 'OJ25003', item_type: 'แลกเปลี่ยนยา', qty_out: 20,
+        dispense_date: '2026-07-01', note: 'คุณภาพมีปัญหา VX-6907-001' },
+    ],
+    receiveRows: [
+      { drug_code: 'RACSER', lot: 'OJ25010', qty_received: 20, receive_date: '2026-07-20',
+        bill_number: 'VX-6907-001' },
+    ],
+    today: TODAY,
+  })
+  eq(r.summary.matchedCount, 1, 'จับคู่ได้แม้คนละรหัสยา')
+  eq(r.summary.openCount, 0, 'ไม่เหลือของลอย')
+  eq(r.matched[0].matchedBy, 'vx', 'ยืนยันจากเลขรอบ ไม่ใช่เดา')
+  eq(r.matched[0].drugChanged, true, 'ธงว่าได้ยาคนละตัว')
+  eq(r.summary.vxMatchedCount, 1, 'นับรอบที่ยืนยันจากเอกสาร')
+  eq(r.summary.guessMatchedCount, 0, 'ไม่มีการเดา')
+}
+
+// ── Test 14: ของเก่าไม่มีเลข VX ยังเดาได้เหมือนเดิม (backward compat) ──
+section('Test 14: ไม่มี VX → fallback ไปเดาแบบเดิม')
+{
+  const r = buildVendorExchanges({
+    dispenseRows: [
+      { drug_code: 'X', lot: 'A1', item_type: 'แลกเปลี่ยนยา', qty_out: 10, dispense_date: '2026-07-01' },
+    ],
+    receiveRows: [
+      { drug_code: 'X', lot: 'A2', qty_received: 10, receive_date: '2026-07-10', bill_number: 'ใบคืนยา' },
+    ],
+    today: TODAY,
+  })
+  eq(r.summary.matchedCount, 1, 'ยังจับคู่ได้')
+  eq(r.matched[0].matchedBy, 'guess', 'ระบุว่าเป็นการเดา')
+  eq(r.summary.guessMatchedCount, 1, 'นับแยกจากที่ยืนยันแล้ว')
+}
+
+// ── Test 15: ขาเข้าที่จองด้วย VX ต้องไม่ถูกเดาไปใช้ผิดรอบ ──
+section('Test 15: VX จองไว้ ชั้นเดาห้ามแย่ง')
+{
+  const r = buildVendorExchanges({
+    dispenseRows: [
+      { drug_code: 'Y', lot: 'B1', item_type: 'แลกเปลี่ยนยา', qty_out: 5, dispense_date: '2026-07-01' },
+      { drug_code: 'Y', lot: 'B2', item_type: 'แลกเปลี่ยนยา', qty_out: 5, dispense_date: '2026-07-05',
+        note: 'VX-6908-002' },
+    ],
+    receiveRows: [
+      { drug_code: 'Y', lot: 'B9', qty_received: 5, receive_date: '2026-07-20', bill_number: 'VX-6908-002' },
+    ],
+    today: TODAY,
+  })
+  eq(r.summary.matchedCount, 1, 'จับคู่แค่รอบที่มีเลขตรง')
+  eq(r.matched[0].vxNo, 'vx-6908002', 'คู่ที่ถูกคือรอบที่ระบุเลข')
+  eq(r.summary.openCount, 1, 'อีกรอบยังค้าง (ไม่ถูกเดาไปจับมั่ว)')
+  eq(r.open[0].lot, 'B1', 'รอบที่ค้างคือตัวที่ไม่มีเลข')
 }
 
 console.log('\n' + '─'.repeat(50))

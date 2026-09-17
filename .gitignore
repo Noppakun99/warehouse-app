@@ -46,3 +46,15 @@ csvfile/
 
 # Local Netlify folder
 .netlify
+
+# Playwright profile ชั่วคราวสำหรับเปิด LINE Console (มี session ห้าม commit)
+.line-profile/
+line-webhook.png
+import-linechat.mjs
+
+# ไฟล์ CSV ของคลัง (ข้อมูลจริง) — csvfile/ ถูก ignore อยู่แล้ว แต่โฟลเดอร์นี้สะกดต่างกัน
+csv_file/
+.setup-profile/
+open-setup.mjs
+.line-profile2/
+line-setup.mjs

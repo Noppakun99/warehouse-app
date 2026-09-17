@@ -1591,6 +1591,92 @@ export async function fetchLineQuota() {
   return data?.bots || []
 }
 
+// --- งานค้างจากกลุ่ม LINE (ADR-0022) ---
+// ⚠️ ตาราง `line_message` เปิด RLS โดยไม่มี policy (ADR-0016 กฎ 1) — client อ่านตรงไม่ได้
+//    ทุก call ต้องผ่าน edge function `line-tasks` ที่ถือ service_role
+//    **ห้ามเขียน `supabase.from('line_message')` ที่ไหนก็ตาม** จะได้ผลลัพธ์ว่างเสมอ (ไม่ error)
+async function invokeLineTasks(body) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const { data, error } = await supabase.functions.invoke('line-tasks', { body })
+  if (error) throw new Error(error.message || 'Edge Function error')
+  if (data?.ok === false) throw new Error(data.error || 'line-tasks error')
+  return data
+}
+
+/** รายการข้อความตามสถานะงาน
+ *  `status`: 'open' (candidate+task — ค่าเริ่มต้นของหน้าหลัก) | 'candidate' | 'task' | 'done' | 'dismissed' | 'all' */
+export async function fetchLineTasks({ status = 'open', chat = null, limit = 200 } = {}) {
+  const data = await invokeLineTasks({ action: 'list', status, chat, limit })
+  return data?.rows || []
+}
+
+/** นับแต่ละสถานะ — ใช้ทำ badge จำนวนงานค้าง */
+export async function fetchLineTaskCounts() {
+  const data = await invokeLineTasks({ action: 'counts' })
+  return data?.counts || { candidate: 0, task: 0, done: 0, dismissed: 0, total: 0 }
+}
+
+/** ข้อความรอบๆ ข้อความหนึ่ง — ข้อความเดี่ยวมักไม่พอตัดสินว่าเป็นงานจริงไหม */
+export async function fetchLineTaskContext(id, span = 5) {
+  const data = await invokeLineTasks({ action: 'context', id, span })
+  return { before: data?.before || [], after: data?.after || [] }
+}
+
+/** เปลี่ยนสถานะงาน — audit ผ่าน edge function (action `mark_line_task`)
+ *  `status`: 'task' (ยืนยันว่าเป็นงาน) | 'done' (ทำแล้ว) | 'dismissed' (ไม่ใช่งาน) | 'candidate' (กลับไปรอ) */
+export async function markLineTask(id, status, { note, auth } = {}) {
+  return invokeLineTasks({ action: 'mark', id, status, note, user: resolveAuditUserName(auth) })
+}
+
+// --- งาน (line_task) — ADR-0023: งานเป็นเอนทิตีแยกจากข้อความ ---
+// งานหนึ่งอ้างข้อความต้นทางได้หลายอัน · ข้อความหนึ่งแตกเป็นหลายงานได้
+
+/** รายการงาน — `status`: 'pending' (ai_suggested+open, ค่าเริ่มต้น) | 'ai_suggested' | 'open' | 'done' | 'dismissed' | 'all' */
+export async function fetchLineTaskItems(status = 'pending') {
+  const data = await invokeLineTasks({ action: 'tasks', status })
+  return data?.rows || []
+}
+
+export async function fetchLineTaskItemCounts() {
+  const data = await invokeLineTasks({ action: 'task_counts' })
+  return data?.counts || { ai_suggested: 0, open: 0, done: 0, dismissed: 0, total: 0 }
+}
+
+/** ข้อความต้นทางของงาน — ให้คนตรวจว่า AI สรุปมาจากอะไรก่อนกดรับ */
+export async function fetchLineTaskSources(id) {
+  const data = await invokeLineTasks({ action: 'task_sources', id })
+  return data?.rows || []
+}
+
+/** เปลี่ยนสถานะงาน — 'open' (รับงาน) | 'done' | 'dismissed' | 'ai_suggested' (คืนสถานะ) */
+export async function markLineTaskItem(id, status, { title, detail, auth } = {}) {
+  return invokeLineTasks({ action: 'mark_task', id, status, title, detail, user: resolveAuditUserName(auth) })
+}
+
+/** คนสร้างงานเอง — เข้า `open` ทันที (ไม่ต้องยืนยันเพราะคนตัดสินใจแล้ว) */
+export async function createLineTask({ title, detail, assignee, messageId }, auth) {
+  return invokeLineTasks({
+    action: 'create_task', title, detail, assignee,
+    message_id: messageId, user: resolveAuditUserName(auth),
+  })
+}
+
+/**
+ * ให้ AI อ่านข้อความที่รอวิเคราะห์แล้วเสนอรายการงาน (ADR-0023)
+ * ⚠️ ส่งเฉพาะ candidate + บริบทรอบๆ ไม่ใช่บทสนทนาทั้งกลุ่ม
+ * `dryRun: true` = บอกขอบเขตข้อมูลที่จะส่งออกโดยยังไม่เรียก AI (ไม่มีค่าใช้จ่าย)
+ * งานที่ได้เข้าสถานะ `ai_suggested` เสมอ — คนต้องกดรับก่อน
+ */
+export async function analyzeLineTasks({ dryRun = false, auth } = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const { data, error } = await supabase.functions.invoke('line-analyze', {
+    body: { dryRun, user: resolveAuditUserName(auth) },
+  })
+  if (error) throw new Error(error.message || 'Edge Function error')
+  if (data?.ok === false) throw new Error(data.error || 'line-analyze error')
+  return data
+}
+
 // --- Usage Analytics (สรุปการใช้งานระบบ, admin-only) ---
 // derived view เหนือ audit_logs — นับ "login" event เป็น active user
 // ⚠️ login event ถูกลบตาม retention 90 วัน (docs/schema.md) → cap window ที่ 90 วันเสมอ

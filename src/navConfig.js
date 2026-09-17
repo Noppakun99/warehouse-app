@@ -7,7 +7,8 @@ import {
   Package, Database, RotateCcw, TrendingUp, TrendingDown,
   Activity, ShoppingCart, ClipboardList, Users, History, BarChart3, Layers,
   FileText, ClipboardCheck, Send, ScanLine, ListChecks, Building2, ShieldAlert,
-  Undo2, CalendarClock, ScrollText, ArrowLeftRight, CalendarDays, Thermometer,
+  Undo2, CalendarClock, Trash2, HandCoins, ScrollText, ArrowLeftRight, CalendarDays, Thermometer,
+  MessageSquare,
 } from 'lucide-react';
 
 // โครงสร้างเมนู — รองรับ 3 แบบใน group.items / children:
@@ -23,6 +24,8 @@ export const NAV_GROUPS = [
       { page: 'inventory',   icon: Database,  title: 'แผนผังคลังยา',       c: 'indigo', roles: ['requester', 'staff', 'admin'] },
       { page: 'return',      icon: RotateCcw, title: 'คืนยา / ยาเสียหาย', c: 'violet', roles: ['requester', 'staff', 'admin'] },
       { page: 'loan',        icon: ArrowLeftRight, title: 'ยืม-คืนยาระหว่าง รพ.', c: 'sky', roles: ['requester', 'staff', 'admin'] },
+      // งานค้างจากไลน์ — **admin เท่านั้น** (เนื้อหาเป็นบทสนทนาภายในของหัวหน้ากับเจ้าหน้าที่ ดู ADR-0022)
+      { page: 'linetask',    icon: MessageSquare, title: 'งานค้างจากไลน์', c: 'teal', roles: ['admin'] },
     ],
   },
   {
@@ -52,8 +55,14 @@ export const NAV_GROUPS = [
         key: 'forms', icon: FileText, title: 'แบบฟอร์มต่างๆ', c: 'slate', roles: ['requester', 'staff', 'admin'],
         children: [
           { action: 'inspectWorksheet', icon: ClipboardCheck, title: 'ฟอร์มตรวจรับ', c: 'emerald', roles: ['requester', 'staff', 'admin'] },
-          { action: 'returnForm',        icon: Undo2,         title: 'ฟอร์มคืนยา', c: 'violet', roles: ['requester', 'staff', 'admin'] },
-          { action: 'vendorExchangeForm', icon: CalendarClock, title: 'ฟอร์มคืนยาใกล้หมดอายุ', c: 'orange', roles: ['requester', 'staff', 'admin'] },
+          { action: 'returnForm',        icon: Undo2,         title: 'ฟอร์มคืนยาภายใน รพ.', c: 'violet', roles: ['requester', 'staff', 'admin'] },
+          { action: 'expiryDisposition', icon: CalendarClock, title: 'ใบสำรวจยาหมดอายุ (คัดแยกปลายทาง)', c: 'orange', roles: ['staff', 'admin'] },
+          { action: 'exchangePair',      icon: ArrowLeftRight, title: 'ชุดใบเปลี่ยนคืนบริษัท (ขาออก+ขาเข้า)', c: 'slate', roles: ['staff', 'admin'] },
+          { action: 'exchangeOutForm',   icon: ArrowLeftRight, title: 'ใบส่งคืนบริษัท (ขาออก)', c: 'slate', roles: ['staff', 'admin'] },
+          { action: 'exchangeInForm',    icon: ArrowLeftRight, title: 'ใบรับยาเปลี่ยนกลับ (ขาเข้า)', c: 'slate', roles: ['staff', 'admin'] },
+          { action: 'destroyForm',       icon: Trash2,        title: 'ใบส่งทำลายยาหมดอายุ', c: 'rose', roles: ['staff', 'admin'] },
+          { action: 'loanOutForm',      icon: HandCoins,     title: 'ใบยืมยา (ระหว่างหน่วยงาน)', c: 'sky', roles: ['staff', 'admin'] },
+          { action: 'loanReturnForm',   icon: HandCoins,     title: 'ใบคืนยา (ตามใบยืม)', c: 'sky', roles: ['staff', 'admin'] },
         ],
       },
     ],
