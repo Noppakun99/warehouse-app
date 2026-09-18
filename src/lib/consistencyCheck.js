@@ -10,15 +10,17 @@
 
 // normalize lot ให้เทียบสองฝั่งได้ตรงกัน (Finding #1: inventory กับ receive
 // เก็บ lot คนละ pipeline — ต้อง normalize ด้วย logic เดียวกันก่อน compare)
+//
+// ⚠️ ห้ามแปลง scientific notation ที่นี่ — lot เป็น "รหัส" ไม่ใช่จำนวน
+// lot จริงรูปแบบ <ปี><เดือนเป็นตัวอักษร><ลำดับ> เช่น 26E024 / 26E222 / 26E108
+// ซึ่ง regex /^[\d.]+[eE][+-]?\d+$/ มองว่าเป็น 26×10^24 → Math.round ได้ "2.6e+25"
+// → key ฝั่ง inventory ไม่ตรงกับฝั่ง receive → ฟ้อง orphan ผิดทั้งที่ของมีจริง
+// (ตรวจไฟล์จริง 18/09/69: Master มี 7 lot แบบนี้ 4 ตัวมีของคงเหลือ 62/40/20/15 หน่วย
+//  และทั้ง 4 มีอยู่ในทะเบียนรับยาจริง)
+// ต้องตรงกับ normalizeLot ใน App.jsx (import path) ที่ถอด regex นี้ออกแล้ว
 export function normLot(lot) {
   if (lot == null) return ''
-  let v = String(lot).trim()
-  // scientific notation (เช่น "1.2E+5") → เลขเต็ม — ตรง normalizeNumericText ใน App.jsx
-  if (/^[\d.]+[eE][+-]?\d+$/.test(v)) {
-    const n = parseFloat(v)
-    if (isFinite(n)) v = String(Math.round(n))
-  }
-  return v.toLowerCase()
+  return String(lot).trim().toLowerCase()
 }
 
 // lot ที่ถือว่า "ไม่มีเลข lot จริง" — ข้ามจาก referential (ยกยอด/บริจาค/ว่าง)

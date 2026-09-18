@@ -20,9 +20,20 @@ function check(label, cond) {
 // ============================================================
 console.log('=== normLot ===\n')
 check('trim + lowercase', normLot(' AB12 ') === 'ab12')
-check('sci-notation → เลขเต็ม (1.2E+5)', normLot('1.2E+5') === '120000')
 check('null → ""', normLot(null) === '')
 check('lot ที่มี space ท้าย match กับไม่มี space', normLot('90736 ') === normLot('90736'))
+
+// regression: lot เป็น "รหัส" — ห้ามแปลง scientific notation
+// lot จริงจากไฟล์คลัง (Master ก.ย.69) — เคยถูกแปลงเป็น 2.6e+25 แล้วฟ้อง orphan ผิด
+check('lot 26E024 คงเดิม (มีของจริง 62 หน่วย)', normLot('26E024') === '26e024')
+check('lot 26E222 คงเดิม (มีของจริง 40 หน่วย)', normLot('26E222') === '26e222')
+check('lot 26E108 คงเดิม (มีของจริง 20 หน่วย)', normLot('26E108') === '26e108')
+check('lot 26E144 คงเดิม (มีของจริง 15 หน่วย)', normLot('26E144') === '26e144')
+check('lot 25E115 คงเดิม', normLot('25E115') === '25e115')
+check('lot 5E891 คงเดิม', normLot('5E891') === '5e891')
+check('lot 26D172 / 26F116 (ไม่มี E) คงเดิม', normLot('26D172') === '26d172' && normLot('26F116') === '26f116')
+// สองฝั่งต้อง normalize เหมือนกัน — inventory กับ receive จึง match กันได้
+check('lot เดียวกันต่าง case → key ตรงกัน', normLot('26e024') === normLot('26E024'))
 
 check('isBlankLot: "-" → true', isBlankLot('-') === true)
 check('isBlankLot: "" → true', isBlankLot('  ') === true)
