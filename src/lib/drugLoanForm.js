@@ -30,18 +30,18 @@ const PARTY_TYPES = ['โรงพยาบาล', 'บริษัทยา', 
 // ขาวดำล้วน (เครื่องพิมพ์ไม่มีสี) — ชุดเดียวกับ vendorExchangeCycle.js / expiryDispositionForm.js
 const SHARED_CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Sarabun', sans-serif; font-size: 12px; color: #000; background: #fff; padding: 12px 18px 14px; }
+  body { font-family: 'Sarabun', sans-serif; font-size: 12px; color: #000; background: #fff; padding: 8px 18px 10px; }
   @page { size: A4 portrait; margin: 10mm; }
-  .h-row { text-align: center; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 8px; }
+  .h-row { text-align: center; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 6px; }
   h1 { font-size: 17px; font-weight: 700; color: #000; }
   .sub { font-size: 12px; color: #000; font-weight: 700; margin-top: 2px; }
   .legal { font-size: 9.5px; font-weight: 400; margin-top: 2px; }
-  .refbox { border: 2px solid #000; padding: 5px 8px; margin-bottom: 7px; display: flex;
+  .refbox { border: 2px solid #000; padding: 4px 8px; margin-bottom: 5px; display: flex;
     justify-content: space-between; align-items: center; gap: 10px; font-size: 12px; font-weight: 700; }
   .refbox .num { font-size: 14px; letter-spacing: 1px; }
   .refbox span.fill { display: inline-block; border-bottom: 1px solid #000; min-width: 92px; margin-left: 5px;
     height: 16px; vertical-align: bottom; }
-  .meta { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 11px; color: #000; margin-bottom: 7px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 11px; color: #000; margin-bottom: 5px; }
   .meta span { display: inline-block; border-bottom: 1px dotted #000; min-width: 120px; margin-left: 5px;
     height: 14px; vertical-align: bottom; }
   /* ช่องเว้นให้เขียนมือ — ต้อง align bottom + มีความสูง ไม่งั้นเส้นลอยไปกลางบรรทัด (ดูเหมือนขีดฆ่า) */
@@ -51,34 +51,34 @@ const SHARED_CSS = `
   .fl-m { min-width: 88px; }
   .fl-l { min-width: 135px; }
   .fl-xl { min-width: 200px; }
-  .box { border: 1px solid #000; padding: 5px 8px; margin-bottom: 7px; font-size: 11px; }
-  .box ul { list-style: none; display: flex; flex-wrap: wrap; gap: 5px 14px; margin-top: 4px; }
+  .box { border: 1px solid #000; padding: 4px 8px; margin-bottom: 5px; font-size: 11px; }
+  .box ul { list-style: none; display: flex; flex-wrap: wrap; gap: 3px 14px; margin-top: 3px; }
   /* baseline ไม่ใช่ center — ไม่งั้น .fl ถูกดันขึ้นไปกลางบรรทัด */
   .box li { display: flex; align-items: baseline; gap: 4px; }
   .box li .bx { align-self: center; }
-  .box ul.stack { flex-direction: column; gap: 7px; }
+  .box ul.stack { flex-direction: column; gap: 4px; }
   .box ul.stack li { width: 100%; flex-wrap: wrap; }
   .bx { display: inline-block; width: 12px; height: 12px; border: 1px solid #000; vertical-align: middle; flex: none; }
-  table { width: 100%; border-collapse: collapse; font-size: 10.5px; margin-bottom: 7px; page-break-inside: avoid;
+  table { width: 100%; border-collapse: collapse; font-size: 10.5px; margin-bottom: 5px; page-break-inside: avoid;
     table-layout: fixed; }
   th { background: #fff; color: #000; font-weight: 700; padding: 3px 2px; text-align: center; border: 1px solid #000;
     word-wrap: break-word; }
-  td { padding: 3px 3px; border: 1px solid #000; height: 30px; vertical-align: middle; word-wrap: break-word; }
+  td { padding: 2px 3px; border: 1px solid #000; height: 26px; vertical-align: middle; word-wrap: break-word; }
   td.c { text-align: center; }
   .note-line { font-size: 11px; margin-bottom: 7px; }
   .note-line span { display: inline-block; border-bottom: 1px dotted #000; min-width: 74%; margin-left: 5px;
     height: 15px; vertical-align: bottom; }
-  .sig-row { display: grid; gap: 18px; margin-top: 8px; page-break-inside: avoid; }
+  .sig-row { display: grid; gap: 18px; margin-top: 6px; page-break-inside: avoid; }
   .sig-2 { grid-template-columns: 1fr 1fr; }
   .sig-3 { grid-template-columns: 1fr 1fr 1fr; }
   .sig-box { padding: 5px 8px; text-align: center; }
-  .sig-title { font-size: 10.5px; font-weight: 700; color: #000; margin-bottom: 24px; }
+  .sig-title { font-size: 10.5px; font-weight: 700; color: #000; margin-bottom: 20px; }
   .sig-line { border-bottom: 1px solid #000; }
   .sig-label { font-size: 9.5px; color: #000; margin-top: 4px; }
   .sig-date { font-size: 9.5px; color: #000; margin-top: 5px; }
   .sig-date span { display: inline-block; border-bottom: 1px dotted #000; min-width: 70px; margin-left: 4px;
     height: 13px; vertical-align: bottom; }
-  .foot { font-size: 9px; color: #000; text-align: right; margin-top: 6px; }
+  .foot { font-size: 9px; color: #000; text-align: right; margin-top: 4px; }
   .tbl-wrap { width: 100%; }
   @media print { button { display: none !important; } thead { display: table-header-group; } .tbl-wrap { overflow: visible; } }
   @media screen and (max-width: 768px) {
@@ -115,7 +115,7 @@ const partyBox = () => `
 // ทิศทางติ๊กบนใบเดียว เพราะกระดาษใบเดียวใช้ได้ทั้ง 2 ทาง (ยืมเขา/ให้เขายืม)
 // ต่างจากรอบเปลี่ยนคืนบริษัทที่ทิศทางตายตัวเสมอ
 export function printLoanOutForm() {
-  const ROW_COUNT = 10;
+  const ROW_COUNT = 6;
   const rows = blankRows(ROW_COUNT, `
       <td></td>
       <td class="c"></td>
@@ -248,7 +248,7 @@ ${printScript()}
 // ── ใบที่ 2: ใบคืนยา ────────────────────────────────────────────────
 // lot ที่คืนอาจไม่ใช่ lot เดิม (ยืมไปใช้แล้ว คืนด้วยของล็อตใหม่ที่ซื้อมา) จึงแยก 2 คอลัมน์
 export function printLoanReturnForm() {
-  const ROW_COUNT = 10;
+  const ROW_COUNT = 6;
   const rows = blankRows(ROW_COUNT, `
       <td></td>
       <td class="c"></td>
