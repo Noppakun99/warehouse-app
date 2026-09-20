@@ -10,7 +10,7 @@ import {
   updateStockCountItem, updateStockCountSession, deleteStockCountSession, fetchAllStockCountItems,
   updateStockCountFollowup, FOLLOWUP_STATUS, fetchCountPriorityData,
   fetchOpenAnnualCount, createAnnualCount, updateAnnualCountLine, closeAnnualCount,
-  fetchZeroLotsForAnnual, addLotToAnnualCount, addUnknownItemToAnnualCount, UNKNOWN_TAG,
+  fetchZeroLotsForAnnual, addLotToAnnualCount, addUnknownItemToAnnualCount, UNKNOWN_TAG, sortByShelf,
 } from './lib/db'
 import { dimStatus, diffLabel, computeCountMatch } from './lib/countMatch'
 import { rankCountPriority } from './lib/countPriority'
@@ -889,6 +889,47 @@ function AnnualTab({ auth }) {
   const [draft, setDraft] = useState(null)               // ค่าที่กำลังกรอกของ lot ปัจจุบัน
   const [confirm, setConfirm] = useState(null)           // { kind:'start'|'close' } — popup ในธีมแอป ไม่ใช่ window.confirm
   const [zeroPicker, setZeroPicker] = useState(null)     // { loading, rows, q } — โมดอล "เจอของที่ระบบว่าหมด"
+  const [restored, setRestored] = useState(false)        // กู้ตำแหน่ง/ตัวกรองจากรอบก่อนแล้วหรือยัง
+  const [pendingDraft, setPendingDraft] = useState(null) // { itemId, draft } ที่พิมพ์ค้างไว้ก่อนออกจากหน้า
+
+  // ── จำ "ที่ค้างไว้" ต่อรอบ จนกว่าจะปิดรอบ ─────────────────────────────────
+  // ผลนับอยู่บน DB อยู่แล้ว แต่ตำแหน่งที่ยืนอยู่ (ชั้นไหน/ตัวที่เท่าไหร่/ค่าที่พิมพ์ค้าง)
+  // เป็น state ใน component ซึ่งหายทุกครั้งที่กดย้อนกลับหรือพับมือถือแล้วเบราว์เซอร์ทิ้งหน้า
+  // งานนับกินหลายวัน กลับเข้ามาแล้วต้องยืนที่เดิม ไม่ใช่เด้งกลับชั้นแรกของ 632 รายการ
+  // key ต่อ session — ปิดรอบแล้วลบทิ้ง ไม่ให้ค้างไปรอบหน้า
+  const uiKey = session ? `annualcount_ui_${session.id}` : null
+
+  // กู้คืนครั้งเดียวตอน session พร้อม (ไม่ auto-restore ทับค่าที่ผู้ใช้เพิ่งเปลี่ยน)
+  useEffect(() => {
+    if (!session || restored) return
+    try {
+      const raw = localStorage.getItem(`annualcount_ui_${session.id}`)
+      if (raw) {
+        const u = JSON.parse(raw)
+        if (u.zoneFilter != null) setZoneFilter(u.zoneFilter)
+        if (u.locFilter != null) setLocFilter(u.locFilter)
+        if (typeof u.onlyPending === 'boolean') setOnlyPending(u.onlyPending)
+        if (u.mode) setMode(u.mode)
+        if (Number.isFinite(u.idx)) setIdx(u.idx)
+        if (u.draft && u.draftItemId) setPendingDraft({ itemId: u.draftItemId, draft: u.draft })
+      }
+    } catch { /* private mode / quota — ไม่ block งานนับ */ }
+    setRestored(true)
+  }, [session, restored])
+
+  // เก็บทุกครั้งที่ขยับ — เขียนหลัง restore เท่านั้น กันเขียนทับด้วยค่า default ตอน mount
+  useEffect(() => {
+    if (!uiKey || !restored) return
+    try {
+      localStorage.setItem(uiKey, JSON.stringify({
+        idx, zoneFilter, locFilter, onlyPending, mode,
+        draftItemId: cur?.id ?? null,
+        // เก็บเฉพาะที่พิมพ์ค้างไว้จริง (ยังไม่กดบันทึก) — ไม่งั้นเก็บค่าที่ save ไปแล้วซ้ำเปล่าๆ
+        draft: draft && (draft.counted_qty || draft.counted_lot || draft.counted_exp || draft.counted_location || draft.item_note)
+          ? draft : null,
+      }))
+    } catch { /* noop */ }
+  })
 
   useEffect(() => {
     fetchInventoryLocations().then(setLocations).catch(() => {})
@@ -941,6 +982,12 @@ function AnnualTab({ auth }) {
   // เปลี่ยน lot → รีเซ็ต draft เป็นค่าที่เคยบันทึกไว้ (กลับมาแก้ของเดิมได้)
   useEffect(() => {
     if (!cur) { setDraft(null); return }
+    // ถ้ามีค่าที่พิมพ์ค้างไว้ก่อนออกจากหน้า และเป็น lot เดียวกัน → คืนค่านั้นแทน
+    if (pendingDraft && pendingDraft.itemId === cur.id) {
+      setDraft(pendingDraft.draft)
+      setPendingDraft(null)
+      return
+    }
     setDraft({
       counted_qty: cur.counted_qty == null ? '' : String(toNum(cur.counted_qty)),
       counted_exp: cur.counted_exp || '',
@@ -1049,7 +1096,7 @@ function AnnualTab({ auth }) {
     setSavingUnknown(true)
     try {
       const row = await addUnknownItemToAnnualCount(session.id, unknownForm, auth)
-      setItems(prev => [...prev, row])
+      setItems(prev => sortByShelf([...prev, row]))
       setToast({ tone: 'success', message: `บันทึก "${unknownForm.name}" เป็นของพบนอกระบบแล้ว` })
       setUnknownForm(null)
       setZeroPicker(null)
@@ -1061,7 +1108,7 @@ function AnnualTab({ auth }) {
   const addZeroLot = async (lot) => {
     try {
       const row = await addLotToAnnualCount(session.id, lot, auth)
-      setItems(prev => [...prev, row])
+      setItems(prev => sortByShelf([...prev, row]))
       setZeroPicker(p => p ? { ...p, rows: p.rows.filter(r => !(r.code === lot.code && r.lot === lot.lot)) } : p)
       setToast({ tone: 'success', message: `เพิ่ม ${lot.name} lot ${lot.lot} เข้ารอบแล้ว` })
     } catch (e) {
@@ -1075,7 +1122,10 @@ function AnnualTab({ auth }) {
     try {
       await closeAnnualCount(session.id, auth)
       setToast({ tone: 'success', message: `ปิดรอบแล้ว — นับ ${counted}/${total} รายการ` })
-      setSession(null); setItems([]); setIdx(0)
+      // ล้างตำแหน่ง/ตัวกรองที่จำไว้ — ปิดรอบแล้วไม่ควรค้างไปรอบหน้า
+      try { localStorage.removeItem(`annualcount_ui_${session.id}`) } catch { /* noop */ }
+      setSession(null); setItems([]); setIdx(0); setRestored(false); setPendingDraft(null)
+      setZoneFilter(''); setLocFilter(''); setOnlyPending(true); setMode('walk')
     } catch (e) {
       setToast({ tone: 'error', message: e?.message || 'ปิดรอบไม่สำเร็จ' })
     } finally { setClosing(false) }

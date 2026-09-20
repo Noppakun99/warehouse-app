@@ -3687,8 +3687,25 @@ export async function fetchOpenAnnualCount() {
   if (error) throw error
   const sess = (data || [])[0]
   if (!sess) return null
-  const items = await fetchStockCountItems(sess.id)
+  // ⚠️ เรียงตามชั้นวาง ไม่ใช่ชื่อยา — fetchStockCountItems คืนมาแบบ .order('name')
+  //    ซึ่งทำให้ที่เก็บกระโดด (E-11 → คลังน้ำเกลือ → A-1-4) เดินนับไล่ชั้นไม่ได้
+  //    ทั้งจอไล่ทีละ lot และใบพิมพ์ใช้ลำดับนี้ ต้องตรงกับตอน gen (fetchAllLotsForAnnualCount)
+  //    spot check ยังใช้เรียงตามชื่อเหมือนเดิม — คนละ flow (เลือกยาเอง ไม่ได้เดินไล่ชั้น)
+  const items = sortByShelf(await fetchStockCountItems(sess.id))
   return { session: sess, items }
+}
+
+/** เรียงบรรทัดนับตามชั้นวาง → ชื่อยา → lot (ลำดับเดินนับจริง)
+ *  ที่เก็บว่าง/'-' ไปท้ายสุด ไม่ให้แทรกกลางเส้นทางเดิน */
+export function sortByShelf(rows) {
+  const key = (r) => {
+    const loc = String(r.system_location || '').trim()
+    return !loc || loc === '-' ? '￿' : loc   // ￿ = เรียงท้ายสุดเสมอ
+  }
+  return [...(rows || [])].sort((a, b) =>
+    key(a).localeCompare(key(b), 'th', { numeric: true }) ||
+    String(a.name || '').localeCompare(String(b.name || ''), 'th') ||
+    String(a.lot || '').localeCompare(String(b.lot || '')))
 }
 
 /** เริ่มรอบประจำปี — สร้าง session draft + gen ทุกบรรทัดลง DB ทันที
