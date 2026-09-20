@@ -181,6 +181,14 @@ const ACTION_LABELS = {
   line_expiry_alert:            { label: 'แจ้งเตือนยาใกล้หมดอายุ (LINE)', color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
   email_expiry_alert:           { label: 'แจ้งเตือนยาใกล้หมดอายุ (Email)', color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
   line_quota_low:               { label: 'โควตาแจ้งเตือน LINE ใกล้หมด', color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'    },
+  // งานค้างจากไลน์ (ADR-0022/0023) — เขียนโดย edge function line-tasks
+  // ⚠️ มีแค่ที่นี่ที่เดียวโดยเจตนา ไม่เข้า NOTIFY_ACTIONS/NOTIF_LABELS (ข้อยกเว้นของ Critical Rule #12):
+  //    หน้า linetask เป็น admin-only + กดเปลี่ยนสถานะรัวได้ (task→done→task) → เข้ากระดิ่งจะ spam
+  //    staff ทุกคนด้วยงานที่ตัวเองแตะไม่ได้. audit จาก edge function ไม่มี department/req_department
+  //    ด้วย → requester ไม่มีทางเห็นอยู่แล้ว. Rule #12 มีไว้กัน UI แสดง raw key ซึ่งแก้ได้ด้วยที่นี่
+  mark_line_task:               { label: 'เปลี่ยนสถานะข้อความไลน์',  color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300'       },
+  mark_line_task_item:          { label: 'เปลี่ยนสถานะงานจากไลน์',   color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300'       },
+  create_line_task:             { label: 'สร้างงานจากไลน์',          color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300'       },
   insert_drug_loan:             { label: 'บันทึกยืมยา',               color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
   return_drug_loan:             { label: 'รับคืนยาที่ยืม',            color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
   update_drug_loan:             { label: 'แก้ไขรายการยืม-คืน',       color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
