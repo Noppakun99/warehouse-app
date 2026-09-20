@@ -2,19 +2,22 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   ClipboardCheck, X, Printer, Save, CheckCircle, AlertTriangle,
   ChevronDown, ChevronUp, Search, Package, Pencil, Trash2, Calendar, Eye, History,
-  Sparkles, RefreshCcw,
+  Sparkles, RefreshCcw, CalendarCheck, ChevronLeft, ChevronRight, Loader2, WifiOff, Filter,
 } from 'lucide-react'
 import {
   fetchInventoryNameCodeMap, fetchLotsForCount, createStockCount,
   fetchStockCountSessions, fetchStockCountItems, fetchInventoryLocations,
   updateStockCountItem, updateStockCountSession, deleteStockCountSession, fetchAllStockCountItems,
   updateStockCountFollowup, FOLLOWUP_STATUS, fetchCountPriorityData,
+  fetchOpenAnnualCount, createAnnualCount, updateAnnualCountLine, closeAnnualCount,
+  fetchZeroLotsForAnnual, addLotToAnnualCount, addUnknownItemToAnnualCount, UNKNOWN_TAG,
 } from './lib/db'
 import { dimStatus, diffLabel, computeCountMatch } from './lib/countMatch'
 import { rankCountPriority } from './lib/countPriority'
 import DrugSearchBar from './DrugSearchBar'
 import BackButton from './BackButton'
 import Toast from './Toast'
+import ConfirmModal from './ConfirmModal'
 
 // ============================================================
 // helper
@@ -33,6 +36,18 @@ const fmtThaiDateTime = (iso) => {
   return `${fmtThaiDate(iso)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} น.`
 }
 const toNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0 }
+// จำนวนมิติที่เทียบกับระบบ: จำนวน / lot / exp / ที่เก็บ (เพิ่ม lot 2026-09-20)
+// ต้องตรงกับ dimStatus() ใน countMatch.js — แก้ที่นั่นต้องแก้ค่านี้ด้วย
+const DIM_COUNT = 4
+/** โซนของชั้นวาง — ตัวอักษรนำหน้าของรหัสชั้น (A-1-4 → A, E-11 → E)
+ *  ที่เก็บชื่อไทย (คลังน้ำเกลือ/ตู้เย็นห้องยาชั้น4) เป็นโซนของตัวเอง ไม่มีชั้นย่อย
+ *  ช่องที่เก็บหลายชั้นคั่น comma ("D-2-4 ,D-2-1") ใช้ชั้นแรกเป็นตัวจัดโซน
+ *  — ของจริงวางอยู่ที่เดียวกันในโซนเดียวกัน (ตรวจข้อมูลจริง 2026-09-20: 18 ช่องแบบนี้) */
+const zoneOf = (loc) => {
+  const first = String(loc || '-').split(',')[0].trim()
+  const m = first.match(/^([A-Za-z])-/)
+  return m ? m[1].toUpperCase() : (first || '-')
+}
 // วันนี้ตามเวลาท้องถิ่น — ห้ามใช้ toISOString().slice(0,10) (UTC: ช่วง 00:00-07:00 น. ไทยจะได้วันก่อนหน้า)
 const todayLocalIso = () => {
   const d = new Date()
@@ -118,6 +133,14 @@ function DimLine({ label, st, val }) {
   if (st === 'unchecked') return <p className="text-[10px] text-slate-300 dark:text-slate-500">{label}: ไม่ได้ตรวจ</p>
   if (st === 'ok') return <p className="text-[10px] text-emerald-600">{label}: ตรง</p>
   return <p className="text-[10px] text-amber-600 font-semibold">{label}: {val || '-'}</p>
+}
+
+// ป้ายสถานะรายมิติในจอไล่ทีละ lot — ไม่ได้ตรวจ / ตรง / ไม่ตรง
+// "ไม่ได้ตรวจ" ต้องต่างจาก "ตรง" ให้ชัด (ADR-0008: ช่องว่าง ≠ ยืนยันว่าตรง)
+function DimBadge({ st }) {
+  if (st === 'unchecked') return <span className="text-[10px] text-slate-400 dark:text-slate-500">ยังไม่ตรวจ</span>
+  if (st === 'ok') return <span className="text-[10px] font-semibold text-emerald-600">ตรงระบบ</span>
+  return <span className="text-[10px] font-semibold text-amber-600">ไม่ตรง — ต้องแก้ไข</span>
 }
 
 // ป้ายส่วนต่าง "ขาด N / เกิน N" — สีตามทิศ (ขาด = แดง, เกิน = ส้ม)
@@ -214,7 +237,7 @@ export default function StockCountApp({ onRefresh, auth, onGoBack, canGoBack }) 
           </div>
           {/* segmented control — 2 ปุ่มอยู่ในรางเดียวกัน สื่อว่าเป็นตัวเลือกคู่ (สลับ ไม่ใช่ปุ่มสั่งงานแยกกัน) */}
           <div className="inline-flex gap-1 p-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-            {[{ key: 'count', label: 'ตรวจนับ', icon: ClipboardCheck }, { key: 'history', label: 'ประวัติ', icon: History }].map(t => {
+            {[{ key: 'count', label: 'ตรวจนับ', icon: ClipboardCheck }, { key: 'annual', label: 'ประจำปี', icon: CalendarCheck }, { key: 'history', label: 'ประวัติ', icon: History }].map(t => {
               const on = tab === t.key
               return (
                 <button key={t.key} onClick={() => setTab(t.key)}
@@ -234,6 +257,7 @@ export default function StockCountApp({ onRefresh, auth, onGoBack, canGoBack }) 
       </header>
       <div className="max-w-5xl mx-auto px-4 py-5">
         {tab === 'count' && <CountTab auth={auth} />}
+        {tab === 'annual' && <AnnualTab auth={auth} />}
         {tab === 'history' && <HistoryTab auth={auth} />}
       </div>
     </div>
@@ -695,7 +719,7 @@ function CountTab({ auth }) {
                       {/* ตรงทั้งหมด */}
                       <td className="text-center px-2 py-2 align-top">
                         <button onClick={() => markLineAllMatch(i)}
-                          title={complete ? 'ล้างค่าที่กรอก' : 'ตรงทั้งหมด (เติมค่าตามระบบครบ 3 มิติ)'}
+                          title={complete ? 'ล้างค่าที่กรอก' : 'ตรงทั้งหมด (เติมค่าตามระบบครบทุกมิติ)'}
                           className={`inline-flex items-center justify-center w-8 h-8 rounded-full border transition-colors ${
                             complete ? 'bg-emerald-500 border-emerald-500 text-white'
                             : m.anyDiff ? 'border-amber-300 dark:border-amber-800/60 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/50'
@@ -792,8 +816,8 @@ function CountTab({ auth }) {
                     <div className="text-xs">
                       {!m.counted ? <span className="text-slate-400 dark:text-slate-500">ยังไม่กรอก</span>
                         : m.anyDiff ? <span className="text-amber-600 flex items-center gap-1"><AlertTriangle size={14} /> ไม่ตรง</span>
-                        : m.checked === 3 ? <span className="text-emerald-600 flex items-center gap-1"><CheckCircle size={14} /> ตรงระบบ</span>
-                        : <span className="text-emerald-600 flex items-center gap-1"><CheckCircle size={14} /> ตรงตามที่ตรวจ {m.checked}/3</span>}
+                        : m.checked === DIM_COUNT ? <span className="text-emerald-600 flex items-center gap-1"><CheckCircle size={14} /> ตรงระบบ</span>
+                        : <span className="text-emerald-600 flex items-center gap-1"><CheckCircle size={14} /> ตรงตามที่ตรวจ {m.checked}/{DIM_COUNT}</span>}
                     </div>
                     <button onClick={() => markLineAllMatch(i)}
                       className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors ${
@@ -841,6 +865,714 @@ function CountTab({ auth }) {
 // ============================================================
 // HistoryTab — ประวัติรอบตรวจนับ
 // ============================================================
+// ============================================================
+// AnnualTab — ตรวจนับประจำปี: ระบบ gen ทุก lot แล้วไล่นับทีละตัว
+// ============================================================
+// ต่างจาก CountTab โดยเจตนา (ไม่ใช่ตารางยาว 632 แถว):
+//   เดินนับบนมือถือ ยืนหน้าชั้นถือของอยู่ — scroll หาแถวในตาราง 632 บรรทัดแล้วกรอกผิดตัวได้ง่าย
+//   จอนี้โชว์ทีละ lot + ปุ่ม "ตรงตามระบบ" กดครั้งเดียวจบ (ของส่วนใหญ่ตรง) แล้วเด้งตัวถัดไปเอง
+// autosave ต่อบรรทัดลง DB ทันที — งานนับกินหลายวัน localStorage เอาไม่อยู่
+function AnnualTab({ auth }) {
+  const [loading, setLoading] = useState(true)
+  const [session, setSession] = useState(null)
+  const [items, setItems] = useState([])
+  const [idx, setIdx] = useState(0)
+  const [locations, setLocations] = useState([])
+  const [toast, setToast] = useState(null)
+  const [starting, setStarting] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const [onlyPending, setOnlyPending] = useState(true)   // เปิดมาวันที่ 2 ต้องเห็นเฉพาะที่ยังไม่นับ
+  const [zoneFilter, setZoneFilter] = useState('')       // โซนหลัก (A/B/C… หรือชื่อไทย) — เลือกก่อน
+  const [locFilter, setLocFilter] = useState('')          // ชั้นย่อยในโซนนั้น — ไม่เลือก = ทั้งโซน
+  const [mode, setMode] = useState('walk')               // 'walk' = ทีละ lot | 'list' = ตารางทบทวน
+  const [saveState, setSaveState] = useState({})         // { itemId: 'saving'|'saved'|'error' }
+  const [draft, setDraft] = useState(null)               // ค่าที่กำลังกรอกของ lot ปัจจุบัน
+  const [confirm, setConfirm] = useState(null)           // { kind:'start'|'close' } — popup ในธีมแอป ไม่ใช่ window.confirm
+  const [zeroPicker, setZeroPicker] = useState(null)     // { loading, rows, q } — โมดอล "เจอของที่ระบบว่าหมด"
+
+  useEffect(() => {
+    fetchInventoryLocations().then(setLocations).catch(() => {})
+    fetchOpenAnnualCount()
+      .then(open => {
+        if (open) { setSession(open.session); setItems(open.items) }
+      })
+      .catch(e => setToast({ tone: 'error', message: e?.message || 'โหลดรอบประจำปีไม่สำเร็จ' }))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const counted = items.filter(i => i.counted_qty !== null).length
+  const total = items.length
+  const pct = total ? Math.round((counted / total) * 100) : 0
+  const mismatches = items.filter(i => i.counted_qty !== null && !i.match).length
+  const failed = Object.values(saveState).filter(s => s === 'error').length
+
+  // โซนหลัก + จำนวนที่ยังไม่นับต่อโซน (ให้เห็นว่าโซนไหนยังเหลือ ไม่ต้องเข้าไปดูทีละชั้น)
+  const zoneStat = {}
+  for (const it of items) {
+    const z = zoneOf(it.system_location)
+    if (!zoneStat[z]) zoneStat[z] = { total: 0, pending: 0 }
+    zoneStat[z].total++
+    if (it.counted_qty === null) zoneStat[z].pending++
+  }
+  const zones = Object.keys(zoneStat).sort((a, b) => a.localeCompare(b, 'th', { numeric: true }))
+
+  // ชั้นย่อยเฉพาะในโซนที่เลือก — 113 ชั้นรวดเดียวหาไม่เจอ (เหตุผลที่แยก 2 ชั้น)
+  const locsInZone = zoneFilter
+    ? [...new Set(items.filter(i => zoneOf(i.system_location) === zoneFilter)
+        .map(i => i.system_location || '-'))]
+        .sort((a, b) => a.localeCompare(b, 'th', { numeric: true }))
+    : []
+
+  // อยู่ในขอบเขตที่เลือก (โซน/ชั้น) — แยกจาก queue เพื่อนับ "เหลือเท่าไหร่" ให้ตรงกับที่เห็น
+  const inScope = (it) =>
+    (!zoneFilter || zoneOf(it.system_location) === zoneFilter) &&
+    (!locFilter || (it.system_location || '-') === locFilter)
+
+  const pendingInScope = items.filter(it => inScope(it) && it.counted_qty === null).length
+
+  // คิวที่กำลังไล่นับ — กรองแล้วค่อยไล่ ไม่งั้นกด "ถัดไป" แล้วข้ามไปคนละชั้น
+  const queue = items.filter(it => (!onlyPending || it.counted_qty === null) && inScope(it))
+
+  // clamp เพราะคิวหดได้ระหว่างนับ: โหมด "เฉพาะที่ยังไม่นับ" พอบันทึกแล้วแถวหลุดคิวทันที
+  // ถ้าอยู่ตัวท้าย idx จะเกินขอบ → cur เป็น undefined จอว่างทั้งที่ยังมีของให้นับ
+  const safeIdx = queue.length ? Math.min(idx, queue.length - 1) : 0
+  const cur = queue[safeIdx] || null
+
+  // เปลี่ยน lot → รีเซ็ต draft เป็นค่าที่เคยบันทึกไว้ (กลับมาแก้ของเดิมได้)
+  useEffect(() => {
+    if (!cur) { setDraft(null); return }
+    setDraft({
+      counted_qty: cur.counted_qty == null ? '' : String(toNum(cur.counted_qty)),
+      counted_exp: cur.counted_exp || '',
+      counted_location: cur.counted_location || '',
+      counted_lot: cur.counted_lot || '',
+      item_note: cur.item_note || '',
+    })
+  }, [cur?.id])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startRound = async () => {
+    setConfirm(null)
+    setStarting(true)
+    try {
+      const { id } = await createAnnualCount({ counted_at: todayLocalIso() }, auth)
+      const open = await fetchOpenAnnualCount()
+      if (open) { setSession(open.session); setItems(open.items) }
+      setToast({ tone: 'success', message: `เริ่มรอบแล้ว — ${open?.items?.length || 0} รายการ (รอบที่ ${id})` })
+    } catch (e) {
+      setToast({ tone: 'error', message: e?.message || 'เริ่มรอบไม่สำเร็จ' })
+    } finally { setStarting(false) }
+  }
+
+  /** บันทึกบรรทัดปัจจุบัน แล้วไปตัวถัดไป
+   *  fields = ค่าที่จะบันทึก (ส่ง override ได้ เช่น ปุ่ม "ตรงตามระบบ") */
+  const saveLine = async (fields, { advance = true } = {}) => {
+    if (!cur) return
+    const itemId = cur.id
+    const payload = { ...cur, ...fields }
+    setSaveState(s => ({ ...s, [itemId]: 'saving' }))
+    // optimistic — คนเดินนับต้องไปต่อได้ทันที ไม่ยืนรอ network
+    setItems(prev => prev.map(it => it.id === itemId ? { ...it, ...fields, ...computeCountMatch(payload) } : it))
+    // โหมด "เฉพาะที่ยังไม่นับ": แถวที่เพิ่งบันทึกหลุดคิวเอง → index เดิมกลายเป็นตัวถัดไปอยู่แล้ว
+    // โหมดปกติ: ต้องขยับเอง แต่ห้ามเกินขอบคิว (ตัวสุดท้ายให้ค้างอยู่ที่เดิม)
+    if (advance && !onlyPending) setIdx(i => Math.min(i + 1, queue.length - 1))
+    try {
+      await updateAnnualCountLine(itemId, payload)
+      setSaveState(s => ({ ...s, [itemId]: 'saved' }))
+    } catch (e) {
+      // ⚠️ ไม่ revert ค่าในจอ — คนนับของจริงมาแล้ว ต้องไม่ทำให้ตัวเลขหายไปต่อหน้า
+      //    ขึ้นแดงค้างไว้แทน + แถบเตือนด้านบน ให้กด "ลองบันทึกอีกครั้ง" ได้
+      setSaveState(s => ({ ...s, [itemId]: 'error' }))
+      setToast({ tone: 'error', message: `บันทึกไม่สำเร็จ: ${e?.message || 'เครือข่ายมีปัญหา'}` })
+    }
+  }
+
+  // สถานะรายมิติของค่าที่กำลังกรอก (ยังไม่บันทึก) — ใช้ระบายสี/ป้ายให้เห็นสดตอนพิมพ์
+  // เทียบกับ snapshot ของระบบผ่าน dimStatus ตัวเดียวกับแท็บตรวจนับ (ADR-0008: ว่าง = ไม่ได้ตรวจ)
+  const dim = dimStatus({ ...(cur || {}), ...(draft || {}) })
+
+  // ปุ่ม "ตรง" รายช่อง — เติมค่าตามระบบ / กดซ้ำ = ล้างกลับเป็น "ไม่ได้ตรวจ"
+  const toggleDraftField = (field) => {
+    const sysVal = field === 'counted_location' ? (cur?.system_location || '')
+      : field === 'counted_lot' ? (cur?.lot || '')
+      : (cur?.system_exp || '')
+    setDraft(d => ({ ...d, [field]: d?.[field] ? '' : (sysVal === '-' ? '' : sysVal) }))
+  }
+
+  const markSame = () => saveLine({
+    counted_qty: String(toNum(cur.system_qty)),
+    counted_exp: cur.system_exp && cur.system_exp !== '-' ? cur.system_exp : '',
+    counted_location: cur.system_location && cur.system_location !== '-' ? cur.system_location : '',
+    counted_lot: cur.lot && cur.lot !== '-' ? cur.lot : '',
+  })
+
+  const saveDraft = () => {
+    if (draft?.counted_qty === '' || draft?.counted_qty == null) {
+      setToast({ tone: 'error', message: 'ยังไม่ได้กรอกจำนวนที่นับได้' }); return
+    }
+    saveLine(draft)
+  }
+
+  const retryFailed = async () => {
+    const ids = Object.entries(saveState).filter(([, v]) => v === 'error').map(([k]) => Number(k))
+    for (const id of ids) {
+      const it = items.find(x => x.id === id)
+      if (!it) continue
+      setSaveState(s => ({ ...s, [id]: 'saving' }))
+      try {
+        await updateAnnualCountLine(id, it)
+        setSaveState(s => ({ ...s, [id]: 'saved' }))
+      } catch { setSaveState(s => ({ ...s, [id]: 'error' })) }
+    }
+  }
+
+  // เจอของจริงในชั้นที่ระบบบอกว่าหมด (phantom stock) — ดึง lot ที่ระบบว่า 0 มาให้เลือกเพิ่ม
+  const openZeroPicker = async () => {
+    setZeroPicker({ loading: true, rows: [], q: '' })
+    try {
+      const rows = await fetchZeroLotsForAnnual(session.id)
+      setZeroPicker({ loading: false, rows, q: '' })
+    } catch (e) {
+      setZeroPicker(null)
+      setToast({ tone: 'error', message: e?.message || 'ดึงรายการไม่สำเร็จ' })
+    }
+  }
+
+  // ของที่ไม่มีในระบบเลย (ไม่มีทั้งรหัสและ lot) — คนกรอกเอง บันทึกเป็นแถวพิเศษ
+  const [unknownForm, setUnknownForm] = useState(null)   // null = ยังไม่เปิดฟอร์ม
+  const [savingUnknown, setSavingUnknown] = useState(false)
+
+  const submitUnknown = async () => {
+    if (!unknownForm?.name?.trim()) { setToast({ tone: 'error', message: 'ต้องระบุชื่อยา' }); return }
+    if (unknownForm.counted_qty === '' || unknownForm.counted_qty == null) {
+      setToast({ tone: 'error', message: 'ต้องระบุจำนวนที่นับได้' }); return
+    }
+    setSavingUnknown(true)
+    try {
+      const row = await addUnknownItemToAnnualCount(session.id, unknownForm, auth)
+      setItems(prev => [...prev, row])
+      setToast({ tone: 'success', message: `บันทึก "${unknownForm.name}" เป็นของพบนอกระบบแล้ว` })
+      setUnknownForm(null)
+      setZeroPicker(null)
+    } catch (e) {
+      setToast({ tone: 'error', message: e?.message || 'บันทึกไม่สำเร็จ' })
+    } finally { setSavingUnknown(false) }
+  }
+
+  const addZeroLot = async (lot) => {
+    try {
+      const row = await addLotToAnnualCount(session.id, lot, auth)
+      setItems(prev => [...prev, row])
+      setZeroPicker(p => p ? { ...p, rows: p.rows.filter(r => !(r.code === lot.code && r.lot === lot.lot)) } : p)
+      setToast({ tone: 'success', message: `เพิ่ม ${lot.name} lot ${lot.lot} เข้ารอบแล้ว` })
+    } catch (e) {
+      setToast({ tone: 'error', message: e?.message || 'เพิ่มไม่สำเร็จ' })
+    }
+  }
+
+  const finishRound = async () => {
+    setConfirm(null)
+    setClosing(true)
+    try {
+      await closeAnnualCount(session.id, auth)
+      setToast({ tone: 'success', message: `ปิดรอบแล้ว — นับ ${counted}/${total} รายการ` })
+      setSession(null); setItems([]); setIdx(0)
+    } catch (e) {
+      setToast({ tone: 'error', message: e?.message || 'ปิดรอบไม่สำเร็จ' })
+    } finally { setClosing(false) }
+  }
+
+  if (loading) return <p className="text-center text-slate-400 py-10 text-sm">กำลังโหลด…</p>
+
+  // ── ยังไม่มีรอบ — จอเริ่มต้น ──────────────────────────────
+  if (!session) {
+    return (
+      <>
+        {toast && <Toast tone={toast.tone} message={toast.message} onClose={() => setToast(null)} />}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-6 text-center">
+          <div className="inline-flex p-3 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 rounded-2xl mb-3">
+            <CalendarCheck size={24} />
+          </div>
+          <p className="font-bold text-slate-800 dark:text-slate-100">ตรวจนับประจำปี</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 mb-5">
+            ระบบจะดึง<strong>ทุก lot ที่มีของ</strong>มาให้ไล่นับทีละตัว บันทึกอัตโนมัติทุกครั้งที่กด
+            <br />นับค้างไว้ข้ามวันได้ เปิดเครื่องไหนก็นับต่อจากเดิม
+          </p>
+          <button onClick={() => setConfirm({ kind: 'start' })} disabled={starting}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 text-white font-semibold text-sm shadow-md shadow-indigo-500/30 disabled:opacity-60">
+            {starting ? <Loader2 size={16} className="animate-spin" /> : <CalendarCheck size={16} />}
+            {starting ? 'กำลังเตรียมรายการ…' : 'เริ่มรอบตรวจนับประจำปี'}
+          </button>
+        </div>
+
+        <ConfirmModal
+          open={confirm?.kind === 'start'}
+          title="เริ่มรอบตรวจนับประจำปี"
+          message="ระบบจะดึงทุก lot ที่มีของในคลังมาเตรียมไว้ให้ไล่นับทีละตัว"
+          detail="นับค้างไว้ข้ามวันได้ — เปิดเครื่องไหนก็นับต่อจากเดิม บันทึกอัตโนมัติทุกครั้งที่กด"
+          warning="มีรอบประจำปีได้ทีละ 1 รอบเท่านั้น"
+          confirmText="เริ่มรอบ"
+          loading={starting}
+          onConfirm={startRound}
+          onClose={() => setConfirm(null)}
+        />
+      </>
+    )
+  }
+
+  // ── มีรอบค้างอยู่ ────────────────────────────────────────
+  return (
+    <>
+      {toast && <Toast tone={toast.tone} message={toast.message} onClose={() => setToast(null)} />}
+
+      {/* ความคืบหน้า — ต้องเห็นตลอดว่าบันทึกไปถึงไหนแล้ว */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 mb-4">
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+          <div>
+            <p className="font-bold text-slate-800 dark:text-slate-100 text-sm">
+              รอบประจำปี · เริ่ม {fmtThaiDate(session.counted_at)}
+            </p>
+            <p className="text-xs text-slate-400 dark:text-slate-500">ผู้ตรวจนับ {session.counter_name}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-lg font-bold tabular-nums text-slate-800 dark:text-slate-100">{counted}<span className="text-slate-400 text-sm"> / {total} lot</span></p>
+            <p className="text-xs text-slate-400">{pct}% · ไม่ตรง {mismatches}</p>
+          </div>
+        </div>
+        <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-indigo-500 to-violet-600 transition-all" style={{ width: `${pct}%` }} />
+        </div>
+        {failed > 0 && (
+          <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 px-3 py-2">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-700 dark:text-red-300">
+              <WifiOff size={14} /> บันทึกไม่สำเร็จ {failed} รายการ
+            </span>
+            <button onClick={retryFailed} className="text-xs font-semibold text-red-700 dark:text-red-300 underline">ลองบันทึกอีกครั้ง</button>
+          </div>
+        )}
+      </div>
+
+      {/* ตัวกรอง + สลับโหมด */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-3 mb-4 flex items-center gap-2 flex-wrap">
+        {/* เลือก 2 ชั้น: โซนก่อน → ชั้นย่อยในโซนนั้น
+            (dropdown เดียว 113 ชั้นเลื่อนหาไม่เจอ และไม่ตรงกับการเดินนับที่ไล่ทีละตู้) */}
+        <select value={zoneFilter}
+          onChange={e => { setZoneFilter(e.target.value); setLocFilter(''); setIdx(0) }}
+          className="border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-semibold">
+          <option value="">ทุกโซน ({zones.length})</option>
+          {zones.map(z => (
+            <option key={z} value={z}>
+              {z} — เหลือ {zoneStat[z].pending}/{zoneStat[z].total}
+            </option>
+          ))}
+        </select>
+
+        {/* ชั้นย่อยโผล่เมื่อเลือกโซนแล้ว และโซนนั้นมีมากกว่า 1 ชั้น
+            (คลังน้ำเกลือ/ตู้เย็น มีชั้นเดียว เลือกโซนแล้วนับได้เลย ไม่ต้องมี dropdown ว่างๆ ให้งง) */}
+        {zoneFilter && locsInZone.length > 1 && (
+          <select value={locFilter} onChange={e => { setLocFilter(e.target.value); setIdx(0) }}
+            className="border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+            <option value="">ทั้งโซน {zoneFilter} ({locsInZone.length} ชั้น)</option>
+            {locsInZone.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+        )}
+        {/* toggle ตัวกรอง — ไอคอน funnel บอกว่าเป็นตัวกรอง, ตัวเลข = เหลือกี่ lot ในขอบเขตที่เลือกอยู่
+            (นับตามโซน/ชั้นที่กรองไว้ ไม่ใช่ทั้งรอบ ไม่งั้นเลขไม่ตรงกับคิวที่เห็น) */}
+        <button onClick={() => { setOnlyPending(v => !v); setIdx(0) }}
+          aria-pressed={onlyPending}
+          title={onlyPending ? 'กดเพื่อแสดงทุก lot รวมที่นับแล้ว' : 'กดเพื่อซ่อน lot ที่นับแล้ว'}
+          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+            onlyPending
+              ? 'bg-indigo-500 border-indigo-500 text-white'
+              : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300'}`}>
+          <Filter size={14} className={onlyPending ? 'text-white' : 'text-slate-400 dark:text-slate-500'} />
+          เฉพาะที่ยังไม่นับ
+          <span className={`tabular-nums rounded-full px-1.5 py-0.5 text-[11px] ${
+            onlyPending ? 'bg-white/25' : 'bg-slate-100 dark:bg-slate-800'}`}>
+            {pendingInScope}
+          </span>
+        </button>
+        <div className="inline-flex gap-1 p-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 ml-auto">
+          {[{ k: 'walk', t: 'ไล่ทีละตัว' }, { k: 'list', t: 'ดูเป็นตาราง' }].map(m => (
+            <button key={m.k} onClick={() => setMode(m.k)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                mode === m.k ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>
+              {m.t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {queue.length === 0 ? (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-8 text-center">
+          <CheckCircle size={32} className="mx-auto text-emerald-500 mb-2" />
+          <p className="font-semibold text-slate-700 dark:text-slate-200">
+            {onlyPending ? 'นับครบแล้วในตัวกรองนี้' : 'ไม่มีรายการตรงตัวกรอง'}
+          </p>
+          <p className="text-sm text-slate-400 mt-1">
+            {counted < total ? `ยังเหลืออีก ${total - counted} รายการในชั้นอื่น` : 'นับครบทุกรายการแล้ว — ปิดรอบได้เลย'}
+          </p>
+        </div>
+      ) : mode === 'walk' ? (
+        /* ── โหมดไล่ทีละ lot ── */
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              ชั้น {cur?.system_location || '-'}
+            </span>
+            <span className="text-xs tabular-nums text-slate-400">
+              {safeIdx + 1} / {queue.length} ในคิวนี้
+            </span>
+          </div>
+
+          <div className="p-5 space-y-4">
+            {/* หัวการ์ด — ชื่อยา + สถานะบันทึก */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-lg font-bold text-slate-800 dark:text-slate-100 leading-snug">{cur?.name}</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500">รหัส {cur?.code}</p>
+              </div>
+              <div className="shrink-0">
+                {saveState[cur?.id] === 'saved' && <span className="inline-flex items-center gap-1 text-xs text-emerald-600"><CheckCircle size={12} /> บันทึกแล้ว</span>}
+                {saveState[cur?.id] === 'saving' && <span className="inline-flex items-center gap-1 text-xs text-slate-400"><Loader2 size={12} className="animate-spin" /> กำลังบันทึก</span>}
+                {saveState[cur?.id] === 'error' && <span className="inline-flex items-center gap-1 text-xs text-red-600 font-semibold"><AlertTriangle size={12} /> ยังไม่ได้บันทึก</span>}
+              </div>
+            </div>
+
+            {/* สิ่งที่ระบบบันทึกไว้ — 3 ช่องกว้างเท่ากัน ขนาดตัวอักษรใกล้เคียงกัน
+                (เดิมจำนวนใหญ่กว่า lot/exp มากจนดูไม่สมดุล — ทั้ง 3 ค่าสำคัญเท่ากันตอนเทียบกับของจริง)
+                lot/exp ใช้ break-all ไม่ใช่ truncate: รหัสที่ถูกตัดหายอ่านเทียบกับกล่องไม่ได้ */}
+            <div className="rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 p-4">
+              <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-3">ระบบบันทึกไว้</p>
+              <div className="grid grid-cols-3 gap-3 items-start">
+                <div className="min-w-0">
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-0.5">จำนวน</p>
+                  <p className="text-lg font-bold tabular-nums text-slate-800 dark:text-slate-100 leading-tight">{toNum(cur?.system_qty)}</p>
+                  <p className="text-sm text-slate-400 dark:text-slate-500 truncate">{cur?.unit}</p>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-0.5">lot</p>
+                  <p className="text-base font-mono font-bold text-slate-800 dark:text-slate-100 leading-tight break-all">{cur?.lot || '-'}</p>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-0.5">exp</p>
+                  <p className="text-base font-bold tabular-nums text-slate-800 dark:text-slate-100 leading-tight break-all">{cur?.system_exp || '-'}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* นับได้จริง — ช่องหลัก เด่นกว่ามิติอื่นเพราะต้องกรอกทุกตัว */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">นับได้จริง</label>
+                <DimBadge st={dim.qty} />
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="number" inputMode="decimal" value={draft?.counted_qty ?? ''}
+                  onChange={e => setDraft(d => ({ ...d, counted_qty: e.target.value }))}
+                  placeholder="จำนวน"
+                  className={`flex-1 min-w-0 px-3 py-3 border rounded-xl text-center text-xl font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${
+                    dim.qty === 'diff'
+                      ? 'border-red-400 bg-red-50 dark:bg-red-950/40 focus:ring-red-400'
+                      : 'border-slate-300 dark:border-slate-600 focus:ring-indigo-400'}`} />
+                <span className="w-20 shrink-0 text-sm text-slate-400 truncate">× {cur?.unit}</span>
+              </div>
+              {dim.qty === 'diff' && (
+                <p className="mt-1.5 text-sm font-bold text-red-600 text-center">
+                  {diffLabel(cur?.system_qty, draft?.counted_qty)}
+                </p>
+              )}
+            </div>
+
+            {/* มิติที่เหลือ — กางเองเมื่อมีจุดไม่ตรง ไม่งั้นคนไม่เห็นว่าที่กรอกไว้ไม่ตรง */}
+            <details className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden"
+              open={dim.lot === 'diff' || dim.exp === 'diff' || dim.loc === 'diff'}>
+              <summary className="px-3 py-2.5 bg-slate-50 dark:bg-slate-800/60 text-xs text-slate-600 dark:text-slate-300 cursor-pointer select-none flex items-center justify-between gap-2">
+                <span>ตรวจ lot / exp / ที่เก็บ ด้วย</span>
+                {(dim.lot === 'diff' || dim.exp === 'diff' || dim.loc === 'diff')
+                  ? <span className="font-semibold text-amber-600 shrink-0">มีจุดไม่ตรง</span>
+                  : <span className="text-slate-400 shrink-0">ตรวจแล้ว {dim.checked}/4</span>}
+              </summary>
+
+              <div className="p-3 space-y-3">
+                {/* lot บนกล่องจริง */}
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                      lot บนกล่อง <span className="text-slate-400 dark:text-slate-500">(ระบบ: {cur?.lot || '-'})</span>
+                    </label>
+                    <DimBadge st={dim.lot} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input type="text" value={draft?.counted_lot || ''} placeholder="lot ที่อ่านได้จากกล่อง"
+                      onChange={e => setDraft(d => ({ ...d, counted_lot: e.target.value }))}
+                      className={`flex-1 min-w-0 px-3 py-2 border rounded-xl text-sm font-mono bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
+                        dim.lot === 'diff' ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/40' : 'border-slate-300 dark:border-slate-600'}`} />
+                    <div className="w-20 shrink-0 flex justify-center">
+                      <FieldTick active={dim.lot === 'ok'} onClick={() => toggleDraftField('counted_lot')} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* exp บนกล่องจริง */}
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                      exp บนกล่อง <span className="text-slate-400 dark:text-slate-500">(ระบบ: {cur?.system_exp || '-'})</span>
+                    </label>
+                    <DimBadge st={dim.exp} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input type="text" value={draft?.counted_exp || ''} placeholder="เช่น 3/12/2028"
+                      onChange={e => setDraft(d => ({ ...d, counted_exp: e.target.value }))}
+                      className={`flex-1 min-w-0 px-3 py-2 border rounded-xl text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
+                        dim.exp === 'diff' ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/40' : 'border-slate-300 dark:border-slate-600'}`} />
+                    <div className="w-20 shrink-0 flex justify-center">
+                      <FieldTick active={dim.exp === 'ok'} onClick={() => toggleDraftField('counted_exp')} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* ที่เก็บจริง */}
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                      ที่เก็บจริง <span className="text-slate-400 dark:text-slate-500">(ระบบ: {cur?.system_location || '-'})</span>
+                    </label>
+                    <DimBadge st={dim.loc} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <LocationInput value={draft?.counted_location || ''} locations={locations}
+                        onChange={v => setDraft(d => ({ ...d, counted_location: v }))}
+                        className={`w-full px-3 py-2 border rounded-xl text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
+                          dim.loc === 'diff' ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/40' : 'border-slate-300 dark:border-slate-600'}`} />
+                    </div>
+                    <div className="w-20 shrink-0 flex justify-center">
+                      <FieldTick active={dim.loc === 'ok'} onClick={() => toggleDraftField('counted_location')} />
+                    </div>
+                  </div>
+                </div>
+
+                <input type="text" value={draft?.item_note || ''} placeholder="หมายเหตุ เช่น พบชำรุด / กล่องฉีก"
+                  onChange={e => setDraft(d => ({ ...d, item_note: e.target.value }))}
+                  className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              </div>
+            </details>
+
+            {/* สรุปก่อนบันทึก — บอกว่ามิติไหนไม่ตรงบ้าง ไม่ให้กดผ่านไปโดยไม่รู้ตัว */}
+            {dim.anyDiff && (
+              <div className="mb-3 flex items-start gap-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 px-3 py-2">
+                <AlertTriangle size={15} className="text-amber-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-800 dark:text-amber-300">
+                  ไม่ตรงระบบ: {[
+                    dim.qty === 'diff' && `จำนวน (${diffLabel(cur?.system_qty, draft?.counted_qty)})`,
+                    dim.lot === 'diff' && 'lot',
+                    dim.exp === 'diff' && 'exp',
+                    dim.loc === 'diff' && 'ที่เก็บ',
+                  ].filter(Boolean).join(' · ')}
+                  <br />บันทึกได้ตามที่นับจริง — ส่วนต่างจะขึ้นในประวัติให้ไปตามแก้ที่ต้นทาง
+                </p>
+              </div>
+            )}
+
+            {/* ปุ่มหลัก — ของส่วนใหญ่ตรง กดปุ่มเดียวจบแล้วไปตัวถัดไป */}
+            <button onClick={markSame}
+              className="w-full mb-2 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold shadow-md shadow-emerald-500/30">
+              <CheckCircle size={18} /> ตรงตามระบบ ({toNum(cur?.system_qty)})
+            </button>
+            <button onClick={saveDraft}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 font-semibold text-sm">
+              <Save size={15} /> บันทึกค่าที่กรอก
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
+            <button onClick={() => setIdx(Math.max(0, safeIdx - 1))} disabled={safeIdx === 0}
+              className="inline-flex items-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-40">
+              <ChevronLeft size={16} /> ก่อนหน้า
+            </button>
+            <button onClick={() => setIdx(Math.min(queue.length - 1, safeIdx + 1))} disabled={safeIdx >= queue.length - 1}
+              className="inline-flex items-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-40">
+              ข้ามไปตัวถัดไป <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      ) : (
+        /* ── โหมดตาราง (ทบทวน) ── */
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div className="max-h-[60vh] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-xs text-slate-500 dark:text-slate-400">
+                <tr>
+                  <th className="text-left px-3 py-2 font-semibold">รายการ</th>
+                  <th className="text-center px-2 py-2 font-semibold">ชั้น</th>
+                  <th className="text-center px-2 py-2 font-semibold">ระบบ</th>
+                  <th className="text-center px-2 py-2 font-semibold">นับได้</th>
+                </tr>
+              </thead>
+              <tbody>
+                {queue.map((it, i) => (
+                  <tr key={it.id}
+                    onClick={() => { setMode('walk'); setIdx(i) }}
+                    className="border-t border-slate-100 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                    <td className="px-3 py-2">
+                      <p className="text-slate-800 dark:text-slate-100 truncate max-w-[200px]">{it.name}</p>
+                      <p className="text-[10px] text-slate-400 font-mono">lot {it.lot}</p>
+                    </td>
+                    <td className="text-center px-2 py-2 text-xs text-slate-500">{it.system_location}</td>
+                    <td className="text-center px-2 py-2 tabular-nums text-slate-600 dark:text-slate-300">{toNum(it.system_qty)}</td>
+                    <td className="text-center px-2 py-2">
+                      {it.counted_qty == null
+                        ? <span className="text-xs text-slate-300 dark:text-slate-600">—</span>
+                        : <span className={`tabular-nums font-semibold ${it.match ? 'text-emerald-600' : 'text-red-600'}`}>{toNum(it.counted_qty)}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ปิดรอบ */}
+      <div className="mt-4 flex justify-end gap-2 flex-wrap">
+        <button onClick={openZeroPicker}
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-sm font-semibold mr-auto">
+          <Package size={15} /> เพิ่ม lot ที่ระบบว่าหมด
+        </button>
+        <button onClick={() => printCountSheet(items, { counterName: session.counter_name, dateLabel: fmtThaiDate(session.counted_at) })}
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-semibold">
+          <Printer size={15} /> พิมพ์ใบสำรอง
+        </button>
+        <button onClick={() => setConfirm({ kind: 'close' })} disabled={closing}
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 text-sm font-semibold disabled:opacity-60">
+          {closing ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle size={15} />} ปิดรอบ
+        </button>
+      </div>
+
+      <ConfirmModal
+        open={confirm?.kind === 'close'}
+        title="ปิดรอบตรวจนับประจำปี"
+        message={`นับไปแล้ว ${counted} จาก ${total} รายการ${mismatches ? ` · พบไม่ตรง ${mismatches} รายการ` : ''}`}
+        detail="ปิดรอบแล้วจะแก้ไขผลนับได้ที่แท็บประวัติ เหมือนรอบตรวจนับอื่น"
+        warning={total - counted > 0
+          ? `ยังไม่ได้นับอีก ${total - counted} รายการ — จะถูกบันทึกว่า "ไม่ได้ตรวจ"`
+          : undefined}
+        tone={total - counted > 0 ? 'danger' : 'primary'}
+        confirmText="ปิดรอบ"
+        loading={closing}
+        onConfirm={finishRound}
+        onClose={() => setConfirm(null)}
+      />
+
+      {/* เจอของที่ระบบว่าหมด — เลือก lot เพิ่มเข้ารอบ (phantom stock) */}
+      {zeroPicker && (
+        <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4" onClick={() => setZeroPicker(null)}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden"
+            onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-amber-100 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/40 flex items-center gap-3">
+              <div className="w-9 h-9 bg-amber-100 dark:bg-amber-950/60 rounded-xl flex items-center justify-center shrink-0">
+                <Package size={18} className="text-amber-600" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="font-bold text-amber-800 dark:text-amber-300 text-sm">เพิ่ม lot ที่ระบบว่าหมด</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">เลือก lot ที่เจอของจริงบนชั้น เพื่อเพิ่มเข้ารอบนับ</p>
+              </div>
+              <button onClick={() => setZeroPicker(null)} className="text-slate-400 hover:text-slate-600 p-1 shrink-0"><X size={16} /></button>
+            </div>
+
+            <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800">
+              <input type="text" autoFocus value={zeroPicker.q} placeholder="พิมพ์ชื่อยา / รหัส / lot เพื่อค้นหา"
+                onChange={e => setZeroPicker(p => ({ ...p, q: e.target.value }))}
+                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+            </div>
+
+            <div className="overflow-y-auto flex-1 px-3 py-2">
+              {zeroPicker.loading ? (
+                <p className="text-center text-sm text-slate-400 py-8">กำลังโหลด…</p>
+              ) : (() => {
+                const q = zeroPicker.q.trim().toLowerCase()
+                const rows = q
+                  ? zeroPicker.rows.filter(r =>
+                      `${r.name} ${r.code} ${r.lot}`.toLowerCase().includes(q))
+                  : zeroPicker.rows
+                if (!rows.length) {
+                  return <p className="text-center text-sm text-slate-400 py-8">
+                    {zeroPicker.q ? 'ไม่พบรายการที่ค้นหา' : 'ไม่มี lot ที่ระบบว่าหมดเหลือให้เพิ่ม'}
+                  </p>
+                }
+                return rows.slice(0, 100).map(r => (
+                  <button key={`${r.code}|${r.lot}`} onClick={() => addZeroLot(r)}
+                    className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/30 border-b border-slate-50 dark:border-slate-800 last:border-0">
+                    <p className="text-sm text-slate-800 dark:text-slate-100 truncate">{r.name}</p>
+                    <p className="text-xs text-slate-400">
+                      {r.code} · lot <span className="font-mono">{r.lot}</span> · {r.system_location} · exp {r.system_exp}
+                    </p>
+                  </button>
+                ))
+              })()}
+            </div>
+
+            {/* ของที่ไม่มีในระบบเลย — ไม่มีทั้งรหัสและ lot ให้เลือก ต้องกรอกเอง */}
+            <div className="border-t border-slate-200 dark:border-slate-700 px-5 py-3 shrink-0">
+              {!unknownForm ? (
+                <button onClick={() => setUnknownForm({ name: '', code: '', lot: '', unit: '', counted_qty: '', counted_location: '', counted_exp: '', item_note: '' })}
+                  className="text-sm font-semibold text-amber-700 dark:text-amber-300 underline">
+                  ไม่เจอในรายการ? — ของนี้ไม่มีในระบบเลย กรอกเอง
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    บันทึกเป็น <span className="font-semibold">{UNKNOWN_TAG}</span> — ระบบไม่รู้จักของชิ้นนี้
+                    ส่วนต่างจะเท่ากับจำนวนที่นับได้ทั้งหมด และต้องไปเปิดรหัส/บันทึกรับเข้าที่ต้นทางเอง
+                  </p>
+                  <input type="text" autoFocus value={unknownForm.name} placeholder="ชื่อยา / ชื่อของ (บังคับ)"
+                    onChange={e => setUnknownForm(f => ({ ...f, name: e.target.value }))}
+                    className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="text" value={unknownForm.code} placeholder="รหัส (ถ้ามี)"
+                      onChange={e => setUnknownForm(f => ({ ...f, code: e.target.value }))}
+                      className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+                    <input type="text" value={unknownForm.lot} placeholder="lot (ถ้ามี)"
+                      onChange={e => setUnknownForm(f => ({ ...f, lot: e.target.value }))}
+                      className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="number" inputMode="decimal" value={unknownForm.counted_qty} placeholder="นับได้ (บังคับ)"
+                      onChange={e => setUnknownForm(f => ({ ...f, counted_qty: e.target.value }))}
+                      className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+                    <input type="text" value={unknownForm.unit} placeholder="หน่วย เช่น กล่อง"
+                      onChange={e => setUnknownForm(f => ({ ...f, unit: e.target.value }))}
+                      className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <LocationInput value={unknownForm.counted_location} locations={locations}
+                      onChange={v => setUnknownForm(f => ({ ...f, counted_location: v }))}
+                      className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+                    <input type="text" value={unknownForm.counted_exp} placeholder="exp ที่เห็นบนกล่อง"
+                      onChange={e => setUnknownForm(f => ({ ...f, counted_exp: e.target.value }))}
+                      className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={() => setUnknownForm(null)} disabled={savingUnknown}
+                      className="flex-1 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-medium disabled:opacity-50">
+                      ยกเลิก
+                    </button>
+                    <button onClick={submitUnknown} disabled={savingUnknown}
+                      className="flex-1 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold disabled:opacity-60">
+                      {savingUnknown ? 'กำลังบันทึก…' : 'บันทึกของที่พบ'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 function HistoryTab({ auth }) {
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(true)
@@ -882,20 +1614,22 @@ function HistoryTab({ auth }) {
   // สรุปสถานะของรอบ — derive สดจาก items ที่โหลดครบแล้ว (กฎ ADR-0008: อย่า persist สิ่งที่ compute ได้)
   //   mismatch  = บรรทัดที่ตรวจแล้วไม่ตรง (ต้องมีคนตาม)
   //   pending   = บรรทัดไม่ตรง ที่ยังไม่มีใครกดสถานะติดตาม
-  //   partial   = บรรทัดที่ตรวจไม่ครบ 3 มิติ (เว้น ที่เก็บ/exp ไว้)
+  //   partial   = บรรทัดที่ตรวจไม่ครบทุกมิติ (เว้น lot/ที่เก็บ/exp ไว้)
   const sessionStat = (sid) => {
     const its = allItems[sid] || items[sid] || []
-    let mismatch = 0, pending = 0, partial = 0
+    let mismatch = 0, pending = 0, partial = 0, notCounted = 0
     for (const it of its) {
+      // ⚠️ แถวที่ยังไม่ได้นับ (counted_qty = null) ไม่ใช่ "ไม่ตรง" และไม่ใช่ "ตรวจไม่ครบ"
+      //    รอบประจำปี gen แถวรอไว้ล่วงหน้า ถ้านับรวมจะได้ mismatch/partial เท่าจำนวนแถวทั้งรอบ
+      if (it.counted_qty === null || it.counted_qty === '') { notCounted++; continue }
       const d = dimStatus(it)
-      const bad = !liveMatch(it)
-      if (bad) {
+      if (!liveMatch(it)) {
         mismatch++
         if ((it.followup_status || 'pending') === 'pending') pending++
       }
-      if (d.checked < 3) partial++
+      if (d.checked < DIM_COUNT) partial++
     }
-    return { total: its.length, mismatch, pending, partial, loaded: its.length > 0 }
+    return { total: its.length, mismatch, pending, partial, notCounted, loaded: its.length > 0 }
   }
 
   const filteredSessions = sessions.filter(s => {
@@ -1130,7 +1864,7 @@ function HistoryTab({ auth }) {
               { k: 'all',      label: 'ทั้งหมด' },
               { k: 'mismatch', label: `ไม่ตรง (${summary.badSessions})` },
               { k: 'pending',  label: `ยังไม่จัดการ (${summary.pending})` },
-              { k: 'partial',  label: `ตรวจไม่ครบ 3 มิติ (${summary.partial})` },
+              { k: 'partial',  label: `ตรวจไม่ครบทุกมิติ (${summary.partial})` },
               { k: 'ok',       label: `ตรงทั้งหมด (${summary.okSessions})` },
             ].map(f => (
               <button key={f.k} onClick={() => setStatusFilter(f.k)}
@@ -1177,8 +1911,8 @@ function HistoryTab({ auth }) {
                       <td className="text-center px-2"><DiffCell it={it} /></td>
                       <td className="text-center px-2">
                         {!ok ? <AlertTriangle size={14} className="text-amber-500 inline" />
-                          : d.checked === 3 ? <CheckCircle size={14} className="text-emerald-500 inline" />
-                          : <span className="text-[10px] font-semibold text-emerald-600">ตรง {d.checked}/3</span>}
+                          : d.checked === DIM_COUNT ? <CheckCircle size={14} className="text-emerald-500 inline" />
+                          : <span className="text-[10px] font-semibold text-emerald-600">ตรง {d.checked}/{DIM_COUNT}</span>}
                       </td>
                     </tr>
                   )
@@ -1203,14 +1937,22 @@ function HistoryTab({ auth }) {
           </div>
           {groupedByDate[dateKey].map(s => {
         const its = items[s.id] || []
-        const mismatch = its.filter(i => !liveMatch(i)).length
+        // ⚠️ นับ "ไม่ตรง" เฉพาะแถวที่ *นับแล้ว* — แถว counted_qty = null คือ "ยังไม่ได้นับ"
+        //    ไม่ใช่ "ไม่ตรง" (liveMatch คืน false ทั้งคู่ แยกไม่ได้ถ้าไม่กรองก่อน)
+        //    รอบประจำปี gen 632 แถวรอไว้ตั้งแต่ต้น ถ้าไม่กรองจะขึ้น "ไม่ตรง 632" ทั้งที่ยังไม่ได้แตะ
+        const isCounted = (i) => i.counted_qty !== null && i.counted_qty !== ''
+        const mismatch = its.filter(i => isCounted(i) && !liveMatch(i)).length
         // นับ "ไม่ตรง" จาก allItems (โหลดครบทุกรอบตั้งแต่แรก) เพื่อโชว์ badge บนหัวรอบโดยไม่ต้องกาง
         const allIts = allItems[s.id]
-        const headMismatch = allIts ? allIts.filter(i => !liveMatch(i)).length : null
+        const countedIts = allIts ? allIts.filter(isCounted) : null
+        const headMismatch = countedIts ? countedIts.filter(i => !liveMatch(i)).length : null
+        const headNotCounted = allIts ? allIts.filter(i => !isCounted(i)).length : 0
         // ในบรรทัดที่ไม่ตรง ยังเหลือกี่รายการที่ไม่มีใครกดสถานะติดตาม (ADR-0017)
-        const headPending = allIts ? allIts.filter(i => !liveMatch(i) && (i.followup_status || 'pending') === 'pending').length : 0
-        // "ตรงทั้งหมด" อ้างได้เฉพาะเมื่อทุกรายการตรวจครบ 3 มิติ — ไม่งั้นเป็น "ตรงตามที่ตรวจ" (ADR-0008 2026-07-16 ข้อ 3)
-        const fullyChecked = allIts ? allIts.every(i => dimStatus(i).checked === 3) : true
+        const headPending = countedIts ? countedIts.filter(i => !liveMatch(i) && (i.followup_status || 'pending') === 'pending').length : 0
+        // "ตรงทั้งหมด" อ้างได้เฉพาะเมื่อทุกรายการตรวจครบทุกมิติ — ไม่งั้นเป็น "ตรงตามที่ตรวจ" (ADR-0008 2026-07-16 ข้อ 3)
+        // DIM_COUNT = 4 (จำนวน/lot/exp/ที่เก็บ) — เดิม hardcode 3 ก่อนเพิ่มมิติ lot
+        const fullyChecked = countedIts ? countedIts.every(i => dimStatus(i).checked === DIM_COUNT) : true
+        const isAnnual = s.kind === 'annual'
         return (
           <div key={s.id} className={`bg-white dark:bg-slate-900 rounded-xl border overflow-hidden ${headMismatch ? 'border-amber-300 dark:border-amber-800/60' : 'border-slate-200 dark:border-slate-700'}`}>
             <div className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800">
@@ -1219,6 +1961,16 @@ function HistoryTab({ auth }) {
                 <div className="flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-semibold text-sm text-slate-800 dark:text-slate-100">{s.created_at ? fmtThaiDateTime(s.created_at) : fmtThaiDate(s.counted_at)}</p>
+                    {/* ชนิดรอบ — รอบประจำปี (632 รายการ) ปนกับ spot check (1-18 รายการ) แยกไม่ออกถ้าไม่ติดป้าย */}
+                    {isAnnual
+                      ? <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 text-[11px] font-semibold"><CalendarCheck size={11} /> ประจำปี</span>
+                      : <span className="inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-2 py-0.5 text-[11px] font-semibold">เฉพาะจุด</span>}
+                    {/* รอบที่ยังนับไม่จบ — บอกความคืบหน้าแทนผลเทียบ (ยังสรุปไม่ได้) */}
+                    {s.status === 'draft' && (
+                      <span className="inline-flex items-center rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 text-[11px] font-semibold">
+                        กำลังนับ {allIts ? allIts.length - headNotCounted : 0}/{allIts ? allIts.length : 0}
+                      </span>
+                    )}
                     {headMismatch != null && (headMismatch > 0
                       ? <>
                           <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 px-2 py-0.5 text-[11px] font-semibold"><AlertTriangle size={11} /> ไม่ตรง {headMismatch} รายการ</span>
@@ -1227,9 +1979,11 @@ function HistoryTab({ auth }) {
                             ? <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 px-2 py-0.5 text-[11px] font-semibold"><CheckCircle size={11} /> จัดการครบแล้ว</span>
                             : <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 px-2 py-0.5 text-[11px] font-semibold">ยังไม่จัดการ {headPending}</span>}
                         </>
+                      : (countedIts && countedIts.length === 0)
+                        ? <span className="inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-2 py-0.5 text-[11px] font-semibold">ยังไม่ได้นับ</span>
                       : fullyChecked
                         ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 text-[11px] font-semibold">ตรงทั้งหมด</span>
-                        : <span title="บางรายการตรวจไม่ครบ 3 มิติ (จำนวน/ที่เก็บ/exp)" className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 px-2 py-0.5 text-[11px] font-semibold">ตรงตามที่ตรวจ</span>
+                        : <span title="บางรายการตรวจไม่ครบ 4 มิติ (จำนวน/lot/exp/ที่เก็บ)" className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 px-2 py-0.5 text-[11px] font-semibold">ตรงตามที่ตรวจ</span>
                     )}
                   </div>
                   <p className="text-xs text-slate-400 dark:text-slate-500">ผู้นับ: {s.counter_name}{s.note ? ` · ${s.note}` : ''}</p>
@@ -1349,8 +2103,8 @@ function HistoryTab({ auth }) {
                                     </td>
                                     <td className="text-center px-2">
                                       {!ok ? <AlertTriangle size={14} className="text-amber-500 inline" />
-                                        : d.checked === 3 ? <CheckCircle size={14} className="text-emerald-500 inline" />
-                                        : <span className="text-[10px] font-semibold text-emerald-600" title="มิติที่ตรวจตรงหมด แต่ตรวจไม่ครบ 3 มิติ">ตรง {d.checked}/3</span>}
+                                        : d.checked === DIM_COUNT ? <CheckCircle size={14} className="text-emerald-500 inline" />
+                                        : <span className="text-[10px] font-semibold text-emerald-600" title="มิติที่ตรวจตรงหมด แต่ตรวจไม่ครบทุกมิติ">ตรง {d.checked}/{DIM_COUNT}</span>}
                                       {/* สถานะติดตาม — เฉพาะบรรทัดที่ไม่ตรง (บรรทัดตรงไม่มีอะไรให้ตาม) */}
                                       {!ok && (
                                         <select value={it.followup_status || 'pending'}

@@ -1510,6 +1510,11 @@ export async function fetchNotifications(scope = null) {
     'print_po',
     // ── Stock Count ──
     'create_stock_count',
+    // รอบประจำปี: เข้ากระดิ่งได้ — เป็นเหตุการณ์ระดับ "รอบ" ปีละไม่กี่ครั้ง
+    // (ผลนับรายบรรทัด 632 แถวไม่เขียน audit เลย ไม่งั้นท่วม — ดู updateAnnualCountLine)
+    'create_annual_count',
+    'close_annual_count',
+    'add_unknown_count_item',
     'update_stock_count',
     'delete_stock_count',
     // ── อุณหภูมิตู้เย็น (ADR-0018) ──
@@ -3618,6 +3623,245 @@ export async function deleteStockCountSession(sessionId, auth = {}) {
       items: items?.length || 0, mismatches: (items || []).filter(i => !i.match).length,
     },
   })
+}
+
+// ============================================================
+// ตรวจนับประจำปี (annual count) — ADR-0008 ต่อยอด
+// ============================================================
+// ต่างจาก spot check 2 อย่าง:
+//   1) ระบบ gen ทุก lot ที่มีของให้ครบตั้งแต่เริ่ม (ไม่ให้คนเลือกทีละตัว — 632 บรรทัด)
+//   2) งานค้างอยู่บน DB (status='draft') ไม่ใช่ localStorage เพราะนับหลายวันข้ามเครื่อง
+// ยังคง append-only: ไม่แตะ inventory.qty (ADR-0008)
+
+/** ทุก lot ที่ระบบว่ามีของ — บรรทัดตั้งต้นของรอบประจำปี
+ *  ⚠️ ต้องบวก qty ข้ามแถวที่ code+lot ซ้ำกัน (inventory มีแถวซ้ำจริง เช่น Baclofen lot 260301
+ *     = 2 แถว 3+30 กล่อง) ห้าม assign ทับ ไม่งั้นยอดตั้งต้นผิด — กับดักเดียวกับ fetchLotsForCount
+ *     (เหตุการณ์ 2026-07-18: คงเหลือโชว์ 600 จากจริง 6,600) */
+export async function fetchAllLotsForAnnualCount({ includeZeroQty = false } = {}) {
+  if (!supabase) return []
+  const data = await fetchAllInventoryRows('code, name, lot, exp, qty, unit, location')
+
+  // ⚠️ ห้ามกรองด้วย drug_reorder_config.exclude_status ('ตัดออก'/'สั่งเมื่อขอ')
+  //    "ตัดออกจากบัญชี" = เลิกสั่งซื้อ ไม่ใช่ของหายไปจากคลัง — ของที่ค้างอยู่ยังต้องนับ
+  //    (ตรวจข้อมูลจริง 2026-09-20: 5 lot ของยาที่ตัดออก ยังมีของบนชั้น C-4-3/A-1-4/C-2-3/D-4
+  //     รวม 82 หน่วย — ถ้ากรองออกจะหายจากบัญชีประจำปีทั้งที่ของอยู่จริง)
+  //    เกณฑ์เดียวของรอบนี้คือ "ระบบว่ามีของ" (qty > 0) เท่านั้น
+  //    ต่างจาก Rule #13 ที่ exclude_status ใช้กับ "ควรสั่งซื้อไหม" คนละคำถามกับ "มีของให้นับไหม"
+  const byKey = new Map()
+  for (const r of data) {
+    const key = `${r.code}|${r.lot || '-'}`
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        code: r.code, name: r.name || '-', lot: r.lot || '-', unit: r.unit || '-',
+        system_qty: 0, exps: new Set(), locs: new Set(),
+      })
+    }
+    const row = byKey.get(key)
+    row.system_qty += toNum(r.qty)
+    if (r.exp) row.exps.add(String(r.exp))
+    if (r.location) row.locs.add(String(r.location))
+  }
+  // default: เฉพาะที่ระบบว่ามีของ — lot ที่ระบบว่า 0 ไม่เข้ารอบตั้งต้น
+  // includeZeroQty: ใช้ตอนหน้างานเจอของจริงในชั้นที่ระบบบอกว่าหมด (phantom stock)
+  //   → เพิ่มเข้ารอบทีหลังได้ ไม่ต้อง gen 375 บรรทัดเปล่ามาให้ไล่ตั้งแต่แรก
+  return [...byKey.values()]
+    .filter(row => includeZeroQty || row.system_qty > 0)
+    .map(row => ({
+      code: row.code, name: row.name, lot: row.lot, unit: row.unit,
+      system_qty: row.system_qty,
+      system_exp: [...row.exps].join(' , ') || '-',
+      system_location: [...row.locs].join(' , ') || '-',
+    }))
+    // เรียงตามชั้นวางก่อน — คนเดินนับไล่ทีละชั้น ไม่ได้ไล่ตามชื่อยา
+    .sort((a, b) =>
+      a.system_location.localeCompare(b.system_location, 'th', { numeric: true }) ||
+      a.name.localeCompare(b.name) || a.lot.localeCompare(b.lot))
+}
+
+/** รอบประจำปีที่ยังนับไม่จบ (มีได้ทีละ 1 รอบ) — เรียกตอนเปิดหน้า */
+export async function fetchOpenAnnualCount() {
+  if (!supabase) return null
+  const { data, error } = await supabase.from('stock_count_session')
+    .select('*').eq('kind', 'annual').eq('status', 'draft')
+    .order('id', { ascending: false }).limit(1)
+  if (error) throw error
+  const sess = (data || [])[0]
+  if (!sess) return null
+  const items = await fetchStockCountItems(sess.id)
+  return { session: sess, items }
+}
+
+/** เริ่มรอบประจำปี — สร้าง session draft + gen ทุกบรรทัดลง DB ทันที
+ *  counted_qty = NULL คือ "ยังไม่นับ" (ต่างจาก 0 = นับแล้วได้ศูนย์) ตาม schema เดิม */
+export async function createAnnualCount({ counted_at, note = '' } = {}, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const open = await fetchOpenAnnualCount()
+  if (open) throw new Error('มีรอบประจำปีที่ยังนับไม่จบอยู่แล้ว — ปิดรอบเดิมก่อน')
+
+  const lots = await fetchAllLotsForAnnualCount()
+  if (!lots.length) throw new Error('ไม่พบ lot ที่มีของในระบบ')
+
+  const { data: sess, error: sErr } = await supabase.from('stock_count_session')
+    .insert({
+      counted_at: counted_at || new Date().toISOString().slice(0, 10),
+      counter_name: resolveAuditUserName(auth),
+      note, kind: 'annual', status: 'draft',
+    })
+    .select('id').single()
+  if (sErr) throw sErr
+
+  const payload = lots.map(l => ({
+    session_id: sess.id,
+    code: l.code, name: l.name, lot: l.lot, unit: l.unit,
+    system_qty: l.system_qty, system_exp: l.system_exp, system_location: l.system_location,
+    counted_qty: null,            // ยังไม่นับ
+    counted_exp: '', counted_location: '', counted_lot: '', item_note: '',
+    diff_qty: 0, match: false,
+  }))
+
+  // chunk 500 — insert ทีเดียว 632 แถวเสี่ยง payload ใหญ่/timeout (Rule #2 คนละเรื่องกับ select
+  // แต่หลักเดียวกัน: อย่ายิงก้อนเดียวเมื่อจำนวนแถวโตตามข้อมูลจริง)
+  const CHUNK = 500
+  for (let i = 0; i < payload.length; i += CHUNK) {
+    const { error: iErr } = await supabase.from('stock_count_item').insert(payload.slice(i, i + CHUNK))
+    if (iErr) {
+      // ล้มกลางคัน = session ค้างเปล่า ลบทิ้งไม่ให้บล็อกการเริ่มรอบใหม่
+      await supabase.from('stock_count_session').delete().eq('id', sess.id)
+      throw iErr
+    }
+  }
+
+  await insertAuditLog({
+    action: 'create_annual_count', table_name: 'stock_count_session',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: payload.length,
+    details: { session_id: sess.id, lots: payload.length, counted_at: counted_at || null },
+  })
+  return { id: sess.id, total: payload.length }
+}
+
+/** บันทึกผลนับ 1 บรรทัด — autosave ตอนเดินนับ (ไม่ผ่านปุ่มบันทึกรวม)
+ *  ไม่เขียน audit ต่อแถว: 632 แถว = audit ท่วม + กระดิ่ง spam
+ *  (รอบทั้งรอบมี audit ตอนเริ่ม/ปิดแล้ว ส่วนใครนับอะไรอยู่ในแถวนั้นเอง) */
+export async function updateAnnualCountLine(itemId, fields = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { counted_qty, diff_qty, match } = computeCountMatch(fields)
+  const { error } = await supabase.from('stock_count_item')
+    .update({
+      counted_qty,
+      counted_exp: fields.counted_exp || '',
+      counted_location: fields.counted_location || '',
+      counted_lot: fields.counted_lot || '',
+      item_note: fields.item_note || '',
+      diff_qty, match,
+    })
+    .eq('id', itemId)
+  if (error) throw error
+  return { counted_qty, diff_qty, match }
+}
+
+/** lot ที่ระบบว่าเหลือ 0 และยังไม่อยู่ในรอบนี้ — ให้เลือกเพิ่มตอนเจอของจริงหน้างาน
+ *  (phantom stock: ระบบว่าหมดแต่ของอยู่บนชั้น — ถ้าบันทึกไม่ได้ ส่วนต่างนี้จะหายไปเฉยๆ) */
+export async function fetchZeroLotsForAnnual(sessionId) {
+  if (!supabase) return []
+  const all = await fetchAllLotsForAnnualCount({ includeZeroQty: true })
+  const { data: existing } = await supabase.from('stock_count_item')
+    .select('code, lot').eq('session_id', sessionId)
+  const have = new Set((existing || []).map(r => `${r.code}|${r.lot}`))
+  return all.filter(l => l.system_qty <= 0 && !have.has(`${l.code}|${l.lot}`))
+}
+
+/** เพิ่ม lot เข้ารอบที่กำลังนับอยู่ (ของที่ระบบว่าหมดแต่เจอจริง) */
+export async function addLotToAnnualCount(sessionId, lot, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { data, error } = await supabase.from('stock_count_item')
+    .insert({
+      session_id: sessionId,
+      code: lot.code, name: lot.name, lot: lot.lot, unit: lot.unit,
+      system_qty: lot.system_qty || 0,
+      system_exp: lot.system_exp || '-', system_location: lot.system_location || '-',
+      counted_qty: null, counted_exp: '', counted_location: '', counted_lot: '', item_note: '',
+      diff_qty: 0, match: false,
+    })
+    .select('*').single()
+  if (error) throw error
+  await insertAuditLog({
+    action: 'add_annual_count_lot', table_name: 'stock_count_item',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: 1,
+    details: { session_id: sessionId, code: lot.code, lot: lot.lot, name: lot.name },
+  })
+  return data
+}
+
+/** มาร์คแถวที่เจอของแต่ไม่มีในระบบเลย — ขึ้นต้น item_note เพื่อให้กรองเจอย้อนหลัง
+ *  ใช้ข้อความนำหน้าแทนคอลัมน์ใหม่: schema เดิมพอ + ประวัติ/Excel เดิมเห็นได้ทันที */
+export const UNKNOWN_TAG = '[พบนอกระบบ]'
+
+/** เพิ่มของที่ "ไม่มีในระบบเลย" เข้ารอบนับ — คนกรอกชื่อ/lot/จำนวนเอง
+ *
+ *  ต่างจาก addLotToAnnualCount: ตัวนั้นเพิ่ม lot ที่ระบบรู้จัก (qty=0)
+ *  ตัวนี้คือของที่ไม่มีทั้งรหัสและ lot ในระบบ — เกิดจากรับเข้าไม่ได้บันทึก / CSV ตกหล่น
+ *
+ *  ⚠️ ไม่แตะ inventory และไม่สร้างรหัสยาใหม่ (ADR-0008 append-only):
+ *     รอบตรวจนับเป็น "หลักฐานว่าเจออะไร" ไม่ใช่ที่ที่สร้างทะเบียนยา
+ *     ของที่เจอต้องไปเปิดรหัส/บันทึกรับเข้าที่ต้นทางเอง แถวนี้เป็นตัวชี้ว่าต้องไปทำ
+ *
+ *  system_qty = 0 เสมอ → diff = จำนวนที่นับได้ทั้งหมด (ระบบไม่รู้ว่ามีของเลย) */
+export async function addUnknownItemToAnnualCount(sessionId, item, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const name = String(item.name || '').trim()
+  if (!name) throw new Error('ต้องระบุชื่อยา')
+  const qty = toNum(item.counted_qty)
+
+  const note = [UNKNOWN_TAG, String(item.item_note || '').trim()].filter(Boolean).join(' ')
+  const payload = {
+    session_id: sessionId,
+    code: String(item.code || '').trim() || '-',
+    name, lot: String(item.lot || '').trim() || '-',
+    unit: String(item.unit || '').trim() || '-',
+    system_qty: 0, system_exp: '-', system_location: '-',
+    counted_qty: qty,
+    counted_exp: String(item.counted_exp || '').trim(),
+    counted_location: String(item.counted_location || '').trim(),
+    // ของนอกระบบ: lot ที่กรอกคือ lot ที่เห็นบนกล่องจริง — เก็บทั้ง 2 ช่องให้ตรงกัน
+    counted_lot: String(item.lot || '').trim(),
+    item_note: note,
+    diff_qty: -qty,        // ระบบ 0 − นับได้ qty = เกินมาทั้งจำนวน
+    match: false,          // ไม่มีทางตรง เพราะระบบไม่รู้จัก
+  }
+  const { data, error } = await supabase.from('stock_count_item').insert(payload).select('*').single()
+  if (error) throw error
+  await insertAuditLog({
+    action: 'add_unknown_count_item', table_name: 'stock_count_item',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: 1,
+    details: { session_id: sessionId, name, code: payload.code, lot: payload.lot, counted_qty: qty },
+  })
+  return data
+}
+
+/** ปิดรอบ — draft → done (ล็อกไม่ให้แก้ต่อ ใช้เส้นทางแก้ไขของ HistoryTab เหมือนรอบอื่น) */
+export async function closeAnnualCount(sessionId, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { data: items } = await supabase.from('stock_count_item')
+    .select('counted_qty, match').eq('session_id', sessionId)
+  const all = items || []
+  const counted = all.filter(i => i.counted_qty !== null).length
+  const { error } = await supabase.from('stock_count_session')
+    .update({ status: 'done' }).eq('id', sessionId)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'close_annual_count', table_name: 'stock_count_session',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: all.length,
+    details: {
+      session_id: sessionId, total: all.length, counted,
+      not_counted: all.length - counted,
+      mismatches: all.filter(i => i.counted_qty !== null && !i.match).length,
+    },
+  })
+  return { total: all.length, counted }
 }
 
 // --- Data Consistency Check (on-demand) ---
