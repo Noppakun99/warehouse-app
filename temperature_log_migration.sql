@@ -91,3 +91,14 @@ COMMENT ON COLUMN temperature_log.device IS
 
 -- realtime: ยังไม่เปิด (ไม่มี badge/กระดิ่งที่ต้อง sync สด)
 -- ถ้าจะเปิดภายหลัง: ALTER PUBLICATION supabase_realtime ADD TABLE public.temperature_log;
+
+-- RLS: เปิดพร้อม policy กว้างเหมือนตารางอื่นทั้งระบบ เพราะหน้าอุณหภูมิเรียกผ่าน anon key
+-- (db.js insert/update/delete ตรง — ไม่ใช่ตารางที่ client ไม่ใช้ จึงไม่เข้าเงื่อนไข
+--  "เปิด RLS ไม่ใส่ policy" ของ ADR-0016 กฎ 1 ซึ่งใช้กับ backup/staging เท่านั้น)
+-- ⚠️ ต้องมี WITH CHECK ด้วย ไม่ใช่แค่ USING — ขาดแล้ว insert/update พังเงียบ
+-- หมายเหตุ: policy นี้ไม่ได้กันอะไรจริง (anon ถือ GRANT ครบอยู่แล้ว ตาม ADR-0016)
+--   ประโยชน์คือปิด ERROR ของ Supabase advisor ไม่ให้บัง finding จริง + ให้ทุกตาราง pattern เดียวกัน
+ALTER TABLE public.temperature_log ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public all" ON public.temperature_log;
+CREATE POLICY "Allow public all" ON public.temperature_log
+  FOR ALL USING (true) WITH CHECK (true);
