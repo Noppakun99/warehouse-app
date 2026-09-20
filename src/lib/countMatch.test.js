@@ -64,6 +64,28 @@ section('Test 2: dimStatus — 3 สถานะต่อมิติ')
   // system_exp = '-' (ไม่มีข้อมูล) + กรอกค่าจริง → diff
   const d5 = dimStatus({ system_qty: 5, system_exp: '-', system_location: '-', counted_qty: '5', counted_exp: '3/12/2028', counted_location: '' })
   assertEq(d5.exp, 'diff', 'ระบบไม่มี exp แต่กรอกจริง → diff')
+
+  // ── มิติ lot (เพิ่ม 2026-09-20): lot บนกล่องจริง vs lot ที่ระบบบันทึก ──
+  const sysLot = { ...sys, lot: '26E266' }
+
+  const l1 = dimStatus({ ...sysLot, counted_qty: '20', counted_lot: '' })
+  assertEq(l1.lot, 'unchecked', 'lot ว่าง → unchecked (ไม่ใช่ ok)')
+  assertEq(l1.anyDiff, false, 'lot ไม่ได้ตรวจ ไม่ทำให้ anyDiff')
+
+  const l2 = dimStatus({ ...sysLot, counted_qty: '20', counted_lot: '26E266' })
+  assertEq(l2.lot, 'ok', 'lot ตรง → ok')
+  assertEq(l2.checked, 2, 'นับ lot เป็นมิติที่ตรวจด้วย')
+
+  const l3 = dimStatus({ ...sysLot, counted_qty: '20', counted_lot: '26D172' })
+  assertEq(l3.lot, 'diff', 'lot บนกล่องคนละตัว → diff')
+  assertEq(l3.anyDiff, true, 'lot ไม่ตรง → anyDiff')
+
+  const l4 = dimStatus({ ...sysLot, counted_qty: '20', counted_lot: ' 26e266 ' })
+  assertEq(l4.lot, 'ok', 'lot ต่างแค่ช่องว่าง/ตัวพิมพ์ → ok')
+
+  // lot เป็นรหัส ไม่ใช่ค่าหลายส่วนคั่น comma — ห้ามใช้ set equality เหมือนที่เก็บ/exp
+  const l5 = dimStatus({ ...sys, lot: 'A,B', counted_qty: '20', counted_lot: 'B,A' })
+  assertEq(l5.lot, 'diff', 'lot สลับลำดับรอบ comma = คนละ lot (ไม่ใช่ set)')
 }
 
 // ────────────────────────────────────────────────────────────────────

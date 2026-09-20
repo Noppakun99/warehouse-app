@@ -27,9 +27,15 @@ export function dimStatus(item) {
   const exp = !expRaw ? 'unchecked' : (setEq(expRaw, item.system_exp) ? 'ok' : 'diff')
   const locRaw = String(item.counted_location ?? '').trim()
   const loc = !locRaw ? 'unchecked' : (setEq(locRaw, item.system_location) ? 'ok' : 'diff')
-  const checked = [qty, exp, loc].filter(s => s !== 'unchecked').length
-  const anyDiff = qty === 'diff' || exp === 'diff' || loc === 'diff'
-  return { qty, exp, loc, checked, anyDiff }
+  // lot บนกล่องจริง เทียบกับ `lot` ที่ระบบบันทึก (snapshot ของแถวนี้)
+  // เทียบตรงตัวหลัง trim + ไม่สนตัวพิมพ์ใหญ่เล็ก — lot เป็นรหัส ไม่ใช่ค่าหลายส่วนคั่น comma
+  // (ห้ามใช้ setEq: lot ที่มี comma คือ lot เดียวที่มี comma ในชื่อ ไม่ใช่หลาย lot)
+  const lotRaw = String(item.counted_lot ?? '').trim()
+  const sysLot = String(item.lot ?? '').trim()
+  const lot = !lotRaw ? 'unchecked' : (lotRaw.toLowerCase() === sysLot.toLowerCase() ? 'ok' : 'diff')
+  const checked = [qty, exp, loc, lot].filter(s => s !== 'unchecked').length
+  const anyDiff = qty === 'diff' || exp === 'diff' || loc === 'diff' || lot === 'diff'
+  return { qty, exp, loc, lot, checked, anyDiff }
 }
 
 // ค่าที่ persist ลง stock_count_item — นิยาม match เดิมตาม ADR-0008:
