@@ -21,6 +21,9 @@ playwright-report/
 .env.local
 .env.*.local
 
+# ข้อมูลสำรองก่อนนำเข้า (มีข้อมูลคลังจริง ห้ามขึ้น repo)
+backup/
+
 # MCP config (contains personal access token — do not commit)
 .mcp.json
 

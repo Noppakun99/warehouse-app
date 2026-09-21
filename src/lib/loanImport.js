@@ -137,6 +137,72 @@ export function parseLoanCsv(text) {
   return { rows, errors }
 }
 
+// เดือนอังกฤษ → ไทย — ชีทแสดง "25 February 2027" แต่ CSV ที่ export ด้วย locale ไทย
+// ให้ "25 กุมภาพันธ์ 2027" ซึ่งเป็นค่าที่ seed ลง DB ไว้แล้ว ต้องแปลงให้ตรงกัน
+// ไม่งั้น import ทุกรอบจะเห็นว่า exp "เปลี่ยน" ทั้งตารางทั้งที่เป็นวันเดียวกัน
+const EN_TO_TH_MONTH = {
+  january: 'มกราคม', february: 'กุมภาพันธ์', march: 'มีนาคม', april: 'เมษายน',
+  may: 'พฤษภาคม', june: 'มิถุนายน', july: 'กรกฎาคม', august: 'สิงหาคม',
+  september: 'กันยายน', october: 'ตุลาคม', november: 'พฤศจิกายน', december: 'ธันวาคม',
+}
+
+/** "25 February 2027" → "25 กุมภาพันธ์ 2027" (คืนค่าเดิมถ้าไม่ใช่รูปแบบนี้) */
+export function enMonthToThai(v) {
+  const s = txt(v)
+  const m = s.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/)
+  if (!m) return s
+  const th = EN_TO_TH_MONTH[m[2].toLowerCase()]
+  return th ? `${Number(m[1])} ${th} ${m[3]}` : s
+}
+
+/** แถวจากชีท Excel (grid) → ผลเดียวกับ parseLoanCsv
+ *  ใช้ mapLoanCsvRow ตัวเดียวกับ CSV — ต่างแค่ที่มาของเซลล์ ไม่ใช่ตรรกะ
+ *
+ *  ⚠️ วันที่/exp ในชีทเป็น Excel serial (ตัวเลข) ไม่ใช่ข้อความอย่างใน CSV
+ *     ต้องแปลงเป็น DD/MM/YYYY ก่อนส่งให้ mapLoanCsvRow ซึ่งคาดข้อความ
+ *     (ห้ามใช้ค่าที่ Excel "แสดง" — รูปแบบปนกัน US/ไทย ดู receiveSheet.js)
+ *  @param grid  แถวดิบจาก sheet_to_json({header:1, raw:true})
+ *  @param serialToThai  ฟังก์ชันแปลง serial → "DD/MM/YYYY" (ส่งเข้ามาเพื่อคง pure)
+ *  @param fmtGrid  แถวข้อความตามที่ Excel แสดง (raw:false) — ใช้เฉพาะ `exp` ที่เก็บเป็นข้อความอิสระ
+ */
+export function parseLoanGrid(grid, serialToThai, fmtGrid = null) {
+  const keep = (r) => Array.isArray(r) && r.some(c => txt(c) !== '')
+  const cells = (grid || []).filter(keep)
+  const fmtCells = fmtGrid ? fmtGrid.filter(keep) : null
+  if (cells.length === 0) return { rows: [], errors: [{ lineNo: 0, reason: 'ชีทว่าง' }] }
+
+  const header = cells[0].map(txt)
+  const missing = [LOAN_CSV_HEADERS.borrower, LOAN_CSV_HEADERS.lender, LOAN_CSV_HEADERS.name, LOAN_CSV_HEADERS.loanDate]
+    .filter(h => !header.includes(h))
+  if (missing.length) {
+    return { rows: [], errors: [{ lineNo: 1, reason: `หัวคอลัมน์ไม่ครบ: ขาด ${missing.join(', ')}` }] }
+  }
+
+  // คอลัมน์วันที่ที่ parseSlashDate อ่าน (เก็บเป็น DATE ใน DB) — serial ต้องแปลงเป็น DD/MM/YYYY ก่อน
+  const dateCols = new Set([LOAN_CSV_HEADERS.loanDate, LOAN_CSV_HEADERS.returnDate])
+  // `exp` เก็บเป็นข้อความอิสระตามที่คลังพิมพ์ ("25 กุมภาพันธ์ 2027") ไม่ใช่ DATE
+  //   → ใช้ค่าที่ Excel "แสดง" เพื่อให้ตรงกับที่ CSV เคยให้มา ไม่ใช่ DD/MM/YYYY ที่จะเปลี่ยนรูปแบบทั้งตาราง
+  // เงินเก็บเป็น NUMERIC 2 ตำแหน่ง — ค่าดิบมี floating point error (4108.799999999999)
+  //   ต้องปัดให้ตรงกับที่ Excel แสดง ไม่งั้น diff จะเห็นเป็น "เปลี่ยน" ทุกรอบทั้งที่เท่ากัน
+  const moneyCols = new Set([LOAN_CSV_HEADERS.price, LOAN_CSV_HEADERS.total])
+
+  const rows = [], errors = []
+  for (let i = 1; i < cells.length; i++) {
+    const o = {}
+    header.forEach((h, j) => {
+      const v = cells[i][j]
+      if (dateCols.has(h) && typeof v === 'number') o[h] = serialToThai(v) ?? ''
+      else if (h === LOAN_CSV_HEADERS.exp && typeof v === 'number') o[h] = enMonthToThai(fmtCells?.[i]?.[j] ?? v)
+      else if (moneyCols.has(h) && typeof v === 'number') o[h] = Math.round(v * 100) / 100
+      else o[h] = v
+    })
+    const res = mapLoanCsvRow(o, i + 1)
+    if (res.error) errors.push(res.error)
+    else rows.push(res.row)
+  }
+  return { rows, errors }
+}
+
 const sameVal = (a, b) => {
   if (a == null && b == null) return true
   if (a == null || b == null) return false

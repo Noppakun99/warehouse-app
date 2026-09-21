@@ -5,7 +5,7 @@
  */
 
 import {
-  parseSlashDate, isHomeHospital, loanKey, mapLoanCsvRow, parseLoanCsv, diffLoanImport,
+  parseSlashDate, isHomeHospital, loanKey, mapLoanCsvRow, parseLoanCsv, diffLoanImport, enMonthToThai, parseLoanGrid,
 } from './loanImport.js'
 
 let pass = 0, fail = 0
@@ -139,6 +139,44 @@ const dDup = diffLoanImport([parsed.rows[0], { ...parsed.rows[0] }], [])
 check('key ซ้ำในไฟล์ → เข้ากอง duplicates ไม่ยัด insert ซ้ำ', dDup.inserts.length === 1 && dDup.duplicates.length === 1)
 
 check('input null → ไม่ throw', diffLoanImport(null, null).inserts.length === 0)
+
+// ============================================================
+// นำเข้าจากชีท Excel โดยตรง (parseLoanGrid) — เพิ่ม 2026-09-21
+// ============================================================
+console.log('--- parseLoanGrid ---')
+
+check('เดือนอังกฤษ -> ไทย', enMonthToThai('25 February 2027') === '25 กุมภาพันธ์ 2027')
+check('เลขวันไม่เติมศูนย์', enMonthToThai('8 October 2027') === '8 ตุลาคม 2027')
+check('ตัวพิมพ์เล็กก็ได้', enMonthToThai('1 may 2026') === '1 พฤษภาคม 2026')
+check('ไทยอยู่แล้ว คงเดิม', enMonthToThai('25 กุมภาพันธ์ 2027') === '25 กุมภาพันธ์ 2027')
+check('ขีด คงเดิม', enMonthToThai('-') === '-')
+check('รูปแบบอื่น คงเดิม', enMonthToThai('25/02/2027') === '25/02/2027')
+
+const s2t = (n) => {
+  const d = new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000)
+  return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`
+}
+const GH = ['ลำดับ', 'รพ.ที่ขอยืม', 'เลขที่ใบยืม', 'รพ.ที่ให้ยืม', 'รหัสยา', 'รูปแบบ', 'ชื่อยา', 'Lot', 'Exp',
+  'จำนวน', 'หน่วยนับ', 'ราคาต่อหน่วย', 'ราคารวมภาษี', 'วันที่ให้ยืม', 'บริษัทที่ให้ยืม',
+  'วันที่รับคืนยา', 'เลขที่ใบคืน', 'บริษัทที่รับคืน']
+const gRaw = [1, 'รพ.คลองหลวง', 'ใบ001', 'รพ.ประชาธิปัตย์', '1590002', 'Tablet', 'ยาทดสอบ', 'L001',
+  46443, 10, '30เม็ด', 8.7969, 263.90700000000004, 45702, 'องค์การเภสัชกรรม', 45796, 'ใบคืน001', 'องค์การเภสัชกรรม']
+const gFmt = [...gRaw]
+gFmt[8] = '25 February 2027'
+
+const gOut = parseLoanGrid([GH, gRaw], s2t, [GH, gFmt])
+check('อ่านได้ 1 แถว', gOut.rows.length === 1 && gOut.errors.length === 0)
+check('exp ใช้ข้อความไทย ไม่ใช่ DD/MM', gOut.rows[0].exp === '25 กุมภาพันธ์ 2027')
+check('วันที่ยืมจาก serial', gOut.rows[0].loan_date === '2025-02-14')
+check('วันที่คืนจาก serial', gOut.rows[0].return_date === '2025-05-19')
+check('ราคาปัดทศนิยม 2', gOut.rows[0].price_per_unit === 8.8)
+check('ราคารวมปัด', gOut.rows[0].total_price === 263.91)
+check('ทิศทาง lend', gOut.rows[0].direction === 'lend')
+check('คู่สัญญา = อีกฝ่าย', gOut.rows[0].counterparty === 'รพ.คลองหลวง')
+
+const gBad = parseLoanGrid([['ลำดับ', 'ชื่อยา']], s2t)
+check('หัวคอลัมน์ไม่ครบ -> error', gBad.rows.length === 0 && gBad.errors.length === 1)
+check('ชีทว่าง -> error', parseLoanGrid([], s2t).errors[0].reason === 'ชีทว่าง')
 
 // ============================================================
 console.log(`\n${'='.repeat(40)}`)
