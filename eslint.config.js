@@ -17,7 +17,9 @@ export default defineConfig([
     ],
     languageOptions: {
       ecmaVersion: 2020,
-      globals: globals.browser,
+      // process = โค้ดที่รันได้ทั้งเบราว์เซอร์และ Node (supabase.js อ่าน env 2 ทาง, golden test)
+      // ใช้ได้เฉพาะหลัง `typeof process !== 'undefined'` guard เท่านั้น — เบราว์เซอร์ไม่มี process
+      globals: { ...globals.browser, process: 'readonly' },
       parserOptions: {
         ecmaVersion: 'latest',
         ecmaFeatures: { jsx: true },

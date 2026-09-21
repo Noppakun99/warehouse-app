@@ -1,8 +1,8 @@
-import { supabase } from './supabase'
-import { computeClosing, ADJUST_TYPE } from './ledgerRollover'
-import { buildConsistencyReport } from './consistencyCheck'
-import { parseReturnPolicy, computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './swapPolicy'
-import { computeCountMatch } from './countMatch'
+import { supabase } from './supabase.js'
+import { computeClosing, ADJUST_TYPE } from './ledgerRollover.js'
+import { buildConsistencyReport } from './consistencyCheck.js'
+import { parseReturnPolicy, computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './swapPolicy.js'
+import { computeCountMatch } from './countMatch.js'
 
 const CHUNK_SIZE = 500
 
@@ -302,6 +302,45 @@ export async function insertReceiveRows(rows, auth = {}) {
     action: 'import_receive', table_name: 'receive_logs',
     user_name: resolveUserName(auth), department: auth.department,
     record_count: rows.length,
+  })
+  return rows.length
+}
+
+/** นำเข้าประวัติเบิกจ่ายทั้งตาราง — DELETE ALL → INSERT (เหมือน insertReceiveRows)
+ *  ย้ายมาจาก DispenseLogApp.handleImport (2026-09-21) เพื่อให้ทุก mutation ผ่าน db.js
+ *  ตาม Critical Rule — เดิมเป็นจุดเดียวใน 5 ทางเข้าข้อมูลที่เรียก supabase ตรงในไฟล์ component
+ *
+ *  ⚠️ ลบทั้งตารางก่อน insert — ไฟล์ที่ไม่ครบ = ประวัติเบิกหายถาวร
+ *  backfill drug_unit จากแถวอื่นที่รหัสยาเดียวกัน (บางแถวในชีทเว้นหน่วยไว้) */
+export async function insertDispenseRows(rows, auth = {}, fileName = null) {
+  if (!supabase) throw new Error('Supabase not configured')
+
+  const unitByCode = {}
+  rows.forEach(r => {
+    if (r.drug_unit && r.drug_unit !== '-' && r.drug_code && r.drug_code !== '-') {
+      unitByCode[r.drug_code] = r.drug_unit
+    }
+  })
+  rows.forEach(r => {
+    if ((!r.drug_unit || r.drug_unit === '-') && r.drug_code && r.drug_code !== '-' && unitByCode[r.drug_code]) {
+      r.drug_unit = unitByCode[r.drug_code]
+    }
+  })
+
+  const { error: delErr } = await supabase.from('dispense_logs').delete().gte('id', 0)
+  if (delErr) throw delErr
+
+  const CHUNK = 500
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const { error } = await supabase.from('dispense_logs').insert(rows.slice(i, i + CHUNK))
+    if (error) throw error
+  }
+
+  await insertAuditLog({
+    action: 'import_dispense', table_name: 'dispense_logs',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: rows.length,
+    details: fileName ? { file: fileName } : null,
   })
   return rows.length
 }
@@ -2629,7 +2668,7 @@ export async function fetchApBills({ stage = null, dateFrom, dateTo, batchId } =
 
 // billGroupKey + groupRowsByBill ย้ายไป ./billGroup (pure module, unit-test ได้)
 // re-export เพื่อ consumer เดิม (import จาก './lib/db') ไม่ต้องแก้ — ดู billGroup.test.js
-export { billGroupKey, groupRowsByBill } from './billGroup'
+export { billGroupKey, groupRowsByBill } from './billGroup.js'
 
 // จัดซื้อกด "รับบิลแล้ว" — ไม่เปลี่ยน ap_stage (ยังเป็น NULL) แค่ตั้ง acknowledged_at/by
 // ไม่บล็อก flow → Mark ตรวจรับได้แม้ยังไม่ ack
@@ -3302,9 +3341,22 @@ export async function addLedgerAdjustment(input, auth = {}) {
 
 const toNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0 }
 
+/** แยกยอดรายที่เก็บของ 1 บรรทัดนับ — lot เดียวที่แบ่งวางคนละที่ (เช่น 750 ชั้น4 + 550 ที่ E)
+ *  บรรทัดนับยังเป็น 1 บรรทัด (ADR-0008 ข้อ 3) นี่เป็นข้อมูลประกอบให้คนเดินนับรู้ว่าต้องไปกี่ที่
+ *  คืน [] เมื่อทุกแถวอยู่ที่เก็บเดียวกัน (กรณีปกติ — แตกด้วย invoice ไม่ใช่คนละชั้น) */
+function locBreakdown(rows) {
+  const byLoc = new Map()
+  for (const r of rows) {
+    const loc = String(r.location || '-').trim() || '-'
+    byLoc.set(loc, (byLoc.get(loc) || 0) + toNum(r.qty))
+  }
+  if (byLoc.size < 2) return []
+  return [...byLoc.entries()].map(([location, qty]) => ({ location, qty }))
+}
+
 // ดึงทุก lot ของรหัสยาที่เลือก — รวมหลายแถว inventory ของ (code+lot) เป็น 1 บรรทัด
 // (DB จริง 1 code+lot มีได้หลายแถว แตกด้วย invoice — ดู ADR-0008 ข้อ 3)
-// return [{ code, name, lot, unit, system_qty, system_exp, system_location }]
+// return [{ code, name, lot, unit, system_qty, system_exp, system_location, loc_breakdown }]
 export async function fetchLotsForCount(codes) {
   if (!supabase || !codes?.length) return []
   const data = await fetchAllInventoryRows('code, name, lot, exp, qty, unit, location')
@@ -3316,11 +3368,12 @@ export async function fetchLotsForCount(codes) {
     if (!byKey.has(key)) {
       byKey.set(key, {
         code: r.code, name: r.name || '-', lot: r.lot || '-', unit: r.unit || '-',
-        system_qty: 0, exps: new Set(), locs: new Set(),
+        system_qty: 0, exps: new Set(), locs: new Set(), rows: [],
       })
     }
     const row = byKey.get(key)
     row.system_qty += toNum(r.qty)
+    row.rows.push(r)
     if (r.exp) row.exps.add(String(r.exp))
     if (r.location) row.locs.add(String(r.location))
   }
@@ -3332,6 +3385,7 @@ export async function fetchLotsForCount(codes) {
       system_qty: row.system_qty,
       system_exp: [...row.exps].join(' , ') || '-',
       system_location: [...row.locs].join(' , ') || '-',
+      loc_breakdown: locBreakdown(row.rows),
     })).sort((a, b) => a.name.localeCompare(b.name) || a.lot.localeCompare(b.lot))
 }
 
@@ -3653,11 +3707,12 @@ export async function fetchAllLotsForAnnualCount({ includeZeroQty = false } = {}
     if (!byKey.has(key)) {
       byKey.set(key, {
         code: r.code, name: r.name || '-', lot: r.lot || '-', unit: r.unit || '-',
-        system_qty: 0, exps: new Set(), locs: new Set(),
+        system_qty: 0, exps: new Set(), locs: new Set(), rows: [],
       })
     }
     const row = byKey.get(key)
     row.system_qty += toNum(r.qty)
+    row.rows.push(r)
     if (r.exp) row.exps.add(String(r.exp))
     if (r.location) row.locs.add(String(r.location))
   }
@@ -3671,11 +3726,33 @@ export async function fetchAllLotsForAnnualCount({ includeZeroQty = false } = {}
       system_qty: row.system_qty,
       system_exp: [...row.exps].join(' , ') || '-',
       system_location: [...row.locs].join(' , ') || '-',
+      loc_breakdown: locBreakdown(row.rows),
     }))
     // เรียงตามชั้นวางก่อน — คนเดินนับไล่ทีละชั้น ไม่ได้ไล่ตามชื่อยา
     .sort((a, b) =>
       a.system_location.localeCompare(b.system_location, 'th', { numeric: true }) ||
       a.name.localeCompare(b.name) || a.lot.localeCompare(b.lot))
+}
+
+/** แยกยอดรายที่เก็บของทุก lot ที่แบ่งวางคนละที่ — map `code|lot` → [{location, qty}]
+ *  ใช้เติมข้อมูลประกอบให้รอบประจำปี ซึ่งอ่านบรรทัดนับกลับจาก DB (ไม่มี loc_breakdown ในตาราง)
+ *  คำนวณสดจาก inventory ทุกครั้ง — ไม่ใช่ snapshot: บอกว่า "ตอนนี้ของอยู่ที่ไหนบ้าง"
+ *  คนละเรื่องกับ system_qty ที่ freeze ไว้ตอนเปิดรอบ (ADR-0008 ข้อ 2) */
+export async function fetchLotLocationBreakdown() {
+  if (!supabase) return {}
+  const data = await fetchAllInventoryRows('code, lot, qty, location')
+  const byKey = new Map()
+  for (const r of data) {
+    const key = `${r.code}|${r.lot || '-'}`
+    if (!byKey.has(key)) byKey.set(key, [])
+    byKey.get(key).push(r)
+  }
+  const out = {}
+  for (const [key, rows] of byKey) {
+    const parts = locBreakdown(rows)
+    if (parts.length) out[key] = parts
+  }
+  return out
 }
 
 /** รอบประจำปีที่ยังนับไม่จบ (มีได้ทีละ 1 รอบ) — เรียกตอนเปิดหน้า */
