@@ -11,6 +11,7 @@ import {
   updateStockCountFollowup, FOLLOWUP_STATUS, fetchCountPriorityData,
   fetchOpenAnnualCount, createAnnualCount, updateAnnualCountLine, closeAnnualCount,
   fetchZeroLotsForAnnual, addLotToAnnualCount, addUnknownItemToAnnualCount, UNKNOWN_TAG, sortByShelf,
+  fetchLotLocationBreakdown,
 } from './lib/db'
 import { dimStatus, diffLabel, computeCountMatch } from './lib/countMatch'
 import { rankCountPriority } from './lib/countPriority'
@@ -80,6 +81,24 @@ function FieldTick({ active, onClick }) {
 }
 // แสดงคงเหลือเป็น "จำนวน × หน่วย" (เช่น 2 × 1000เม็ด) — unit ฝัง packsize ไว้แล้ว
 const qtyUnit = (qty, unit) => `${toNum(qty)} × ${unit || '-'}`
+
+// lot เดียวที่แบ่งวางคนละที่ — บอกว่าแต่ละที่มีเท่าไหร่ (เช่น ชั้น4 750 · E-1-1 550)
+// บรรทัดนับยังเป็นบรรทัดเดียว กรอกยอดรวมครั้งเดียว (ADR-0008 ข้อ 3) นี่คือข้อมูลประกอบ
+// ให้คนเดินนับรู้ว่าต้องไปกี่ที่ ไม่ใช่ช่องกรอกแยก
+function LocBreakdown({ parts, unit, className = '' }) {
+  if (!parts?.length) return null
+  return (
+    <div className={`mt-1 flex flex-wrap items-center justify-center gap-1 ${className}`}>
+      <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300">แบ่งเก็บ {parts.length} ที่:</span>
+      {parts.map((p, i) => (
+        <span key={i} className="inline-flex items-center rounded-md border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 text-[10px] text-amber-800 dark:text-amber-200">
+          {p.location} <b className="ml-1 tabular-nums">{toNum(p.qty)}</b>
+          <span className="ml-0.5 opacity-70">{unit || ''}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
 
 // ช่อง "ที่เก็บจริง" — พิมพ์เองได้ + suggestion ตาม segment สุดท้าย (คั่น comma)
 // เลือกจาก dropdown ซ้ำ = append ต่อท้าย ไม่ทับค่าเดิม (ยาวางหลายชั้น — ADR-0008 2026-07-16 ข้อ 4)
@@ -170,7 +189,9 @@ function printCountSheet(items, { counterName, dateLabel }) {
       <td class="c">${i + 1}</td>
       <td>${it.name || '-'}<br><span class="muted">${it.code || ''}</span></td>
       <td class="c">${it.lot || '-'}</td>
-      <td class="c">${it.system_location || '-'}</td>
+      <td class="c">${it.system_location || '-'}${(it.loc_breakdown || []).length
+        ? `<br><span class="muted">${it.loc_breakdown.map(b => `${b.location} = ${toNum(b.qty)}`).join('<br>')}</span>`
+        : ''}</td>
       <td class="c">${it.system_exp || '-'}</td>
       <td class="c">${toNum(it.system_qty)} × ${it.unit || '-'}</td>
       <td class="blank"></td>
@@ -682,6 +703,7 @@ function CountTab({ auth }) {
                       <td className="text-center px-2 py-3 text-xs text-slate-500 dark:text-slate-400 align-top">
                         <span className="font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{qtyUnit(l.system_qty, l.unit)}</span><br />
                         {l.system_location}<br />{l.system_exp}
+                        <LocBreakdown parts={l.loc_breakdown} unit={l.unit} />
                       </td>
                       {/* นับได้ */}
                       <td className="px-2 py-2 align-top">
@@ -764,6 +786,7 @@ function CountTab({ auth }) {
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">
                     ระบบ: <b className="text-slate-700 dark:text-slate-200">{qtyUnit(l.system_qty, l.unit)}</b> · {l.system_location} · {l.system_exp}
                   </p>
+                  <LocBreakdown parts={l.loc_breakdown} unit={l.unit} className="justify-start" />
                   <div className="mt-2 space-y-2">
                     {/* นับได้ (ช่องหลัก — เต็มแถว) */}
                     <div className="flex items-center gap-2">
@@ -878,6 +901,7 @@ function AnnualTab({ auth }) {
   const [items, setItems] = useState([])
   const [idx, setIdx] = useState(0)
   const [locations, setLocations] = useState([])
+  const [locBreakdown, setLocBreakdown] = useState({})   // `code|lot` → [{location, qty}] ของ lot ที่แบ่งเก็บหลายที่
   const [toast, setToast] = useState(null)
   const [starting, setStarting] = useState(false)
   const [closing, setClosing] = useState(false)
@@ -933,6 +957,7 @@ function AnnualTab({ auth }) {
 
   useEffect(() => {
     fetchInventoryLocations().then(setLocations).catch(() => {})
+    fetchLotLocationBreakdown().then(setLocBreakdown).catch(() => {})
     fetchOpenAnnualCount()
       .then(open => {
         if (open) { setSession(open.session); setItems(open.items) }
@@ -1268,6 +1293,11 @@ function AnnualTab({ auth }) {
           <div className="flex items-center justify-between px-4 py-2 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
               ชั้น {cur?.system_location || '-'}
+              {cur && locBreakdown[`${cur.code}|${cur.lot}`] && (
+                <span className="ml-2 font-normal text-amber-700 dark:text-amber-300">
+                  (แบ่งเก็บ {locBreakdown[`${cur.code}|${cur.lot}`].map(b => `${b.location} ${toNum(b.qty)}`).join(' · ')})
+                </span>
+              )}
             </span>
             <span className="text-xs tabular-nums text-slate-400">
               {safeIdx + 1} / {queue.length} ในคิวนี้
@@ -1469,7 +1499,10 @@ function AnnualTab({ auth }) {
                       <p className="text-slate-800 dark:text-slate-100 truncate max-w-[200px]">{it.name}</p>
                       <p className="text-[10px] text-slate-400 font-mono">lot {it.lot}</p>
                     </td>
-                    <td className="text-center px-2 py-2 text-xs text-slate-500">{it.system_location}</td>
+                    <td className="text-center px-2 py-2 text-xs text-slate-500">
+                      {it.system_location}
+                      <LocBreakdown parts={locBreakdown[`${it.code}|${it.lot}`]} unit={it.unit} />
+                    </td>
                     <td className="text-center px-2 py-2 tabular-nums text-slate-600 dark:text-slate-300">{toNum(it.system_qty)}</td>
                     <td className="text-center px-2 py-2">
                       {it.counted_qty == null
