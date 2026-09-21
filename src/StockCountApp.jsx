@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   ClipboardCheck, X, Printer, Save, CheckCircle, AlertTriangle,
   ChevronDown, ChevronUp, Search, Package, Pencil, Trash2, Calendar, Eye, History,
-  Sparkles, RefreshCcw, CalendarCheck, ChevronLeft, ChevronRight, Loader2, WifiOff, Filter,
+  Sparkles, RefreshCcw, CalendarCheck, ChevronLeft, ChevronRight, Loader2, WifiOff, Filter, FileDown,
 } from 'lucide-react'
 import {
   fetchInventoryNameCodeMap, fetchLotsForCount, createStockCount,
@@ -13,8 +13,10 @@ import {
   fetchZeroLotsForAnnual, addLotToAnnualCount, addUnknownItemToAnnualCount, UNKNOWN_TAG, sortByShelf,
   fetchLotLocationBreakdown,
 } from './lib/db'
-import { dimStatus, diffLabel, computeCountMatch } from './lib/countMatch'
+import { dimStatus, diffLabel, computeCountMatch, DIM_COUNT } from './lib/countMatch'
 import { rankCountPriority } from './lib/countPriority'
+import { printCountCertificate } from './lib/stockCountCertificate'
+import { exportToExcel } from './lib/exportExcel'
 import DrugSearchBar from './DrugSearchBar'
 import BackButton from './BackButton'
 import Toast from './Toast'
@@ -39,7 +41,6 @@ const fmtThaiDateTime = (iso) => {
 const toNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0 }
 // จำนวนมิติที่เทียบกับระบบ: จำนวน / lot / exp / ที่เก็บ (เพิ่ม lot 2026-09-20)
 // ต้องตรงกับ dimStatus() ใน countMatch.js — แก้ที่นั่นต้องแก้ค่านี้ด้วย
-const DIM_COUNT = 4
 /** โซนของชั้นวาง — ตัวอักษรนำหน้าของรหัสชั้น (A-1-4 → A, E-11 → E)
  *  ที่เก็บชื่อไทย (คลังน้ำเกลือ/ตู้เย็นห้องยาชั้น4) เป็นโซนของตัวเอง ไม่มีชั้นย่อย
  *  ช่องที่เก็บหลายชั้นคั่น comma ("D-2-4 ,D-2-1") ใช้ชั้นแรกเป็นตัวจัดโซน
@@ -1673,6 +1674,7 @@ function HistoryTab({ auth }) {
   const [drugOpts, setDrugOpts] = useState([])
   const [sessEdit, setSessEdit] = useState(null)    // { id, counted_at, note } — แก้ header รอบ
   const [statusFilter, setStatusFilter] = useState('all')  // all|mismatch|pending|partial|ok
+  const [viewAll, setViewAll] = useState({})        // { session_id: true } = กางดูบรรทัดที่ยังไม่ได้นับด้วย
 
   useEffect(() => {
     fetchStockCountSessions().then(s => { setSessions(s); setLoading(false) })
@@ -1763,7 +1765,12 @@ function HistoryTab({ auth }) {
     for (const [sid, its] of Object.entries(allItems)) {
       const s = sessById[sid]
       if (!s) continue
-      for (const it of its) if (itemMatchesQ(it, drugQ)) timeline.push({ it, s })
+      // เฉพาะบรรทัดที่ "นับแล้ว" — บรรทัดที่ระบบ gen รอไว้แต่ยังไม่ได้นับ ไม่ใช่ "ครั้งที่เคยนับ"
+      // (ไม่งั้นค้นยาที่ไม่เคยนับเลย จะขึ้น "ประวัติการนับ N ครั้ง" พร้อมไอคอนไม่ตรง — ADR-0026)
+      for (const it of its) {
+        if (it.counted_qty === null || it.counted_qty === '') continue
+        if (itemMatchesQ(it, drugQ)) timeline.push({ it, s })
+      }
     }
     timeline.sort((a, b) => String(b.s.created_at || b.s.counted_at || '').localeCompare(String(a.s.created_at || a.s.counted_at || '')))
   }
@@ -1783,6 +1790,34 @@ function HistoryTab({ auth }) {
       const data = allItems[id] || await fetchStockCountItems(id)
       setItems(prev => ({ ...prev, [id]: data }))
     }
+  }
+
+  // Export Excel ของรอบเดียว — ส่ง rows ชุดเดียวกับที่ตารางแสดงอยู่ (Critical Rule #6)
+  // คอลัมน์ล้อตารางบนจอ + เพิ่ม "มิติที่ตรวจ"/หมายเหตุ ที่จอย่อไว้
+  const exportSession = (s, rows, showingAll) => {
+    const cols = [
+      { header: 'รหัส', value: r => r.code || '' },
+      { header: 'รายการยา', value: r => r.name || '' },
+      { header: 'Lot (ระบบ)', value: r => r.lot || '' },
+      { header: 'Lot (นับได้)', value: r => r.counted_lot || '' },
+      { header: 'ที่เก็บ (ระบบ)', value: r => r.system_location || '' },
+      { header: 'ที่เก็บ (นับได้)', value: r => r.counted_location || '' },
+      { header: 'Exp (ระบบ)', value: r => r.system_exp || '' },
+      { header: 'Exp (นับได้)', value: r => r.counted_exp || '' },
+      { header: 'หน่วย', value: r => r.unit || '' },
+      { header: 'ยอดระบบ', value: r => toNum(r.system_qty) },
+      // ยังไม่ได้นับ = เว้นว่าง ไม่ใช่ 0 (0 คือ "นับได้ศูนย์" คนละความหมาย)
+      { header: 'นับได้จริง', value: r => (r.counted_qty === null || r.counted_qty === '' ? '' : toNum(r.counted_qty)) },
+      { header: 'ส่วนต่าง', value: r => diffLabel(r.system_qty, r.counted_qty) },
+      { header: 'มิติที่ตรวจ', value: r => `${dimStatus(r).checked}/${DIM_COUNT}` },
+      { header: 'ผล', value: r => (r.counted_qty === null || r.counted_qty === '' ? 'ยังไม่ได้นับ' : (computeCountMatch(r).match ? 'ตรง' : 'ไม่ตรง')) },
+      { header: 'สถานะติดตาม', value: r => (FOLLOWUP_STATUS[r.followup_status] || '') },
+      { header: 'หมายเหตุรายการ', value: r => r.item_note || '' },
+    ]
+    const scope = showingAll ? 'ทั้งรอบ' : 'เฉพาะที่ตรวจแล้ว'
+    exportToExcel(rows, cols, `ตรวจนับ SC-${s.id}`,
+      `stockcount_SC-${s.id}_${s.counted_at}_${showingAll ? 'all' : 'counted'}.xlsx`, auth)
+    setToast({ tone: 'success', message: `ส่งออก Excel ${rows.length} รายการ (${scope})` })
   }
 
   const startEdit = (it) => {
@@ -2025,6 +2060,14 @@ function HistoryTab({ auth }) {
         //    รอบประจำปี gen 632 แถวรอไว้ตั้งแต่ต้น ถ้าไม่กรองจะขึ้น "ไม่ตรง 632" ทั้งที่ยังไม่ได้แตะ
         const isCounted = (i) => i.counted_qty !== null && i.counted_qty !== ''
         const mismatch = its.filter(i => isCounted(i) && !liveMatch(i)).length
+        // ตารางที่กางออกแสดง "เฉพาะบรรทัดที่นับแล้ว" — บรรทัดที่ยังไม่ได้นับคืองานที่เหลือ ไม่ใช่ผลการตรวจ
+        // (รอบประจำปี gen บรรทัดรอไว้ทั้งคลัง; spot check เก่าก่อนกฎ validate ก็มีค้าง — ADR-0026)
+        const rowsCounted = its.filter(isCounted)
+        const rowsNotCounted = its.filter(i => !isCounted(i))
+        // ตาราง+Excel แสดงชุดเดียวกันเสมอ (Critical Rule #6) — สลับได้ว่าจะดูเฉพาะที่นับแล้วหรือทั้งรอบ
+        // ใบรับรองไม่ตามตัวสลับนี้ ล็อกที่ "นับแล้ว" เสมอ (ADR-0026)
+        const showAll = viewAll[s.id] === true
+        const rowsShown = showAll ? its : rowsCounted
         // นับ "ไม่ตรง" จาก allItems (โหลดครบทุกรอบตั้งแต่แรก) เพื่อโชว์ badge บนหัวรอบโดยไม่ต้องกาง
         const allIts = allItems[s.id]
         const countedIts = allIts ? allIts.filter(isCounted) : null
@@ -2100,9 +2143,40 @@ function HistoryTab({ auth }) {
               <div className="border-t border-slate-100 dark:border-slate-800 px-4 py-3">
                 {items[s.id] == null ? <p className="text-xs text-slate-400 dark:text-slate-500">กำลังโหลด...</p> : (
                   <>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
-                      ตรวจ {its.length} รายการ · <span className={mismatch ? 'text-amber-600 font-semibold' : 'text-emerald-600'}>ไม่ตรง {mismatch} รายการ</span>
-                    </p>
+                    <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        ตรวจ {rowsCounted.length} รายการ · <span className={mismatch ? 'text-amber-600 font-semibold' : 'text-emerald-600'}>ไม่ตรง {mismatch} รายการ</span>
+                        {/* บรรทัดที่ยังไม่ได้นับไม่ใช่ผลการตรวจ — บอกเป็นความคืบหน้าแยก ไม่ปนกับผลเทียบ (ADR-0026) */}
+                        {rowsNotCounted.length > 0 && (
+                          <span className="text-slate-400 dark:text-slate-500"> · ยังไม่ได้นับอีก {rowsNotCounted.length} รายการ</span>
+                        )}
+                      </p>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {rowsNotCounted.length > 0 && (
+                          <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-[11px] font-semibold">
+                            <button onClick={() => setViewAll(v => ({ ...v, [s.id]: false }))}
+                              className={`px-2 py-1 ${!showAll ? 'bg-emerald-500 text-white' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400'}`}>
+                              ที่ตรวจแล้ว {rowsCounted.length}
+                            </button>
+                            <button onClick={() => setViewAll(v => ({ ...v, [s.id]: true }))}
+                              className={`px-2 py-1 border-l border-slate-200 dark:border-slate-700 ${showAll ? 'bg-emerald-500 text-white' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400'}`}>
+                              ทั้งหมด {its.length}
+                            </button>
+                          </div>
+                        )}
+                        <button onClick={() => exportSession(s, rowsShown, showAll)} disabled={!rowsShown.length}
+                          title="Export Excel ตามที่แสดงอยู่"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-emerald-300 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-semibold disabled:opacity-40">
+                          <FileDown size={13} /> Excel
+                        </button>
+                        <button onClick={() => printCountCertificate(s, its, { printedBy: auth?.name || auth?.username || '' })}
+                          disabled={!rowsCounted.length}
+                          title="พิมพ์ใบรับรองผลตรวจนับ (เฉพาะรายการที่นับแล้ว)"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-[11px] font-semibold disabled:opacity-40">
+                          <Printer size={13} /> ใบรับรอง
+                        </button>
+                      </div>
+                    </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead className="text-slate-500 dark:text-slate-400">
@@ -2117,7 +2191,7 @@ function HistoryTab({ auth }) {
                           </tr>
                         </thead>
                         <tbody className="text-slate-700 dark:text-slate-200">
-                          {its.map(it => {
+                          {rowsShown.map(it => {
                             const editing = editId === it.id
                             const d = dimStatus(it)
                             const ok = liveMatch(it)
@@ -2216,6 +2290,12 @@ function HistoryTab({ auth }) {
                         </tbody>
                       </table>
                     </div>
+                    {/* รอบที่เปิดไว้แต่ยังไม่ได้นับสักบรรทัด — ตารางว่างเปล่าอธิบายตัวเองไม่ได้ ต้องบอกว่าทำไม */}
+                    {rowsShown.length === 0 && (
+                      <p className="text-xs text-slate-400 dark:text-slate-500 py-3 text-center">
+                        ยังไม่ได้นับสักรายการในรอบนี้ — เมื่อบันทึกผลนับแล้วจะแสดงที่นี่
+                      </p>
+                    )}
                   </>
                 )}
               </div>

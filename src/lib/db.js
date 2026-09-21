@@ -3582,7 +3582,10 @@ export async function fetchCountPriorityData({ months = 6 } = {}) {
   }
 
   // 4) นับล่าสุดต่อรหัส — join item → session เพื่อเอา counted_at (วันที่ของรอบ)
-  const itemRows = await pageAll('stock_count_item', 'code, session_id')
+  //    ⚠️ เฉพาะบรรทัดที่ "นับแล้ว" (counted_qty ไม่ว่าง) — รอบประจำปี gen บรรทัดรอไว้ทั้งคลัง
+  //    ถ้านับรวมด้วย ยาที่ยังไม่มีใครแตะจะกลายเป็น "เพิ่งนับวันนี้" แล้วหล่นจากอันดับควรนับก่อน (ADR-0026)
+  const itemRows = (await pageAll('stock_count_item', 'code, session_id, counted_qty'))
+    .filter(r => r.counted_qty !== null && r.counted_qty !== '')
   const sessRows = await pageAll('stock_count_session', 'id, counted_at')
   const sessDate = {}
   for (const s of sessRows) sessDate[s.id] = s.counted_at

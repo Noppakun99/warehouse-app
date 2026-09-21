@@ -18,6 +18,10 @@ export function normSet(v) {
 
 export function setEq(a, b) { return normSet(a) === normSet(b) }
 
+// จำนวนมิติที่ตรวจได้ต่อ 1 บรรทัด — ต้องตรงกับที่ dimStatus คืน (จำนวน/exp/ที่เก็บ/lot)
+// อยู่ที่นี่เพราะผูกกับ dimStatus โดยตรง — ถ้าเพิ่มมิติต้องแก้ 2 จุดนี้คู่กันเสมอ
+export const DIM_COUNT = 4
+
 // สถานะ 3 ค่าต่อมิติของ 1 บรรทัดนับ (ใช้ทั้งตอนกรอกสด + render ประวัติ)
 // รับ item ที่มี counted_qty/counted_exp/counted_location + system_qty/system_exp/system_location
 export function dimStatus(item) {
