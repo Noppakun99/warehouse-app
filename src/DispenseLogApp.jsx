@@ -15,7 +15,7 @@ import {
   LineChart, Line, Legend,
 } from 'recharts';
 import { exportToExcel } from './lib/exportExcel';
-import { normalizeLotSearch, insertAuditLog, resolveAuditUserName } from './lib/db';
+import { normalizeLotSearch, insertAuditLog, resolveAuditUserName, insertDispenseRows } from './lib/db';
 
 // ============================================================
 // Column aliases
@@ -40,7 +40,6 @@ const COL_MAP = {
   qty_after:     ['คงเหลือหลังจ่าย', 'คงเหลือหลัง', 'ยอดหลัง', 'after', 'qty_after', 'stock after'],
 };
 
-const CHUNK = 300;
 
 // ค่า department ที่ "ไม่ใช่หน่วยงานจริง" — เป็นการปรับปรุงระบบ/ความเคลื่อนไหวพิเศษ
 // ตัดออกจาก dropdown กรองหน่วยงาน + กราฟสรุประดับหน่วยงาน แต่ยังคงแสดงเป็นแถวในตารางเบิกตามปกติ
@@ -409,31 +408,8 @@ function DispenseImport({ onDone, auth = {} }) {
           }];
         });
 
-      // Backfill drug_unit: ถ้าบางแถวไม่มีหน่วย ให้ดึงจากแถวอื่นที่มีรหัสยาเดียวกัน
-      const unitByCode = {};
-      rows.forEach(r => {
-        if (r.drug_unit && r.drug_unit !== '-' && r.drug_code && r.drug_code !== '-') {
-          unitByCode[r.drug_code] = r.drug_unit;
-        }
-      });
-      rows.forEach(r => {
-        if ((!r.drug_unit || r.drug_unit === '-') && r.drug_code && r.drug_code !== '-' && unitByCode[r.drug_code]) {
-          r.drug_unit = unitByCode[r.drug_code];
-        }
-      });
-
-      const { error: delErr } = await supabase.from('dispense_logs').delete().gte('id', 0);
-      if (delErr) throw delErr;
-      for (let i = 0; i < rows.length; i += CHUNK) {
-        const { error: e } = await supabase.from('dispense_logs').insert(rows.slice(i, i + CHUNK));
-        if (e) throw e;
-      }
-      await insertAuditLog({
-        action: 'import_dispense', table_name: 'dispense_logs',
-        user_name: resolveAuditUserName(auth), department: auth?.department || '-',
-        record_count: rows.length,
-        details: { file: preview?.fileName || '-' },
-      });
+      // backfill drug_unit + DELETE ALL → INSERT + audit log อยู่ใน db.js แล้ว (Critical Rule: ทุก query ผ่าน db.js)
+      await insertDispenseRows(rows, auth, preview?.fileName || '-');
       setStatus(`นำเข้าสำเร็จ ${rows.length.toLocaleString()} รายการ`);
       setSuccessPopup({
         message: `นำเข้าข้อมูลเบิกจ่าย ${rows.length.toLocaleString()} รายการ เรียบร้อยแล้ว`,
