@@ -249,6 +249,7 @@ const ACTION_LABELS = {
   import_temperature_log:       { label: 'นำเข้าอุณหภูมิจากเครื่อง', color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'},
   delete_temperature_log:       { label: 'ลบบันทึกอุณหภูมิ',         color: 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300'},
   update_stock_count:           { label: 'แก้ไขผลตรวจนับ',          color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'   },
+  clear_stock_count_item:       { label: 'ล้างผลนับรายการ',         color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'   },
   followup_stock_count:         { label: 'ติดตามส่วนต่างตรวจนับ',    color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'       },
   delete_stock_count:           { label: 'ลบรอบตรวจนับ',            color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'       },
 };
@@ -546,7 +547,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
     { label: 'จ่ายยา',     keys: ['import_dispense', 'update_dispense', 'delete_dispense'] },
     { label: 'คืนยา',      keys: ['insert_return', 'confirm_return', 'update_return', 'delete_return', 'flag_swap_return', 'swap_return_action', 'seed_swap_policy'] },
     { label: 'ยืม-คืนยา',  keys: ['insert_drug_loan', 'return_drug_loan', 'update_drug_loan', 'delete_drug_loan', 'import_drug_loan'] },
-    { label: 'คลัง/Inventory', keys: ['import_inventory', 'create_stock_count', 'create_annual_count', 'close_annual_count', 'add_annual_count_lot', 'add_unknown_count_item', 'update_stock_count', 'followup_stock_count', 'delete_stock_count', 'seed_ledger', 'close_ledger_period', 'reopen_ledger_period', 'add_ledger_adjustment', 'create_temperature_log', 'update_temperature_log', 'delete_temperature_log', 'import_temperature_log'] },
+    { label: 'คลัง/Inventory', keys: ['import_inventory', 'create_stock_count', 'create_annual_count', 'close_annual_count', 'add_annual_count_lot', 'add_unknown_count_item', 'update_stock_count', 'clear_stock_count_item', 'followup_stock_count', 'delete_stock_count', 'seed_ledger', 'close_ledger_period', 'reopen_ledger_period', 'add_ledger_adjustment', 'create_temperature_log', 'update_temperature_log', 'delete_temperature_log', 'import_temperature_log'] },
     { label: 'ส่งบัญชี (AP)', keys: ['ap_acknowledge', 'ap_unacknowledge', 'ap_mark_inspected', 'ap_uninspect', 'ap_send_batch', 'ap_unsend_batch', 'ap_mark_posted', 'ap_unpost', 'ap_reset_batch', 'print_ap_batch', 'print_ack_batch', 'export_ap_batch'] },
     { label: 'วิเคราะห์สั่งซื้อ', keys: ['analysis_run', 'analysis_view', 'delete_analysis_run', 'update_reorder_config', 'import_reorder_config', 'mark_ordered', 'unmark_ordered', 'print_po', 'reconcile_excel'] },
     { label: 'อื่นๆ',      keys: ['export_excel', 'login'] },

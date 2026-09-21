@@ -2,16 +2,16 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   ClipboardCheck, X, Printer, Save, CheckCircle, AlertTriangle,
   ChevronDown, ChevronUp, Search, Package, Pencil, Trash2, Calendar, Eye, History,
-  Sparkles, RefreshCcw, CalendarCheck, ChevronLeft, ChevronRight, Loader2, WifiOff, Filter, FileDown,
+  Sparkles, RefreshCcw, CalendarCheck, ChevronLeft, ChevronRight, Loader2, WifiOff, Filter, FileDown, Eraser, Clock,
 } from 'lucide-react'
 import {
   fetchInventoryNameCodeMap, fetchLotsForCount, createStockCount,
   fetchStockCountSessions, fetchStockCountItems, fetchInventoryLocations,
   updateStockCountItem, updateStockCountSession, deleteStockCountSession, fetchAllStockCountItems,
-  updateStockCountFollowup, FOLLOWUP_STATUS, fetchCountPriorityData,
+  updateStockCountFollowup, FOLLOWUP_STATUS, fetchCountPriorityData, clearStockCountItem,
   fetchOpenAnnualCount, createAnnualCount, updateAnnualCountLine, closeAnnualCount,
   fetchZeroLotsForAnnual, addLotToAnnualCount, addUnknownItemToAnnualCount, UNKNOWN_TAG, sortByShelf,
-  fetchLotLocationBreakdown,
+  fetchLotLocationBreakdown, fetchPendingReceiveLots,
 } from './lib/db'
 import { dimStatus, diffLabel, computeCountMatch, DIM_COUNT } from './lib/countMatch'
 import { rankCountPriority } from './lib/countPriority'
@@ -171,6 +171,20 @@ function DiffCell({ it }) {
     : lbl.startsWith('ขาด') ? 'text-red-600'
     : 'text-amber-600'
   return <span className={`font-semibold ${cls}`}>{lbl}</span>
+}
+
+// ป้าย "รอตรวจรับ" ต่อ lot — ของมาถึงชั้นแล้วแต่ยังไม่ผ่านตรวจรับ
+// คนนับเจอของจริงบนชั้นแต่ยอดระบบอาจยังไม่รวม/รวมแล้วแต่ยังไม่ควรนับเป็นของคลังเต็มตัว
+// บอกไว้ตรงนี้กันเดินไปตามหา "ของเกิน" ที่จริงๆ แล้วคือของที่ยังไม่ตรวจรับ
+function PendingReceiveBadge({ info }) {
+  if (!info) return null
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 px-2 py-0.5 text-[11px] font-semibold">
+      <Clock size={11} />
+      รอตรวจรับ{info.waitDays != null ? ` ${info.waitDays} วัน` : ''}
+      {info.billNumber ? ` · บิล ${info.billNumber}` : ''}
+    </span>
+  )
 }
 
 // chip "นับล่าสุด" ต่อยา — ให้คนนับรู้ว่าตัวนี้เพิ่งนับไปหรือยัง
@@ -903,6 +917,7 @@ function AnnualTab({ auth }) {
   const [idx, setIdx] = useState(0)
   const [locations, setLocations] = useState([])
   const [locBreakdown, setLocBreakdown] = useState({})   // `code|lot` → [{location, qty}] ของ lot ที่แบ่งเก็บหลายที่
+  const [pendingRecv, setPendingRecv] = useState({})     // `code|lot` → { billNumber, waitDays } ของที่ยังรอตรวจรับ
   const [toast, setToast] = useState(null)
   const [starting, setStarting] = useState(false)
   const [closing, setClosing] = useState(false)
@@ -959,6 +974,7 @@ function AnnualTab({ auth }) {
   useEffect(() => {
     fetchInventoryLocations().then(setLocations).catch(() => {})
     fetchLotLocationBreakdown().then(setLocBreakdown).catch(() => {})
+    fetchPendingReceiveLots().then(setPendingRecv).catch(() => {})
     fetchOpenAnnualCount()
       .then(open => {
         if (open) { setSession(open.session); setItems(open.items) }
@@ -1311,6 +1327,11 @@ function AnnualTab({ auth }) {
               <div className="min-w-0">
                 <p className="text-lg font-bold text-slate-800 dark:text-slate-100 leading-snug">{cur?.name}</p>
                 <p className="text-xs text-slate-400 dark:text-slate-500">รหัส {cur?.code}</p>
+                {cur && pendingRecv[`${String(cur.code).toLowerCase()}|${String(cur.lot || '-').toLowerCase()}`] && (
+                  <div className="mt-1.5">
+                    <PendingReceiveBadge info={pendingRecv[`${String(cur.code).toLowerCase()}|${String(cur.lot || '-').toLowerCase()}`]} />
+                  </div>
+                )}
               </div>
               <div className="shrink-0">
                 {saveState[cur?.id] === 'saved' && <span className="inline-flex items-center gap-1 text-xs text-emerald-600"><CheckCircle size={12} /> บันทึกแล้ว</span>}
@@ -1499,6 +1520,9 @@ function AnnualTab({ auth }) {
                     <td className="px-3 py-2">
                       <p className="text-slate-800 dark:text-slate-100 truncate max-w-[200px]">{it.name}</p>
                       <p className="text-[10px] text-slate-400 font-mono">lot {it.lot}</p>
+                      {pendingRecv[`${String(it.code).toLowerCase()}|${String(it.lot || '-').toLowerCase()}`] && (
+                        <PendingReceiveBadge info={pendingRecv[`${String(it.code).toLowerCase()}|${String(it.lot || '-').toLowerCase()}`]} />
+                      )}
                     </td>
                     <td className="text-center px-2 py-2 text-xs text-slate-500">
                       {it.system_location}
@@ -1675,6 +1699,7 @@ function HistoryTab({ auth }) {
   const [sessEdit, setSessEdit] = useState(null)    // { id, counted_at, note } — แก้ header รอบ
   const [statusFilter, setStatusFilter] = useState('all')  // all|mismatch|pending|partial|ok
   const [viewAll, setViewAll] = useState({})        // { session_id: true } = กางดูบรรทัดที่ยังไม่ได้นับด้วย
+  const [confirmClear, setConfirmClear] = useState(null)   // item ที่กำลังจะล้างผลนับ
 
   useEffect(() => {
     fetchStockCountSessions().then(s => { setSessions(s); setLoading(false) })
@@ -1820,6 +1845,24 @@ function HistoryTab({ auth }) {
     setToast({ tone: 'success', message: `ส่งออก Excel ${rows.length} รายการ (${scope})` })
   }
 
+  // จาก timeline (ผลค้นหา) → กระโดดไปแก้ที่รอบจริง
+  // timeline เป็น read-only โดยตั้งใจ (แถวเดียวกันโผล่ได้หลายรอบ แก้ตรงนั้นสับสนว่าแก้รอบไหน)
+  // จึงเปิดรอบนั้นให้ + เลื่อนไปที่แถว + เข้าโหมดแก้เลย — แก้/ลบทำที่เดียวคือในรอบ
+  const jumpToItem = async (it, sess) => {
+    setOpenId(sess.id)
+    if (!items[sess.id]) {
+      const data = allItems[sess.id] || await fetchStockCountItems(sess.id)
+      setItems(prev => ({ ...prev, [sess.id]: data }))
+    }
+    // บรรทัดที่ยังไม่ได้นับถูกซ่อน default — ถ้าเป้าหมายเป็นแถวแบบนั้นต้องกางก่อน ไม่งั้นเลื่อนไปไม่เจอ
+    if (it.counted_qty === null || it.counted_qty === '') setViewAll(v => ({ ...v, [sess.id]: true }))
+    startEdit(it)
+    setTimeout(() => {
+      document.getElementById(`sc-item-${it.id}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 120)
+  }
+
   const startEdit = (it) => {
     setEditId(it.id)
     setEditVal({
@@ -1870,6 +1913,21 @@ function HistoryTab({ auth }) {
       setAllItems(prev => ({ ...prev, [it.session_id]: data })) // sync badge/timeline ให้ตรงกับที่แก้
       setEditId(null)
     } catch (e) { setToast({ tone: 'error', message: 'แก้ไขไม่สำเร็จ: ' + (e?.message || e) }) }
+    finally { setBusy(false) }
+  }
+
+  // ล้างผลนับบรรทัดเดียว — กลับเป็น "ยังไม่ได้นับ" แถวยังอยู่ในรอบ (กรอกผิดแล้วไปนับใหม่)
+  const doClearItem = async (it) => {
+    setBusy(true)
+    try {
+      await clearStockCountItem(it.id, auth)
+      const data = await fetchStockCountItems(it.session_id)
+      setItems(prev => ({ ...prev, [it.session_id]: data }))
+      setAllItems(prev => ({ ...prev, [it.session_id]: data }))  // sync badge/timeline
+      setEditId(null)
+      setConfirmClear(null)
+      setToast({ tone: 'success', message: 'ล้างผลนับแล้ว — บรรทัดนี้กลับเป็น "ยังไม่ได้นับ"' })
+    } catch (e) { setToast({ tone: 'error', message: 'ล้างผลนับไม่สำเร็จ: ' + (e?.message || e) }) }
     finally { setBusy(false) }
   }
 
@@ -2014,6 +2072,7 @@ function HistoryTab({ auth }) {
                   <th className="text-center px-2">นับได้</th>
                   <th className="text-center px-2">ส่วนต่าง</th>
                   <th className="text-center px-2">ผล</th>
+                  <th className="px-2"></th>
                 </tr>
               </thead>
               <tbody>
@@ -2031,6 +2090,12 @@ function HistoryTab({ auth }) {
                         {!ok ? <AlertTriangle size={14} className="text-amber-500 inline" />
                           : d.checked === DIM_COUNT ? <CheckCircle size={14} className="text-emerald-500 inline" />
                           : <span className="text-[10px] font-semibold text-emerald-600">ตรง {d.checked}/{DIM_COUNT}</span>}
+                      </td>
+                      <td className="px-2 text-right">
+                        <button onClick={() => jumpToItem(it, s)} title="ไปแก้ไขรายการนี้ในรอบ"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors">
+                          <Pencil size={12} /> แก้ไข
+                        </button>
                       </td>
                     </tr>
                   )
@@ -2196,7 +2261,7 @@ function HistoryTab({ auth }) {
                             const d = dimStatus(it)
                             const ok = liveMatch(it)
                             return (
-                              <tr key={it.id} className={`border-b border-slate-50 dark:border-slate-800 ${editing ? 'bg-emerald-50 dark:bg-emerald-950/40' : !ok ? 'bg-amber-50 dark:bg-amber-950/40' : ''}`}>
+                              <tr key={it.id} id={`sc-item-${it.id}`} className={`border-b border-slate-50 dark:border-slate-800 ${editing ? 'bg-emerald-50 dark:bg-emerald-950/40' : !ok ? 'bg-amber-50 dark:bg-amber-950/40' : ''}`}>
                                 <td className="py-1.5 pr-2 align-top">
                                   {it.name}<span className="text-slate-400 dark:text-slate-500"> · {it.lot}</span>
                                   {editing ? (
@@ -2245,6 +2310,12 @@ function HistoryTab({ auth }) {
                                           className="p-1.5 rounded bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50"><Save size={13} /></button>
                                         <button onClick={() => setEditId(null)}
                                           className="p-1.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200"><X size={13} /></button>
+                                        {/* ล้างผลนับ = กลับเป็น "ยังไม่ได้นับ" แถวยังอยู่ ไม่ใช่ลบหลักฐาน (ADR-0008) */}
+                                        {it.counted_qty != null && (
+                                          <button onClick={() => setConfirmClear(it)} disabled={busy}
+                                            title="ล้างผลนับของบรรทัดนี้ (กลับเป็นยังไม่ได้นับ)"
+                                            className="p-1.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-600 hover:bg-amber-100 disabled:opacity-50"><Eraser size={13} /></button>
+                                        )}
                                       </div>
                                     </td>
                                     <td></td>
@@ -2305,6 +2376,18 @@ function HistoryTab({ auth }) {
           })}
         </div>
       ))}
+
+      <ConfirmModal
+        open={!!confirmClear}
+        title="ล้างผลนับของรายการนี้"
+        message={confirmClear ? `${confirmClear.name} · lot ${confirmClear.lot}` : ''}
+        detail={'ค่าที่นับไว้ (จำนวน/lot/exp/ที่เก็บ) จะถูกล้าง แล้วบรรทัดนี้กลับเป็น "ยังไม่ได้นับ" — ยอดระบบและตัวบรรทัดยังอยู่ในรอบ นับใหม่ได้'}
+        confirmText="ล้างผลนับ"
+        tone="danger"
+        loading={busy}
+        onConfirm={() => confirmClear && doClearItem(confirmClear)}
+        onClose={() => setConfirmClear(null)}
+      />
     </div>
   )
 }

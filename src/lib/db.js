@@ -1555,6 +1555,7 @@ export async function fetchNotifications(scope = null) {
     'close_annual_count',
     'add_unknown_count_item',
     'update_stock_count',
+    'clear_stock_count_item',
     'delete_stock_count',
     // ── อุณหภูมิตู้เย็น (ADR-0018) ──
     'create_temperature_log',
@@ -3515,6 +3516,42 @@ export async function updateStockCountItem(itemId, fields, auth = {}) {
 }
 
 /**
+ * ล้างผลนับของ 1 บรรทัด — กลับเป็น "ยังไม่ได้นับ" (counted_qty = null) โดย **แถวยังอยู่**
+ *
+ * ใช้ตอนกรอกผิดแล้วอยากยกเลิกการนับบรรทัดนั้นไปนับใหม่ — ไม่ใช่การลบหลักฐาน:
+ * snapshot ค่าระบบ (system_qty/exp/location) ที่ freeze ไว้ตอนเปิดรอบยังอยู่ครบ (ADR-0008)
+ * และบรรทัดยังนับเป็น "งานที่เหลือ" ของรอบเหมือนเดิม
+ *
+ * ⚠️ ต้องล้าง `counted_lot` ด้วย — `updateStockCountItem` ไม่แตะคอลัมน์นี้เลย
+ *    (มีแต่ `updateAnnualCountLine` ที่เขียน) ถ้าไม่ล้าง lot ที่เคยกรอกจะค้างอยู่กับแถวที่ว่างแล้ว
+ * ⚠️ ไม่แตะ followup_* — สถานะติดตามเป็นเรื่องของคนตามงาน ไม่ใช่ผลนับ (ADR-0017)
+ */
+export async function clearStockCountItem(itemId, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { data: before } = await supabase.from('stock_count_item')
+    .select('counted_qty, counted_exp, counted_location, counted_lot, item_note, code, lot')
+    .eq('id', itemId).single()
+  const { error } = await supabase.from('stock_count_item')
+    .update({
+      counted_qty: null, counted_exp: '', counted_location: '', counted_lot: '',
+      diff_qty: 0, match: false,
+    })
+    .eq('id', itemId)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'clear_stock_count_item', table_name: 'stock_count_item',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    details: {
+      item_id: itemId, code: before?.code, lot: before?.lot,
+      before: before ? {
+        counted_qty: before.counted_qty, counted_exp: before.counted_exp,
+        counted_location: before.counted_location, counted_lot: before.counted_lot,
+      } : null,
+    },
+  })
+}
+
+/**
  * ข้อมูลดิบสำหรับจัดอันดับ "ควรตรวจนับตัวไหนก่อน" — ป้อนให้ `rankCountPriority` (countPriority.js)
  *
  * รวม 4 สัญญาณจาก 3 ตาราง — **paginate ทุกตัว** (Critical Rule #2: dispense 6.9k / receive 2.6k แถว
@@ -3689,6 +3726,56 @@ export async function deleteStockCountSession(sessionId, auth = {}) {
 //   1) ระบบ gen ทุก lot ที่มีของให้ครบตั้งแต่เริ่ม (ไม่ให้คนเลือกทีละตัว — 632 บรรทัด)
 //   2) งานค้างอยู่บน DB (status='draft') ไม่ใช่ localStorage เพราะนับหลายวันข้ามเครื่อง
 // ยังคง append-only: ไม่แตะ inventory.qty (ADR-0008)
+
+/** สถานะ "รอตรวจรับ" ต่อ lot — map key `code|lot` → { billNumber, receiveDate, waitDays }
+ *
+ *  ใช้ตอนตรวจนับ: ของที่ยังรอตรวจรับ **นับเจอบนชั้นได้แต่ยังไม่ควรถือว่าเป็นของคลังเต็มตัว**
+ *  คนนับต้องรู้ว่าทำไมยอดถึงดูไม่ตรง (ของมาแล้วแต่ยังไม่ผ่านตรวจรับ) ไม่ใช่ไปตามหาของหาย
+ *
+ *  ⚠️ key ต้องเป็น `code|lot` ห้าม lot เดี่ยว — lot ซ้ำข้ามตัวยาได้ โดยเฉพาะ lot '-' ของเวชภัณฑ์
+ *     (เหตุการณ์ 2026-07-18: บิลรอตรวจรับ lot '-' ใบเดียวเหมา 26 รหัสเป็น "หมดสต็อก" ปลอม)
+ *  waitDays ใช้สูตรเดียวกับ fetchDashboardAlerts — receive_date ล่าสุดของ (code, lot) เทียบวันนี้
+ */
+export async function fetchPendingReceiveLots() {
+  if (!supabase) return {}
+  const inv = await fetchAllInventoryRows('code, lot, receive_status, invoice')
+  const pending = inv.filter(r => String(r.receive_status || '').includes('รอตรวจรับ'))
+  if (!pending.length) return {}
+
+  const recvDate = new Map()
+  try {
+    const PAGE = 1000
+    let from = 0
+    for (;;) {
+      const { data: rl } = await supabase.from('receive_logs')
+        .select('drug_code, lot, receive_date, bill_number').range(from, from + PAGE - 1)
+      if (!rl || rl.length === 0) break
+      for (const r of rl) {
+        const k = `${(r.drug_code || '').toLowerCase()}|${(r.lot || '').toLowerCase()}`
+        const cur = recvDate.get(k)
+        if (!cur || (r.receive_date && r.receive_date > cur.receive_date)) {
+          recvDate.set(k, { receive_date: r.receive_date, bill_number: r.bill_number })
+        }
+      }
+      if (rl.length < PAGE) break
+      from += PAGE
+    }
+  } catch { /* ไม่มี receive_logs ก็ยังบอกได้ว่า "รอตรวจรับ" แค่ไม่รู้กี่วัน */ }
+
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const out = {}
+  for (const r of pending) {
+    const key = `${String(r.code || '').toLowerCase()}|${String(r.lot || '-').toLowerCase()}`
+    const hit = recvDate.get(key)
+    const iso = hit?.receive_date || null
+    out[key] = {
+      billNumber: hit?.bill_number || r.invoice || '',
+      receiveDate: iso,
+      waitDays: iso ? Math.floor((today - new Date(iso)) / 86400000) : null,
+    }
+  }
+  return out
+}
 
 /** ทุก lot ที่ระบบว่ามีของ — บรรทัดตั้งต้นของรอบประจำปี
  *  ⚠️ ต้องบวก qty ข้ามแถวที่ code+lot ซ้ำกัน (inventory มีแถวซ้ำจริง เช่น Baclofen lot 260301

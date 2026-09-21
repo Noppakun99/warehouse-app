@@ -66,6 +66,7 @@ const NOTIF_LABELS = {
   create_temperature_log:       { label: 'บันทึกอุณหภูมิตู้เย็น',  color: 'text-sky-600',     dot: 'bg-sky-400' },
   import_temperature_log:       { label: 'นำเข้าอุณหภูมิจากเครื่อง', color: 'text-sky-600',    dot: 'bg-sky-400' },
   update_stock_count:           { label: 'แก้ไขผลตรวจนับ',        color: 'text-amber-600',   dot: 'bg-amber-400' },
+  clear_stock_count_item:       { label: 'ล้างผลนับรายการ',       color: 'text-amber-600',   dot: 'bg-amber-400' },
   delete_stock_count:           { label: 'ลบรอบตรวจนับ',          color: 'text-red-600',     dot: 'bg-red-400' },
 };
 
