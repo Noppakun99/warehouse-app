@@ -1556,6 +1556,7 @@ export async function fetchNotifications(scope = null) {
     'add_unknown_count_item',
     'update_stock_count',
     'clear_stock_count_item',
+    'refresh_annual_count_qty',
     'delete_stock_count',
     // ── อุณหภูมิตู้เย็น (ADR-0018) ──
     'create_temperature_log',
@@ -3822,6 +3823,81 @@ export async function fetchAllLotsForAnnualCount({ includeZeroQty = false } = {}
     .sort((a, b) =>
       a.system_location.localeCompare(b.system_location, 'th', { numeric: true }) ||
       a.name.localeCompare(b.name) || a.lot.localeCompare(b.lot))
+}
+
+/** รีเฟรชยอดระบบของรอบประจำปี — อัปเดต `system_qty/exp/location` **เฉพาะบรรทัดที่ยังไม่ได้นับ**
+ *
+ *  ทำไมไม่ขัด ADR-0008 ข้อ 2: ADR บอกให้ freeze **"ค่า ณ วันนับ"** — ไม่ใช่ "ค่า ณ วันเปิดรอบ"
+ *  spot check สองค่านี้ตรงกันอยู่แล้ว (สร้างบรรทัดตอนจะนับ) แต่รอบประจำปี gen บรรทัดล่วงหน้า
+ *  ทั้งคลังแล้วไล่นับหลายสัปดาห์ ระหว่างนั้นคลัง import Master ทุกวัน + มีการเบิกจ่ายจริง
+ *  → บรรทัดที่ยังไม่ได้นับถือยอดของ "วันเปิดรอบ" ซึ่งไม่ใช่ยอดที่ควรเอาไปเทียบตอนเดินนับ
+ *  (เหตุการณ์ 2026-09-21: OralRehydration ผู้ใหญ่ lot 5-4735 รอบถือ 80 แต่ระบบจริง 56
+ *   เพราะเบิกออก 24 หลังเปิดรอบ — คนนับเห็น 80 แล้วจะรายงานว่า "ขาด 24" ทั้งที่ของครบ)
+ *
+ *  ⚠️ **ห้ามแตะบรรทัดที่นับแล้ว** (`counted_qty` ไม่ null) — นั่นคือ snapshot ที่คู่กับผลนับไปแล้ว
+ *     แก้เมื่อไหร่ = เปลี่ยนความหมายของส่วนต่างที่บันทึกไว้ย้อนหลัง ผิด ADR-0008 ของจริง
+ *  ⚠️ ใช้กับรอบที่ยังไม่ปิด (`status='draft'`) เท่านั้น — รอบที่ปิดแล้ว freeze ถาวร
+ *
+ *  @returns {{ updated: number, checked: number }}
+ */
+export async function refreshAnnualCountSystemQty(sessionId, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+
+  const { data: sess } = await supabase.from('stock_count_session')
+    .select('id, status, kind').eq('id', sessionId).single()
+  if (!sess) throw new Error('ไม่พบรอบตรวจนับนี้')
+  if (sess.status !== 'draft') throw new Error('รอบนี้ปิดแล้ว — ยอดระบบถูก freeze ถาวร แก้ไม่ได้')
+
+  // บรรทัดที่ยังไม่ได้นับเท่านั้น
+  const { data: lines, error: lineErr } = await supabase.from('stock_count_item')
+    .select('id, code, lot, system_qty, system_exp, system_location')
+    .eq('session_id', sessionId).is('counted_qty', null)
+  if (lineErr) throw lineErr
+  if (!lines?.length) return { updated: 0, checked: 0 }
+
+  // ยอดปัจจุบันต่อ (code+lot) — ต้องบวกข้ามแถวที่ซ้ำกัน (inventory มีแถวซ้ำจริง)
+  const inv = await fetchAllInventoryRows('code, lot, qty, exp, location')
+  const cur = new Map()
+  for (const r of inv) {
+    const key = `${String(r.code || '').toLowerCase()}|${String(r.lot || '-').toLowerCase()}`
+    if (!cur.has(key)) cur.set(key, { qty: 0, exps: new Set(), locs: new Set() })
+    const e = cur.get(key)
+    e.qty += toNum(r.qty)
+    if (r.exp) e.exps.add(String(r.exp))
+    if (r.location) e.locs.add(String(r.location))
+  }
+
+  const changed = []
+  for (const l of lines) {
+    const key = `${String(l.code || '').toLowerCase()}|${String(l.lot || '-').toLowerCase()}`
+    const c = cur.get(key)
+    if (!c) continue                       // lot หายจาก inventory — คงยอดเดิมไว้ให้คนไปเช็คเอง
+    const nextExp = [...c.exps].join(' , ') || '-'
+    const nextLoc = [...c.locs].join(' , ') || '-'
+    if (toNum(l.system_qty) === c.qty && (l.system_exp || '-') === nextExp && (l.system_location || '-') === nextLoc) continue
+    changed.push({ id: l.id, code: l.code, lot: l.lot, before: toNum(l.system_qty), after: c.qty, exp: nextExp, loc: nextLoc })
+  }
+
+  for (const ch of changed) {
+    const { error } = await supabase.from('stock_count_item')
+      .update({ system_qty: ch.after, system_exp: ch.exp, system_location: ch.loc })
+      .eq('id', ch.id)
+      .is('counted_qty', null)             // กันแข่งกับคนที่เพิ่งนับบรรทัดนี้พอดี
+    if (error) throw error
+  }
+
+  if (changed.length) {
+    await insertAuditLog({
+      action: 'refresh_annual_count_qty', table_name: 'stock_count_item',
+      user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+      record_count: changed.length,
+      details: {
+        session_id: sessionId, checked: lines.length,
+        sample: changed.slice(0, 20).map(c => ({ code: c.code, lot: c.lot, before: c.before, after: c.after })),
+      },
+    })
+  }
+  return { updated: changed.length, checked: lines.length }
 }
 
 /** แยกยอดรายที่เก็บของทุก lot ที่แบ่งวางคนละที่ — map `code|lot` → [{location, qty}]

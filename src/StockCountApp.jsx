@@ -11,7 +11,7 @@ import {
   updateStockCountFollowup, FOLLOWUP_STATUS, fetchCountPriorityData, clearStockCountItem,
   fetchOpenAnnualCount, createAnnualCount, updateAnnualCountLine, closeAnnualCount,
   fetchZeroLotsForAnnual, addLotToAnnualCount, addUnknownItemToAnnualCount, UNKNOWN_TAG, sortByShelf,
-  fetchLotLocationBreakdown, fetchPendingReceiveLots,
+  fetchLotLocationBreakdown, fetchPendingReceiveLots, refreshAnnualCountSystemQty,
 } from './lib/db'
 import { dimStatus, diffLabel, computeCountMatch, DIM_COUNT } from './lib/countMatch'
 import { rankCountPriority } from './lib/countPriority'
@@ -921,6 +921,7 @@ function AnnualTab({ auth }) {
   const [toast, setToast] = useState(null)
   const [starting, setStarting] = useState(false)
   const [closing, setClosing] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)   // กำลังดึงยอดระบบปัจจุบันมาอัปเดตบรรทัดที่ยังไม่ได้นับ
   const [onlyPending, setOnlyPending] = useState(true)   // เปิดมาวันที่ 2 ต้องเห็นเฉพาะที่ยังไม่นับ
   const [zoneFilter, setZoneFilter] = useState('')       // โซนหลัก (A/B/C… หรือชื่อไทย) — เลือกก่อน
   const [locFilter, setLocFilter] = useState('')          // ชั้นย่อยในโซนนั้น — ไม่เลือก = ทั้งโซน
@@ -1050,6 +1051,29 @@ function AnnualTab({ auth }) {
     } catch (e) {
       setToast({ tone: 'error', message: e?.message || 'เริ่มรอบไม่สำเร็จ' })
     } finally { setStarting(false) }
+  }
+
+  // ดึงยอดคงคลังปัจจุบันมาอัปเดตบรรทัดที่ยังไม่ได้นับ
+  // จำเป็นเพราะรอบประจำปีกินเวลาหลายสัปดาห์ ระหว่างนั้นมีเบิกจ่าย + import Master ทุกวัน
+  // บรรทัดที่นับแล้วไม่ถูกแตะ — snapshot คู่กับผลนับต้องคงเดิม (ADR-0008)
+  const doRefreshQty = async () => {
+    if (!session) return
+    setRefreshing(true)
+    try {
+      const { updated, checked } = await refreshAnnualCountSystemQty(session.id, auth)
+      if (updated > 0) {
+        const open = await fetchOpenAnnualCount()
+        if (open) { setSession(open.session); setItems(open.items) }
+      }
+      setToast({
+        tone: 'success',
+        message: updated > 0
+          ? `อัปเดตยอดระบบ ${updated} รายการ (จากที่ยังไม่ได้นับ ${checked} รายการ)`
+          : `ยอดระบบตรงกับปัจจุบันอยู่แล้ว — ตรวจ ${checked} รายการที่ยังไม่ได้นับ`,
+      })
+    } catch (e) {
+      setToast({ tone: 'error', message: e?.message || 'รีเฟรชยอดไม่สำเร็จ' })
+    } finally { setRefreshing(false) }
   }
 
   /** บันทึกบรรทัดปัจจุบัน แล้วไปตัวถัดไป
@@ -1547,6 +1571,11 @@ function AnnualTab({ auth }) {
         <button onClick={openZeroPicker}
           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-sm font-semibold mr-auto">
           <Package size={15} /> เพิ่ม lot ที่ระบบว่าหมด
+        </button>
+        <button onClick={doRefreshQty} disabled={refreshing}
+          title="ดึงยอดคงคลังปัจจุบันมาอัปเดตบรรทัดที่ยังไม่ได้นับ (ไม่แตะบรรทัดที่นับแล้ว)"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-sky-300 dark:border-sky-800/60 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 text-sm font-semibold disabled:opacity-60">
+          {refreshing ? <Loader2 size={15} className="animate-spin" /> : <RefreshCcw size={15} />} รีเฟรชยอดระบบ
         </button>
         <button onClick={() => printCountSheet(items, { counterName: session.counter_name, dateLabel: fmtThaiDate(session.counted_at) })}
           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-semibold">
