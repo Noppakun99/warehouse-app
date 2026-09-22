@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   ClipboardCheck, X, Printer, Save, CheckCircle, AlertTriangle,
   ChevronDown, ChevronUp, Search, Package, Pencil, Trash2, Calendar, Eye, History,
-  Sparkles, RefreshCcw, CalendarCheck, ChevronLeft, ChevronRight, Loader2, WifiOff, Filter, FileDown, Eraser, Clock,
+  Sparkles, RefreshCcw, CalendarCheck, ChevronLeft, ChevronRight, Loader2, WifiOff, FileDown, Eraser, Clock,
 } from 'lucide-react'
 import {
   fetchInventoryNameCodeMap, fetchLotsForCount, createStockCount,
@@ -172,6 +172,12 @@ function DiffCell({ it }) {
     : 'text-amber-600'
   return <span className={`font-semibold ${cls}`}>{lbl}</span>
 }
+
+// ยอดแยกรายชั้นที่ระบบเขียนลงหมายเหตุ — ติดป้ายไว้เพื่อ "แทนที่ชุดเดิม" ได้เวลากดแก้ซ้ำ
+// (ถ้าไม่มีป้าย จะแยกไม่ออกว่าข้อความไหนระบบเขียน ข้อความไหนคนพิมพ์เอง แล้วทับของคนหาย)
+const SPLIT_TAG = 'แยกชั้น: '
+const stripSplitNote = (note) =>
+  String(note || '').split(' · ').filter(p => !p.trim().startsWith(SPLIT_TAG)).join(' · ').trim()
 
 // ป้าย "รอตรวจรับ" ต่อ lot — ของมาถึงชั้นแล้วแต่ยังไม่ผ่านตรวจรับ
 // คนนับเจอของจริงบนชั้นแต่ยอดระบบอาจยังไม่รวม/รวมแล้วแต่ยังไม่ควรนับเป็นของคลังเต็มตัว
@@ -922,9 +928,13 @@ function AnnualTab({ auth }) {
   const [starting, setStarting] = useState(false)
   const [closing, setClosing] = useState(false)
   const [refreshing, setRefreshing] = useState(false)   // กำลังดึงยอดระบบปัจจุบันมาอัปเดตบรรทัดที่ยังไม่ได้นับ
-  const [onlyPending, setOnlyPending] = useState(true)   // เปิดมาวันที่ 2 ต้องเห็นเฉพาะที่ยังไม่นับ
+  const [countFilter, setCountFilter] = useState('pending')  // 'pending' | 'counted' | 'all' — เปิดมาวันที่ 2 ต้องเห็นเฉพาะที่ยังไม่นับ
   const [zoneFilter, setZoneFilter] = useState('')       // โซนหลัก (A/B/C… หรือชื่อไทย) — เลือกก่อน
   const [locFilter, setLocFilter] = useState('')          // ชั้นย่อยในโซนนั้น — ไม่เลือก = ทั้งโซน
+  const [drugQ, setDrugQ] = useState('')                 // ค้นชื่อยา/รหัส/lot ในรอบ — หายาที่รู้ชื่อโดยไม่ต้องไล่ชั้น
+  const [drugTypes, setDrugTypes] = useState({})          // ชื่อยา → ชนิด (badge ใน dropdown ค้นหา)
+  const [splitOpen, setSplitOpen] = useState(false)      // กางช่องกรอกแยกรายชั้น (lot ที่แบ่งเก็บ)
+  const [splitVals, setSplitVals] = useState([])         // ยอดที่นับได้รายชั้น ตามลำดับ curSplit
   const [mode, setMode] = useState('walk')               // 'walk' = ทีละ lot | 'list' = ตารางทบทวน
   const [saveState, setSaveState] = useState({})         // { itemId: 'saving'|'saved'|'error' }
   const [draft, setDraft] = useState(null)               // ค่าที่กำลังกรอกของ lot ปัจจุบัน
@@ -949,7 +959,11 @@ function AnnualTab({ auth }) {
         const u = JSON.parse(raw)
         if (u.zoneFilter != null) setZoneFilter(u.zoneFilter)
         if (u.locFilter != null) setLocFilter(u.locFilter)
-        if (typeof u.onlyPending === 'boolean') setOnlyPending(u.onlyPending)
+        if (u.drugQ != null) setDrugQ(u.drugQ)
+        // ค่าใหม่เป็น string 3 สถานะ — แต่รอบที่กำลังนับอยู่มีค่าเก่า (boolean) ค้างใน localStorage
+        // แปลงให้ ไม่งั้นคนที่นับค้างไว้เปิดมาเจอตัวกรองรีเซ็ตเอง
+        if (u.countFilter) setCountFilter(u.countFilter)
+        else if (typeof u.onlyPending === 'boolean') setCountFilter(u.onlyPending ? 'pending' : 'all')
         if (u.mode) setMode(u.mode)
         if (Number.isFinite(u.idx)) setIdx(u.idx)
         if (u.draft && u.draftItemId) setPendingDraft({ itemId: u.draftItemId, draft: u.draft })
@@ -963,7 +977,7 @@ function AnnualTab({ auth }) {
     if (!uiKey || !restored) return
     try {
       localStorage.setItem(uiKey, JSON.stringify({
-        idx, zoneFilter, locFilter, onlyPending, mode,
+        idx, zoneFilter, locFilter, countFilter, mode, drugQ,
         draftItemId: cur?.id ?? null,
         // เก็บเฉพาะที่พิมพ์ค้างไว้จริง (ยังไม่กดบันทึก) — ไม่งั้นเก็บค่าที่ save ไปแล้วซ้ำเปล่าๆ
         draft: draft && (draft.counted_qty || draft.counted_lot || draft.counted_exp || draft.counted_location || draft.item_note)
@@ -976,6 +990,7 @@ function AnnualTab({ auth }) {
     fetchInventoryLocations().then(setLocations).catch(() => {})
     fetchLotLocationBreakdown().then(setLocBreakdown).catch(() => {})
     fetchPendingReceiveLots().then(setPendingRecv).catch(() => {})
+    fetchInventoryNameCodeMap().then(m => setDrugTypes(m.typeByName || {})).catch(() => {})
     fetchOpenAnnualCount()
       .then(open => {
         if (open) { setSession(open.session); setItems(open.items) }
@@ -1008,22 +1023,71 @@ function AnnualTab({ auth }) {
     : []
 
   // อยู่ในขอบเขตที่เลือก (โซน/ชั้น) — แยกจาก queue เพื่อนับ "เหลือเท่าไหร่" ให้ตรงกับที่เห็น
+  // ค้นได้ทั้ง ชื่อยา / รหัส / lot — คนนับมักจำได้อย่างใดอย่างหนึ่ง ไม่ใช่ทั้งสามอย่าง
+  const matchQ = (it) => {
+    const q = drugQ.trim().toLowerCase()
+    if (!q) return true
+    return [it.name, it.code, it.lot].some(v => String(v || '').toLowerCase().includes(q))
+  }
+
   const inScope = (it) =>
     (!zoneFilter || zoneOf(it.system_location) === zoneFilter) &&
-    (!locFilter || (it.system_location || '-') === locFilter)
+    (!locFilter || (it.system_location || '-') === locFilter) &&
+    matchQ(it)
+
+  // ตัวเลือก autocomplete — จากบรรทัดในรอบนี้เท่านั้น (ค้นแล้วต้องเจอของที่นับได้จริง)
+  // badge ชนิดยาดึงจาก typeByName ของ inventory (บรรทัดนับไม่ได้เก็บ type)
+  const drugOpts = (() => {
+    const seen = new Set(), out = []
+    for (const it of items) {
+      if (!it.name || seen.has(it.name)) continue
+      seen.add(it.name)
+      out.push({ name: it.name, type: drugTypes[it.name] || '' })
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name, 'th'))
+  })()
 
   const pendingInScope = items.filter(it => inScope(it) && it.counted_qty === null).length
+  const countedInScope = items.filter(it => inScope(it) && it.counted_qty !== null).length
 
   // คิวที่กำลังไล่นับ — กรองแล้วค่อยไล่ ไม่งั้นกด "ถัดไป" แล้วข้ามไปคนละชั้น
-  const queue = items.filter(it => (!onlyPending || it.counted_qty === null) && inScope(it))
+  const isCountedLine = (it) => it.counted_qty !== null && it.counted_qty !== ''
+  const queue = items.filter(it =>
+    (countFilter === 'all' || (countFilter === 'pending' ? !isCountedLine(it) : isCountedLine(it))) &&
+    inScope(it))
 
   // clamp เพราะคิวหดได้ระหว่างนับ: โหมด "เฉพาะที่ยังไม่นับ" พอบันทึกแล้วแถวหลุดคิวทันที
   // ถ้าอยู่ตัวท้าย idx จะเกินขอบ → cur เป็น undefined จอว่างทั้งที่ยังมีของให้นับ
   const safeIdx = queue.length ? Math.min(idx, queue.length - 1) : 0
   const cur = queue[safeIdx] || null
 
+  // lot ปัจจุบันแบ่งเก็บกี่ที่ (จาก inventory สด ไม่ใช่ snapshot — บอกว่า "ตอนนี้ของอยู่ไหนบ้าง")
+  const curSplit = (cur && locBreakdown[`${cur.code}|${cur.lot}`]) || []
+  const splitSum = splitVals.reduce((a, v) => a + (parseFloat(v) || 0), 0)
+
+  // เอายอดรวมรายชั้นไปใส่ช่อง "นับได้จริง" + จดที่มาลงหมายเหตุ
+  // (คลังเขียนหมายเหตุแบบนี้ด้วยมืออยู่แล้ว เช่น "ชั้น 4 750 + คลังยา 550" — ทำให้อัตโนมัติ)
+  const applySplit = () => {
+    const parts = curSplit
+      .map((b, i) => ({ loc: b.location, v: String(splitVals[i] ?? '').trim() }))
+      .filter(p => p.v !== '')
+    if (!parts.length) return
+    const note = SPLIT_TAG + parts.map(p => `${p.loc} ${toNum(p.v)}`).join(' + ')
+    setDraft(d => ({
+      ...d,
+      counted_qty: String(splitSum),
+      // เก็บข้อสังเกตที่คนพิมพ์เองไว้ แต่ **แทนที่ชุดแยกชั้นเดิม** ไม่ต่อท้าย
+      // (กดแก้แล้วกดใหม่ต้องได้ชุดเดียว ไม่ใช่ 2 ชุดที่ยอดขัดกันเอง)
+      item_note: [stripSplitNote(d?.item_note), note].filter(Boolean).join(' · '),
+    }))
+    setSplitOpen(false)
+  }
+
   // เปลี่ยน lot → รีเซ็ต draft เป็นค่าที่เคยบันทึกไว้ (กลับมาแก้ของเดิมได้)
   useEffect(() => {
+    // เปลี่ยน lot = ล้างช่องกรอกแยกชั้น ไม่งั้นยอดของ lot ก่อนหน้าค้างมาปนกับตัวใหม่
+    setSplitOpen(false)
+    setSplitVals([])
     if (!cur) { setDraft(null); return }
     // ถ้ามีค่าที่พิมพ์ค้างไว้ก่อนออกจากหน้า และเป็น lot เดียวกัน → คืนค่านั้นแทน
     if (pendingDraft && pendingDraft.itemId === cur.id) {
@@ -1087,7 +1151,7 @@ function AnnualTab({ auth }) {
     setItems(prev => prev.map(it => it.id === itemId ? { ...it, ...fields, ...computeCountMatch(payload) } : it))
     // โหมด "เฉพาะที่ยังไม่นับ": แถวที่เพิ่งบันทึกหลุดคิวเอง → index เดิมกลายเป็นตัวถัดไปอยู่แล้ว
     // โหมดปกติ: ต้องขยับเอง แต่ห้ามเกินขอบคิว (ตัวสุดท้ายให้ค้างอยู่ที่เดิม)
-    if (advance && !onlyPending) setIdx(i => Math.min(i + 1, queue.length - 1))
+    if (advance && countFilter !== 'pending') setIdx(i => Math.min(i + 1, queue.length - 1))
     try {
       await updateAnnualCountLine(itemId, payload)
       setSaveState(s => ({ ...s, [itemId]: 'saved' }))
@@ -1111,11 +1175,15 @@ function AnnualTab({ auth }) {
     setDraft(d => ({ ...d, [field]: d?.[field] ? '' : (sysVal === '-' ? '' : sysVal) }))
   }
 
+  // "ตรงตามระบบ" = เติมค่าระบบให้ครบ 4 มิติ — แต่ **ห้ามทิ้งหมายเหตุที่พิมพ์ค้างไว้**
+  // (saveLine ทำ {...cur, ...fields} ซึ่ง cur.item_note เป็นค่าจาก DB ไม่ใช่ที่กำลังพิมพ์
+  //  ไม่ส่ง item_note ไปด้วย = หมายเหตุ/ยอดแยกชั้นที่เพิ่งกรอกหายเงียบ)
   const markSame = () => saveLine({
     counted_qty: String(toNum(cur.system_qty)),
     counted_exp: cur.system_exp && cur.system_exp !== '-' ? cur.system_exp : '',
     counted_location: cur.system_location && cur.system_location !== '-' ? cur.system_location : '',
     counted_lot: cur.lot && cur.lot !== '-' ? cur.lot : '',
+    item_note: draft?.item_note ?? cur.item_note ?? '',
   })
 
   const saveDraft = () => {
@@ -1191,7 +1259,7 @@ function AnnualTab({ auth }) {
       // ล้างตำแหน่ง/ตัวกรองที่จำไว้ — ปิดรอบแล้วไม่ควรค้างไปรอบหน้า
       try { localStorage.removeItem(`annualcount_ui_${session.id}`) } catch { /* noop */ }
       setSession(null); setItems([]); setIdx(0); setRestored(false); setPendingDraft(null)
-      setZoneFilter(''); setLocFilter(''); setOnlyPending(true); setMode('walk')
+      setZoneFilter(''); setLocFilter(''); setCountFilter('pending'); setDrugQ(''); setMode('walk')
     } catch (e) {
       setToast({ tone: 'error', message: e?.message || 'ปิดรอบไม่สำเร็จ' })
     } finally { setClosing(false) }
@@ -1291,22 +1359,30 @@ function AnnualTab({ auth }) {
             {locsInZone.map(l => <option key={l} value={l}>{l}</option>)}
           </select>
         )}
-        {/* toggle ตัวกรอง — ไอคอน funnel บอกว่าเป็นตัวกรอง, ตัวเลข = เหลือกี่ lot ในขอบเขตที่เลือกอยู่
-            (นับตามโซน/ชั้นที่กรองไว้ ไม่ใช่ทั้งรอบ ไม่งั้นเลขไม่ตรงกับคิวที่เห็น) */}
-        <button onClick={() => { setOnlyPending(v => !v); setIdx(0) }}
-          aria-pressed={onlyPending}
-          title={onlyPending ? 'กดเพื่อแสดงทุก lot รวมที่นับแล้ว' : 'กดเพื่อซ่อน lot ที่นับแล้ว'}
-          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-colors ${
-            onlyPending
-              ? 'bg-indigo-500 border-indigo-500 text-white'
-              : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300'}`}>
-          <Filter size={14} className={onlyPending ? 'text-white' : 'text-slate-400 dark:text-slate-500'} />
-          เฉพาะที่ยังไม่นับ
-          <span className={`tabular-nums rounded-full px-1.5 py-0.5 text-[11px] ${
-            onlyPending ? 'bg-white/25' : 'bg-slate-100 dark:bg-slate-800'}`}>
-            {pendingInScope}
-          </span>
-        </button>
+        {/* ค้นชื่อยา — ไล่ตามชั้นเป็นหลัก แต่บางทีต้องหายาตัวที่รู้ชื่อโดยไม่รู้ว่าอยู่ชั้นไหน
+            (เช่น หัวหน้าถามถึงตัวนั้นตัวนี้ระหว่างนับ) options ดึงจากบรรทัดในรอบเอง ไม่ต้อง query เพิ่ม */}
+        <DrugSearchBar
+          value={drugQ}
+          onChange={(v) => { setDrugQ(v); setIdx(0) }}
+          onSelect={(v) => { setDrugQ(v); setIdx(0) }}
+          options={drugOpts}
+          placeholder="ค้นชื่อยา / รหัส / lot"
+          className="w-56"
+          ringClass="focus:ring-indigo-400"
+          hoverClass="hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+        />
+
+        {/* ตัวกรองสถานะนับ — dropdown 3 ตัวเลือก (เดิมเป็นปุ่ม toggle 2 สถานะ
+            ซึ่งบอกไม่ได้ว่า "ดูเฉพาะที่นับแล้ว" ทำได้ ต้องกดสลับแล้วเดาเอง)
+            ตัวเลขในวงเล็บ = จำนวนในขอบเขตโซน/ชั้น/คำค้นที่กรองอยู่ ไม่ใช่ทั้งรอบ */}
+        <select value={countFilter}
+          onChange={e => { setCountFilter(e.target.value); setIdx(0) }}
+          title="กรองตามสถานะการนับ"
+          className="border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-semibold">
+          <option value="pending">ยังไม่นับ ({pendingInScope})</option>
+          <option value="counted">นับแล้ว ({countedInScope})</option>
+          <option value="all">ทั้งหมด ({pendingInScope + countedInScope})</option>
+        </select>
         <div className="inline-flex gap-1 p-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 ml-auto">
           {[{ k: 'walk', t: 'ไล่ทีละตัว' }, { k: 'list', t: 'ดูเป็นตาราง' }].map(m => (
             <button key={m.k} onClick={() => setMode(m.k)}
@@ -1322,7 +1398,9 @@ function AnnualTab({ auth }) {
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-8 text-center">
           <CheckCircle size={32} className="mx-auto text-emerald-500 mb-2" />
           <p className="font-semibold text-slate-700 dark:text-slate-200">
-            {onlyPending ? 'นับครบแล้วในตัวกรองนี้' : 'ไม่มีรายการตรงตัวกรอง'}
+            {countFilter === 'pending' ? 'นับครบแล้วในตัวกรองนี้'
+              : countFilter === 'counted' ? 'ยังไม่มีรายการที่นับแล้วในตัวกรองนี้'
+              : 'ไม่มีรายการตรงตัวกรอง'}
           </p>
           <p className="text-sm text-slate-400 mt-1">
             {counted < total ? `ยังเหลืออีก ${total - counted} รายการในชั้นอื่น` : 'นับครบทุกรายการแล้ว — ปิดรอบได้เลย'}
@@ -1385,6 +1463,48 @@ function AnnualTab({ auth }) {
                 </div>
               </div>
             </div>
+
+            {/* lot ที่แบ่งเก็บหลายที่ — กรอกแยกรายชั้นแล้วระบบรวมให้ ไม่ต้องบวกในหัว
+                ผลรวมลง counted_qty ช่องเดียวเหมือนเดิม (1 บรรทัด = 1 code+lot ตาม ADR-0008 ข้อ 3)
+                ยอดที่แยกไว้เก็บลง item_note เป็นข้อความ — คลังเขียนแบบนี้อยู่แล้วด้วยมือ */}
+            {curSplit.length > 1 && (
+              <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+                    lot นี้แบ่งเก็บ {curSplit.length} ที่ — กรอกแยกได้ ระบบรวมให้
+                  </p>
+                  <button type="button" onClick={() => setSplitOpen(v => !v)}
+                    className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 underline underline-offset-2">
+                    {splitOpen ? 'ซ่อน' : 'กรอกแยกที่เก็บ'}
+                  </button>
+                </div>
+                {splitOpen && (
+                  <div className="space-y-2">
+                    {curSplit.map((b, i) => (
+                      <div key={b.location} className="flex items-center gap-2">
+                        <span className="flex-1 min-w-0 text-xs text-slate-600 dark:text-slate-300 truncate" title={b.location}>
+                          {b.location}
+                          <span className="text-slate-400 dark:text-slate-500"> (ระบบ {toNum(b.qty)})</span>
+                        </span>
+                        <input type="number" inputMode="decimal" value={splitVals[i] ?? ''}
+                          onChange={e => setSplitVals(v => { const n = [...v]; n[i] = e.target.value; return n })}
+                          placeholder="นับได้"
+                          className="w-24 shrink-0 px-2 py-1.5 border border-amber-300 dark:border-amber-800/60 rounded-lg text-center text-sm font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between pt-1.5 border-t border-amber-200 dark:border-amber-900/50">
+                      <span className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+                        รวม {splitSum} {cur?.unit}
+                      </span>
+                      <button type="button" onClick={applySplit} disabled={!splitVals.some(v => String(v).trim() !== '')}
+                        className="px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-semibold disabled:opacity-40">
+                        ใช้ยอดรวมนี้
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* นับได้จริง — ช่องหลัก เด่นกว่ามิติอื่นเพราะต้องกรอกทุกตัว */}
             <div>
