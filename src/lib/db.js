@@ -3825,7 +3825,17 @@ export async function fetchAllLotsForAnnualCount({ includeZeroQty = false } = {}
       a.name.localeCompare(b.name) || a.lot.localeCompare(b.lot))
 }
 
+/** key ประจำตัวของ "1 บรรทัดนับ" = รหัส + lot
+ *  ⚠️ lot ว่าง/`-` เป็นค่าปกติของเวชภัณฑ์ (ถุงซิบ ฯลฯ) ซึ่ง inventory มีหลายแถวได้จริง
+ *     (รับเข้าคนละครั้ง) — ทุกแถวที่ key ตรงกันต้อง **บวกรวมเป็นบรรทัดเดียว** ห้ามแยกบรรทัด
+ *     ต้องให้ผลเดียวกับ `fetchAllLotsForAnnualCount` เป๊ะ ไม่งั้นรีเฟรชจะเพิ่มบรรทัดซ้ำ */
+const annualLotKey = (code, lot) =>
+  `${String(code || '').trim().toLowerCase()}|${String(lot || '-').trim().toLowerCase() || '-'}`
+
 /** รีเฟรชยอดระบบของรอบประจำปี — อัปเดต `system_qty/exp/location` **เฉพาะบรรทัดที่ยังไม่ได้นับ**
+ *  + **เพิ่ม lot ใหม่ที่เข้าคลังหลังเปิดรอบ** เข้ารอบให้อัตโนมัติ (นโยบายคลัง 2026-09-22):
+ *  ของที่รับเข้าระหว่างรอบอยู่บนชั้นจริง คนเดินนับเจอแน่ ต้องมีบรรทัดให้กรอก
+ *  รวมของที่ยัง "รอตรวจรับ" ด้วย — ป้ายรอตรวจรับบนการ์ดนับบอกสถานะอยู่แล้ว (ไม่ใช่เหตุให้ข้าม)
  *
  *  ทำไมไม่ขัด ADR-0008 ข้อ 2: ADR บอกให้ freeze **"ค่า ณ วันนับ"** — ไม่ใช่ "ค่า ณ วันเปิดรอบ"
  *  spot check สองค่านี้ตรงกันอยู่แล้ว (สร้างบรรทัดตอนจะนับ) แต่รอบประจำปี gen บรรทัดล่วงหน้า
@@ -3848,19 +3858,25 @@ export async function refreshAnnualCountSystemQty(sessionId, auth = {}) {
   if (!sess) throw new Error('ไม่พบรอบตรวจนับนี้')
   if (sess.status !== 'draft') throw new Error('รอบนี้ปิดแล้ว — ยอดระบบถูก freeze ถาวร แก้ไม่ได้')
 
-  // บรรทัดที่ยังไม่ได้นับเท่านั้น
-  const { data: lines, error: lineErr } = await supabase.from('stock_count_item')
-    .select('id, code, lot, system_qty, system_exp, system_location')
-    .eq('session_id', sessionId).is('counted_qty', null)
-  if (lineErr) throw lineErr
-  if (!lines?.length) return { updated: 0, checked: 0 }
+  // ทุกบรรทัดในรอบ — ใช้เช็คว่า lot ไหน "อยู่ในรอบแล้ว" (รวมที่นับไปแล้ว ไม่งั้นเพิ่มซ้ำ)
+  const { data: allLines, error: allErr } = await supabase.from('stock_count_item')
+    .select('id, code, lot, system_qty, system_exp, system_location, counted_qty')
+    .eq('session_id', sessionId)
+  if (allErr) throw allErr
+  const inSession = new Set((allLines || []).map(l => annualLotKey(l.code, l.lot)))
+
+  // อัปเดตยอดได้เฉพาะบรรทัดที่ยังไม่ได้นับ
+  const lines = (allLines || []).filter(l => l.counted_qty == null)
 
   // ยอดปัจจุบันต่อ (code+lot) — ต้องบวกข้ามแถวที่ซ้ำกัน (inventory มีแถวซ้ำจริง)
-  const inv = await fetchAllInventoryRows('code, lot, qty, exp, location')
+  const inv = await fetchAllInventoryRows('code, name, lot, unit, qty, exp, location')
   const cur = new Map()
   for (const r of inv) {
-    const key = `${String(r.code || '').toLowerCase()}|${String(r.lot || '-').toLowerCase()}`
-    if (!cur.has(key)) cur.set(key, { qty: 0, exps: new Set(), locs: new Set() })
+    const key = annualLotKey(r.code, r.lot)
+    if (!cur.has(key)) cur.set(key, {
+      code: r.code, name: r.name || '-', lot: r.lot || '-', unit: r.unit || '-',
+      qty: 0, exps: new Set(), locs: new Set(),
+    })
     const e = cur.get(key)
     e.qty += toNum(r.qty)
     if (r.exp) e.exps.add(String(r.exp))
@@ -3869,7 +3885,7 @@ export async function refreshAnnualCountSystemQty(sessionId, auth = {}) {
 
   const changed = []
   for (const l of lines) {
-    const key = `${String(l.code || '').toLowerCase()}|${String(l.lot || '-').toLowerCase()}`
+    const key = annualLotKey(l.code, l.lot)
     const c = cur.get(key)
     if (!c) continue                       // lot หายจาก inventory — คงยอดเดิมไว้ให้คนไปเช็คเอง
     const nextExp = [...c.exps].join(' , ') || '-'
@@ -3886,18 +3902,43 @@ export async function refreshAnnualCountSystemQty(sessionId, auth = {}) {
     if (error) throw error
   }
 
-  if (changed.length) {
+  // lot ที่เข้าคลังหลังเปิดรอบ — ยังไม่มีบรรทัดในรอบ แต่ระบบว่ามีของแล้ว → เพิ่มให้คนนับ
+  // เกณฑ์ qty > 0 เดียวกับตอน gen รอบ (fetchAllLotsForAnnualCount) — ของที่ระบบว่าหมด
+  // ยังต้องกดปุ่ม "เพิ่ม lot ที่ระบบว่าหมด" เองเหมือนเดิม (phantom stock คนละเรื่อง)
+  const added = []
+  for (const [key, c] of cur) {
+    if (c.qty <= 0 || inSession.has(key)) continue
+    added.push({
+      session_id: sessionId,
+      code: c.code, name: c.name, lot: c.lot, unit: c.unit,
+      system_qty: c.qty,
+      system_exp: [...c.exps].join(' , ') || '-',
+      system_location: [...c.locs].join(' , ') || '-',
+      counted_qty: null, counted_exp: '', counted_location: '', counted_lot: '', item_note: '',
+      diff_qty: 0, match: false,
+    })
+  }
+  let addedRows = []
+  if (added.length) {
+    const { data, error } = await supabase.from('stock_count_item').insert(added).select('*')
+    if (error) throw error
+    addedRows = data || []
+  }
+
+  if (changed.length || addedRows.length) {
     await insertAuditLog({
       action: 'refresh_annual_count_qty', table_name: 'stock_count_item',
       user_name: resolveAuditUserName(auth), department: auth?.department || '-',
-      record_count: changed.length,
+      record_count: changed.length + addedRows.length,
       details: {
         session_id: sessionId, checked: lines.length,
+        updated: changed.length, added: addedRows.length,
         sample: changed.slice(0, 20).map(c => ({ code: c.code, lot: c.lot, before: c.before, after: c.after })),
+        added_sample: added.slice(0, 20).map(a => ({ code: a.code, lot: a.lot, qty: a.system_qty })),
       },
     })
   }
-  return { updated: changed.length, checked: lines.length }
+  return { updated: changed.length, checked: lines.length, added: addedRows.length, addedRows }
 }
 
 /** แยกยอดรายที่เก็บของทุก lot ที่แบ่งวางคนละที่ — map `code|lot` → [{location, qty}]

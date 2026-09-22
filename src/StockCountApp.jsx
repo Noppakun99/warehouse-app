@@ -1124,15 +1124,18 @@ function AnnualTab({ auth }) {
     if (!session) return
     setRefreshing(true)
     try {
-      const { updated, checked } = await refreshAnnualCountSystemQty(session.id, auth)
-      if (updated > 0) {
+      const { updated, checked, added } = await refreshAnnualCountSystemQty(session.id, auth)
+      if (updated > 0 || added > 0) {
         const open = await fetchOpenAnnualCount()
         if (open) { setSession(open.session); setItems(open.items) }
       }
+      const parts = []
+      if (updated > 0) parts.push(`อัปเดตยอด ${updated} รายการ`)
+      if (added > 0) parts.push(`เพิ่ม lot ใหม่ที่เข้าคลังหลังเปิดรอบ ${added} รายการ`)
       setToast({
         tone: 'success',
-        message: updated > 0
-          ? `อัปเดตยอดระบบ ${updated} รายการ (จากที่ยังไม่ได้นับ ${checked} รายการ)`
+        message: parts.length
+          ? `${parts.join(' · ')} (ตรวจ ${checked} รายการที่ยังไม่ได้นับ)`
           : `ยอดระบบตรงกับปัจจุบันอยู่แล้ว — ตรวจ ${checked} รายการที่ยังไม่ได้นับ`,
       })
     } catch (e) {
@@ -1693,7 +1696,7 @@ function AnnualTab({ auth }) {
           <Package size={15} /> เพิ่ม lot ที่ระบบว่าหมด
         </button>
         <button onClick={doRefreshQty} disabled={refreshing}
-          title="ดึงยอดคงคลังปัจจุบันมาอัปเดตบรรทัดที่ยังไม่ได้นับ (ไม่แตะบรรทัดที่นับแล้ว)"
+          title="ดึงยอดคงคลังปัจจุบันมาอัปเดตบรรทัดที่ยังไม่ได้นับ + เพิ่ม lot ใหม่ที่เข้าคลังหลังเปิดรอบ (ไม่แตะบรรทัดที่นับแล้ว)"
           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-sky-300 dark:border-sky-800/60 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 text-sm font-semibold disabled:opacity-60">
           {refreshing ? <Loader2 size={15} className="animate-spin" /> : <RefreshCcw size={15} />} รีเฟรชยอดระบบ
         </button>
