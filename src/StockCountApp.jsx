@@ -1221,6 +1221,19 @@ function AnnualTab({ auth }) {
     }
   }
 
+  // ตัวเลือก autocomplete ของโมดอลเพิ่ม lot — จาก rows ที่เลือกได้จริงเท่านั้น
+  // (ยาตัวเดียวมีได้หลาย lot → dedupe ตามชื่อ ไม่งั้น dropdown ขึ้นชื่อซ้ำกันรัวๆ)
+  const zeroDrugOpts = (() => {
+    if (!zeroPicker?.rows?.length) return []
+    const seen = new Set(), out = []
+    for (const r of zeroPicker.rows) {
+      if (!r.name || seen.has(r.name)) continue
+      seen.add(r.name)
+      out.push({ name: r.name, type: drugTypes[r.name] || '' })
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name, 'th'))
+  })()
+
   // ของที่ไม่มีในระบบเลย (ไม่มีทั้งรหัสและ lot) — คนกรอกเอง บันทึกเป็นแถวพิเศษ
   const [unknownForm, setUnknownForm] = useState(null)   // null = ยังไม่เปิดฟอร์ม
   const [savingUnknown, setSavingUnknown] = useState(false)
@@ -1741,10 +1754,18 @@ function AnnualTab({ auth }) {
               <button onClick={() => setZeroPicker(null)} className="text-slate-400 hover:text-slate-600 p-1 shrink-0"><X size={16} /></button>
             </div>
 
+            {/* autocomplete จาก lot ที่เลือกได้ในโมดอลนี้เท่านั้น — เลือกจาก dropdown แล้วต้องเจอของจริง
+                (dropdown แนะนำตามชื่อยา ส่วนที่พิมพ์เองยังค้นได้ทั้ง ชื่อ/รหัส/lot เหมือนเดิม) */}
             <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800">
-              <input type="text" autoFocus value={zeroPicker.q} placeholder="พิมพ์ชื่อยา / รหัส / lot เพื่อค้นหา"
-                onChange={e => setZeroPicker(p => ({ ...p, q: e.target.value }))}
-                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+              <DrugSearchBar
+                value={zeroPicker.q}
+                onChange={(v) => setZeroPicker(p => ({ ...p, q: v }))}
+                onSelect={(v) => setZeroPicker(p => ({ ...p, q: v }))}
+                options={zeroDrugOpts}
+                placeholder="พิมพ์ชื่อยา / รหัส / lot เพื่อค้นหา"
+                ringClass="focus:ring-amber-400"
+                hoverClass="hover:bg-amber-50 dark:hover:bg-amber-950/40"
+              />
             </div>
 
             <div className="overflow-y-auto flex-1 px-3 py-2">
