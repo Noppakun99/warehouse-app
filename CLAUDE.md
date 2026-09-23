@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 2. **Cross-cutting concerns ต้องครอบคลุมทุก sub-app**:
    - **Audit log**: ทุก mutation (INSERT/UPDATE/DELETE) ต้องเรียก `insertAuditLog` พร้อม `auth` ครบ
    - **Notification bell**: action สำคัญที่ staff ต้องรู้ → เพิ่มใน `NOTIF_LABELS` + handler `notifMessage()` ใน [NotificationBell.jsx](src/NotificationBell.jsx) (ดู Critical Rule #12 — ต้อง sync 3 ที่)
-   - **Permission**: action ใหม่ต้องเช็คว่า role ไหนทำได้ (`SYSTEM_ACCESS` ใน [UserManagementApp.jsx](src/UserManagementApp.jsx))
+   - **Permission**: action ใหม่ต้องเช็คว่า role ไหนทำได้ (`GRANTABLE_SYSTEMS` ใน [UserManagementApp.jsx](src/UserManagementApp.jsx) — `SYSTEM_ACCESS` ลบทิ้งแล้ว 2026-08-01 ดู Critical Rule #23)
 3. **Verify ก่อนสรุปเสมอ** — `npm run lint` + reproduce ปัญหา + ตรวจ side-effect ในไฟล์อื่น (ดู section "Verify ก่อนสรุป" ด้านล่าง)
 4. **คุณภาพมากกว่าความเร็ว** — เจอ gap ระหว่างทาง (เช่น label หายไปใน UI) ให้ flag กับ user ก่อนเสมอ ไม่เงียบ
 5. **ไม่ duplicate test/skill** — ก่อนเพิ่มไฟล์ test/skill ใหม่ ต้อง grep หาของเดิมก่อน (กฎ "อ่านก่อนแก้")
@@ -22,8 +22,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm run dev          # Start development server
 npm run build        # Production build
-npm run lint         # Run ESLint
+npm run lint         # Run ESLint (⚠️ ไม่ใช่ 0 — มี error ค้างเดิม ดู "ก่อน commit ทุกครั้ง")
 npm run preview      # Preview production build
+npx eslint <ไฟล์>    # lint เฉพาะไฟล์ที่แก้ — ใช้ตัวนี้ก่อน commit ไม่ใช่ npm run lint
+node src/lib/<x>.test.js   # รัน golden test ไฟล์เดียวตรงๆ (ไม่มี framework จึงไม่มี -t/--filter)
 npm run test:reorder   # Golden tests สำหรับ src/lib/reorder.js (35 assertions)
 npm run test:billgroup # Golden tests สำหรับ src/lib/billGroup.js — AP bill grouping (24 assertions)
 npm run test:unit      # Golden tests สำหรับ src/lib/unitParser.js — แปลงหน่วยซื้อ/เบิก (test อยู่ที่ src/unitParser.test.js)
@@ -36,13 +38,37 @@ npm run test:countmatch  # Golden tests สำหรับ src/lib/countMatch.js
 npm run test:countpriority # Golden tests สำหรับ src/lib/countPriority.js — จัดอันดับ "ควรตรวจนับตัวไหนก่อน" 4 สัญญาณถ่วงน้ำหนัก (29 assertions)
 npm run test:stockcard   # Golden tests สำหรับ src/lib/stockCard.js — การ์ดคลัง lot: running balance ต่อ lot + drift detection (105 assertions)
 npm run test:vendorexchange # Golden tests สำหรับ src/lib/vendorExchange.js — รอบเปลี่ยน/คืนบริษัท: จับคู่ขาส่ง↔ขารับ หา "ของลอย" — จับคู่ 2 ชั้น: เลขที่รอบ VX ก่อน แล้ว fallback ไปเดา (50 assertions, ADR-0024)
-npm run test:announce # Golden tests สำหรับ supabase/functions/_shared/announceSchedule.js — ปฏิทินรอบเบิก-รับ + วันหยุด (116 assertions)
+npm run test:announce # Golden tests สำหรับ supabase/functions/_shared/announceSchedule.js — ปฏิทินรอบเบิก-รับ + วันหยุด (116 assertions) ⚠️ test อยู่ที่ src/lib/announceSchedule.test.js แต่ source อยู่ใน supabase/functions/_shared/ (import ข้ามโฟลเดอร์)
 npm run test:loanimport # Golden tests สำหรับ src/lib/loanImport.js — นำเข้า CSV ยืม-คืนยา: derive ทิศทาง + diff กับของในระบบ (47 assertions)
+npm run test:receivesheet  # Golden tests สำหรับ src/lib/receiveSheet.js — อ่านชีท 'รับยา' จาก .xlsm (102 assertions)
+npm run test:mastersheet   # Golden tests สำหรับ src/lib/masterSheet.js — อ่านชีท Master (44 assertions)
+npm run test:dispensesheet # Golden tests สำหรับ src/lib/dispenseSheet.js — อ่านชีท 'เบิก ' (63 assertions)
+npm run test:reordersheet  # Golden tests สำหรับ src/lib/reorderSheet.js — อ่านชีทวิเคราะห์สั่งซื้อ (37 assertions)
+npm run test:importguard   # Golden tests สำหรับ src/lib/importGuard.js — ด่านตรวจก่อนเขียน DB (66 assertions)
+npm run test:linechat      # Golden tests สำหรับ src/lib/lineChatImport.js — ⚠️ ยังไม่มี consumer ในแอป (ดู Dead code ด้านล่าง)
 ```
+
+### นำเข้า Excel เข้า DB ผ่าน CLI (`scripts/*.mjs`)
+
+อ่าน `.xlsm` ใน OneDrive ตรงๆ แทนการ copy sheet → Save As CSV → อัปโหลดผ่านหน้าเว็บ — **ใช้ `/import-excel` skill** ซึ่งมีกับดักครบ (serial วันที่ปนรูปแบบ, พ.ศ. ใน serial, lot ที่มีตัว E)
+
+```bash
+npm run import:receive   # ชีท 'รับยา'          → receive_logs      🔴 DELETE ALL
+npm run import:master    # ชีท Master           → inventory         🔴 DELETE ALL
+npm run import:dispense  # ชีท 'เบิก '          → dispense_logs     🔴 DELETE ALL
+npm run import:reorder   # ชีท วิเคราะห์สั่งซื้อ → drug_reorder_config 🟢 UPSERT
+npm run import:loan      # ชีท 'รพ.ยืมยา'       → drug_loan         🟢 diff insert/update
+npm run export:csv       # ทุกชีท → csv_file/*.csv (ไม่แตะ DB)
+npm run import:restore   # กู้คืนจาก backup/*.json
+```
+
+**ทุกตัวเป็น dry-run โดยค่าเริ่มต้น ต้องใส่ `--commit` ถึงเขียนจริง** — `--commit` **ไม่ใช่ `git commit`** มันคือ "ปุ่มอัปโหลด" ที่เคยกดบนหน้าเว็บ (ผู้ใช้เคยเข้าใจผิด 2026-09-22) สำรองอัตโนมัติก่อนเขียนเสมอ — สำรองไม่สำเร็จ = ไม่เขียน
+
+**CLI ไม่ทำ DELETE/INSERT เอง** แต่เรียกฟังก์ชันใน `db.js` ตัวเดียวกับที่หน้าเว็บใช้ (`insertReceiveRows` ฯลฯ) เพื่อไม่ให้ตรรกะ import แตกเป็น 2 ชุดแล้วดริฟต์
 
 ไม่มี test runner ทั่วไป — golden tests เป็น standalone `node` (ไม่มี framework): `src/unitParser.test.js` (`npm run test:unit`), `src/lib/reorder.test.js` (`npm run test:reorder`), `src/lib/billGroup.test.js` (`npm run test:billgroup`), `src/lib/lotAllocation.test.js` (`npm run test:alloc`), `src/ledgerRollover.test.js` (`npm run test:ledger`), `src/ledgerSeed.test.js` (`npm run test:ledgerseed`), `src/lib/swapPolicy.test.js` (`npm run test:swappolicy`), `src/lib/consistencyCheck.test.js` (`npm run test:consistency`). **กฎ**: logic ที่ test แบบนี้ได้ต้องเป็น pure module ไม่ import `supabase` (เพราะ `supabase.js` ใช้ `import.meta.env` ที่ node รันไม่ได้) — ดู `billGroup.js`/`lotAllocation.js`/`ledgerRollover.js`/`ledgerSeed.js` แยกจาก `db.js` ด้วยเหตุนี้. **หมายเหตุ layout**: source module ของ ledger อยู่ใน `src/lib/` แต่ test file (`ledgerRollover.test.js`/`ledgerSeed.test.js`) อยู่ที่ `src/` root — ต่างจาก golden test อื่นที่วาง test ข้าง source
 
-**E2E**: Playwright (`tests/01-12`) — `npx playwright test` — ครอบคลุม login, dashboard, requisition, return, staff flow, validation, permissions, **AP workflow UX, ทุก sub-app smoke, mobile responsive 375px, a11y, ระบบวิเคราะห์การสั่งซื้อยา, โมดอลใกล้หมดอายุ/คืนบริษัท (ประวัติรับยา+scope+deadline+ตัวกรองพับ)** ดู [docs/testing.md](docs/testing.md)
+**E2E**: Playwright (`tests/01-14`) — `npx playwright test` · ไฟล์เดียว: `npx playwright test tests/14-stockcount-split.spec.js` — ครอบคลุม login, dashboard, requisition, return, staff flow, validation, permissions, **AP workflow UX, ทุก sub-app smoke, mobile responsive 375px, a11y, ระบบวิเคราะห์การสั่งซื้อยา, โมดอลใกล้หมดอายุ/คืนบริษัท (ประวัติรับยา+scope+deadline+ตัวกรองพับ), การ์ดคลัง lot (13), กรอกนับแยกชั้น (14)** ดู [docs/testing.md](docs/testing.md)
 
 ## Architecture
 
@@ -98,6 +124,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
   - **timeline ผลค้นหาเป็น read-only** — แถวเดียวกันโผล่ได้หลายรอบ แก้ตรงนั้นกำกวมว่าแก้รอบไหน → ปุ่ม "แก้ไข" กระโดดไปเปิดรอบจริง + scroll ไปที่แถว (`id="sc-item-<id>"`) + เข้าโหมดแก้ (ถ้าแถวเป้าหมายยังไม่ได้นับ ต้องสลับเป็นโหมด "ทั้งหมด" ก่อน ไม่งั้นเลื่อนไปไม่เจอ)
   - **สถานะติดตามส่วนต่าง (`followup_status`)** — ระดับ**รายการ** ไม่ใช่ระดับรอบ (รอบเดียวหลาย lot จบคนละทาง): `pending` (default) | `fixed_source` (ไปแก้ HosXP/CSV แล้ว) | `confirmed_diff` (ยืนยันส่วนต่างจริง ของหาย/ย้ายชั้น) | `fixed_entry` (กรอกผิด แก้ในแอปแล้ว) + `followup_by`/`followup_at`/`followup_note`. **ตอบว่า "ใครตามเรื่องนี้แล้ว" ไม่ใช่ "ทำให้ตัวเลขตรงกัน"** — ไม่แตะ `counted_*`/`system_*` ส่วนต่างยังอยู่ครบตาม ADR-0008 (append-only)
 
+- `DrugLoanApp.jsx` — **ยืม-คืนยาระหว่าง รพ. (staff/admin)** — บันทึกการยืม-คืน + ติดตามของค้างคืน **ไม่หักสต็อก** (ของที่ยืมออกยังอยู่ใน `inventory` — คนละเรื่องกับการเบิกจ่าย). ทิศทาง `borrow`/`lend` **derive จากชื่อ รพ. ไม่เดา** (ไม่มีชื่อ รพ.เราสักฝั่ง = แถวเสีย). เกณฑ์เตือนค้างคืน >90 วันแดง / 30–90 ส้ม. นำเข้า CSV ผ่าน `importDrugLoans` (diff insert/update **ไม่ใช่ DELETE-then-INSERT**) ดู [ADR-0025](docs/adr/0025-pass-through-loan-closed-on-handover.md) + CONTEXT.md §ของค้างคืน
 - `TemperatureLogApp.jsx` — **อุณหภูมิตู้เย็นคลังยา (staff/admin)** — บันทึก/ติดตามอุณหภูมิตู้เย็นเก็บยา (1 ตู้ เกณฑ์ 2–8°C). ⚠️ **`temperature_log.source` = ที่มาของค่า** (`manual`/`form_import`/`generated`/`device`) — **`generated` คือค่าที่ Apps Script เคยสุ่มด้วย `Math.random()` ใส่ชีทวันละ 2 แถว ไม่ใช่การวัดจริง** (340 จาก 455 แถว) **ต้องกรองออกจากทุกสถิติ/กราฟ/ความครบถ้วน** — filter อยู่ใน `db.js` ชั้นเดียว (`fetchTemperatureLogs` default `includeGenerated:false`, `fetchTemperatureStats` กรองเสมอ) **ห้ามให้ component ประกอบ query เอง**. เกณฑ์ `min_c`/`max_c` เก็บ snapshot ต่อแถว **ห้าม hardcode 2–8 ในโค้ด**. อุณหภูมิหลุดช่วง → **บังคับระบุ `action_taken` ก่อนบันทึก** (corrective action ที่ฟอร์มเดิมไม่มี). "ไม่ได้บันทึก" = แถวที่ไม่มีอยู่ **ห้ามสร้างแถว placeholder** — วัดด้วย % ความครบถ้วนแทน (ดู [ADR-0018](docs/adr/0018-temperature-log-provenance.md) + CONTEXT.md §อุณหภูมิตู้เย็นคลังยา)
 
 **Data layer:**
@@ -109,7 +136,11 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 
 **Reusable:** `DrugSearchBar.jsx`, `SearchableSelect.jsx`, **`ConfirmModal.jsx`** (popup ยืนยันในธีมแอป — `{open,title,message,detail,warning,confirmText,cancelText,tone:'primary'|'danger',loading,onConfirm,onClose}`; **ใช้แทน `window.confirm()` เสมอ** เพราะกล่องของ OS ขึ้นหัวเป็นชื่อเบราว์เซอร์ ปุ่ม OK/Cancel อังกฤษ และไม่ตามธีมมืด — repo เลิกใช้ `alert()` ด้วยเหตุผลเดียวกัน)
 
-**Pure modules (no `supabase` import → golden-testable):** `src/lib/reorder.js`, `src/lib/billGroup.js`, `src/lib/lotAllocation.js` (FEFO allocation), `src/lib/unitParser.js`, `src/lib/ledgerRollover.js` (สมการคงคลัง + rollover), `src/lib/ledgerSeed.js` (RFC-4180 parser + map master→ledger), `src/lib/swapPolicy.js` (parse นโยบายคืนยา free-text → เดือน + คำนวณ deadline), `src/lib/consistencyCheck.js` (ตรวจความสอดคล้อง CSV→DB — referential + range-guard), `src/lib/stockCard.js` (การ์ดคลัง lot — running balance ต่อ lot + drift detection), `src/lib/vendorExchange.js` (รอบเปลี่ยน/คืนบริษัท — จับคู่ขาส่ง↔ขารับ หา "ของลอย"), `src/lib/loanImport.js` (นำเข้า CSV ยืม-คืนยา — derive ทิศทางจากชื่อ รพ. + diff กับของในระบบ) — แยกออกจาก `db.js` โดยเจตนาเพื่อให้รันใน node ได้ (ดู section Commands)
+**Pure modules (no `supabase` import → golden-testable):** `src/lib/reorder.js`, `src/lib/billGroup.js`, `src/lib/lotAllocation.js` (FEFO allocation), `src/lib/unitParser.js`, `src/lib/ledgerRollover.js` (สมการคงคลัง + rollover), `src/lib/ledgerSeed.js` (RFC-4180 parser + map master→ledger), `src/lib/swapPolicy.js` (parse นโยบายคืนยา free-text → เดือน + คำนวณ deadline), `src/lib/consistencyCheck.js` (ตรวจความสอดคล้อง CSV→DB — referential + range-guard), `src/lib/stockCard.js` (การ์ดคลัง lot — running balance ต่อ lot + drift detection), `src/lib/vendorExchange.js` (รอบเปลี่ยน/คืนบริษัท — จับคู่ขาส่ง↔ขารับ หา "ของลอย"), `src/lib/loanImport.js` (นำเข้า CSV ยืม-คืนยา — derive ทิศทางจากชื่อ รพ. + diff กับของในระบบ), **ตัวอ่านชีท `.xlsm` 4 ตัว** `receiveSheet.js`/`masterSheet.js`/`dispenseSheet.js`/`reorderSheet.js` + `importGuard.js` (ด่านตรวจก่อนเขียน DB) — แยกออกจาก `db.js` โดยเจตนาเพื่อให้รันใน node ได้ (ดู section Commands)
+
+**Dead code ที่รู้ตัวแล้ว (mention ไม่ลบ ตาม Karpathy #3):**
+- `src/lib/lineChatImport.js` — มี golden test (`npm run test:linechat`) แต่**ไม่มี consumer ในแอปเลย** (grep แล้วเจอแค่ไฟล์ test)
+- `returnForm.js` → ฟอร์มคืนยาใกล้หมดอายุ ถอดจากเมนูแล้ว โค้ดยังอยู่
 
 ## Documentation Index
 
@@ -216,7 +247,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 - 1 commit = 1 logical change
 
 **ก่อน commit ทุกครั้ง**:
-1. lint **เฉพาะไฟล์ที่คุณแก้** ผ่าน (`npx eslint <ไฟล์>`) — ⚠️ `npm run lint` ทั้ง repo **ไม่ใช่ 0**: มี error ค้างเดิม ~53 ตัว (63 problems รวม warning ณ 2026-07-15) ในไฟล์ committed (ReceiveLog/Requisition/Dispense/Return/Analytics + tests — set-state-in-effect, empty block, `use()` ใน try/catch, `process` undefined ใน test) ที่ไม่เกี่ยวกับงานคุณ — ห้ามไป "แก้" error เหล่านั้นเว้นแต่ถูกขอ และอย่าตกใจว่าตัวเองทำพัง. **เทียบ baseline ก่อนโทษตัวเอง**: `git stash && npx eslint <ไฟล์> ; git stash pop` แล้วนับ error ก่อน/หลัง — ถ้าจำนวนเท่าเดิม = ไม่ได้ทำพัง
+1. lint **เฉพาะไฟล์ที่คุณแก้** ผ่าน (`npx eslint <ไฟล์>`) — ⚠️ `npm run lint` ทั้ง repo **ไม่ใช่ 0**: มี error ค้างเดิม **41 ตัว (56 problems รวม warning ณ 2026-09-23)** ในไฟล์ committed (ReceiveLog/Requisition/Dispense/Return/Analytics + tests — set-state-in-effect, empty block, `use()` ใน try/catch, `process` undefined ใน test) ที่ไม่เกี่ยวกับงานคุณ — ห้ามไป "แก้" error เหล่านั้นเว้นแต่ถูกขอ และอย่าตกใจว่าตัวเองทำพัง. **เทียบ baseline ก่อนโทษตัวเอง**: `git stash && npx eslint <ไฟล์> ; git stash pop` แล้วนับ error ก่อน/หลัง — ถ้าจำนวนเท่าเดิม = ไม่ได้ทำพัง
 2. ตรวจ `git diff` — ไม่มีไฟล์/secret ที่ไม่ตั้งใจ commit (`.env`, `test-results/`, `supabase/.temp/`)
 3. ห้าม `--no-verify` หรือ skip pre-commit hook
 
