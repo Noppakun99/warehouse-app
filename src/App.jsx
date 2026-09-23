@@ -185,6 +185,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   const [searchTerm, setSearchTerm] = useState('');
   const [activeZone,      setActiveZone]      = useState(null);   // null = auto-first
   const [hideEmptySlots,  setHideEmptySlots]  = useState(false);
+  const [typeFilter,      setTypeFilter]      = useState('');     // '' = ทุกชนิด (กรองชนิดยา เช่น Herb)
   const [collapsedLevels, setCollapsedLevels] = useState(new Set());
   const [showManageMenu,  setShowManageMenu]  = useState(false);
   const [selectedLocation, setSelectedLocation] = useState(null);
@@ -749,7 +750,49 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
     return false;
   }, [searchTerm, inventory]);
 
+  // ชนิดยาที่มีจริงในคลัง + จำนวนรายการ — derive จาก inventory ไม่ hardcode
+  // (import ชนิดใหม่เข้ามาแล้วขึ้นใน dropdown เอง ไม่ต้องแก้โค้ด)
+  const drugTypes = useMemo(() => {
+    const m = new Map();
+    Object.values(inventory).flat().forEach(it => {
+      const t = (it.type || '').trim();
+      if (!t || t === '-') return;
+      if (!m.has(t)) m.set(t, new Set());
+      m.get(t).add(it.name || it.code || '');
+    });
+    return [...m].map(([type, names]) => ({ type, count: names.size }))
+      .sort((a, b) => b.count - a.count);
+  }, [inventory]);
+
+  // ช่องที่มียาชนิดที่เลือกอยู่ — ใช้ทั้งกรองแผนผังและนับจำนวน
+  const typeMatchedSlots = useMemo(() => {
+    if (!typeFilter) return null;
+    const t = typeFilter.trim().toLowerCase();
+    const ids = new Set();
+    Object.entries(inventory).forEach(([locId, items]) => {
+      if ((items || []).some(it => (it.type || '').trim().toLowerCase() === t)) ids.add(locId);
+    });
+    return ids;
+  }, [inventory, typeFilter]);
+
   const { filteredLayout, filteredOtherZones } = useMemo(() => {
+    // กรองชนิดยา: ข้ามแท็บโซนให้เอง (ชนิดส่วนใหญ่อยู่โซนเดียว เลือกแล้วต้องเห็นเลย
+    // ไม่ใช่ต้องมาเดาว่าอยู่โซนไหน) — ค้นหาชนะทุกอย่าง เพราะเป็นเจตนาที่ชัดกว่า
+    if (!searchTerm && typeMatchedSlots) {
+      const fl = {};
+      const fo = {};
+      Object.keys(layout).forEach(cab => {
+        Object.keys(layout[cab]).forEach(lev => {
+          const hit = layout[cab][lev].filter(slot => typeMatchedSlots.has(slot.id));
+          if (hit.length > 0) {
+            if (!fl[cab]) fl[cab] = {};
+            fl[cab][lev] = hit;
+          }
+        });
+      });
+      Object.keys(otherZones).forEach(zone => { if (typeMatchedSlots.has(zone)) fo[zone] = otherZones[zone]; });
+      return { filteredLayout: fl, filteredOtherZones: fo };
+    }
     if (!searchTerm) return { filteredLayout: layout, filteredOtherZones: otherZones };
 
     const fl = {};
@@ -772,7 +815,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
     });
 
     return { filteredLayout: fl, filteredOtherZones: fo };
-  }, [layout, otherZones, searchTerm, isMatch]);
+  }, [layout, otherZones, searchTerm, isMatch, typeMatchedSlots]);
 
   // Zone tab helpers
   const zoneKeys = useMemo(() => Object.keys(filteredLayout).sort(), [filteredLayout]);
@@ -1402,20 +1445,21 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           )}
         </div>
 
-        {/* Zone Tabs + Hide Empty Toggle */}
-        {(zoneKeys.length > 0 || Object.keys(filteredOtherZones).length > 0) && (
-          <div className="flex items-center gap-2 flex-wrap bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 shadow-sm">
+        {/* Zone Tabs + Hide Empty Toggle + Drug Type Filter */}
+        {(zoneKeys.length > 0 || Object.keys(filteredOtherZones).length > 0 || typeFilter) && (
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 shadow-sm space-y-2.5">
+          <div className="flex items-center gap-2 flex-wrap">
             <div className="flex gap-1.5 flex-wrap flex-1 min-w-0">
               {zoneKeys.map(cab => (
                 <button key={cab} onClick={() => setActiveZone(cab)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && activeZoneKey === cab ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700'}`}>
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && !typeFilter && activeZoneKey === cab ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700'}`}>
                   Log {cab}
                   <span className="ml-1.5 opacity-70">({summary[cab]?.names.size || 0})</span>
                 </button>
               ))}
               {Object.keys(filteredOtherZones).length > 0 && (
                 <button onClick={() => setActiveZone('__other__')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && activeZoneKey === '__other__' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700'}`}>
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && !typeFilter && activeZoneKey === '__other__' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700'}`}>
                   โซนอื่นๆ
                   <span className="ml-1.5 opacity-70">({Object.keys(filteredOtherZones).length})</span>
                 </button>
@@ -1425,6 +1469,32 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all shrink-0 ${hideEmptySlots ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-indigo-400 hover:text-indigo-600'}`}>
               {hideEmptySlots ? <EyeOff size={13}/> : <Eye size={13}/>} ซ่อนช่องว่าง
             </button>
+          </div>
+
+          {/* กรองชนิดยา — เลือกทีละชนิด, เลือกแล้วข้ามแท็บโซนให้เอง */}
+          {drugTypes.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap pt-2.5 border-t border-slate-100 dark:border-slate-800">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 shrink-0">ชนิดยา</span>
+              <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
+                className={`border rounded-xl px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 ${typeFilter ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100'}`}>
+                <option value="">ทุกชนิด ({drugTypes.reduce((n, d) => n + d.count, 0)})</option>
+                {drugTypes.map(({ type, count }) => (
+                  <option key={type} value={type}>{type} ({count})</option>
+                ))}
+              </select>
+              {typeFilter && (
+                <>
+                  <button onClick={() => setTypeFilter('')}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-rose-300 hover:text-rose-600 transition-all shrink-0">
+                    <X size={12}/> ล้าง
+                  </button>
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500 shrink-0">
+                    แสดงทุกโซนที่มี {typeFilter}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
           </div>
         )}
 
@@ -1538,7 +1608,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
               </h3>
             )}
             <div className="grid grid-cols-1 gap-6">
-              {(searchTerm
+              {(searchTerm || typeFilter
                 ? zoneKeys
                 : (activeZoneKey && activeZoneKey !== '__other__' ? [activeZoneKey] : zoneKeys)
               ).filter(cab => filteredLayout[cab]).map(cabinet => (
