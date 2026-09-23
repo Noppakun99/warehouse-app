@@ -1005,6 +1005,24 @@ function AnnualTab({ auth }) {
   const mismatches = items.filter(i => i.counted_qty !== null && !i.match).length
   const failed = Object.values(saveState).filter(s => s === 'error').length
 
+  // ไม่ตรงเพราะมิติไหน — "ไม่ตรง N" เฉยๆ คนอ่านเข้าใจว่าของขาด ทั้งที่ส่วนใหญ่เป็นที่เก็บ/exp ไม่ตรง
+  // (1 บรรทัดไม่ตรงได้หลายมิติ ผลรวมรายมิติจึงเกินจำนวนบรรทัดไม่ตรงได้)
+  const dimDiff = { qty: 0, loc: 0, exp: 0, lot: 0 }
+  for (const it of items) {
+    if (it.counted_qty === null || it.match) continue
+    const d = dimStatus(it)
+    for (const k of Object.keys(dimDiff)) if (d[k] === 'diff') dimDiff[k]++
+  }
+  const matched = counted - mismatches
+  const [showZones, setShowZones] = useState(false)   // ความคืบหน้ารายโซน — ซ่อนก่อน (14 ช่อง กินที่จอ)
+  // นับมาแล้วกี่วัน (วันแรก = วันที่ 1) — parse เป็นวันท้องถิ่น ไม่ใช่ UTC
+  const dayNo = (() => {
+    const m = String(session?.counted_at || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
+    if (!m) return null
+    const [y, mo, d] = todayLocalIso().split('-').map(Number)
+    return Math.round((new Date(y, mo - 1, d) - new Date(+m[1], +m[2] - 1, +m[3])) / 86400000) + 1
+  })()
+
   // โซนหลัก + จำนวนที่ยังไม่นับต่อโซน (ให้เห็นว่าโซนไหนยังเหลือ ไม่ต้องเข้าไปดูทีละชั้น)
   const zoneStat = {}
   for (const it of items) {
@@ -1325,22 +1343,101 @@ function AnnualTab({ auth }) {
       {toast && <Toast tone={toast.tone} message={toast.message} onClose={() => setToast(null)} />}
 
       {/* ความคืบหน้า — ต้องเห็นตลอดว่าบันทึกไปถึงไหนแล้ว */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 mb-4">
-        <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
-          <div>
-            <p className="font-bold text-slate-800 dark:text-slate-100 text-sm">
-              รอบประจำปี · เริ่ม {fmtThaiDate(session.counted_at)}
-            </p>
-            <p className="text-xs text-slate-400 dark:text-slate-500">ผู้ตรวจนับ {session.counter_name}</p>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 mb-4 shadow-sm">
+        {/* หัว: รอบ + วันที่ + % ใหญ่ */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <span className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-300 flex items-center justify-center shrink-0">
+              <ClipboardCheck size={20} />
+            </span>
+            <div className="min-w-0">
+              <p className="font-bold text-slate-800 dark:text-slate-100 text-sm">ตรวจนับ รอบประจำปี</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                เริ่ม {fmtThaiDate(session.counted_at)}{dayNo > 0 && <> · วันที่ {dayNo}</>} · ผู้ตรวจนับ {session.counter_name}
+              </p>
+            </div>
           </div>
-          <div className="text-right">
-            <p className="text-lg font-bold tabular-nums text-slate-800 dark:text-slate-100">{counted}<span className="text-slate-400 text-sm"> / {total} lot</span></p>
-            <p className="text-xs text-slate-400">{pct}% · ไม่ตรง {mismatches}</p>
+          <div className="text-right shrink-0">
+            <p className="text-3xl font-bold tabular-nums text-indigo-600 dark:text-indigo-300 leading-none">{pct}<span className="text-lg">%</span></p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 tabular-nums">นับแล้ว {counted.toLocaleString()} / {total.toLocaleString()} lot</p>
           </div>
         </div>
-        <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-          <div className="h-full bg-gradient-to-r from-indigo-500 to-violet-600 transition-all" style={{ width: `${pct}%` }} />
+
+        {/* แถบความคืบหน้าแยกสี: ตรง / ไม่ตรง / ยังไม่นับ */}
+        <div className="mt-3 h-3 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden flex">
+          <div className="h-full bg-emerald-500 transition-all" style={{ width: `${total ? (matched / total) * 100 : 0}%` }} title={`ตรง ${matched}`} />
+          <div className="h-full bg-amber-400 transition-all" style={{ width: `${total ? (mismatches / total) * 100 : 0}%` }} title={`ไม่ตรง ${mismatches}`} />
         </div>
+
+        {/* ตัวเลขหลัก 4 ช่อง */}
+        <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {[
+            { label: 'นับแล้ว',    value: counted,       icon: ClipboardCheck, cls: 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300' },
+            { label: 'ยังไม่นับ',  value: total - counted, icon: Clock,        cls: 'bg-slate-50 dark:bg-slate-800/60 text-slate-700 dark:text-slate-200' },
+            { label: 'ตรงระบบ',   value: matched,       icon: CheckCircle,    cls: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' },
+            { label: 'ไม่ตรง',     value: mismatches,    icon: AlertTriangle,  cls: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300' },
+          ].map(({ label, value, icon: Icon, cls }) => (
+            <div key={label} className={`rounded-xl px-3 py-2 ${cls}`}>
+              <p className="flex items-center gap-1 text-[11px] font-semibold opacity-80"><Icon size={12} /> {label}</p>
+              <p className="text-xl font-bold tabular-nums leading-tight">{value.toLocaleString()}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* ไม่ตรงเพราะอะไร — แยกให้เห็นว่าของขาด/เกินจริง หรือแค่ที่เก็บ/exp/lot ไม่ตรง */}
+        {mismatches > 0 && (
+          <div className="mt-2 flex items-center gap-1.5 flex-wrap text-xs">
+            <span className="text-slate-500 dark:text-slate-400">ไม่ตรงที่:</span>
+            {[['qty', 'จำนวน'], ['loc', 'ที่เก็บ'], ['exp', 'EXP'], ['lot', 'Lot']].map(([k, label]) => (
+              <span key={k} className={`rounded-full px-2 py-0.5 font-semibold tabular-nums ${
+                dimDiff[k]
+                  ? (k === 'qty' ? 'bg-red-100 dark:bg-red-950/50 text-red-700 dark:text-red-300' : 'bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300')
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'}`}>
+                {label} {dimDiff[k]}
+              </span>
+            ))}
+            <span className="text-[11px] text-slate-400 dark:text-slate-500">(1 lot ไม่ตรงได้หลายอย่าง)</span>
+          </div>
+        )}
+
+        {/* ความคืบหน้ารายโซน — กดเพื่อกรองไปนับโซนนั้น */}
+        {zones.length > 1 && (
+          <button type="button" onClick={() => setShowZones(v => !v)}
+            className="mt-3 pt-2.5 w-full border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 transition-colors">
+            <span>ความคืบหน้ารายโซน ({zones.length}){zoneFilter && <span className="ml-1.5 text-indigo-600 dark:text-indigo-300">· กรองโซน {zoneFilter} อยู่</span>}</span>
+            <span className="inline-flex items-center gap-1">
+              {showZones ? <>ซ่อนโซน <ChevronUp size={14} /></> : <>แสดงโซน <ChevronDown size={14} /></>}
+            </span>
+          </button>
+        )}
+        {zones.length > 1 && showZones && (
+          <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            {/* โซนชั้นวางหลัก (A–E) ขึ้นก่อน แล้วค่อยที่เก็บที่ตั้งชื่อ (ตู้เย็น/คลังน้ำเกลือ) */}
+            {[...zones].sort((a, b) => (/^[A-Z]$/.test(b) - /^[A-Z]$/.test(a)) || a.localeCompare(b, 'th', { numeric: true })).map(z => {
+              const zs = zoneStat[z]
+              const zDone = zs.total - zs.pending
+              const zPct = zs.total ? Math.round((zDone / zs.total) * 100) : 0
+              const active = zoneFilter === z
+              return (
+                <button key={z} type="button"
+                  onClick={() => { setZoneFilter(active ? '' : z); setLocFilter(''); setIdx(0) }}
+                  className={`text-left rounded-xl border px-2.5 py-1.5 transition-colors ${active
+                    ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/40'
+                    : 'border-slate-200 dark:border-slate-700 hover:border-indigo-300'}`}>
+                  <div className="flex items-baseline justify-between gap-1 text-xs">
+                    <span className="font-bold text-slate-700 dark:text-slate-200 truncate" title={z}>{/^[A-Z]$/.test(z) ? `โซน ${z}` : z}</span>
+                    <span className={`tabular-nums font-semibold ${zs.pending === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                      {zs.pending === 0 ? 'ครบ' : `${zDone}/${zs.total}`}
+                    </span>
+                  </div>
+                  <div className="mt-1 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                    <div className={`h-full ${zs.pending === 0 ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${zPct}%` }} />
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        )}
         {failed > 0 && (
           <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 px-3 py-2">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-700 dark:text-red-300">
