@@ -1656,11 +1656,20 @@ function ReceiveImport({ onDone, auth = {} }) {
 // ============================================================
 // View
 // ============================================================
+// เงื่อนไขค้นหาของหน้าประวัติรับยา — ใช้ตัวเดียวทั้งตาราง / stat card / Excel (Rule #6)
+// เดิมพิมพ์ 3 ที่แยกกัน แล้วตารางใช้ normalizeLotSearch แต่ stat/Excel ไม่ใช้ → ค้น lot ที่มีเลข 0 นำหน้าแล้วตัวเลขไม่ตรงกัน
+const searchOrFilter = (search) => {
+  const ls = normalizeLotSearch(search);
+  return `drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%,bill_number.ilike.%${search}%,po_number.ilike.%${search}%`;
+};
+
 function ReceiveView({ auth = {} }) {
   const [rows, setRows]               = useState([]);
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState('');
   const [supplierFilter, setSupplier] = useState('');
+  const [typeFilter, setTypeFilter]   = useState('');   // '' = ทุกชนิดยา (receive_logs.drug_type เช่น Tablet/Herb)
+  const [drugTypes, setDrugTypes]     = useState([]);
   const [isMobile, setIsMobile]       = useState(() => window.innerWidth < 768);
   const [mobileDetail, setMobileDetail] = useState(null); // row ที่เปิด bottom sheet
   const [suppliers, setSuppliers]     = useState([]);
@@ -1732,8 +1741,9 @@ function ReceiveView({ auth = {} }) {
       .neq('receive_status', 'สแกนบิล AI') // บิลสแกนแยกอยู่ในหน้าสแกนบิล ไม่ปนประวัติรับยา (ADR-0006)
       .order('receive_date', { ascending: false })
       .order('id', { ascending: false });
-    if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%,bill_number.ilike.%${search}%`); }
+    if (search.trim()) q = q.or(searchOrFilter(search));
     if (supplierFilter) q = q.eq('supplier_current', supplierFilter);
+    if (typeFilter)     q = q.eq('drug_type', typeFilter);
     const isoFrom = thaiToIso(dateFrom) || dateFrom;
     const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
     if (isoFrom && isoTo)   { q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo); }
@@ -1743,7 +1753,7 @@ function ReceiveView({ auth = {} }) {
     const { data } = await q;
     setRows(data || []);
     setLoading(false);
-  }, [search, supplierFilter, dateFrom, dateTo, page]);
+  }, [search, supplierFilter, typeFilter, dateFrom, dateTo, page]);
 
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [load]);
 
@@ -1761,11 +1771,12 @@ function ReceiveView({ auth = {} }) {
     const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
     const applyFilters = (q) => {
       q = q.neq('receive_status', 'สแกนบิล AI'); // แยกบิลสแกนออก ให้ stat ตรงกับตาราง (Rule #6)
-      if (search.trim())    q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%,bill_number.ilike.%${search}%`);
+      if (search.trim())    q = q.or(searchOrFilter(search));
       if (isoFrom && isoTo)  { q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo); }
       else if (isoFrom)      { q = q.gte('receive_date', isoFrom); }
       else if (isoTo)        { q = q.lte('receive_date', isoTo); }
       if (supplierFilter) q = q.eq('supplier_current', supplierFilter);
+      if (typeFilter)     q = q.eq('drug_type', typeFilter);
       return q;
     };
     // ดึงทุก field ที่ต้องใช้กรอง blank+dedup เพื่อให้ stat card ตรงกับ displayRows ในตาราง
@@ -1794,7 +1805,7 @@ function ReceiveView({ auth = {} }) {
     const minDate = minResult.data?.[0]?.receive_date || null;
     const maxDate = maxResult.data?.[0]?.receive_date || null;
     setAggStats({ count: filtered.length, billCount, totalValue, minDate, maxDate });
-  }, [search, supplierFilter, dateFrom, dateTo]);
+  }, [search, supplierFilter, typeFilter, dateFrom, dateTo]);
 
   useEffect(() => { const t = setTimeout(loadAgg, 300); return () => clearTimeout(t); }, [loadAgg]);
 
@@ -1809,8 +1820,9 @@ function ReceiveView({ auth = {} }) {
           .neq('receive_status', 'สแกนบิล AI') // export ตรงกับตาราง — ไม่รวมบิลสแกน (Rule #6)
           .order('receive_date', { ascending: false })
           .order('id', { ascending: false });
-        if (search.trim())  q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${search}%,bill_number.ilike.%${search}%`);
+        if (search.trim())  q = q.or(searchOrFilter(search));
         if (supplierFilter) q = q.eq('supplier_current', supplierFilter);
+        if (typeFilter)     q = q.eq('drug_type', typeFilter);
         if (isoFrom && isoTo)  q = q.gte('receive_date', isoFrom).lte('receive_date', isoTo);
         else if (isoFrom)      q = q.gte('receive_date', isoFrom);
         else if (isoTo)        q = q.lte('receive_date', isoTo);
@@ -1853,11 +1865,16 @@ function ReceiveView({ auth = {} }) {
 
   useEffect(() => {
     if (!supabase) return;
-    fetchAllRows(() => supabase.from('receive_logs').select('drug_name, drug_type')).then(data => {
+    fetchAllRows(() => supabase.from('receive_logs').select('drug_name, drug_type, receive_status')).then(data => {
       const typeMap = {};
       data.forEach(d => { if (d.drug_name && d.drug_type && d.drug_type !== '-') typeMap[d.drug_name] = d.drug_type; });
       const names = [...new Set(data.map(d => d.drug_name).filter(Boolean))].sort();
       setDrugNames(names.map(name => ({ name, type: typeMap[name] || '' })));
+      // ชนิดยาสำหรับ dropdown — เก็บจากทุกแถว (ยาบางตัวมีแถวอยู่ 2 ชนิด typeMap เก็บได้ชนิดเดียว)
+      // ไม่นับบิลสแกน AI เพราะตารางนี้ไม่แสดงบิลสแกน (ADR-0006) — ไม่งั้นมีตัวเลือกที่กรองแล้วว่างเปล่า
+      setDrugTypes([...new Set(data
+        .filter(d => d.receive_status !== 'สแกนบิล AI')
+        .map(d => d.drug_type).filter(t => t && t !== '-'))].sort());
     });
   }, []);
 
@@ -1967,10 +1984,12 @@ function ReceiveView({ auth = {} }) {
   })();
   const totalQty   = displayRows.reduce((s, r) => s + (r.qty_received || 0), 0);
   const totalValue = displayRows.reduce((s, r) => s + (r.total_price_vat || 0), 0);
-  const hasFilter  = search || supplierFilter || dateFrom || dateTo;
+  const hasFilter  = search || supplierFilter || typeFilter || dateFrom || dateTo;
   const [aggStats, setAggStats] = useState(null);
+  // ป้ายขอบเขตบน stat card — บอกทั้งบริษัทและชนิดยาที่กรองอยู่
+  const scopeLabel = [supplierFilter, typeFilter].filter(Boolean).join(' · ');
 
-  const clearAll = () => { clearSearch(); setSupplier(''); setSupplierSearch(''); setDateFrom(''); setDateTo(''); };
+  const clearAll = () => { clearSearch(); setSupplier(''); setSupplierSearch(''); setTypeFilter(''); setDateFrom(''); setDateTo(''); };
 
 
   return (
@@ -1985,7 +2004,7 @@ function ReceiveView({ auth = {} }) {
               value={search}
               onChange={e => { setSearch(e.target.value); setSelectedDrug(''); setDrugRows([]); setPage(0); setShowDropdown(true); }}
               onFocus={() => { if (search.trim()) setShowDropdown(true); }}
-              placeholder="ค้นหาชื่อยา, รหัส, Lot, เลขบิล..."
+              placeholder="ค้นหาชื่อยา, รหัส, Lot, เลขบิล, เลขที่ PO..."
               className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl pl-9 pr-4 py-2 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
             />
             {search && (
@@ -2044,6 +2063,9 @@ function ReceiveView({ auth = {} }) {
               </div>
             )}
           </div>
+          <SearchableSelect value={typeFilter} onChange={v => { setTypeFilter(v); setPage(0); }}
+            options={drugTypes} emptyLabel="ทุกชนิดยา" placeholder="ทุกชนิดยา"
+            className="w-36" />
           <button onClick={clearAll} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
             <RefreshCcw size={16}/>
           </button>
@@ -2225,16 +2247,16 @@ function ReceiveView({ auth = {} }) {
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
             <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
-            <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
+            <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{scopeLabel ? ` (${scopeLabel})` : ' ทุกบริษัท'}</p>
           </div>
           <div className="relative overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-700 rounded-2xl p-3.5 text-center shadow-lg shadow-emerald-300/60">
             <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
             <p className="relative text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.billCount.toLocaleString() : '...'}</p>
-            <p className="relative text-xs text-emerald-50 mt-0.5">จำนวนบิล{supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
+            <p className="relative text-xs text-emerald-50 mt-0.5">จำนวนบิล{scopeLabel ? ` (${scopeLabel})` : ' ทุกบริษัท'}</p>
           </div>
           <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
             <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
-            <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวมภาษี (บาท){supplierFilter ? ` (${supplierFilter})` : ' ทุกบริษัท'}</p>
+            <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวมภาษี (บาท){scopeLabel ? ` (${scopeLabel})` : ' ทุกบริษัท'}</p>
           </div>
         </div>
         </div>
@@ -2342,6 +2364,12 @@ function ReceiveView({ auth = {} }) {
                 <div className="flex items-center gap-1.5 mt-2 text-[11px]">
                   {row.lot && row.lot !== '-' && <span className="font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md">Lot {row.lot}</span>}
                   {row.exp && row.exp !== '-' && <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md">Exp {fmtAnyDate(row.exp)}</span>}
+                </div>
+              )}
+              {((row.bill_number && row.bill_number !== '-') || (row.po_number && row.po_number !== '-')) && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                  {row.bill_number && row.bill_number !== '-' && <span>เลขที่บิล <span className="font-mono text-slate-700 dark:text-slate-200">{row.bill_number}</span></span>}
+                  {row.po_number && row.po_number !== '-' && <span>PO <span className="font-mono text-slate-700 dark:text-slate-200">{row.po_number}</span></span>}
                 </div>
               )}
               <div className="flex items-center justify-between mt-2">

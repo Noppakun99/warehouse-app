@@ -751,6 +751,8 @@ function DispenseView({ isAdmin = false, auth = {} }) {
   const [exportLoading, setExportLoading] = useState(false);
   const [search, setSearch]         = useState('');
   const [deptFilter, setDeptFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');   // '' = ทุกชนิดยา (dispense_logs.drug_type เช่น Tablet/Herb)
+  const [drugTypes, setDrugTypes]   = useState([]);
   const [dateFrom, setDateFrom]     = useState('');
   const [dateTo, setDateTo]         = useState('');
   const [departments, setDepts]     = useState([]);
@@ -778,6 +780,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
       .order('dispense_date', { ascending: false })
       .order('id', { ascending: false });
     if (deptFilter)    q = q.eq('department', deptFilter);
+    if (typeFilter)    q = q.eq('drug_type', typeFilter);
     const isoFrom = thaiToIso(dateFrom) || dateFrom;
     const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
     if (isoFrom && isoTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
@@ -789,7 +792,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     const { data } = await q;
     setRows(data || []);
     setLoading(false);
-  }, [search, deptFilter, dateFrom, dateTo, page]);
+  }, [search, deptFilter, typeFilter, dateFrom, dateTo, page]);
 
   const handleExport = useCallback(async () => {
     if (!supabase) return;
@@ -802,6 +805,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
           .order('dispense_date', { ascending: false })
           .order('id', { ascending: false });
         if (deptFilter) q = q.eq('department', deptFilter);
+        if (typeFilter) q = q.eq('drug_type', typeFilter);
         if (isoFrom && isoTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
         else if (isoFrom)       { q = q.gte('dispense_date', isoFrom); }
         else if (isoTo)         { q = q.lte('dispense_date', isoTo); }
@@ -812,7 +816,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     } finally {
       setExportLoading(false);
     }
-  }, [search, deptFilter, dateFrom, dateTo, auth]);
+  }, [search, deptFilter, typeFilter, dateFrom, dateTo, auth]);
 
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [load]);
 
@@ -824,6 +828,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
     const applyFilters = (q) => {
       if (deptFilter) q = q.eq('department', deptFilter);
+      if (typeFilter) q = q.eq('drug_type', typeFilter);
       if (isoFrom && isoTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
       else if (isoFrom)       { q = q.gte('dispense_date', isoFrom); }
       else if (isoTo)         { q = q.lte('dispense_date', isoTo); }
@@ -847,7 +852,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     const minDate = minResult.data?.[0]?.dispense_date || null;
     const maxDate = maxResult.data?.[0]?.dispense_date || null;
     setAggStats({ count: count ?? data.length, drugCount, totalValue, minDate, maxDate });
-  }, [search, deptFilter, dateFrom, dateTo]);
+  }, [search, deptFilter, typeFilter, dateFrom, dateTo]);
 
   useEffect(() => { const t = setTimeout(loadAgg, 300); return () => clearTimeout(t); }, [loadAgg]);
 
@@ -875,12 +880,18 @@ function DispenseView({ isAdmin = false, auth = {} }) {
       data.forEach(d => { if (d.drug_name && d.drug_type && d.drug_type !== '-') typeMap[d.drug_name] = d.drug_type; });
       const names = [...new Set(data.map(d => d.drug_name).filter(Boolean))].sort();
       setDrugNames(names.map(name => ({ name, type: typeMap[name] || '' })));
+      // ชนิดยาสำหรับ dropdown — เก็บจากทุกแถว ไม่ใช่ typeMap (ยาบางตัวมีแถวอยู่ 2 ชนิด เช่น Herb/Herb_สสจ
+      // typeMap เก็บชนิดเดียวต่อชื่อ ชนิดที่เหลืออาจหายจาก dropdown)
+      setDrugTypes([...new Set(data.map(d => d.drug_type).filter(t => t && t !== '-'))].sort());
     });
   }, []);
 
-  const hasFilter  = search || deptFilter || dateFrom || dateTo;
+  const hasFilter  = search || deptFilter || typeFilter || dateFrom || dateTo;
 
-  const clearAll = () => { setSearch(''); setDeptFilter(''); setDateFrom(''); setDateTo(''); setPage(0); };
+  // ป้ายขอบเขตบน stat card — บอกทั้งหน่วยงานและชนิดยาที่กรองอยู่
+  const scopeLabel = [deptFilter, typeFilter].filter(Boolean).join(' · ');
+
+  const clearAll = () => { setSearch(''); setDeptFilter(''); setTypeFilter(''); setDateFrom(''); setDateTo(''); setPage(0); };
 
   const handleDelete = async (row, e) => {
     e.stopPropagation();
@@ -983,6 +994,9 @@ function DispenseView({ isAdmin = false, auth = {} }) {
           <SearchableSelect value={deptFilter} onChange={v => { setDeptFilter(v); setPage(0); }}
             options={departments} emptyLabel="ทุกหน่วยงาน" placeholder="ทุกหน่วยงาน"
             className="w-44" />
+          <SearchableSelect value={typeFilter} onChange={v => { setTypeFilter(v); setPage(0); }}
+            options={drugTypes} emptyLabel="ทุกชนิดยา" placeholder="ทุกชนิดยา"
+            className="w-36" />
           <button onClick={clearAll} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
             <RefreshCcw size={16} />
           </button>
@@ -1166,16 +1180,16 @@ function DispenseView({ isAdmin = false, auth = {} }) {
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
               <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
-              <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
+              <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{scopeLabel ? ` (${scopeLabel})` : ' ทุกหน่วยงาน'}</p>
             </div>
             <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-3.5 text-center shadow-lg shadow-rose-300/60">
               <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
               <p className="relative text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.drugCount.toLocaleString() : '...'}</p>
-              <p className="relative text-xs text-rose-50 mt-0.5">จำนวนชนิดยา{deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
+              <p className="relative text-xs text-rose-50 mt-0.5">จำนวนชนิดยา{scopeLabel ? ` (${scopeLabel})` : ' ทุกหน่วยงาน'}</p>
             </div>
             <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
               <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
-              <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวม (บาท){deptFilter ? ` (${deptFilter})` : ' ทุกหน่วยงาน'}</p>
+              <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวม (บาท){scopeLabel ? ` (${scopeLabel})` : ' ทุกหน่วยงาน'}</p>
             </div>
           </div>
         </div>
