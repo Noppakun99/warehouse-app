@@ -3525,16 +3525,19 @@ export async function updateStockCountItem(itemId, fields, auth = {}) {
  *
  * ⚠️ ต้องล้าง `counted_lot` ด้วย — `updateStockCountItem` ไม่แตะคอลัมน์นี้เลย
  *    (มีแต่ `updateAnnualCountLine` ที่เขียน) ถ้าไม่ล้าง lot ที่เคยกรอกจะค้างอยู่กับแถวที่ว่างแล้ว
+ * ⚠️ ต้องล้าง `counted_at` ด้วย — ไม่งั้นแถวที่กลับเป็น "ยังไม่ได้นับ" ยังค้างเวลานับเก่า
+ *    แล้วพอนับใหม่ `.is('counted_at', null)` จะไม่ติด → เวลาค้างอยู่ที่ครั้งที่ถูกล้างทิ้งไปแล้ว
  * ⚠️ ไม่แตะ followup_* — สถานะติดตามเป็นเรื่องของคนตามงาน ไม่ใช่ผลนับ (ADR-0017)
  */
 export async function clearStockCountItem(itemId, auth = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
   const { data: before } = await supabase.from('stock_count_item')
-    .select('counted_qty, counted_exp, counted_location, counted_lot, item_note, code, lot')
+    .select('counted_qty, counted_exp, counted_location, counted_lot, item_note, code, lot, counted_at')
     .eq('id', itemId).single()
   const { error } = await supabase.from('stock_count_item')
     .update({
       counted_qty: null, counted_exp: '', counted_location: '', counted_lot: '',
+      counted_at: null,
       diff_qty: 0, match: false,
     })
     .eq('id', itemId)
@@ -3547,6 +3550,7 @@ export async function clearStockCountItem(itemId, auth = {}) {
       before: before ? {
         counted_qty: before.counted_qty, counted_exp: before.counted_exp,
         counted_location: before.counted_location, counted_lot: before.counted_lot,
+        counted_at: before.counted_at,
       } : null,
     },
   })
@@ -4043,7 +4047,19 @@ export async function createAnnualCount({ counted_at, note = '' } = {}, auth = {
 
 /** บันทึกผลนับ 1 บรรทัด — autosave ตอนเดินนับ (ไม่ผ่านปุ่มบันทึกรวม)
  *  ไม่เขียน audit ต่อแถว: 632 แถว = audit ท่วม + กระดิ่ง spam
- *  (รอบทั้งรอบมี audit ตอนเริ่ม/ปิดแล้ว ส่วนใครนับอะไรอยู่ในแถวนั้นเอง) */
+ *  (รอบทั้งรอบมี audit ตอนเริ่ม/ปิดแล้ว ส่วนใครนับอะไรอยู่ในแถวนั้นเอง)
+ *
+ *  **stamp `counted_at` = เวลานับครั้งแรก** (รอบประจำปีกินเวลาหลายวัน วันเปิดรอบตอบไม่ได้ว่านับอะไรวันไหน)
+ *  ⚠️ แยกเป็นคำสั่งที่ 2 โดยเจตนา ห้ามยัด `.is('counted_at', null)` ใส่ UPDATE แรก:
+ *     guard จะปฏิเสธทั้งคำสั่งเมื่อบรรทัดเคยนับแล้ว → **ยอดที่แก้ใหม่หายเงียบ**
+ *     (saveLine เป็น optimistic — จออัปเดตไปแล้ว จะขึ้น "saved" ทั้งที่ DB ไม่เปลี่ยน)
+ *  ⚠️ stamp เฉพาะเมื่อมียอดนับ: computeCountMatch คืน counted_qty = null ได้ถ้าช่องยอดว่าง
+ *     (คนกรอกแต่ที่เก็บ/exp แล้วกดบันทึก) — stamp ตอนนั้น = เวลาผิด พอมากรอกยอดจริงวันหลังจะไม่ทับแล้ว
+ *  ⚠️ ไม่ทับเมื่อแก้ — `.is('counted_at', null)` ทำให้ครั้งแรกเท่านั้นที่ติด (ADR-0008 append-only)
+ *  ⚠️ เวลามาจาก **นาฬิกาเครื่องที่นับ** ไม่ใช่ NOW() ของ DB: supabase-js ส่ง `NOW()` ใน UPDATE ไม่ได้
+ *     (จะกลายเป็น string "NOW()") ต้องทำ RPC ซึ่ง repo นี้ไม่เคยใช้เลย — ไม่คุ้มกับการเพิ่มกลไกใหม่
+ *     ตรงกับ updated_at/received_at ทุกตัวใน db.js ที่ใช้นาฬิกา client เหมือนกัน
+ *     (ต่างจาก created_at ที่เป็น DEFAULT NOW() ของ DB เพราะ DEFAULT ทำงานเฉพาะตอน INSERT) */
 export async function updateAnnualCountLine(itemId, fields = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
   const { counted_qty, diff_qty, match } = computeCountMatch(fields)
@@ -4058,7 +4074,19 @@ export async function updateAnnualCountLine(itemId, fields = {}) {
     })
     .eq('id', itemId)
   if (error) throw error
-  return { counted_qty, diff_qty, match }
+
+  // เวลานับครั้งแรก — ถูกปฏิเสธเงียบๆ ได้ถ้าเคย stamp แล้ว (นั่นคือพฤติกรรมที่ต้องการ)
+  let counted_at
+  if (counted_qty != null) {
+    const { data } = await supabase.from('stock_count_item')
+      .update({ counted_at: new Date().toISOString() })
+      .eq('id', itemId)
+      .is('counted_at', null)
+      .select('counted_at')
+      .maybeSingle()
+    counted_at = data?.counted_at
+  }
+  return { counted_qty, diff_qty, match, counted_at }
 }
 
 /** lot ที่ระบบว่าเหลือ 0 และยังไม่อยู่ในรอบนี้ — ให้เลือกเพิ่มตอนเจอของจริงหน้างาน

@@ -1174,7 +1174,9 @@ function AnnualTab({ auth }) {
     // โหมดปกติ: ต้องขยับเอง แต่ห้ามเกินขอบคิว (ตัวสุดท้ายให้ค้างอยู่ที่เดิม)
     if (advance && countFilter !== 'pending') setIdx(i => Math.min(i + 1, queue.length - 1))
     try {
-      await updateAnnualCountLine(itemId, payload)
+      // counted_at กลับมาเฉพาะครั้งแรกที่ stamp (ครั้งต่อไปเป็น undefined = ไม่ทับของเดิมในจอ)
+      const { counted_at } = await updateAnnualCountLine(itemId, payload)
+      if (counted_at) setItems(prev => prev.map(it => it.id === itemId ? { ...it, counted_at } : it))
       setSaveState(s => ({ ...s, [itemId]: 'saved' }))
     } catch (e) {
       // ⚠️ ไม่ revert ค่าในจอ — คนนับของจริงมาแล้ว ต้องไม่ทำให้ตัวเลขหายไปต่อหน้า
@@ -2106,6 +2108,8 @@ function HistoryTab({ auth }) {
       { header: 'ส่วนต่าง', value: r => diffLabel(r.system_qty, r.counted_qty) },
       { header: 'มิติที่ตรวจ', value: r => `${dimStatus(r).checked}/${DIM_COUNT}` },
       { header: 'ผล', value: r => (r.counted_qty === null || r.counted_qty === '' ? 'ยังไม่ได้นับ' : (computeCountMatch(r).match ? 'ตรง' : 'ไม่ตรง')) },
+      // เวลานับรายบรรทัด — คนเอาไป pivot ดูความคืบหน้ารายวันของรอบประจำปี (632 บรรทัดดูบนจอไม่ไหว)
+      { header: 'นับเมื่อ', value: r => (r.counted_at ? fmtThaiDateTime(r.counted_at) : '') },
       { header: 'สถานะติดตาม', value: r => (FOLLOWUP_STATUS[r.followup_status] || '') },
       { header: 'หมายเหตุรายการ', value: r => r.item_note || '' },
     ]
@@ -2351,7 +2355,16 @@ function HistoryTab({ auth }) {
                   const ok = liveMatch(it)
                   return (
                     <tr key={it.id} className={`border-b border-slate-50 ${!ok ? 'bg-amber-50 dark:bg-amber-950/40' : ''}`}>
-                      <td className="py-1.5 pr-2 whitespace-nowrap text-slate-600 dark:text-slate-300">{s.created_at ? fmtThaiDateTime(s.created_at) : fmtThaiDate(s.counted_at)}</td>
+                      {/* เวลานับของ "บรรทัด" ไม่ใช่ของรอบ — รอบประจำปี 632 บรรทัดนับคนละวัน
+                          ถ้าใช้ s.created_at ทุกแถวจะโชว์เวลาเปิดรอบเหมือนกันหมด (บั๊กเดิม แก้ 2026-09-24)
+                          ⚠️ บรรทัดเก่าไม่มี counted_at → เว้นว่าง **ห้าม fallback ไปวันของรอบ**
+                             นั่นคือวันเปิดรอบ ไม่ใช่วันที่นับ — เติมให้ = สร้างข้อมูลปลอมที่ดูเหมือนจริง
+                             ซึ่งคือบั๊กตัวเดิมที่กำลังแก้อยู่นี่เอง */}
+                      <td className="py-1.5 pr-2 whitespace-nowrap text-slate-600 dark:text-slate-300">
+                        {it.counted_at
+                          ? fmtThaiDateTime(it.counted_at)
+                          : <span className="text-slate-300 dark:text-slate-600" title="นับก่อนระบบเริ่มบันทึกเวลารายบรรทัด — ไม่มีข้อมูลเวลาจริง">—</span>}
+                      </td>
                       <td className="px-2">{it.name}<span className="text-slate-400 dark:text-slate-500"> · {it.lot}</span></td>
                       <td className="text-center px-2">{qtyUnit(it.system_qty, it.unit)}</td>
                       <td className="text-center px-2">{it.counted_qty == null ? '-' : `${toNum(it.counted_qty)} × ${it.unit}`}</td>
@@ -2541,6 +2554,13 @@ function HistoryTab({ auth }) {
                                   ) : it.item_note ? (
                                     <p className="text-[11px] text-amber-600 mt-0.5">หมายเหตุ: {it.item_note}</p>
                                   ) : null}
+                                  {/* เวลานับของบรรทัดนี้ — รอบประจำปีกินเวลาหลายวัน หัวรอบบอกแค่วันเปิดรอบ
+                                      ไม่มีค่า = นับก่อนมีคอลัมน์นี้ หรือยังไม่ได้นับ → ไม่แสดง (ห้าม fallback ไปวันเปิดรอบ) */}
+                                  {it.counted_at && (
+                                    <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                      นับเมื่อ {fmtThaiDateTime(it.counted_at)}
+                                    </p>
+                                  )}
                                 </td>
                                 <td className="text-center px-2 align-top">{qtyUnit(it.system_qty, it.unit)}</td>
                                 {editing ? (() => {
