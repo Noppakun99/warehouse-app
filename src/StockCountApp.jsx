@@ -2589,32 +2589,44 @@ function HistoryTab({ auth }) {
                                       <FieldTick active={em.qty === 'ok'} onClick={() => tickEdit(it, 'counted_qty')} />
                                     </td>
                                     <td className="text-center px-2 text-slate-300 dark:text-slate-500 align-top">—</td>
-                                    <td className="text-center px-2 align-top">
-                                      <LocationInput value={editVal.counted_location} locations={locations}
-                                        onChange={v => setEditVal(x => ({ ...x, counted_location: v }))}
-                                        placeholder="— ที่เก็บ —"
-                                        className={`w-28 px-1 py-1 border rounded text-center text-[11px] ${em.loc === 'diff' ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-slate-800 dark:text-red-100' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`} />
-                                      <FieldTick active={em.loc === 'ok'} onClick={() => tickEdit(it, 'counted_location')} />
-                                      <select value={editVal._expCustom ? '__custom__' : editVal.counted_exp}
-                                        onChange={e => pickExpEdit(e.target.value)}
-                                        className={`w-28 mt-1 px-1 py-1 border rounded text-center text-[11px] ${em.exp === 'diff' ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-slate-800 dark:text-red-100' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`}>
-                                        <option value="">— exp จริง —</option>
-                                        {(it.system_exp && it.system_exp !== '-') && <option value={it.system_exp}>{it.system_exp} (ตามระบบ)</option>}
-                                        <option value="__custom__">อื่นๆ (พิมพ์เอง)</option>
-                                      </select>
-                                      {editVal._expCustom && (
-                                        <input type="text" autoFocus value={editVal.counted_exp} placeholder="เช่น 3/12/2028"
-                                          onChange={e => setEditVal(v => ({ ...v, counted_exp: e.target.value }))}
-                                          className="w-28 mt-1 px-1.5 py-1 border border-amber-400 bg-amber-50 dark:bg-amber-950/40 text-slate-800 dark:text-amber-100 rounded text-center text-[11px]" />
-                                      )}
-                                      <FieldTick active={em.exp === 'ok'} onClick={() => tickEdit(it, 'counted_exp')} />
-                                      {/* lot เป็นมิติที่ 4 — เดิมฟอร์มแก้ไขไม่มีช่องนี้ ทั้งที่นับกรอกได้
-                                          ทำให้แก้บรรทัดทีไร counted_lot ที่เคยกรอกหาย + ผลตกจาก 4/4 เป็น 3/4 */}
-                                      <input type="text" value={editVal.counted_lot || ''}
-                                        onChange={e => setEditVal(v => ({ ...v, counted_lot: e.target.value }))}
-                                        placeholder="— lot จริง —"
-                                        className={`w-28 mt-1 px-1.5 py-1 border rounded text-center text-[11px] ${em.lot === 'diff' ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-slate-800 dark:text-red-100' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`} />
-                                      <FieldTick active={em.lot === 'ok'} onClick={() => tickEdit(it, 'counted_lot')} />
+                                    {/* 3 มิติในช่องเดียว: วางเป็นแถวนอน แต่ละช่องจับคู่ปุ่ม "ตรง" ของตัวเอง
+                                        (เดิมซ้อนลงล่าง 6 ชั้นในคอลัมน์แคบ แถวสูงจนช่องอื่นหลุดระนาบ) */}
+                                    <td className="px-2 align-top">
+                                      <div className="flex flex-wrap items-start justify-center gap-x-3 gap-y-1.5">
+                                        <label className="flex flex-col items-center gap-1">
+                                          <span className="text-[9px] font-semibold text-slate-400 dark:text-slate-500">ที่เก็บ</span>
+                                          <LocationInput value={editVal.counted_location} locations={locations}
+                                            onChange={v => setEditVal(x => ({ ...x, counted_location: v }))}
+                                            placeholder="— ที่เก็บ —"
+                                            className={`w-28 px-1 py-1 border rounded text-center text-[11px] ${em.loc === 'diff' ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-slate-800 dark:text-red-100' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`} />
+                                          <FieldTick active={em.loc === 'ok'} onClick={() => tickEdit(it, 'counted_location')} />
+                                        </label>
+                                        <label className="flex flex-col items-center gap-1">
+                                          <span className="text-[9px] font-semibold text-slate-400 dark:text-slate-500">exp</span>
+                                          <select value={editVal._expCustom ? '__custom__' : editVal.counted_exp}
+                                            onChange={e => pickExpEdit(e.target.value)}
+                                            className={`w-28 px-1 py-1 border rounded text-center text-[11px] ${em.exp === 'diff' ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-slate-800 dark:text-red-100' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`}>
+                                            <option value="">— exp จริง —</option>
+                                            {(it.system_exp && it.system_exp !== '-') && <option value={it.system_exp}>{it.system_exp} (ตามระบบ)</option>}
+                                            <option value="__custom__">อื่นๆ (พิมพ์เอง)</option>
+                                          </select>
+                                          {editVal._expCustom && (
+                                            <input type="text" autoFocus value={editVal.counted_exp} placeholder="เช่น 3/12/2028"
+                                              onChange={e => setEditVal(v => ({ ...v, counted_exp: e.target.value }))}
+                                              className="w-28 px-1.5 py-1 border border-amber-400 bg-amber-50 dark:bg-amber-950/40 text-slate-800 dark:text-amber-100 rounded text-center text-[11px]" />
+                                          )}
+                                          <FieldTick active={em.exp === 'ok'} onClick={() => tickEdit(it, 'counted_exp')} />
+                                        </label>
+                                        {/* lot = มิติที่ 4 เดิมไม่มีช่องนี้ในฟอร์มแก้ไข ทำให้ค่าที่นับไว้หาย */}
+                                        <label className="flex flex-col items-center gap-1">
+                                          <span className="text-[9px] font-semibold text-slate-400 dark:text-slate-500">lot</span>
+                                          <input type="text" value={editVal.counted_lot || ''}
+                                            onChange={e => setEditVal(v => ({ ...v, counted_lot: e.target.value }))}
+                                            placeholder="— lot จริง —"
+                                            className={`w-28 px-1.5 py-1 border rounded text-center text-[11px] ${em.lot === 'diff' ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-slate-800 dark:text-red-100' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`} />
+                                          <FieldTick active={em.lot === 'ok'} onClick={() => tickEdit(it, 'counted_lot')} />
+                                        </label>
+                                      </div>
                                     </td>
                                     <td className="text-center px-2 align-top">
                                       <div className="flex items-center justify-center gap-1">
