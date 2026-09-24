@@ -13,7 +13,7 @@ import {
   fetchZeroLotsForAnnual, addLotToAnnualCount, addUnknownItemToAnnualCount, UNKNOWN_TAG, sortByShelf,
   fetchLotLocationBreakdown, fetchPendingReceiveLots, refreshAnnualCountSystemQty,
 } from './lib/db'
-import { dimStatus, diffLabel, computeCountMatch, DIM_COUNT } from './lib/countMatch'
+import { dimStatus, diffLabel, computeCountMatch, DIM_COUNT, missingDims } from './lib/countMatch'
 import { rankCountPriority } from './lib/countPriority'
 import { printCountCertificate } from './lib/stockCountCertificate'
 import { exportToExcel } from './lib/exportExcel'
@@ -39,6 +39,18 @@ const fmtThaiDateTime = (iso) => {
   return `${fmtThaiDate(iso)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} น.`
 }
 const toNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0 }
+
+// เตือนมิติที่ยังไม่ได้ตรวจ — บันทึกไม่ได้จนกว่าจะครบ (missingDims ใน countMatch.js)
+// ไม่ขึ้นถ้าว่าง: ยังไม่เริ่มกรอก หรือกรอกครบแล้ว
+function MissingDimsNote({ missing, className = '' }) {
+  if (!missing?.length) return null
+  return (
+    <p className={`flex items-start gap-1 text-[11px] md:text-xs font-semibold text-amber-700 dark:text-amber-300 ${className}`}>
+      <AlertTriangle size={13} className="shrink-0 mt-px" />
+      <span>ยังไม่ได้ตรวจ: {missing.join(', ')} — ต้องตรวจให้ครบก่อนบันทึก</span>
+    </p>
+  )
+}
 
 // ประวัติแยก "เวลา" เป็น 2 คอลัมน์ เพราะเป็นคนละค่ากันจริง (ADR-0008 เพิ่มเติม 24/09/2569):
 //   รอบวันที่ (session.counted_at) — วันเปิดรอบ มีเสมอทุกแถว ตอบว่า "อยู่ในรอบไหน"
@@ -526,7 +538,7 @@ function CountTab({ auth }) {
     setPendingDraft(null)
   }
 
-  const initLine = (l) => ({ ...l, counted_qty: '', counted_exp: '', counted_location: '', item_note: '', _selected: true })
+  const initLine = (l) => ({ ...l, counted_qty: '', counted_exp: '', counted_location: '', counted_lot: '', item_note: '', _selected: true })
 
   const addDrug = async (name) => {
     const code = nameMap.byName[name]
@@ -558,6 +570,8 @@ function CountTab({ auth }) {
   const sysVal = (l, field) =>
     field === 'counted_qty' ? String(toNum(l.system_qty))
       : field === 'counted_exp' ? (l.system_exp && l.system_exp !== '-' ? l.system_exp : '')
+      // lot ที่ระบบบันทึกอยู่ในคอลัมน์ `lot` (ไม่ใช่ system_*)
+      : field === 'counted_lot' ? (l.lot && l.lot !== '-' ? l.lot : '')
       : (l.system_location && l.system_location !== '-' ? l.system_location : '')
 
   // เติม/ล้าง 1 ช่อง ให้ตรงระบบ (toggle) — autofill รายช่อง
@@ -585,8 +599,8 @@ function CountTab({ auth }) {
       const m = lineMatch(l)
       const complete = m.all && m.checked >= m.fillable
       return complete
-        ? { ...l, counted_qty: '', counted_exp: '', counted_location: '', _expCustom: false }
-        : { ...l, counted_qty: String(toNum(l.system_qty)), counted_exp: sysVal(l, 'counted_exp'), counted_location: sysVal(l, 'counted_location'), _expCustom: false }
+        ? { ...l, counted_qty: '', counted_exp: '', counted_location: '', counted_lot: '', _expCustom: false }
+        : { ...l, counted_qty: String(toNum(l.system_qty)), counted_exp: sysVal(l, 'counted_exp'), counted_location: sysVal(l, 'counted_location'), counted_lot: sysVal(l, 'counted_lot'), _expCustom: false }
     }))
 
   // X = เอายาออก "ทั้งตัว" (ทุก lot ของ code เดียวกัน + lot 0 ที่ซ่อน) + ปลดให้เลือกยาตัวนี้ใหม่ได้
@@ -607,7 +621,9 @@ function CountTab({ auth }) {
   const lineMatch = (l) => {
     const d = dimStatus(l)
     const fillable = 1 + (l.system_exp && l.system_exp !== '-' ? 1 : 0) + (l.system_location && l.system_location !== '-' ? 1 : 0)
-    return { ...d, fillable, all: d.qty === 'ok' && !d.anyDiff, counted: d.qty !== 'unchecked' }
+      + (l.lot && l.lot !== '-' ? 1 : 0)
+    // missing แสดงเฉพาะเมื่อเริ่มกรอกแล้ว — บรรทัดที่ยังไม่แตะไม่ต้องเตือนทุกช่อง
+    return { ...d, fillable, all: d.qty === 'ok' && !d.anyDiff, counted: d.qty !== 'unchecked', missing: d.checked > 0 ? missingDims(l) : [] }
   }
 
   const clearToast = useCallback(() => setToast(null), [])
@@ -615,11 +631,12 @@ function CountTab({ auth }) {
   const handleSave = async () => {
     const toSave = lines.filter(l => l._selected)
     if (!toSave.length) return
-    // จำนวนเป็นมิติบังคับ (ADR-0008 2026-07-16 ข้อ 2) — กันบรรทัดผี "ไม่ตรง" จากการลืมกรอก
-    const missing = toSave.filter(l => l.counted_qty === '' || l.counted_qty == null)
+    // ต้องตรวจครบทุกมิติที่ระบบมีค่า ก่อนบันทึก (24/09/2569 — เดิมบังคับแค่จำนวน ADR-0008 2026-07-16 ข้อ 2)
+    // มิติที่ระบบไม่มีข้อมูล ('-') ไม่บังคับ — ดู missingDims
+    const missing = toSave.map(l => ({ l, dims: missingDims(l) })).filter(x => x.dims.length)
     if (missing.length) {
-      const names = missing.slice(0, 3).map(l => `${l.name} (lot ${l.lot})`).join(', ')
-      setToast({ tone: 'error', message: `ยังไม่ได้กรอกจำนวนนับ ${missing.length} รายการ: ${names}${missing.length > 3 ? ' ...' : ''}\nกรอกจำนวนให้ครบ หรือเอาติ๊กออกจากรายการที่ไม่ได้นับ` })
+      const names = missing.slice(0, 3).map(({ l, dims }) => `${l.name} (lot ${l.lot}) ขาด ${dims.join('/')}`).join('\n')
+      setToast({ tone: 'error', message: `ยังตรวจไม่ครบ ${missing.length} รายการ:\n${names}${missing.length > 3 ? '\n...' : ''}\nตรวจให้ครบทุกช่อง หรือเอาติ๊กออกจากรายการที่ไม่ได้นับ` })
       return
     }
     setSaving(true)
@@ -725,7 +742,7 @@ function CountTab({ auth }) {
           <div className="hidden md:block bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-x-auto">
             <table className="w-full text-sm table-fixed">
               <colgroup>
-                <col className="w-[5%]" /><col className="w-[20%]" /><col className="w-[8%]" /><col className="w-[17%]" />
+                <col className="w-[5%]" /><col className="w-[18%]" /><col className="w-[12%]" /><col className="w-[15%]" />
                 <col className="w-[15%]" /><col className="w-[15%]" /><col className="w-[15%]" />
                 <col className="w-[5%]" /><col className="w-[5%]" />
               </colgroup>
@@ -733,7 +750,7 @@ function CountTab({ auth }) {
                 <tr className="text-[11px] uppercase tracking-wider">
                   <th className="text-center px-2 py-3.5 font-semibold">นับ</th>
                   <th className="text-left px-3 py-3.5 font-semibold">รายการยา</th>
-                  <th className="text-center px-2 py-3.5 font-semibold">Lot</th>
+                  <th className="text-center px-2 py-3.5 font-semibold">Lot (ระบบ / จริง)</th>
                   <th className="text-center px-2 py-3.5 font-semibold">ระบบ (คงเหลือ/ที่เก็บ/exp)</th>
                   <th className="text-center px-2 py-3.5 font-semibold">นับได้</th>
                   <th className="text-center px-2 py-3.5 font-semibold">ที่เก็บจริง</th>
@@ -761,10 +778,16 @@ function CountTab({ auth }) {
                         <input type="text" value={l.item_note} placeholder="+ หมายเหตุรายการนี้"
                           onChange={e => updateLine(i, 'item_note', e.target.value)}
                           className="w-full mt-1 px-2 py-1 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-lg text-xs placeholder-slate-300 dark:placeholder-slate-500 focus:border-slate-300 focus:ring-1 focus:ring-emerald-200" />
+                        {l._selected && <MissingDimsNote missing={m.missing} className="mt-1" />}
                       </td>
                       <td className="text-center px-2 py-3 align-top">
                         <span className="inline-flex items-center rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-xs px-2 py-0.5">{l.lot || '-'}</span>
                         {l._zero && <span className="block mt-1 mx-auto w-max rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 text-[9px] font-semibold">ระบบว่า 0</span>}
+                        {/* lot จริงบนกล่อง = มิติที่ 4 (เดิมหน้านี้ไม่มีช่อง lot — มีแต่รอบประจำปี) */}
+                        <input type="text" value={l.counted_lot || ''} placeholder="lot จริง"
+                          onChange={e => updateLine(i, 'counted_lot', e.target.value)}
+                          className={`w-full mt-1.5 px-2 py-1 border rounded-lg text-center text-xs font-mono ${m.lot === 'diff' ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-slate-800 dark:text-red-100' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`} />
+                        <FieldTick active={m.lot === 'ok'} onClick={() => toggleField(i, 'counted_lot')} />
                       </td>
                       <td className="text-center px-2 py-3 text-xs text-slate-500 dark:text-slate-400 align-top">
                         <span className="font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{qtyUnit(l.system_qty, l.unit)}</span><br />
@@ -893,6 +916,14 @@ function CountTab({ auth }) {
                       </div>
                       <FieldTick active={m.exp === 'ok'} onClick={() => toggleField(i, 'counted_exp')} />
                     </div>
+                    {/* lot จริง */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-slate-500 dark:text-slate-400 w-14 shrink-0">lot</label>
+                      <input type="text" value={l.counted_lot || ''} placeholder="— lot จริง —"
+                        onChange={e => updateLine(i, 'counted_lot', e.target.value)}
+                        className={`flex-1 min-w-0 px-2 py-1.5 border rounded-lg text-center text-xs font-mono ${m.lot === 'diff' ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-slate-800 dark:text-red-100' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`} />
+                      <FieldTick active={m.lot === 'ok'} onClick={() => toggleField(i, 'counted_lot')} />
+                    </div>
                     {/* หมายเหตุรายการนี้ */}
                     <div className="flex items-center gap-2">
                       <label className="text-xs text-slate-500 dark:text-slate-400 w-14 shrink-0">หมายเหตุ</label>
@@ -901,6 +932,7 @@ function CountTab({ auth }) {
                         className="flex-1 min-w-0 px-2 py-1.5 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-lg text-xs" />
                     </div>
                   </div>
+                  {l._selected && <MissingDimsNote missing={m.missing} className="mt-2" />}
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <div className="text-xs">
                       {!m.counted ? <span className="text-slate-400 dark:text-slate-500">ยังไม่กรอก</span>
@@ -1254,9 +1286,11 @@ function AnnualTab({ auth }) {
     item_note: draft?.item_note ?? cur.item_note ?? '',
   })
 
+  // ต้องตรวจครบทุกมิติที่ระบบมีค่า (24/09/2569) — ปุ่ม "ตรงตามระบบ" เติมครบให้เองจึงไม่ต้องเช็ค
+  const annMissing = cur ? missingDims({ ...cur, ...(draft || {}) }) : []
   const saveDraft = () => {
-    if (draft?.counted_qty === '' || draft?.counted_qty == null) {
-      setToast({ tone: 'error', message: 'ยังไม่ได้กรอกจำนวนที่นับได้' }); return
+    if (annMissing.length) {
+      setToast({ tone: 'error', message: `ยังไม่ได้ตรวจ: ${annMissing.join(', ')} — ตรวจให้ครบก่อนบันทึก หรือกด "ตรงตามระบบ" ถ้าตรงทั้งหมด` }); return
     }
     saveLine(draft)
   }
@@ -1781,6 +1815,8 @@ function AnnualTab({ auth }) {
               </div>
             )}
 
+            {/* เตือนเฉพาะเมื่อเริ่มกรอกแล้ว — บรรทัดที่ยังไม่แตะไม่ต้องขึ้นรายการยาวทุกมิติ */}
+            {dim.checked > 0 && <MissingDimsNote missing={annMissing} className="mb-2" />}
             {/* ปุ่มหลัก — ของส่วนใหญ่ตรง กดปุ่มเดียวจบแล้วไปตัวถัดไป */}
             <button onClick={markSame}
               className="w-full mb-2 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold shadow-md shadow-emerald-500/30">
@@ -2224,6 +2260,10 @@ function HistoryTab({ auth }) {
   const clearToast = useCallback(() => setToast(null), [])
 
   const saveEdit = async (it) => {
+    const miss = missingDims({ ...it, ...editVal })
+    if (miss.length) {
+      setToast({ tone: 'error', message: `ยังไม่ได้ตรวจ: ${miss.join(', ')} — ตรวจให้ครบก่อนบันทึก` }); return
+    }
     setBusy(true)
     try {
       await updateStockCountItem(it.id, {
@@ -2695,6 +2735,7 @@ function HistoryTab({ auth }) {
                                     <input type="text" value={editVal.item_note} placeholder="+ หมายเหตุรายการนี้"
                                       onChange={e => setEditVal(v => ({ ...v, item_note: e.target.value }))}
                                       className="w-full mt-3 px-2.5 py-1.5 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-lg text-sm" />
+                                    <MissingDimsNote missing={missingDims({ ...it, ...editVal })} className="mt-2" />
                                   </td>
                                 </tr>
                               )

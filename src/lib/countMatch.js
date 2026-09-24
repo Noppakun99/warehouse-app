@@ -42,6 +42,23 @@ export function dimStatus(item) {
   return { qty, exp, loc, lot, checked, anyDiff }
 }
 
+// มิติที่ "ต้องตรวจแต่ยังไม่ได้ตรวจ" — ใช้บล็อกการบันทึก (ต้องตรวจครบก่อนผ่าน, เพิ่ม 24/09/2569)
+// บังคับเฉพาะมิติที่ระบบมีค่าให้เทียบ: จำนวนบังคับเสมอ; ที่เก็บ/exp/lot บังคับเมื่อระบบไม่ว่าง/ไม่ใช่ '-'
+// ⚠️ ห้ามบังคับมิติที่ระบบไม่มีข้อมูล — lot เวชภัณฑ์เป็น '-' (39 lot) และยาไม่มี exp (37 lot)
+//    ปุ่ม "ตรงตามระบบ" เติมค่าว่างให้มิติพวกนี้ ถ้าบังคับด้วย lot พวกนี้จะบันทึกไม่ได้ตลอดกาล
+//    (ถ้าเจอค่าบนกล่องจริงก็ยังกรอกได้ — แค่ไม่บังคับ)
+// คืน array ชื่อมิติภาษาไทย ว่าง = ครบ
+export function missingDims(item) {
+  const d = dimStatus(item)
+  const sysLot = String(item.lot ?? '').trim()
+  const out = []
+  if (d.qty === 'unchecked') out.push('จำนวน')
+  if (d.loc === 'unchecked' && normSet(item.system_location)) out.push('ที่เก็บ')
+  if (d.exp === 'unchecked' && normSet(item.system_exp)) out.push('exp')
+  if (d.lot === 'unchecked' && sysLot && sysLot !== '-') out.push('lot')
+  return out
+}
+
 // ค่าที่ persist ลง stock_count_item — นิยาม match เดิมตาม ADR-0008:
 // จำนวนต้องถูกนับ (ไม่ null) + ทุกมิติที่ตรวจตรงหมด (มิติที่ไม่ได้ตรวจไม่ทำให้ fail)
 export function computeCountMatch(item) {

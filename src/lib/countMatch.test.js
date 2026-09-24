@@ -4,7 +4,7 @@
 // ครอบ: normSet/setEq (ลำดับ/ช่องว่าง/subset) + dimStatus (3 สถานะต่อมิติ) + computeCountMatch + diffLabel
 
 /* eslint-disable no-undef */
-import { normSet, setEq, dimStatus, computeCountMatch, diffLabel } from './countMatch.js'
+import { normSet, setEq, dimStatus, computeCountMatch, diffLabel, missingDims } from './countMatch.js'
 
 let pass = 0, fail = 0
 const fails = []
@@ -123,6 +123,26 @@ section('Test 4: diffLabel')
   assertEq(diffLabel(10, null), '-', 'ยังไม่นับ → -')
   assertEq(diffLabel(10, ''), '-', 'ช่องว่าง → -')
   assertEq(diffLabel('2.5', '2'), 'ขาด 0.5', 'ทศนิยม → ขาด 0.5')
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Test 5 — missingDims: ต้องตรวจครบก่อนบันทึก แต่ไม่บังคับมิติที่ระบบไม่มีข้อมูล
+// ────────────────────────────────────────────────────────────────────
+section('Test 5: missingDims')
+{
+  const sys = { system_qty: '10', system_exp: '29/11/2028', system_location: 'E-1-4', lot: 'A123' }
+  const full = { ...sys, counted_qty: '10', counted_exp: '29/11/2028', counted_location: 'E-1-4', counted_lot: 'A123' }
+  assertEq(missingDims(full), [], 'ครบ 4 มิติ → ไม่ขาด')
+  assertEq(missingDims({ ...full, counted_lot: '' }), ['lot'], 'ไม่ได้กรอก lot → ขาด lot')
+  assertEq(missingDims({ ...sys, counted_qty: '' }), ['จำนวน', 'ที่เก็บ', 'exp', 'lot'], 'ยังไม่กรอกอะไร → ขาดครบ')
+  // ไม่ตรง ≠ ขาด — กรอกแล้วแต่ต่างจากระบบ ถือว่าตรวจแล้ว (บันทึกได้ ไปตามส่วนต่างต่อ)
+  assertEq(missingDims({ ...full, counted_qty: '8', counted_lot: 'B999' }), [], 'กรอกครบแต่ไม่ตรง → ไม่ขาด')
+  // เวชภัณฑ์ lot '-' + ไม่มี exp: ปุ่มตรงตามระบบเติม '' ให้ → ต้องผ่าน ไม่งั้นบันทึกไม่ได้ตลอดกาล
+  const supply = { system_qty: '5', system_exp: '-', system_location: 'C-2-1', lot: '-' }
+  assertEq(missingDims({ ...supply, counted_qty: '5', counted_exp: '', counted_location: 'C-2-1', counted_lot: '' }), [], 'ระบบไม่มี exp/lot → ไม่บังคับ')
+  assertEq(missingDims({ ...supply, counted_qty: '5', counted_location: '' }), ['ที่เก็บ'], 'ระบบมีที่เก็บ → ยังบังคับ')
+  assertEq(missingDims({ system_qty: '1', system_exp: '', system_location: '', lot: '', counted_qty: '1' }), [], 'ของไม่มีในระบบ (ค่าว่างหมด) → บังคับแค่จำนวน')
+  assertEq(missingDims({ ...sys, counted_qty: 0, counted_exp: '29/11/2028', counted_location: 'E-1-4', counted_lot: 'A123' }), [], 'นับได้ 0 = ตรวจแล้ว ไม่ใช่ขาด')
 }
 
 // ────────────────────────────────────────────────────────────────────

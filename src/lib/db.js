@@ -3431,6 +3431,8 @@ export async function createStockCount(session, items, auth = {}) {
       code: it.code || '-', name: it.name || '-', lot: it.lot || '-', unit: it.unit || '-',
       system_qty: toNum(it.system_qty), system_exp: it.system_exp || '-', system_location: it.system_location || '-',
       counted_qty, counted_exp: it.counted_exp || '', counted_location: it.counted_location || '',
+      // lot = มิติที่ 4 — เดิมรอบเฉพาะจุดไม่มีช่องกรอก lot และไม่บันทึกคอลัมน์นี้เลย (มีแต่รอบประจำปี)
+      counted_lot: it.counted_lot || '',
       diff_qty, match,
       item_note: it.item_note || '',
     }
