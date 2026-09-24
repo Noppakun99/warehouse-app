@@ -81,7 +81,18 @@ function FieldTick({ active, onClick }) {
   )
 }
 // แสดงคงเหลือเป็น "จำนวน × หน่วย" (เช่น 2 × 1000เม็ด) — unit ฝัง packsize ไว้แล้ว
+// เลขกับหน่วยยาวไม่เท่ากันทุกแถว (50ขวด / vial / amp) — ถ้าปล่อยเป็น string เดียวใน text-center
+// จุดกึ่งกลางจะเลื่อนตามความยาวหน่วย ทำให้ตัวเลขในคอลัมน์ไม่ตรงแนวกัน
+// จึงแยก 2 ฝั่งรอบแกนกลาง: เลขชิดขวา · หน่วยชิดซ้าย → เลขเรียงตรงแนวลงมาทั้งคอลัมน์
+// ใช้ในประโยค (ไม่ใช่คอลัมน์ตาราง) ที่ไม่ต้องจัดแนวเลข
 const qtyUnit = (qty, unit) => `${toNum(qty)} × ${unit || '-'}`
+
+const QtyUnit = ({ qty, unit }) => (
+  <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
+    <span className="text-right tabular-nums">{toNum(qty)}</span>
+    <span className="text-left text-slate-500 dark:text-slate-400">× {unit || '-'}</span>
+  </span>
+)
 
 // lot เดียวที่แบ่งวางคนละที่ — บอกว่าแต่ละที่มีเท่าไหร่ (เช่น ชั้น4 750 · E-1-1 550)
 // บรรทัดนับยังเป็นบรรทัดเดียว กรอกยอดรวมครั้งเดียว (ADR-0008 ข้อ 3) นี่คือข้อมูลประกอบ
@@ -2366,8 +2377,8 @@ function HistoryTab({ auth }) {
                           : <span className="text-slate-300 dark:text-slate-600" title="นับก่อนระบบเริ่มบันทึกเวลารายบรรทัด — ไม่มีข้อมูลเวลาจริง">—</span>}
                       </td>
                       <td className="px-2">{it.name}<span className="text-slate-400 dark:text-slate-500"> · {it.lot}</span></td>
-                      <td className="text-center px-2">{qtyUnit(it.system_qty, it.unit)}</td>
-                      <td className="text-center px-2">{it.counted_qty == null ? '-' : `${toNum(it.counted_qty)} × ${it.unit}`}</td>
+                      <td className="text-center px-2"><QtyUnit qty={it.system_qty} unit={it.unit} /></td>
+                      <td className="text-center px-2">{it.counted_qty == null ? '-' : <QtyUnit qty={it.counted_qty} unit={it.unit} />}</td>
                       <td className="text-center px-2"><DiffCell it={it} /></td>
                       <td className="text-center px-2">
                         {!ok ? <AlertTriangle size={14} className="text-amber-500 inline" />
@@ -2562,7 +2573,7 @@ function HistoryTab({ auth }) {
                                     </p>
                                   )}
                                 </td>
-                                <td className="text-center px-2 align-top">{qtyUnit(it.system_qty, it.unit)}</td>
+                                <td className="text-center px-2 align-top"><QtyUnit qty={it.system_qty} unit={it.unit} /></td>
                                 {editing ? (() => {
                                   const em = editMatch(it)
                                   return (
@@ -2613,7 +2624,7 @@ function HistoryTab({ auth }) {
                                   )
                                 })() : (
                                   <>
-                                    <td className="text-center px-2">{it.counted_qty == null ? '-' : `${toNum(it.counted_qty)} × ${it.unit}`}</td>
+                                    <td className="text-center px-2">{it.counted_qty == null ? '-' : <QtyUnit qty={it.counted_qty} unit={it.unit} />}</td>
                                     <td className="text-center px-2"><DiffCell it={it} /></td>
                                     <td className="text-center px-2">
                                       <DimLine label="ที่เก็บ" st={d.loc} val={it.counted_location} />
