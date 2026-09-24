@@ -279,7 +279,7 @@ export default function StockCountApp({ onRefresh, auth, onGoBack, canGoBack }) 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-800 font-sans">
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 shadow-sm sticky top-0 z-30">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
             <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
             <div className="p-2 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 rounded-xl shrink-0"><ClipboardCheck size={20} /></div>
@@ -308,7 +308,10 @@ export default function StockCountApp({ onRefresh, auth, onGoBack, canGoBack }) 
           </div>
         </div>
       </header>
-      <div className="max-w-5xl mx-auto px-4 py-5">
+      {/* 7xl เท่า StockCardApp — ตารางนับมี 7 คอลัมน์ + ฟอร์มแก้ไข 3 มิติในช่องเดียว
+          5xl บีบจนบรรทัดยาวตัดคำ/ช่องกรอกเบียด. เป็น "เพดาน" ไม่ใช่ความกว้างบังคับ
+          มือถือจึงไม่กระทบ (จอแคบกว่าเพดานอยู่แล้ว) + ตารางมี overflow-x-auto ครอบ */}
+      <div className="max-w-7xl mx-auto px-4 py-5">
         {tab === 'count' && <CountTab auth={auth} />}
         {tab === 'annual' && <AnnualTab auth={auth} />}
         {tab === 'history' && <HistoryTab auth={auth} />}
