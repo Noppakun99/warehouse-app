@@ -39,6 +39,23 @@ const fmtThaiDateTime = (iso) => {
   return `${fmtThaiDate(iso)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} น.`
 }
 const toNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0 }
+
+// ประวัติแยก "เวลา" เป็น 2 คอลัมน์ เพราะเป็นคนละค่ากันจริง (ADR-0008 เพิ่มเติม 24/09/2569):
+//   รอบวันที่ (session.counted_at) — วันเปิดรอบ มีเสมอทุกแถว ตอบว่า "อยู่ในรอบไหน"
+//   นับเมื่อ  (item.counted_at)    — เวลาจริงที่บรรทัดนั้นถูกนับ มีเฉพาะที่นับหลัง 24/09/2569
+// แยกคอลัมน์แล้วไม่ต้อง fallback ข้ามความหมาย — แต่ละช่องถือค่าเดียว ตีความได้ทางเดียว
+// รอบเฉพาะจุด (1-18 รายการ) นับจบวันเดียว → รอบวันที่ = วันที่นับจริงโดยปริยาย
+// รอบประจำปี (638 รายการ) กินเวลาหลายสัปดาห์ → รอบวันที่ ≠ วันที่นับ ต้องดู "นับเมื่อ" เท่านั้น
+// กู้ย้อนหลังไม่ได้: stock_count_item ไม่มี updated_at + ผลนับรายบรรทัดไม่เขียน audit log
+
+// เวลาจริงรายบรรทัด — ไม่มี = ไม่รู้ ห้ามเติมด้วยวันเปิดรอบ (CONTEXT.md §เวลานับ)
+function CountedWhen({ it, className = '' }) {
+  if (!it?.counted_at) {
+    return <span className={`text-slate-300 dark:text-slate-600 ${className}`}
+      title="นับก่อนระบบเริ่มบันทึกเวลารายบรรทัด (24/09/2569) — ดูคอลัมน์ 'รอบวันที่' แทน">—</span>
+  }
+  return <span className={`text-slate-600 dark:text-slate-300 ${className}`}>{fmtThaiDateTime(it.counted_at)}</span>
+}
 // จำนวนมิติที่เทียบกับระบบ: จำนวน / lot / exp / ที่เก็บ (เพิ่ม lot 2026-09-20)
 // ต้องตรงกับ dimStatus() ใน countMatch.js — แก้ที่นั่นต้องแก้ค่านี้ด้วย
 /** โซนของชั้นวาง — ตัวอักษรนำหน้าของรหัสชั้น (A-1-4 → A, E-11 → E)
@@ -164,25 +181,25 @@ const liveMatch = (it) => computeCountMatch(it).match
 function DimLine({ label, st, val }) {
   const base = 'text-[10px] md:text-xs'
   if (st === 'unchecked') return <p className={`${base} text-slate-300 dark:text-slate-500`}>{label}: ไม่ได้ตรวจ</p>
-  if (st === 'ok') return <p className={`${base} text-emerald-600`}>{label}: ตรง</p>
-  return <p className={`${base} text-amber-600 font-semibold`}>{label}: {val || '-'}</p>
+  if (st === 'ok') return <p className={`${base} text-emerald-600 dark:text-emerald-400`}>{label}: ตรง</p>
+  return <p className={`${base} text-amber-600 dark:text-amber-400 font-semibold`}>{label}: {val || '-'}</p>
 }
 
 // ป้ายสถานะรายมิติในจอไล่ทีละ lot — ไม่ได้ตรวจ / ตรง / ไม่ตรง
 // "ไม่ได้ตรวจ" ต้องต่างจาก "ตรง" ให้ชัด (ADR-0008: ช่องว่าง ≠ ยืนยันว่าตรง)
 function DimBadge({ st }) {
   if (st === 'unchecked') return <span className="text-[10px] text-slate-400 dark:text-slate-500">ยังไม่ตรวจ</span>
-  if (st === 'ok') return <span className="text-[10px] font-semibold text-emerald-600">ตรงระบบ</span>
-  return <span className="text-[10px] font-semibold text-amber-600">ไม่ตรง — ต้องแก้ไข</span>
+  if (st === 'ok') return <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">ตรงระบบ</span>
+  return <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">ไม่ตรง — ต้องแก้ไข</span>
 }
 
 // ป้ายส่วนต่าง "ขาด N / เกิน N" — สีตามทิศ (ขาด = แดง, เกิน = ส้ม)
 function DiffCell({ it }) {
   const lbl = diffLabel(it.system_qty, it.counted_qty)
-  const cls = lbl === '-' ? 'text-slate-300 dark:text-slate-500'
-    : lbl === 'ตรง' ? 'text-slate-400 dark:text-slate-500'
-    : lbl.startsWith('ขาด') ? 'text-red-600'
-    : 'text-amber-600'
+  const cls = lbl === '-' ? 'text-slate-300 dark:text-slate-600'
+    : lbl === 'ตรง' ? 'text-slate-400 dark:text-slate-400'
+    : lbl.startsWith('ขาด') ? 'text-red-600 dark:text-red-400'
+    : 'text-amber-600 dark:text-amber-400'
   return <span className={`font-semibold ${cls}`}>{lbl}</span>
 }
 
@@ -278,9 +295,21 @@ function printCountSheet(items, { counterName, dateLabel }) {
 // ============================================================
 export default function StockCountApp({ onRefresh, auth, onGoBack, canGoBack }) {
   const [tab, setTab] = useState('count')
+  // หัวแอปเป็น sticky top-0 อยู่แล้ว — หัวรอบในประวัติที่ sticky ด้วยต้องเกาะ "ใต้" มัน ไม่งั้นมุดหาย
+  // วัดความสูงจริงแทน hardcode เพราะ header ตัดบรรทัดเองบนจอแคบ (flex-wrap) ความสูงจึงไม่คงที่
+  const headerRef = useRef(null)
+  useEffect(() => {
+    const el = headerRef.current
+    if (!el) return
+    const apply = () => document.documentElement.style.setProperty('--sc-header-h', `${el.offsetHeight}px`)
+    apply()
+    const ro = new ResizeObserver(apply)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-800 font-sans">
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 shadow-sm sticky top-0 z-30">
+      <header ref={headerRef} className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 shadow-sm sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
             <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
@@ -2353,14 +2382,15 @@ function HistoryTab({ auth }) {
       {/* timeline รายยา — ทุกครั้งที่เคยนับรายการที่ค้น (ไม่ต้องไล่กางทีละรอบ) */}
       {timeline.length > 0 && (
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-emerald-200 dark:border-emerald-900/60 p-3">
-          <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300 mb-2 flex items-center gap-1.5">
-            <ClipboardCheck size={14} /> ประวัติการนับของรายการที่ค้น ({timeline.length} ครั้ง)
+          <p className="text-xs md:text-sm font-bold text-emerald-700 dark:text-emerald-300 mb-2 flex items-center gap-1.5">
+            <ClipboardCheck size={16} /> ประวัติการนับของรายการที่ค้น ({timeline.length} ครั้ง)
           </p>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full text-xs md:text-sm">
               <thead className="text-slate-500 dark:text-slate-400">
                 <tr className="border-b border-slate-100 dark:border-slate-800">
-                  <th className="text-left py-1.5 pr-2">นับเมื่อ</th>
+                  <th className="text-left py-1.5 md:py-2.5 pr-2">รอบวันที่</th>
+                  <th className="text-left pr-2">นับเมื่อ</th>
                   <th className="text-left px-2">ยา / Lot</th>
                   <th className="text-center px-2">ระบบ</th>
                   <th className="text-center px-2">นับได้</th>
@@ -2369,35 +2399,39 @@ function HistoryTab({ auth }) {
                   <th className="px-2"></th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="text-slate-700 dark:text-slate-200">
                 {timeline.slice(0, 30).map(({ it, s }) => {
                   const d = dimStatus(it)
                   const ok = liveMatch(it)
                   return (
-                    <tr key={it.id} className={`border-b border-slate-50 ${!ok ? 'bg-amber-50 dark:bg-amber-950/40' : ''}`}>
-                      {/* เวลานับของ "บรรทัด" ไม่ใช่ของรอบ — รอบประจำปี 632 บรรทัดนับคนละวัน
-                          ถ้าใช้ s.created_at ทุกแถวจะโชว์เวลาเปิดรอบเหมือนกันหมด (บั๊กเดิม แก้ 2026-09-24)
-                          ⚠️ บรรทัดเก่าไม่มี counted_at → เว้นว่าง **ห้าม fallback ไปวันของรอบ**
-                             นั่นคือวันเปิดรอบ ไม่ใช่วันที่นับ — เติมให้ = สร้างข้อมูลปลอมที่ดูเหมือนจริง
-                             ซึ่งคือบั๊กตัวเดิมที่กำลังแก้อยู่นี่เอง */}
-                      <td className="py-1.5 pr-2 whitespace-nowrap text-slate-600 dark:text-slate-300">
-                        {it.counted_at
-                          ? fmtThaiDateTime(it.counted_at)
-                          : <span className="text-slate-300 dark:text-slate-600" title="นับก่อนระบบเริ่มบันทึกเวลารายบรรทัด — ไม่มีข้อมูลเวลาจริง">—</span>}
+                    <tr key={it.id} className={`border-b border-slate-50 dark:border-slate-800 ${!ok ? 'bg-amber-50 dark:bg-amber-950/40' : ''}`}>
+                      {/* รอบวันที่ = วันเปิดรอบ (มีเสมอ) — บอกว่าแถวนี้อยู่ในรอบไหน
+                          ป้าย "ประจำปี" เตือนว่ารอบนี้กินหลายสัปดาห์ วันนี้จึงไม่ใช่วันที่นับของแถวนี้ */}
+                      <td className="py-1.5 md:py-3 pr-2 whitespace-nowrap text-slate-600 dark:text-slate-300">
+                        {fmtThaiDate(s.counted_at)}
+                        {s.kind === 'annual' && (
+                          <span className="ml-1 text-[9px] md:text-[11px] font-semibold text-indigo-600 dark:text-indigo-400"
+                            title="รอบประจำปีกินเวลาหลายสัปดาห์ — วันเปิดรอบไม่ใช่วันที่นับของแถวนี้">ประจำปี</span>
+                        )}
+                      </td>
+                      {/* เวลานับของ "บรรทัด" ไม่ใช่ของรอบ — รอบประจำปี 638 บรรทัดนับคนละวัน
+                          ถ้าใช้ s.created_at ทุกแถวจะโชว์เวลาเปิดรอบเหมือนกันหมด (บั๊กเดิม แก้ 2026-09-24) */}
+                      <td className="py-1.5 md:py-3 pr-2 whitespace-nowrap">
+                        <CountedWhen it={it} />
                       </td>
                       <td className="px-2">{it.name}<span className="text-slate-400 dark:text-slate-500"> · {it.lot}</span></td>
                       <td className="text-center px-2"><QtyUnit qty={it.system_qty} unit={it.unit} /></td>
                       <td className="text-center px-2">{it.counted_qty == null ? '-' : <QtyUnit qty={it.counted_qty} unit={it.unit} />}</td>
                       <td className="text-center px-2"><DiffCell it={it} /></td>
                       <td className="text-center px-2">
-                        {!ok ? <AlertTriangle size={14} className="text-amber-500 inline" />
-                          : d.checked === DIM_COUNT ? <CheckCircle size={14} className="text-emerald-500 inline" />
-                          : <span className="text-[10px] font-semibold text-emerald-600">ตรง {d.checked}/{DIM_COUNT}</span>}
+                        {!ok ? <AlertTriangle size={16} className="text-amber-500 inline" />
+                          : d.checked === DIM_COUNT ? <CheckCircle size={16} className="text-emerald-500 inline" />
+                          : <span className="text-[10px] md:text-xs font-semibold text-emerald-600 dark:text-emerald-400">ตรง {d.checked}/{DIM_COUNT}</span>}
                       </td>
                       <td className="px-2 text-right">
                         <button onClick={() => jumpToItem(it, s)} title="ไปแก้ไขรายการนี้ในรอบ"
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors">
-                          <Pencil size={12} /> แก้ไข
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] md:text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors">
+                          <Pencil size={13} /> แก้ไข
                         </button>
                       </td>
                     </tr>
@@ -2406,7 +2440,7 @@ function HistoryTab({ auth }) {
               </tbody>
             </table>
           </div>
-          {timeline.length > 30 && <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">แสดง 30 จาก {timeline.length} ครั้ง — ระบุคำค้นให้แคบลง</p>}
+          {timeline.length > 30 && <p className="text-[11px] md:text-xs text-slate-400 dark:text-slate-500 mt-1">แสดง 30 จาก {timeline.length} ครั้ง — ระบุคำค้นให้แคบลง</p>}
         </div>
       )}
 
@@ -2448,8 +2482,15 @@ function HistoryTab({ auth }) {
         const fullyChecked = countedIts ? countedIts.every(i => dimStatus(i).checked === DIM_COUNT) : true
         const isAnnual = s.kind === 'annual'
         return (
-          <div key={s.id} className={`bg-white dark:bg-slate-900 rounded-xl border overflow-hidden ${headMismatch ? 'border-amber-300 dark:border-amber-800/60' : 'border-slate-200 dark:border-slate-700'}`}>
-            <div className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800">
+          <div key={s.id} className={`bg-white dark:bg-slate-900 rounded-xl border ${openId === s.id ? '' : 'overflow-hidden'} ${headMismatch ? 'border-amber-300 dark:border-amber-800/60' : 'border-slate-200 dark:border-slate-700'}`}>
+            {/* หัวรอบเกาะบนสุดตอนกาง — เลื่อนดูรายการยาวๆ แล้วยังเห็นว่าเป็นรอบวันไหน
+                ⚠️ ต้องมีพื้นหลังทึบ ไม่งั้นแถวในตารางทะลุขึ้นมาซ้อน (sticky ไม่ได้บังพื้นหลังให้)
+                ⚠️ การ์ดต้องไม่มี overflow-hidden ตอนกาง ไม่งั้น sticky ตาย (ดู className ด้านบน)
+                ⚠️ top ต้องเป็นความสูงหัวแอป ไม่ใช่ 0 — หัวแอป sticky top-0 z-30 อยู่ก่อนแล้ว
+                   ตั้ง top-0 เมื่อไหร่ หัวรอบจะมุดหายใต้หัวแอปพอดีตอนที่ควรเห็นที่สุด */}
+            <div style={openId === s.id ? { top: 'var(--sc-header-h, 0px)' } : undefined}
+              className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 ${
+              openId === s.id ? 'sticky z-10 bg-white dark:bg-slate-900 rounded-t-xl' : ''}`}>
               <button onClick={() => toggle(s.id)} className="flex items-center gap-3 flex-1 text-left">
                 <div className={`p-2 rounded-lg ${headMismatch ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600' : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600'}`}><ClipboardCheck size={18} /></div>
                 <div className="flex-1">
@@ -2554,7 +2595,7 @@ function HistoryTab({ auth }) {
                             <th className="text-center px-2">ระบบ</th>
                             <th className="text-center px-2">นับได้</th>
                             <th className="text-center px-2">ส่วนต่าง</th>
-                            <th className="text-center px-2">ที่เก็บ/exp</th>
+                            <th className="text-center px-2">ที่เก็บ/exp/lot</th>
                             <th className="text-center px-2">ผล</th>
                             <th className="px-2"></th>
                           </tr>
@@ -2564,15 +2605,105 @@ function HistoryTab({ auth }) {
                             const editing = editId === it.id
                             const d = dimStatus(it)
                             const ok = liveMatch(it)
-                            return (
-                              <tr key={it.id} id={`sc-item-${it.id}`} className={`border-b border-slate-50 dark:border-slate-800 ${editing ? 'bg-emerald-50 dark:bg-emerald-950/40' : !ok ? 'bg-amber-50 dark:bg-amber-950/40' : ''}`}>
-                                <td className="py-1.5 md:py-3 pr-2 align-top">
-                                  {it.name}<span className="text-slate-400 dark:text-slate-500"> · {it.lot}</span>
-                                  {editing ? (
+                            // แถวที่กำลังแก้ = แผงกว้างเต็มตาราง (colSpan) — เดิมเบียด 4 มิติลงคอลัมน์แคบ
+                            // lot ตกบรรทัด exp โดนตัด ป้าย 9px อ่านยาก; ขยายฟอนต์อย่างเดียวแก้ไม่ได้เพราะที่ไม่พอ
+                            // ⚠️ id sc-item-<id> ต้องอยู่ที่ <tr> นี้ด้วย — jumpToItem (จาก timeline) scroll มาหา
+                            if (editing) {
+                              const em = editMatch(it)
+                              const inCls = (st) => `w-full px-2.5 py-1.5 border rounded-lg text-sm text-center ${st === 'diff'
+                                ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-slate-800 dark:text-red-100'
+                                : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`
+                              const sysTxt = (v) => (v && v !== '-' ? v : 'ไม่มีข้อมูล')
+                              // หัวช่อง: ชื่อมิติ ซ้าย · ค่าตามระบบ ขวา — เทียบได้ทันทีไม่ต้องมองย้อนไปคอลัมน์อื่น
+                              const head = (label, sys) => (
+                                <div className="flex items-baseline justify-between gap-2 mb-1">
+                                  <span className="text-xs md:text-sm font-semibold text-slate-600 dark:text-slate-300">{label}</span>
+                                  <span className="text-[11px] md:text-xs text-slate-400 dark:text-slate-500 truncate" title={String(sys)}>ระบบ: {sys}</span>
+                                </div>
+                              )
+                              return (
+                                <tr key={it.id} id={`sc-item-${it.id}`} className="border-b border-slate-50 dark:border-slate-800 bg-emerald-50 dark:bg-emerald-950/40">
+                                  <td colSpan={7} className="px-3 py-3 md:px-4 md:py-4">
+                                    <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
+                                      <div className="min-w-0">
+                                        <p className="font-semibold text-sm md:text-base text-slate-800 dark:text-slate-100">
+                                          {it.name}<span className="font-normal text-slate-400 dark:text-slate-500"> · {it.lot}</span>
+                                        </p>
+                                        {it.counted_at && (
+                                          <p className="text-xs md:text-sm text-slate-400 dark:text-slate-500 mt-0.5">นับเมื่อ {fmtThaiDateTime(it.counted_at)}</p>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1.5">
+                                        <button onClick={() => saveEdit(it)} disabled={busy}
+                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-600 disabled:opacity-50">
+                                          <Save size={15} /> บันทึก
+                                        </button>
+                                        <button onClick={() => setEditId(null)}
+                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-800">
+                                          <X size={15} /> ยกเลิก
+                                        </button>
+                                        {/* ล้างผลนับ = กลับเป็น "ยังไม่ได้นับ" แถวยังอยู่ ไม่ใช่ลบหลักฐาน (ADR-0008) */}
+                                        {it.counted_qty != null && (
+                                          <button onClick={() => setConfirmClear(it)} disabled={busy}
+                                            title="ล้างผลนับของบรรทัดนี้ (กลับเป็นยังไม่ได้นับ)"
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 text-sm font-semibold hover:bg-amber-100 dark:hover:bg-amber-950/60 disabled:opacity-50">
+                                            <Eraser size={15} /> ล้างผลนับ
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                    {/* 4 มิติเรียงเป็นกริด: มือถือ 2 คอลัมน์ · จอ md ขึ้นไป 4 คอลัมน์แถวเดียว */}
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                      <div>
+                                        {head('จำนวนนับได้', qtyUnit(it.system_qty, it.unit))}
+                                        <input type="number" inputMode="decimal" value={editVal.counted_qty}
+                                          onChange={e => setEditVal(v => ({ ...v, counted_qty: e.target.value }))}
+                                          className={inCls(em.qty)} />
+                                        <FieldTick active={em.qty === 'ok'} onClick={() => tickEdit(it, 'counted_qty')} />
+                                      </div>
+                                      <div>
+                                        {head('ที่เก็บ', sysTxt(it.system_location))}
+                                        <LocationInput value={editVal.counted_location} locations={locations}
+                                          onChange={v => setEditVal(x => ({ ...x, counted_location: v }))}
+                                          placeholder="— ที่เก็บจริง —" className={inCls(em.loc)} />
+                                        <FieldTick active={em.loc === 'ok'} onClick={() => tickEdit(it, 'counted_location')} />
+                                      </div>
+                                      <div>
+                                        {head('exp', sysTxt(it.system_exp))}
+                                        <select value={editVal._expCustom ? '__custom__' : editVal.counted_exp}
+                                          onChange={e => pickExpEdit(e.target.value)} className={inCls(em.exp)}>
+                                          <option value="">— exp จริง —</option>
+                                          {(it.system_exp && it.system_exp !== '-') && <option value={it.system_exp}>{it.system_exp} (ตามระบบ)</option>}
+                                          <option value="__custom__">อื่นๆ (พิมพ์เอง)</option>
+                                        </select>
+                                        {editVal._expCustom && (
+                                          <input type="text" autoFocus value={editVal.counted_exp} placeholder="เช่น 3/12/2028"
+                                            onChange={e => setEditVal(v => ({ ...v, counted_exp: e.target.value }))}
+                                            className="w-full mt-1.5 px-2.5 py-1.5 border border-amber-400 bg-amber-50 dark:bg-amber-950/40 text-slate-800 dark:text-amber-100 rounded-lg text-center text-sm" />
+                                        )}
+                                        <FieldTick active={em.exp === 'ok'} onClick={() => tickEdit(it, 'counted_exp')} />
+                                      </div>
+                                      {/* lot = มิติที่ 4 เดิมไม่มีช่องนี้ในฟอร์มแก้ไข ทำให้ค่าที่นับไว้หาย */}
+                                      <div>
+                                        {head('lot', sysTxt(it.lot))}
+                                        <input type="text" value={editVal.counted_lot || ''}
+                                          onChange={e => setEditVal(v => ({ ...v, counted_lot: e.target.value }))}
+                                          placeholder="— lot จริง —" className={inCls(em.lot)} />
+                                        <FieldTick active={em.lot === 'ok'} onClick={() => tickEdit(it, 'counted_lot')} />
+                                      </div>
+                                    </div>
                                     <input type="text" value={editVal.item_note} placeholder="+ หมายเหตุรายการนี้"
                                       onChange={e => setEditVal(v => ({ ...v, item_note: e.target.value }))}
-                                      className="w-full mt-1 px-1.5 py-1 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded text-[11px]" />
-                                  ) : it.item_note ? (
+                                      className="w-full mt-3 px-2.5 py-1.5 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-lg text-sm" />
+                                  </td>
+                                </tr>
+                              )
+                            }
+                            return (
+                              <tr key={it.id} id={`sc-item-${it.id}`} className={`border-b border-slate-50 dark:border-slate-800 ${!ok ? 'bg-amber-50 dark:bg-amber-950/40' : ''}`}>
+                                <td className="py-1.5 md:py-3 pr-2 align-top">
+                                  {it.name}<span className="text-slate-400 dark:text-slate-500"> · {it.lot}</span>
+                                  {it.item_note ? (
                                     <p className="text-[11px] md:text-xs text-amber-600 mt-0.5">หมายเหตุ: {it.item_note}</p>
                                   ) : null}
                                   {/* เวลานับของบรรทัดนี้ — รอบประจำปีกินเวลาหลายวัน หัวรอบบอกแค่วันเปิดรอบ
@@ -2584,85 +2715,19 @@ function HistoryTab({ auth }) {
                                   )}
                                 </td>
                                 <td className="text-center px-2 align-top"><QtyUnit qty={it.system_qty} unit={it.unit} /></td>
-                                {editing ? (() => {
-                                  const em = editMatch(it)
-                                  return (
-                                  <>
-                                    <td className="text-center px-2 align-top">
-                                      <input type="number" inputMode="decimal" value={editVal.counted_qty}
-                                        onChange={e => setEditVal(v => ({ ...v, counted_qty: e.target.value }))}
-                                        className={`w-16 px-1.5 py-1 border rounded text-center ${em.qty === 'diff' ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-slate-800 dark:text-red-100' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`} />
-                                      <FieldTick active={em.qty === 'ok'} onClick={() => tickEdit(it, 'counted_qty')} />
-                                    </td>
-                                    <td className="text-center px-2 text-slate-300 dark:text-slate-500 align-top">—</td>
-                                    {/* 3 มิติในช่องเดียว: วางเป็นแถวนอน แต่ละช่องจับคู่ปุ่ม "ตรง" ของตัวเอง
-                                        (เดิมซ้อนลงล่าง 6 ชั้นในคอลัมน์แคบ แถวสูงจนช่องอื่นหลุดระนาบ) */}
-                                    <td className="px-2 align-top">
-                                      <div className="flex flex-wrap items-start justify-center gap-x-3 gap-y-1.5">
-                                        <label className="flex flex-col items-center gap-1">
-                                          <span className="text-[9px] font-semibold text-slate-400 dark:text-slate-500">ที่เก็บ</span>
-                                          <LocationInput value={editVal.counted_location} locations={locations}
-                                            onChange={v => setEditVal(x => ({ ...x, counted_location: v }))}
-                                            placeholder="— ที่เก็บ —"
-                                            className={`w-28 px-1 py-1 border rounded text-center text-[11px] ${em.loc === 'diff' ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-slate-800 dark:text-red-100' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`} />
-                                          <FieldTick active={em.loc === 'ok'} onClick={() => tickEdit(it, 'counted_location')} />
-                                        </label>
-                                        <label className="flex flex-col items-center gap-1">
-                                          <span className="text-[9px] font-semibold text-slate-400 dark:text-slate-500">exp</span>
-                                          <select value={editVal._expCustom ? '__custom__' : editVal.counted_exp}
-                                            onChange={e => pickExpEdit(e.target.value)}
-                                            className={`w-28 px-1 py-1 border rounded text-center text-[11px] ${em.exp === 'diff' ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-slate-800 dark:text-red-100' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`}>
-                                            <option value="">— exp จริง —</option>
-                                            {(it.system_exp && it.system_exp !== '-') && <option value={it.system_exp}>{it.system_exp} (ตามระบบ)</option>}
-                                            <option value="__custom__">อื่นๆ (พิมพ์เอง)</option>
-                                          </select>
-                                          {editVal._expCustom && (
-                                            <input type="text" autoFocus value={editVal.counted_exp} placeholder="เช่น 3/12/2028"
-                                              onChange={e => setEditVal(v => ({ ...v, counted_exp: e.target.value }))}
-                                              className="w-28 px-1.5 py-1 border border-amber-400 bg-amber-50 dark:bg-amber-950/40 text-slate-800 dark:text-amber-100 rounded text-center text-[11px]" />
-                                          )}
-                                          <FieldTick active={em.exp === 'ok'} onClick={() => tickEdit(it, 'counted_exp')} />
-                                        </label>
-                                        {/* lot = มิติที่ 4 เดิมไม่มีช่องนี้ในฟอร์มแก้ไข ทำให้ค่าที่นับไว้หาย */}
-                                        <label className="flex flex-col items-center gap-1">
-                                          <span className="text-[9px] font-semibold text-slate-400 dark:text-slate-500">lot</span>
-                                          <input type="text" value={editVal.counted_lot || ''}
-                                            onChange={e => setEditVal(v => ({ ...v, counted_lot: e.target.value }))}
-                                            placeholder="— lot จริง —"
-                                            className={`w-28 px-1.5 py-1 border rounded text-center text-[11px] ${em.lot === 'diff' ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-slate-800 dark:text-red-100' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`} />
-                                          <FieldTick active={em.lot === 'ok'} onClick={() => tickEdit(it, 'counted_lot')} />
-                                        </label>
-                                      </div>
-                                    </td>
-                                    <td className="text-center px-2 align-top">
-                                      <div className="flex items-center justify-center gap-1">
-                                        <button onClick={() => saveEdit(it)} disabled={busy}
-                                          className="p-1.5 rounded bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50"><Save size={13} /></button>
-                                        <button onClick={() => setEditId(null)}
-                                          className="p-1.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200"><X size={13} /></button>
-                                        {/* ล้างผลนับ = กลับเป็น "ยังไม่ได้นับ" แถวยังอยู่ ไม่ใช่ลบหลักฐาน (ADR-0008) */}
-                                        {it.counted_qty != null && (
-                                          <button onClick={() => setConfirmClear(it)} disabled={busy}
-                                            title="ล้างผลนับของบรรทัดนี้ (กลับเป็นยังไม่ได้นับ)"
-                                            className="p-1.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-600 hover:bg-amber-100 disabled:opacity-50"><Eraser size={13} /></button>
-                                        )}
-                                      </div>
-                                    </td>
-                                    <td></td>
-                                  </>
-                                  )
-                                })() : (
+                                {(
                                   <>
                                     <td className="text-center px-2 align-top">{it.counted_qty == null ? '-' : <QtyUnit qty={it.counted_qty} unit={it.unit} />}</td>
                                     <td className="text-center px-2 align-top"><DiffCell it={it} /></td>
                                     <td className="text-center px-2 align-top">
                                       <DimLine label="ที่เก็บ" st={d.loc} val={it.counted_location} />
                                       <DimLine label="exp" st={d.exp} val={it.counted_exp} />
+                                      <DimLine label="lot" st={d.lot} val={it.counted_lot} />
                                     </td>
                                     <td className="text-center px-2 align-top">
                                       {!ok ? <AlertTriangle size={14} className="text-amber-500 inline" />
                                         : d.checked === DIM_COUNT ? <CheckCircle size={14} className="text-emerald-500 inline" />
-                                        : <span className="text-[10px] md:text-xs font-semibold text-emerald-600" title="มิติที่ตรวจตรงหมด แต่ตรวจไม่ครบทุกมิติ">ตรง {d.checked}/{DIM_COUNT}</span>}
+                                        : <span className="text-[10px] md:text-xs font-semibold text-emerald-600 dark:text-emerald-400" title="มิติที่ตรวจตรงหมด แต่ตรวจไม่ครบทุกมิติ">ตรง {d.checked}/{DIM_COUNT}</span>}
                                       {/* สถานะติดตาม — เฉพาะบรรทัดที่ไม่ตรง (บรรทัดตรงไม่มีอะไรให้ตาม) */}
                                       {!ok && (
                                         <select value={it.followup_status || 'pending'}
