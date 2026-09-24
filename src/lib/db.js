@@ -3492,13 +3492,17 @@ export async function fetchAllStockCountItems() {
 export async function updateStockCountItem(itemId, fields, auth = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
   const { data: before } = await supabase.from('stock_count_item')
-    .select('counted_qty, counted_exp, counted_location, item_note, code, lot')
+    .select('counted_qty, counted_exp, counted_location, counted_lot, item_note, code, lot')
     .eq('id', itemId).single()
+  // ⚠️ lot เป็น 1 ใน 4 มิติที่ computeCountMatch ใช้ตัดสิน match — caller ต้องส่ง `lot` (snapshot ระบบ)
+  //    มาด้วย ไม่งั้น dimStatus เทียบ counted_lot กับ undefined แล้ว match เพี้ยน
   const { counted_qty, diff_qty, match } = computeCountMatch(fields)
   const after = {
     counted_qty,
     counted_exp: fields.counted_exp || '',
     counted_location: fields.counted_location || '',
+    // เขียนเฉพาะเมื่อ caller ส่งมา — caller เก่าที่ไม่รู้จักมิติ lot จะได้ไม่ล้างค่าที่เคยกรอกไว้ทิ้ง
+    ...(fields.counted_lot != null ? { counted_lot: fields.counted_lot } : {}),
     ...(fields.item_note != null ? { item_note: fields.item_note } : {}),
   }
   const { error } = await supabase.from('stock_count_item')
@@ -3510,7 +3514,7 @@ export async function updateStockCountItem(itemId, fields, auth = {}) {
     user_name: resolveAuditUserName(auth), department: auth?.department || '-',
     details: {
       item_id: itemId, code: before?.code, lot: before?.lot, match,
-      before: before ? { counted_qty: before.counted_qty, counted_exp: before.counted_exp, counted_location: before.counted_location, item_note: before.item_note } : null,
+      before: before ? { counted_qty: before.counted_qty, counted_exp: before.counted_exp, counted_location: before.counted_location, counted_lot: before.counted_lot, item_note: before.item_note } : null,
       after,
     },
   })

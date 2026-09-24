@@ -2154,6 +2154,7 @@ function HistoryTab({ auth }) {
       counted_qty: it.counted_qty == null ? '' : String(toNum(it.counted_qty)),
       counted_location: it.counted_location || '',
       counted_exp: it.counted_exp || '',
+      counted_lot: it.counted_lot || '',
       item_note: it.item_note || '',
       _expCustom: !!it.counted_exp && String(it.counted_exp) !== String(it.system_exp || ''),
     })
@@ -2163,6 +2164,8 @@ function HistoryTab({ auth }) {
   const sysValEdit = (it, field) =>
     field === 'counted_qty' ? String(toNum(it.system_qty))
       : field === 'counted_exp' ? (it.system_exp && it.system_exp !== '-' ? it.system_exp : '')
+      // lot ที่ระบบบันทึก อยู่ในคอลัมน์ `lot` (snapshot ของแถว) ไม่ใช่ system_* เหมือนมิติอื่น
+      : field === 'counted_lot' ? (it.lot && it.lot !== '-' ? it.lot : '')
       : (it.system_location && it.system_location !== '-' ? it.system_location : '')
 
   // autofill รายช่องในโหมดแก้ไข (toggle เติม/ล้าง)
@@ -2182,7 +2185,7 @@ function HistoryTab({ auth }) {
 
   // สถานะต่อมิติของค่าที่กำลังแก้ (set equality เดียวกับตอนนับ) — ใช้ไฮไลต์ FieldTick/กรอบแดง
   const editMatch = (it) =>
-    dimStatus({ ...editVal, system_qty: it.system_qty, system_exp: it.system_exp, system_location: it.system_location })
+    dimStatus({ ...editVal, system_qty: it.system_qty, system_exp: it.system_exp, system_location: it.system_location, lot: it.lot })
 
   const clearToast = useCallback(() => setToast(null), [])
 
@@ -2192,6 +2195,7 @@ function HistoryTab({ auth }) {
       await updateStockCountItem(it.id, {
         ...editVal,
         system_qty: it.system_qty, system_exp: it.system_exp, system_location: it.system_location,
+        lot: it.lot,
       }, auth)
       const data = await fetchStockCountItems(it.session_id)   // reload รอบนั้น
       setItems(prev => ({ ...prev, [it.session_id]: data }))
@@ -2604,6 +2608,13 @@ function HistoryTab({ auth }) {
                                           className="w-28 mt-1 px-1.5 py-1 border border-amber-400 bg-amber-50 dark:bg-amber-950/40 text-slate-800 dark:text-amber-100 rounded text-center text-[11px]" />
                                       )}
                                       <FieldTick active={em.exp === 'ok'} onClick={() => tickEdit(it, 'counted_exp')} />
+                                      {/* lot เป็นมิติที่ 4 — เดิมฟอร์มแก้ไขไม่มีช่องนี้ ทั้งที่นับกรอกได้
+                                          ทำให้แก้บรรทัดทีไร counted_lot ที่เคยกรอกหาย + ผลตกจาก 4/4 เป็น 3/4 */}
+                                      <input type="text" value={editVal.counted_lot || ''}
+                                        onChange={e => setEditVal(v => ({ ...v, counted_lot: e.target.value }))}
+                                        placeholder="— lot จริง —"
+                                        className={`w-28 mt-1 px-1.5 py-1 border rounded text-center text-[11px] ${em.lot === 'diff' ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-slate-800 dark:text-red-100' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100'}`} />
+                                      <FieldTick active={em.lot === 'ok'} onClick={() => tickEdit(it, 'counted_lot')} />
                                     </td>
                                     <td className="text-center px-2 align-top">
                                       <div className="flex items-center justify-center gap-1">
