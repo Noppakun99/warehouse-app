@@ -1510,7 +1510,7 @@ function AnnualTab({ auth }) {
           <option value="all">ทั้งหมด ({pendingInScope + countedInScope})</option>
         </select>
         <div className="inline-flex gap-1 p-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 ml-auto">
-          {[{ k: 'walk', t: 'ไล่ทีละตัว' }, { k: 'list', t: 'ดูเป็นตาราง' }].map(m => (
+          {[{ k: 'walk', t: '1 lot' }, { k: 'list', t: 'ตาราง' }].map(m => (
             <button key={m.k} onClick={() => setMode(m.k)}
               className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
                 mode === m.k ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>
@@ -2624,13 +2624,13 @@ function HistoryTab({ auth }) {
                                   )
                                 })() : (
                                   <>
-                                    <td className="text-center px-2">{it.counted_qty == null ? '-' : <QtyUnit qty={it.counted_qty} unit={it.unit} />}</td>
-                                    <td className="text-center px-2"><DiffCell it={it} /></td>
-                                    <td className="text-center px-2">
+                                    <td className="text-center px-2 align-top">{it.counted_qty == null ? '-' : <QtyUnit qty={it.counted_qty} unit={it.unit} />}</td>
+                                    <td className="text-center px-2 align-top"><DiffCell it={it} /></td>
+                                    <td className="text-center px-2 align-top">
                                       <DimLine label="ที่เก็บ" st={d.loc} val={it.counted_location} />
                                       <DimLine label="exp" st={d.exp} val={it.counted_exp} />
                                     </td>
-                                    <td className="text-center px-2">
+                                    <td className="text-center px-2 align-top">
                                       {!ok ? <AlertTriangle size={14} className="text-amber-500 inline" />
                                         : d.checked === DIM_COUNT ? <CheckCircle size={14} className="text-emerald-500 inline" />
                                         : <span className="text-[10px] font-semibold text-emerald-600" title="มิติที่ตรวจตรงหมด แต่ตรวจไม่ครบทุกมิติ">ตรง {d.checked}/{DIM_COUNT}</span>}
@@ -2651,7 +2651,7 @@ function HistoryTab({ auth }) {
                                         </select>
                                       )}
                                     </td>
-                                    <td className="text-center px-2">
+                                    <td className="text-center px-2 align-top">
                                       <button onClick={() => startEdit(it)} title="แก้ไข" className="text-slate-300 dark:text-slate-500 hover:text-emerald-600"><Pencil size={14} /></button>
                                     </td>
                                   </>
