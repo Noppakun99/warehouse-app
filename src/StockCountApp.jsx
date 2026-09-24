@@ -160,10 +160,12 @@ function LocationInput({ value, onChange, locations, className = '', placeholder
 const liveMatch = (it) => computeCountMatch(it).match
 
 // สถานะ 1 มิติในประวัติ: ไม่ได้ตรวจ (เทา) / ตรง (เขียว) / ไม่ตรง (ส้ม + ค่าที่นับได้)
+// ขนาดตัวอักษรใหญ่ขึ้นเฉพาะจอ md ขึ้นไป — มือถือคงเดิม (10px) ไม่งั้นการ์ดในจอแคบล้น
 function DimLine({ label, st, val }) {
-  if (st === 'unchecked') return <p className="text-[10px] text-slate-300 dark:text-slate-500">{label}: ไม่ได้ตรวจ</p>
-  if (st === 'ok') return <p className="text-[10px] text-emerald-600">{label}: ตรง</p>
-  return <p className="text-[10px] text-amber-600 font-semibold">{label}: {val || '-'}</p>
+  const base = 'text-[10px] md:text-xs'
+  if (st === 'unchecked') return <p className={`${base} text-slate-300 dark:text-slate-500`}>{label}: ไม่ได้ตรวจ</p>
+  if (st === 'ok') return <p className={`${base} text-emerald-600`}>{label}: ตรง</p>
+  return <p className={`${base} text-amber-600 font-semibold`}>{label}: {val || '-'}</p>
 }
 
 // ป้ายสถานะรายมิติในจอไล่ทีละ lot — ไม่ได้ตรวจ / ตรง / ไม่ตรง
@@ -2544,10 +2546,11 @@ function HistoryTab({ auth }) {
                       </div>
                     </div>
                     <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
+                      {/* ตัวอักษร/ความสูงแถวใหญ่ขึ้นเฉพาะ md: ขึ้นไป — มือถือคงขนาดเดิม */}
+                      <table className="w-full text-xs md:text-sm">
                         <thead className="text-slate-500 dark:text-slate-400">
                           <tr className="border-b border-slate-100 dark:border-slate-800">
-                            <th className="text-left py-1.5 pr-2">ยา / Lot</th>
+                            <th className="text-left py-1.5 md:py-2.5 pr-2">ยา / Lot</th>
                             <th className="text-center px-2">ระบบ</th>
                             <th className="text-center px-2">นับได้</th>
                             <th className="text-center px-2">ส่วนต่าง</th>
@@ -2563,19 +2566,19 @@ function HistoryTab({ auth }) {
                             const ok = liveMatch(it)
                             return (
                               <tr key={it.id} id={`sc-item-${it.id}`} className={`border-b border-slate-50 dark:border-slate-800 ${editing ? 'bg-emerald-50 dark:bg-emerald-950/40' : !ok ? 'bg-amber-50 dark:bg-amber-950/40' : ''}`}>
-                                <td className="py-1.5 pr-2 align-top">
+                                <td className="py-1.5 md:py-3 pr-2 align-top">
                                   {it.name}<span className="text-slate-400 dark:text-slate-500"> · {it.lot}</span>
                                   {editing ? (
                                     <input type="text" value={editVal.item_note} placeholder="+ หมายเหตุรายการนี้"
                                       onChange={e => setEditVal(v => ({ ...v, item_note: e.target.value }))}
                                       className="w-full mt-1 px-1.5 py-1 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded text-[11px]" />
                                   ) : it.item_note ? (
-                                    <p className="text-[11px] text-amber-600 mt-0.5">หมายเหตุ: {it.item_note}</p>
+                                    <p className="text-[11px] md:text-xs text-amber-600 mt-0.5">หมายเหตุ: {it.item_note}</p>
                                   ) : null}
                                   {/* เวลานับของบรรทัดนี้ — รอบประจำปีกินเวลาหลายวัน หัวรอบบอกแค่วันเปิดรอบ
                                       ไม่มีค่า = นับก่อนมีคอลัมน์นี้ หรือยังไม่ได้นับ → ไม่แสดง (ห้าม fallback ไปวันเปิดรอบ) */}
                                   {it.counted_at && (
-                                    <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                    <p className="text-[11px] md:text-xs text-slate-400 dark:text-slate-500 mt-0.5">
                                       นับเมื่อ {fmtThaiDateTime(it.counted_at)}
                                     </p>
                                   )}
@@ -2659,7 +2662,7 @@ function HistoryTab({ auth }) {
                                     <td className="text-center px-2 align-top">
                                       {!ok ? <AlertTriangle size={14} className="text-amber-500 inline" />
                                         : d.checked === DIM_COUNT ? <CheckCircle size={14} className="text-emerald-500 inline" />
-                                        : <span className="text-[10px] font-semibold text-emerald-600" title="มิติที่ตรวจตรงหมด แต่ตรวจไม่ครบทุกมิติ">ตรง {d.checked}/{DIM_COUNT}</span>}
+                                        : <span className="text-[10px] md:text-xs font-semibold text-emerald-600" title="มิติที่ตรวจตรงหมด แต่ตรวจไม่ครบทุกมิติ">ตรง {d.checked}/{DIM_COUNT}</span>}
                                       {/* สถานะติดตาม — เฉพาะบรรทัดที่ไม่ตรง (บรรทัดตรงไม่มีอะไรให้ตาม) */}
                                       {!ok && (
                                         <select value={it.followup_status || 'pending'}
