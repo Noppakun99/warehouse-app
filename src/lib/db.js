@@ -3921,8 +3921,10 @@ const annualLotKey = (code, lot) =>
  *  ⚠️ **ห้ามแตะบรรทัดที่นับแล้ว** (`counted_qty` ไม่ null) — นั่นคือ snapshot ที่คู่กับผลนับไปแล้ว
  *     แก้เมื่อไหร่ = เปลี่ยนความหมายของส่วนต่างที่บันทึกไว้ย้อนหลัง ผิด ADR-0008 ของจริง
  *  ⚠️ ใช้กับรอบที่ยังไม่ปิด (`status='draft'`) เท่านั้น — รอบที่ปิดแล้ว freeze ถาวร
+ *  lot ที่หายจาก inventory (ลบออกจากไฟล์ Excel แล้วนำเข้าใหม่) → `system_qty = 0` คงบรรทัด+ที่เก็บ/exp เดิม
+ *  inventory ว่างทั้งตาราง → throw (import ล้มกลางทาง ไม่ใช่ของหมด)
  *
- *  @returns {{ updated: number, checked: number }}
+ *  @returns {{ updated: number, missing: number, checked: number, added: number, addedRows: object[] }}
  */
 export async function refreshAnnualCountSystemQty(sessionId, auth = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
@@ -3957,11 +3959,22 @@ export async function refreshAnnualCountSystemQty(sessionId, auth = {}) {
     if (r.location) e.locs.add(String(r.location))
   }
 
+  // inventory ว่าง = import ล้มกลางทาง (DELETE ALL แล้ว INSERT ไม่สำเร็จ) ไม่ใช่ "ของหมดคลัง"
+  // ถ้าปล่อยผ่าน ทุกบรรทัดที่ยังไม่นับจะถูกตั้งเป็น 0 ทั้งรอบ
+  if (cur.size === 0) throw new Error('ไม่พบข้อมูลคงคลังในระบบ — อาจนำเข้า Excel ไม่สำเร็จ ลองนำเข้าใหม่ก่อนรีเฟรช')
+
   const changed = []
   for (const l of lines) {
     const key = annualLotKey(l.code, l.lot)
     const c = cur.get(key)
-    if (!c) continue                       // lot หายจาก inventory — คงยอดเดิมไว้ให้คนไปเช็คเอง
+    if (!c) {
+      // lot หายจากไฟล์ใหม่ → ระบบว่าไม่มีของแล้ว = ยอด 0 (เหมือน lot ที่เบิกจนหมด)
+      // คงบรรทัด + ที่เก็บ/exp เดิมไว้ ให้คนนับไปยืนยันที่ชั้นว่าไม่มีจริง (ไม่งั้นของค้างชั้นไม่มีที่กรอก)
+      if (toNum(l.system_qty) === 0) continue
+      changed.push({ id: l.id, code: l.code, lot: l.lot, before: toNum(l.system_qty), after: 0,
+        exp: l.system_exp || '-', loc: l.system_location || '-', missing: true })
+      continue
+    }
     const nextExp = [...c.exps].join(' , ') || '-'
     const nextLoc = [...c.locs].join(' , ') || '-'
     if (toNum(l.system_qty) === c.qty && (l.system_exp || '-') === nextExp && (l.system_location || '-') === nextLoc) continue
@@ -4007,12 +4020,14 @@ export async function refreshAnnualCountSystemQty(sessionId, auth = {}) {
       details: {
         session_id: sessionId, checked: lines.length,
         updated: changed.length, added: addedRows.length,
+        missing: changed.filter(c => c.missing).length,
         sample: changed.slice(0, 20).map(c => ({ code: c.code, lot: c.lot, before: c.before, after: c.after })),
         added_sample: added.slice(0, 20).map(a => ({ code: a.code, lot: a.lot, qty: a.system_qty })),
       },
     })
   }
-  return { updated: changed.length, checked: lines.length, added: addedRows.length, addedRows }
+  const missing = changed.filter(c => c.missing).length
+  return { updated: changed.length - missing, missing, checked: lines.length, added: addedRows.length, addedRows }
 }
 
 /** แยกยอดรายที่เก็บของทุก lot ที่แบ่งวางคนละที่ — map `code|lot` → [{location, qty}]

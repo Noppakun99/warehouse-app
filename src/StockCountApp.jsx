@@ -1219,13 +1219,14 @@ function AnnualTab({ auth }) {
     if (!session) return
     setRefreshing(true)
     try {
-      const { updated, checked, added } = await refreshAnnualCountSystemQty(session.id, auth)
-      if (updated > 0 || added > 0) {
+      const { updated, missing, checked, added } = await refreshAnnualCountSystemQty(session.id, auth)
+      if (updated > 0 || missing > 0 || added > 0) {
         const open = await fetchOpenAnnualCount()
         if (open) { setSession(open.session); setItems(open.items) }
       }
       const parts = []
       if (updated > 0) parts.push(`อัปเดตยอด ${updated} รายการ`)
+      if (missing > 0) parts.push(`lot ที่ไม่มีในระบบแล้ว ${missing} รายการ (ยอดระบบเป็น 0)`)
       if (added > 0) parts.push(`เพิ่ม lot ใหม่ที่เข้าคลังหลังเปิดรอบ ${added} รายการ`)
       setToast({
         tone: 'success',
