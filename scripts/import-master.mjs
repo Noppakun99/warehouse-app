@@ -85,6 +85,8 @@ log('')
 log(`  กำลังเขียน ${fmt(out.rows)} แถว (ลบของเดิม ${fmt(prev.count)} แถวก่อน)…`)
 try {
   await db.saveInventory(out.inventory, { name: `${args.user} (CLI)`, department: 'คลังยา' }, `${path.basename(FILE)} / ${SHEET}`)
+  // "อัพเดตล่าสุด" บนแผนผัง/โมดอลคงเหลืออ่านจาก upload_meta — ไม่อัปเดต = แอปโชว์เวลานำเข้าเก่า
+  await db.saveUploadMeta('inventory', path.basename(FILE))
 } catch (e) {
   log('')
   log('  ✗ เขียนไม่สำเร็จ — ' + e.message)

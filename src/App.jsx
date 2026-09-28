@@ -1,9 +1,9 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { fetchInventory, saveInventory, fetchDrugDetails, fetchUploadMeta, saveUploadMeta, normalizeLotSearch, fetchConsistencyReport, fetchSwapPolicies, flagSwapReturn } from './lib/db';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { fetchInventory, fetchDrugDetails, fetchUploadMeta, normalizeLotSearch, fetchConsistencyReport, fetchSwapPolicies, flagSwapReturn } from './lib/db';
 import { computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './lib/swapPolicy';
 import { normExpDate } from './lib/receiveMatch';
 import BackButton from './BackButton';
-import UploadSuccessModal from './UploadSuccessModal';
+import { openExcelSync } from './lib/excelSyncEvent';
 import { exportToExcel } from './lib/exportExcel';
 import { printTrackingList } from './lib/trackingPrint';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
@@ -85,29 +85,8 @@ const parseDateString = (dateInput) => {
   return isNaN(parsed.getTime()) ? null : parsed;
 };
 
-// แปลงวันที่ใดๆ → string "d/m/yyyy" มาตรฐาน (ใช้ตอน import CSV)
-const normalizeDateStr = (raw) => {
-  if (!raw || String(raw).trim() === '' || raw === '-') return '-';
-  const d = parseDateString(raw);
-  if (!d) return String(raw).trim();
-  return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
-};
-
-// บังคับ รหัสยา เป็น text + แก้ scientific notation + ตัด leading zeros
-const normalizeCode = (val) => {
-  if (!val && val !== 0) return '-';
-  let s = String(val).trim();
-  if (!s) return '-';
-  // แก้ scientific notation เช่น 1.5E+6 → "1500000"
-  if (/^[\d.]+[eE][+-]?\d+$/.test(s)) {
-    const n = parseFloat(s);
-    s = isFinite(n) ? BigInt(Math.round(n)).toString() : s;
-  }
-  return s || '-';
-};
-
 // แปลง scientific notation → ตัวเลขเต็ม (เช่น 1.12512E+11 → "112512000000")
-// ⚠️ ห้ามใช้กับ lot — lot เป็นรหัส ไม่ใช่จำนวน (ดู normalizeLot)
+// ⚠️ ห้ามใช้กับ lot — lot เป็นรหัส ไม่ใช่จำนวน (ดู normalizeLot ใน lib/masterSheet.js)
 const normalizeNumericText = (val) => {
   if (!val) return '-';
   const v = String(val).trim();
@@ -118,28 +97,12 @@ const normalizeNumericText = (val) => {
   return v || '-';
 };
 
-// lot = "รหัส" ไม่ใช่ตัวเลข → เก็บตามที่พิมพ์มาเสมอ ห้ามแปลง scientific notation
-// lot จริงในระบบรูปแบบ <ปี><เดือนเป็นตัวอักษร><ลำดับ> เช่น 26E266 / 26D172 / 26F116
-// ซึ่ง regex ของ normalizeNumericText มองเป็น 26×10^266 → parseFloat ปัดทศนิยม float64
-// → BigInt ขยายเป็นเลข 269 หลัก lot หายถาวร (เหตุการณ์ import 29/07/2569 เสีย 6 แถว)
-const normalizeLot = (val) => {
-  if (!val && val !== 0) return '-';
-  return String(val).trim() || '-';
-};
-
 const isoToThai = (iso) => {
   if (!iso) return '-';
   const parts = String(iso).split('T')[0].split('-');
   if (parts.length !== 3) return iso;
   const [y, m, d] = parts;
   return `${d}/${m}/${y}`;
-};
-
-// แปลง "(blank)" → "-"
-const cleanCell = (val) => {
-  if (!val) return '';
-  const v = String(val).trim();
-  return v.toLowerCase() === '(blank)' ? '-' : v;
 };
 
 const formatDateDisplay = (dateInput) => {
@@ -155,21 +118,6 @@ const formatDateTime = (dateObj) => {
     year: 'numeric', month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit'
   });
-};
-
-const parseCSVRow = (str) => {
-  let arr = [];
-  let quote = false;
-  let col = '';
-  for (let i = 0; i < str.length; i++) {
-    let cc = str[i], nc = str[i+1];
-    if (cc === '"' && quote && nc === '"') { col += '"'; i++; continue; }
-    if (cc === '"') { quote = !quote; continue; }
-    if (cc === ',' && !quote) { arr.push(col.trim()); col = ''; continue; }
-    col += cc;
-  }
-  arr.push(col.trim().replace(/^"|"$/g, ''));
-  return arr;
 };
 
 export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, canGoBack }) {
@@ -206,7 +154,6 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   }, []);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const [successPopup, setSuccessPopup] = useState(null); // { message, fileName, warnings } — อัปโหลดเสร็จ = popup ต้องกดรับทราบ (successMsg = ข้อความสถานะระหว่างทำ ยังเป็นแถบ inline)
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [summaryStorageView, setSummaryStorageView] = useState('chart'); // 'chart' | 'table'
@@ -215,7 +162,6 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
 
   const [showColumnGuide, setShowColumnGuide] = useState(null); // 'log' | 'drug' | null
   
-  const logInputRef     = useRef(null);
 
   // โหลดข้อมูลจาก Supabase เมื่อแอปเริ่มทำงาน
   useEffect(() => {
@@ -228,9 +174,9 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           fetchSwapPolicies(),
         ]);
 
-        // ถ้า Supabase ยังไม่มีข้อมูล → แจ้งให้ import CSV
+        // ถ้า Supabase ยังไม่มีข้อมูล → แจ้งให้นำเข้าจาก Excel
         if (!inv) {
-          setErrorMsg('ยังไม่มีข้อมูลใน Supabase กรุณาอัปโหลด Log คลังยา (CSV) เพื่อเริ่มต้นใช้งาน');
+          setErrorMsg('ยังไม่มีข้อมูลใน Supabase กรุณากด "นำเข้าจาก Excel" (ไฟล์ ยอดคลังยา_69.xlsm) เพื่อเริ่มต้นใช้งาน');
         } else {
           setInventory(inv);
           if (drugs) setDrugDetails(drugs);
@@ -584,153 +530,6 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   };
 
 
-  const handleLogFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    
-    reader.onload = (event) => {
-      try {
-        const text = event.target.result;
-        const lines = text.split(/\r?\n/);
-        
-        let headerRowIndex = -1;
-        let headers = [];
-
-        for (let i = 0; i < lines.length; i++) {
-          const row = parseCSVRow(lines[i]);
-          if (row.some(cell => cell.includes('DetailedLog') || cell.includes('รายการยา') || cell.includes('ชื่อยา') || cell.includes('ตำแหน่ง') || cell.includes('รหัสยา'))) {
-            headerRowIndex = i;
-            headers = row;
-            break;
-          }
-        }
-
-        if (headerRowIndex === -1) throw new Error('ไฟล์ Log ต้องมีคอลัมน์ตำแหน่ง และชื่อยา/รหัสยา');
-
-        const logIdx = headers.findIndex(h => h.includes('DetailedLog') || h.includes('ตำแหน่ง') || h.toLowerCase().includes('location'));
-        const codeIdx = headers.findIndex(h => h.includes('รหัสยา') || h.includes('รหัส') || h.toLowerCase().includes('code'));
-        const nameIdx = headers.findIndex(h => h.includes('รายการยา') || h.includes('ชื่อยา') || h.toLowerCase().includes('drug'));
-        const typeIdx = headers.findIndex(h => h.includes('ชนิด') || h.toLowerCase().includes('type'));
-        const unitIdx = headers.findIndex(h => {
-          const hl = h.toLowerCase().trim();
-          // ต้อง match "หน่วย" หรือ "หน่วยนับ" แต่ห้าม match "หน่วยงาน" (department)
-          if (hl.includes('หน่วยงาน')) return false;
-          return h.includes('หน่วย') || hl === 'unit' || hl.includes('unit_label') || hl.includes('หน่วยนับ');
-        });
-        const lotIdx = headers.findIndex(h => h.toLowerCase().includes('lot') || h.includes('รุ่น'));
-        const expIdx = headers.findIndex(h => h.toLowerCase().includes('exp') || h.includes('หมดอายุ'));
-        // qty = คงเหลือปัจจุบัน — ไฟล์ master มีหลายคอลัมน์ "คงเหลือ" (คงเหลือ พ.ค., มูลค่าคงเหลือ ฯลฯ)
-        // ต้องเจาะจง "คงเหลือหลังจ่าย" ก่อนสุด (authoritative closing — ตัวเดียวกับ ledgerSeed COL.closingQty)
-        // เพราะ "ปริมาณรับเข้า−คงเหลือ...=คงเหลือจริง" (แก้ติดลบส่งบัญชี) ต่างค่ากับ "คงเหลือหลังจ่าย" 36/1005 แถว
-        // แล้วค่อย fallback "คงเหลือจริง" → generic + กัน "มูลค่าคงเหลือ" (บาท ไม่ใช่จำนวน)
-        const qtyIdx = (() => {
-          const afterDispense = headers.findIndex(h => h.includes('คงเหลือหลังจ่าย'));
-          if (afterDispense !== -1) return afterDispense;
-          const realBalance = headers.findIndex(h => h.includes('คงเหลือจริง'));
-          if (realBalance !== -1) return realBalance;
-          const generic = headers.findIndex(h => (h.includes('คงเหลือ') && !h.includes('มูลค่า')) || h.toLowerCase() === 'qty');
-          return generic;
-        })();
-        // จำนวนที่รับเข้า — เจาะจงชื่อก่อน (master ใช้ "ปริมาณ (เข้า)", ไฟล์รับยาใช้ "จำนวนที่รับ")
-        // แล้วค่อย fallback + กัน "วันที่..." (คอลัมน์วันที่ เช่น "วันที่รับเข้า" มีคำว่า "ที่รับ" อยู่ในชื่อ)
-        const qtyReceivedIdx = (() => {
-          const exact = headers.findIndex(h => h.includes('จำนวนที่รับ') || h.replace(/\s/g,'').includes('ปริมาณ(เข้า)'));
-          if (exact !== -1) return exact;
-          return headers.findIndex(h => !h.includes('วันที่') && (h.includes('ที่รับ') || h.toLowerCase().includes('qty_received') || h.toLowerCase().includes('received')));
-        })();
-        const invoiceIdx = headers.findIndex(h => h.includes('บิล') || h.includes('ใบเสร็จ') || h.toLowerCase().includes('invoice') || h.toLowerCase().includes('inv'));
-        // สถานะตรวจรับ → รอตรวจรับ (เช็คก่อน เพราะต้องการค่า "รอตรวจรับ" จากคอลัมน์นี้)
-        const statusIdx = headers.findIndex(h => h.includes('สถานะตรวจรับ') || h.includes('ตรวจรับ') || h.toLowerCase().includes('status'));
-        // ผลการพิจารณา → ตัดออกจากบัญชี (แยก index ต่างหาก)
-        const resultIdx = headers.findIndex(h => h.includes('ผลการพิจารณา'));
-        // Safety Stock และ Lead Time จาก log CSV
-        const ssIdx = headers.findIndex(h => h.toLowerCase().replace(/\s+/g,' ').trim() === 'safety stock' || h.toLowerCase().trim() === 'safety_stock' || h.toLowerCase().includes('safety stock') || h.includes('สต็อกขั้นต่ำ'));
-        const ltIdx = headers.findIndex(h => h.toLowerCase().includes('lead time') || h.toLowerCase() === 'leadtime');
-        const itemTypeIdx = headers.findIndex(h => h.includes('ชนิดรายการ') || h.toLowerCase().trim() === 'item_type' || h.toLowerCase().trim() === 'item type');
-        const mainLogIdx = headers.findIndex(h => h.toLowerCase().trim() === 'mainlog' || h.toLowerCase().trim() === 'main_log' || h.toLowerCase().trim() === 'main log');
-
-        const newInventory = {};
-        const warnRows = [];
-
-        for (let i = headerRowIndex + 1; i < lines.length; i++) {
-          if (!lines[i].trim()) continue;
-
-          const rawRow = parseCSVRow(lines[i]);
-          const row = rawRow.map(cleanCell); // แปลง (blank) → -
-          const location = row[logIdx] || '';
-          const code = codeIdx !== -1 && row[codeIdx] ? row[codeIdx] : '-';
-          const name = row[nameIdx] || '';
-
-          if (!location || (!name && code === '-')) continue;
-
-          // --- Row Validation ---
-          const issues = [];
-          const rowNum = i - headerRowIndex;
-          if (!code || code === '-') issues.push('ไม่มีรหัสยา');
-          if (!name) issues.push('ไม่มีชื่อยา');
-          if (!location) issues.push('ไม่มีตำแหน่ง');
-          if (expIdx !== -1 && row[expIdx] && row[expIdx] !== '-' && !parseDateString(row[expIdx]))
-            issues.push(`วันหมดอายุไม่ถูกต้อง: "${row[expIdx]}"`);
-          if (qtyIdx !== -1 && row[qtyIdx] && row[qtyIdx] !== '-' && isNaN(parseFloat(String(row[qtyIdx]).replace(/,/g,''))))
-            issues.push(`qty ไม่ใช่ตัวเลข: "${row[qtyIdx]}"`);
-          if (issues.length > 0) warnRows.push({ row: rowNum, code, name: name || '-', location, issues });
-
-          const qtyStr = qtyIdx !== -1 && row[qtyIdx] ? row[qtyIdx] : '-';
-          // ไม่กรองออก qty=0 — แสดงในแผนผังด้วยเพื่อให้เห็นว่ายาหมดและต้องสั่ง
-
-          if (!newInventory[location]) newInventory[location] = [];
-
-          newInventory[location].push({
-            code: normalizeCode(code),
-            name,
-            type: typeIdx !== -1 && row[typeIdx] ? row[typeIdx] : '-',
-            unit: unitIdx !== -1 && row[unitIdx] ? row[unitIdx] : '-',
-            lot: lotIdx !== -1 && row[lotIdx] ? normalizeLot(row[lotIdx]) : '-',
-            exp: normalizeDateStr(expIdx !== -1 ? row[expIdx] : '-'),
-            qty: qtyStr,
-            qtyReceived: qtyReceivedIdx !== -1 && row[qtyReceivedIdx] ? normalizeNumericText(row[qtyReceivedIdx]) : null,
-            invoice: invoiceIdx !== -1 ? normalizeNumericText(row[invoiceIdx]) : '-',
-            mainLog: mainLogIdx !== -1 && row[mainLogIdx] ? row[mainLogIdx] : null,
-            itemType: itemTypeIdx !== -1 && row[itemTypeIdx] ? row[itemTypeIdx] : null,
-            safetyStock: ssIdx !== -1 ? parseFloat(String(row[ssIdx] || '0').replace(/,/g, '')) || 0 : 0,
-            leadTime: ltIdx !== -1 ? parseFloat(String(row[ltIdx] || '0').replace(/,/g, '')) || 20 : 20,
-            receiveStatus: (() => {
-              const s = statusIdx !== -1 ? row[statusIdx]?.trim() : '';   // สถานะตรวจรับ เช่น "รอตรวจรับ"
-              const r = resultIdx !== -1 ? row[resultIdx]?.trim() : '';   // ผลการพิจารณา เช่น "ตัดออก", "คงไว้"
-              // เก็บทั้งสองค่าด้วย | เพื่อให้ตรวจสอบได้ทั้งคู่
-              const combined = [s, r].filter(Boolean).join('|');
-              return combined || 'ไม่มีการดำเนินการ';
-            })()
-          });
-        }
-
-        const now = new Date();
-
-        setInventory(newInventory);
-        setLogFileName(file.name);
-        setLogUpdateDate(now);
-        setErrorMsg('');
-        setSuccessMsg(`กำลังบันทึก Log คลังยา "${file.name}" ขึ้น Supabase...`);
-
-        saveInventory(newInventory, auth, file.name)
-          .then(() => saveUploadMeta('inventory', file.name))
-          .then(() => {
-            setSuccessMsg('');
-            setSuccessPopup({
-              message: `อัปโหลด Log คลังยาและ "แทนที่ข้อมูลเดิม" ด้วยไฟล์นี้เรียบร้อยแล้ว`,
-              fileName: file.name,
-              warnings: warnRows,
-            });
-          })
-          .catch(err => setErrorMsg('บันทึกขึ้น Supabase ล้มเหลว: ' + err.message));
-        
-      } catch (err) { setErrorMsg(err.message); }
-    };
-    reader.onerror = () => setErrorMsg("เกิดข้อผิดพลาดในการอ่านไฟล์ Log");
-    reader.readAsText(file, 'utf-8'); 
-    e.target.value = '';
-  };
 
 
   const isMatch = useCallback((locationId) => {
@@ -1283,9 +1082,9 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                 </button>
                 {isStaff && <>
                   <div className="border-t border-slate-100 dark:border-slate-800 my-1"/>
-                  <button onClick={() => { logInputRef.current?.click(); setShowManageMenu(false); }}
+                  <button onClick={() => { openExcelSync(); setShowManageMenu(false); }}
                     className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700 transition-colors">
-                    <UploadCloud size={15}/> อัปโหลด Master
+                    <UploadCloud size={15}/> นำเข้าจาก Excel
                   </button>
                   <button onClick={() => { setShowColumnGuide(showColumnGuide === 'log' ? null : 'log'); setShowManageMenu(false); }}
                     className="w-full flex items-center gap-2 px-4 py-2 text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
@@ -1382,40 +1181,32 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
             </div>
           )}
 
-          {/* Hidden file inputs */}
-          {isStaff && <>
-            <input type="file" accept=".csv, text/csv, application/csv, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ref={logInputRef} onChange={handleLogFileUpload} className="hidden"/>
-            <p className="text-[11px] text-slate-400 dark:text-slate-500">*อัปโหลดได้เฉพาะไฟล์ .csv (หากบันทึกจาก Excel ในมือถือ ให้บันทึกเป็น CSV ก่อน)</p>
-          </>}
 
           {/* Column Guide Popup */}
           {showColumnGuide && (
             <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-3">
               <div className="flex justify-between items-center">
                 <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  {showColumnGuide === 'log' ? 'หัวคอลัมน์ที่รองรับ — ไฟล์ Log คลังยา' : 'หัวคอลัมน์ที่รองรับ — ไฟล์ข้อมูลยา'}
+                  {showColumnGuide === 'log' ? 'หัวคอลัมน์ที่รองรับ — ชีท Master (ยอดคลังยา_69.xlsm)' : 'หัวคอลัมน์ที่รองรับ — ไฟล์ข้อมูลยา'}
                 </p>
                 <button onClick={() => setShowColumnGuide(null)} className="text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200"><X size={14}/></button>
               </div>
-              <p className="text-xs text-slate-400 dark:text-slate-500">ชื่อหัวคอลัมน์ใน CSV ต้องตรงกับชื่อด้านล่าง (ไม่ต้องครบทุก column)</p>
+              <p className="text-xs text-slate-400 dark:text-slate-500">{showColumnGuide === 'log' ? 'หัวตารางต้องอยู่แถวแรกของชีท และชื่อต้องตรงกับด้านล่าง (ไม่ต้องครบทุก column) — ตรงกับตัวอ่านใน lib/masterSheet.js' : 'ชื่อหัวคอลัมน์ใน CSV ต้องตรงกับชื่อด้านล่าง (ไม่ต้องครบทุก column)'}</p>
               <div className="flex flex-wrap gap-2">
                 {(showColumnGuide === 'log' ? [
                   { label: 'ตำแหน่งจัดเก็บ',  req: true,  hints: ['DetailedLog', 'ตำแหน่ง', 'location'] },
                   { label: 'ชื่อยา',            req: true,  hints: ['รายการยา', 'ชื่อยา'] },
-                  { label: 'คงเหลือ',           req: true,  hints: ['คงเหลือ', 'qty'] },
-                  { label: 'รหัสยา',            req: false, hints: ['รหัส', 'รหัสยา', 'code'] },
+                  { label: 'คงเหลือ',           req: true,  hints: ['คงเหลือหลังจ่าย', 'คงเหลือจริง'] },
+                  { label: 'รหัสยา',            req: false, hints: ['รหัสHosxp', 'รหัสยา', 'รหัส', 'code'] },
                   { label: 'รูปแบบยา',          req: false, hints: ['ชนิด', 'type'] },
-                  { label: 'หน่วยนับ',          req: false, hints: ['หน่วย', 'unit_label'] },
-                  { label: 'Lot Number',        req: false, hints: ['Lot Number', 'lot', 'lot.'] },
-                  { label: 'Exp',               req: false, hints: ['Exp', 'exp.', 'วันหมดอายุ'] },
-                  { label: 'ราคา/หน่วย',        req: false, hints: ['ราคา/หน่วย', 'ราคาต่อหน่วย'] },
-                  { label: 'ชนิดรายการ',        req: false, hints: ['ชนิดรายการ', 'item_type'] },
-                  { label: 'บริษัท',            req: false, hints: ['บริษัทยา', 'บริษัท'] },
-                  { label: 'เลขบิล',            req: false, hints: ['เลขที่บิลซื้อ', 'เลขบิล'] },
-                  { label: 'Safety Stock',      req: false, hints: ['Safety Stock', 'safety_stock'] },
-                  { label: 'Lead Time',         req: false, hints: ['Lead Time', 'leadtime'] },
+                  { label: 'หน่วยนับ',          req: false, hints: ['หน่วย', 'unit'] },
+                  { label: 'Lot Number',        req: false, hints: ['Lot Number', 'lot'] },
+                  { label: 'Exp',               req: false, hints: ['Exp', 'วันหมดอายุ'] },
+                  { label: 'ชนิดรายการ',        req: false, hints: ['ชนิดรายการ'] },
+                  { label: 'เลขบิล',            req: false, hints: ['เลขที่บิลซื้อ'] },
+                  { label: 'Safety Stock',      req: false, hints: ['Safety Stock'] },
                   { label: 'ผลการพิจารณา',      req: false, hints: ['ผลการพิจารณา'] },
-                  { label: 'สถานะตรวจรับ',      req: false, hints: ['สถานะตรวจรับ', 'สถานะ'] },
+                  { label: 'สถานะตรวจรับ',      req: false, hints: ['สถานะตรวจรับ'] },
                   { label: 'MainLog',           req: false, hints: ['MainLog', 'main_log'] },
                 ] : [
                   { label: 'รหัสยา',            req: true,  hints: ['รหัส', 'รหัสยา', 'code'] },
@@ -1541,15 +1332,6 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           </div>
         )}
 
-        <UploadSuccessModal
-          open={!!successPopup}
-          title="อัปโหลด Log คลังยาสำเร็จ"
-          message={successPopup?.message}
-          fileName={successPopup?.fileName}
-          warnings={successPopup?.warnings}
-          onClose={() => setSuccessPopup(null)}
-        />
-
         {errorMsg && (
           <div className="bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 p-4 rounded-xl border border-red-200 dark:border-red-900/60 flex items-center gap-3 shadow-sm mb-6">
             <AlertCircle size={20} /> <span className="font-medium">{errorMsg}</span>
@@ -1590,11 +1372,11 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
               <Database size={32} className="text-indigo-400"/>
             </div>
             <h3 className="text-xl font-bold text-slate-700 dark:text-slate-200 mb-1.5">ยังไม่มีข้อมูลในคลัง</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-5 max-w-md">เริ่มต้นใช้งานด้วยการอัปโหลดไฟล์ Log คลังยา (CSV) เพื่อสร้างแผนผังตำแหน่งจัดเก็บอัตโนมัติ</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-5 max-w-md">เริ่มต้นใช้งานด้วยการนำเข้าไฟล์ ยอดคลังยา_69.xlsm (ชีท Master) เพื่อสร้างแผนผังตำแหน่งจัดเก็บอัตโนมัติ</p>
             {isStaff ? (
-              <button onClick={() => logInputRef.current?.click()}
+              <button onClick={openExcelSync}
                 className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm">
-                <UploadCloud size={16}/> อัปโหลด Log คลังยา
+                <UploadCloud size={16}/> นำเข้าจาก Excel
               </button>
             ) : (
               <p className="text-xs text-slate-400 dark:text-slate-500 inline-flex items-center gap-1.5"><AlertCircle size={12}/> ติดต่อเจ้าหน้าที่คลังยาเพื่ออัปโหลดข้อมูล</p>

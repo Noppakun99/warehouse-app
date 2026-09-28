@@ -13,6 +13,7 @@ import { NAV_GROUPS, COLOR } from './navConfig';
 import { changeOwnPassword } from './lib/db';
 import NotificationBell from './NotificationBell';
 import CommandPalette from './CommandPalette';
+import ExcelSyncControl from './ExcelSync';
 
 // submenu ที่มี active page อยู่ข้างใน → เปิดไว้ตั้งแต่แรก
 const submenuKeyOf = (pageKey) => {
@@ -333,6 +334,8 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
               >
                 {dark ? <Sun size={19} /> : <Moon size={19} />}
               </button>
+              {/* นำเข้าจาก Excel — อยู่บน top bar (ไม่ใช่ในหน้าแผนผัง) เพราะตัวเฝ้าไฟล์ต้องแจ้งได้ทุกหน้า */}
+              {isStaff && <ExcelSyncControl auth={auth} onDone={onRefresh} />}
               <NotificationBell auth={auth} onNavigate={isStaff ? onNavigate : undefined} />
               <AccountMenu displayName={displayName} role={role} auth={auth} isStaff={isStaff} onLogout={onLogout} />
             </div>

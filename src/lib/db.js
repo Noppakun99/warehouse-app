@@ -3,6 +3,7 @@ import { computeClosing, ADJUST_TYPE } from './ledgerRollover.js'
 import { buildConsistencyReport } from './consistencyCheck.js'
 import { parseReturnPolicy, computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './swapPolicy.js'
 import { computeCountMatch } from './countMatch.js'
+import { flattenInventory, backfillDrugUnit, backfillSwapPolicy } from './excelSync.js'
 
 const CHUNK_SIZE = 500
 
@@ -60,28 +61,9 @@ export async function fetchInventory() {
 export async function saveInventory(inventoryObj, auth = {}, fileName = null) {
   if (!supabase) throw new Error('Supabase not configured')
 
-  // แปลง object → flat rows
-  const rows = []
-  Object.entries(inventoryObj).forEach(([location, items]) => {
-    items.forEach(item => {
-      rows.push({
-        location,
-        code: item.code || '-',
-        name: item.name,
-        type: item.type || '-',
-        unit: item.unit || '-',
-        lot: item.lot || '-',
-        exp: item.exp || '-',
-        qty: item.qty || '0',
-        invoice: item.invoice || '-',
-        main_log:      item.mainLog || null,
-        item_type:     item.itemType || null,
-        receive_status: item.receiveStatus || 'ไม่มีการดำเนินการ',
-        safety_stock: item.safetyStock != null ? item.safetyStock : null,
-        updated_at: new Date().toISOString(),
-      })
-    })
-  })
+  // แปลง object → flat rows — ตัวเดียวกับที่ปุ่ม "นำเข้าจาก Excel" ใช้คำนวณส่วนต่าง (ห้ามแยกกัน)
+  const now = new Date().toISOString()
+  const rows = flattenInventory(inventoryObj).map(r => ({ ...r, updated_at: now }))
 
   // ลบข้อมูลเก่าทั้งหมด แล้ว insert ใหม่
   const { error: delError } = await supabase
@@ -282,11 +264,8 @@ export async function insertReceiveRows(rows, auth = {}) {
   const needLookup = [...new Set(rows.filter(r => !r.drug_swap_policy && r.drug_code && r.drug_code !== '-').map(r => r.drug_code))]
   if (needLookup.length > 0) {
     const { data: ddRows } = await supabase.from('receive_logs').select('drug_code, drug_swap_policy').in('drug_code', needLookup)
-    if (ddRows) {
-      const swapByCode = {}
-      ddRows.forEach(d => { if (d.drug_code && d.drug_swap_policy && !swapByCode[d.drug_code]) swapByCode[d.drug_code] = d.drug_swap_policy })
-      rows.forEach(r => { if (!r.drug_swap_policy && swapByCode[r.drug_code]) r.drug_swap_policy = swapByCode[r.drug_code] })
-    }
+    // ตัวเดียวกับที่ปุ่ม "นำเข้าจาก Excel" ใช้คำนวณส่วนต่าง (ห้ามแยกกัน)
+    if (ddRows) backfillSwapPolicy(rows, ddRows)
   }
 
   const { error: delErr } = await supabase.from('receive_logs').delete().gte('id', 0)
@@ -315,17 +294,7 @@ export async function insertReceiveRows(rows, auth = {}) {
 export async function insertDispenseRows(rows, auth = {}, fileName = null) {
   if (!supabase) throw new Error('Supabase not configured')
 
-  const unitByCode = {}
-  rows.forEach(r => {
-    if (r.drug_unit && r.drug_unit !== '-' && r.drug_code && r.drug_code !== '-') {
-      unitByCode[r.drug_code] = r.drug_unit
-    }
-  })
-  rows.forEach(r => {
-    if ((!r.drug_unit || r.drug_unit === '-') && r.drug_code && r.drug_code !== '-' && unitByCode[r.drug_code]) {
-      r.drug_unit = unitByCode[r.drug_code]
-    }
-  })
+  backfillDrugUnit(rows)
 
   const { error: delErr } = await supabase.from('dispense_logs').delete().gte('id', 0)
   if (delErr) throw delErr
@@ -1852,6 +1821,101 @@ export async function saveUploadMeta(type, fileName) {
     { type, file_name: fileName, updated_at: new Date().toISOString() },
     { onConflict: 'type' }
   )
+}
+
+// --- นำเข้าจาก Excel (ปุ่มในแอป — ADR-0027) ---
+// ตรรกะเทียบ/ด่านตรวจอยู่ใน excelSync.js (pure); ที่นี่แค่ดึงของเดิม + เขียนผ่านฟังก์ชันเดียวกับ CLI
+
+async function fetchAllById(table, select) {
+  const rows = []
+  const PAGE = 1000
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase.from(table).select(select).order('id').range(from, from + PAGE - 1)
+    if (error) throw error
+    rows.push(...(data || []))
+    if (!data || data.length < PAGE) break
+  }
+  return rows
+}
+
+/** ของเดิมใน DB ที่ buildSyncPlan ต้องใช้เทียบ
+ *  @param inventoryCols / dispenseCols  คอลัมน์ตาม INVENTORY_SPEC / DISPENSE_SPEC */
+export async function fetchExcelSyncBaseline(inventoryCols, dispenseCols) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const [prevInventory, prevDispense, receiveRows, lastRes] = await Promise.all([
+    fetchAllById('inventory', inventoryCols.join(',')),
+    fetchAllById('dispense_logs', dispenseCols.join(',')),
+    fetchAllById('receive_logs', 'drug_code,lot,bill_number,receive_status'),
+    supabase.from('audit_logs').select('created_at, user_name')
+      .in('action', ['import_inventory', 'import_dispense'])
+      .order('created_at', { ascending: false }).limit(1),
+  ])
+  if (lastRes.error) throw lastRes.error
+  const last = lastRes.data?.[0]
+  return {
+    prevInventory,
+    prevDispense,
+    receiveRows,
+    lastImport: last ? { at: last.created_at, user: last.user_name } : null,
+    appOnlyDispenseCount: prevDispense.filter(r => r.source !== 'csv').length,
+  }
+}
+
+/** ของเดิมของไฟล์รับยา (ชีท รับยา + รพ.ยืมยา) ที่ buildReceivePlan ต้องใช้เทียบ
+ *  atRisk = ตัวเดียวกับ scripts/import-receive.mjs — แถวที่มีงานในแอปซึ่งไฟล์ Excel ไม่มี */
+export async function fetchReceiveSyncBaseline(receiveCols) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const [prevReceive, riskRes, prevLoans, lastRes] = await Promise.all([
+    fetchAllById('receive_logs', receiveCols.join(',')),
+    supabase.from('receive_logs')
+      .select('bill_number, scan_image_url, inspect_meta, ap_stage, acknowledged_at')
+      .or('scan_image_url.not.is.null,inspect_meta.not.is.null,ap_stage.not.is.null,acknowledged_at.not.is.null'),
+    fetchDrugLoans(),
+    supabase.from('audit_logs').select('created_at, user_name')
+      .in('action', ['import_receive', 'import_drug_loan'])
+      .order('created_at', { ascending: false }).limit(1),
+  ])
+  if (riskRes.error) throw riskRes.error
+  if (lastRes.error) throw lastRes.error
+  const last = lastRes.data?.[0]
+  return {
+    prevReceive,
+    prevLoans,
+    atRisk: (riskRes.data || []).map(r => ({
+      bill_number: r.bill_number,
+      reason: r.scan_image_url ? 'บิลสแกน' : r.inspect_meta ? 'มีรูปตรวจรับ' : r.ap_stage ? 'เดิน AP แล้ว' : 'จัดซื้อรับแล้ว',
+    })),
+    lastImport: last ? { at: last.created_at, user: last.user_name } : null,
+  }
+}
+
+/** เขียนตามแผน (combinePlans) — เขียนเฉพาะตารางที่มีส่วนต่าง
+ *  ลำดับ: รับยา → ยืมยา → Master → เบิก (ไฟล์รับยาเป็นต้นทางของสถานะตรวจรับใน Master)
+ *  DELETE ALL → INSERT ไม่ใช่ transaction: ถ้าล้มกลางทาง ตารางจะไม่ครบ — แก้ด้วยการกดนำเข้าไฟล์เดิมอีกครั้ง
+ *  @param names { stockFile, receiveFile } ชื่อไฟล์สำหรับ audit
+ *  @returns { receive, loan, inventory, dispense } — จำนวนแถว/สรุป, null = ไม่ได้เขียนตารางนั้น */
+export async function applyExcelSync(plan, auth = {}, names = {}) {
+  const touched = (d) => d.added.length + d.removed.length + d.changed.length > 0
+  const label = (file, sheet) => (file ? `${file} / ${sheet}` : sheet)
+  const result = { receive: null, loan: null, inventory: null, dispense: null }
+  const { stock, receive } = plan
+  if (receive?.receive.changed) {
+    result.receive = await insertReceiveRows(receive.receive.rows, auth)
+  }
+  if (receive?.loan.changed) {
+    const d = receive.loan.diff
+    await importDrugLoans({ inserts: d.inserts, updates: d.updates, deleteIds: [], fileName: label(names.receiveFile, 'รพ.ยืมยา') }, auth)
+    result.loan = { inserted: d.inserts.length, updated: d.updates.length }
+  }
+  if (stock && touched(stock.inventory.diff)) {
+    await saveInventory(stock.inventory.inventoryObj, auth, label(names.stockFile, 'Master'))
+    await saveUploadMeta('inventory', names.stockFile || 'Excel')
+    result.inventory = stock.inventory.count
+  }
+  if (stock && touched(stock.dispense.diff)) {
+    result.dispense = await insertDispenseRows(stock.dispense.rows, auth, label(names.stockFile, 'เบิก'))
+  }
+  return result
 }
 
 // --- Usage Rates (avg qty/day per drug from dispense_logs) ---

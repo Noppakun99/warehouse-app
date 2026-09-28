@@ -27,6 +27,7 @@
     "test:mastersheet": "node src/lib/masterSheet.test.js",
     "test:dispensesheet": "node src/lib/dispenseSheet.test.js",
     "test:importguard": "node src/lib/importGuard.test.js",
+    "test:excelsync": "node src/lib/excelSync.test.js",
     "import:receive": "node scripts/import-receive.mjs",
     "import:loan": "node scripts/import-loan.mjs",
     "import:reorder": "node scripts/import-reorder.mjs",

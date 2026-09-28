@@ -2041,13 +2041,18 @@ function StockSummaryModal({ onClose, auth = {} }) {
     });
   }, []);
 
-  // Realtime subscribe
+  // Realtime subscribe — debounce: นำเข้า Master = ลบทั้งตาราง + ใส่ใหม่ ~2,200 event
+  // ถ้าโหลดทุก event = ยิง fetchStockSummary หลายพันครั้งต่อการนำเข้า 1 รอบ (ต่อทุกเครื่องที่เปิดโมดอลนี้)
   React.useEffect(() => {
     if (!supabase) return;
+    let timer = null;
     const ch = supabase.channel('stock-modal-inv')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, () => load({ silent: true }))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => load({ silent: true }), 1500);
+      })
       .subscribe();
-    return () => supabase.removeChannel(ch);
+    return () => { clearTimeout(timer); supabase.removeChannel(ch); };
   }, [load]);
 
   const filtered = rows.filter(r =>

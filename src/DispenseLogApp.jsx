@@ -3,9 +3,8 @@ import { supabase } from './lib/supabase';
 import SearchableSelect from './SearchableSelect';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
 import BackButton from './BackButton';
-import UploadSuccessModal from './UploadSuccessModal';
 import {
-  ArrowLeft, UploadCloud, RefreshCcw, Search, X,
+  RefreshCcw, Search, X,
   FileSpreadsheet, ChevronDown, ChevronUp, AlertCircle,
   TrendingDown, TrendingUp, BarChart3, Pencil, Trash2, Save, FileDown, CalendarDays,
   CheckCircle2, HelpCircle,
@@ -15,31 +14,8 @@ import {
   LineChart, Line, Legend,
 } from 'recharts';
 import { exportToExcel } from './lib/exportExcel';
-import { normalizeLotSearch, insertAuditLog, resolveAuditUserName, insertDispenseRows } from './lib/db';
-
-// ============================================================
-// Column aliases
-// ============================================================
-const COL_MAP = {
-  dispense_date: ['วันที่เบิก', 'วันที่', 'date', 'dispense_date'],
-  main_log:      ['mainlog', 'main_log', 'main log', 'log หลัก'],
-  detail_log:    ['detailedlog', 'detail_log', 'detailed log', 'detaillog', 'log ย่อย', 'กลุ่ม'],
-  department:    ['หน่วยงานที่เบิก', 'หน่วยงานที่', 'หน่วยงาน', 'department', 'แผนก', 'ward'],
-  note:          ['หมายเหตุ', 'note', 'notes', 'remark'],
-  drug_code:     ['รหัส', 'รหัสยา', 'code', 'drug_code', 'รหัส hosxp', 'รหัสhosxp'],
-  drug_name:     ['รายการยา', 'ชื่อยา', 'drug_name', 'name', 'item'],
-  drug_type:     ['ชนิดยา', 'ชนิด', 'ประเภท', 'type', 'drug_type', 'รูปแบบ'],
-  item_type:     ['ชนิดรายการ', 'item_type', 'item type'],
-  drug_unit:     ['หน่วยนับ', 'unit_label', 'drug_unit', 'หน่วยยา', 'หน่วย'],
-  price_per_unit:['ราคา/หน่วย', 'ราคาต่อหน่วย', 'price', 'price_per_unit', 'unit price'],
-  lot:           ['lot', 'lot.', 'lot number', 'lot no', 'เลขที่ lot'],
-  exp:           ['exp', 'exp.', 'exp date', 'วันหมดอายุ'],
-  near_exp_date: ['วันที่ใกล้exp', 'วันที่ใกล้ exp', 'near_exp_date', 'วันใกล้หมดอายุ', 'วันที่ใกล้หมดอายุ'],
-  qty_before:    ['คงเหลือก่อนเบิก', 'คงเหลือก่อน', 'ยอดก่อน', 'before', 'qty_before', 'stock before'],
-  qty_out:       ['ปริมาณ (ออก)', 'ปริมาณออก', 'จำนวนเบิก', 'qty_out', 'out', 'จำนวน'],
-  qty_after:     ['คงเหลือหลังจ่าย', 'คงเหลือหลัง', 'ยอดหลัง', 'after', 'qty_after', 'stock after'],
-};
-
+import { normalizeLotSearch, insertAuditLog, resolveAuditUserName } from './lib/db';
+import { openExcelSync } from './lib/excelSyncEvent';
 
 // ค่า department ที่ "ไม่ใช่หน่วยงานจริง" — เป็นการปรับปรุงระบบ/ความเคลื่อนไหวพิเศษ
 // ตัดออกจาก dropdown กรองหน่วยงาน + กราฟสรุประดับหน่วยงาน แต่ยังคงแสดงเป็นแถวในตารางเบิกตามปกติ
@@ -65,58 +41,6 @@ async function fetchAllDepts(supabaseClient) {
   }
   return [...found].sort();
 }
-
-const FIELD_LABELS = {
-  dispense_date:  'วันที่เบิก',
-  main_log:       'MainLog',
-  detail_log:     'DetailedLog',
-  department:     'หน่วยงาน',
-  note:           'หมายเหตุ',
-  drug_code:      'รหัสยา',
-  drug_name:      'ชื่อรายการยา',
-  drug_type:      'รูปแบบยา',
-  item_type:      'ชนิดรายการ',
-  drug_unit:      'หน่วยยา',
-  price_per_unit: 'ราคา/หน่วย',
-  lot:            'Lot',
-  exp:            'Exp',
-  near_exp_date:  'วันที่ใกล้ Exp',
-  qty_before:     'คงเหลือก่อนเบิก',
-  qty_out:        'ปริมาณออก',
-  qty_after:      'คงเหลือหลังจ่าย',
-};
-
-function matchHeader(header) {
-  const h = header.toLowerCase().trim().replace(/\s+/g, ' ');
-  // Pass 1: exact match (highest priority — prevents false partial matches)
-  for (const [field, aliases] of Object.entries(COL_MAP)) {
-    if (aliases.some(a => h === a.toLowerCase().trim())) return field;
-  }
-  // Pass 2: partial includes — only for aliases >= 7 chars to avoid short-alias collisions
-  // e.g. "ชนิด" won't match "ชนิดรายการ", "วันที่" won't match "วันที่ใกล้exp"
-  for (const [field, aliases] of Object.entries(COL_MAP)) {
-    if (aliases.some(a => a.trim().length >= 7 && h.includes(a.toLowerCase().trim()))) return field;
-  }
-  return null;
-}
-
-function parseCSVRow(str) {
-  const arr = []; let quote = false; let col = '';
-  for (let i = 0; i < str.length; i++) {
-    const cc = str[i], nc = str[i + 1];
-    if (cc === '"' && quote && nc === '"') { col += '"'; i++; continue; }
-    if (cc === '"') { quote = !quote; continue; }
-    if (cc === ',' && !quote) { arr.push(col.trim()); col = ''; continue; }
-    col += cc;
-  }
-  arr.push(col.trim().replace(/^"|"$/g, ''));
-  return arr;
-}
-
-const normalizeCode = (val) => {
-  if (!val && val !== 0) return '-';
-  return String(val).trim() || '-';
-};
 
 // ตารางประวัติแสดงเฉพาะรายการเบิกจริง (qty_out > 0) — ตัดทั้งแถวว่าง (353) และ void qty=0 (118)
 // ให้ตรงกับ stat "จำนวนรายการ" (5,296) ที่ count ด้วย qty_out>0 อยู่แล้ว (Critical Rule #6)
@@ -277,7 +201,6 @@ const DISPENSE_EXCEL_COLS = [
 // Root
 // ============================================================
 export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBack }) {
-  const [tab, setTab]             = useState('view');
   const [showSummary, setShowSummary] = useState(false);
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
   const isAdmin = auth.role === 'admin';
@@ -295,287 +218,15 @@ export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBa
             <BarChart3 size={15} /> สรุปผล
           </button>
           {isStaff && (
-            <button onClick={() => setTab('import')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'import' ? 'bg-rose-600 text-white' : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-            >Import CSV</button>
+            <button onClick={openExcelSync}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+            ><FileSpreadsheet size={15} /> นำเข้าจาก Excel</button>
           )}
         </div>
       </div>
 
-      {tab === 'import' && isStaff && <DispenseImport onDone={() => setTab('view')} auth={auth} />}
-      {tab === 'view'   && <DispenseView isAdmin={isAdmin} auth={auth} />}
+      <DispenseView isAdmin={isAdmin} auth={auth} />
       {showSummary      && <DispenseSummaryModal onClose={() => setShowSummary(false)} />}
-    </div>
-  );
-}
-
-// ============================================================
-// CSV Import
-// ============================================================
-function DispenseImport({ onDone, auth = {} }) {
-  const [status, setStatus]         = useState('');
-  const [error, setError]           = useState('');
-  const [preview, setPreview]       = useState(null);
-  const [mapping, setMapping]       = useState({});
-  const [rawHeaders, setRawHeaders] = useState([]);
-  const [rawRows, setRawRows]       = useState([]);
-  const [loading, setLoading]       = useState(false);
-  const [successPopup, setSuccessPopup] = useState(null); // { message, fileName, warnings } — popup ยืนยันหลังนำเข้าเสร็จ
-  const fileRef = useRef(null);
-
-  const handleFile = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setError(''); setStatus(''); setPreview(null);
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const lines = ev.target.result.split('\n').filter(l => l.trim());
-        if (lines.length < 2) throw new Error('ไฟล์ไม่มีข้อมูล');
-        // หาแถว header จริง — ไฟล์ export จาก Excel อาจมี snapshot block/แถวว่างก่อนถึง header
-        // เลือกแถวที่ match ฟิลด์ที่รู้จักได้มากสุด (ต้อง ≥ 3 เพื่อกัน false positive จากแถวข้อมูล)
-        let headerIdx = 0, bestScore = 0;
-        for (let i = 0; i < Math.min(lines.length, 30); i++) {
-          const cols = parseCSVRow(lines[i]);
-          const score = cols.filter(h => matchHeader(h)).length;
-          if (score > bestScore) { bestScore = score; headerIdx = i; }
-        }
-        if (bestScore < 3) headerIdx = 0;  // หา header ไม่เจอ → เดิม (แถวแรก) ให้ user map มือ
-        const headers = parseCSVRow(lines[headerIdx]);
-        const autoMap = {};
-        headers.forEach((h, i) => { const field = matchHeader(h); if (field) autoMap[field] = i; });
-        setRawHeaders(headers);
-        setMapping(autoMap);
-        setRawRows(lines.slice(headerIdx + 1).map(parseCSVRow));
-        setPreview({ fileName: file.name, total: lines.length - headerIdx - 1 });
-      } catch (err) { setError(err.message); }
-    };
-    reader.readAsText(file, 'utf-8');
-    e.target.value = '';
-  };
-
-  const getVal = (row, field) => {
-    const idx = mapping[field];
-    if (idx == null || idx === '') return null;
-    return row[idx]?.trim() || null;
-  };
-
-  const handleImport = async () => {
-    if (!rawRows.length || !supabase) return;
-    setLoading(true); setError('');
-    try {
-      const warnRows = [];
-      const activeRaws = rawRows
-        .map((row, i) => ({ row, rowNum: i + 2 }))
-        .filter(({ row }) => row.some(c => c.trim()));
-
-      const rows = activeRaws.flatMap(({ row, rowNum }) => {
-          const drugName = getVal(row, 'drug_name');
-          const drugCode = normalizeCode(getVal(row, 'drug_code'));
-          const drugType = getVal(row, 'drug_type') || '';
-          const lot      = getVal(row, 'lot') || '-';
-
-          // ข้ามแถวที่ไม่มีชื่อยาและไม่มีรหัสยาเลย (แถว footer/total/ว่างที่มีแต่ '-') — ไม่ import ไม่เตือน
-          if (!drugName && (!drugCode || drugCode === '-')) return [];
-
-          const issues = [];
-          if (!drugName) issues.push('ไม่มีชื่อยา');
-          if (!drugCode || drugCode === '-') issues.push('ไม่มีรหัสยา');
-          // เวชภัณฑ์มิใช่ยา (ถุง/ขวด/ตลับ) ไม่มี lot ตามธรรมชาติ — ใช้ '-' ถูกต้อง ไม่เตือน
-          if ((!lot || lot === '-') && drugType !== 'เวชภัณฑ์มิใช่ยา') issues.push('ไม่มี Lot');
-          if (issues.length > 0) warnRows.push({ row: rowNum, name: drugName || '-', code: drugCode || '-', issues });
-
-          const qtyOut = parseFloat(String(getVal(row, 'qty_out') || '0').replace(/,/g, '')) || 0;
-          return [{
-            dispense_date:  parseDate(getVal(row, 'dispense_date')) || new Date().toISOString().slice(0,10),
-            main_log:       getVal(row, 'main_log') || '-',
-            detail_log:     getVal(row, 'detail_log') || '-',
-            department:     getVal(row, 'department') || '-',
-            note:           getVal(row, 'note'),
-            drug_code:      drugCode,
-            drug_name:      drugName || '-',
-            drug_type:      getVal(row, 'drug_type') || '-',
-            item_type:      getVal(row, 'item_type') || null,
-            drug_unit:      getVal(row, 'drug_unit') || '-',
-            price_per_unit: (() => { const p = parseFloat(String(getVal(row, 'price_per_unit') || '').replace(/,/g, '')); return isNaN(p) ? null : p; })(),
-            lot,
-            exp:            fmtAnyDate(getVal(row, 'exp')),
-            near_exp_date:  parseDate(getVal(row, 'near_exp_date')) || null,
-            qty_before:     parseFloat(String(getVal(row, 'qty_before') || '').replace(/,/g, '')) || null,
-            qty_out:        qtyOut,
-            qty_after:      parseFloat(String(getVal(row, 'qty_after') || '').replace(/,/g, '')) || null,
-            source:         'csv',
-          }];
-        });
-
-      // backfill drug_unit + DELETE ALL → INSERT + audit log อยู่ใน db.js แล้ว (Critical Rule: ทุก query ผ่าน db.js)
-      await insertDispenseRows(rows, auth, preview?.fileName || '-');
-      setStatus(`นำเข้าสำเร็จ ${rows.length.toLocaleString()} รายการ`);
-      setSuccessPopup({
-        message: `นำเข้าข้อมูลเบิกจ่าย ${rows.length.toLocaleString()} รายการ เรียบร้อยแล้ว`,
-        fileName: preview?.fileName || '',
-        warnings: warnRows,
-      });
-      setPreview(null); setRawRows([]); setRawHeaders([]);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="p-4 space-y-4 max-w-3xl mx-auto">
-      <UploadSuccessModal
-        open={!!successPopup}
-        title="นำเข้า CSV คลังเบิกสำเร็จ"
-        message={successPopup?.message}
-        fileName={successPopup?.fileName}
-        warnings={successPopup?.warnings}
-        onClose={() => setSuccessPopup(null)}
-      />
-
-      <div onClick={() => fileRef.current?.click()}
-        className="border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-rose-400 bg-white dark:bg-slate-900 rounded-2xl p-10 text-center cursor-pointer transition-colors">
-        <FileSpreadsheet size={40} className="mx-auto mb-3 text-slate-400 dark:text-slate-500" />
-        <p className="font-semibold text-slate-700 dark:text-slate-200">คลิกเพื่อเลือกไฟล์ CSV คลังเบิก</p>
-        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">รองรับ .csv (UTF-8 หรือ TIS-620)</p>
-        <input ref={fileRef} type="file" accept=".csv" onChange={handleFile} className="hidden" />
-      </div>
-
-      {error  && <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-4 py-2 flex items-center gap-2"><AlertCircle size={16}/>{error}</p>}
-      {status && <p className="text-emerald-700 dark:text-emerald-300 text-sm bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-xl px-4 py-2">{status}</p>}
-
-      {/* Column reference — shown before file is selected */}
-      {!preview && (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm space-y-3">
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">หัวคอลัมน์ที่รองรับในไฟล์ CSV</p>
-          <p className="text-xs text-slate-400 dark:text-slate-500">ชื่อหัวคอลัมน์ใน CSV ต้องตรงกับชื่อด้านล่าง (ไม่ต้องเว้นวรรค / ไม่ต้องตรงทุกตัว)</p>
-          <div className="flex flex-wrap gap-2">
-            {[
-              { label: 'วันที่เบิก',         req: true,  hints: ['วันที่เบิก', 'วันที่', 'dispense_date'] },
-              { label: 'ชื่อรายการยา',       req: true,  hints: ['รายการยา', 'ชื่อยา', 'drug_name'] },
-              { label: 'รหัสยา',             req: false, hints: ['รหัสยา', 'รหัส', 'code'] },
-              { label: 'รูปแบบยา',           req: false, hints: ['ชนิด', 'ประเภท', 'drug_type'] },
-              { label: 'ชนิดรายการ',         req: false, hints: ['ชนิดรายการ', 'item_type'] },
-              { label: 'หน่วยงาน',           req: false, hints: ['หน่วยงานที่เบิก', 'หน่วยงานที่', 'หน่วยงาน', 'department'] },
-              { label: 'ปริมาณออก',          req: false, hints: ['ปริมาณ (ออก)', 'ปริมาณออก', 'qty_out'] },
-              { label: 'คงเหลือก่อนเบิก',    req: false, hints: ['คงเหลือก่อนเบิก', 'qty_before'] },
-              { label: 'คงเหลือหลังจ่าย',    req: false, hints: ['คงเหลือหลังจ่าย', 'qty_after'] },
-              { label: 'Lot',                req: false, hints: ['lot', 'lot.', 'เลขที่ lot'] },
-              { label: 'Exp',                req: false, hints: ['exp', 'exp.', 'วันหมดอายุ'] },
-              { label: 'วันที่ใกล้ Exp',     req: false, hints: ['วันที่ใกล้ exp', 'near_exp_date'] },
-              { label: 'ราคา/หน่วย',         req: false, hints: ['ราคา/หน่วย', 'ราคาต่อหน่วย', 'price_per_unit'] },
-              { label: 'หน่วยยา',            req: false, hints: ['หน่วยนับ', 'unit_label', 'drug_unit'] },
-              { label: 'MainLog',            req: false, hints: ['mainlog', 'main_log', 'main log'] },
-              { label: 'DetailedLog',        req: false, hints: ['detailedlog', 'detail_log', 'กลุ่ม'] },
-              { label: 'หมายเหตุ',           req: false, hints: ['หมายเหตุ', 'note', 'remark'] },
-            ].map(({ label, req, hints }) => (
-              <div key={label} className="bg-slate-50 dark:bg-slate-800 rounded-xl px-3 py-2 border border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap">{label}</span>
-                  {req && <span className="text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-600 px-1.5 py-0.5 rounded-full">จำเป็น</span>}
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {hints.map(h => (
-                    <code key={h} className="text-[10px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">{h}</code>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {preview && (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 space-y-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <p className="font-semibold text-slate-800 dark:text-slate-100">{preview.fileName}</p>
-            <span className="text-xs text-slate-500 dark:text-slate-400">{preview.total.toLocaleString()} แถว</span>
-          </div>
-
-          {/* CSV header tags */}
-          <div>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">หัวคอลัมน์ CSV ที่ตรวจพบ ({rawHeaders.length} คอลัมน์):</p>
-            <div className="flex flex-wrap gap-1.5">
-              {rawHeaders.map((h, i) => {
-                const matchedField = Object.entries(mapping).find(([, idx]) => idx === i)?.[0];
-                return (
-                  <span key={i} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium border ${
-                    matchedField ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700'
-                  }`}>
-                    {matchedField ? <CheckCircle2 size={12}/> : <HelpCircle size={12}/>} {h}
-                    {matchedField && <span className="text-[10px] text-emerald-500 ml-0.5">→ {FIELD_LABELS[matchedField] || matchedField}</span>}
-                  </span>
-                );
-              })}
-            </div>
-            {rawHeaders.some((_, i) => !Object.values(mapping).includes(i)) && (
-              <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1"><AlertCircle size={12}/>คอลัมน์ที่ขึ้น <HelpCircle size={11} className="inline"/> ไม่ถูกนำเข้า — ตรวจสอบชื่อหัวตาราง CSV ให้ตรงกับที่ระบบรู้จัก</p>
-            )}
-          </div>
-
-          {/* Editable mapping (collapsed) */}
-          <details>
-            <summary className="cursor-pointer text-xs text-indigo-600 hover:text-indigo-800 font-medium select-none">แก้ไขการจับคู่คอลัมน์ด้วยตัวเอง ▸</summary>
-            <div className="grid grid-cols-1 gap-1.5 max-h-72 overflow-y-auto mt-2 pr-1">
-              {Object.keys(COL_MAP).map(field => (
-                <div key={field} className="grid gap-2 items-center" style={{gridTemplateColumns:'10rem 1fr'}}>
-                  <span className="text-xs text-slate-600 dark:text-slate-300 font-medium truncate">{FIELD_LABELS[field] || field}</span>
-                  <select value={mapping[field] ?? ''}
-                    onChange={e => setMapping(p => ({ ...p, [field]: e.target.value === '' ? undefined : Number(e.target.value) }))}
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-slate-800 dark:text-slate-100 text-xs focus:outline-none focus:ring-1 focus:ring-rose-400">
-                    <option value="">-- ไม่ใช้ --</option>
-                    {rawHeaders.map((h, i) => <option key={i} value={i}>{h}</option>)}
-                  </select>
-                </div>
-              ))}
-            </div>
-          </details>
-
-          {/* Full preview table - all matched fields */}
-          <div>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">ตัวอย่างข้อมูล 3 แถวแรก (เฉพาะคอลัมน์ที่ match):</p>
-            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-              <table className="text-xs w-full">
-                <thead>
-                  <tr className="text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
-                    {Object.keys(COL_MAP).filter(f => mapping[f] != null).map(f => (
-                      <th key={f} className="px-3 py-2 text-left font-semibold whitespace-nowrap">{FIELD_LABELS[f] || f}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rawRows.slice(0, 3).map((row, i) => (
-                    <tr key={i} className="border-b border-slate-100 dark:border-slate-800">
-                      {Object.keys(COL_MAP).filter(f => mapping[f] != null).map(f => {
-                        const val = getVal(row, f);
-                        return (
-                          <td key={f} className={`px-3 py-1.5 truncate max-w-[140px] ${val ? 'text-slate-700 dark:text-slate-200' : 'text-rose-300'}`}>
-                            {val || '—'}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <button onClick={handleImport} disabled={loading}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
-            <UploadCloud size={18} />
-            {loading ? 'กำลังนำเข้า...' : `นำเข้า ${rawRows.filter(r => r.some(c=>c.trim())).length.toLocaleString()} รายการ`}
-          </button>
-        </div>
-      )}
-
-      {status && (
-        <button onClick={onDone} className="w-full bg-rose-600 hover:bg-rose-700 text-white rounded-xl py-3 font-semibold transition-all flex items-center justify-center gap-2">
-          <ArrowLeft size={18}/> กลับไปหน้าประวัติเบิกยา
-        </button>
-      )}
     </div>
   );
 }
