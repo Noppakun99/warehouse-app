@@ -161,7 +161,8 @@ test('พิมพ์หมายเหตุแล้วกรอกแยก�
   expect(val).toContain('ของอยู่หลังตู้')
   expect(val).toContain('แยกชั้น:')
   // ปุ่ม "ตรงตามระบบ" ต้องมีอยู่ (เส้นทางที่เคยทำหมายเหตุหาย)
-  await expect(page.getByRole('button', { name: /ตรงตามระบบ/ })).toBeVisible()
+  // (ระบุ "(ยอด)" — มีปุ่ม "<มิติ> ตรงตามระบบ" ในการ์ดเตือนตรวจไม่ครบอีกปุ่ม)
+  await expect(page.getByRole('button', { name: /^ตรงตามระบบ \(/ })).toBeVisible()
 })
 
 test('dropdown สถานะนับ — เลือก "นับแล้ว" ได้ ไม่ใช่แค่ toggle 2 สถานะ', async ({ page }) => {

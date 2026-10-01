@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { CheckCircle, AlertCircle, X } from 'lucide-react';
 
 /**
- * Toast แจ้งผลมุมขวาล่าง — ใช้แทน alert() ของ browser
+ * Toast แจ้งผลมุมขวาล่าง (มือถือ = บนจอ เพราะล่างจอโดนแป้นพิมพ์บัง + ทับแถบปุ่มล่าง) — ใช้แทน alert() ของ browser
  *
  * ย้ายมาจาก Toast ที่เดิมอยู่ใน UserManagementApp (สไตล์เดียวกัน) เพื่อให้ทุก sub-app ใช้ร่วมกัน
  * error หายช้ากว่า success เพราะผู้ใช้ต้องมีเวลาอ่านสาเหตุ
@@ -24,7 +24,7 @@ export default function Toast({ message, tone = 'success', onClose }) {
   return (
     <div
       role="status"
-      className={`fixed bottom-5 right-5 z-[60] flex items-start gap-2.5 rounded-xl shadow-2xl pl-4 pr-3 py-3 text-sm max-w-sm ${
+      className={`fixed top-3 inset-x-4 md:inset-x-auto md:top-auto md:bottom-5 md:right-5 z-[60] flex items-start gap-2.5 rounded-xl shadow-2xl pl-4 pr-3 py-3 text-sm max-w-sm ${
         isError ? 'bg-rose-700 text-white' : 'bg-slate-800 text-white'
       }`}
     >

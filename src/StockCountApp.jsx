@@ -1015,6 +1015,8 @@ function AnnualTab({ auth }) {
   const [mode, setMode] = useState('walk')               // 'walk' = ทีละ lot | 'list' = ตารางทบทวน
   const [saveState, setSaveState] = useState({})         // { itemId: 'saving'|'saved'|'error' }
   const [draft, setDraft] = useState(null)               // ค่าที่กำลังกรอกของ lot ปัจจุบัน
+  const [missingFlash, setMissingFlash] = useState(false) // กดบันทึกทั้งที่ยังตรวจไม่ครบ → โชว์การ์ดเตือนเหนือปุ่ม
+  const missingRef = useRef(null)
   const [confirm, setConfirm] = useState(null)           // { kind:'start'|'close' } — popup ในธีมแอป ไม่ใช่ window.confirm
   const [zeroPicker, setZeroPicker] = useState(null)     // { loading, rows, q } — โมดอล "เจอของที่ระบบว่าหมด"
   const [restored, setRestored] = useState(false)        // กู้ตำแหน่ง/ตัวกรองจากรอบก่อนแล้วหรือยัง
@@ -1183,6 +1185,7 @@ function AnnualTab({ auth }) {
     // เปลี่ยน lot = ล้างช่องกรอกแยกชั้น ไม่งั้นยอดของ lot ก่อนหน้าค้างมาปนกับตัวใหม่
     setSplitOpen(false)
     setSplitVals([])
+    setMissingFlash(false)
     if (!cur) { setDraft(null); return }
     // ถ้ามีค่าที่พิมพ์ค้างไว้ก่อนออกจากหน้า และเป็น lot เดียวกัน → คืนค่านั้นแทน
     if (pendingDraft && pendingDraft.itemId === cur.id) {
@@ -1289,12 +1292,23 @@ function AnnualTab({ auth }) {
 
   // ต้องตรวจครบทุกมิติที่ระบบมีค่า (24/09/2569) — ปุ่ม "ตรงตามระบบ" เติมครบให้เองจึงไม่ต้องเช็ค
   const annMissing = cur ? missingDims({ ...cur, ...(draft || {}) }) : []
+  const restMissing = annMissing.filter(d => d !== 'จำนวน')
+  // เตือนเป็นการ์ดเหนือปุ่ม ไม่ใช่ Toast — บนมือถือ Toast ล่างจอโดนแป้นพิมพ์บัง + ทับปุ่ม "ข้ามไปตัวถัดไป"
   const saveDraft = () => {
     if (annMissing.length) {
-      setToast({ tone: 'error', message: `ยังไม่ได้ตรวจ: ${annMissing.join(', ')} — ตรวจให้ครบก่อนบันทึก หรือกด "ตรงตามระบบ" ถ้าตรงทั้งหมด` }); return
+      setMissingFlash(true)
+      requestAnimationFrame(() => missingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+      return
     }
     saveLine(draft)
   }
+  // ยอดนับไม่ตรงระบบแต่ lot/exp/ที่เก็บตรง (เคสส่วนใหญ่) — เติมเฉพาะมิติที่ยังว่าง ไม่แตะยอดนับ/ช่องที่กรอกเอง
+  const fillRestFromSystem = () => setDraft(d => ({
+    ...d,
+    counted_lot: d?.counted_lot || (cur?.lot && cur.lot !== '-' ? cur.lot : ''),
+    counted_exp: d?.counted_exp || (cur?.system_exp && cur.system_exp !== '-' ? cur.system_exp : ''),
+    counted_location: d?.counted_location || (cur?.system_location && cur.system_location !== '-' ? cur.system_location : ''),
+  }))
 
   const retryFailed = async () => {
     const ids = Object.entries(saveState).filter(([, v]) => v === 'error').map(([k]) => Number(k))
@@ -1724,9 +1738,10 @@ function AnnualTab({ auth }) {
               )}
             </div>
 
-            {/* มิติที่เหลือ — กางเองเมื่อมีจุดไม่ตรง ไม่งั้นคนไม่เห็นว่าที่กรอกไว้ไม่ตรง */}
+            {/* มิติที่เหลือ — กางเองเมื่อมีจุดไม่ตรง หรือกรอกยอดแล้วแต่ยังตรวจไม่ครบ (บันทึกไม่ได้ถ้าซ่อนไว้) */}
             <details className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden"
-              open={dim.lot === 'diff' || dim.exp === 'diff' || dim.loc === 'diff'}>
+              open={dim.lot === 'diff' || dim.exp === 'diff' || dim.loc === 'diff'
+                || (restMissing.length > 0 && (dim.qty !== 'unchecked' || missingFlash))}>
               <summary className="px-3 py-2.5 bg-slate-50 dark:bg-slate-800/60 text-xs text-slate-600 dark:text-slate-300 cursor-pointer select-none flex items-center justify-between gap-2">
                 <span>ตรวจ lot / exp / ที่เก็บ ด้วย</span>
                 {(dim.lot === 'diff' || dim.exp === 'diff' || dim.loc === 'diff')
@@ -1817,7 +1832,19 @@ function AnnualTab({ auth }) {
             )}
 
             {/* เตือนเฉพาะเมื่อเริ่มกรอกแล้ว — บรรทัดที่ยังไม่แตะไม่ต้องขึ้นรายการยาวทุกมิติ */}
-            {dim.checked > 0 && <MissingDimsNote missing={annMissing} className="mb-2" />}
+            {(dim.checked > 0 || missingFlash) && annMissing.length > 0 && (
+              <div ref={missingRef} className={`mb-2 rounded-xl border px-3 py-2 ${missingFlash
+                ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-900/60'
+                : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/60'}`}>
+                <MissingDimsNote missing={annMissing} />
+                {restMissing.length > 0 && (
+                  <button type="button" onClick={fillRestFromSystem}
+                    className="mt-2 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-emerald-300 dark:border-emerald-800 bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 text-sm font-semibold">
+                    <CheckCircle size={15} /> {restMissing.join(' / ')} ตรงตามระบบ
+                  </button>
+                )}
+              </div>
+            )}
             {/* ปุ่มหลัก — ของส่วนใหญ่ตรง กดปุ่มเดียวจบแล้วไปตัวถัดไป */}
             <button onClick={markSame}
               className="w-full mb-2 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold shadow-md shadow-emerald-500/30">
