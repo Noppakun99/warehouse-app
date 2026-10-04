@@ -53,7 +53,7 @@ check('computeLedgerClosings map ครบทุกแถว',
 // ============================================================
 // 2. rolloverToNextPeriod — ขึ้นเดือนใหม่
 // ============================================================
-console.log('\n=== rolloverToNextPeriod (U→S, AB→AC, แปลงชนิด, ลบแก้ไขระบบ) ===\n');
+console.log('\n=== rolloverToNextPeriod (U→S, AB→AC, แปลงชนิด, แก้ไขระบบ ยกเฉพาะที่ยังไม่หมด) ===\n');
 
 const closed = [
   { drug_code: '1000227', lot: '194584', item_type: 'ซื้อยา', price_per_unit: 220,
@@ -65,11 +65,26 @@ const closed = [
   { drug_code: '1470506', lot: '-', item_type: 'แก้ไขระบบ', price_per_unit: 0,
     closing_qty: 0, closing_value: -670, drug_name: 'Chlorhex', drug_type: 'Apply',
     unit: 'bott', med_category: 'เวชภัณฑ์มิใช่ยา', company: '-' },
+  // แก้ไขระบบ หมดแล้วทั้งจำนวน+มูลค่า → ลบได้ (ไฟล์จริง ก.ย.69: 1450003 lot 60098)
+  { drug_code: '1450003', lot: '60098', item_type: 'แก้ไขระบบ', price_per_unit: 0,
+    closing_qty: 0, closing_value: 0 },
+  // แก้ไขระบบ ยังมีคงเหลือ → ยกไป (ไฟล์จริง ก.ย.69: S015 คงเหลือ 97 ยกไป ต.ค.)
+  { drug_code: 'S015', lot: '-', item_type: 'แก้ไขระบบ', price_per_unit: 0,
+    closing_qty: 97, closing_value: 0 },
+  // แก้ไขระบบ ติดลบ (ไม่ควรเกิด) → ยกไป ไม่ลบ ให้ยอดผิดยังมองเห็น
+  { drug_code: 'NEG', lot: '-', item_type: 'แก้ไขระบบ', price_per_unit: 0,
+    closing_qty: -3, closing_value: 0 },
 ];
 
 const next = rolloverToNextPeriod(closed, '2026-07');
 
-check('ลบแถวแก้ไขระบบ → เหลือ 2 แถว', next.length === 2);
+check('6 แถวเข้า → ยกไป 5 (ลบเฉพาะแก้ไขระบบที่หมดแล้ว)', next.length === 5);
+check('แก้ไขระบบ จำนวน 0 มูลค่า 0 → ลบ', !next.some(r => r.drug_code === '1450003'));
+const s015 = next.find(r => r.drug_code === 'S015');
+check('แก้ไขระบบ คงเหลือ 97 → ยกไป opening 97 ชนิดคงเดิม', s015 && s015.opening_qty === 97 && s015.item_type === 'แก้ไขระบบ');
+const chlor = next.find(r => r.drug_code === '1470506');
+check('แก้ไขระบบ จำนวน 0 แต่มูลค่า −670 → ยกไป (มูลค่าไม่หาย)', chlor && chlor.carry_in_value === -670);
+check('แก้ไขระบบ ติดลบ −3 → ยกไป ไม่ลบเงียบ', next.some(r => r.drug_code === 'NEG' && r.opening_qty === -3));
 check('ทุกแถว period = งวดถัดไป', next.every(r => r.period === '2026-07'));
 check('ทุกแถว status = open', next.every(r => r.status === 'open'));
 

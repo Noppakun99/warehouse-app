@@ -3354,7 +3354,7 @@ export async function reopenLedgerPeriod(period, auth = {}, reason = '') {
 
 // เพิ่มแถวปรับยอด (adjustment) ในงวดที่เปิดอยู่ — ADR-0007 ข้อ 4
 // แถวใหม่ item_type='แก้ไขระบบ' มีผลต่อ adjust_qty/adjust_value เท่านั้น ไม่แตะข้อมูลดิบ
-// closing คำนวณจาก computeClosing (opening/in/out = 0 → closing = adjust). ถูกลบตอนปิดงวด (rollover filter)
+// closing คำนวณจาก computeClosing (opening/in/out = 0 → closing = adjust). อยู่ในงวดนี้เท่านั้น — งวดถัดไปมาจาก upload master (ADR-0007)
 export async function addLedgerAdjustment(input, auth = {}) {
   if (!supabase) throw new Error('Supabase not configured')
 

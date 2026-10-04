@@ -16,7 +16,7 @@ const ROLLOVER_TYPE_MAP = {
   'บริจาค': 'บริจาค-ยกยอด',
 };
 
-// ชนิดรายการ adjustment — ต้องลบทิ้งก่อนขึ้นเดือนใหม่ ไม่ค้างข้ามงวด
+// ชนิดรายการ adjustment — ตอนขึ้นเดือนใหม่ลบได้เฉพาะแถวที่หมดแล้ว (CONTEXT.md §ชนิดรายการ)
 const ADJUST_TYPE = 'แก้ไขระบบ';
 
 const num = (v) => (typeof v === 'number' ? v : parseFloat(v) || 0);
@@ -49,14 +49,15 @@ export function computeLedgerClosings(rows) {
  *   - carry_in_value   ← closing_value     (AB → AC)
  *   - in/out/adjust    = 0                 (เริ่มนับใหม่)
  *   - item_type        แปลงตาม ROLLOVER_TYPE_MAP (ซื้อยา → ยกยอด ฯลฯ)
- *   - แถว 'แก้ไขระบบ'  ถูกตัดทิ้ง (ไม่ยกไปงวดใหม่)
+ *   - แถว 'แก้ไขระบบ'  ตัดทิ้งเฉพาะที่ closing_qty และ closing_value เป็น 0 ทั้งคู่;
+ *                      ที่เหลือ (รวมติดลบ) ยกไปเหมือนแถวปกติ — ลบแล้วของ/มูลค่าหายเงียบ
  *
  * @param closedRows  แถวงวดที่ปิด (ต้องผ่าน computeClosing มาแล้ว)
  * @param nextPeriod  'YYYY-MM' ของงวดถัดไป
  */
 export function rolloverToNextPeriod(closedRows, nextPeriod) {
   return closedRows
-    .filter((r) => r.item_type !== ADJUST_TYPE)
+    .filter((r) => r.item_type !== ADJUST_TYPE || num(r.closing_qty) !== 0 || round4(r.closing_value) !== 0)
     .map((r) => {
       const item_type = ROLLOVER_TYPE_MAP[r.item_type] || r.item_type;
       const opening_qty = num(r.closing_qty);
