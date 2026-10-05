@@ -73,11 +73,12 @@ check('บริจาค closing จาก idx29 (1785) ไม่ใช่ idx2
 const cellsSup = [...cells]; cellsSup[12] = 'สนับสนุน'; cellsSup[29] = '3,276.00'
 check('สนับสนุน → med_category บริจาค+สนับสนุน', mapMasterRow(cellsSup, '2026-06').med_category === 'บริจาค+สนับสนุน')
 
-// โครงการ → med_category='ยาโครงการ', closing จาก idx34
-const cellsProj = [...cells]; cellsProj[12] = 'ยาโครงการ'; cellsProj[27] = '0'; cellsProj[34] = '46,280.00'
+// โครงการ → med_category='ยาโครงการ', closing จาก idx35 (AJ มูลค่าคงคลัง) — ไม่ใช่ idx34 (AI มูลค่าเบิก)
+const cellsProj = Array(36).fill(''); cells.forEach((v, i) => { cellsProj[i] = v })
+cellsProj[12] = 'ยาโครงการ'; cellsProj[27] = '0'; cellsProj[34] = '1,620.00'; cellsProj[35] = '46,280.00'
 const mProj = mapMasterRow(cellsProj, '2026-06')
 check('โครงการ → med_category ยาโครงการ', mProj.med_category === 'ยาโครงการ')
-check('โครงการ closing จาก idx34 (46280)', mProj.closing_value === 46280)
+check('โครงการ closing จาก idx35 AJ (46280) ไม่ใช่ idx34 AI มูลค่าเบิก (1620)', mProj.closing_value === 46280)
 
 // thousands separator + ช่องว่าง
 const cellsBig = [...cells]; cellsBig[27] = ' 2,564.79 '
@@ -147,6 +148,16 @@ if (fs.existsSync(csvPath)) {
   console.log('⚠️  ข้าม test ไฟล์จริง — ไม่พบ ' + csvPath)
 }
 
+// export ชีท Master งวด ก.ย.69 (csvfile/ ถูก gitignore → ข้ามถ้าไม่มี)
+// ยาโครงการ 7 แถว Σ AJ (idx35) = 150,215 — ถ้าชี้ idx34 (AI มูลค่าเบิก) จะได้ 0
+const csvSep = path.join(__dirname, '..', 'csvfile', 'Master.csv')
+if (fs.existsSync(csvSep)) {
+  const { tieOut } = seedFromMasterCsv(fs.readFileSync(csvSep, 'utf8'), '2026-09')
+  check('ก.ย.69 tie-out ยาโครงการ = 150,215 (Σ AJ idx35)', Math.abs(tieOut.project - 150215) < 0.01)
+} else {
+  console.log('⚠️  ข้าม test ไฟล์ ก.ย.69 — ไม่พบ ' + csvSep)
+}
+
 // ============================================================
 // 4. assertMasterStructure — structure guard (2026-07-05)
 // ============================================================
@@ -156,6 +167,8 @@ console.log('\n=== assertMasterStructure (guard) ===\n')
 const goodHeader = Array(45).fill('')
 goodHeader[5] = 'รหัสHosxp'; goodHeader[7] = 'รายการยา'; goodHeader[10] = 'Lot Number'
 goodHeader[12] = 'ชนิดรายการ'; goodHeader[20] = 'คงเหลือหลังจ่าย'
+goodHeader[29] = 'มูลค่าคงคลัง(บริจาค+สนับสนุน) (บาท) ต.ค.69'
+goodHeader[34] = 'มูลค่าเบิก ยาโครงการ ต.ค.69'; goodHeader[35] = 'มูลค่าคงคลัง ยาโครงการ (บาท) ต.ค.69'
 let threwGood = false
 try { assertMasterStructure(goodHeader) } catch { threwGood = true }
 check('header ตรงตำแหน่ง → ไม่ throw', threwGood === false)
@@ -165,6 +178,17 @@ const badHeader = [...goodHeader]; badHeader[5] = 'คอลัมน์อื�
 let threwBad = false
 try { assertMasterStructure(badHeader) } catch { threwBad = true }
 check('คอลัมน์รหัสเลื่อน → throw (กัน seed เพี้ยนเงียบ)', threwBad === true)
+
+// คอลัมน์มูลค่าโครงการเลื่อน (idx35 กลายเป็นคอลัมน์อื่น) → throw — กันบั๊กแบบ projectValue: 34 ซ้ำ
+const badProj = [...goodHeader]; badProj[35] = 'จำนวนรายการ'
+let threwProj = false
+try { assertMasterStructure(badProj) } catch { threwProj = true }
+check('คอลัมน์มูลค่าคงคลังยาโครงการเลื่อน → throw', threwProj === true)
+
+const badDon = [...goodHeader]; badDon[29] = 'มูลค่าคงคลัง ก.ย.69 (บาท)'
+let threwDon = false
+try { assertMasterStructure(badDon) } catch { threwDon = true }
+check('คอลัมน์มูลค่าคงคลังบริจาคเลื่อน → throw', threwDon === true)
 
 // ============================================================
 console.log(`\nผล: ${pass} ผ่าน, ${fail} ไม่ผ่าน`)

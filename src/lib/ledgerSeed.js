@@ -57,7 +57,7 @@ const COL = {
   closingValue: 27, // มูลค่าคงคลัง มิ.ย (บาท) — authoritative closing
   carryInValue: 28, // มูลค่าคงคลัง พ.ค (บาท) — carry-in
   donationValue: 29, // มูลค่าคงคลัง(บริจาค+สนับสนุน) — closing ของแถวบริจาค
-  projectValue: 34,  // มูลค่าคงคลัง ยาโครงการ — closing ของแถวโครงการ
+  projectValue: 35,  // AJ มูลค่าคงคลัง ยาโครงการ — closing ของแถวโครงการ (idx34 = AI มูลค่าเบิก — เคยชี้ผิด)
 }
 
 // แปลงตัวเลขที่มี thousands separator + ช่องว่าง (เช่น " 3,723,914.26 ")
@@ -67,7 +67,7 @@ const str = (v) => String(v ?? '').trim() || '-'
 
 // item_type ที่เป็นบริจาค/สนับสนุน → med_category='บริจาค+สนับสนุน', closing จาก idx29
 const DONATION_TYPES = new Set(['สนับสนุน', 'สนับสนุน2', 'บริจาค', 'บริจาค-ยกยอด', 'บริจาค-ซื้อยา'])
-// item_type โครงการ → med_category='ยาโครงการ', closing จาก idx34
+// item_type โครงการ → med_category='ยาโครงการ', closing จาก idx35
 const PROJECT_TYPES = new Set(['ยาโครงการ'])
 
 // ชนิด (col6) ที่นับเป็น "เวชภัณฑ์มิใช่ยา"
@@ -83,6 +83,8 @@ const HEADER_ANCHORS = [
   [COL.lot, 'Lot Number'],
   [COL.itemType, 'ชนิดรายการ'],
   [COL.closingQty, 'คงเหลือหลังจ่าย'],
+  [COL.donationValue, 'มูลค่าคงคลัง(บริจาค+สนับสนุน)'],
+  [COL.projectValue, 'มูลค่าคงคลัง ยาโครงการ'],
 ]
 
 export function assertMasterStructure(headerRow) {
@@ -107,7 +109,7 @@ export function mapMasterRow(cells, period) {
   const inValue = round4(cells[COL.inValue])
   const outValue = round4(cells[COL.outValue])
 
-  // บริจาค/สนับสนุน/โครงการ = หมวดแยก, closing_value ดึงจาก idx29/34 (idx27 มัก=0 → มูลค่าหาย)
+  // บริจาค/สนับสนุน/โครงการ = หมวดแยก, closing_value ดึงจาก idx29/35 (idx27 มัก=0 → มูลค่าหาย)
   // idx29 ≥ idx27 เสมอ (verify 2026-07-12) → ใช้ idx29 แทน ไม่มีค่าหาย, ไม่ double-count
   let medCategory, closingValue
   if (DONATION_TYPES.has(itemType)) {
@@ -156,7 +158,7 @@ const ledgerKey = (r) => `${r.period}|${r.drug_code}|${r.lot}|${r.item_type}|${r
  * Master บางไฟล์แยก lot เดียว ราคา/ชนิดเดียวเป็นหลายแถว (เช่น ยกยอดมา 2 ครั้ง) — key เดียวกัน
  * = cost layer เดียวตามนิยาม ADR-0007 ต้องรวม ไม่งั้นชน unique index ตอน insert.
  * **sum closing ดิบ** (ไม่ recompute จากสมการ) — เพราะ closing ที่ mapMasterRow ตั้งมาถูกทุกกรณี
- * (ปกติ=idx27, บริจาค/โครงการ=idx29/34, override=ค่าดิบ Excel ที่ไม่ตรงสมการ). recompute จะทับค่าพวกนี้.
+ * (ปกติ=idx27, บริจาค/โครงการ=idx29/35, override=ค่าดิบ Excel ที่ไม่ตรงสมการ). recompute จะทับค่าพวกนี้.
  * @returns { rows, merged } — merged = จำนวนแถวที่ถูกยุบ (rows_in − rows_out)
  */
 export function dedupeCostLayers(rows) {
