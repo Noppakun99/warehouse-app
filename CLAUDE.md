@@ -199,6 +199,8 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | `/grill-with-docs` | ซักค้านแผนทีละข้อกับ domain model + อัพเดต CONTEXT.md/ADR inline |
 | `/scrutinize` | รีวิว plan/PR/diff แบบ outsider — ตั้งคำถาม intent + trace code path จริง |
 | `/handoff` | ย่อบทสนทนาเป็นเอกสารส่งต่อ (เซฟใน temp dir) ให้ agent ใหม่ทำงานต่อ |
+| `/free-goods-report` | ใบของแถม (.docx) ยาบริจาค/สนับสนุนตามวันรับ — ดึงชีทรับยา+Master, ตรวจรหัส/lot/เอกสาร, แก้ Excel ผ่าน COM เท่านั้น |
+| `/purchase-request-report` | รายงานแจ้งการสั่งซื้อยา (รายงานการซื้อยา_69.xlsx) — ย้ายของที่มาส่งแล้วไป Sheet1, เพิ่มรายการใหม่ไม่ซ้ำที่รอของ, ข้อความไลน์ตามยาแบบสุภาพ+เหตุผล; สคริปต์ check/plan/apply/verify/publish (COM บนสำเนา กัน AutoSave OneDrive) |
 
 **เมื่อสร้าง UI ใหม่ → อ่าน `.claude/skills/ui-style-guide/SKILL.md` ก่อนเสมอ**
 
