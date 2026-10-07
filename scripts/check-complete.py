@@ -62,7 +62,7 @@ if not left:
 # 2) รูปใบเบิกมี PDF คู่  (รูป <ว.ด.ปป>_<หน่วยงาน>_<ประเภท>.<ext> ↔ PDF\**\<หน่วยงาน> <ประเภท>_<ว.ด.ปป>.pdf)
 head('รูปใบเบิก ↔ PDF')
 pdfs = {os.path.basename(p): os.path.relpath(p, REQ_PDF) for p in glob.glob(os.path.join(REQ_PDF, '**', '*.pdf'), recursive=True)
-        if os.path.basename(p) != 'รอพิมพ์.pdf'}
+        if not os.path.relpath(p, REQ_PDF).startswith('รอพิมพ์')}   # สำเนาในที่พักรอพิมพ์ไม่ใช่ต้นฉบับ
 imgs = [p for p in glob.glob(os.path.join(REQ_IMG, '*', '*')) if os.path.isfile(p)]
 n = 0
 for p in imgs:
@@ -94,18 +94,16 @@ unprinted = [r['ไฟล์ (ใต้ รวมเบิกยา\\PDF)'] for 
 ok(f'ทะเบียน {len(plog)} ไฟล์ · พิมพ์แล้ว {len(plog) - len(unprinted)}')
 for f in unprinted:
     print(f'  … ยังไม่ยืนยันพิมพ์: {f}')
-# รอพิมพ์.pdf (scripts/print-queue.py) ต้องมีครบทุกใบที่ยังไม่พิมพ์ ไม่งั้นพิมพ์ตกหล่น
-queue = os.path.join(REQ_PDF, 'รอพิมพ์.pdf')
-if os.path.exists(queue):
-    import json, pymupdf
-    with pymupdf.open(queue) as qd:
-        inq = json.loads(qd.metadata.get('keywords') or '[]')
-    if sorted(inq) != sorted(unprinted):
-        bad(f'รอพิมพ์.pdf ไม่ตรงทะเบียน (ในไฟล์ {len(inq)} · รอพิมพ์ {len(unprinted)}) — รัน python scripts/print-queue.py ใหม่')
-    else:
-        ok(f'รอพิมพ์.pdf ตรงทะเบียน ({len(inq)} ใบ)')
-elif unprinted:
-    bad('มีใบรอพิมพ์แต่ยังไม่มี รอพิมพ์.pdf — รัน python scripts/print-queue.py')
+# โฟลเดอร์ PDF\รอพิมพ์\<วันที่เบิก>\ (scripts/print-queue.py) ต้องมีสำเนาครบทุกใบที่ยังไม่พิมพ์ ไม่งั้นพิมพ์ตกหล่น
+import json
+qdir = os.path.join(REQ_PDF, 'รอพิมพ์')
+man_path = os.path.join(qdir, '_รายการ.json')
+man = json.load(open(man_path, encoding='utf-8')) if os.path.exists(man_path) else {}
+lost_copy = [r for r, d in man.items() if not os.path.exists(os.path.join(qdir, d, os.path.basename(r)))]
+if sorted(man) != sorted(unprinted) or lost_copy:
+    bad(f'โฟลเดอร์รอพิมพ์ไม่ตรงทะเบียน (ในโฟลเดอร์ {len(man)} · รอพิมพ์ {len(unprinted)}) — รัน python scripts/print-queue.py')
+elif man:
+    ok(f'โฟลเดอร์รอพิมพ์ตรงทะเบียน ({len(man)} ใบ · {len(set(man.values()))} วันเบิก)')
 
 # 4) รูปบิลแบบใหม่มีแถวดัชนี + แถวดัชนีชี้ไฟล์ที่มีจริง
 head('รูปบิล / ใบคืน / รูปตรวจรับ ↔ _ดัชนีบิล.csv')
