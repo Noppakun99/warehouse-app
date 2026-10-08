@@ -4,7 +4,8 @@
 #      python scripts/print-queue.py --done          → user พิมพ์แล้วทั้งหมด: ติ๊กทะเบียน + ลบสำเนาที่อยู่ในโฟลเดอร์
 #      python scripts/print-queue.py --done=7.10.69  → พิมพ์แล้วเฉพาะวันเบิกนั้น
 # ติ๊กเฉพาะใบที่มีสำเนาอยู่ในโฟลเดอร์ (ตาม _รายการ.json) — ใบที่เพิ่มเข้าทะเบียนทีหลังจะไม่ถูกติ๊กไปด้วย
-# จำนวนชุดต่อใบ (user กำหนด 07–08/10/2569): ห้องยา 3 ชุด · ใบยืม/ใบคืนยา 1 ชุด · ที่อื่น 2 ชุด → ชุดแรกชื่อเดิม ชุดถัดไป "<ชื่อ> ชุด2.pdf"
+# ใบละ 1 ไฟล์เสมอ — user ตั้งจำนวนสำเนาตอนกดพิมพ์เอง (08/10/2569 เลิก copy "<ชื่อ> ชุด2.pdf")
+# จำนวนชุดต่อใบ (แสดงในสรุปให้ตั้งตอนพิมพ์): ห้องยา 3 ชุด · ใบยืม/ใบคืนยา 1 ชุด · ที่อื่น 2 ชุด
 import csv, datetime, glob, io, json, os, re, shutil, sys
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -19,16 +20,13 @@ def copies(rel):
     top = rel.split('\\')[0]
     if top == 'ยืม-คืนยา':          # ใบยืม/ใบคืนยา 1 ชุด (user กำหนด 08/10/2569)
         return 1
+    if 'ส่งบิลให้พี่โก้' in rel:      # ใบส่งบิลจัดซื้อ (path เต็มนอก PDF\) จัดซื้อเซ็นรับ 1 ฉบับ
+        return 1
     return 3 if top.startswith('ห้องยา') else 2
 
 
-def copy_names(rel, n):
-    stem = os.path.splitext(os.path.basename(rel))[0]
-    return [os.path.basename(rel)] + [f'{stem} ชุด{i}.pdf' for i in range(2, n + 1)]
-
-
 def req_date(rel):
-    m = re.search(r'_(\d{1,2}\.\d{1,2}\.\d{2})\.pdf$', rel, re.I)   # ชื่อไฟล์ <หน่วยงาน> <ประเภท>_<ว.ด.ปป>.pdf
+    m = re.search(r'[_ ](\d{1,2}\.\d{1,2}\.\d{2})\.pdf$', rel, re.I)   # <หน่วยงาน> <ประเภท>_<ว.ด.ปป>.pdf · ส่งบิล <ว.ด.ปป>.pdf
     return m.group(1) if m else 'ไม่ทราบวันที่'
 
 
@@ -63,6 +61,7 @@ def save_manifest(m):
 def remove_copy(rel, d):
     stem = os.path.splitext(os.path.basename(rel))[0]
     folder = os.path.join(QDIR, d)
+    # ชุด* = สำเนาแบบเดิม (ก่อน 08/10/2569) ที่อาจค้างในโฟลเดอร์
     for p in [os.path.join(folder, os.path.basename(rel))] + glob.glob(os.path.join(glob.escape(folder), f'{glob.escape(stem)} ชุด*.pdf')):
         if os.path.exists(p):
             os.remove(p)
@@ -85,13 +84,12 @@ def build():
             missing.append(rel)
             continue
         d = req_date(rel)
-        remove_copy(rel, d)                         # ล้างชุดเดิมก่อน เผื่อจำนวนชุดเปลี่ยน
+        remove_copy(rel, d)                         # ล้างของเดิมก่อน (รวมสำเนา ชุด2/ชุด3 แบบเดิม)
         os.makedirs(os.path.join(QDIR, d), exist_ok=True)
-        for name in copy_names(rel, copies(rel)):
-            shutil.copy2(src, os.path.join(QDIR, d, name))
+        shutil.copy2(src, os.path.join(QDIR, d, os.path.basename(rel)))
         man[rel] = d
     save_manifest(man)
-    print(f'รอพิมพ์ {len(man)} ใบ = {sum(copies(r) for r in man)} ไฟล์ ใน {QDIR}')
+    print(f'รอพิมพ์ {len(man)} ใบ ({len(man)} ไฟล์ — ตั้งจำนวนสำเนาตอนพิมพ์ ตามตัวเลข ×N) ใน {QDIR}')
     for d in sorted(set(man.values()), key=lambda s: [int(x) for x in s.split('.')[::-1]] if s[0].isdigit() else [0]):
         print(f'  {d}\\  ' + ' · '.join(f'{os.path.basename(r)} ×{copies(r)}' for r, x in man.items() if x == d))
     for m in missing:
