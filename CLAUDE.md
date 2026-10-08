@@ -74,6 +74,7 @@ npm run import:reorder   # ชีท วิเคราะห์สั่งซ�
 npm run import:loan      # ชีท 'รพ.ยืมยา'       → drug_loan         🟢 diff insert/update
 npm run export:csv       # ทุกชีท → csv_file/*.csv (ไม่แตะ DB)
 npm run import:restore   # กู้คืนจาก backup/*.json
+node scripts/stock.mjs <คำค้น> [--all]  # เช็คคงเหลือยาจากชีท Master (อ่านอย่างเดียว — สกิล /stock-check)
 ```
 
 **ทุกตัวเป็น dry-run โดยค่าเริ่มต้น ต้องใส่ `--commit` ถึงเขียนจริง** — `--commit` **ไม่ใช่ `git commit`** มันคือ "ปุ่มอัปโหลด" ที่เคยกดบนหน้าเว็บ (ผู้ใช้เคยเข้าใจผิด 2026-09-22) สำรองอัตโนมัติก่อนเขียนเสมอ — สำรองไม่สำเร็จ = ไม่เขียน
@@ -255,6 +256,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | `/grill-with-docs` | ซักค้านแผนทีละข้อกับ domain model + อัพเดต CONTEXT.md/ADR inline |
 | `/scrutinize` | รีวิว plan/PR/diff แบบ outsider — ตั้งคำถาม intent + trace code path จริง |
 | `/handoff` | ย่อบทสนทนาเป็นเอกสารส่งต่อ (เซฟใน temp dir) ให้ agent ใหม่ทำงานต่อ |
+| `/stock-check` | ตอบ "<ยา> เหลือเท่าไหร่" ทันที — `scripts/stock.mjs` อ่านชีท Master: ยอดรวม/จ่ายได้/รอตรวจรับ/ราย lot + exp (คำย่อเติมที่ `ALIAS` ในสคริปต์) |
 | `/free-goods-report` | ใบของแถม (.docx) ยาบริจาค/สนับสนุนตามวันรับ — ดึงชีทรับยา+Master, ตรวจรหัส/lot/เอกสาร, แก้ Excel ผ่าน COM เท่านั้น |
 | `/purchase-request-report` | รายงานแจ้งการสั่งซื้อยา (รายงานการซื้อยา_69.xlsx) — ย้ายของที่มาส่งแล้วไป Sheet1, เพิ่มรายการใหม่ไม่ซ้ำที่รอของ, ข้อความไลน์ตามยาแบบสุภาพ+เหตุผล; สคริปต์ check/plan/apply/verify/publish (COM บนสำเนา กัน AutoSave OneDrive) |
 
