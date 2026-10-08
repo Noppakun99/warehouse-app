@@ -41,6 +41,7 @@ const C = {
   code: col((h) => h === 'รหัสHosxp', 'รหัสHosxp'),
   name: col((h) => h === 'รายการยา', 'รายการยา'),
   unit: col((h) => h === 'หน่วย', 'หน่วย'),
+  form: col((h) => h === 'ชนิด', 'ชนิด'),
   lot: col((h) => h === 'Lot Number', 'Lot Number'),
   exp: col((h) => h === 'Exp', 'Exp'),
   type: col((h) => h === 'ชนิดรายการ', 'ชนิดรายการ'),
@@ -59,6 +60,8 @@ const thaiDate = (v) => {
   const [d, m, y] = s.split('/')
   return `${d}/${m}/${Number(y) + 543}`
 }
+// EXP แสดง ค.ศ. ตามที่พิมพ์บนกล่องยาและตารางในแอป
+const ceDate = (v) => (typeof v === 'number' ? serialToThai(v) : null) || String(v || '-')
 const isExpired = (v) => {
   const s = typeof v === 'number' ? serialToThai(v) : null
   if (!s) return false
@@ -66,6 +69,7 @@ const isExpired = (v) => {
   return new Date(y, m - 1, d) < today
 }
 const num = (v) => (typeof v === 'number' ? v : Number(String(v).replace(/,/g, '')) || 0)
+const shortSupplier = (v) => String(v || '-').replace(/^บริษัท\s*/, '').replace(/\s*จำกัด.*$/, '').trim() || '-'
 
 const groups = new Map()
 for (const r of rows.slice(1)) {
@@ -75,7 +79,7 @@ for (const r of rows.slice(1)) {
   const hay = norm(name)
   if (!tokens.every((t) => hay.includes(t) || norm(code) === t)) continue
   const key = `${code}|${name}|${r[C.unit]}`
-  if (!groups.has(key)) groups.set(key, { code, name, unit: r[C.unit], rows: [] })
+  if (!groups.has(key)) groups.set(key, { code, name, unit: r[C.unit], form: String(r[C.form]).trim(), rows: [] })
   groups.get(key).rows.push(r)
 }
 
@@ -86,6 +90,7 @@ if (!groups.size) {
   process.exit(0)
 }
 
+// ผลลัพธ์เป็นตาราง markdown วางตอบ user ได้ทันที — หน้าตาตามตารางยาในแอป (ชื่อ+รหัส · ชนิด · ยอดรวม · จำนวน lot แล้วตามด้วยราย lot)
 for (const g of groups.values()) {
   let total = 0, pending = 0, out = 0
   const live = [], zero = []
@@ -98,18 +103,21 @@ for (const g of groups.values()) {
     if (left !== 0) live.push({ r, left, isPending })
     else zero.push(String(r[C.lot]))
   }
-  log('')
-  log(`[${g.code}] ${g.name} — หน่วย ${g.unit}`)
-  log(`  คงเหลือรวม ${fmt(total)} · จ่ายได้ ${fmt(total - pending)}`
-    + (pending ? ` · รอตรวจรับ ${fmt(pending)}` : '')
-    + ` · เบิกออกงวดนี้ ${fmt(out)}`)
   const list = showAll ? g.rows.map((r) => ({ r, left: num(r[C.left]), isPending: String(r[C.status]).includes('รอตรวจรับ') })) : live
+  log('')
+  log(`**${g.name}** \`${g.code}\` · ${g.form || '-'} · รวม **${fmt(total)}** ${g.unit} · ${live.length} lot`)
+  log(`จ่ายได้ ${fmt(total - pending)} ${g.unit}` + (pending ? ` · รอตรวจรับ ${fmt(pending)}` : '') + ` · เบิกออกงวดนี้ ${fmt(out)}`)
+  if (!list.length) { log('(ไม่มี lot ที่มีของ)'); continue }
+  const anyFlag = list.some(({ r, isPending }) => isPending || isExpired(r[C.exp]))
+  log('')
+  log(`| Lot | EXP | จำนวน | หน่วย | บริษัท | บิล |${anyFlag ? ' สถานะ |' : ''}`)
+  log(`|---|---|--:|---|---|---|${anyFlag ? '---|' : ''}`)
   for (const { r, left, isPending } of list) {
     const flags = []
     if (isExpired(r[C.exp])) flags.push('หมดอายุแล้ว')
-    if (isPending) flags.push(`รอตรวจรับ — รับ ${thaiDate(r[C.recvDate])} ${r[C.supplier]} บิล ${r[C.bill]}`)
-    log(`  lot ${String(r[C.lot]).padEnd(12)} exp ${thaiDate(r[C.exp])}  ${fmt(left).padStart(7)}  ${r[C.type]}`
-      + (flags.length ? `  [${flags.join(' · ')}]` : ''))
+    if (isPending) flags.push(`รอตรวจรับ (รับ ${thaiDate(r[C.recvDate])})`)
+    log(`| ${r[C.lot] || '-'} | ${ceDate(r[C.exp])} | ${fmt(left)} | ${g.unit} | ${shortSupplier(r[C.supplier])} | ${r[C.bill] || '-'} |`
+      + (anyFlag ? ` ${flags.join(' · ')} |` : ''))
   }
-  if (!showAll && zero.length) log(`  (lot ที่เหลือ 0: ${zero.join(', ')})`)
+  if (!showAll && zero.length) log(`\nlot ที่เหลือ 0: ${zero.join(', ')}`)
 }
