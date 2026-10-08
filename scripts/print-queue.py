@@ -4,7 +4,7 @@
 #      python scripts/print-queue.py --done          → user พิมพ์แล้วทั้งหมด: ติ๊กทะเบียน + ลบสำเนาที่อยู่ในโฟลเดอร์
 #      python scripts/print-queue.py --done=7.10.69  → พิมพ์แล้วเฉพาะวันเบิกนั้น
 # ติ๊กเฉพาะใบที่มีสำเนาอยู่ในโฟลเดอร์ (ตาม _รายการ.json) — ใบที่เพิ่มเข้าทะเบียนทีหลังจะไม่ถูกติ๊กไปด้วย
-# จำนวนชุดต่อใบ (user กำหนด 07/10/2569): ห้องยา 3 ชุด · ที่อื่น 2 ชุด → ชุดแรกชื่อเดิม ชุดถัดไป "<ชื่อ> ชุด2.pdf"
+# จำนวนชุดต่อใบ (user กำหนด 07–08/10/2569): ห้องยา 3 ชุด · ใบยืม/ใบคืนยา 1 ชุด · ที่อื่น 2 ชุด → ชุดแรกชื่อเดิม ชุดถัดไป "<ชื่อ> ชุด2.pdf"
 import csv, datetime, glob, io, json, os, re, shutil, sys
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -16,7 +16,10 @@ COL_FILE, COL_DONE, COL_DATE = 'ไฟล์ (ใต้ รวมเบิกย
 
 
 def copies(rel):
-    return 3 if rel.split('\\')[0].startswith('ห้องยา') else 2
+    top = rel.split('\\')[0]
+    if top == 'ยืม-คืนยา':          # ใบยืม/ใบคืนยา 1 ชุด (user กำหนด 08/10/2569)
+        return 1
+    return 3 if top.startswith('ห้องยา') else 2
 
 
 def copy_names(rel, n):
