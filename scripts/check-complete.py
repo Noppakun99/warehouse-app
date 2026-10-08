@@ -1,7 +1,8 @@
 # เช็คครบ — งานเอกสารคลังที่ทำค้างไว้ครบหรือยัง (อ่านอย่างเดียว ไม่เขียนไฟล์ใด)
 # ใช้: python scripts/check-complete.py
-# ตรวจ 7 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
+# ตรวจ 8 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
 #            · รูปบิลมีแถวดัชนี / แถวดัชนีมีไฟล์จริง · แถวรับยามีแถว Master · บิลซื้อยังไม่ส่งจัดซื้อ
+#            · ใบเบิกศูนย์/รพ.สต. มีชีทในไฟล์สรุปเบิกยา
 import csv, datetime, glob, os, re, sys, warnings
 
 import openpyxl
@@ -163,5 +164,46 @@ for (bill, d), x in todo:
 ok(f'{len(bills) - len(todo)}/{len(bills)} บิลส่งแล้ว')
 for s in unsigned:
     print(f'  … ใบส่ง {s} จัดซื้อยังไม่เซ็นรับ')
+
+# 8) ใบเบิกหน่วยงานภายนอก (PDF ใต้ รพสต_เทศบาล\<ศูนย์>\) ต้องมีชีทชื่อ <ว.ด.ปป> ในไฟล์สรุปของศูนย์นั้น
+#    (ไฟล์สรุปส่งไลน์ให้ศูนย์ — memory rpst-dispense-summary) · นับเฉพาะปีงบ 70 ขึ้นไป (เริ่มทำไฟล์สรุปทุกใบ)
+head('ใบเบิกศูนย์/รพ.สต. ↔ ชีทในไฟล์สรุปเบิกยา')
+RPST_PDF = os.path.join(REQ_PDF, 'รพสต_เทศบาล')
+RPST_XLSX = os.path.join(HOME, r'Desktop\รพ.สต_เบิกยา')
+RPST_MAP = {   # โฟลเดอร์ PDF → โฟลเดอร์ไฟล์สรุป
+    'ศ.1': 'ศูนย์บริการสาธารณสุข 1 (ชุมชนสินสมุทร)',
+    'ศ.2': 'ศูนย์บริการสาธารณสุข 2 (ชุมชนรัตนโกสินทร์)',
+    'ศ.3': 'ใบเบิกเวชภัณฑ์ ศ.3_เทศบาล',
+    'ศ.4': 'รพสต.ศูนย์4 บริการสาธารณสุข 4 (สิริเวชชะพันธ์อุปถัมภ์)',
+    'รพสต คูคต': 'รพ.สต.คูฅต_พี่โบว์',
+    'เทศบาลนครรังสิต': 'เทศบาลนครรังสิต',
+    'วัดประยูร': 'ใบเบิกยารพ.สต.วัดประยุร',
+}
+n_rpst = n_rpst_ok = 0
+for sub in sorted(os.listdir(RPST_PDF)):
+    pdir = os.path.join(RPST_PDF, sub)
+    if not os.path.isdir(pdir):
+        continue
+    want = []
+    for p in glob.glob(os.path.join(pdir, '*.pdf')):
+        m = re.search(r'_(\d{1,2})\.(\d{1,2})\.(\d{2})\.pdf$', p)
+        if m and (int(m.group(3)) * 100 + int(m.group(2))) >= 6910:
+            want.append(f'{int(m.group(1))}.{int(m.group(2))}.{m.group(3)}')
+    if not want:
+        continue
+    if sub not in RPST_MAP:
+        bad(f'โฟลเดอร์ PDF {sub} ยังไม่ผูกกับไฟล์สรุป — เพิ่มใน RPST_MAP')
+        continue
+    sheets = set()
+    for x in glob.glob(os.path.join(RPST_XLSX, RPST_MAP[sub], '*.xlsx')):
+        if not os.path.basename(x).startswith('~$'):
+            sheets |= set(openpyxl.load_workbook(x, read_only=True).sheetnames)
+    for d in sorted(set(want)):
+        n_rpst += 1
+        if d in sheets:
+            n_rpst_ok += 1
+        else:
+            bad(f'ยังไม่ทำไฟล์สรุป: {sub} ใบ {d} (เพิ่มชีท "{d}" ในไฟล์สรุปของ {RPST_MAP[sub]})')
+ok(f'{n_rpst_ok}/{n_rpst} ใบมีชีทสรุปแล้ว')
 
 print(f'\n{"ครบทุกข้อ" if problems == 0 else f"ไม่ครบ {problems} จุด"}')
