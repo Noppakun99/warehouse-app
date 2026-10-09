@@ -5,7 +5,7 @@ usage: python scripts/bill_handover.py [--bills b1,b2] [--since YYYY-MM-DD] [--f
 ไม่มี --commit = สร้าง HTML/PDF ใน temp อย่างเดียว ไม่แตะโฟลเดอร์จริง/ทะเบียน
 ส่งรอบ 2+ ในวันเดียว → ส่งบิล2 <ว.ด.ปป>.pdf, ส่งบิล3 … (ตามชื่อไฟล์เดิมของคลัง)
 """
-import sys, os, csv, html, datetime, subprocess, tempfile, warnings
+import sys, os, csv, html, datetime, subprocess, tempfile, time, warnings
 from collections import OrderedDict
 import openpyxl
 sys.stdout.reconfigure(encoding='utf-8')
@@ -230,6 +230,11 @@ tfoot td {{ font-weight: 700; border-top: 2px solid #000; }}
     subprocess.run([EDGE, '--headless=new', '--disable-gpu', '--no-pdf-header-footer',
                     '--virtual-time-budget=15000', f'--print-to-pdf={pdf_tmp}',
                     'file:///' + html_path.replace('\\', '/')], check=True, timeout=120)
+    # Edge ที่เปิดค้างอยู่รับงานต่อแล้วคืนทันที — PDF มาตามหลัง 1–4 วิ (09/10/2569)
+    for _ in range(60):
+        if os.path.exists(pdf_tmp) and os.path.getsize(pdf_tmp) >= 5000:
+            break
+        time.sleep(0.5)
     if not os.path.exists(pdf_tmp) or os.path.getsize(pdf_tmp) < 5000:
         sys.exit('STOP: PDF not produced')
 

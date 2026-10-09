@@ -176,6 +176,10 @@ function toPdf(html, pdfPath) {
   if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath)
   execFileSync(EDGE, ['--headless=new', '--disable-gpu', '--no-pdf-header-footer', '--virtual-time-budget=15000',
     `--print-to-pdf=${pdfPath}`, pathToFileURL(htmlPath).href], { stdio: 'ignore', timeout: 120000 })
+  // Edge ที่เปิดค้างอยู่รับงานต่อแล้วคืนทันที — PDF มาตามหลัง 1–4 วิ (09/10/2569)
+  for (let i = 0; i < 60 && !(fs.existsSync(pdfPath) && fs.statSync(pdfPath).size >= 5000); i++) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
+  }
   if (!fs.existsSync(pdfPath) || fs.statSync(pdfPath).size < 5000) die('สร้าง PDF ไม่ได้')
 }
 
