@@ -1,7 +1,7 @@
 # เช็คครบ — งานเอกสารคลังที่ทำค้างไว้ครบหรือยัง (อ่านอย่างเดียว ไม่เขียนไฟล์ใด)
 # ใช้: python scripts/check-complete.py
-# ตรวจ 8 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
-#            · รูปบิลมีแถวดัชนี / แถวดัชนีมีไฟล์จริง · แถวรับยามีแถว Master · บิลซื้อยังไม่ส่งจัดซื้อ
+# ตรวจ 9 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
+#            · รูปบิลมีแถวดัชนี / แถวดัชนีมีไฟล์จริง · รูปตรวจรับรอถ่ายซ้ำ · แถวรับยามีแถว Master · บิลซื้อยังไม่ส่งจัดซื้อ
 #            · ใบเบิกศูนย์/รพ.สต. มีชีทในไฟล์สรุปเบิกยา
 import csv, datetime, glob, os, re, sys, warnings
 
@@ -25,6 +25,7 @@ STOCK_XLSM = os.path.join(HOME, r'OneDrive\ยอดคลังยา_69.xlsm')
 MASTER_SINCE = datetime.datetime(2026, 10, 3)    # ต้นงวด ต.ค.69 (วันขึ้นเดือนจริง) — แก้ทุกครั้งที่ขึ้นเดือน
 HANDOVER_SINCE = datetime.datetime(2026, 10, 5)  # ใบส่งบิลจัดซื้อใบแรก สบ.70/001
 NEW_NAME = re.compile(r'^\d{4}-\d{2}-\d{2}_')   # รูปบิลที่ตั้งชื่อแบบดัชนี (เริ่ม 05/10/2569)
+RESHOOT_DAYS = 7                                  # รูปตรวจรับรอถ่ายซ้ำค้างเกินนี้ = เตือนหนัก (user เลือก 08/10/2569)
 
 problems = 0
 
@@ -127,6 +128,22 @@ gone = sorted({r['ไฟล์รูป'] for r in idx if not os.path.exists(r['
 for p in gone:
     bad(f'ดัชนีชี้ไฟล์ที่ไม่มีจริง: {p}')
 ok(f'รูปแบบใหม่ {len(photos)} ไฟล์ · มีแถวดัชนี {len(photos) - len(miss) - extra} · รูปประกอบ {extra} · ดัชนี {len(idx)} แถว')
+
+# 4b) รูปตรวจรับรอถ่ายซ้ำ — กรรมการตรวจด่วนก่อนชุดโครงการ (บิล) ตามมา รูปจึงไม่มีบิลในภาพ (CONTEXT.md §รูปตรวจรับรอถ่ายซ้ำ)
+#     แถวดัชนีหมายเหตุ "รอถ่ายซ้ำ" รายยา · ถ่ายซ้ำแล้วแก้เป็น "ถ่ายซ้ำแล้ว <วันที่>" · ค้างครบ RESHOOT_DAYS วัน = ต้องถามจัดซื้อ
+head('รูปตรวจรับรอถ่ายซ้ำ (ไม่มีบิลในภาพ)')
+today = datetime.date.today()
+pend = [r for r in idx if 'รอถ่ายซ้ำ' in r['หมายเหตุ'] and 'ถ่ายซ้ำแล้ว' not in r['หมายเหตุ']]
+for r in pend:
+    m = re.search(r'ตรวจรับ (\d{2})/(\d{2})/(\d{4})', r['หมายเหตุ'])
+    age = (today - datetime.date(int(m.group(3)) - 543, int(m.group(2)), int(m.group(1)))).days if m else None
+    what = f'บิล {r["เลขที่บิล"]} {r["รายการยา"]} lot {r["Lot"]} (ตรวจรับ {m.group(0)[8:] if m else "?"})'
+    if age is None or age >= RESHOOT_DAYS:
+        bad(f'{what} — ค้าง {age if age is not None else "?"} วัน · ถามจัดซื้อว่าชุดโครงการบิลนี้อยู่ไหน')
+    else:
+        print(f'  … {what} — รอชุดโครงการมาถ่ายซ้ำ ({age} วัน)')
+if not pend:
+    ok('ไม่มีรูปตรวจรับค้างถ่ายซ้ำ')
 
 # 5) + 6) อ่านชีทรับยา / Master (ค่าที่ Excel คำนวณไว้ตอน Save ล่าสุด)
 wr = openpyxl.load_workbook(RECV_XLSM, read_only=True, data_only=True)
