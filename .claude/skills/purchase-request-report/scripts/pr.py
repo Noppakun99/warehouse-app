@@ -20,8 +20,8 @@ NOT_USE_DEPTS = ('เบิกเพื่อแลกเปลี่ยนค�
 NOT_REAL_DISPENSE = ('บันทึกเท่านั้น', 'แก้ไขระบบ')         # ไม่ใช่การเบิกจริง ห้ามใช้เป็น "เบิกล่าสุด"
 CHECKED, UNCHECKED = '☑', '☐'
 TH_MONTH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
-# ลำดับคอลัมน์เดือนใน CHOOSE() ของสูตร N/O/AK (ต.ค. → ก.ย.)
-CHOOSE_COLS = ['E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'AG', 'AH', 'AI', 'AJ']
+# คอลัมน์เบิกรายเดือน E–P = 12 เดือนล่าสุดที่ปิดแล้ว เรียงเก่า→ใหม่ — เดือนของคอลัมน์อยู่แถว 2 (จัดชีทใหม่ 04/10/2569)
+MONTH_COLS = ['E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P']
 
 
 def out(*a):
@@ -98,6 +98,7 @@ class Data:
             ('status', 'สถานะ', 0), ('rec', 'จำนวนแนะนำสั่งซื้อ', 1), ('price', 'ราคา/หน่วย', 1),
             ('supplier', 'บริษัทล่าสุด', 0), ('ae', 'ตัดออกจากบัญชี', 1), ('sum3', 'รวมเบิก3เดือนล่าสุด', 0)]}
         self.ac = c
+        self.amonth = rows[hi - 1]  # แถว 2 = วันที่ต้นเดือนของคอลัมน์ E–P
         self.arow0 = hi + 2  # เลขแถว Excel ของข้อมูลแถวแรก
         self.analysis = {}
         for r in rows[hi + 1:]:
@@ -181,17 +182,30 @@ def load_report(path):
 
 # ---------------------------------------------------------------- check
 def month_cols(d):
-    """คืน [(letter, (year, month))] ตามลำดับ CHOOSE จากสูตรแถวแรกของชีทวิเคราะห์"""
-    ws = d.wbf['วิเคราะห์สั่งซื้อ']
-    first = next(ws.iter_rows(min_row=d.arow0, max_row=d.arow0))
+    """คืน [(letter, (year, month))] ของคอลัมน์ E–P จากแถว 2 (ค่าที่ Excel คำนวณไว้ตอนเซฟ)"""
+    first = next(d.wbf['วิเคราะห์สั่งซื้อ'].iter_rows(min_row=d.arow0, max_row=d.arow0))
     res = []
-    for L in CHOOSE_COLS:
-        f = ftext(first[col_idx(L)].value)
-        m = re.search(r'DATE\((\d{4}),(\d{1,2}),1\)', f)
-        if not m:
-            raise SystemExit(f'คอลัมน์ {L}: หา DATE(ปี,เดือน,1) ในสูตรไม่เจอ')
-        res.append((L, (int(m.group(1)), int(m.group(2)))))
+    for L in MONTH_COLS:
+        v = d.amonth[col_idx(L)]
+        if not isinstance(v, dt.datetime):
+            raise SystemExit(f'แถว 2 คอลัมน์ {L}: ไม่ใช่วันที่ต้นเดือน ({v!r}) — โครงสร้างชีทวิเคราะห์เปลี่ยน หยุดก่อน')
+        res.append((L, (v.year, v.month)))
     return res, first
+
+
+def formula_cols(f):
+    """ตัวอักษรคอลัมน์ที่สูตรอ้าง (เช่น '=MAX(N4,O4,P4)' → ('N','O','P'))"""
+    return tuple(re.findall(r'(?<![A-Z$])([A-Z]{1,2})\d+', ftext(f).lstrip('=')))
+
+
+def rate_window(d, cols):
+    """หน้าต่างเรท = คอลัมน์ที่สูตร Avg/เดือน แถวแรกอ้าง → [(letter, (year, month))]"""
+    first = next(d.wbf['วิเคราะห์สั่งซื้อ'].iter_rows(min_row=d.arow0, max_row=d.arow0))
+    letters = formula_cols(first[d.ac['avg']].value)
+    lookup = dict(cols)
+    if len(letters) != 3 or any(L not in lookup for L in letters):
+        raise SystemExit(f'สูตร Avg/เดือน อ้างคอลัมน์ {letters} — ไม่ใช่ 3 เดือนใน E–P หยุดก่อน')
+    return [(L, lookup[L]) for L in letters]
 
 
 def cmd_check(a):
@@ -200,37 +214,31 @@ def cmd_check(a):
     problems = []
     cols, first = month_cols(d)
     ws = d.wbf['วิเคราะห์สั่งซื้อ']
-    # 1) สูตรเรทเหมือนกันทุกแถว + ตัวเลื่อนเดือน
-    offs = Counter()
+    out('เดือน E–P (แถว 2):', ' '.join(f"{L}={TH_MONTH[m - 1]}{(y + 543) % 100}" for L, (y, m) in cols))
+    # 1) สูตรเรทอ้างคอลัมน์ชุดเดียวกันทุกแถว
+    refs = Counter()
     for r in ws.iter_rows(min_row=d.arow0):
         if r[0].value is None:
             continue
         for k in ('max', 'avg', 'sum3'):
-            m = re.search(r'MONTH\(TODAY\(\)\)-(\d+)', ftext(r[d.ac[k]].value))
-            offs[(k, m.group(1) if m else '?')] += 1
-    out('ตัวเลื่อนเดือนในสูตร:', dict(offs))
-    if len({o for (_, o) in offs}) != 1:
-        problems.append('สูตร Max/Avg/รวม3เดือน ใช้ตัวเลื่อนเดือนไม่เท่ากันทุกแถว')
-    off = int(next(iter(offs))[1])
-    p = (today.month - off) % 12 + 1
-    win = [cols[(p - 1 - i) % 12] for i in range(3)]
-    out('หน้าต่างเรทที่สูตรใช้ ณ วันนี้:', ' + '.join(f"{L}={TH_MONTH[m - 1]}{(y + 543) % 100}" for L, (y, m) in win))
+            refs[(k, formula_cols(r[d.ac[k]].value))] += 1
+    out('คอลัมน์ที่สูตร Max/Avg/รวม3เดือน อ้าง:', dict(refs))
+    if len({x for (_, x) in refs}) != 1:
+        problems.append('สูตร Max/Avg/รวม3เดือน อ้างคอลัมน์ไม่เหมือนกันทุกแถว')
+    win = rate_window(d, cols)
+    out('หน้าต่างเรท:', ' + '.join(f"{L}={TH_MONTH[m - 1]}{(y + 543) % 100}" for L, (y, m) in win),
+        '(3 เดือนล่าสุดที่ปิดแล้ว — ชีทจัดใหม่ 04/10/2569 ไม่รวมเดือนปัจจุบัน)')
     cur = (today.year, today.month)
-    if cur in [w[1] for w in win]:
-        out('  → รวมเดือนปัจจุบัน (ตั้งใจแบบนี้ ตาม CONTEXT.md §เรท)')
-    else:
-        out('  → ไม่รวมเดือนปัจจุบัน ⚠ ต่างจากเจตนาของคลัง (รวมเดือนปัจจุบัน) — ถ้าเป็นช่วงรอขึ้นปีงบ อาจตั้ง -11 ไว้ชั่วคราว'
-            ' ให้ถามผู้ใช้ว่าจะเปลี่ยนกลับเป็น -10 หรือยัง')
-    for L, (y, m) in win:
-        age = (cur[0] - y) * 12 + cur[1] - m
-        if age >= 12 or age < 0:
-            problems.append(f'หน้าต่างหยิบคอลัมน์ {L} = {TH_MONTH[m - 1]}{(y + 543) % 100} ซึ่งห่างจากเดือนนี้ {age} เดือน '
-                            f'— ยังไม่ได้ขึ้นปีงบใหม่ในชีทวิเคราะห์? (เหตุการณ์ 1/10/69 หยิบ ต.ค.68 แทน ต.ค.69)')
-    # 2) ช่วงแถวในสูตรเบิกรายเดือนครอบข้อมูลชีทเบิกหรือไม่
+    y, m = cols[-1][1]
+    age = (cur[0] - y) * 12 + cur[1] - m
+    if age != 1:
+        problems.append(f'คอลัมน์ P = {TH_MONTH[m - 1]}{(y + 543) % 100} แต่ควรเป็นเดือนก่อนหน้า ({age} เดือนจากเดือนนี้) '
+                        f'— ไฟล์ยังไม่ได้คำนวณใหม่ตั้งแต่ขึ้นเดือน? เปิดใน Excel ให้คำนวณแล้วเซฟก่อน')
+    # 2) สูตรเบิกรายเดือนต้องอ้างทั้งตาราง เบิกยา[...] (เลิกล็อกช่วงแถว 04/10/2569)
     m = re.search(r"\$B\$\d+:\$B\$(\d+)", ftext(first[col_idx('E')].value))
     if m and int(m.group(1)) < d.disp_last_row:
         problems.append(f'สูตรเบิกรายเดือนครอบถึงแถว {m.group(1)} แต่ชีทเบิกมีข้อมูลถึงแถว {d.disp_last_row} — ยอดหลังจากนั้นไม่ถูกนับ')
-    out(f'ชีทเบิกมีข้อมูลถึงแถว {d.disp_last_row} | สูตรครอบถึง {m.group(1) if m else "?"}')
+    out(f'ชีทเบิกมีข้อมูลถึงแถว {d.disp_last_row} | สูตรครอบ {"ถึงแถว " + m.group(1) if m else "ทั้งตาราง เบิกยา[...]"}')
     # 3) ยอดเบิกรายเดือนเทียบชีทเบิก (ตัวกรองเดียวกับสูตร)
     c = d.dc
     agg = defaultdict(float)
@@ -376,10 +384,7 @@ def cmd_plan(a):
     new.sort(key=lambda x: (order[x['status']], str(x['G']).lower()))
     # 4) หัวรายงาน
     cols, _ = month_cols(d)
-    off = int(re.search(r'MONTH\(TODAY\(\)\)-(\d+)', ftext(next(d.wbf['วิเคราะห์สั่งซื้อ'].iter_rows(
-        min_row=d.arow0, max_row=d.arow0))[d.ac['avg']].value)).group(1))
-    p = (today.month - off) % 12 + 1
-    win = [cols[(p - 1 - i) % 12][1] for i in (2, 1, 0)]
+    win = [m for _, m in rate_window(d, cols)]
     allm = sorted(m for _, m in cols)
     mm = lambda t: f"{TH_MONTH[t[1] - 1]}{(t[0] + 543) % 100}"
     headers = {
