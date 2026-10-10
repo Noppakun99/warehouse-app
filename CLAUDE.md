@@ -212,6 +212,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | รอบเปลี่ยน/คืนบริษัท: เลขที่รอบ VX ผูกขาออก↔ขาเข้า | [ADR-0024](docs/adr/0024-vendor-exchange-cycle-number.md) · [CONTEXT.md §เลขที่รอบ](CONTEXT.md) | แก้ `vendorExchange.js` / ฟอร์มเปลี่ยนคืนบริษัท / ฟอร์มยาหมดอายุ |
 | ยืม-คืนยามีมูลค่า: ลูกหนี้/เจ้าหนี้ยืม, ปรับปรุงสิ้นปีงบ 2569, งานค้างก่อนปิด ต.ค. | [docs/handoff-2026-10-04-loan-valuation.md](docs/handoff-2026-10-04-loan-valuation.md) · [docs/design-loan-valuation.md](docs/design-loan-valuation.md) | **เริ่มงานต่อจากเครื่องอื่น** / แก้มูลค่ายืม-คืนใน Master / ขึ้นเดือน พ.ย. |
 | ยืม-คืนยา: ของที่ส่งต่อผู้ดูแลไม่นับเป็นของค้างคืน | [ADR-0025](docs/adr/0025-pass-through-loan-closed-on-handover.md) · [CONTEXT.md §ของค้างคืน](CONTEXT.md) | แก้ `DrugLoanApp` / นิยาม "ค้างคืน" / ฟอร์มยืม-คืนยา |
+| ออกแบบหน้า Dashboard ใหม่: ข้อตกลง grill 12 ข้อ, คำถามที่ค้าง, ร่างแผน 5 phase, บั๊กเรท, งานปรับวิธีทำงาน B1–B4 | [docs/handoff-2026-10-10-dashboard.md](docs/handoff-2026-10-10-dashboard.md) · สคริปต์ [docs/handoff-2026-10-10-dashboard-scripts/](docs/handoff-2026-10-10-dashboard-scripts/) | **เริ่มงานต่อจากเครื่องอื่น** / grill ต่อ → `/plan` Dashboard / แก้กฎตัดแถวของเรท |
 | Roadmap | [docs/roadmap.md](docs/roadmap.md) | วางแผน feature ใหม่ |
 | Testing | [docs/testing.md](docs/testing.md) | รัน/แก้ test |
 | Deployment (Netlify + env vars + verify) | [docs/deployment.md](docs/deployment.md) | ขึ้นเว็บจริง / deploy ไม่ผ่าน / แก้ env var |
