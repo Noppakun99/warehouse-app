@@ -220,6 +220,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | External: Apps Script แจ้งเตือนยาใกล้หมดอายุ (backup) | [docs/apps-script-expiry-alert.md](docs/apps-script-expiry-alert.md) | reference สคริปต์เดิม |
 | External: INVS — กระบวนการคลังมาตรฐาน สธ. + INV DataSet + ระเบียบพัสดุ | [docs/invs-warehouse-reference.md](docs/invs-warehouse-reference.md) | **ก่อนออกแบบฟีเจอร์คลังใหม่** — ดูว่าราชการทำกันยังไง / จะส่งข้อมูลกระทรวงต้องมี field อะไร |
 | แผนงานปรับกระบวนการคลังตาม INVS (roadmap 11 ข้อ + งานที่ค้าง) | [docs/handoff-invs-2026-08-24.md](docs/handoff-invs-2026-08-24.md) | สานงานโครงสร้างหน่วยงาน / จ่ายด่วน / ค้างจ่าย ต่อ |
+| External: Nate Herk (YouTube) — วิธีทำงานกับ Claude Code/AI (skill, บริบท, ตรวจงาน, permission, LLM Wiki) + เทียบกับ repo นี้ | [docs/reference-nateherk-ai-automation.md](docs/reference-nateherk-ai-automation.md) | ก่อนปรับ CLAUDE.md / skill / hook / ออกแบบฟีเจอร์ AI ในแอป |
 
 ## Skills (`.claude/skills/`)
 
