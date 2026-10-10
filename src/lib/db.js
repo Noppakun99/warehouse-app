@@ -4,6 +4,7 @@ import { buildConsistencyReport } from './consistencyCheck.js'
 import { parseReturnPolicy, computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './swapPolicy.js'
 import { computeCountMatch } from './countMatch.js'
 import { flattenInventory, backfillDrugUnit, backfillSwapPolicy } from './excelSync.js'
+import { isUsageRow, localYmd } from '../../supabase/functions/_shared/usageRow.js'
 
 const CHUNK_SIZE = 500
 
@@ -992,8 +993,8 @@ export async function fetchSwapReturnDue() {
   const _now = new Date()
   const _lastFull = new Date(_now.getFullYear(), _now.getMonth(), 0)          // วันสุดท้ายของเดือนก่อน
   const _from6 = new Date(_lastFull.getFullYear(), _lastFull.getMonth() - 5, 1) // ย้อน 6 เดือนเต็ม
-  const rateFrom = _from6.toISOString().slice(0, 10)
-  const rateTo = _lastFull.toISOString().slice(0, 10)
+  const rateFrom = localYmd(_from6)
+  const rateTo = localYmd(_lastFull)
 
   const [policies, inv, usageRates, monthlyUsage] = await Promise.all([
     fetchSwapPolicies(),
@@ -1925,7 +1926,7 @@ export async function fetchUsageRates(months = 6) {
 
   const from = new Date()
   from.setMonth(from.getMonth() - months)
-  const fromStr = from.toISOString().slice(0, 10)
+  const fromStr = localYmd(from)
 
   const PAGE = 1000
   const allRows = []
@@ -1933,7 +1934,7 @@ export async function fetchUsageRates(months = 6) {
   while (true) {
     const { data, error } = await supabase
       .from('dispense_logs')
-      .select('drug_code, qty_out, dispense_date')
+      .select('drug_code, qty_out, dispense_date, item_type, department')
       .gte('dispense_date', fromStr)
       .range(offset, offset + PAGE - 1)
     if (error) throw error
@@ -1956,6 +1957,7 @@ export async function fetchUsageRates(months = 6) {
 
   const codeData = {}
   allRows.forEach(row => {
+    if (!isUsageRow(row)) return   // ตัดแถวที่ไม่ใช่การใช้จริง — นิยามเดียวกับเรทสั่งซื้อ (CONTEXT §เรท)
     const code = toKey(row.drug_code)
     if (!code) return
     const qty = parseFloat(row.qty_out || 0) || 0
@@ -3072,7 +3074,8 @@ export async function bulkUpsertDrugReorderConfig(configs, auth = {}) {
 
 // ดึงยอดเบิกรายเดือนต่อยา ระหว่าง [fromDate, toDate] (ISO YYYY-MM-DD)
 // ผล: { [drug_code]: { name, unit, months: { 'YYYY-MM': qty } } }
-// กรองรายการที่ไม่ใช่การจ่ายจริง (note/main_log มี 'บันทึก') ออก
+// กรองแถวที่ไม่ใช่การใช้จริงด้วย isUsageRow — 4 แบบเดียวกับสูตรชีทวิเคราะห์สั่งซื้อ (CONTEXT §เรท)
+// (กฎเดิม main_log/note มีคำว่า บันทึก จับได้เฉพาะบางแถวของ บันทึกเท่านั้น และไม่ตัด ยาโครงการ/คืนยา)
 export async function fetchMonthlyDispenseUsage(fromDate, toDate) {
   if (!supabase) return {}
   const PAGE = 1000
@@ -3081,7 +3084,7 @@ export async function fetchMonthlyDispenseUsage(fromDate, toDate) {
   while (true) {
     let q = supabase
       .from('dispense_logs')
-      .select('drug_code, drug_name, drug_unit, qty_out, dispense_date, main_log, note')
+      .select('drug_code, drug_name, drug_unit, qty_out, dispense_date, item_type, department')
       .order('dispense_date', { ascending: true })
       .range(off, off + PAGE - 1)
     if (fromDate) q = q.gte('dispense_date', fromDate)
@@ -3097,8 +3100,7 @@ export async function fetchMonthlyDispenseUsage(fromDate, toDate) {
   for (const r of rows) {
     const code = (r.drug_code || '').trim()
     if (!code || code === '-') continue
-    const recordOnly = String(r.main_log || '').includes('บันทึก') || String(r.note || '').includes('บันทึกเท่านั้น')
-    if (recordOnly) continue
+    if (!isUsageRow(r)) continue
     // normalize → หน่วยย่อยสุด (เม็ด): qty_out อาจอยู่หน่วย pack ต่างกันต่อแถว → ×factor ก่อนรวม
     const qty = (parseFloat(r.qty_out || 0) || 0) * parseUnitFactor(r.drug_unit).factor
     if (qty <= 0) continue

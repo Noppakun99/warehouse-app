@@ -162,6 +162,8 @@ cron ยิงมาทุกวัน แล้ว **ฟังก์ชัน�
 
 **สถานะ deploy:** version 31 (19 ส.ค. 2026) — เทียบแล้วตรงกับ `supabase/functions/expiry-alert/index.ts` ทุกตัวอักษร
 
+> ⚠️ **10/10/2569 แก้โค้ดแล้วยังไม่ deploy:** coverage (เรท 6 เดือน) ตัดแถวที่ไม่ใช่การใช้ด้วย `isUsageRow` จาก `_shared/usageRow.js` ไฟล์เดียวกับแอป — ต้อง `supabase functions deploy expiry-alert` ถึงมีผล (ก่อน deploy อีเมล/LINE ยังนับทุกแถว ต่างจากแอปเฉพาะป้าย "คาดว่าจะหมดเองก่อน")
+
 > ⚠️ **เลข version กระโดดเร็วกว่าจำนวนครั้งที่ deploy** — `supabase secrets set` ก็ bump version ของทุก
 > function ด้วย (แก้ `ALERT_EMAILS` 4 ครั้งระหว่างทดสอบ = +4 version) อย่าใช้เลข version เดาว่าโค้ดเปลี่ยนกี่รอบ
 > ให้เทียบเนื้อไฟล์แทน

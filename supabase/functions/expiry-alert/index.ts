@@ -12,6 +12,7 @@
 //   - แบบ cron รายวัน: ใช้ pg_cron (ดู supabase/migrations/expiry_alert_cron.sql)
 
 import nodemailer from "npm:nodemailer@6.9.16";
+import { isUsageRow } from "../_shared/usageRow.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -829,7 +830,7 @@ Deno.serve(async (req) => {
     const [invRows, recRows, dispRows] = await Promise.all([
       fetchTable("inventory", "code,location,type,name,lot,exp,qty,unit,supplier,receive_status", "order=location"),
       fetchTable("receive_logs", "drug_code,lot,bill_number,supplier_current,drug_swap_policy,swap_tier_detail,swap_condition_am,supplier_changed,receive_date", "order=receive_date.desc.nullslast"),
-      fetchTable("dispense_logs", "drug_code,qty_out,dispense_date", `dispense_date=gte.${usageFromStr}`),
+      fetchTable("dispense_logs", "drug_code,qty_out,dispense_date,item_type,department", `dispense_date=gte.${usageFromStr}`),
     ]);
 
     // 2. สร้าง detailMap key="code|lot" + fallback "code|"
@@ -864,6 +865,7 @@ Deno.serve(async (req) => {
     const usageKey = (v: string) => String(v || "").trim().toLowerCase().replace(/^0+(\d)/, "$1");
     const usageAgg: Record<string, { totalQty: number; months: Set<string> }> = {};
     for (const r of dispRows) {
+      if (!isUsageRow(r)) continue;   // แถวที่ไม่ใช่การใช้จริง — กฎเดียวกับแอป (_shared/usageRow.js)
       const code = usageKey(r.drug_code);
       if (!code) continue;
       const qty = parseFloat(String(r.qty_out || "0")) || 0;

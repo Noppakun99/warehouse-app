@@ -22,6 +22,7 @@ import {
 } from './lib/db';
 import { exportToExcel } from './lib/exportExcel';
 import { openPrintView } from './lib/openPrintView';
+import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import {
   analyzeBatch, analyzeDrug, STATUS, DEFAULT_LEAD_TIME,
   computeSafetyStock, reconcileRows,
@@ -98,7 +99,7 @@ function parseExpToDate(raw) {
 
 const fmtBaht = (n) => new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
 const fmtNum  = (n) => new Intl.NumberFormat('th-TH').format(Math.round(n || 0));
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => localYmd(new Date());
 
 // ISO → DD/MM/YY (พ.ศ.) สั้น
 const fmtThaiDate = (iso) => {
@@ -124,14 +125,14 @@ function isoMonthsAgo(months) {
   const d = new Date();
   d.setDate(1);
   d.setMonth(d.getMonth() - months);
-  return d.toISOString().slice(0, 10);
+  return localYmd(d);
 }
 
 // วันสุดท้ายของเดือนก่อนหน้า (ปิดงวดเดือนปัจจุบันที่ยังไม่ครบออก)
 function isoPrevMonthEnd() {
   const d = new Date();
   d.setDate(0);
-  return d.toISOString().slice(0, 10);
+  return localYmd(d);
 }
 
 // วันที่ 1 ของ N เดือนเต็มที่จบแล้ว (นับย้อนจากเดือนก่อนหน้า) — คู่กับ isoPrevMonthEnd
@@ -140,7 +141,7 @@ function isoMonthStartBack(n) {
   const d = new Date();
   d.setDate(1);
   d.setMonth(d.getMonth() - n); // ถอย n เดือน จากวันที่ 1 เดือนปัจจุบัน = วันที่ 1 ของ n เดือนก่อน
-  return d.toISOString().slice(0, 10);
+  return localYmd(d);
 }
 
 // ตัวเลือกช่วงเร็ว — set statsFrom/statsTo ทีเดียว (ถึง = สิ้นเดือนก่อนเสมอ)
