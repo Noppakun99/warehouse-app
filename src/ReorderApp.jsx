@@ -26,6 +26,7 @@ import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import {
   analyzeBatch, analyzeDrug, STATUS, DEFAULT_LEAD_TIME,
   computeSafetyStock, reconcileRows,
+  fmtCoverage, isoMonthsAgo, isoPrevMonthEnd, listMonthYM, thaiMonthLabel,
 } from './lib/reorder';
 
 // ────────────────────────────────────────────────────────────
@@ -107,34 +108,6 @@ const fmtThaiDate = (iso) => {
   return m ? `${m[3]}/${m[2]}/${(Number(m[1]) + 543) % 100}` : '-';
 };
 
-// คงอยู่ได้อีก (Coverage): คงเหลือ ÷ Avg/วัน → "X ปี Y ด. Z วัน" (หน่วยเดียวกันทั้งคู่)
-const fmtCoverage = (stock, avgDay) => {
-  if (!avgDay || avgDay <= 0) return stock > 0 ? '∞' : '—';
-  let days = Math.floor(stock / avgDay);
-  if (days <= 0) return '0 วัน';
-  const y = Math.floor(days / 365); days -= y * 365;
-  const mo = Math.floor(days / 30); days -= mo * 30;
-  const parts = [];
-  if (y) parts.push(`${y} ปี`);
-  if (mo) parts.push(`${mo} ด.`);
-  if (days) parts.push(`${days} วัน`);
-  return parts.join(' ') || '0 วัน';
-};
-
-function isoMonthsAgo(months) {
-  const d = new Date();
-  d.setDate(1);
-  d.setMonth(d.getMonth() - months);
-  return localYmd(d);
-}
-
-// วันสุดท้ายของเดือนก่อนหน้า (ปิดงวดเดือนปัจจุบันที่ยังไม่ครบออก)
-function isoPrevMonthEnd() {
-  const d = new Date();
-  d.setDate(0);
-  return localYmd(d);
-}
-
 // วันที่ 1 ของ N เดือนเต็มที่จบแล้ว (นับย้อนจากเดือนก่อนหน้า) — คู่กับ isoPrevMonthEnd
 // n=3 → 3 เดือนเต็มก่อนเดือนปัจจุบัน (เช่น ก.ค. → 01/04); n='all' → null (ให้ backend ใช้ทั้งหมด)
 function isoMonthStartBack(n) {
@@ -150,23 +123,6 @@ const QUICK_RANGES = [
   { months: 6,  label: '6 เดือน' },
   { months: 12, label: '12 เดือน' },
 ];
-
-function listMonthYM(fromIso, toIso) {
-  const out = [];
-  const start = new Date(fromIso); start.setDate(1);
-  const end = new Date(toIso); end.setDate(1);
-  while (start <= end) {
-    out.push(start.toISOString().slice(0, 7));
-    start.setMonth(start.getMonth() + 1);
-  }
-  return out;
-}
-
-function thaiMonthLabel(ym) {
-  const [y, m] = ym.split('-');
-  const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-  return `${months[+m - 1]} ${(+y + 543) % 100}`;
-}
 
 function fmtDateTimeThai(iso) {
   if (!iso) return '-';
