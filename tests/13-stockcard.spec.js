@@ -113,7 +113,8 @@ test('Export Excel ดาวน์โหลดได้ + พิมพ์เป�
   await selectDrug(page)
 
   const dl = page.waitForEvent('download', { timeout: 15_000 })
-  await page.getByRole('button', { name: 'Excel' }).click()
+  // exact: ปุ่ม "นำเข้าจาก Excel" บน top bar (staff) ชื่อมีคำว่า Excel ด้วย → strict mode ชน 2 ปุ่ม
+  await page.getByRole('button', { name: 'Excel', exact: true }).click()
   const file = await dl
   expect(file.suggestedFilename()).toMatch(/^stockcard_1000227_\d{4}-\d{2}-\d{2}\.xlsx$/)
 
