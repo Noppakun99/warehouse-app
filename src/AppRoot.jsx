@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import SearchableSelect from './SearchableSelect';
 import {
@@ -70,20 +70,59 @@ export default function AppRoot() {
   const [navStack, setNavStack] = useState(['dashboard']);
   const page = navStack[navStack.length - 1];
   const canGoBack = navStack.length > 1;
-  // navigateTo: ไปหน้าใหม่ (push) — ถ้าหน้าเดิมซ้ำหน้าปัจจุบันไม่ push (กัน stack บวม)
-  const setPage = useCallback((p) => {
-    setNavStack(prev => (prev[prev.length - 1] === p ? prev : [...prev, p]));
-  }, []);
-  const goBack = useCallback(() => {
-    setNavStack(prev => (prev.length > 1 ? prev.slice(0, -1) : prev));
-  }, []);
+  // ผูก navStack กับ history ของเบราว์เซอร์ — ปุ่มย้อนของมือถือ/เบราว์เซอร์ = กลับหน้าก่อน
+  // (แอปที่ติดตั้ง (PWA) ไม่มีปุ่มย้อนของเบราว์เซอร์ ถ้าไม่ผูก กดย้อนบน Android = แอปปิดทุกหน้า)
+  // stackRef = ค่าล่าสุดแบบ sync — popstate/setPage ต้องรู้ทันที ไม่รอ render
+  // URL ไม่เปลี่ยน (ไม่มี router) → reload แล้วกลับหน้าหลัก entry เก่าที่ค้างใน history กดย้อนแล้วไม่มีอะไรเกิด
+  const stackRef = useRef(['dashboard']);
+  const commitStack = useCallback((next) => { stackRef.current = next; setNavStack(next); }, []);
   const [subKey, setSubKey] = useState(0);
   const [toasts, setToasts] = useState([]);
   // บัตรยา (เปิดจากช่องค้นหาเดียวใน AppShell — ทุกหน้า) + ยาที่จะเปิดในการ์ดคลัง lot เมื่อกดจากบัตรยา
+  // บัตรยาอยู่นอก sub-app (ไม่ปิดเองตอนเปลี่ยนหน้า) และเต็มจอบนมือถือ → เป็น 1 ขั้นของ history: กดย้อน = ปิดบัตร
   const [drugCode, setDrugCode] = useState(null);
+  const drugEntryRef = useRef(false);   // มี history entry ของบัตรยาค้างอยู่
+  const skipPopRef = useRef(false);     // popstate ที่เกิดจาก closeDrug สั่ง history.back() เอง
   const [stockCardTarget, setStockCardTarget] = useState(null); // { code, name } — StockCardApp ใช้แล้วล้าง
-  const openStockCardFor = (code, name) => {
+
+  // navigateTo: ไปหน้าใหม่ (push) — ถ้าหน้าเดิมซ้ำหน้าปัจจุบันไม่ push (กัน stack บวม)
+  // เปิดหน้าจากบัตรยา (ปุ่มการ์ดคลัง lot) → ใช้ entry ของบัตรแทน push ใหม่ ย้อนแล้วกลับหน้าเดิมเลย ไม่เด้งบัตรค้าง
+  const setPage = useCallback((p) => {
+    const s = stackRef.current;
+    if (s[s.length - 1] === p) return;
+    if (drugEntryRef.current) {
+      drugEntryRef.current = false;
+      window.history.replaceState({ wh: 'page' }, '');
+      setDrugCode(null);
+    } else {
+      window.history.pushState({ wh: 'page' }, '');
+    }
+    commitStack([...s, p]);
+  }, [commitStack]);
+  // ปุ่มย้อนในแอป (BackButton) ใช้ history เดียวกัน → popstate เป็นคน pop
+  const goBack = useCallback(() => {
+    if (stackRef.current.length > 1) window.history.back();
+  }, []);
+  const openDrug = useCallback((code) => {
+    if (!drugEntryRef.current) { window.history.pushState({ wh: 'drug' }, ''); drugEntryRef.current = true; }
+    setDrugCode(code);
+  }, []);
+  const closeDrug = useCallback(() => {
     setDrugCode(null);
+    if (drugEntryRef.current) { drugEntryRef.current = false; skipPopRef.current = true; window.history.back(); }
+  }, []);
+  useEffect(() => {
+    const onPop = () => {
+      if (skipPopRef.current) { skipPopRef.current = false; return; }
+      if (drugEntryRef.current) { drugEntryRef.current = false; setDrugCode(null); return; }
+      const s = stackRef.current;
+      if (s.length > 1) commitStack(s.slice(0, -1));
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [commitStack]);
+
+  const openStockCardFor = (code, name) => {
     setStockCardTarget({ code, name });
     setPage('stockcard');
   };
@@ -126,8 +165,8 @@ export default function AppRoot() {
 
   const handleLogin = (user) => { sessionStorage.setItem(AUTH_KEY, JSON.stringify(user)); setAuth(user); };
   const logout = () => {
-    sessionStorage.removeItem(AUTH_KEY); setAuth(null); setNavStack(['dashboard']); setToasts([]);
-    setDrugCode(null); setStockCardTarget(null);
+    sessionStorage.removeItem(AUTH_KEY); setAuth(null); commitStack(['dashboard']); setToasts([]);
+    setDrugCode(null); drugEntryRef.current = false; setStockCardTarget(null);
   };
   // โหลดหน้านี้ใหม่ = remount sub-app (subKey) + refetch badge count (badgeTick) — กัน badge ค้างเมื่อ realtime พลาด
   const refreshPage = () => { setSubKey(k => k + 1); setBadgeTick(t => t + 1); };
@@ -241,7 +280,7 @@ export default function AppRoot() {
   if (auth) {
     const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username;
     content = (
-      <AppShell page={page} onNavigate={setPage} onFormAction={runFormAction} onOpenDrug={setDrugCode} onRefresh={refreshPage} displayName={displayName} role={auth.role} permissions={auth.permissions} auth={auth} onLogout={logout} badges={{ return: pendingReturns, requisition: pendingRequisitions }}>
+      <AppShell page={page} onNavigate={setPage} onFormAction={runFormAction} onOpenDrug={openDrug} onRefresh={refreshPage} displayName={displayName} role={auth.role} permissions={auth.permissions} auth={auth} onLogout={logout} badges={{ return: pendingReturns, requisition: pendingRequisitions }}>
         {content}
       </AppShell>
     );
@@ -261,7 +300,7 @@ export default function AppRoot() {
           code={drugCode}
           isStaff={auth.role === 'staff' || auth.role === 'admin'}
           department={auth.department}
-          onClose={() => setDrugCode(null)}
+          onClose={closeDrug}
           onOpenStockCard={openStockCardFor}
         />
       )}

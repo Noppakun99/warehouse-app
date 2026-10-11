@@ -1,10 +1,17 @@
 <!doctype html>
-<html lang="en">
+<html lang="th">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>warehouse-app</title>
+    <title>คลังยา</title>
+    <meta name="description" content="ระบบบริหารคลังยา — ค้นหายา ดูคงเหลือ เบิก-คืนยา" />
+    <!-- ติดตั้งเป็นแอปบนหน้าจอหลัก (PWA) — ไม่มี service worker โดยเจตนา: cache ผิด = ผู้ใช้ค้างโค้ดเก่าหลัง deploy -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="คลังยา" />
+    <!-- สีแถบสถานะ = สี top bar (ขาว) · AppShell อัปเดตตามปุ่มสลับธีมในแอป (ธีมเราไม่ตามการตั้งค่าเครื่อง) -->
+    <meta name="theme-color" content="#ffffff" />
   </head>
   <body>
     <div id="root"></div>

@@ -92,6 +92,8 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
   // sync class 'dark' ที่ <html> — Tailwind darkMode:'class' อ่านจากตรงนี้
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
+    // แถบสถานะมือถือ/แอปที่ติดตั้ง = สี top bar (bg-white / dark:bg-slate-900)
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0f172a' : '#ffffff');
     try { localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light'); } catch { /* localStorage ปิด — ธีมไม่ถูกจำ แต่ยังสลับได้ */ }
   }, [dark]);
 
