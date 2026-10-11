@@ -18,6 +18,7 @@ import {
 import { exportToExcel } from './lib/exportExcel';
 import { openPrintView } from './lib/openPrintView';
 import { insertAuditLog, resolveAuditUserName } from './lib/db';
+import FilterSheet, { FilterButton } from './FilterSheet';
 
 function DrugTypeBadge({ type }) {
   if (!type || type === '-') return null;
@@ -1672,6 +1673,8 @@ function ReceiveView({ auth = {} }) {
   const [drugTypes, setDrugTypes]     = useState([]);
   const [isMobile, setIsMobile]       = useState(() => window.innerWidth < 768);
   const [mobileDetail, setMobileDetail] = useState(null); // row ที่เปิด bottom sheet
+  const [filterOpen, setFilterOpen] = useState(false);   // bottom sheet ตัวกรอง (มือถือ)
+  const closeFilter = useCallback(() => setFilterOpen(false), []);
   const [suppliers, setSuppliers]     = useState([]);
   const [drugNames, setDrugNames]     = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -1992,11 +1995,8 @@ function ReceiveView({ auth = {} }) {
   const clearAll = () => { clearSearch(); setSupplier(''); setSupplierSearch(''); setTypeFilter(''); setDateFrom(''); setDateTo(''); };
 
 
-  return (
-    <div className="p-4 space-y-4 max-w-5xl mx-auto">
-      {/* Filter card */}
-      <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
-        <div className="flex flex-wrap gap-2">
+  // ตัวกรอง — เก็บเป็นตัวแปรชุดเดียว วางใน layout เดิม (คอม) หรือใน FilterSheet (มือถือ) อย่างใดอย่างหนึ่ง
+  const searchBox = (
           <div className="relative flex-[2] min-w-[160px]" ref={searchRef}>
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input
@@ -2030,14 +2030,16 @@ function ReceiveView({ auth = {} }) {
               </div>
             )}
           </div>
-          <div className="relative" ref={supplierRef}>
+  );
+  const supplierBox = (
+          <div className={`relative ${isMobile ? 'w-full' : ''}`} ref={supplierRef}>
             <input
               type="text"
               value={supplierSearch}
               onChange={e => { setSupplierSearch(e.target.value); setShowSupplierDd(true); }}
               onFocus={() => setShowSupplierDd(true)}
               placeholder={supplierFilter || 'ค้นหาบริษัท...'}
-              className={`bg-white dark:bg-slate-900 border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 w-64 ${supplierFilter ? 'border-emerald-400 text-emerald-700 dark:text-emerald-300 font-medium' : 'border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-100'}`}
+              className={`bg-white dark:bg-slate-900 border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 ${isMobile ? 'w-full' : 'w-64'} ${supplierFilter ? 'border-emerald-400 text-emerald-700 dark:text-emerald-300 font-medium' : 'border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-100'}`}
             />
             {supplierFilter && (
               <button onClick={() => { setSupplier(''); setSupplierSearch(''); setPage(0); }}
@@ -2046,7 +2048,7 @@ function ReceiveView({ auth = {} }) {
               </button>
             )}
             {showSupplierDd && (
-              <div className="absolute top-full left-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg z-30 w-64 max-h-60 overflow-y-auto">
+              <div className={`absolute top-full left-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg z-30 ${isMobile ? 'w-full' : 'w-64'} max-h-60 overflow-y-auto`}>
                 <button onMouseDown={e => { e.preventDefault(); setSupplier(''); setSupplierSearch(''); setShowSupplierDd(false); setPage(0); }}
                   className="w-full text-left px-3 py-2 text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 border-b border-slate-100 dark:border-slate-800">
                   ทุกบริษัท
@@ -2063,12 +2065,18 @@ function ReceiveView({ auth = {} }) {
               </div>
             )}
           </div>
+  );
+  const typeSelect = (
           <SearchableSelect value={typeFilter} onChange={v => { setTypeFilter(v); setPage(0); }}
             options={drugTypes} emptyLabel="ทุกชนิดยา" placeholder="ทุกชนิดยา"
-            className="w-36" />
+            className={isMobile ? 'w-full' : 'w-36'} />
+  );
+  const clearBtn = (
           <button onClick={clearAll} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
             <RefreshCcw size={16}/>
           </button>
+  );
+  const excelBtn = (
           <button
             onClick={handleExport}
             disabled={exportLoading || rows.length === 0}
@@ -2076,8 +2084,8 @@ function ReceiveView({ auth = {} }) {
             title="ส่งออก Excel ทุกแถว">
             <FileDown size={14} /> {exportLoading ? 'กำลังโหลด...' : 'Excel'}
           </button>
-        </div>
-        {/* Date range */}
+  );
+  const dateRow = (
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">ตั้งแต่</span>
           <ThaiDateInput value={dateFrom} onChange={v => { setDateFrom(v); setPage(0); }} />
@@ -2089,7 +2097,33 @@ function ReceiveView({ auth = {} }) {
               className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1"><X size={12}/>ล้างวันที่</button>
           )}
         </div>
+  );
+  // มือถือ: บอกตัวกรองที่ใช้อยู่ใต้ช่องค้นหา (ตัวกรองซ่อนใน sheet — ไม่บอก = ดูเหมือนรายการทั้งหมด)
+  const dateLabel = (dateFrom || dateTo) ? `${dateFrom || '…'} – ${dateTo || 'วันนี้'}` : '';
+  const activeFilters = [supplierFilter, typeFilter, dateLabel].filter(Boolean);
+
+  return (
+    <div className="p-4 space-y-4 max-w-5xl mx-auto">
+      {/* Filter card — มือถือ: ช่องค้นหา + ปุ่มตัวกรอง (bottom sheet) · คอม: layout เดิม */}
+      <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
+        <div className="flex flex-wrap gap-2">
+          {searchBox}
+          {isMobile
+            ? <FilterButton activeCount={activeFilters.length} onOpen={() => setFilterOpen(true)} />
+            : <>{supplierBox}{typeSelect}{clearBtn}{excelBtn}</>}
+        </div>
+        {isMobile
+          ? (activeFilters.length > 0 && <p className="text-xs text-sky-700 dark:text-sky-300 truncate">กรอง: {activeFilters.join(' · ')}</p>)
+          : dateRow}
       </div>
+      {isMobile && (
+        <FilterSheet open={filterOpen} onClose={closeFilter} onClear={clearAll}>
+          {supplierBox}
+          {typeSelect}
+          {dateRow}
+          <div className="flex justify-end">{excelBtn}</div>
+        </FilterSheet>
+      )}
 
       {/* ตารางประวัติรับยาที่เลือก */}
       {selectedDrug && (

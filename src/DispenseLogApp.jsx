@@ -16,6 +16,7 @@ import {
 import { exportToExcel } from './lib/exportExcel';
 import { normalizeLotSearch, insertAuditLog, resolveAuditUserName, resolveDispenseDepartment } from './lib/db';
 import { openExcelSync } from './lib/excelSyncEvent';
+import FilterSheet, { FilterButton } from './FilterSheet';
 
 // ค่า department ที่ "ไม่ใช่หน่วยงานจริง" — เป็นการปรับปรุงระบบ/ความเคลื่อนไหวพิเศษ
 // ตัดออกจาก dropdown กรองหน่วยงาน + กราฟสรุประดับหน่วยงาน แต่ยังคงแสดงเป็นแถวในตารางเบิกตามปกติ
@@ -428,6 +429,8 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '' }) {
   const [aggStats, setAggStats] = useState(null);
   const [isMobile, setIsMobile]       = useState(() => window.innerWidth < 768);
   const [mobileDetail, setMobileDetail] = useState(null);
+  const [filterOpen, setFilterOpen] = useState(false);   // bottom sheet ตัวกรอง (มือถือ)
+  const closeFilter = useCallback(() => setFilterOpen(false), []);
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
@@ -620,19 +623,8 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '' }) {
     setPage(0);
   };
 
-  return (
-    <div className="p-4 space-y-4 max-w-5xl mx-auto">
-      {editingRow && (
-        <EditModal
-          row={editingRow}
-          auth={auth}
-          onClose={() => setEditingRow(null)}
-          onSaved={() => { setEditingRow(null); load(); }}
-        />
-      )}
-      {/* Filter card */}
-      <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
-        <div className="flex flex-wrap gap-2">
+  // ตัวกรอง — เก็บเป็นตัวแปรชุดเดียว วางใน layout เดิม (คอม) หรือใน FilterSheet (มือถือ) อย่างใดอย่างหนึ่ง
+  const searchBox = (
           <div className="relative flex-1 min-w-[180px]" ref={searchRef}>
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input
@@ -657,15 +649,23 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '' }) {
               </div>
             )}
           </div>
+  );
+  const deptSelect = (
           <SearchableSelect value={deptFilter} onChange={v => { setDeptFilter(v); setPage(0); }}
             options={departments} emptyLabel="ทุกหน่วยงาน" placeholder="ทุกหน่วยงาน"
-            className="w-44" />
+            className={isMobile ? 'w-full' : 'w-44'} />
+  );
+  const typeSelect = (
           <SearchableSelect value={typeFilter} onChange={v => { setTypeFilter(v); setPage(0); }}
             options={drugTypes} emptyLabel="ทุกชนิดยา" placeholder="ทุกชนิดยา"
-            className="w-36" />
+            className={isMobile ? 'w-full' : 'w-36'} />
+  );
+  const clearBtn = (
           <button onClick={clearAll} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
             <RefreshCcw size={16} />
           </button>
+  );
+  const excelBtn = (
           <button
             onClick={handleExport}
             disabled={exportLoading || (aggStats ? aggStats.count === 0 : rows.length === 0)}
@@ -673,8 +673,8 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '' }) {
             title="ส่งออก Excel (ทุก row)">
             <FileDown size={14} /> {exportLoading ? 'กำลังส่งออก...' : 'Excel'}
           </button>
-        </div>
-        {/* Date range row */}
+  );
+  const dateRow = (
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">ตั้งแต่</span>
           <ThaiDateInput value={dateFrom} onChange={v => { setDateFrom(v); setPage(0); }} />
@@ -686,7 +686,41 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '' }) {
               className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1"><X size={12}/>ล้างวันที่</button>
           )}
         </div>
+  );
+  // มือถือ: บอกตัวกรองที่ใช้อยู่ใต้ช่องค้นหา (ตัวกรองซ่อนใน sheet — ไม่บอก = ดูเหมือนรายการทั้งหมด)
+  const dateLabel = (dateFrom || dateTo) ? `${dateFrom || '…'} – ${dateTo || 'วันนี้'}` : '';
+  const activeFilters = [deptFilter, typeFilter, dateLabel].filter(Boolean);
+
+  return (
+    <div className="p-4 space-y-4 max-w-5xl mx-auto">
+      {editingRow && (
+        <EditModal
+          row={editingRow}
+          auth={auth}
+          onClose={() => setEditingRow(null)}
+          onSaved={() => { setEditingRow(null); load(); }}
+        />
+      )}
+      {/* Filter card — มือถือ: ช่องค้นหา + ปุ่มตัวกรอง (bottom sheet) · คอม: layout เดิม */}
+      <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
+        <div className="flex flex-wrap gap-2">
+          {searchBox}
+          {isMobile
+            ? <FilterButton activeCount={activeFilters.length} onOpen={() => setFilterOpen(true)} />
+            : <>{deptSelect}{typeSelect}{clearBtn}{excelBtn}</>}
+        </div>
+        {isMobile
+          ? (activeFilters.length > 0 && <p className="text-xs text-sky-700 dark:text-sky-300 truncate">กรอง: {activeFilters.join(' · ')}</p>)
+          : dateRow}
       </div>
+      {isMobile && (
+        <FilterSheet open={filterOpen} onClose={closeFilter} onClear={clearAll}>
+          {deptSelect}
+          {typeSelect}
+          {dateRow}
+          <div className="flex justify-end">{excelBtn}</div>
+        </FilterSheet>
+      )}
 
       {/* ตารางประวัติเบิกยาที่เลือก */}
       {selectedDrug && (
