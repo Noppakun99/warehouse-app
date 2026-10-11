@@ -24,6 +24,7 @@ import { buildWorkQueue, describeNextCycle, isSwapRed, isSwapOpen } from './lib/
 import { pickPopupRows, readSeen, writeSeen, popupStorageKey } from './lib/popupSeen';
 import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import { resolveCycles } from '../supabase/functions/_shared/announceSchedule.js';
+import { InstallAppCard } from './InstallApp';
 import { DashboardInfoLines, DrugSearchLauncher, WorkQueuePanel, QueueDetailModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner, OnboardingCard } from './DashboardPanels';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
@@ -810,6 +811,7 @@ function Dashboard({ auth, onNavigate }) {
         <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-100">Dashboard</h2>
         <DashboardInfoLines uploadMeta={uploadMeta} cycle={cycle} />
         <DrugSearchLauncher />
+        <InstallAppCard />
 
         {isStaff ? (
           <>

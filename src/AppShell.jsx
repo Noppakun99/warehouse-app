@@ -15,6 +15,7 @@ import NotificationBell from './NotificationBell';
 import CommandPalette from './CommandPalette';
 import ExcelSyncControl from './ExcelSync';
 import { DRUG_SEARCH_OPEN_EVENT } from './lib/drugSearchEvent';
+import { InstallAppMenuItem } from './InstallApp';
 
 // submenu ที่มี active page อยู่ข้างใน → เปิดไว้ตั้งแต่แรก
 const submenuKeyOf = (pageKey) => {
@@ -270,6 +271,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
             {!mini && 'โหลดหน้านี้ใหม่'}
           </button>
         )}
+        <InstallAppMenuItem mini={mini} />
         <button onClick={onLogout} title="ออกจากระบบ" className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-slate-500 dark:text-slate-300 hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 dark:hover:text-red-400 transition-colors ${mini ? 'justify-center' : ''}`}>
           <span className="p-1 rounded-md shrink-0 bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400"><LogOut size={15} /></span>
           {!mini && 'ออกจากระบบ'}

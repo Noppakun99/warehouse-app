@@ -32,6 +32,7 @@
     "test:workqueue": "node src/lib/workQueue.test.js",
     "test:popupseen": "node src/lib/popupSeen.test.js",
     "test:reservecheck": "node src/lib/reservationCheck.test.js",
+    "test:installenv": "node src/lib/installEnv.test.js",
     "test:drugprofile": "node src/lib/drugProfile.test.js",
     "import:receive": "node scripts/import-receive.mjs",
     "import:loan": "node scripts/import-loan.mjs",
