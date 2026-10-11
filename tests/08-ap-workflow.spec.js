@@ -14,13 +14,17 @@
  */
 import { test, expect, waitForAppShell } from './fixtures.js';
 
+// การ์ด "ประวัติการรับยาเข้าคลัง" บน Dashboard ถูกถอดแล้ว (commit 2b16aef) → ใช้เมนูย่อยใน sidebar
+// "ประวัติรับยา ▸ ส่งบัญชี" (page receive-ap = ReceiveLogApp initialTab="ap") — กางเมนูแม่ก่อนถ้ายังพับ
 async function gotoApTab(page) {
   await page.goto('/');
   await waitForAppShell(page);
-  await page.getByText('ประวัติการรับยาเข้าคลัง').click();
-  await page.waitForSelector('text=ส่งบัญชี', { timeout: 8_000 });
-  await page.getByRole('button', { name: /ส่งบัญชี/ }).first().click();
-  await page.waitForSelector('text=ส่งบัญชีรายอาทิตย์', { timeout: 8_000 });
+  const apMenu = page.getByRole('button', { name: 'ส่งบัญชี', exact: true });
+  if (!(await apMenu.first().isVisible().catch(() => false))) {
+    await page.getByRole('button', { name: 'ประวัติรับยา', exact: true }).first().click();
+  }
+  await apMenu.first().click();
+  await page.waitForSelector('text=ส่งบัญชีรายอาทิตย์', { timeout: 10_000 });
 }
 
 test.describe('AP Workflow — UX clarity', () => {

@@ -13,13 +13,15 @@
  */
 import { test, expect, waitForAppShell } from './fixtures.js';
 
+// การ์ดเลือกระบบบน Dashboard ถูกถอดไปแล้ว (commit 2b16aef) → เข้าทุกหน้าผ่านเมนู sidebar (ชื่อตาม navConfig)
+// waitText = ชื่อบน title bar ของหน้านั้น (ไม่ใช้คำกว้างอย่าง "ประวัติ" — ไปโดนเมนู sidebar ผ่านแบบหลอก)
 const SUB_APPS = [
-  { card: 'ระบบแผนผังคลังยา',       key: 'inventory',   waitText: /ค้นหา|คลังยา|รายการยา/ },
-  { card: 'ระบบเบิกยาออนไลน์',       key: 'requisition', waitText: /ค้นหายาในคลัง|ตะกร้า|ใบเบิก/ },
-  { card: 'ประวัติการรับยาเข้าคลัง', key: 'receive',     waitText: /ประวัติ|รับยา|ค้นหา/ },
-  { card: 'ประวัติการเบิกจ่ายยา',    key: 'dispense',    waitText: /ประวัติ|เบิกจ่าย|ค้นหา/ },
-  { card: 'ระบบคืนยา / ยาเสียหาย',   key: 'return',      waitText: /คืนยา|บันทึก|ค้นหา/ },
-  { card: 'วิเคราะห์การเบิกยา',       key: 'analytics',   waitText: /วิเคราะห์|กราฟ|Top|หน่วยงาน/ },
+  { card: 'แผนผังคลังยา',      key: 'inventory',   waitText: /ระบบแผนผังและข้อมูลคลังยา/ },
+  { card: 'เบิกยาออนไลน์',      key: 'requisition', waitText: /ค้นหายาในคลัง|ใบเบิก/ },
+  { card: 'ประวัติรับยา',       key: 'receive',     waitText: /บันทึกการรับเข้าคลัง/ },
+  { card: 'ประวัติเบิกจ่าย',     key: 'dispense',    waitText: /บันทึกการเบิกจ่าย/ },
+  { card: 'คืนยา / ยาเสียหาย',  key: 'return',      waitText: /ระบบคืนยา \/ บันทึกยาเสียหาย/ },
+  { card: 'วิเคราะห์การเบิก',    key: 'analytics',   waitText: /วิเคราะห์การเบิกยา/ },
 ];
 
 async function gotoDashboard(page) {
@@ -27,9 +29,20 @@ async function gotoDashboard(page) {
   await waitForAppShell(page);
 }
 
-async function openSubApp(page, cardText) {
+// เมนู sidebar — จอเล็กเปิด drawer ก่อน · "ประวัติรับยา" เป็น submenu ที่ลูกชื่อเดียวกับแม่ → กางแล้วกดตัวลูก
+// (getByRole ไม่นับปุ่มที่ display:none → sidebar คอมที่ซ่อนบนจอเล็กไม่ถูกนับ)
+async function clickMenu(page, name) {
+  const hamburger = page.getByRole('button', { name: 'เปิดเมนู' });
+  if (await hamburger.isVisible().catch(() => false)) await hamburger.click();
+  const btns = page.getByRole('button', { name, exact: true });
+  await btns.first().waitFor({ state: 'visible', timeout: 8_000 });
+  if (name === 'ประวัติรับยา' && await btns.count() < 2) await btns.first().click();
+  await btns.last().click();
+}
+
+async function openSubApp(page, menuName) {
   await gotoDashboard(page);
-  await page.getByText(cardText, { exact: true }).first().click();
+  await clickMenu(page, menuName);
 }
 
 test.describe('UX Smoke — ทุก sub-app เปิดได้ไม่ crash', () => {
@@ -58,20 +71,19 @@ test.describe('UX Smoke — ทุก sub-app เปิดได้ไม่ cra
     });
   }
 
-  test('Dashboard cards คลิกได้ครบ (requester เห็นกลุ่ม Daily / Reports)', async ({ staffPage: page }) => {
+  test('เมนู sidebar ครบ (กลุ่ม งานประจำวัน / สรุปและรายงาน)', async ({ staffPage: page }) => {
     if (!page) test.skip();
     await gotoDashboard(page);
 
-    // กลุ่ม dashboard ตาม GROUPS ใน AppRoot
-    await expect(page.getByText(/Daily Operations|งานประจำวัน/).first()).toBeVisible();
-    await expect(page.getByText(/History.*Reports|สรุปและรายงาน/).first()).toBeVisible();
+    // กลุ่มเมนูตาม NAV_GROUPS ใน navConfig.js
+    await expect(page.getByText('งานประจำวัน').first()).toBeVisible();
+    await expect(page.getByText('สรุปและรายงาน').first()).toBeVisible();
 
-    // นับ card ที่ requester เห็นได้ — ควร ≥ 6 (inventory, requisition, receive, dispense, return, analytics)
-    const visibleCards = await Promise.all(
-      SUB_APPS.map(a => page.getByText(a.card, { exact: true }).first().isVisible().catch(() => false))
+    // เมนูของ 6 หน้าที่ทุก role เข้าได้ ต้องเห็นครบ
+    const visible = await Promise.all(
+      SUB_APPS.map(a => page.getByRole('button', { name: a.card, exact: true }).first().isVisible().catch(() => false))
     );
-    const visibleCount = visibleCards.filter(Boolean).length;
-    expect(visibleCount).toBeGreaterThanOrEqual(6);
+    expect(visible.filter(Boolean).length).toBe(SUB_APPS.length);
   });
 
   test('Logout ทำงาน + ส่งกลับหน้า login', async ({ browser }) => {
@@ -135,18 +147,17 @@ test.describe('UX Consistency — กฎจาก CLAUDE.md', () => {
   test('UI ทั้งหมดเป็นภาษาไทย (dashboard cards ต้องมีอักษรไทย)', async ({ staffPage: page }) => {
     if (!page) test.skip();
     await gotoDashboard(page);
-    const cardTitles = await page.locator('h2, h3').allTextContents();
+    // หัวข้อบางส่วนขึ้นหลังข้อมูลโหลด (เช่น "ยาต้องสั่งซื้อ 5 อันดับแรก") → poll ไม่นับครั้งเดียวตอนยังโหลด
     const thaiPattern = /[ก-๙]/;
-    const thaiCount = cardTitles.filter(t => thaiPattern.test(t)).length;
-    expect(thaiCount).toBeGreaterThanOrEqual(3);
+    await expect.poll(async () => (await page.locator('h2, h3').allTextContents()).filter(t => thaiPattern.test(t)).length,
+      { timeout: 15_000 }).toBeGreaterThanOrEqual(3);
   });
 
   test('Date ใน UI เป็น DD/MM/YYYY หรือ พ.ศ. — ไม่มี ISO (YYYY-MM-DD) visible (กฎ #3)', async ({ staffPage: page }) => {
     if (!page) test.skip();
     // เช็คหน้า dispense + receive — สอง sub-app ที่มี date heavy
-    for (const card of ['ประวัติการเบิกจ่ายยา', 'ประวัติการรับยาเข้าคลัง']) {
-      await gotoDashboard(page);
-      await page.getByText(card, { exact: true }).first().click();
+    for (const card of ['ประวัติเบิกจ่าย', 'ประวัติรับยา']) {
+      await openSubApp(page, card);
       await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {});
       // visible text ห้ามมี YYYY-MM-DD (อนุญาตใน attribute เช่น <input value="2025-01-15">)
       const visibleIso = await page.locator('body').evaluate(el => {
@@ -175,7 +186,7 @@ test.describe('UX Consistency — กฎจาก CLAUDE.md', () => {
     catch { await ctx.close(); test.skip(); return; }
 
     // เข้าหน้า receive (มี query หนัก) — ทันทีที่เข้า ควรเห็น header ไม่ใช่หน้าขาว
-    await page.getByText('ประวัติการรับยาเข้าคลัง', { exact: true }).first().click();
+    await clickMenu(page, 'ประวัติรับยา');
     // ภายใน 1 วินาที ต้องเห็นอะไรซักอย่าง (header/back button/spinner) — ไม่ใช่ blank
     const hasVisualSignal = await page.locator('button, header, svg, h1, h2').first()
       .isVisible({ timeout: 1_500 }).catch(() => false);
