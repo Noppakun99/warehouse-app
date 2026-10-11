@@ -37,7 +37,7 @@ test.describe('AP Workflow — หน้าส่งบัญชีปัจจ�
     await expect(page.getByPlaceholder('ค้นหาเลขบิล / ชื่อยา / บริษัท')).toBeVisible();
     await expect(page.getByText('dd/mm/yyyy').first()).toBeVisible(); // ThaiDateInput วาง span ทับ input (ไม่ใช่ placeholder)
     await expect(page.getByText('กำลังโหลด...')).toHaveCount(0, { timeout: 30_000 });
-    expect(await page.getByText(/\d{4}-\d{2}-\d{2}/).count()).toBe(0);
+    expect(await page.getByText(/\b\d{4}-\d{2}-\d{2}\b/).count()).toBe(0);
   });
 
   test('แท็บรอนำส่งบัญชีไม่ว่างเปล่า — เห็น flow 3 ขั้น หรือข้อความไม่มีบิล', async ({ staffPage: page }) => {

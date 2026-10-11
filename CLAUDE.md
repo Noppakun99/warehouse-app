@@ -232,6 +232,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | แผนงานปรับกระบวนการคลังตาม INVS (roadmap 11 ข้อ + งานที่ค้าง) | [docs/handoff-invs-2026-08-24.md](docs/handoff-invs-2026-08-24.md) | สานงานโครงสร้างหน่วยงาน / จ่ายด่วน / ค้างจ่าย ต่อ |
 | External: Nate Herk (YouTube) — วิธีทำงานกับ Claude Code/AI (skill, บริบท, ตรวจงาน, permission, LLM Wiki) + เทียบกับ repo นี้ | [docs/reference-nateherk-ai-automation.md](docs/reference-nateherk-ai-automation.md) | ก่อนปรับ CLAUDE.md / skill / hook / ออกแบบฟีเจอร์ AI ในแอป |
 | External: 2 คลิปสร้างแอปด้วย Claude (Expo native + หลังบ้านแยก / เว็บ + Supabase) — เลือก PWA โค้ดชุดเดียว, ล็อกการจองต้องบังคับฝั่ง DB, ช่องว่างมือถือของเรา | [docs/reference-mobile-app-videos.md](docs/reference-mobile-app-videos.md) | ทำให้มือถือใช้ได้เหมือนคอม / ก่อน pilot เบิกยาออนไลน์ / คิดทำแอป native-PWA |
+| อ้างอิงดีไซน์เมนู sidebar + แผนผังคลังยา (Dribbble InventiEase/Untitled UI + YouTube NN/g, DesignCourse, Bin Location Labeling) — หลักการที่ใช้ + ที่ยังไม่ทำ | [docs/reference-sidebar-map-design.md](docs/reference-sidebar-map-design.md) | ก่อนปรับเมนู/หน้าแผนผังอีกรอบ |
 
 ## Skills (`.claude/skills/`)
 
