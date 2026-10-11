@@ -205,6 +205,8 @@ const DISPENSE_EXCEL_COLS = [
 // เป็นแค่ค่าเริ่มต้น เปลี่ยน/ล้างได้ ไม่ใช่การจำกัดสิทธิ์
 export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBack, initialDept = '' }) {
   const [showSummary, setShowSummary] = useState(false);
+  // ตัวกรองที่ตั้งอยู่ในหน้า → ส่งให้โมดอลสรุปเป็นค่าเริ่มต้น (เดิมเปิดมาทุกหน่วยงาน/ทุกช่วงเสมอ ไม่ตรงตารางที่ดูอยู่)
+  const [viewFilters, setViewFilters] = useState({});
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
   const isAdmin = auth.role === 'admin';
 
@@ -228,8 +230,8 @@ export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBa
         </div>
       </div>
 
-      <DispenseView isAdmin={isAdmin} auth={auth} initialDept={initialDept} />
-      {showSummary      && <DispenseSummaryModal onClose={() => setShowSummary(false)} />}
+      <DispenseView isAdmin={isAdmin} auth={auth} initialDept={initialDept} onFiltersChange={setViewFilters} />
+      {showSummary      && <DispenseSummaryModal initial={viewFilters} onClose={() => setShowSummary(false)} />}
     </div>
   );
 }
@@ -399,7 +401,7 @@ function EditModal({ row, onClose, onSaved, auth = {} }) {
 // ============================================================
 // View / Search
 // ============================================================
-function DispenseView({ isAdmin = false, auth = {}, initialDept = '' }) {
+function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersChange }) {
   const [rows, setRows]             = useState([]);
   const [loading, setLoading]       = useState(true);
   const [exportLoading, setExportLoading] = useState(false);
@@ -561,6 +563,8 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '' }) {
   const scopeLabel = [deptFilter, typeFilter].filter(Boolean).join(' · ');
 
   const clearAll = () => { setSearch(''); setDeptFilter(''); setTypeFilter(''); setDateFrom(''); setDateTo(''); setPage(0); };
+
+  useEffect(() => { onFiltersChange?.({ dept: deptFilter, dateFrom, dateTo }); }, [onFiltersChange, deptFilter, dateFrom, dateTo]);
 
   const handleDelete = async (row, e) => {
     e.stopPropagation();
@@ -760,18 +764,18 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '' }) {
           </div>
 
           {/* Summary cards */}
-          <div className="grid grid-cols-3 gap-3 px-4 py-3">
-            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
-              <p className="text-2xl font-bold text-white tabular-nums">{filteredDrugRows.length.toLocaleString()}</p>
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 px-4 py-3">
+            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-slate-300/50">
+              <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{filteredDrugRows.length.toLocaleString()}</p>
               <p className="text-xs text-slate-300 mt-0.5">รายการ (กรอง)</p>
             </div>
-            <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-3.5 text-center shadow-lg shadow-rose-300/60">
+            <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-rose-300/60">
               <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
-              <p className="relative text-2xl font-bold text-white tabular-nums">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+              <p className="relative text-base sm:text-2xl font-bold text-white tabular-nums break-all">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
               <p className="relative text-xs text-rose-50 mt-0.5">ปริมาณรวม (ออก)</p>
             </div>
-            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
-              <p className="text-2xl font-bold text-white tabular-nums">{drugTotalVal.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-amber-200/60">
+              <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{drugTotalVal.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
               <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวม (บาท)</p>
             </div>
           </div>
@@ -877,18 +881,18 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '' }) {
               <span className="text-slate-600 dark:text-slate-300">{dateDiff(aggStats.minDate, aggStats.maxDate)}</span>
             </div>
           )}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
-              <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-slate-300/50">
+              <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
               <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{scopeLabel ? ` (${scopeLabel})` : ' ทุกหน่วยงาน'}</p>
             </div>
-            <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-3.5 text-center shadow-lg shadow-rose-300/60">
+            <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-rose-300/60">
               <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
-              <p className="relative text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.drugCount.toLocaleString() : '...'}</p>
+              <p className="relative text-base sm:text-2xl font-bold text-white tabular-nums break-all">{aggStats ? aggStats.drugCount.toLocaleString() : '...'}</p>
               <p className="relative text-xs text-rose-50 mt-0.5">จำนวนชนิดยา{scopeLabel ? ` (${scopeLabel})` : ' ทุกหน่วยงาน'}</p>
             </div>
-            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
-              <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
+            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-amber-200/60">
+              <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
               <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวม (บาท){scopeLabel ? ` (${scopeLabel})` : ' ทุกหน่วยงาน'}</p>
             </div>
           </div>
@@ -1184,11 +1188,14 @@ function ValTip({ active, payload, label, lbl, money }) {
   );
 }
 
-function DispenseSummaryModal({ onClose }) {
+// initial = ตัวกรองที่ตั้งอยู่ในหน้าประวัติเบิก { dept, dateFrom, dateTo } (DD/MM/YYYY พ.ศ. แบบเดียวกับ ThaiDateInput) — เปลี่ยนต่อในโมดอลได้
+function DispenseSummaryModal({ onClose, initial = {} }) {
   const [activeTab, setActiveTab]   = useState('overview'); // 'overview' | 'monthly'
-  const [dateFrom, setDateFrom]     = useState('');
-  const [dateTo, setDateTo]         = useState('');
-  const [deptFilter, setDeptFilter] = useState('');
+  const [dateFrom, setDateFrom]     = useState(initial.dateFrom || '');
+  const [dateTo, setDateTo]         = useState(initial.dateTo || '');
+  const [deptFilter, setDeptFilter] = useState(initial.dept || '');
+  // ช่วงวันที่ตั้งมาจากหน้า ห้ามให้ค่า "วันแรก–วันล่าสุดในระบบ" ที่โหลดตามมาทับ
+  const [seeded] = useState(() => ({ from: !!initial.dateFrom, to: !!initial.dateTo }));
   const [departments, setDepts]     = useState([]);
   const [stats, setStats]           = useState(null);
   const [loading, setLoading]       = useState(true);
@@ -1232,10 +1239,10 @@ function DispenseSummaryModal({ onClose }) {
     });
     // ดึงวันแรก-วันล่าสุด → แปลงเป็น dd/mm/yyyy (ใช้ทั้งตั้งค่า date input และแสดงช่วงข้อมูลจริง)
     supabase.from('dispense_logs').select('dispense_date').order('dispense_date', { ascending: true  }).limit(1)
-      .then(({ data }) => { if (data?.[0]?.dispense_date) { const t = isoToThai(data[0].dispense_date); setDateFrom(t); setDataRange(r => ({ ...r, from: t })); } });
+      .then(({ data }) => { if (data?.[0]?.dispense_date) { const t = isoToThai(data[0].dispense_date); if (!seeded.from) setDateFrom(t); setDataRange(r => ({ ...r, from: t })); } });
     supabase.from('dispense_logs').select('dispense_date').order('dispense_date', { ascending: false }).limit(1)
-      .then(({ data }) => { if (data?.[0]?.dispense_date) { const t = isoToThai(data[0].dispense_date); setDateTo(t); setDataRange(r => ({ ...r, to: t })); } });
-  }, []);
+      .then(({ data }) => { if (data?.[0]?.dispense_date) { const t = isoToThai(data[0].dispense_date); if (!seeded.to) setDateTo(t); setDataRange(r => ({ ...r, to: t })); } });
+  }, [seeded]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -1535,7 +1542,7 @@ function DispenseSummaryModal({ onClose }) {
                 const deptValPct  = (topDeptVal && stats.totalValue > 0) ? Math.round(topDeptVal[1] / stats.totalValue * 100) : 0;
                 const avgPerDay   = stats.uniqueDays > 0 ? Math.round(stats.totalValue / stats.uniqueDays) : 0;
                 return (<>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-2 sm:gap-3">
                   {[
                     { label:'รายการเบิกทั้งหมด', value: cardTotal != null ? cardTotal.toLocaleString() : '...', unit:`รายการ (${filterLabel})`, Icon: FileSpreadsheet, bg:'bg-indigo-50 dark:bg-indigo-950/40', bd:'border-indigo-200 dark:border-indigo-900/60', lbl:'text-indigo-600', val:'text-indigo-900 dark:text-indigo-200' },
                     { label:'จำนวนวันที่มีการเบิก', value: cardDays != null ? cardDays.toLocaleString() : '...', unit:`วัน (${filterLabel})`, Icon: CalendarDays, bg:'bg-rose-50 dark:bg-rose-950/40', bd:'border-rose-200 dark:border-rose-900/60', lbl:'text-rose-600', val:'text-rose-900 dark:text-rose-200' },
