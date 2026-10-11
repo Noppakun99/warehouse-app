@@ -160,6 +160,8 @@ function notifMessage(n) {
     case 'requester_delete_requisition':
     case 'delete_requisition':
       return `${who} ลบใบเบิก${reqRef ? ` ${reqRef}` : ''} · ${n.department}`;
+    case 'add_annual_count_lot':
+      return `${who} เพิ่ม lot เข้ารอบตรวจนับประจำปี${d.name ? ` "${d.name}"` : ''}${d.lot ? ` Lot ${d.lot}` : ''}`;
     default:
       return `${who} · ${n.department}`;
   }
