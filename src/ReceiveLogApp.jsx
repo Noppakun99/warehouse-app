@@ -3370,7 +3370,7 @@ function ApWorkflow({ auth, onBack }) {
     } catch (e) {
       const msg = e.message || 'โหลดข้อมูลไม่สำเร็จ';
       if (msg.includes('acknowledged_at') && msg.includes('does not exist')) {
-        setError('⚠️ ยังไม่ได้รัน migration!\nไป Supabase Dashboard → SQL Editor\nrun ไฟล์: ap_acknowledge_migration.sql\nแล้ว refresh หน้านี้');
+        setError('ยังไม่ได้รัน migration!\nไป Supabase Dashboard → SQL Editor\nrun ไฟล์: ap_acknowledge_migration.sql\nแล้ว refresh หน้านี้');
       } else {
         setError(msg);
       }
@@ -3616,7 +3616,7 @@ function ApWorkflow({ auth, onBack }) {
     } catch (e) {
       const msg = e.message || 'บันทึกไม่สำเร็จ';
       if (msg.includes('acknowledged_at') && msg.includes('does not exist')) {
-        setError('⚠️ ยังไม่ได้รัน migration!\nไป Supabase Dashboard → SQL Editor\nrun ไฟล์: ap_acknowledge_migration.sql');
+        setError('ยังไม่ได้รัน migration!\nไป Supabase Dashboard → SQL Editor\nrun ไฟล์: ap_acknowledge_migration.sql');
       } else {
         setError(msg);
       }

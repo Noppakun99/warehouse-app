@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import {
   Activity, TrendingUp, Package, Building2, Banknote, RefreshCcw,
-  BarChart2, CalendarDays, FileText, Layers, AlertTriangle, ChevronDown, ChevronUp, FileDown,
+  BarChart2, CalendarDays, FileText, Layers, AlertTriangle, ChevronDown, ChevronUp, FileDown, LayoutDashboard, AlertOctagon,
 } from 'lucide-react';
 import { fetchDispenseAnalytics } from './lib/db';
 import BackButton from './BackButton';
@@ -485,9 +485,9 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
   const displayedDepts = showAllDepts ? topDeptsValue : topDeptsValue.slice(0, 5);
 
   const TABS = [
-    { id: 'summary',   icon: '🏥', label: 'ภาพรวม' },
-    { id: 'inventory', icon: '📦', label: 'คลังยา / ABC' },
-    { id: 'forecast',  icon: '📈', label: 'แนวโน้ม' },
+    { id: 'summary',   icon: LayoutDashboard, label: 'ภาพรวม' },
+    { id: 'inventory', icon: Package,         label: 'คลังยา / ABC' },
+    { id: 'forecast',  icon: TrendingUp,      label: 'แนวโน้ม' },
   ];
 
   // ============================================================
@@ -541,7 +541,7 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
               className={`flex-1 py-3 text-xs font-semibold border-b-2 transition-all flex flex-col items-center gap-0.5 ${
                 activeTab === tab.id ? 'border-[#1E90FF] text-[#1E90FF]' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
               }`}>
-              <span className="text-base leading-none">{tab.icon}</span>
+              <tab.icon size={16} />
               {tab.label}
             </button>
           ))}
@@ -934,7 +934,7 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                     <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">มูลค่าเบิกเดือนเดียวกันของแต่ละปี — ระบุช่วงฤดูกาลที่การใช้ยาพุ่งสูงเป็นประจำ</p>
                     {!yoySufficient && (
                       <div className="text-xs text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-900/60 px-3 py-2 rounded-lg mb-3 flex items-start gap-2">
-                        <span className="shrink-0">⚠️</span>
+                        <AlertTriangle size={14} className="shrink-0 mt-0.5" />
                         <span>
                           ข้อมูลปีอ้างอิงน้อยกว่า 6 เดือน ({yoyYears.slice(0,-1).map(y => `ปี ${parseInt(y)+543}: ${yoyMonthsPerYear[y]} เดือน`).join(', ')}) — ควรรวบรวมข้อมูลให้ครบ 12 เดือนก่อนนำไปตีความ
                         </span>
@@ -982,12 +982,12 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                     </div>
                     {!forecastReliable && (
                       <div className="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 px-3 py-2 rounded-lg mb-2 flex items-start gap-2">
-                        <span className="shrink-0">🚨</span>
+                        <AlertOctagon size={14} className="shrink-0 mt-0.5" />
                         <span>ข้อมูลมีเพียง <strong>{monthlyTrend.length} เดือน</strong> — ต้องการอย่างน้อย 6 เดือน ตัวเลขเป็นเพียงการประมาณเบื้องต้น</span>
                       </div>
                     )}
                     <div className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 px-3 py-2 rounded-lg mb-4 flex items-start gap-2">
-                      <span className="shrink-0">⚠️</span>
+                      <AlertTriangle size={14} className="shrink-0 mt-0.5" />
                       <span>{forecastModel === 'linear' ? 'Linear Regression — เหมาะเมื่อแนวโน้มเป็นเส้นตรงต่อเนื่อง' : "Exponential Smoothing (Holt's) — ให้น้ำหนักข้อมูลล่าสุดมากกว่า เหมาะเมื่อแนวโน้มเปลี่ยนเร็ว"} ใช้ประเมินทิศทางเท่านั้น</span>
                     </div>
                     <ResponsiveContainer width="100%" height={280}>

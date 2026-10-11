@@ -1231,7 +1231,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                   </div>
                 ))}
               </div>
-              {showColumnGuide === 'drug' && <p className="text-xs text-slate-400 dark:text-slate-500">💡 สามารถใช้ไฟล์ Log คลังยาไฟล์เดียวกันได้</p>}
+              {showColumnGuide === 'drug' && <p className="text-xs text-slate-400 dark:text-slate-500">สามารถใช้ไฟล์ Log คลังยาไฟล์เดียวกันได้</p>}
             </div>
           )}
         </div>
