@@ -255,6 +255,7 @@ export default function AppRoot() {
         <DrugProfileModal
           code={drugCode}
           isStaff={auth.role === 'staff' || auth.role === 'admin'}
+          department={auth.department}
           onClose={() => setDrugCode(null)}
           onOpenStockCard={openStockCardFor}
         />

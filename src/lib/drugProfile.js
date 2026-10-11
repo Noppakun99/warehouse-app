@@ -7,6 +7,8 @@
 //   isPurchaseReceipt     = บิล "การซื้อ" ที่ใช้เลือกหน่วยซื้อล่าสุด (fetchLatestReceiptInfo / ReorderApp)
 //   parseExpDate / parseUnitFactor = ตัวเดียวกับที่ db.js ใช้ (ย้ายมาที่นี่ให้ node รัน test ได้)
 
+import { computeStats, fmtCoverage, thaiMonthLabel } from './reorder.js'
+
 const toNum = (v) => parseFloat(String(v ?? '0').replace(/,/g, '')) || 0
 
 // "450ml" → { factor: 450, base: 'ml' } · "vial" → { factor: 1, base: 'vial' }
@@ -48,14 +50,16 @@ export function parseExpDate(raw) {
   return null
 }
 
-// "รอตรวจรับมา N วัน" — สูตรเดียวกับ fetchDashboardAlerts (คิว "รอตรวจรับเกิน 14 วัน") ห้ามแยกสูตร
-// ⚠️ new Date('YYYY-MM-DD') = เที่ยงคืน UTC (07:00 ไทย) → นับขาด 1 วัน — แจ้ง user 11/10/2569 ยังไม่แก้
-//    (แก้ที่นี่ที่เดียวแล้วทุกจุดตรงกัน)
+// "รอตรวจรับมา N วัน" — ใช้ร่วม Dashboard (คิว "รอตรวจรับเกิน 14 วัน") · หน้าตรวจนับ · บัตรยา ห้ามแยกสูตร
+// receive_date เป็นชนิด date ('YYYY-MM-DD') → อ่านเป็นเที่ยงคืน local
+// (เดิม new Date('YYYY-MM-DD') = เที่ยงคืน UTC = 07:00 ไทย → นับขาด 1 วันทุกจุด — แก้ 11/10/2569)
 export function waitDaysSince(receiveIso, today0) {
-  return receiveIso ? Math.floor((today0 - new Date(receiveIso)) / 86400000) : null
+  if (!receiveIso) return null
+  const d = parseExpDate(String(receiveIso).slice(0, 10)) || new Date(receiveIso)
+  return Math.floor((today0 - d) / 86400000)
 }
 
-export const isDiscontinuedRow =(row) => String(row?.receive_status || '').includes('ตัดออก')
+export const isDiscontinuedRow = (row) => String(row?.receive_status || '').includes('ตัดออก')
 export const isPendingRow = (row) => String(row?.receive_status || '').includes('รอตรวจรับ')
 
 // บิลการซื้อจริง (ไม่ใช่บริจาค/ยืม/คืน และราคา > 0) — หน่วยของบิลนี้คือ "หน่วยซื้อล่าสุด"
@@ -160,7 +164,13 @@ const round2 = (n) => Math.round(n * 100) / 100
 // purchaseUnit   = latestPurchaseUnit(receive_logs ของรหัส)
 // receiveDates   = { 'code|lot' (lowercase) → receive_date ล่าสุด ISO } สำหรับ "รอตรวจรับมา N วัน"
 // excludeStatus  = drug_reorder_config.exclude_status ของรหัส
-export function buildDrugProfile({ rows = [], purchaseUnit = null, receiveDates = {}, excludeStatus = null, today = new Date() }) {
+// receiveRows    = receive_logs ของรหัส เรียงใหม่→เก่า — บิลของ lot + ประวัติรับ (Phase 2b)
+// usage          = { months: ['YYYY-MM'…], monthsBase: { ym → เม็ด } } จาก fetchMonthlyDispenseUsage ช่วงเดียวกับ ReorderApp
+// dispenseRows   = dispense_logs ของรหัส เรียงใหม่→เก่า · department = หน่วยงานผู้เบิก (null = ทุกหน่วยงาน — staff)
+export function buildDrugProfile({
+  rows = [], purchaseUnit = null, receiveDates = {}, excludeStatus = null, today = new Date(),
+  receiveRows = [], usage = null, dispenseRows = [], department = null,
+}) {
   if (!rows.length) return null
   const t0 = new Date(today); t0.setHours(0, 0, 0, 0)
   const first = rows.find(r => r.name) || rows[0]
@@ -193,7 +203,7 @@ export function buildDrugProfile({ rows = [], purchaseUnit = null, receiveDates 
     const k = `${lot}|${expKey}|${r.unit || ''}`
     let L = lotMap.get(k)
     if (!L) {
-      L = { key: k, lot, unit: r.unit || '-', qty: 0, exps: [], locations: [], zones: [], invoices: [], rowCount: 0, pending: false }
+      L = { key: k, lot, unit: r.unit || '-', qty: 0, exps: [], locations: [], zones: [], invoices: [], byInvoice: {}, rowCount: 0, pending: false }
       lotMap.set(k, L)
     }
     L.qty += toNum(r.qty)
@@ -202,6 +212,8 @@ export function buildDrugProfile({ rows = [], purchaseUnit = null, receiveDates 
     L.locations.push(...splitLoc(r.location))
     L.zones.push(r.main_log)
     L.invoices.push(r.invoice)
+    const inv = String(r.invoice || '').trim()
+    if (inv && inv !== '-') L.byInvoice[inv] = (L.byInvoice[inv] || 0) + toNum(r.qty)
     if (isPendingRow(r)) L.pending = true
   }
 
@@ -218,6 +230,7 @@ export function buildDrugProfile({ rows = [], purchaseUnit = null, receiveDates 
       exp: exps.join(', ') || '-', expDate, daysLeft, expired,
       locations: uniq(L.locations), zones: uniq(L.zones), invoices: uniq(L.invoices),
       pending: L.pending, waitDays,
+      ...lotBills({ lot: L.lot, qty: L.qty, byInvoice: L.byInvoice }, receiveRows),
     }
   }).sort((a, b) => {
     if (a.expDate && b.expDate) return a.expDate - b.expDate
@@ -259,5 +272,98 @@ export function buildDrugProfile({ rows = [], purchaseUnit = null, receiveDates 
     discontinued: ssAgg.discontinued,
     discontinuedQty: round2(discontinuedQty),
     excludeStatus: excludeStatus || null,
+    rate: usageRate({ usage, rows, mainUnit }),
+    dispenseHistory: dispenseHistory(dispenseRows, department),
+    receiveHistory: receiveRows.slice(0, HISTORY_LIMIT).map(receiveView),
+    lastReceiveDate: receiveRows.reduce((m, r) => (r.receive_date && (!m || r.receive_date > m) ? r.receive_date : m), null),
   }
+}
+
+// ── Phase 2b: บิลของ lot · เรท · ประวัติเบิก/รับ ────────────────────────────
+export const HISTORY_LIMIT = 10
+
+const normLot = (s) => String(s || '').trim().toLowerCase() || '-'
+
+// บิลของ lot (CONTEXT §บัตรยา): บริษัท/ราคา/บิล = ของบิลที่ lot นั้นรับเข้ามาจริง ห้ามยืมบิลระดับรหัส
+//   lot จริง → แถว receive_logs ที่ lot ตรง (รหัสถูกกรองมาแล้วตอน query)
+//   lot '-'  → จับด้วยเลขบิลของแถว inventory เท่านั้น (lot '-' ของรหัสเดียวกันมีหลายบิลข้ามปี — จับด้วย lot = ยืมบิลอื่น)
+// หลายบิล = แยกรายบิล ไม่เฉลี่ยราคา · คงเหลือรายบิลรู้ได้เฉพาะแถว inventory ที่เลขบิลตรง (ไม่ตรง = null ไม่ใช่ 0)
+export function lotBills({ lot, qty, byInvoice = {} }, receiveRows = []) {
+  const invoices = new Set(Object.keys(byInvoice).map(s => s.toLowerCase()))
+  const hit = lot === '-'
+    ? receiveRows.filter(r => invoices.has(String(r.bill_number || '').trim().toLowerCase()))
+    : receiveRows.filter(r => normLot(r.lot) === normLot(lot))
+  const map = new Map()
+  for (const r of hit) {
+    const billNumber = String(r.bill_number || '').trim() || '-'
+    const k = `${billNumber}|${String(r.supplier_current || '').trim()}|${r.receive_date || ''}`
+    let b = map.get(k)
+    if (!b) {
+      b = {
+        key: k, billNumber, supplier: String(r.supplier_current || '').trim() || '-', receiveDate: r.receive_date || null,
+        price: toNum(r.price_per_unit), unit: r.drug_unit || '-', purchaseType: String(r.purchase_type || '').trim() || null,
+        qtyReceived: 0, remaining: null,
+      }
+      map.set(k, b)
+    }
+    b.qtyReceived += toNum(r.qty_received)
+  }
+  const bills = [...map.values()].sort((a, b) => String(b.receiveDate || '').localeCompare(String(a.receiveDate || '')))
+  // คงเหลือรายบิล — แถว inventory บอกเลขบิล → ยกยอดของแถวนั้นให้บิลแรกที่เลขตรง (บิลเลขซ้ำคนละวันรับ ได้แค่ใบล่าสุด)
+  let assigned = 0
+  for (const [inv, q] of Object.entries(byInvoice)) {
+    const b = bills.find(x => x.billNumber.toLowerCase() === inv.toLowerCase())
+    if (b) { b.remaining = round2((b.remaining || 0) + q); assigned += q }
+  }
+  bills.forEach(b => { b.qtyReceived = round2(b.qtyReceived) })
+  const sameUnit = uniq(bills.map(b => b.unit)).length === 1
+  const prices = bills.map(b => b.price)
+  return {
+    bills,
+    // คงเหลือที่บอกไม่ได้ว่ามาจากบิลไหน (แถว inventory เลขบิลว่าง/ไม่ตรงบิลใด)
+    unassignedQty: bills.length ? round2(qty - assigned) : null,
+    priceRange: bills.length && sameUnit ? { min: Math.min(...prices), max: Math.max(...prices), unit: bills[0].unit } : null,
+  }
+}
+
+// เรท = กฎหน้าวิเคราะห์สั่งซื้อ (ReorderApp.runAnalysis): ยอดเบิกรายเดือน(เม็ด) ÷ packsize หน่วยหลัก → computeStats
+// (เดือนที่ไม่มีเบิก = 0 นับเป็นตัวหาร) · คงอยู่ได้อีก = คงเหลือทุกแถว (เม็ด, กฎ stockInfo ของ ReorderApp) ÷ Avg/วัน
+export function reorderStockBase(rows = []) {
+  return rows.reduce((s, r) => s + toNum(r.qty) * parseUnitFactor(r.unit).factor, 0)
+}
+export function usageRate({ usage, rows = [], mainUnit }) {
+  if (!usage?.months?.length) return null
+  const pack = parseUnitFactor(mainUnit).factor || 1
+  const monthly = usage.months.map(ym => (usage.monthsBase?.[ym] || 0) / pack)
+  const { avgMonth, avgDay } = computeStats(monthly)
+  const stock = reorderStockBase(rows) / pack
+  return {
+    avgMonth: round2(avgMonth),
+    avgDay,
+    unit: mainUnit,
+    months: usage.months,
+    monthLabel: `${thaiMonthLabel(usage.months[0])}–${thaiMonthLabel(usage.months[usage.months.length - 1])}`,
+    coverage: fmtCoverage(stock, avgDay),
+    coverageDays: avgDay > 0 ? Math.floor(stock / avgDay) : null,
+  }
+}
+
+// ชื่อหน่วยงาน 2 ระบบเขียนไม่ตรงกัน: app_users "ห้องยา G" / "ER (ฉุกเฉิน)" vs dispense_logs "ห้องยาG" / "ER"
+// → ตัดข้อความในวงเล็บ + ช่องว่าง + ตัวพิมพ์ แล้วเทียบ (ตรวจ 10/10/2569: ตรงครบ 3 หน่วยงานที่มีประวัติเบิก)
+export const normDept = (s) => String(s || '').replace(/\(.*?\)/g, '').replace(/\s+/g, '').toLowerCase()
+
+const dispenseView = (r) => ({
+  date: r.dispense_date || null, department: r.department || '-', lot: r.lot || '-',
+  qty: round2(toNum(r.qty_out)), unit: r.drug_unit || '-', itemType: r.item_type || null, note: r.note || null,
+})
+const receiveView = (r) => ({
+  date: r.receive_date || null, billNumber: r.bill_number || '-', supplier: r.supplier_current || '-', lot: r.lot || '-',
+  qty: round2(toNum(r.qty_received)), unit: r.drug_unit || '-', price: toNum(r.price_per_unit), purchaseType: r.purchase_type || null,
+})
+
+// ประวัติเบิก: department = null → ทุกหน่วยงาน (staff) · มีค่า → เฉพาะหน่วยงานนั้น (ผู้เบิก — CONTEXT §บัตรยา)
+export function dispenseHistory(sortedRows = [], department = null) {
+  const own = department ? normDept(department) : null
+  const matched = own ? sortedRows.filter(r => normDept(r.department) === own) : sortedRows
+  return { department: department || null, total: matched.length, rows: matched.slice(0, HISTORY_LIMIT).map(dispenseView) }
 }

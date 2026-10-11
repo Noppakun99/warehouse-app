@@ -9,6 +9,7 @@ import {
   parseUnitFactor, parseExpDate as _parseExpDate, waitDaysSince, isBelowSafetyStock, isPurchaseReceipt,
   pickMainUnit, stockTotalInMainUnit, latestPurchaseUnit, buildSearchIndex, buildDrugProfile,
 } from './drugProfile.js'
+import { isoMonthsAgo, isoPrevMonthEnd, listMonthYM } from './reorder.js'
 // ReorderApp import parseUnitFactor จาก db.js มาแต่เดิม — คงทางเข้าเดิมไว้ (ตัวจริงอยู่ drugProfile.js)
 export { parseUnitFactor }
 
@@ -2511,9 +2512,11 @@ export async function fetchDrugSearchIndex() {
   return buildSearchIndex(rows)
 }
 
-// บัตรยา 1 รหัส: inventory ทุกแถวของรหัส + receive_logs ของรหัส (หน่วยซื้อล่าสุด + วันรับของ lot ที่รอตรวจรับ)
+// บัตรยา 1 รหัส: inventory ทุกแถวของรหัส + receive_logs ของรหัส (หน่วยซื้อล่าสุด · วันรับของ lot ที่รอตรวจรับ ·
+// บิลของ lot · ประวัติรับ) + dispense_logs ของรหัส (ประวัติเบิก) + ยอดเบิกรายเดือนช่วงเดียวกับหน้าวิเคราะห์สั่งซื้อ (เรท)
 // + exclude_status + เวลานำเข้าล่าสุด → buildDrugProfile. คืน null ถ้าไม่มีรหัสนี้ใน inventory
-export async function fetchDrugProfile(drugCode) {
+// department = หน่วยงานผู้เบิก → ประวัติเบิกเฉพาะหน่วยงานนั้น (null = staff เห็นทุกหน่วยงาน — CONTEXT §บัตรยา)
+export async function fetchDrugProfile(drugCode, { department = null } = {}) {
   const code = String(drugCode || '').trim()
   if (!supabase || !code) return null
 
@@ -2529,18 +2532,27 @@ export async function fetchDrugProfile(drugCode) {
     return out
   }
 
-  const [rows, receiveRows, cfgRes, uploadMeta] = await Promise.all([
+  // หน้าต่างเรท = ค่าตั้งต้นของหน้าวิเคราะห์สั่งซื้อ (4 เดือนที่ปิดงวด) — helper ตัวเดียวกัน
+  const rateFrom = isoMonthsAgo(4)
+  const rateTo = isoPrevMonthEnd()
+
+  const [rows, receiveRows, cfgRes, uploadMeta, dispenseRows, monthly] = await Promise.all([
     // ลำดับ location เดียวกับ fetchAllInventoryRows → หน่วยสำรอง (ไม่มีบิลซื้อ) ตรงกับโมดอลรายการยาในคลัง
     pageAll(() => supabase.from('inventory')
       .select('code, name, type, unit, lot, exp, qty, location, main_log, invoice, safety_stock, receive_status')
       .eq('code', code).order('location').order('id')),
     // ลำดับเดียวกับ fetchLatestReceiptInfo (ใหม่→เก่า, id ใหม่→เก่า) — latestPurchaseUnit พึ่งลำดับนี้
     pageAll(() => supabase.from('receive_logs')
-      .select('drug_code, lot, drug_unit, receive_date, purchase_type, price_per_unit')
+      .select('drug_code, lot, drug_unit, receive_date, purchase_type, price_per_unit, bill_number, supplier_current, qty_received')
       .eq('drug_code', code)
       .order('receive_date', { ascending: false, nullsFirst: false }).order('id', { ascending: false })),
     supabase.from('drug_reorder_config').select('exclude_status').eq('code', code).maybeSingle(),
     fetchUploadMeta().catch(() => null),
+    pageAll(() => supabase.from('dispense_logs')
+      .select('dispense_date, department, lot, qty_out, drug_unit, item_type, note')
+      .eq('drug_code', code)
+      .order('dispense_date', { ascending: false, nullsFirst: false }).order('id', { ascending: false })),
+    fetchMonthlyDispenseUsage(rateFrom, rateTo, { code }),
   ])
   if (!rows.length) return null
 
@@ -2556,6 +2568,10 @@ export async function fetchDrugProfile(drugCode) {
     purchaseUnit: latestPurchaseUnit(receiveRows),
     receiveDates,
     excludeStatus: cfgRes?.data?.exclude_status || null,
+    receiveRows,
+    usage: { months: listMonthYM(rateFrom, rateTo), monthsBase: monthly[code]?.months || {} },
+    dispenseRows,
+    department,
   })
   return profile && { ...profile, inventoryUpdatedAt: uploadMeta?.inventory?.updated_at || null }
 }
@@ -3093,7 +3109,8 @@ export async function bulkUpsertDrugReorderConfig(configs, auth = {}) {
 // ผล: { [drug_code]: { name, unit, months: { 'YYYY-MM': qty } } }
 // กรองแถวที่ไม่ใช่การใช้จริงด้วย isUsageRow — 4 แบบเดียวกับสูตรชีทวิเคราะห์สั่งซื้อ (CONTEXT §เรท)
 // (กฎเดิม main_log/note มีคำว่า บันทึก จับได้เฉพาะบางแถวของ บันทึกเท่านั้น และไม่ตัด ยาโครงการ/คืนยา)
-export async function fetchMonthlyDispenseUsage(fromDate, toDate) {
+// { code } = เฉพาะรหัสเดียว (บัตรยา) — ตรรกะเดิมทุกอย่าง แค่ไม่ต้องดึงทุกยามาทิ้ง
+export async function fetchMonthlyDispenseUsage(fromDate, toDate, { code: onlyCode = null } = {}) {
   if (!supabase) return {}
   const PAGE = 1000
   let off = 0
@@ -3106,6 +3123,7 @@ export async function fetchMonthlyDispenseUsage(fromDate, toDate) {
       .range(off, off + PAGE - 1)
     if (fromDate) q = q.gte('dispense_date', fromDate)
     if (toDate)   q = q.lte('dispense_date', toDate)
+    if (onlyCode) q = q.eq('drug_code', onlyCode)
     const { data, error } = await q
     if (error) throw error
     if (!data || data.length === 0) break

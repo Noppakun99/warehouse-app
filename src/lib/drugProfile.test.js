@@ -7,6 +7,7 @@
 import {
   parseUnitFactor, parseExpDate, stockTotalInMainUnit, latestPurchaseUnit, pickMainUnit,
   ssAggregate, isBelowSafetyStock, buildSearchIndex, searchDrugs, buildDrugProfile,
+  waitDaysSince, lotBills, usageRate, normDept, dispenseHistory, HISTORY_LIMIT,
 } from './drugProfile.js'
 
 let pass = 0, fail = 0
@@ -121,8 +122,7 @@ section('บัตรยา')
   assertDeep(p.lots.map(l => l.lot), ['240101', '250901', '260301', '261010'], 'เรียงตามวันหมดอายุ')
   assertEq(p.useFirst?.lot, '250901', 'lot ที่ควรใช้ก่อน = พร้อมเบิกที่หมดอายุก่อน (ข้ามที่หมดอายุแล้ว)')
   assertEq(p.lots.find(l => l.lot === '240101').expired, true, 'flag หมดอายุ')
-  // 21/09 → 11/10 = 20 วันจริง แต่สูตร Dashboard ได้ 19 (UTC) — test ล็อกว่าบัตรยา = Dashboard; แก้สูตรแล้วเปลี่ยนเป็น 20
-  assertEq(p.lots.find(l => l.lot === '261010').waitDays, 19, 'รอตรวจรับ — สูตรเดียวกับ Dashboard (waitDaysSince)')
+  assertEq(p.lots.find(l => l.lot === '261010').waitDays, 20, 'รอตรวจรับ 21/09 → 11/10 = 20 วัน (เดิมได้ 19 จาก UTC)')
   assertEq(p.pendingLots, 1, 'รอตรวจรับ 1 lot')
   assertEq(p.expiredLots, 1, 'หมดอายุค้าง 1 lot')
   assertEq(p.zeroLots, 1, 'lot ที่หมดแล้ว 1')
@@ -179,6 +179,80 @@ section('บัตรยา')
   assertEq(p.lots.length, 2, "lot '-' คนละ exp = 2 บรรทัด")
   assertDeep(p.lots.map(l => l.qty), [14, 24], 'เรียง exp ก่อน-หลัง พร้อมยอดของตัวเอง')
   assertEq(p.total, 38, 'ยอดรวมยังเท่าเดิม')
+}
+
+section('รอตรวจรับมา N วัน (waitDaysSince)')
+assertEq(waitDaysSince('2026-09-27', TODAY), 14, '27/09 → 11/10 = 14 วันพอดี (ไม่เกิน 14)')
+assertEq(waitDaysSince('2026-09-26', TODAY), 15, '26/09 → 15 วัน (เกิน 14)')
+assertEq(waitDaysSince('2026-10-11', TODAY), 0, 'รับวันนี้ = 0')
+assertEq(waitDaysSince(null, TODAY), null, 'ไม่มีวันรับ = null')
+
+section('บิลของ lot')
+{
+  // Baclofen lot 260301 ของจริง: มาจาก 2 บิล (30 + 10) · แถว inventory ระบุเลขบิลใบล่าสุด
+  const recv = [
+    { lot: '260502', bill_number: 'ML26075531', supplier_current: 'แมคโคร', receive_date: '2026-07-24', price_per_unit: '148.0000', drug_unit: '200เม็ด', qty_received: '15', purchase_type: 'การซื้อ' },
+    { lot: '260301', bill_number: 'ML26063066', supplier_current: 'แมคโคร', receive_date: '2026-06-19', price_per_unit: '148.0000', drug_unit: '200เม็ด', qty_received: '30', purchase_type: 'การซื้อ' },
+    { lot: '260301', bill_number: 'ML26053463', supplier_current: 'แมคโคร', receive_date: '2026-05-25', price_per_unit: '150.5', drug_unit: '200เม็ด', qty_received: '10', purchase_type: 'การซื้อ' },
+  ]
+  const b = lotBills({ lot: '260301', qty: 3, byInvoice: { ML26063066: 3 } }, recv)
+  assertDeep(b.bills.map(x => x.billNumber), ['ML26063066', 'ML26053463'], 'lot จริง → บิลที่ lot ตรงเท่านั้น เรียงใหม่→เก่า')
+  assertDeep(b.bills.map(x => x.remaining), [3, null], 'คงเหลือรายบิลเฉพาะบิลที่แถว inventory ระบุ (อีกบิล = null ไม่ใช่ 0)')
+  assertEq(b.unassignedQty, 0, 'คงเหลือระบุบิลได้ครบ')
+  assertDeep(b.priceRange, { min: 148, max: 150.5, unit: '200เม็ด' }, 'ช่วงราคา ไม่เฉลี่ย')
+
+  const none = lotBills({ lot: '999999', qty: 5, byInvoice: {} }, recv)
+  assertEq(none.bills.length, 0, 'lot ไม่มีบิล → ว่าง (ห้ามยืมบิลของ lot อื่น)')
+  assertEq(none.unassignedQty, null, 'ไม่มีบิล = ไม่บอกคงเหลือรายบิล')
+
+  // lot '-' — จับด้วยเลขบิลของแถว inventory ไม่ใช่ lot
+  const dashRecv = [
+    { lot: '-', bill_number: 'A1', supplier_current: 'X', receive_date: '2026-01-10', price_per_unit: 5, drug_unit: 'ห่อ', qty_received: 20 },
+    { lot: '-', bill_number: 'A2', supplier_current: 'X', receive_date: '2025-06-01', price_per_unit: 4, drug_unit: 'ห่อ', qty_received: 30 },
+    { lot: '-', bill_number: 'A3', supplier_current: 'Y', receive_date: '2024-02-01', price_per_unit: 3, drug_unit: 'ห่อ', qty_received: 10 },
+  ]
+  const d = lotBills({ lot: '-', qty: 15, byInvoice: { A1: 10, 'ไม่มีบิล': 5 } }, dashRecv)
+  assertDeep(d.bills.map(x => x.billNumber), ['A1'], "lot '-' → เฉพาะบิลที่เลขตรงแถว inventory (ไม่เอา A2/A3)")
+  assertEq(d.unassignedQty, 5, 'แถวที่เลขบิลไม่ตรงบิลใด = คงเหลือไม่ระบุบิล')
+  const mixed = lotBills({ lot: 'L1', qty: 1, byInvoice: {} }, [
+    { lot: 'L1', bill_number: 'B1', price_per_unit: 10, drug_unit: '100เม็ด', qty_received: 1 },
+    { lot: 'L1', bill_number: 'B2', price_per_unit: 50, drug_unit: '500เม็ด', qty_received: 1 },
+  ])
+  assertEq(mixed.priceRange, null, 'บิลคนละหน่วย → ไม่ทำช่วงราคา (เทียบกันไม่ได้)')
+}
+
+section('เรท + คงอยู่ได้อีก (กฎหน้าวิเคราะห์สั่งซื้อ)')
+{
+  const usage = { months: ['2026-06', '2026-07', '2026-08', '2026-09'], monthsBase: { '2026-06': 1200, '2026-07': 0, '2026-08': 2400, '2026-09': 1200 } }
+  const rows = [{ qty: 18, unit: '200เม็ด' }, { qty: -1, unit: '200เม็ด', receive_status: 'ตัดออกจากบัญชี' }]
+  const r = usageRate({ usage, rows, mainUnit: '200เม็ด' })
+  assertEq(r.avgMonth, 6, '(6+0+12+6)/4 = 6 กล่อง/เดือน (เดือนที่ไม่เบิกนับเป็น 0)')
+  assertEq(r.avgDay, 0.2, 'Avg/วัน = 6/30 ปัด 4 ตำแหน่ง')
+  assertEq(r.coverageDays, 85, 'คงเหลือทุกแถว (18−1 = 17) ÷ 0.2 = 85 วัน (กฎ stockInfo ของ ReorderApp)')
+  assertEq(r.coverage, '2 ด. 25 วัน', 'รูปแบบเดียวกับหน้าวิเคราะห์สั่งซื้อ')
+  assertEq(r.monthLabel, 'มิ.ย. 69–ก.ย. 69', 'เขียนช่วงเดือนกำกับ')
+  assertEq(usageRate({ usage: { months: ['2026-09'], monthsBase: {} }, rows, mainUnit: '200เม็ด' }).coverage, '∞', 'ไม่มีการเบิก + มีของ = ∞')
+  assertEq(usageRate({ usage: null, rows, mainUnit: 'x' }), null, 'ไม่มีข้อมูลเรท = null')
+}
+
+section('ประวัติเบิก: เฉพาะหน่วยงานตัวเอง')
+{
+  assertEq(normDept('ห้องยา G'), normDept('ห้องยาG'), 'ตัดช่องว่าง')
+  assertEq(normDept('ER (ฉุกเฉิน)'), normDept('ER'), 'ตัดข้อความในวงเล็บ')
+  const rows = [
+    { dispense_date: '2026-10-02', department: 'ห้องยาG', qty_out: '5', drug_unit: '200เม็ด', lot: 'A' },
+    { dispense_date: '2026-10-01', department: 'ห้องยา1', qty_out: '10', drug_unit: '200เม็ด', lot: 'A' },
+    { dispense_date: '2026-09-01', department: 'ห้องยาG', qty_out: '2', drug_unit: '200เม็ด', lot: 'B' },
+  ]
+  const g = dispenseHistory(rows, 'ห้องยา G')
+  assertEq(g.total, 2, 'ผู้เบิกห้องยา G เห็น 2 แถวของตัวเอง')
+  assertDeep(g.rows.map(r => r.qty), [5, 2], 'ไม่มีแถวของห้องยา1')
+  assertEq(dispenseHistory(rows, null).total, 3, 'staff (department null) เห็นทุกหน่วยงาน')
+  assertEq(dispenseHistory(rows, 'คลังยา').total, 0, 'หน่วยงานที่ไม่มีประวัติ = 0 (UI แสดง empty state)')
+  const many = Array.from({ length: 25 }, (_, i) => ({ dispense_date: '2026-09-01', department: 'ER', qty_out: i }))
+  const e = dispenseHistory(many, 'ER (ฉุกเฉิน)')
+  assertEq(e.rows.length, HISTORY_LIMIT, `แสดงล่าสุด ${HISTORY_LIMIT} แถว`)
+  assertEq(e.total, 25, 'แต่บอกจำนวนทั้งหมด')
 }
 
 console.log(`\n${pass} ผ่าน · ${fail} ตก`)

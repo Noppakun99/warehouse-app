@@ -213,6 +213,18 @@
 - หน่วยแบบ `200เม็ด`/`500เม็ด` บนบัตร (ยอด "18 200เม็ด" = 18 กล่องละ 200) — ปัญหาเดียวกับ memory project_unit_display_ambiguous ยังไม่แก้
 - **Phase 2b ถัดไป:** บิลของ lot (lot `-` จับด้วย invoice ของแถว 21/37 ไม่ใช่ code+lot · lot จริง code+lot = code+lot+exp 560/579 ตรงกันหมด) · เรท + ช่วงเดือน (`fetchMonthlyDispenseUsage` เพิ่มตัวกรองรหัส · ย้ายหน้าต่าง 4 เดือนของ ReorderApp เป็น helper กลาง) · คงอยู่ได้อีก · ประวัติเบิกหน่วยงานตัวเอง (`normDept` — "คลังยา"/"ทดลองระบบ" ไม่มีประวัติ ต้องมี empty state) · ประวัติรับ (staff) · ความสดของบิล = receive_date ล่าสุด (ห้ามใช้ upload_meta `drug_details` ค้าง 26/03)
 
+### 11.7 Phase 2b — บิลของ lot · เรท · ประวัติเบิก/รับ (11/10/2569) — ✅ โค้ดเสร็จ + verify · ยังไม่ commit
+
+**ไฟล์:** `src/lib/drugProfile.js` (+ `lotBills` · `usageRate` · `reorderStockBase` · `normDept` · `dispenseHistory` · แก้ `waitDaysSince`) · test 95 · `src/lib/reorder.js` (ย้าย `fmtCoverage`/`isoMonthsAgo`/`isoPrevMonthEnd`/`listMonthYM`/`thaiMonthLabel` มาจาก ReorderApp ไม่เปลี่ยนพฤติกรรม) · `ReorderApp.jsx` (import แทน) · `db.js` (`fetchDrugProfile(code, { department })` ดึง dispense_logs ของรหัส + เรทช่วงเดียวกับหน้าวิเคราะห์ · `fetchMonthlyDispenseUsage(from, to, { code })`) · `DrugProfileModal.jsx` · `AppRoot.jsx` (ส่ง department)
+
+**กฎ:** บิลของ lot จริง = receive_logs ที่ lot ตรง · lot `-` = เลขบิลของแถว inventory เท่านั้น · หลายบิลกางรายบิล ไม่เฉลี่ย · คงเหลือรายบิล = เฉพาะแถว inventory ที่ระบุเลขบิล (อื่น = "—" ไม่ใช่ 0) · เรท/คงอยู่ได้อีก = สูตร ReorderApp (4 เดือนปิดงวด, คงเหลือ**ทุกแถว**รวมตัดออก/ติดลบ ÷ Avg/วัน) · ประวัติเบิก ผู้เบิก = เฉพาะหน่วยงานตัวเอง (`normDept`) staff = ทุกหน่วยงาน · ล่าสุด 10 แถว + บอกจำนวนทั้งหมด · ประวัติรับ = staff เท่านั้น · จำนวนกับหน่วยแยกคอลัมน์ทุกตาราง
+
+**verify (ข้อมูลจริง):** เรท+คงอยู่ได้อีก ตรงกับสูตรหน้าวิเคราะห์ **366/369** — ต่าง 3 (ขมิ้นชัน 81, มะขามแขก 64, Digoxin 1000113) **บัตรยาถูก หน้าวิเคราะห์ผิด**: ยาที่มีแต่บิลสนับสนุน/ยืม (ไม่มีบิล "การซื้อ") → `fetchLatestReceiptInfo` คืน `factor: 1` → `rc.factor || …` ไม่ fallback → หน้าวิเคราะห์แสดงยอดเป็นเม็ดแต่ป้ายหน่วยว่า "1000เม็ด" (Digoxin "1,750 กล่อง/เดือน" จริง 1.75) — คงอยู่ได้อีกตรงกัน · บิล: 602 บรรทัด lot = บิลเดียว 516 · หลายบิล 58 (ราคาต่าง 9) · ไม่มีบิล 28 · lot `-` เจอบิลด้วยเลขบิล 18/28 · requester ห้องยา G เห็นประวัติเบิก Baclofen 4 แถว = SQL 4 · ไม่เห็นประวัติรับ · staff เห็น 10 จาก 22 + ประวัติรับ · จอ 375 ไม่เลื่อนแนวนอน · ไม่มี console error · E2E 02/09/11/12 ผ่าน 30 ข้าม 1 · ภาพ `.playwright-mcp/phase2b/*.png`
+
+**แก้ waitDays นับขาด 1 วัน (user สั่ง "ทำตามแนะนำ"):** `waitDaysSince` อ่าน 'YYYY-MM-DD' เป็นเที่ยงคืน local → ทุก 30 แถวรอตรวจรับ +1 วัน · คิว "เกิน 14 วัน" **19 → 19** (วันนี้ไม่มี lot อยู่ขอบพอดี)
+
+**ค้าง/ให้ user ตัดสิน:** แก้ `rc.factor || …` ใน ReorderApp (3 รหัสข้างบน) — กระทบ SS/ROP/ยอดสั่งของ 3 รหัสนั้น ยังไม่แตะ · ต่อไป Phase 3
+
 ## Suggested skills
 - `grill-with-docs` — ถามข้อ 3 ต่อ
 - `anthropic-skills:karpathy` — ก่อนเขียนแผน/ลงมือ
