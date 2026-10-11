@@ -5,6 +5,12 @@ import { parseReturnPolicy, computeReturnStatus, parseReturnPolicyV2, computeRet
 import { computeCountMatch } from './countMatch.js'
 import { flattenInventory, backfillDrugUnit, backfillSwapPolicy } from './excelSync.js'
 import { isUsageRow, localYmd } from '../../supabase/functions/_shared/usageRow.js'
+import {
+  parseUnitFactor, parseExpDate as _parseExpDate, waitDaysSince, isBelowSafetyStock, isPurchaseReceipt,
+  pickMainUnit, stockTotalInMainUnit, latestPurchaseUnit, buildSearchIndex, buildDrugProfile,
+} from './drugProfile.js'
+// ReorderApp import parseUnitFactor จาก db.js มาแต่เดิม — คงทางเข้าเดิมไว้ (ตัวจริงอยู่ drugProfile.js)
+export { parseUnitFactor }
 
 const CHUNK_SIZE = 500
 
@@ -384,36 +390,7 @@ export async function importReceiveLogs(csvText, auth = {}) {
 
 // --- Dashboard Alerts ---
 
-function _parseExpDate(raw) {
-  if (!raw || raw === '-' || String(raw).trim() === '') return null
-  const s = String(raw).trim()
-  // DD/MM/YYYY หรือ D/M/YYYY
-  const m1 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
-  if (m1) {
-    let [, d, mo, y] = m1.map(Number)
-    if (y < 100) y += 2000
-    if (y > 2500) y -= 543
-    const dt = new Date(y, mo - 1, d)
-    return isNaN(dt) ? null : dt
-  }
-  // YYYY-MM-DD
-  const m2 = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (m2) {
-    let [, y, mo, d] = m2.map(Number)
-    if (y > 2500) y -= 543
-    const dt = new Date(y, mo - 1, d)
-    return isNaN(dt) ? null : dt
-  }
-  // MM/YYYY หรือ MM-YYYY (ไม่มีวัน → ใช้วันสุดท้ายของเดือน)
-  const m3 = s.match(/^(\d{1,2})[/-](\d{4})$/)
-  if (m3) {
-    let [, mo, y] = m3.map(Number)
-    if (y > 2500) y -= 543
-    const dt = new Date(y, mo, 0)
-    return isNaN(dt) ? null : dt
-  }
-  return null
-}
+// _parseExpDate = parseExpDate ใน drugProfile.js (import ด้านบน — ย้ายไปให้ node รัน golden test ได้)
 
 export async function fetchDashboardAlerts() {
   if (!supabase) return { expiring: [], lowStock: [], pendingReceive: [], drugCount: null }
@@ -511,7 +488,7 @@ export async function fetchDashboardAlerts() {
     if (isPendingReceive) {
       const key = `${(row.code || '').toLowerCase()}|${(row.lot || '').toLowerCase()}`
       const recvIso = receiveDateMap.get(key) || null
-      const waitDays = recvIso ? Math.floor((today - new Date(recvIso)) / 86400000) : null
+      const waitDays = waitDaysSince(recvIso, today)   // สูตรเดียวกับบัตรยา (drugProfile.js)
       pendingReceive.push({
         name:           row.name,
         code:           row.code,
@@ -563,10 +540,8 @@ export async function fetchDashboardAlerts() {
   // คำนวณ lowStock จาก byCode + filter ตาม drug_reorder_config.exclude_status
   const lowStock = []
   for (const [ck, c] of byCode) {
-    if (c.discontinued) continue
-    const exc = excludeByCode.get(ck)
-    if (exc === 'ตัดออก' || exc === 'สั่งเมื่อขอ') continue
-    if (c.ss > 0 && c.qty < c.ss) {
+    // เกณฑ์เดียวกับป้าย "ต่ำกว่า Safety Stock" ในบัตรยา (isBelowSafetyStock — drugProfile.js)
+    if (isBelowSafetyStock(c, excludeByCode.get(ck))) {
       const u = usageByCode.get(ck)
       lowStock.push({
         name: c.name, code: c.code, qty: c.qty,
@@ -2439,36 +2414,19 @@ export async function upsertDrugAliases(rows, auth = {}) {
 
 // --- Stock Summary (Dashboard modal) ---
 
-export const parseUnitFactor = (unit) => {
-  const m = String(unit || '').match(/^(\d+)\s*(.+)$/);
-  if (m) return { factor: parseInt(m[1]), base: m[2].trim() };
-  return { factor: 1, base: String(unit || '-').trim() };
-};
+// parseUnitFactor ย้ายไป drugProfile.js (re-export ด้านบน)
 
 export async function fetchStockSummary() {
   if (!supabase) return [];
 
   // inventory paginate ครบทุก row — ไม่งั้นยาที่เรียงท้าย (เช่นน้ำเกลือ) หายจากรายการคงเหลือ (Critical Rule #2)
-  const [invData, recRes] = await Promise.all([
+  // หน่วยปัจจุบัน = หน่วยจากบิล "การซื้อ" ราคา>0 ล่าสุด — ใช้ fetchLatestReceiptInfo ตัวเดียวกับ ReorderApp
+  // (เดิม query เองด้วย .limit(10000) แต่ Supabase ตัดที่ 1000 แถว → เห็นแค่ 1000/2,897 แถว: 76 รหัสไม่เจอบิลซื้อ
+  //  8 รหัสโชว์ยอดคนละหน่วยกับหน้าวิเคราะห์สั่งซื้อ — แก้ 11/10/2569, Rule #2)
+  const [invData, receiptInfo] = await Promise.all([
     fetchAllInventoryRows('code, name, type, unit, qty, lot, exp, receive_status'),
-    supabase.from('receive_logs')
-      .select('drug_code, drug_unit, receive_date, purchase_type, price_per_unit')
-      .not('drug_unit', 'is', null)
-      .not('drug_code', 'is', null)
-      .order('receive_date', { ascending: false })
-      .limit(10000),
+    fetchLatestReceiptInfo(),
   ]);
-
-  // หน่วยปัจจุบัน = หน่วยจากบิล "การซื้อ" ราคา>0 ล่าสุด (ตรงกับ glossary + ReorderApp)
-  // ไม่นับบริจาค/ยืม/ราคา 0 เพราะ pack อาจต่างจากที่ซื้อจริง — ดู fetchLatestReceiptInfo
-  const latestUnit = {};
-  (recRes.data || []).forEach(r => {
-    const key = (r.drug_code || '').trim();
-    if (!key || key === '-' || latestUnit[key] || !r.drug_unit) return;
-    const price = parseFloat(String(r.price_per_unit ?? '0').replace(/,/g, '')) || 0;
-    const isPurchase = price > 0 && String(r.purchase_type || '').trim() === PURCHASE_TYPE;
-    if (isPurchase) latestUnit[key] = r.drug_unit;
-  });
 
   // ยาตัดออกจากบัญชี — เก็บแยก (ไม่ปนในตารางคงเหลือ) ให้ UI เตือนตอนค้นเจอได้
   // ต้องเก็บ "ทุกแถว" รวม qty=0 เพราะยาตัดออกส่วนใหญ่จ่ายหมดแล้วแต่ code ใน HosXP ยังไม่ปิด
@@ -2495,20 +2453,12 @@ export async function fetchStockSummary() {
   });
 
   const summary = Object.values(drugMap).map(drug => {
-    const codeKey = (drug.code && drug.code !== '-') ? drug.code.trim() : '';
-    const mainUnit = (codeKey && latestUnit[codeKey]) || drug.lots[0]?.unit || '-';
-    const mainParsed = parseUnitFactor(mainUnit);
+    const codeKey = (drug.code && drug.code !== '-') ? drug.code.trim().toLowerCase() : '';
+    // หน่วยหลัก + ยอดรวม = กฎเดียวกับบัตรยา (drugProfile.js) — ตัวเลขในโมดอลนี้กับบัตรยาต้องตรงกัน
+    const mainUnit = pickMainUnit(codeKey ? receiptInfo[codeKey]?.unit : null, drug.lots);
 
     const uniqueUnits = [...new Set(drug.lots.map(l => l.unit))];
     const hasMultipleUnits = uniqueUnits.length > 1;
-
-    let totalSmallest = 0;
-    drug.lots.forEach(lot => {
-      const p = parseUnitFactor(lot.unit);
-      totalSmallest += lot.qty * p.factor;
-    });
-
-    const totalInMain = mainParsed.factor > 0 ? totalSmallest / mainParsed.factor : totalSmallest;
     // ราย lot คงเหลือ (qty>0 อยู่แล้ว) — รวมแถวซ้ำ (lot+exp+หน่วยตรงกัน) เข้าด้วยกันก่อน
     // inventory มีแถวซ้ำ code+lot จริง (CSV แยกแถว) — โดยเฉพาะ lot '-' เวชภัณฑ์; ไม่รวม → โชว์หลายบรรทัด lot '-'
     // key รวมหน่วย เพราะ lot เดียวกันคนละหน่วยรวม qty ตรงๆ ไม่ได้ (ดู Rule: ห้าม dedupe drop แถว inventory)
@@ -2534,7 +2484,7 @@ export async function fetchStockSummary() {
       name: drug.name,
       type: drug.type,
       mainUnit,
-      totalQty: Math.ceil(totalInMain),
+      totalQty: stockTotalInMainUnit(drug.lots, mainUnit),
       hasMultipleUnits,
       units: uniqueUnits,
       lotCount: lots.length,
@@ -2551,10 +2501,69 @@ export async function fetchStockSummary() {
   return summary
 }
 
+// --- ช่องค้นหายา + บัตรยา (Phase 2a แผน Dashboard — logic อยู่ drugProfile.js) ---
+
+// รายการค้นหา 1 แถวต่อรหัสยา (ชื่อ/รหัส/lot/มีของไหม) — ช่องค้นหาโหลดใหม่ทุกครั้งที่เปิด
+// (ช่องค้นหาอยู่ใน AppShell ไม่ remount ตอนนำเข้า Excel → cache ข้ามรอบจะค้างยอดเก่า)
+export async function fetchDrugSearchIndex() {
+  if (!supabase) return []
+  const rows = await fetchAllInventoryRows('code, name, type, lot, qty, receive_status')   // paginate — Rule #2
+  return buildSearchIndex(rows)
+}
+
+// บัตรยา 1 รหัส: inventory ทุกแถวของรหัส + receive_logs ของรหัส (หน่วยซื้อล่าสุด + วันรับของ lot ที่รอตรวจรับ)
+// + exclude_status + เวลานำเข้าล่าสุด → buildDrugProfile. คืน null ถ้าไม่มีรหัสนี้ใน inventory
+export async function fetchDrugProfile(drugCode) {
+  const code = String(drugCode || '').trim()
+  if (!supabase || !code) return null
+
+  const pageAll = async (build) => {
+    const PAGE = 1000
+    const out = []
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await build().range(from, from + PAGE - 1)
+      if (error) throw error
+      out.push(...(data || []))
+      if (!data || data.length < PAGE) break
+    }
+    return out
+  }
+
+  const [rows, receiveRows, cfgRes, uploadMeta] = await Promise.all([
+    // ลำดับ location เดียวกับ fetchAllInventoryRows → หน่วยสำรอง (ไม่มีบิลซื้อ) ตรงกับโมดอลรายการยาในคลัง
+    pageAll(() => supabase.from('inventory')
+      .select('code, name, type, unit, lot, exp, qty, location, main_log, invoice, safety_stock, receive_status')
+      .eq('code', code).order('location').order('id')),
+    // ลำดับเดียวกับ fetchLatestReceiptInfo (ใหม่→เก่า, id ใหม่→เก่า) — latestPurchaseUnit พึ่งลำดับนี้
+    pageAll(() => supabase.from('receive_logs')
+      .select('drug_code, lot, drug_unit, receive_date, purchase_type, price_per_unit')
+      .eq('drug_code', code)
+      .order('receive_date', { ascending: false, nullsFirst: false }).order('id', { ascending: false })),
+    supabase.from('drug_reorder_config').select('exclude_status').eq('code', code).maybeSingle(),
+    fetchUploadMeta().catch(() => null),
+  ])
+  if (!rows.length) return null
+
+  // วันรับล่าสุดต่อ code|lot — กฎเดียวกับ fetchDashboardAlerts (receive_date มากสุด)
+  const receiveDates = {}
+  for (const r of receiveRows) {
+    const k = `${code.toLowerCase()}|${String(r.lot || '').toLowerCase()}`
+    if (r.receive_date && (!receiveDates[k] || r.receive_date > receiveDates[k])) receiveDates[k] = r.receive_date
+  }
+
+  const profile = buildDrugProfile({
+    rows,
+    purchaseUnit: latestPurchaseUnit(receiveRows),
+    receiveDates,
+    excludeStatus: cfgRes?.data?.exclude_status || null,
+  })
+  return profile && { ...profile, inventoryUpdatedAt: uploadMeta?.inventory?.updated_at || null }
+}
+
 // --- Reorder: หน่วย/ราคา/บริษัท/วันรับ/lead time ต่อรหัสยา (จาก receive_logs) ---
 
-// purchase_type ของบิล "ซื้อจริง" (ยืนยันจาก DB: การซื้อ=2171; อื่นๆ=ยืม/บริจาค/คืน/สนับสนุน/แลกเปลี่ยน)
-const PURCHASE_TYPE = 'การซื้อ';
+// บิล "ซื้อจริง" = isPurchaseReceipt (drugProfile.js) — purchase_type 'การซื้อ' + ราคา > 0
+// (ยืนยันจาก DB: การซื้อ=2171; อื่นๆ=ยืม/บริจาค/คืน/สนับสนุน/แลกเปลี่ยน)
 
 // คืน { [codeLower]: { unit, factor, base, supplier, pricePerUnit, receiveDate, leadTimeAvg } }
 // - หน่วย/ราคา/บริษัท/วันรับ = บิล "การซื้อ" ราคา>0 ล่าสุด
@@ -2599,8 +2608,7 @@ export async function fetchLatestReceiptInfo() {
       const entry = result[code];
 
       const price = toNum(row.price_per_unit);
-      const isPurchase = price > 0 && String(row.purchase_type || '').trim() === PURCHASE_TYPE;
-      if (isPurchase) {
+      if (isPurchaseReceipt(row)) {   // กฎเดียวกับบัตรยา (drugProfile.js)
         // leadtime เฉลี่ยจากบิลการซื้อทุกใบ
         const lt = parseLt(row.leadtime);
         if (lt != null) { entry._ltSum += lt; entry._ltCount += 1; }
@@ -3867,7 +3875,7 @@ export async function fetchPendingReceiveLots() {
     out[key] = {
       billNumber: hit?.bill_number || r.invoice || '',
       receiveDate: iso,
-      waitDays: iso ? Math.floor((today - new Date(iso)) / 86400000) : null,
+      waitDays: waitDaysSince(iso, today),
     }
   }
   return out

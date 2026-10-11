@@ -24,7 +24,7 @@ import { buildWorkQueue, describeNextCycle, isSwapRed, isSwapOpen } from './lib/
 import { pickPopupRows, readSeen, writeSeen, popupStorageKey } from './lib/popupSeen';
 import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import { resolveCycles } from '../supabase/functions/_shared/announceSchedule.js';
-import { DashboardInfoLines, WorkQueuePanel, QueueDetailModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner } from './DashboardPanels';
+import { DashboardInfoLines, DrugSearchLauncher, WorkQueuePanel, QueueDetailModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner } from './DashboardPanels';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
@@ -40,6 +40,7 @@ import StockCardApp       from './StockCardApp';
 import NotificationBell   from './NotificationBell';
 import DashboardV2Preview from './DashboardV2Preview'; // prototype ชั่วคราว — เปิดด้วย ?v2 (ลบได้ทั้งบรรทัด)
 import AppShell           from './AppShell';
+import DrugProfileModal   from './DrugProfileModal';
 import { printInspectWorksheet } from './lib/inspectWorksheet';
 import { printReturnForm, printVendorExchangeForm } from './lib/returnForm';
 import { printExchangeOutForm, printExchangeInForm, printExchangePair } from './lib/vendorExchangeCycle';
@@ -78,6 +79,14 @@ export default function AppRoot() {
   }, []);
   const [subKey, setSubKey] = useState(0);
   const [toasts, setToasts] = useState([]);
+  // บัตรยา (เปิดจากช่องค้นหาเดียวใน AppShell — ทุกหน้า) + ยาที่จะเปิดในการ์ดคลัง lot เมื่อกดจากบัตรยา
+  const [drugCode, setDrugCode] = useState(null);
+  const [stockCardTarget, setStockCardTarget] = useState(null); // { code, name } — StockCardApp ใช้แล้วล้าง
+  const openStockCardFor = (code, name) => {
+    setDrugCode(null);
+    setStockCardTarget({ code, name });
+    setPage('stockcard');
+  };
 
   const dismissToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
 
@@ -118,6 +127,7 @@ export default function AppRoot() {
   const handleLogin = (user) => { sessionStorage.setItem(AUTH_KEY, JSON.stringify(user)); setAuth(user); };
   const logout = () => {
     sessionStorage.removeItem(AUTH_KEY); setAuth(null); setNavStack(['dashboard']); setToasts([]);
+    setDrugCode(null); setStockCardTarget(null);
   };
   // โหลดหน้านี้ใหม่ = remount sub-app (subKey) + refetch badge count (badgeTick) — กัน badge ค้างเมื่อ realtime พลาด
   const refreshPage = () => { setSubKey(k => k + 1); setBadgeTick(t => t + 1); };
@@ -209,7 +219,8 @@ export default function AppRoot() {
         content = <StockCountApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'stockcard':
-        content = <StockCardApp key={subKey} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
+        content = <StockCardApp key={subKey} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack}
+          initialDrug={stockCardTarget} onInitialDrugUsed={() => setStockCardTarget(null)} />;
         break;
       case 'temperature':
         content = <TemperatureLogApp key={subKey} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
@@ -225,7 +236,7 @@ export default function AppRoot() {
   if (auth) {
     const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username;
     content = (
-      <AppShell page={page} onNavigate={setPage} onFormAction={runFormAction} onRefresh={refreshPage} displayName={displayName} role={auth.role} permissions={auth.permissions} auth={auth} onLogout={logout} badges={{ return: pendingReturns, requisition: pendingRequisitions }}>
+      <AppShell page={page} onNavigate={setPage} onFormAction={runFormAction} onOpenDrug={setDrugCode} onRefresh={refreshPage} displayName={displayName} role={auth.role} permissions={auth.permissions} auth={auth} onLogout={logout} badges={{ return: pendingReturns, requisition: pendingRequisitions }}>
         {content}
       </AppShell>
     );
@@ -238,6 +249,16 @@ export default function AppRoot() {
           {content}
         </motion.div>
       </AnimatePresence>
+
+      {/* บัตรยา — นอก motion.div (เปลี่ยนหน้าแล้วโมดอลไม่วิ่งตาม animation) · mount ใหม่ทุกครั้งที่เปิด = ไม่ค้างยอดเก่า */}
+      {auth && drugCode && (
+        <DrugProfileModal
+          code={drugCode}
+          isStaff={auth.role === 'staff' || auth.role === 'admin'}
+          onClose={() => setDrugCode(null)}
+          onOpenStockCard={openStockCardFor}
+        />
+      )}
 
       {/* ── Toast stack (ใบเบิกใหม่) ── */}
       <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 items-end pointer-events-none">
@@ -737,6 +758,7 @@ function Dashboard({ auth, onNavigate }) {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-8 pb-10">
         <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-100">Dashboard</h2>
         <DashboardInfoLines uploadMeta={uploadMeta} cycle={cycle} />
+        <DrugSearchLauncher />
 
         {isStaff ? (
           <>

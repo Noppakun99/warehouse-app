@@ -8,9 +8,10 @@ import {
 import {
   AlertTriangle, Undo2, PackageX, ClipboardCheck, CalendarClock, ArrowLeftRight, MessageSquareWarning,
   ListChecks, ChevronRight, CircleCheck, X, ArrowRight, Boxes, ShoppingCart, Activity,
-  TrendingUp, TrendingDown, ChevronDown, CalendarDays, Database, Hourglass,
+  TrendingUp, TrendingDown, ChevronDown, CalendarDays, Database, Hourglass, Search,
 } from 'lucide-react';
 import { SWAP_ACTION_STATUS } from './lib/db';
+import { openDrugSearch } from './lib/drugSearchEvent';
 import { isSwapRed } from './lib/workQueue';
 
 // ── สี/ไอคอนต่อรายการในคิว ────────────────────────────────────────────
@@ -51,6 +52,18 @@ export function DashboardInfoLines({ uploadMeta, cycle }) {
         </span>
       )}
     </div>
+  );
+}
+
+// ── ช่องค้นหาใหญ่บนหน้าหลัก — เปิดช่องค้นหาเดียวกับ Ctrl+K บน top bar (ไม่ใช่ช่องแยก) ────
+export function DrugSearchLauncher() {
+  return (
+    <button type="button" onClick={openDrugSearch}
+      className="mt-5 w-full flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:border-sky-400 dark:hover:border-sky-600 rounded-2xl px-4 h-14 shadow-sm text-left transition-colors">
+      <Search size={20} className="text-sky-500 shrink-0" />
+      <span className="flex-1 min-w-0 truncate text-sm sm:text-base text-slate-400 dark:text-slate-500">ค้นหายา — ชื่อ, รหัส หรือ lot</span>
+      <kbd className="hidden sm:inline text-[11px] font-sans font-semibold px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 shrink-0">Ctrl K</kbd>
+    </button>
   );
 }
 

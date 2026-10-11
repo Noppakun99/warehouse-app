@@ -14,6 +14,7 @@ import { changeOwnPassword } from './lib/db';
 import NotificationBell from './NotificationBell';
 import CommandPalette from './CommandPalette';
 import ExcelSyncControl from './ExcelSync';
+import { DRUG_SEARCH_OPEN_EVENT } from './lib/drugSearchEvent';
 
 // submenu ที่มี active page อยู่ข้างใน → เปิดไว้ตั้งแต่แรก
 const submenuKeyOf = (pageKey) => {
@@ -36,7 +37,7 @@ const readDark = () => {
   try { return localStorage.getItem(THEME_KEY) === 'dark'; } catch { return false; }
 };
 
-export default function AppShell({ page, onNavigate, onFormAction, onRefresh, displayName, role, permissions, auth, onLogout, children, badges = {} }) {
+export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, onRefresh, displayName, role, permissions, auth, onLogout, children, badges = {} }) {
   const isStaff = role === 'staff' || role === 'admin';
   // เมนูแสดงเมื่อ role อนุญาต หรือ admin grant permission รายคน (key = item.page)
   const canSee = (it) => it.roles.includes(role) || (it.page && (permissions || []).includes(it.page));
@@ -50,7 +51,8 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
   const [dark, setDark] = useState(readDark);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  // ⌘K (Mac) / Ctrl+K (Windows) เปิดช่องค้นหาเมนู — ผูกเฉพาะตอน login แล้ว
+  // ⌘K (Mac) / Ctrl+K (Windows) เปิดช่องค้นหายา/เมนู — ผูกเฉพาะตอน login แล้ว
+  // + ช่องใหญ่บนหน้าหลักเปิดตัวเดียวกันผ่าน openDrugSearch() (lib/drugSearchEvent.js)
   useEffect(() => {
     if (!auth) return;
     const onKey = (e) => {
@@ -59,8 +61,13 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
         setPaletteOpen(o => !o);
       }
     };
+    const onOpenEvent = () => setPaletteOpen(true);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener(DRUG_SEARCH_OPEN_EVENT, onOpenEvent);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener(DRUG_SEARCH_OPEN_EVENT, onOpenEvent);
+    };
   }, [auth]);
 
   // sync class 'dark' ที่ <html> — Tailwind darkMode:'class' อ่านจากตรงนี้
@@ -302,15 +309,15 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
                 <div className="p-1.5 rounded-lg bg-gradient-to-br from-sky-500 to-blue-600 text-white shrink-0"><Pill size={16} /></div>
                 <span className="font-black text-slate-800 dark:text-slate-100 tracking-tight truncate">คลังยา</span>
               </button>
-              {/* ช่องค้นหาเมนู — จอกว้างแสดงเป็นช่อง, จอเล็กเหลือไอคอนแว่นขยาย (ที่ไม่พอ) */}
+              {/* ช่องค้นหายา/เมนู — จอกว้างแสดงเป็นช่อง, จอเล็กเหลือไอคอนแว่นขยาย (ที่ไม่พอ) */}
               <button
                 type="button"
                 onClick={() => setPaletteOpen(true)}
-                title="ค้นหาเมนู (Ctrl+K)"
+                title="ค้นหายา หรือเมนู (Ctrl+K)"
                 className="hidden sm:flex items-center gap-2 w-56 lg:w-72 ml-1 lg:ml-3 px-3 h-9 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-200/70 dark:bg-slate-800/60 text-slate-600 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 hover:border-slate-400 dark:hover:border-slate-600 transition-colors"
               >
                 <Search size={15} className="shrink-0" />
-                <span className="text-sm truncate">ค้นหาเมนู...</span>
+                <span className="text-sm truncate">ค้นหายา / เมนู...</span>
                 <kbd className="ml-auto text-[10px] font-sans font-semibold px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 shrink-0">Ctrl K</kbd>
               </button>
             </div>
@@ -319,8 +326,8 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
               <button
                 type="button"
                 onClick={() => setPaletteOpen(true)}
-                title="ค้นหาเมนู"
-                aria-label="ค้นหาเมนู"
+                title="ค้นหายา / เมนู"
+                aria-label="ค้นหายา / เมนู"
                 className="sm:hidden p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
                 <Search size={19} />
@@ -344,13 +351,14 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
         {children}
       </div>
 
-      {/* ช่องค้นหาเมนู — เฉพาะตอน login แล้ว (กันเปิดด้วย Ctrl+K ตอนอยู่หน้า login) */}
+      {/* ช่องค้นหายา/เมนู — เฉพาะตอน login แล้ว (กันเปิดด้วย Ctrl+K ตอนอยู่หน้า login) */}
       {auth && (
         <CommandPalette
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
           onNavigate={go}
           onFormAction={doAction}
+          onOpenDrug={(code) => { setDrawerOpen(false); onOpenDrug?.(code); }}
           role={role}
           permissions={permissions}
         />
