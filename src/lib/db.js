@@ -1427,7 +1427,8 @@ export async function deleteRequesterRequisition(id, auth = {}) {
   await insertAuditLog({ action: 'requester_delete_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id } })
 }
 
-export async function updateRequesterRequisition(id, { note, items }, auth = {}) {
+// audit:false = ผู้เรียกเขียน audit เองหลังตรวจยอดจองซ้ำผ่าน หรือใช้คืนค่าเดิมตอนชนกัน (ADR-0028)
+export async function updateRequesterRequisition(id, { note, items }, auth = {}, { audit = true } = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
   const { error } = await supabase.from('requisitions').update({ note: note || null, updated_at: new Date().toISOString() }).eq('id', id)
   if (error) throw error
@@ -1435,7 +1436,32 @@ export async function updateRequesterRequisition(id, { note, items }, auth = {})
     const { error: itemErr } = await supabase.from('requisition_items').update({ requested_qty: item.requested_qty, note: item.note || null }).eq('id', item.id)
     if (itemErr) throw itemErr
   }
-  await insertAuditLog({ action: 'requester_edit_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id } })
+  if (audit) await insertAuditLog({ action: 'requester_edit_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id } })
+}
+
+// ส่งใบเบิก: หัวใบ+รายการในธุรกรรมเดียวผ่าน RPC (ADR-0028 — เดิม insert 2 ครั้ง เน็ตหลุดกลางทาง = หัวใบเปล่า)
+// เลขใบสุ่มฝั่งแอป (makeReqNumber) · ชน unique (23505) ทั้งธุรกรรม rollback แล้วลองเลขใหม่
+// ไม่เขียน audit — ผู้เรียกเขียนหลังตรวจยอดจองซ้ำผ่านแล้ว (กระดิ่งไม่มีใบที่ถูกถอน)
+// migration: requisition_submit_rpc_migration.sql
+export async function submitRequisition({ department, requester_name }, items, makeReqNumber) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  for (let attempt = 0; ; attempt++) {
+    const { data, error } = await supabase.rpc('submit_requisition', {
+      p_header: { req_number: makeReqNumber(), department, requester_name },
+      p_items: items,
+    })
+    if (!error) return data
+    if (error.code !== '23505' || attempt === 2) throw error
+  }
+}
+
+// ถอนใบเบิกที่ชนกับหน่วยงานอื่น (ADR-0028) — ลบหัวใบ+รายการในธุรกรรมเดียว เฉพาะใบที่ยัง pending
+// คืน false = ใบไม่อยู่แล้ว/staff เริ่มดำเนินการไปแล้ว (ไม่ลบ — staff จับยอดเกินตอนจัดยา)
+export async function withdrawRequisition(id) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { data, error } = await supabase.rpc('withdraw_requisition', { p_id: id })
+  if (error) throw error
+  return data === true
 }
 
 export async function fetchAuditLogs({ dateFrom, dateTo, action, userName } = {}) {
@@ -1466,6 +1492,7 @@ export async function fetchNotifications(scope = null) {
   // ต้องตรงกับ NOTIF_LABELS ใน AppRoot.jsx
   const NOTIFY_ACTIONS = [
     'submit_requisition',
+    'requisition_conflict_withdrawn',
     'requester_edit_requisition',
     'requester_delete_requisition',
     'delete_requisition',

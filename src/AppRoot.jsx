@@ -140,6 +140,11 @@ export default function AppRoot() {
         setToasts(prev => [...prev.slice(-2), { id, req }]); // max 3 toasts
         setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 6000);
       })
+      // ใบที่ถูกถอนเพราะชนกับหน่วยงานอื่น (ADR-0028) ถูกลบภายในไม่กี่วินาที → ปิด toast ของใบนั้น
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'requisitions' }, (payload) => {
+        const goneId = payload.old?.id;
+        if (goneId != null) setToasts(prev => prev.filter(t => t.req?.id !== goneId));
+      })
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, [auth?.id]);

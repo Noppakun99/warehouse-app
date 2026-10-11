@@ -59,7 +59,8 @@ test.describe('ระบบเบิกยา (Requisition)', () => {
     await page.waitForSelector('text=ส่งใบเบิก', { timeout: 5_000 });
 
     // รอ Supabase insert ก่อนตรวจ modal
-    const submitRes = waitForSupabase(page, { table: 'requisitions', method: 'POST' });
+    // ส่งใบผ่าน RPC ธุรกรรมเดียว (ADR-0028) ไม่ใช่ POST /requisitions แล้ว
+    const submitRes = waitForSupabase(page, { table: 'rpc/submit_requisition', method: 'POST' });
     await page.getByRole('button', { name: /ส่งใบเบิก/i }).click();
     await submitRes;
     await expect(page.getByText('ส่งใบเบิกสำเร็จ')).toBeVisible({ timeout: 10_000 });
