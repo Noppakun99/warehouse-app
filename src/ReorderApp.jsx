@@ -512,7 +512,9 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
         const rc = receiptByCk[ck] || {};
         // stock + usage เก็บเป็นเม็ด → แปลงเป็นหน่วยซื้อล่าสุด (pack) ก่อนคำนวณ
         // ตัวหาร = factor หน่วยซื้อล่าสุด (fallback: หน่วย inventory → pack_size → 1)
-        const packFactor = rc.factor || parseUnitFactor(info.unit).factor || parseFloat(cfg.pack_size) || 1;
+        // ตัวคูณต้องมาจากแหล่งเดียวกับป้ายหน่วย (unit: rc.unit || info.unit ข้างล่าง) — ยาที่มีแต่บิลสนับสนุน/ยืม
+        // ได้ entry ที่ unit=null แต่ factor=1 ค่าตั้งต้น → rc.factor || … ไม่ fallback = ยอดเป็นเม็ดแต่ป้ายว่า "1000เม็ด"
+        const packFactor = (rc.unit ? rc.factor : parseUnitFactor(info.unit).factor) || parseFloat(cfg.pack_size) || 1;
         const toPack = (qtyBase) => packFactor > 0 ? qtyBase / packFactor : qtyBase;
         const monthlyUsage = monthsInRange
           .filter(mm => mm !== excludedMonth)
