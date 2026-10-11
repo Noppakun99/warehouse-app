@@ -8,7 +8,7 @@ import {
 import {
   AlertTriangle, Undo2, PackageX, ClipboardCheck, CalendarClock, ArrowLeftRight, MessageSquareWarning,
   ListChecks, ChevronRight, CircleCheck, X, ArrowRight, Boxes, ShoppingCart, Activity,
-  TrendingUp, TrendingDown, ChevronDown, CalendarDays, Database, Hourglass, Search,
+  TrendingUp, TrendingDown, ChevronDown, CalendarDays, Database, Hourglass, Search, RotateCcw, Lightbulb,
 } from 'lucide-react';
 import { SWAP_ACTION_STATUS } from './lib/db';
 import { openDrugSearch } from './lib/drugSearchEvent';
@@ -536,6 +536,52 @@ export function MonthlyFlowChart({ charts, months = 6, onChangeMonths, endYm, on
           )}
         </div>
       )}
+    </section>
+  );
+}
+
+// ── การ์ดแนะนำ 3 ข้อของผู้เบิก (ข้อตกลงข้อ 23) — ปิดได้ จำในเบราว์เซอร์ต่อบัญชี ──────
+// แต่ละข้อมีปุ่มในการ์ดเอง (ไม่อ้าง "ปุ่มล่างจอ" — แถบล่างมีเฉพาะจอเล็ก) · เครื่องของหน่วยงานอาจใช้ร่วมหลายบัญชี → key ต่อ user
+const onboardKey = (userId) => `onboard_dismissed_${userId}`;
+export function OnboardingCard({ userId, onNavigate }) {
+  const [hidden, setHidden] = useState(() => {
+    try { return localStorage.getItem(onboardKey(userId)) === '1'; } catch { return false; }
+  });
+  if (hidden) return null;
+  const dismiss = () => {
+    try { localStorage.setItem(onboardKey(userId), '1'); } catch { /* localStorage ปิด — ปิดได้แค่รอบนี้ */ }
+    setHidden(true);
+  };
+  const tips = [
+    { icon: Search,       text: 'พิมพ์ชื่อยา รหัส หรือ lot เพื่อดูคงเหลือและวันหมดอายุ', label: 'ค้นหายา',    run: openDrugSearch },
+    { icon: RotateCcw,    text: 'แจ้งคืนยา หรือยาเสียหาย กลับคลัง',                       label: 'คืนยา',      run: () => onNavigate('return') },
+    { icon: TrendingDown, text: 'ดูยาที่หน่วยงานของคุณเคยเบิก',                           label: 'ประวัติเบิก', run: () => onNavigate('dispense-mine') },
+  ];
+  return (
+    <section className="mt-4 bg-white dark:bg-slate-900 border border-sky-200 dark:border-sky-900/60 rounded-2xl shadow-sm p-4">
+      <div className="flex items-center gap-2">
+        <span className="p-1.5 rounded-lg bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 shrink-0"><Lightbulb size={16} /></span>
+        <h3 className="flex-1 min-w-0 font-bold text-slate-800 dark:text-slate-100">เริ่มต้นใช้งาน</h3>
+        <button type="button" onClick={dismiss}
+          className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+          <X size={14} /> ไม่ต้องแสดงอีก
+        </button>
+      </div>
+      <ol className="mt-3 space-y-2">
+        {tips.map((t, i) => {
+          const Icon = t.icon;
+          return (
+            <li key={t.label} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl px-3 py-2.5">
+              <span className="w-6 h-6 rounded-full bg-sky-500 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+              <span className="flex-1 min-w-0 text-sm text-slate-700 dark:text-slate-200">{t.text}</span>
+              <button type="button" onClick={t.run}
+                className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-slate-800 transition-colors">
+                <Icon size={14} /> {t.label}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
     </section>
   );
 }

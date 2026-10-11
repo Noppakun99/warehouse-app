@@ -8,7 +8,7 @@
 // Mobile (< lg): sidebar = drawer overlay เปิดด้วย hamburger
 // ============================================================
 import React, { useState, useEffect, useRef } from 'react';
-import { Pill, LayoutDashboard, ChevronLeft, ChevronDown, Menu, X, LogOut, RefreshCcw, Shield, ShieldCheck, User, KeyRound, Eye, EyeOff, Check, Sun, Moon, Search } from 'lucide-react';
+import { Pill, LayoutDashboard, ChevronLeft, ChevronDown, Menu, X, LogOut, RefreshCcw, Shield, ShieldCheck, User, KeyRound, Eye, EyeOff, Check, Sun, Moon, Search, RotateCcw, TrendingDown, ClipboardCheck, Database } from 'lucide-react';
 import { NAV_GROUPS, COLOR } from './navConfig';
 import { changeOwnPassword } from './lib/db';
 import NotificationBell from './NotificationBell';
@@ -30,6 +30,23 @@ const readCollapsed = () => {
   try { return localStorage.getItem(COLLAPSE_KEY) === '1'; } catch { return false; }
 };
 
+// แถบปุ่มล่างจอ (จอ < lg) — ข้อตกลงแผน Dashboard ข้อ 20 · ปุ่มที่ 4 "เมนู" เปิด drawer เดิม
+// 'dispense-mine' = ประวัติเบิกที่ตั้งตัวกรองหน่วยงานตัวเองไว้ก่อน (ข้อ 27 — route ใน AppRoot)
+const BOTTOM_NAV = {
+  requester: [
+    { page: 'dashboard',     icon: LayoutDashboard, title: 'หน้าหลัก' },
+    { page: 'return',        icon: RotateCcw,       title: 'คืนยา' },
+    { page: 'dispense-mine', icon: TrendingDown,    title: 'ประวัติเบิก' },
+  ],
+  staff: [
+    { page: 'dashboard',  icon: LayoutDashboard, title: 'หน้าหลัก' },
+    { page: 'stockcount', icon: ClipboardCheck,  title: 'ตรวจนับ' },
+    { page: 'inventory',  icon: Database,        title: 'แผนผังคลัง' },
+  ],
+};
+// หน้าที่มีแถบปุ่มล่างจอของตัวเอง (ส่งใบเบิก/อนุมัติ/ตะกร้า fixed bottom-0) — ไม่แสดงแถบล่าง กันทับปุ่มหลัก
+const NO_BOTTOM_NAV = new Set(['requisition']);
+
 // ธีมสว่าง/มืด — default = สว่างเสมอ (ไม่ตาม prefers-color-scheme โดยเจตนา:
 // dark ครอบแค่ shell ถ้า auto-dark ผู้ใช้จะเจอแถบมืด+เนื้อหาสว่างโดยไม่ได้สั่ง)
 const THEME_KEY = 'theme';
@@ -50,6 +67,8 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
   const [flyout, setFlyout] = useState(null); // { key, top, left } ของ submenu ที่กางอยู่ตอนแถบยุบ (desktop)
   const [dark, setDark] = useState(readDark);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const bottomItems = BOTTOM_NAV[isStaff ? 'staff' : 'requester'];
+  const showBottomNav = !!auth && !NO_BOTTOM_NAV.has(page);
 
   // ⌘K (Mac) / Ctrl+K (Windows) เปิดช่องค้นหายา/เมนู — ผูกเฉพาะตอน login แล้ว
   // + ช่องใหญ่บนหน้าหลักเปิดตัวเดียวกันผ่าน openDrugSearch() (lib/drugSearchEvent.js)
@@ -285,8 +304,8 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
         </>
       )}
 
-      {/* ── Content (sub-app เดิม พร้อม header ของตัวเอง) ── */}
-      <div className={`${collapsed ? 'lg:pl-16' : 'lg:pl-60'} transition-all duration-200`}>
+      {/* ── Content (sub-app เดิม พร้อม header ของตัวเอง) ── เว้นล่าง h-16 ให้แถบปุ่มล่างจอ (จอเล็ก) */}
+      <div className={`${collapsed ? 'lg:pl-16' : 'lg:pl-60'} ${showBottomNav ? 'pb-16 lg:pb-0' : ''} transition-all duration-200`}>
         {/* Top bar (แถบสีฟ้า) — ซ้าย: hamburger (mobile) · ขวา: user chip + กระดิ่ง.
             ไม่ sticky โดยเจตนา → เลื่อนหายไปกับหน้า ให้ header sticky ของ sub-app คุม top-0 เอง (กันชน) */}
         {auth && (
@@ -350,6 +369,28 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
         )}
         {children}
       </div>
+
+      {/* ── แถบปุ่มล่างจอ (จอเล็ก) — z-30 อยู่ใต้ drawer (40/50) และโมดอลทุกตัว (≥ 50) ── */}
+      {showBottomNav && (
+        <nav aria-label="เมนูลัด" className="lg:hidden fixed inset-x-0 bottom-0 z-30 h-16 grid grid-cols-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-800">
+          {bottomItems.map(it => {
+            const Icon = it.icon;
+            const on = page === it.page;
+            return (
+              <button key={it.page} type="button" onClick={() => go(it.page)} aria-current={on ? 'page' : undefined}
+                className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors ${on ? 'text-sky-600 dark:text-sky-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
+                <Icon size={21} strokeWidth={on ? 2.4 : 2} />
+                <span className="truncate max-w-full px-1">{it.title}</span>
+              </button>
+            );
+          })}
+          <button type="button" onClick={() => setDrawerOpen(true)}
+            className="flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">
+            <Menu size={21} />
+            <span>เมนู</span>
+          </button>
+        </nav>
+      )}
 
       {/* ช่องค้นหายา/เมนู — เฉพาะตอน login แล้ว (กันเปิดด้วย Ctrl+K ตอนอยู่หน้า login) */}
       {auth && (

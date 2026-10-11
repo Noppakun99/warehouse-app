@@ -225,6 +225,20 @@
 
 **ค้าง/ให้ user ตัดสิน:** แก้ `rc.factor || …` ใน ReorderApp (3 รหัสข้างบน) — กระทบ SS/ROP/ยอดสั่งของ 3 รหัสนั้น ยังไม่แตะ · ต่อไป Phase 3
 
+### 11.8 Phase 3 — มือถือ + ผู้เบิก (11/10/2569) — ✅ โค้ดเสร็จ + verify · ยังไม่ commit
+
+**/scrutinize ก่อนทำ → user ตัดสิน 3 ข้อ:** (1) ตัวกรองตั้งต้น = **page key `dispense-mine`** (แบบ `receive-ap`) แทน state+ล้าง · (2) **ซ่อนแถบล่างในหน้าเบิกยาออนไลน์ + ยกแถบบันทึกคืนยาขึ้น** — แผนเดิม "เว้น padding" ไม่พอ: ReturnApp ปุ่มบันทึกเป็น `sticky bottom-0` และ RequisitionApp มี `fixed bottom-0` 7 จุด แถบล่างจะทับ · (3) การ์ดแนะนำ = ค้นหายา · คืนยา · ประวัติเบิก แต่ละข้อมีปุ่มในการ์ดเอง (แถบล่างมีแค่จอเล็ก — การ์ดห้ามอ้าง "ปุ่มล่างจอ")
+
+**ไฟล์:** `AppShell.jsx` (`BOTTOM_NAV`/`NO_BOTTOM_NAV` + content `pb-16`) · `AppRoot.jsx` (route `dispense-mine` · ReqToast `bottom-20 lg:bottom-4` · การ์ดแนะนำใน Dashboard ผู้เบิก) · `DashboardPanels.jsx` (`OnboardingCard` — localStorage `onboard_dismissed_<userId>` ห่อ try/catch) · `DispenseLogApp.jsx` (`initialDept` + `deptReady` กัน load/loadAgg) · `db.js` (`resolveDispenseDepartment`) · `ReturnApp.jsx` (แถบบันทึก `bottom-16 lg:bottom-0`) · `Toast.jsx` (`md:bottom-20 lg:bottom-5`) · ใหม่ `tests/15-mobile-bottom-nav.spec.js` · CLAUDE.md · docs/testing.md
+
+**ระหว่างทำ:** ตัวแรกจับคู่หน่วยงานด้วยรายชื่อเต็มจาก `fetchAllDepts` (9 หน้า) → วัดได้ 1.7–9 วิ ผู้เบิกเห็นตารางว่างตลอด → เปลี่ยนเป็น `resolveDispenseDepartment` query เดียว · วัดจริงกดปุ่มถึงตารางขึ้น: มีตัวกรอง ~1.0 วิ vs เมนู sidebar ไม่กรอง 0.8–1.2 วิ
+
+**verify:** ชื่อหน่วยงาน dispense_logs ไม่มีคู่ไหน normalize แล้วชนกัน (0) → `.eq` 1:1 ได้ · ผู้เบิกจริง 5/7 บัญชีจับคู่ได้ (ห้องยา G→ห้องยาG · ห้องยา 1→ห้องยา1 · ER (ฉุกเฉิน)→ER) คลังยา/ทดลองระบบ → ไม่กรอง · E2E 15 ผ่าน 6/6 + **mutation test 2 จุด**: ถอด `deptReady` → เทสตก "มีการโหลดตารางแบบไม่กรองหน่วยงาน" (race เกิดจริง) · ถอด `bottom-16` → ตก "ปุ่มบันทึกจมใต้แถบล่าง" (ที่จอ 812 ไม่ตก — ฟอร์มสั้นกว่าจอ sticky ไม่ติดขอบ จึงใช้จอเตี้ย 560) · E2E 01/02/09/10/15 รันขนาน 34 ผ่าน 3 flaky → 3 ตัวนั้นรันเดี่ยวผ่าน · eslint = baseline (12 เท่าเดิม) · build ผ่าน · ภาพ 375 ผู้เบิก/staff + 1280 (`.playwright-mcp/phase3/` เฉพาะเครื่องนี้): ไม่มีเลื่อนแนวนอน (ประวัติเบิก 1px ≤ เกณฑ์ 2) · บัตรยา/โมดอลคิว/drawer คลุมแถบล่าง (`elementFromPoint`) · ปุ่มย้อนกลับหลังกดจากแถบล่างกลับถูกหน้า · 1280 ไม่มีแถบและ padding 0 · ไม่มี console error
+
+**พบระหว่าง verify (ของเดิม ไม่แก้):** การ์ดสถิติประวัติเบิกที่ 375 ตัวเลขมูลค่าล้นการ์ด ("4,757,975" ห้องยาG — ไม่กรองยิ่งยาว) · แผนผังคลังโชว์ "ยังไม่มีข้อมูลในคลัง" ~1.7 วิระหว่างโหลด (ควรเป็น skeleton) · ปุ่ม "สรุปผล" ในประวัติเบิกไม่รับตัวกรอง (โชว์ทุกหน่วยงาน — ข้อ 15 ห้ามแตะ) · ผู้เบิก ER ได้เฉพาะ "ER" ไม่รวม "ER-ออกหน่วย" (27 แถว — เปลี่ยนตัวกรองเองได้)
+
+**ยังไม่ได้ทำตามแผน:** รีวิว 3 persona แบบคนจริง (ทำได้แค่ผมอ่านภาพเอง) · ทดสอบบน iPhone จริง (safe-area — ไม่ได้ใส่ `viewport-fit=cover` จึง `env()` = 0; Safari วางแถบเหนือ home indicator เอง)
+
 ## Suggested skills
 - `grill-with-docs` — ถามข้อ 3 ต่อ
 - `anthropic-skills:karpathy` — ก่อนเขียนแผน/ลงมือ

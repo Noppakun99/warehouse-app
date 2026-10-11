@@ -7,7 +7,7 @@ import { flattenInventory, backfillDrugUnit, backfillSwapPolicy } from './excelS
 import { isUsageRow, localYmd } from '../../supabase/functions/_shared/usageRow.js'
 import {
   parseUnitFactor, parseExpDate as _parseExpDate, waitDaysSince, isBelowSafetyStock, isPurchaseReceipt,
-  pickMainUnit, stockTotalInMainUnit, latestPurchaseUnit, buildSearchIndex, buildDrugProfile,
+  pickMainUnit, stockTotalInMainUnit, latestPurchaseUnit, buildSearchIndex, buildDrugProfile, normDept,
 } from './drugProfile.js'
 import { isoMonthsAgo, isoPrevMonthEnd, listMonthYM } from './reorder.js'
 // ReorderApp import parseUnitFactor จาก db.js มาแต่เดิม — คงทางเข้าเดิมไว้ (ตัวจริงอยู่ drugProfile.js)
@@ -2500,6 +2500,29 @@ export async function fetchStockSummary() {
   summary.discontinued = Object.values(discontinuedMap)
     .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'th'))
   return summary
+}
+
+// ชื่อหน่วยงานใน app_users ("ห้องยา G", "ER (ฉุกเฉิน)") → ชื่อที่ใช้จริงใน dispense_logs ("ห้องยาG", "ER")
+// ใช้ตั้งตัวกรองตั้งต้นของปุ่ม "ประวัติเบิก" (แผน Dashboard ข้อ 27) — กฎจับคู่ = normDept ตัวเดียวกับบัตรยา
+// ทางเร็ว: query เดียวด้วยรูปที่เป็นไปได้ (ตัดวงเล็บ/ช่องว่าง) · ไม่เจอค่อยไล่ทุกแถว (~9 หน้า 2–9 วิ — ผู้เบิกต้องรอตารางว่าง)
+// คืน null = หน่วยงานนี้ไม่มีประวัติเบิก (คลังยา/ทดลองระบบ)
+export async function resolveDispenseDepartment(name) {
+  const raw = String(name || '').trim()
+  if (!supabase || !raw) return null
+  const key = normDept(raw)
+  const noParen = raw.replace(/\(.*?\)/g, '').trim()
+  const candidates = [...new Set([raw, noParen, noParen.replace(/\s+/g, '')])]
+  const { data } = await supabase.from('dispense_logs').select('department').in('department', candidates).limit(20)
+  const quick = (data || []).find(r => normDept(r.department) === key)
+  if (quick) return quick.department
+  const PAGE = 1000
+  for (let from = 0; ; from += PAGE) {
+    const { data: rows } = await supabase.from('dispense_logs').select('department')
+      .not('department', 'is', null).order('id').range(from, from + PAGE - 1)
+    const hit = (rows || []).find(r => normDept(r.department) === key)
+    if (hit) return hit.department
+    if (!rows || rows.length < PAGE) return null
+  }
 }
 
 // --- ช่องค้นหายา + บัตรยา (Phase 2a แผน Dashboard — logic อยู่ drugProfile.js) ---

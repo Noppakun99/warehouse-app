@@ -24,7 +24,7 @@ import { buildWorkQueue, describeNextCycle, isSwapRed, isSwapOpen } from './lib/
 import { pickPopupRows, readSeen, writeSeen, popupStorageKey } from './lib/popupSeen';
 import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import { resolveCycles } from '../supabase/functions/_shared/announceSchedule.js';
-import { DashboardInfoLines, DrugSearchLauncher, WorkQueuePanel, QueueDetailModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner } from './DashboardPanels';
+import { DashboardInfoLines, DrugSearchLauncher, WorkQueuePanel, QueueDetailModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner, OnboardingCard } from './DashboardPanels';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
@@ -176,6 +176,11 @@ export default function AppRoot() {
       case 'dispense':
         content = <DispenseLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
+      // ปุ่ม "ประวัติเบิก" บนแถบล่างของผู้เบิก — หน้าเดียวกัน ตั้งตัวกรองหน่วยงานตัวเองไว้ก่อน (เปลี่ยนได้)
+      // แยก page key แทน state ที่ต้องล้าง → เมนู "ประวัติเบิกจ่าย" ใน sidebar ยังเปิดแบบไม่กรองเหมือนเดิม
+      case 'dispense-mine':
+        content = <DispenseLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} initialDept={auth.department || ''} />;
+        break;
       case 'receive':
         content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
@@ -262,7 +267,8 @@ export default function AppRoot() {
       )}
 
       {/* ── Toast stack (ใบเบิกใหม่) ── */}
-      <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 items-end pointer-events-none">
+      {/* จอเล็กยกขึ้นพ้นแถบปุ่มล่างจอของ AppShell (h-16) */}
+      <div className="fixed bottom-20 lg:bottom-4 right-4 z-[9999] flex flex-col gap-2 items-end pointer-events-none">
         <AnimatePresence>
           {toasts.map(t => (
             <motion.div
@@ -777,6 +783,7 @@ function Dashboard({ auth, onNavigate }) {
         ) : (
           <>
             <SwapBanner count={swapOpenCount} onOpen={() => setSwapPopupRows(swapDue)} />
+            <OnboardingCard userId={auth.id} onNavigate={onNavigate} />
             <Collapsible className="mt-5" title="ภาพรวมคลัง" open={overviewOpen} onToggle={() => setOverviewOpen(o => !o)}>
               {overview}
               <div className="mt-4">{flowChart}</div>

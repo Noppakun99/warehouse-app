@@ -14,7 +14,7 @@ import {
   LineChart, Line, Legend,
 } from 'recharts';
 import { exportToExcel } from './lib/exportExcel';
-import { normalizeLotSearch, insertAuditLog, resolveAuditUserName } from './lib/db';
+import { normalizeLotSearch, insertAuditLog, resolveAuditUserName, resolveDispenseDepartment } from './lib/db';
 import { openExcelSync } from './lib/excelSyncEvent';
 
 // ค่า department ที่ "ไม่ใช่หน่วยงานจริง" — เป็นการปรับปรุงระบบ/ความเคลื่อนไหวพิเศษ
@@ -200,7 +200,9 @@ const DISPENSE_EXCEL_COLS = [
 // ============================================================
 // Root
 // ============================================================
-export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBack }) {
+// initialDept = ตั้งตัวกรองหน่วยงานไว้ก่อน (ปุ่ม "ประวัติเบิก" บนแถบล่างของผู้เบิก — page 'dispense-mine')
+// เป็นแค่ค่าเริ่มต้น เปลี่ยน/ล้างได้ ไม่ใช่การจำกัดสิทธิ์
+export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBack, initialDept = '' }) {
   const [showSummary, setShowSummary] = useState(false);
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
   const isAdmin = auth.role === 'admin';
@@ -225,7 +227,7 @@ export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBa
         </div>
       </div>
 
-      <DispenseView isAdmin={isAdmin} auth={auth} />
+      <DispenseView isAdmin={isAdmin} auth={auth} initialDept={initialDept} />
       {showSummary      && <DispenseSummaryModal onClose={() => setShowSummary(false)} />}
     </div>
   );
@@ -396,12 +398,15 @@ function EditModal({ row, onClose, onSaved, auth = {} }) {
 // ============================================================
 // View / Search
 // ============================================================
-function DispenseView({ isAdmin = false, auth = {} }) {
+function DispenseView({ isAdmin = false, auth = {}, initialDept = '' }) {
   const [rows, setRows]             = useState([]);
   const [loading, setLoading]       = useState(true);
   const [exportLoading, setExportLoading] = useState(false);
   const [search, setSearch]         = useState('');
   const [deptFilter, setDeptFilter] = useState('');
+  // ชื่อหน่วยงานใน app_users ("ER (ฉุกเฉิน)") ≠ dispense_logs ("ER") → ต้องหาชื่อจริงก่อน (resolveDispenseDepartment)
+  // ระหว่างรอห้ามโหลดตาราง/สถิติ — load ไม่มีตัวกันผลเก่า ผลแบบไม่กรองกลับมาทีหลังจะทับผลที่กรองแล้ว
+  const [deptReady, setDeptReady]   = useState(!initialDept);
   const [typeFilter, setTypeFilter] = useState('');   // '' = ทุกชนิดยา (dispense_logs.drug_type เช่น Tablet/Herb)
   const [drugTypes, setDrugTypes]   = useState([]);
   const [dateFrom, setDateFrom]     = useState('');
@@ -426,6 +431,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
+    if (!deptReady) return;
     setLoading(true);
     let q = supabase.from('dispense_logs').select('*')
       .order('dispense_date', { ascending: false })
@@ -443,7 +449,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     const { data } = await q;
     setRows(data || []);
     setLoading(false);
-  }, [search, deptFilter, typeFilter, dateFrom, dateTo, page]);
+  }, [search, deptFilter, typeFilter, dateFrom, dateTo, page, deptReady]);
 
   const handleExport = useCallback(async () => {
     if (!supabase) return;
@@ -473,7 +479,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
 
   // โหลด aggregate stats (count, qty, value) ของทุก rows ที่ตรงกับ filter — ไม่ใช่แค่หน้าปัจจุบัน
   const loadAgg = useCallback(async () => {
-    if (!supabase) return;
+    if (!supabase || !deptReady) return;
     setAggStats(null);
     const isoFrom = thaiToIso(dateFrom) || dateFrom;
     const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
@@ -503,7 +509,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     const minDate = minResult.data?.[0]?.dispense_date || null;
     const maxDate = maxResult.data?.[0]?.dispense_date || null;
     setAggStats({ count: count ?? data.length, drugCount, totalValue, minDate, maxDate });
-  }, [search, deptFilter, typeFilter, dateFrom, dateTo]);
+  }, [search, deptFilter, typeFilter, dateFrom, dateTo, deptReady]);
 
   useEffect(() => { const t = setTimeout(loadAgg, 300); return () => clearTimeout(t); }, [loadAgg]);
 
@@ -523,6 +529,15 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     if (!supabase) return;
     fetchAllDepts(supabase).then(setDepts);
   }, []);
+
+  // หน่วยงานที่ไม่มีประวัติเบิก (คลังยา/ทดลองระบบ) จับคู่ไม่ได้ → เปิดแบบไม่กรอง
+  useEffect(() => {
+    if (!initialDept) return;
+    resolveDispenseDepartment(initialDept)
+      .then(hit => { if (hit) setDeptFilter(hit); })
+      .catch(() => {})
+      .finally(() => setDeptReady(true));
+  }, [initialDept]);
 
   useEffect(() => {
     if (!supabase) return;

@@ -665,8 +665,8 @@ function RecordTab({ auth }) {
         </div>
       </section>
 
-      {/* แถบสรุป + ปุ่มบันทึก (sticky bottom) */}
-      <div className="sticky bottom-0 z-10 bg-slate-50 dark:bg-slate-800/80 backdrop-blur-sm pt-1 pb-1 -mx-4 px-4">
+      {/* แถบสรุป + ปุ่มบันทึก (sticky bottom) — จอเล็กยกขึ้นพ้นแถบปุ่มล่างจอของ AppShell (h-16) */}
+      <div className="sticky bottom-16 lg:bottom-0 z-10 bg-slate-50 dark:bg-slate-800/80 backdrop-blur-sm pt-1 pb-1 -mx-4 px-4">
         {form.drug_name && (
           <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 dark:text-slate-400 mb-2 px-1">
             <span className="font-semibold text-slate-700 dark:text-slate-200 truncate max-w-[200px]">{form.drug_name}</span>
