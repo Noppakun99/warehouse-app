@@ -18,6 +18,15 @@ export const parseUnitFactor = (unit) => {
   return { factor: 1, base: String(unit || '-').trim() }
 }
 
+// ป้ายหน่วยสำหรับแสดงผล — inventory.unit เก็บหน่วยซื้อแบบ <ขนาดบรรจุ><หน่วยย่อย> ("200เม็ด" = กล่องละ 200 เม็ด)
+// "18 200เม็ด" อ่านไม่ออก → "18 กล่อง (200 เม็ด)" · คำว่า "กล่อง" ตามหน้าเบิกยา (lotPackLabel) ให้ทั้งระบบพูดเหมือนกัน
+// แสดงผลอย่างเดียว — ห้ามใช้ค่านี้คำนวณ (ตัวคูณยังมาจาก parseUnitFactor)
+export function packUnitLabel(unit) {
+  const { factor, base } = parseUnitFactor(unit)
+  if (factor > 1) return `กล่อง (${factor.toLocaleString('en-US')} ${base})`
+  return String(unit || '-').trim() || '-'
+}
+
 // วันหมดอายุของ inventory (DD/MM/YYYY ค.ศ. เป็นหลัก) → Date เที่ยงคืน local · อ่านไม่ได้ = null
 export function parseExpDate(raw) {
   if (!raw || raw === '-' || String(raw).trim() === '') return null

@@ -5,7 +5,7 @@
 //       ค้นชื่อ/รหัส/lot · บัตรยา (บวกแถวซ้ำ · แยกพร้อมเบิก/รอตรวจรับ/หมดอายุ · lot ที่ควรใช้ก่อน · ตัดออก)
 
 import {
-  parseUnitFactor, parseExpDate, stockTotalInMainUnit, latestPurchaseUnit, pickMainUnit,
+  packUnitLabel, parseUnitFactor, parseExpDate, stockTotalInMainUnit, latestPurchaseUnit, pickMainUnit,
   ssAggregate, isBelowSafetyStock, buildSearchIndex, searchDrugs, buildDrugProfile,
   waitDaysSince, lotBills, usageRate, normDept, dispenseHistory, HISTORY_LIMIT,
 } from './drugProfile.js'
@@ -253,6 +253,17 @@ section('ประวัติเบิก: เฉพาะหน่วยงา
   const e = dispenseHistory(many, 'ER (ฉุกเฉิน)')
   assertEq(e.rows.length, HISTORY_LIMIT, `แสดงล่าสุด ${HISTORY_LIMIT} แถว`)
   assertEq(e.total, 25, 'แต่บอกจำนวนทั้งหมด')
+}
+
+console.log('\n=== packUnitLabel (ป้ายหน่วยแสดงผล) ===')
+{
+  assertEq(packUnitLabel('200เม็ด'), 'กล่อง (200 เม็ด)', 'ขนาดบรรจุนำหน้า → กล่อง (ขนาด หน่วยย่อย)')
+  assertEq(packUnitLabel('1000เม็ด'), 'กล่อง (1,000 เม็ด)', 'คั่นหลักพัน')
+  assertEq(packUnitLabel('450ml'), 'กล่อง (450 ml)', 'หน่วยอังกฤษ')
+  assertEq(packUnitLabel('vial'), 'vial', 'ไม่มีตัวเลข = คงเดิม')
+  assertEq(packUnitLabel('1เม็ด'), '1เม็ด', 'ขนาด 1 = คงเดิม (ไม่ใช่กล่อง)')
+  assertEq(packUnitLabel(''), '-', 'ว่าง = -')
+  assertEq(packUnitLabel(null), '-', 'null = -')
 }
 
 console.log(`\n${pass} ผ่าน · ${fail} ตก`)

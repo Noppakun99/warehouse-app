@@ -9,7 +9,7 @@ import {
   TrendingDown, Loader2, CalendarClock, Receipt, ChevronDown, Activity, History, Truck,
 } from 'lucide-react';
 import { fetchDrugProfile } from './lib/db';
-import { parseExpDate } from './lib/drugProfile';
+import { parseExpDate, packUnitLabel } from './lib/drugProfile';
 
 const fmtNum = (n) => (Number(n) || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 const fmtThaiDate = (d) => (d ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear() + 543}` : '-');
@@ -63,7 +63,7 @@ function MiniTable({ cols, rows, rowKey }) {
   );
 }
 
-const priceText = (b) => (b.price > 0 ? `${fmtMoney(b.price)} บาท/${b.unit}` : (isPurchase(b.purchaseType) ? 'ราคา 0' : b.purchaseType));
+const priceText = (b) => (b.price > 0 ? `${fmtMoney(b.price)} บาท/${packUnitLabel(b.unit)}` : (isPurchase(b.purchaseType) ? 'ราคา 0' : b.purchaseType));
 
 // บิลของ lot (CONTEXT §บัตรยา): ไม่มีบิล = บอกตรงๆ ห้ามยืมบิลอื่น · 1 บิล = บรรทัดเดียว · หลายบิล = กางรายบิล ไม่เฉลี่ยราคา
 function LotBills({ l }) {
@@ -82,7 +82,7 @@ function LotBills({ l }) {
     );
   }
   const pr = l.priceRange;
-  const rangeText = pr ? (pr.min === pr.max ? `${fmtMoney(pr.min)} บาท/${pr.unit}` : `${fmtMoney(pr.min)}–${fmtMoney(pr.max)} บาท/${pr.unit}`) : 'คนละหน่วย กางดูรายบิล';
+  const rangeText = pr ? (pr.min === pr.max ? `${fmtMoney(pr.min)} บาท/${packUnitLabel(pr.unit)}` : `${fmtMoney(pr.min)}–${fmtMoney(pr.max)} บาท/${packUnitLabel(pr.unit)}`) : 'คนละหน่วย กางดูรายบิล';
   return (
     <div className="mt-1.5">
       <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open}
@@ -101,12 +101,12 @@ function LotBills({ l }) {
               { label: 'บริษัท', cell: b => b.supplier },
               { label: 'ราคา', cell: b => priceText(b), nowrap: true },
               { label: 'รับเข้า', cell: b => fmtNum(b.qtyReceived), num: true },
-              { label: 'หน่วย', cell: b => b.unit, nowrap: true },
+              { label: 'หน่วย', cell: b => packUnitLabel(b.unit), nowrap: true },
               { label: 'คงเหลือ', cell: b => (b.remaining == null ? '—' : fmtNum(b.remaining)), num: true },
             ]}
           />
           <p className="px-2 pb-1 text-[11px] text-slate-400 dark:text-slate-500">
-            คงเหลือรายบิลรู้ได้เฉพาะแถวคงคลังที่ระบุเลขบิล{l.unassignedQty > 0 ? ` · ไม่ระบุบิล ${fmtNum(l.unassignedQty)} ${l.unit}` : ''}
+            คงเหลือรายบิลรู้ได้เฉพาะแถวคงคลังที่ระบุเลขบิล{l.unassignedQty > 0 ? ` · ไม่ระบุบิล ${fmtNum(l.unassignedQty)} ${packUnitLabel(l.unit)}` : ''}
           </p>
         </div>
       )}
@@ -171,7 +171,7 @@ function LotRow({ l }) {
           </p>
         </div>
         <p className="text-sm font-black tabular-nums text-slate-800 dark:text-slate-100 whitespace-nowrap">
-          {fmtNum(l.qty)} <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{l.unit}</span>
+          {fmtNum(l.qty)} <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{packUnitLabel(l.unit)}</span>
         </p>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
@@ -253,7 +253,7 @@ export default function DrugProfileModal({ code, isStaff, department = null, onC
                 <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3">
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">คงเหลือในบัญชี</p>
                   <p className="mt-0.5 text-2xl font-black tabular-nums text-slate-800 dark:text-slate-100">
-                    {fmtNum(p.total)} <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">{p.mainUnit}</span>
+                    {fmtNum(p.total)} <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">{packUnitLabel(p.mainUnit)}</span>
                   </p>
                   {p.total > 0 && (
                     <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
@@ -263,7 +263,7 @@ export default function DrugProfileModal({ code, isStaff, department = null, onC
                     </p>
                   )}
                   {p.multiUnit && (
-                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">มีหลายขนาดบรรจุ — แปลงเป็น {p.mainUnit} ก่อนรวม</p>
+                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">มีหลายขนาดบรรจุ — แปลงเป็น {packUnitLabel(p.mainUnit)} ก่อนรวม</p>
                   )}
                 </div>
 
@@ -283,7 +283,7 @@ export default function DrugProfileModal({ code, isStaff, department = null, onC
                     <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2">
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold inline-flex items-center gap-1"><Activity size={12} /> เรทการใช้เฉลี่ย</p>
                       <p className="mt-0.5 text-sm font-black tabular-nums text-slate-800 dark:text-slate-100">
-                        {p.rate.avgMonth > 0 ? <>{fmtNum(p.rate.avgMonth)} <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{p.rate.unit}/เดือน</span></> : <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">ไม่มีการเบิกในช่วงนี้</span>}
+                        {p.rate.avgMonth > 0 ? <>{fmtNum(p.rate.avgMonth)} <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{packUnitLabel(p.rate.unit)}/เดือน</span></> : <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">ไม่มีการเบิกในช่วงนี้</span>}
                       </p>
                       <p className="text-[11px] text-slate-400 dark:text-slate-500">เฉลี่ย {p.rate.monthLabel} ({p.rate.months.length} เดือนที่ปิดงวดแล้ว)</p>
                     </div>
@@ -330,7 +330,7 @@ export default function DrugProfileModal({ code, isStaff, department = null, onC
                       ...(p.dispenseHistory.department ? [] : [{ label: 'หน่วยงาน', cell: r => r.department }]),
                       { label: 'Lot', cell: r => r.lot },
                       { label: 'จำนวน', cell: r => fmtNum(r.qty), num: true },
-                      { label: 'หน่วย', cell: r => r.unit, nowrap: true },
+                      { label: 'หน่วย', cell: r => packUnitLabel(r.unit), nowrap: true },
                       { label: 'ชนิดรายการ', cell: r => r.itemType || '-' },
                     ]}
                   />
@@ -355,7 +355,7 @@ export default function DrugProfileModal({ code, isStaff, department = null, onC
                         { label: 'บริษัท', cell: r => r.supplier },
                         { label: 'Lot', cell: r => r.lot },
                         { label: 'จำนวน', cell: r => fmtNum(r.qty), num: true },
-                        { label: 'หน่วย', cell: r => r.unit, nowrap: true },
+                        { label: 'หน่วย', cell: r => packUnitLabel(r.unit), nowrap: true },
                         { label: 'ราคา/หน่วย', cell: r => (r.price > 0 ? fmtMoney(r.price) : (isPurchase(r.purchaseType) ? '0' : r.purchaseType)), num: true },
                       ]}
                     />
