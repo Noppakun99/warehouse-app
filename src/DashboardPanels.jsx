@@ -297,6 +297,8 @@ export function Collapsible({ title, open, onToggle, alwaysOpenLg = false, child
   );
 }
 
+const TOP5_OPEN_KEY = 'dashboard_top5_open';
+
 // ── คอลัมน์ภาพรวม: 3 ตัวเลข + ยาต้องสั่งซื้อ 5 อันดับ ─────────────────────
 export function OverviewPanel({ alerts, wide = false, canReorder = false, onOpenStock, onOpenExpiry, onOpenLowStock, onOpenReorder }) {
   // drugCount คำนวณใน fetchDashboardAlerts ด้วยกฎเดียวกับ fetchStockSummary (โมดอลที่การ์ดนี้เปิด) — Rule #6
@@ -309,6 +311,14 @@ export function OverviewPanel({ alerts, wide = false, canReorder = false, onOpen
     { key: 'low', label: 'ต่ำกว่า Safety Stock', value: lowStock.length, icon: ShoppingCart, tone: 'text-amber-700 dark:text-amber-300', chip: 'bg-amber-100 dark:bg-amber-950/60 text-amber-600', onClick: lowStock.length ? onOpenLowStock : undefined },
   ];
   const top5 = lowStock.slice(0, 5);
+  // พับไว้เป็นค่าเริ่มต้น ให้กราฟด้านล่างอยู่ในจอ — จำการกาง/พับไว้ที่เครื่อง (localStorage อาจถูกปิดใน WebView)
+  const [topOpen, setTopOpen] = useState(() => {
+    try { return localStorage.getItem(TOP5_OPEN_KEY) === '1'; } catch { return false; }
+  });
+  const toggleTop = () => setTopOpen(v => {
+    try { localStorage.setItem(TOP5_OPEN_KEY, v ? '0' : '1'); } catch { /* จำไม่ได้ — กาง/พับได้แค่รอบนี้ */ }
+    return !v;
+  });
 
   return (
     <div className="space-y-3">
@@ -334,15 +344,19 @@ export function OverviewPanel({ alerts, wide = false, canReorder = false, onOpen
 
       {top5.length > 0 && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 dark:border-slate-800">
-            <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">ยาต้องสั่งซื้อ 5 อันดับแรก</h3>
+          <div className={`flex items-center justify-between gap-2 px-4 py-2.5 ${topOpen ? 'border-b border-slate-100 dark:border-slate-800' : ''}`}>
+            <button type="button" onClick={toggleTop} aria-expanded={topOpen}
+              className="flex-1 min-w-0 flex items-center gap-1.5 text-left">
+              <ChevronDown size={16} className={`text-slate-400 shrink-0 transition-transform ${topOpen ? '' : '-rotate-90'}`} />
+              <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">ยาต้องสั่งซื้อ 5 อันดับแรก</h3>
+            </button>
             {canReorder && (
               <button type="button" onClick={onOpenReorder} className="text-xs text-sky-600 dark:text-sky-300 hover:underline font-semibold inline-flex items-center gap-0.5">
                 ดูทั้งหมด <ArrowRight size={13} />
               </button>
             )}
           </div>
-          <ul className="divide-y divide-slate-50 dark:divide-slate-800">
+          {topOpen && <ul className="divide-y divide-slate-50 dark:divide-slate-800">
             {top5.map((r, i) => (
               <li key={r.code || i} className="flex items-center justify-between gap-3 px-4 py-2.5">
                 <div className="min-w-0">
@@ -354,7 +368,7 @@ export function OverviewPanel({ alerts, wide = false, canReorder = false, onOpen
                 <span className="inline-flex items-center rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 text-xs font-bold tabular-nums shrink-0">{Math.round((r.ratio || 0) * 100)}%</span>
               </li>
             ))}
-          </ul>
+          </ul>}
         </div>
       )}
     </div>
