@@ -16,7 +16,7 @@ import { test, expect, waitForAppShell } from './fixtures.js';
 // การ์ดเลือกระบบบน Dashboard ถูกถอดไปแล้ว (commit 2b16aef) → เข้าทุกหน้าผ่านเมนู sidebar (ชื่อตาม navConfig)
 // waitText = ชื่อบน title bar ของหน้านั้น (ไม่ใช้คำกว้างอย่าง "ประวัติ" — ไปโดนเมนู sidebar ผ่านแบบหลอก)
 const SUB_APPS = [
-  { card: 'แผนผังคลังยา',      key: 'inventory',   waitText: /ระบบแผนผังและข้อมูลคลังยา/ },
+  { card: 'แผนผังคลังยา',      key: 'inventory',   waitText: /กำลังโหลดแผนผังคลัง|กดช่องเพื่อดูยาในช่อง/ }, // ชื่อหน้า = ชื่อเมนู → ใช้ข้อความเฉพาะหน้านี้
   { card: 'เบิกยาออนไลน์',      key: 'requisition', waitText: /ค้นหายาในคลัง|ใบเบิก/ },
   { card: 'ประวัติรับยา',       key: 'receive',     waitText: /บันทึกการรับเข้าคลัง/ },
   { card: 'ประวัติเบิกจ่าย',     key: 'dispense',    waitText: /บันทึกการเบิกจ่าย/ },
