@@ -112,9 +112,10 @@ test.describe('แถบปุ่มล่างจอ — ผู้เบิก
 
   test('ประวัติรับยาบนมือถือ: ตัวกรองบริษัท/ชนิดยา/วันที่อยู่ใน bottom sheet', async ({ page }) => {
     await page.getByRole('button', { name: 'เปิดเมนู' }).click();
-    const btns = page.getByRole('button', { name: 'ประวัติรับยา', exact: true });
-    if (await btns.count() < 2) await btns.first().click();
-    await btns.last().click();
+    // ผู้เบิกเห็น "ประวัติรับยา" ข้อเดียว · staff อยู่ใต้เมนูแม่ "รับยา" (navConfig จัดใหม่ 11/10/2569)
+    const leaf = page.getByRole('button', { name: 'ประวัติรับยา', exact: true });
+    if (!(await leaf.isVisible().catch(() => false))) await page.getByRole('button', { name: 'รับยา', exact: true }).click();
+    await leaf.click();
     await expect(page.getByText('บันทึกการรับเข้าคลัง').first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByPlaceholder('ค้นหาบริษัท...')).toHaveCount(0);
     await filterBtn(page).click();

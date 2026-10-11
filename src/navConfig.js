@@ -8,7 +8,7 @@ import {
   Activity, ShoppingCart, ClipboardList, Users, History, BarChart3, Layers,
   FileText, ClipboardCheck, Send, ScanLine, ListChecks, Building2, ShieldAlert,
   Undo2, CalendarClock, Trash2, HandCoins, ScrollText, ArrowLeftRight, CalendarDays, Thermometer,
-  MessageSquare,
+  MessageSquare, Settings2,
 } from 'lucide-react';
 
 // โครงสร้างเมนู — รองรับ 3 แบบใน group.items / children:
@@ -16,39 +16,43 @@ import {
 //   2) submenu:      { key, icon, title, roles, children: [...] }  → กดกางแบบ collapsible
 //   3) action item:  { action, icon, title, c, roles }  → ปุ่มที่ "ทำ action" (เช่น เปิด print) ไม่เปิดหน้า/ไม่เข้า navStack
 // page = key สำหรับ onNavigate (ตรง AppRoot routing), action = key สำหรับ onFormAction, c = สีประจำระบบ, roles ตรงกับ SYSTEMS.roles
+// จัดเมนูใหม่ 11/10/2569 (ผู้ใช้: "หัวข้อเยอะ เข้าใจยาก") — admin เห็น 17 → 12 ข้อชั้นบน
+//   งานคลัง = งานที่ทำทุกวัน (ย้ายตรวจนับ/อุณหภูมิมาจาก "ควบคุมระบบ") · รายงาน = ดูย้อนหลัง/วิเคราะห์/พิมพ์
+//   ระบบ = ตั้งค่า/ดูแล รวมเป็น submenu เดียว · page key ไม่เปลี่ยน (สิทธิ์รายคน Rule #23 ไม่กระทบ)
+//   อ้างอิง NN/g "Navigation Menus - 5 Tips" + Untitled UI sidebar (ไอคอนสีเดียว ชั้นบนน้อยข้อ เมนูย่อยกางได้)
 export const NAV_GROUPS = [
   {
-    label: 'งานประจำวัน', dot: 'bg-emerald-500',
+    label: 'งานคลัง', dot: 'bg-emerald-500',
     items: [
       { page: 'requisition', icon: Package,  title: 'เบิกยาออนไลน์',     c: 'blue',   roles: ['requester', 'staff', 'admin'] },
       { page: 'inventory',   icon: Database,  title: 'แผนผังคลังยา',       c: 'indigo', roles: ['requester', 'staff', 'admin'] },
-      { page: 'return',      icon: RotateCcw, title: 'คืนยา / ยาเสียหาย', c: 'violet', roles: ['requester', 'staff', 'admin'] },
-      { page: 'loan',        icon: ArrowLeftRight, title: 'ยืม-คืนยาระหว่าง รพ.', c: 'sky', roles: ['requester', 'staff', 'admin'] },
-      // งานค้างจากไลน์ — **admin เท่านั้น** (เนื้อหาเป็นบทสนทนาภายในของหัวหน้ากับเจ้าหน้าที่ ดู ADR-0022)
-      { page: 'linetask',    icon: MessageSquare, title: 'งานค้างจากไลน์', c: 'teal', roles: ['admin'] },
-    ],
-  },
-  {
-    label: 'สรุปและรายงาน', dot: 'bg-blue-500',
-    items: [
       {
-        key: 'receive', icon: TrendingUp, title: 'ประวัติรับยา', c: 'emerald', roles: ['requester', 'staff', 'admin'],
+        key: 'receive', icon: TrendingUp, title: 'รับยา', c: 'emerald', roles: ['requester', 'staff', 'admin'],
         children: [
           { page: 'receive',      icon: TrendingUp, title: 'ประวัติรับยา', c: 'emerald', roles: ['requester', 'staff', 'admin'] },
           { page: 'receive-ap',   icon: Send,       title: 'ส่งบัญชี',      c: 'emerald', roles: ['staff', 'admin'] },
           { page: 'receive-scan', icon: ScanLine,   title: 'สแกนบิล',       c: 'emerald', roles: ['staff', 'admin'] },
         ],
       },
+      { page: 'return',      icon: RotateCcw, title: 'คืนยา / ยาเสียหาย', c: 'violet', roles: ['requester', 'staff', 'admin'] },
+      { page: 'loan',        icon: ArrowLeftRight, title: 'ยืม-คืนยาระหว่าง รพ.', c: 'sky', roles: ['requester', 'staff', 'admin'] },
+      { page: 'stockcount', icon: ClipboardCheck, title: 'ตรวจนับคงคลัง',   c: 'emerald', roles: ['staff', 'admin'] },
+      { page: 'temperature', icon: Thermometer, title: 'อุณหภูมิที่เก็บยา', c: 'sky',   roles: ['staff', 'admin'] },
+    ],
+  },
+  {
+    label: 'รายงาน', dot: 'bg-blue-500',
+    items: [
       { page: 'dispense', icon: TrendingDown, title: 'ประวัติเบิกจ่าย', c: 'rose', roles: ['requester', 'staff', 'admin'] },
-      { page: 'analytics', icon: Activity, title: 'วิเคราะห์การเบิก', c: 'cyan', roles: ['requester', 'staff', 'admin'] },
-      { page: 'stockcard', icon: ScrollText, title: 'Stockcard', c: 'teal', roles: ['requester', 'staff', 'admin'] },
+      { page: 'stockcard', icon: ScrollText, title: 'การ์ดคลัง (Stockcard)', c: 'teal', roles: ['requester', 'staff', 'admin'] },
       {
-        key: 'reorder', icon: ShoppingCart, title: 'วิเคราะห์สั่งซื้อ', c: 'orange', roles: ['staff', 'admin'],
+        key: 'analyze', icon: Activity, title: 'วิเคราะห์', c: 'cyan', roles: ['requester', 'staff', 'admin'],
         children: [
-          { page: 'reorder',          icon: ListChecks,  title: 'ตารางวิเคราะห์',    c: 'orange', roles: ['staff', 'admin'] },
+          { page: 'analytics',        icon: Activity,     title: 'วิเคราะห์การเบิก',    c: 'cyan',   roles: ['requester', 'staff', 'admin'] },
+          { page: 'reorder',          icon: ShoppingCart, title: 'วิเคราะห์สั่งซื้อ',    c: 'orange', roles: ['staff', 'admin'] },
           { page: 'reorder-supplier', icon: Building2,    title: 'ใบสั่งซื้อแยกบริษัท', c: 'orange', roles: ['staff', 'admin'] },
-          { page: 'reorder-verify',   icon: ShieldAlert, title: 'Verification',      c: 'orange', roles: ['staff', 'admin'] },
-          { page: 'reorder-history',  icon: History,     title: 'History',           c: 'orange', roles: ['staff', 'admin'] },
+          { page: 'reorder-verify',   icon: ShieldAlert,  title: 'ตรวจสูตรสั่งซื้อ',     c: 'orange', roles: ['staff', 'admin'] },
+          { page: 'reorder-history',  icon: History,      title: 'ประวัติการวิเคราะห์สั่งซื้อ', c: 'orange', roles: ['staff', 'admin'] },
         ],
       },
       {
@@ -68,14 +72,19 @@ export const NAV_GROUPS = [
     ],
   },
   {
-    label: 'ควบคุมระบบ', dot: 'bg-slate-500',
+    label: 'ระบบ', dot: 'bg-slate-500',
     items: [
-      { page: 'ledger',     icon: Layers,         title: 'ทะเบียนคงคลัง',   c: 'teal',    roles: ['admin'] },
-      { page: 'stockcount', icon: ClipboardCheck, title: 'ตรวจนับคงคลัง',   c: 'emerald', roles: ['staff', 'admin'] },
-      { page: 'temperature', icon: Thermometer, title: 'อุณหภูมิที่เก็บยา', c: 'sky',   roles: ['staff', 'admin'] },
-      { page: 'holiday', icon: CalendarDays,  title: 'ปฏิทินคลังยา',    c: 'sky',   roles: ['admin'] },
-      { page: 'audit',  icon: ClipboardList,  title: 'Audit Log',        c: 'amber', roles: ['staff', 'admin'] },
-      { page: 'users',  icon: Users,          title: 'จัดการผู้ใช้งาน', c: 'slate', roles: ['admin'] },
+      {
+        key: 'system', icon: Settings2, title: 'ตั้งค่าและดูแลระบบ', c: 'slate', roles: ['staff', 'admin'],
+        children: [
+          { page: 'ledger',   icon: Layers,         title: 'ทะเบียนคงคลัง',   c: 'teal',  roles: ['admin'] },
+          { page: 'holiday',  icon: CalendarDays,   title: 'ปฏิทินคลังยา',    c: 'sky',   roles: ['admin'] },
+          // งานค้างจากไลน์ — **admin เท่านั้น** (เนื้อหาเป็นบทสนทนาภายในของหัวหน้ากับเจ้าหน้าที่ ดู ADR-0022)
+          { page: 'linetask', icon: MessageSquare,  title: 'งานค้างจากไลน์', c: 'teal',  roles: ['admin'] },
+          { page: 'audit',    icon: ClipboardList,  title: 'Audit Log',        c: 'amber', roles: ['staff', 'admin'] },
+          { page: 'users',    icon: Users,          title: 'จัดการผู้ใช้งาน', c: 'slate', roles: ['admin'] },
+        ],
+      },
     ],
   },
 ];

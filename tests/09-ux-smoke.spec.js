@@ -29,15 +29,18 @@ async function gotoDashboard(page) {
   await waitForAppShell(page);
 }
 
-// เมนู sidebar — จอเล็กเปิด drawer ก่อน · "ประวัติรับยา" เป็น submenu ที่ลูกชื่อเดียวกับแม่ → กางแล้วกดตัวลูก
+// เมนู sidebar — จอเล็กเปิด drawer ก่อน · บางหน้าอยู่ในเมนูย่อย (navConfig จัดใหม่ 11/10/2569) → กางแม่ก่อน
 // (getByRole ไม่นับปุ่มที่ display:none → sidebar คอมที่ซ่อนบนจอเล็กไม่ถูกนับ)
+const MENU_PARENT = { 'ประวัติรับยา': 'รับยา', 'วิเคราะห์การเบิก': 'วิเคราะห์' };
 async function clickMenu(page, name) {
   const hamburger = page.getByRole('button', { name: 'เปิดเมนู' });
   if (await hamburger.isVisible().catch(() => false)) await hamburger.click();
-  const btns = page.getByRole('button', { name, exact: true });
-  await btns.first().waitFor({ state: 'visible', timeout: 8_000 });
-  if (name === 'ประวัติรับยา' && await btns.count() < 2) await btns.first().click();
-  await btns.last().click();
+  const btn = page.getByRole('button', { name, exact: true }).first();
+  if (MENU_PARENT[name] && !(await btn.isVisible().catch(() => false))) {
+    await page.getByRole('button', { name: MENU_PARENT[name], exact: true }).first().click();
+  }
+  await btn.waitFor({ state: 'visible', timeout: 8_000 });
+  await btn.click();
 }
 
 async function openSubApp(page, menuName) {
@@ -71,19 +74,21 @@ test.describe('UX Smoke — ทุก sub-app เปิดได้ไม่ cra
     });
   }
 
-  test('เมนู sidebar ครบ (กลุ่ม งานประจำวัน / สรุปและรายงาน)', async ({ staffPage: page }) => {
+  test('เมนู sidebar ครบ (กลุ่ม งานคลัง / รายงาน / ระบบ)', async ({ staffPage: page }) => {
     if (!page) test.skip();
     await gotoDashboard(page);
 
     // กลุ่มเมนูตาม NAV_GROUPS ใน navConfig.js
-    await expect(page.getByText('งานประจำวัน').first()).toBeVisible();
-    await expect(page.getByText('สรุปและรายงาน').first()).toBeVisible();
+    await expect(page.getByText('งานคลัง', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('รายงาน', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('ระบบ', { exact: true }).first()).toBeVisible();
 
-    // เมนูของ 6 หน้าที่ทุก role เข้าได้ ต้องเห็นครบ
+    // ชั้นบนสุด: หน้าเดี่ยว + เมนูแม่ของหน้าที่อยู่ในเมนูย่อย ต้องเห็นครบโดยไม่ต้องกาง
+    const top = ['เบิกยาออนไลน์', 'แผนผังคลังยา', 'รับยา', 'คืนยา / ยาเสียหาย', 'ประวัติเบิกจ่าย', 'วิเคราะห์'];
     const visible = await Promise.all(
-      SUB_APPS.map(a => page.getByRole('button', { name: a.card, exact: true }).first().isVisible().catch(() => false))
+      top.map(n => page.getByRole('button', { name: n, exact: true }).first().isVisible().catch(() => false))
     );
-    expect(visible.filter(Boolean).length).toBe(SUB_APPS.length);
+    expect(visible.filter(Boolean).length).toBe(top.length);
   });
 
   test('Logout ทำงาน + ส่งกลับหน้า login', async ({ browser }) => {

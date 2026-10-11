@@ -17,7 +17,7 @@ async function gotoApTab(page) {
   await waitForAppShell(page);
   const apMenu = page.getByRole('button', { name: 'ส่งบัญชี', exact: true });
   if (!(await apMenu.first().isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: 'ประวัติรับยา', exact: true }).first().click();
+    await page.getByRole('button', { name: 'รับยา', exact: true }).first().click(); // เมนูแม่ (navConfig 11/10/2569)
   }
   await apMenu.first().click();
   await page.waitForSelector('text=ส่งบัญชีรายอาทิตย์', { timeout: 10_000 });

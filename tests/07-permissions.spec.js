@@ -68,6 +68,7 @@ test.describe('Permissions — staff', () => {
     if (!page) test.skip();
     await page.goto('/');
     await waitForDashboard(page);
+    await menu(page, 'วิเคราะห์').click(); // staff: อยู่ใต้เมนูแม่ "วิเคราะห์" (ผู้เบิกเห็นข้อเดียว = ไม่มีเมนูแม่)
     await expect(menu(page, 'วิเคราะห์การเบิก')).toBeVisible({ timeout: 5_000 });
   });
 
@@ -78,6 +79,9 @@ test.describe('Permissions — staff', () => {
     if (!page) test.skip();
     await page.goto('/');
     await waitForDashboard(page);
+    // admin เห็นเมนูแม่ "ตั้งค่าและดูแลระบบ" (กางแล้วมีจัดการผู้ใช้งาน) · staff เห็นแค่ Audit Log ข้อเดียว (ไม่มีเมนูแม่)
+    const sys = menu(page, 'ตั้งค่าและดูแลระบบ');
+    if (await sys.isVisible().catch(() => false)) await sys.click();
     await expect(menu(page, 'จัดการผู้ใช้งาน')).not.toBeVisible();
   });
 
@@ -85,6 +89,7 @@ test.describe('Permissions — staff', () => {
     if (!page) test.skip();
     await page.goto('/');
     await waitForDashboard(page);
+    await menu(page, 'วิเคราะห์').click();
     await menu(page, 'วิเคราะห์การเบิก').click();
     await expect(
       page.getByText(/วิเคราะห์|ช่วงเวลา|แนวโน้ม/i).first()
