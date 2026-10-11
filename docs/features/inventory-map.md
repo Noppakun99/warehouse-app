@@ -113,7 +113,7 @@ Modal เปิดจาก Alert stat cards (หมดอายุแล้ว 
 
 ## StockSummaryModal — จำนวนคงเหลือในคลัง
 
-- เปิดจาก Dashboard card "รายการยาในคลัง" (StatsStrip)
+- เปิดจากการ์ด "รายการยาในคลัง" ในคอลัมน์ภาพรวมของหน้าหลัก (`OverviewPanel`) — ตัวเลขบนการ์ด = `fetchDashboardAlerts().drugCount` ซึ่งใช้กฎเดียวกับ `fetchStockSummary` ของโมดอลนี้ (ต้องเท่ากันเสมอ — Rule #6)
 - **Layout**: Desktop → modal กว้าง `max-w-5xl` กลางหน้าจอ / Mobile → bottom sheet (`rounded-t-2xl`)
 - ตาราง: sticky header + frozen column "ชื่อยา" (ซ้าย) + scroll แนวนอน บน mobile
 - Realtime: subscribe `postgres_changes` บน `inventory` table → อัพเดตอัตโนมัติ

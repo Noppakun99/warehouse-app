@@ -416,16 +416,16 @@ function _parseExpDate(raw) {
 }
 
 export async function fetchDashboardAlerts() {
-  if (!supabase) return { expiring: [], lowStock: [] }
+  if (!supabase) return { expiring: [], lowStock: [], pendingReceive: [], drugCount: null }
 
   // paginate ครบทุก row — ไม่งั้นยาที่เรียงท้าย (เช่นน้ำเกลือ) หายจาก alert (Critical Rule #2)
   let data
   try {
     data = await fetchAllInventoryRows('name, code, exp, qty, lot, location, safety_stock, type, unit, receive_status, invoice')
   } catch {
-    return { expiring: [], lowStock: [], pendingReceive: [] }
+    return { expiring: [], lowStock: [], pendingReceive: [], drugCount: null }
   }
-  if (!data) return { expiring: [], lowStock: [], pendingReceive: [] }
+  if (!data) return { expiring: [], lowStock: [], pendingReceive: [], drugCount: null }
 
   // ดึง receive_date จาก receive_logs เพื่อคำนวณ waitDays (รอตรวจรับมา X วัน) — ใช้ logic เดียวกับระบบแผนผัง
   // ข้าม 1000-row limit ของ Supabase ด้วย pagination
@@ -493,11 +493,19 @@ export async function fetchDashboardAlerts() {
   const pendingReceive = []
   // aggregate stock ระดับ "code" (ไม่ใช่ per-lot) ให้ตรงกับระบบสั่งยาใหม่
   const byCode = new Map() // code(lower) → { code, name, type, unit, qty, ss, discontinued, location }
+  // การ์ด "รายการยาในคลัง" — กฎเดียวกับ fetchStockSummary (โมดอลที่การ์ดเปิด) ทุกข้อ: qty>0,
+  // ไม่ตัดออก, key = รหัส หรือชื่อถ้ารหัสเป็น '-' (Rule #6 — เดิมนับรหัสที่คงเหลือ 0 ด้วย การ์ด 430 โมดอล 369)
+  const stockKeys = new Set()
 
   data.forEach(row => {
     const isDiscontinued = String(row.receive_status || '').includes('ตัดออก')
     const isPendingReceive = String(row.receive_status || '').includes('รอตรวจรับ')
     const qtyNum = parseFloat(row.qty) || 0
+
+    if (!isDiscontinued && (parseFloat(String(row.qty || '0').replace(/,/g, '')) || 0) > 0) {
+      const sk = (row.code && row.code !== '-') ? row.code.trim() : (row.name || '').trim()
+      if (sk) stockKeys.add(sk)
+    }
 
     // --- รอตรวจรับ (อ้างอิงสถานะจาก inventory.receive_status — logic เดียวกับ App.jsx) ---
     if (isPendingReceive) {
@@ -590,6 +598,7 @@ export async function fetchDashboardAlerts() {
       (a.ratio - b.ratio)
     ),
     pendingReceive,
+    drugCount: stockKeys.size,
   }
 }
 
@@ -3528,12 +3537,22 @@ export async function fetchStockCountSessions() {
 }
 
 // รายการที่นับใน 1 รอบ
+// paginate (Rule #2) — รอบประจำปีมีบรรทัดเท่าจำนวน lot ที่มีของ (~670 ตอนนี้) เกิน 1000 เมื่อไหร่
+// ไม่ paginate = บรรทัดท้ายหายเงียบ ทั้งหน้าตรวจนับและตัวเลข "เหลือ N" ในคิวงานหน้าหลัก
+// order ด้วย id ต่อท้าย ให้ลำดับคงที่ข้ามหน้า (ชื่อยาซ้ำได้)
 export async function fetchStockCountItems(sessionId) {
   if (!supabase) return []
-  const { data, error } = await supabase.from('stock_count_item')
-    .select('*').eq('session_id', sessionId).order('name')
-  if (error) throw error
-  return data || []
+  const PAGE = 1000
+  let from = 0, all = []
+  for (;;) {
+    const { data, error } = await supabase.from('stock_count_item')
+      .select('*').eq('session_id', sessionId).order('name').order('id').range(from, from + PAGE - 1)
+    if (error) throw error
+    all = all.concat(data || [])
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+  return all
 }
 
 // รายการที่นับทั้งหมด (ทุกรอบ) — paginate ครบ (Rule #2) — ใช้ค้นหายา/lot ข้ามรอบในประวัติ

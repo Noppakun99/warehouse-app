@@ -1,17 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  AreaChart, Area, ComposedChart, LabelList,
-} from 'recharts';
 import SearchableSelect from './SearchableSelect';
 import {
-  Pill, Package, TrendingUp, TrendingDown,
+  Pill, Package,
   ShieldCheck,
-  ChevronRight, Activity, Database, Clock,
-  AlertTriangle, ChevronDown, ChevronUp, ClipboardList,
+  ChevronRight, Database, Clock,
+  AlertTriangle, ChevronDown, ChevronUp,
   Eye, EyeOff, X, Bell, Search, RefreshCcw, FileDown, Printer,
-  Boxes, ShoppingCart, ArrowRight, Filter,
+  Filter,
 } from 'lucide-react';
 import App                from './App';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
@@ -21,9 +17,14 @@ import RequisitionApp     from './RequisitionApp';
 import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
-import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchAllInventoryRows, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS, fetchSwapReturnActions, swapActionKey, fetchLatestLineQuotaAlerts } from './lib/db';
+import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS, fetchSwapReturnActions, swapActionKey, fetchLatestLineQuotaAlerts, fetchDrugLoans, loanOverdueDays, fetchOpenAnnualCount, fetchUploadMeta, fetchHolidayMap } from './lib/db';
 import { computeReturnStatus } from './lib/swapPolicy';
 import { matchReceiveDetails } from './lib/receiveMatch';
+import { buildWorkQueue, describeNextCycle, isSwapRed, isSwapOpen } from './lib/workQueue';
+import { pickPopupRows, readSeen, writeSeen, popupStorageKey } from './lib/popupSeen';
+import { localYmd } from '../supabase/functions/_shared/usageRow.js';
+import { resolveCycles } from '../supabase/functions/_shared/announceSchedule.js';
+import { DashboardInfoLines, WorkQueuePanel, QueueDetailModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner } from './DashboardPanels';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
@@ -116,7 +117,6 @@ export default function AppRoot() {
 
   const handleLogin = (user) => { sessionStorage.setItem(AUTH_KEY, JSON.stringify(user)); setAuth(user); };
   const logout = () => {
-    if (auth?.id) sessionStorage.removeItem(`swap_popup_shown_${auth.id}`); // login ใหม่ให้เด้ง popup ได้อีก
     sessionStorage.removeItem(AUTH_KEY); setAuth(null); setNavStack(['dashboard']); setToasts([]);
   };
   // โหลดหน้านี้ใหม่ = remount sub-app (subKey) + refetch badge count (badgeTick) — กัน badge ค้างเมื่อ realtime พลาด
@@ -576,117 +576,190 @@ function CheckCircle({ size, className }) {
 // Dashboard — system selection
 // ============================================================
 
+// popup วันละครั้ง เฉพาะ lot ที่คนนั้นยังไม่เคยเห็น (CONTEXT §คิวงานวันนี้ · src/lib/popupSeen.js)
+// คืน rows ที่ต้องเด้ง + บันทึก "เห็นแล้ว" ลง localStorage ต่อคน (อ่านไม่ได้ = ถือว่ายังไม่เห็น)
+const popupLotKey = (r) => `${String(r.code || '').trim().toLowerCase()}|${String(r.lot || '-').trim().toLowerCase()}`;
+function takeNewPopupRows(kind, userId, rows) {
+  if (!rows?.length) return [];
+  let storage = null;
+  try { storage = window.localStorage; } catch { storage = null; }
+  const key = popupStorageKey(kind, userId);
+  const { show, nextSeen } = pickPopupRows({ rows, keyOf: popupLotKey, seen: readSeen(storage, key), today: localYmd(new Date()) });
+  if (nextSeen) writeSeen(storage, key, nextSeen);
+  return show;
+}
+
 function Dashboard({ auth, onNavigate }) {
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
   const [alerts, setAlerts] = useState({ expiring: [], lowStock: [], pendingReceive: [] });
+  const [alertsLoaded, setAlertsLoaded] = useState(false);
+  // คิวมาจาก 3 แหล่งที่โหลดเสร็จไม่พร้อมกัน — แสดงเมื่อครบ ไม่งั้นรายการโผล่ทีหลังแล้วดันตัวอื่นเลื่อนใต้เมาส์
+  const [swapLoaded, setSwapLoaded] = useState(false);
+  const [extraLoaded, setExtraLoaded] = useState(false);
   const [charts, setCharts] = useState(null);
   const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock' | 'stock'
-  const [swapDue, setSwapDue] = useState([]);          // ยาต้องคืนบริษัทก่อนพ้นกำหนด (staff/admin)
-  const [swapPopupOpen, setSwapPopupOpen] = useState(false); // popup เด้งอัตโนมัติตอน login
-  const [expiredPopupOpen, setExpiredPopupOpen] = useState(false); // popup ยาหมดอายุค้างคลัง
-  const [quotaPopup, setQuotaPopup] = useState(null);  // popup โควตา LINE ใกล้หมด (staff/admin)
+  const [swapDue, setSwapDue] = useState([]);          // ยาต้องคืนบริษัทก่อนพ้นกำหนด
+  const [swapPopupRows, setSwapPopupRows] = useState(null);       // null = ปิด · rows ที่แสดงในโมดอลคืนบริษัท
+  const [expiredPopupRows, setExpiredPopupRows] = useState(null); // popup ยาหมดอายุค้างคลัง (เฉพาะ lot ใหม่)
+  const [quotaPopup, setQuotaPopup] = useState(null);  // โควตา LINE — เปิดจากคิวของ admin เท่านั้น (ไม่เด้งเอง)
+  const [queueExtra, setQueueExtra] = useState({ loans: [], annual: null, quota: [] });
+  const [queueDetailKey, setQueueDetailKey] = useState(null);
+  const [uploadMeta, setUploadMeta] = useState(null);
+  const [cycle, setCycle] = useState(null);            // รอบเบิก-รับถัดไป (describeNextCycle)
+  const [overviewOpen, setOverviewOpen] = useState(false); // ภาพรวมพับ: requester ทุกจอ · staff เฉพาะจอเล็ก
   const [chartMonths, setChartMonths] = useState(6);   // ช่วงเปรียบเทียบกราฟ: 3 | 6 | 12 | 'all'
   const [chartEndYm, setChartEndYm] = useState(null);  // เดือนสิ้นสุดของช่วง (YYYY-MM); null = เดือนล่าสุด
   const [monthRange, setMonthRange] = useState([]);    // รายการเดือนให้เลือกใน dropdown
 
-  // ยาหมดอายุค้างคลัง = ของที่ยังอยู่บนชั้นทั้งที่เลย exp แล้ว (CONTEXT §Expired-On-Shelf)
-  // ⚠️ ต้อง derive จาก alerts.expiring ชุดเดียวกับโมดอลส้ม — expired/near-expiry อยู่ในชุดเดียวกัน
-  // (ดู Do-Not rule เรื่องโมดอลส้มใน CLAUDE.md) แยก query ใหม่จะหลุดจากกันได้
-  const expiredItems = useMemo(
-    () => (alerts.expiring || []).filter(it => it.daysLeft < 0),
-    [alerts.expiring],
-  );
-
+  // ยาหมดอายุค้างคลัง/ใกล้หมด derive จาก alerts.expiring ชุดเดียวกับโมดอลส้มเสมอ (Do-Not rule ใน CLAUDE.md)
   useEffect(() => {
     if (!supabase) return;
     fetchDashboardAlerts().then(a => {
       setAlerts(a);
-      // เด้ง popup ยาหมดอายุค้างคลังพร้อมกับที่ข้อมูลมาถึง — ครั้งเดียวต่อรอบ login
-      const expired = (a.expiring || []).filter(it => it.daysLeft < 0);
-      const shownKey = `expired_popup_shown_${auth.id}`;
-      if (expired.length > 0 && !sessionStorage.getItem(shownKey)) {
-        setExpiredPopupOpen(true);
-        sessionStorage.setItem(shownKey, '1');
+      setAlertsLoaded(true);
+      // requester ไม่มี popup (ตกลง 10/10/2569) — staff/admin เด้งเฉพาะ lot หมดอายุค้างชั้นที่ยังไม่เคยเห็น วันละครั้ง
+      if (isStaff) {
+        const show = takeNewPopupRows('expired', auth.id, (a.expiring || []).filter(it => it.daysLeft < 0));
+        if (show.length) setExpiredPopupRows(show);
       }
-    });
+    }).catch(() => setAlertsLoaded(true));
     fetchChartMonthRange().then(setMonthRange).catch(() => {});
-  }, [auth.id]);
+    fetchUploadMeta().then(setUploadMeta).catch(() => {});
+    // รอบเบิก-รับ: resolveCycles มองย้อน/ข้ามสัปดาห์ → ดึงวันหยุดครอบ -10..+45 วัน
+    const today = localYmd(new Date());
+    const from = new Date(); from.setDate(from.getDate() - 10);
+    const to = new Date(); to.setDate(to.getDate() + 45);
+    fetchHolidayMap({ fromDate: localYmd(from), toDate: localYmd(to) })
+      .then(h => setCycle(describeNextCycle(today, resolveCycles(today, h), h)))
+      .catch(() => {});
+  }, [auth.id, isStaff]);
 
   // กราฟเบิก/รับ — refetch เมื่อเปลี่ยนช่วง (3/6/12/ทั้งหมด) หรือเดือนสิ้นสุด. แสดงทุก role
   // ไม่ล้าง charts เป็น null ระหว่างโหลด → คงกราฟเดิมไว้ ไม่กระพริบว่าง (race: ค่าล่าสุดชนะด้วย alive flag)
   useEffect(() => {
     if (!supabase) return;
     let alive = true;
-    fetchDashboardCharts(chartMonths, chartEndYm).then(c => { if (alive) setCharts(c); }).catch(() => {});
+    // ล้ม = แจ้งว่าโหลดไม่สำเร็จ (เดิมกลืน error เงียบ → ค้าง "กำลังโหลด…" + ยอด ฿0 ตลอดไป)
+    fetchDashboardCharts(chartMonths, chartEndYm)
+      .then(c => { if (alive) setCharts(c); })
+      .catch(() => { if (alive) setCharts({ error: true }); });
     return () => { alive = false; };
   }, [chartMonths, chartEndYm]);
 
+  // ยาต้องเปลี่ยน/คืนบริษัท — ทุก role เห็น (requester เป็นแบนเนอร์) · popup เฉพาะ staff/admin:
+  // lot ที่เพิ่งเหลือ ≤30 วันถึงเส้นตาย (ยังค้าง + ไม่คาดว่าจะหมดเอง) ที่ยังไม่เคยเห็น วันละครั้ง
   useEffect(() => {
     if (!supabase) return;
-    // ยาต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด — เด้ง popup อัตโนมัติ "ครั้งเดียวต่อรอบ login"
-    // (Dashboard remount ทุกครั้งที่กลับมาหน้าหลัก → กันเด้งซ้ำด้วย sessionStorage flag; ล้างตอน logout)
-    // แสดงทุก role — ไม่ใช่แค่เจ้าหน้าที่คลังยา (ผู้ใช้อื่นต้องเห็นด้วยเพื่อช่วยกันไม่ให้ของตกหล่น)
-    const shownKey = `swap_popup_shown_${auth.id}`;
     fetchSwapReturnDue().then(rows => {
       setSwapDue(rows);
-      if (rows.length > 0 && !sessionStorage.getItem(shownKey)) {
-        setSwapPopupOpen(true);
-        sessionStorage.setItem(shownKey, '1');
+      if (isStaff) {
+        const show = takeNewPopupRows('swapRed', auth.id, rows.filter(isSwapRed));
+        if (show.length) setSwapPopupRows(show);
       }
-    }).catch(() => {});
-  }, [auth.id]);
+    }).catch(() => {}).finally(() => setSwapLoaded(true));
+  }, [auth.id, isStaff]);
+  // ปิดโมดอลคืนบริษัทแล้วโหลดใหม่ — สถานะที่เพิ่งบันทึก (ส่งคืนแล้ว/ไม่คืน) ต้องหลุดจากคิวทันที ไม่ใช่รอเข้าหน้าใหม่
+  // ไม่ผ่าน takeNewPopupRows (ไม่เด้ง popup ซ้ำ)
+  const closeSwapPopup = () => {
+    setSwapPopupRows(null);
+    fetchSwapReturnDue().then(setSwapDue).catch(() => {});
+  };
 
-  // ยาหมดอายุค้างคลัง (ของยังอยู่บนชั้นทั้งที่เลย exp) — เด้งครั้งเดียวต่อรอบ login
-  // ใช้ alerts.expiring ชุดเดียวกับโมดอลส้ม แล้วกรอง daysLeft < 0 (Do-Not rule: expired อยู่ในชุดเดียวกัน)
-  //
-  // ตั้ง flag "เคยเด้งแล้ว" ตอน fetch เสร็จ (ไม่ใช่ setState ใน effect แยก — cascading render)
-  // pattern เดียวกับ swap popup แต่ต้องรอ alerts โหลดก่อน จึงเช็คใน callback ของ fetchDashboardAlerts
-
-  // โควตาแจ้งเตือน LINE ใกล้หมด — staff/admin เท่านั้น (ward ทำอะไรกับโควตาไม่ได้)
-  // อ่านจาก audit action `line_quota_low` ที่บอทบันทึกไว้ (ดู docs/features/requisition-announce.md)
+  // ข้อมูลคิวที่ requester ไม่ใช้: ยืม-คืนค้าง · รอบนับประจำปี · โควตา LINE (admin)
   useEffect(() => {
     if (!supabase || !isStaff) return;
-    const shownKey = `line_quota_popup_shown_${auth.id}`;
-    if (sessionStorage.getItem(shownKey)) return;
-    fetchLatestLineQuotaAlerts().then(rows => {
-      if (!rows?.length) return;
-      setQuotaPopup(rows);   // เด้งทีละตัวตามลำดับ (บอทละ 1 คำเตือน)
-      sessionStorage.setItem(shownKey, '1');
-    }).catch(() => {});
-  }, [auth.id, isStaff]);
+    let alive = true;
+    Promise.all([
+      fetchDrugLoans().catch(() => []),
+      fetchOpenAnnualCount().catch(() => null),
+      auth.role === 'admin' ? fetchLatestLineQuotaAlerts().catch(() => []) : Promise.resolve([]),
+    ]).then(([loans, annual, quota]) => {
+      if (!alive) return;
+      setQueueExtra({
+        loans: (loans || []).map(r => ({ ...r, overdueDays: loanOverdueDays(r) })),
+        annual,
+        quota: quota || [],
+      });
+      setExtraLoaded(true);
+    });
+    return () => { alive = false; };
+  }, [auth.id, auth.role, isStaff]);
+
+  const queue = useMemo(
+    () => (isStaff ? buildWorkQueue({ ...alerts, swapDue, ...queueExtra, role: auth.role }) : []),
+    [isStaff, alerts, swapDue, queueExtra, auth.role],
+  );
+  const queueDetail = queue.find(it => it.key === queueDetailKey) || null;
+  const swapOpenCount = useMemo(() => swapDue.filter(isSwapOpen).length, [swapDue]);
+
+  // ปุ่ม "ไปหน้าจัดการ" ในโมดอลรายการของคิว
+  const QUEUE_MANAGE = {
+    expired:        { label: 'เปิดรายการยาใกล้หมดอายุ', run: () => setAlertModal('expiry') },
+    nearExpiry:     { label: 'เปิดรายการยาใกล้หมดอายุ', run: () => setAlertModal('expiry') },
+    swap:           { label: 'บันทึกการคืนบริษัท',      run: () => setSwapPopupRows(swapDue) },
+    outOfStock:     { label: 'ไปหน้าวิเคราะห์สั่งซื้อ',  run: () => onNavigate('reorder') },
+    pendingReceive: { label: 'ไปแผนผังคลังยา',          run: () => onNavigate('inventory') },
+    loanOverdue:    { label: 'ไปหน้ายืม-คืนยา',          run: () => onNavigate('loan') },
+  };
+  const openQueueItem = (it) => {
+    if (it.key === 'annualCount') { onNavigate('stockcount'); return; }
+    if (it.key === 'lineQuota') { setQuotaPopup(it.rows); return; }
+    setQueueDetailKey(it.key);
+  };
+
+  const overview = (
+    <OverviewPanel
+      alerts={alerts}
+      wide={!isStaff}
+      canReorder={isStaff}
+      onOpenStock={() => setAlertModal('stock')}
+      onOpenExpiry={() => setAlertModal('expiry')}
+      onOpenLowStock={() => setAlertModal('lowStock')}
+      onOpenReorder={() => onNavigate('reorder')}
+    />
+  );
+  const flowChart = (
+    <MonthlyFlowChart
+      charts={charts}
+      months={chartMonths}
+      onChangeMonths={setChartMonths}
+      endYm={chartEndYm}
+      onChangeEndYm={setChartEndYm}
+      monthRange={monthRange}
+      onOpenDispense={() => onNavigate('dispense')}
+      onOpenReceive={() => onNavigate('receive')}
+    />
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-200 via-slate-100 to-indigo-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-900 font-sans">
       {/* กระดิ่ง + เมนูบัญชี + สลับธีม อยู่บน top bar (ขาว) ของ AppShell — แสดงทุกหน้า */}
-
-      {/* หัวหน้า — ชื่อหน้าอย่างเดียว (ชื่อผู้ใช้/บทบาทดูได้ที่เมนูบัญชีบน top bar) */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 pb-4">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-8 pb-10">
         <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-100">Dashboard</h2>
-      </div>
+        <DashboardInfoLines uploadMeta={uploadMeta} cycle={cycle} />
 
-      {/* Quick stats strip */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-4">
-        <StatsStrip
-          alerts={alerts}
-          onOpenExpiry={() => setAlertModal('expiry')}
-          onOpenLowStock={() => setAlertModal('lowStock')}
-          onOpenRequisition={() => onNavigate(isStaff ? 'requisition' : 'requisition-history')}
-          onOpenStock={() => setAlertModal('stock')}
-        />
-
-        {/* Charts + ยาต้องสั่งซื้อ — แสดงทุก role */}
-        <DashboardCharts
-          charts={charts}
-          months={chartMonths}
-          onChangeMonths={setChartMonths}
-          endYm={chartEndYm}
-          onChangeEndYm={setChartEndYm}
-          monthRange={monthRange}
-          lowStock={alerts.lowStock}
-          onOpenReorder={() => onNavigate('reorder')}
-          onOpenDispense={() => onNavigate('dispense')}
-          onOpenReceive={() => onNavigate('receive')}
-        />
+        {isStaff ? (
+          <>
+            {/* คอม: คิวงาน 2/3 ซ้าย + ภาพรวมขวา · มือถือ: คอลัมน์เดียว ภาพรวมพับ (แผน §11.1 ข้อ 19) */}
+            <div className="mt-5 grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+              <div className="lg:col-span-2">
+                <WorkQueuePanel items={queue} loading={!(alertsLoaded && swapLoaded && extraLoaded)} onOpen={openQueueItem} />
+              </div>
+              <Collapsible title="ภาพรวมคลัง" open={overviewOpen} onToggle={() => setOverviewOpen(o => !o)} alwaysOpenLg>
+                {overview}
+              </Collapsible>
+            </div>
+            <div className={`mt-4 ${overviewOpen ? 'block' : 'hidden'} lg:block`}>{flowChart}</div>
+          </>
+        ) : (
+          <>
+            <SwapBanner count={swapOpenCount} onOpen={() => setSwapPopupRows(swapDue)} />
+            <Collapsible className="mt-5" title="ภาพรวมคลัง" open={overviewOpen} onToggle={() => setOverviewOpen(o => !o)}>
+              {overview}
+              <div className="mt-4">{flowChart}</div>
+            </Collapsible>
+          </>
+        )}
       </div>
 
       {/* Alert modals */}
@@ -701,22 +774,24 @@ function Dashboard({ auth, onNavigate }) {
         <StockSummaryModal onClose={() => setAlertModal(null)} auth={auth} />
       )}
 
-      {/* Popup เด้งอัตโนมัติตอน login — ยาต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด */}
-      {swapPopupOpen && swapDue.length > 0 && (
-        <SwapReturnPopup rows={swapDue} auth={auth} onClose={() => setSwapPopupOpen(false)} />
+      {/* รายการเบื้องหลังตัวเลขในคิว — array ชุดเดียวกับที่นับ (Rule #6) */}
+      <QueueDetailModal item={queueDetail} manage={queueDetail ? QUEUE_MANAGE[queueDetail.key] : null} onClose={() => setQueueDetailKey(null)} />
+
+      {/* ยาต้องเปลี่ยน/คืนบริษัท — popup เฉพาะ lot ใหม่ (staff) หรือเปิดจากคิว/แบนเนอร์ (ทุก lot) */}
+      {swapPopupRows?.length > 0 && (
+        <SwapReturnPopup rows={swapPopupRows} auth={auth} onClose={closeSwapPopup} />
       )}
 
-      {/* Popup ยาหมดอายุค้างคลัง — ของที่ยังอยู่บนชั้นทั้งที่เลย exp แล้ว ต้องเก็บออก */}
-      {expiredPopupOpen && expiredItems.length > 0 && (
+      {/* Popup ยาหมดอายุค้างคลัง — เฉพาะ lot ที่เพิ่งเข้าเกณฑ์และคนนี้ยังไม่เคยเห็น */}
+      {expiredPopupRows?.length > 0 && (
         <ExpiredStockPopup
-          rows={expiredItems}
-          onClose={() => setExpiredPopupOpen(false)}
-          onOpenAll={() => { setExpiredPopupOpen(false); setAlertModal('expiry'); }}
+          rows={expiredPopupRows}
+          onClose={() => setExpiredPopupRows(null)}
+          onOpenAll={() => { setExpiredPopupRows(null); setAlertModal('expiry'); }}
         />
       )}
 
-      {/* Popup โควตาแจ้งเตือน LINE ใกล้หมด — staff/admin เท่านั้น (ward ไม่เกี่ยว)
-          บอทหลายตัวเตือนพร้อมกันได้ → เด้งทีละตัว ปิดแล้วขึ้นตัวถัดไป */}
+      {/* โควตาแจ้งเตือน LINE — เปิดจากคิวของ admin; บอทหลายตัว → แสดงทีละตัว ปิดแล้วขึ้นตัวถัดไป */}
       {quotaPopup?.length > 0 && (
         <LineQuotaPopup
           info={quotaPopup[0]}
@@ -2334,379 +2409,6 @@ function StockSummaryModal({ onClose, auth = {} }) {
           คงเหลือรวม Lot · หน่วยหลักจากวันที่รับยาล่าสุด · ยาตัดออกจากบัญชีไม่แสดง
         </div>
       </div>
-    </div>
-  );
-}
-
-// ---- Dashboard charts: เบิก/รับ รายเดือน + ยาต้องสั่งซื้อ (staff view only) ----
-function TrendBadge({ pct }) {
-  if (pct == null) return null;
-  const up = pct >= 0;
-  const Icon = up ? TrendingUp : TrendingDown;
-  return (
-    <span className={`inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-full ${up ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40' : 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40'}`}>
-      <Icon size={12} /> {Math.abs(pct)}%
-    </span>
-  );
-}
-
-// ย่อมูลค่าบาท: 1,250,000 → "1.25M", 12,500 → "12.5K" (แกน Y กราฟ)
-const fmtBahtShort = (v) => {
-  const n = Number(v) || 0;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}K`;
-  return String(n);
-};
-const fmtBaht = (v) => `฿${(Number(v) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-
-const CHART_RANGES = [
-  { key: 3,     label: '3 เดือน' },
-  { key: 6,     label: '6 เดือน' },
-  { key: 12,    label: '12 เดือน' },
-  { key: 'all', label: 'ทั้งหมด' },
-];
-
-// ตัวเลือกช่วงเปรียบเทียบ — คุมทั้งกราฟเบิกจ่ายและกราฟรับเข้า (มาจาก fetchDashboardCharts เดียวกัน)
-// months = จำนวนเดือน/ทั้งหมด · endYm = เดือนสิ้นสุด (dropdown; ปิดเมื่อเลือกทั้งหมด)
-function RangeSelector({ months, onChange, endYm, onChangeEndYm, monthRange = [], loading }) {
-  const isAll = months === 'all';
-  return (
-    <div className="flex items-center gap-2 flex-wrap justify-end">
-      {/* dropdown เลือกเดือนสิ้นสุด — ปิดเมื่อ "ทั้งหมด" (กางตั้งแต่แรกสุด ไม่ต้องเลือกสิ้นสุด) */}
-      {monthRange.length > 0 && (
-        <select
-          value={isAll ? '' : (endYm || '')}
-          onChange={e => onChangeEndYm(e.target.value || null)}
-          disabled={loading || isAll}
-          title="เลือกเดือนสิ้นสุดของช่วงเปรียบเทียบ"
-          className="text-xs font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed">
-          <option value="">ถึงเดือนล่าสุด</option>
-          {monthRange.map(m => <option key={m.ym} value={m.ym}>ถึง {m.label}</option>)}
-        </select>
-      )}
-      <div className="inline-flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
-        {CHART_RANGES.map(r => (
-          <button key={r.key} type="button" onClick={() => onChange(r.key)} disabled={loading}
-            className={`text-xs font-semibold px-2.5 py-1 rounded-md transition-colors disabled:opacity-50 ${months === r.key ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
-            {r.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function DashboardCharts({ charts, months = 6, onChangeMonths, endYm, onChangeEndYm, monthRange = [], lowStock = [], onOpenReorder, onOpenDispense, onOpenReceive }) {
-  const [showTrendLine, setShowTrendLine] = React.useState(true); // เส้นเปรียบเทียบแนวโน้มบนกราฟรับเข้า
-  const loading = charts == null;
-  const { dispense = [], receive = [], trend = {}, maxValueMonth = null, maxReceiveValueMonth = null } = charts || {};
-  const hasData = dispense.some(d => d.value > 0) || receive.some(r => r.value > 0);
-  const top5 = lowStock.slice(0, 5);
-  const dispenseTotal = dispense.reduce((s, d) => s + (d.value || 0), 0);
-  const receiveTotal = receive.reduce((s, r) => s + (r.value || 0), 0);
-
-  return (
-    <div className="mt-4 space-y-4">
-      {/* Hero panel — การเบิกจ่ายรายเดือน (เลขรวม + area chart) */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600"><Activity size={15} /></div>
-            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">การเบิกจ่ายรายเดือน</span>
-            {months === 'all' && dispense.length > 0 && <span className="text-xs text-slate-400 dark:text-slate-500">({dispense.length} เดือน)</span>}
-          </div>
-          <RangeSelector months={months} onChange={onChangeMonths} endYm={endYm} onChangeEndYm={onChangeEndYm} monthRange={monthRange} loading={loading} />
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-5 items-center">
-          {/* เลขเด่นซ้าย */}
-          <div className="lg:pr-6 lg:border-r lg:border-slate-100">
-            <p className="text-4xl font-black text-slate-800 dark:text-slate-100 leading-none">{fmtBaht(dispenseTotal)}</p>
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">มูลค่าเบิกจ่ายรวม (บาท)</p>
-            <div className="flex items-center gap-2 mt-3">
-              <TrendBadge pct={trend.dispensePct} />
-              <span className="text-xs text-slate-400 dark:text-slate-500">
-                {trend.dispenseLabels?.cur ? `${trend.dispenseLabels.cur} เทียบ ${trend.dispenseLabels.prev}` : 'เทียบเดือนก่อน'}
-              </span>
-            </div>
-          </div>
-
-          {/* กราฟ area ขวา */}
-          <ResponsiveContainer width="100%" height={170}>
-            <AreaChart data={dispense} margin={{ top: 5, right: 12, left: -8, bottom: 0 }}>
-              <defs>
-                <linearGradient id="dispenseFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={44} tickFormatter={fmtBahtShort} />
-              <Tooltip formatter={(v) => [fmtBaht(v), 'มูลค่าเบิก']} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }} />
-              <Area type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2.5} fill="url(#dispenseFill)" dot={{ r: 3, fill: '#6366f1' }} activeDot={{ r: 5 }} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* คำสรุป: เดือนมูลค่าสูงสุด + ลิงก์ไปดูรายการยา */}
-        {maxValueMonth && maxValueMonth.value > 0 && (
-          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              เดือน <span className="font-bold text-indigo-700 dark:text-indigo-300">{maxValueMonth.label}</span> มูลค่าเบิกสูงสุด <span className="font-bold text-slate-700 dark:text-slate-200">{fmtBaht(maxValueMonth.value)}</span>
-            </p>
-            <button onClick={onOpenDispense} className="text-xs text-[#1E90FF] hover:underline font-semibold inline-flex items-center gap-0.5">
-              ดูรายการยาที่มูลค่าสูงสุด <ArrowRight size={13} />
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Panel รอง — รับเข้ารายเดือน (มูลค่าบาท, bar) */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-sky-100 dark:bg-sky-950/60 text-sky-600"><Package size={15} /></div>
-            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">มูลค่าการรับเข้ารายเดือน</span>
-            {receiveTotal > 0 && <span className="text-xs text-slate-400 dark:text-slate-500">รวม {fmtBaht(receiveTotal)}</span>}
-          </div>
-          <div className="flex items-center gap-2">
-            {/* toggle เส้นเปรียบเทียบแนวโน้ม — ให้ user เลือกเปิด/ปิดได้ */}
-            <button onClick={() => setShowTrendLine(v => !v)}
-              className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg border transition-colors ${showTrendLine ? 'bg-sky-50 dark:bg-sky-950/40 border-sky-200 dark:border-sky-900/60 text-sky-700 dark:text-sky-300' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}
-              title={showTrendLine ? 'ซ่อนเส้นเปรียบเทียบ' : 'แสดงเส้นเปรียบเทียบ'}>
-              <TrendingUp size={13} /> เส้นเปรียบเทียบ
-            </button>
-            <TrendBadge pct={trend.receivePct} />
-            {trend.receiveLabels?.cur && <span className="text-xs text-slate-400 dark:text-slate-500 hidden sm:inline">{trend.receiveLabels.cur} เทียบ {trend.receiveLabels.prev}</span>}
-          </div>
-        </div>
-        <ResponsiveContainer width="100%" height={170}>
-          <ComposedChart data={receive} margin={{ top: showTrendLine ? 20 : 5, right: 12, left: -8, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={44} tickFormatter={fmtBahtShort} />
-            <Tooltip formatter={(v) => [fmtBaht(v), 'มูลค่ารับเข้า']} cursor={{ fill: '#f8fafc' }} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-            <Bar dataKey="value" fill="#7dd3fc" radius={[6, 6, 0, 0]} maxBarSize={40} />
-            {/* เส้นแนวโน้ม — toggle ได้: เปิดแล้วโชว์เส้น + จุดทุกเดือน + ตัวเลขมูลค่ากำกับ (default ซ่อนให้กราฟโล่ง) */}
-            {showTrendLine && (
-              <Line type="monotone" dataKey="value" stroke="#0284c7" strokeWidth={1.5} dot={{ r: 3, fill: '#0284c7', strokeWidth: 0 }} activeDot={{ r: 4, fill: '#0284c7' }}>
-                <LabelList dataKey="value" position="top" offset={8} formatter={fmtBahtShort} style={{ fontSize: 10, fill: '#0369a1', fontWeight: 600 }} />
-              </Line>
-            )}
-          </ComposedChart>
-        </ResponsiveContainer>
-
-        {/* คำสรุป: เดือนรับเข้ามูลค่าสูงสุด + ลิงก์ไปประวัติรับยา */}
-        {maxReceiveValueMonth && maxReceiveValueMonth.value > 0 && (
-          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              เดือน <span className="font-bold text-sky-700 dark:text-sky-300">{maxReceiveValueMonth.label}</span> รับเข้ามูลค่าสูงสุด <span className="font-bold text-slate-700 dark:text-slate-200">{fmtBaht(maxReceiveValueMonth.value)}</span>
-            </p>
-            <button onClick={onOpenReceive} className="text-xs text-[#1E90FF] hover:underline font-semibold inline-flex items-center gap-0.5">
-              ดูประวัติรับเข้า <ArrowRight size={13} />
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* ตารางยาต้องสั่งซื้อ (Top 5) */}
-      {top5.length > 0 && (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-950/60 text-amber-600"><ShoppingCart size={15} /></div>
-              <span className="text-sm font-bold text-slate-700 dark:text-slate-200">ยาต้องสั่งซื้อ</span>
-              <span className="text-xs text-slate-400 dark:text-slate-500">ต่ำกว่า Safety Stock</span>
-            </div>
-            <button onClick={onOpenReorder} className="text-xs text-[#1E90FF] hover:underline font-semibold inline-flex items-center gap-0.5">
-              ดูทั้งหมด <ArrowRight size={13} />
-            </button>
-          </div>
-
-          {/* Desktop: ตาราง */}
-          <table className="hidden sm:table w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
-                <th className="px-4 py-2 font-semibold">ชื่อยา</th>
-                <th className="px-4 py-2 font-semibold text-right">คงเหลือ</th>
-                <th className="px-4 py-2 font-semibold text-left">หน่วย</th>
-                <th className="px-4 py-2 font-semibold text-right">Safety Stock</th>
-                <th className="px-4 py-2 font-semibold text-right">เบิก 3 เดือน</th>
-                <th className="px-4 py-2 font-semibold text-right">% ของ SS</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {top5.map((r, i) => (
-                <tr key={r.code || i} className="hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                  <td className="px-4 py-2.5">
-                    <p className="font-semibold text-slate-700 dark:text-slate-200 leading-tight">{r.name || r.code}</p>
-                    <p className="text-xs text-slate-400 dark:text-slate-500">{r.code}</p>
-                  </td>
-                  <td className="px-4 py-2.5 text-right font-bold text-red-600 whitespace-nowrap">{Number(r.qty).toLocaleString()}</td>
-                  <td className="px-4 py-2.5 text-left text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">{r.unit || '-'}</td>
-                  <td className="px-4 py-2.5 text-right text-slate-600 dark:text-slate-300 whitespace-nowrap">{Number(r.safety_stock).toLocaleString()}</td>
-                  <td className="px-4 py-2.5 text-right whitespace-nowrap" title="มีการเบิกกี่สัปดาห์ จาก 13 สัปดาห์ล่าสุด · และยอดรวมที่ใช้ไป">
-                    {r.usageWeeks > 0 ? (
-                      <>
-                        <span className="font-semibold text-slate-700 dark:text-slate-200">เบิก {r.usageWeeks}/13 สัปดาห์</span>
-                        <span className="block text-slate-500 dark:text-slate-400">รวม {Number(r.usage3m).toLocaleString()}</span>
-                      </>
-                    ) : <span className="text-slate-300 dark:text-slate-500">—</span>}
-                  </td>
-                  <td className="px-4 py-2.5 text-right">
-                    <span className="inline-block w-12 text-right font-semibold text-amber-600">{Math.round(r.ratio * 100)}%</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {/* Mobile: card list */}
-          <div className="sm:hidden divide-y divide-slate-50">
-            {top5.map((r, i) => (
-              <div key={r.code || i} className="px-4 py-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-700 dark:text-slate-200 leading-tight truncate">{r.name || r.code}</p>
-                    <p className="text-xs text-slate-400 dark:text-slate-500">{r.code}</p>
-                  </div>
-                  <span className="text-xs font-semibold text-amber-600 shrink-0">{Math.round(r.ratio * 100)}% ของ SS</span>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  คงเหลือ <span className="font-bold text-red-600">{Number(r.qty).toLocaleString()}</span>{r.unit ? <span className="text-slate-400 dark:text-slate-500"> ({r.unit})</span> : ''} / SS {Number(r.safety_stock).toLocaleString()}{r.unit ? ` (${r.unit})` : ''}
-                </p>
-                {r.usageWeeks > 0 && (
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    <span className="text-slate-400 dark:text-slate-500">เบิก</span> <span className="font-semibold text-slate-600 dark:text-slate-300">{r.usageWeeks}/13 สัปดาห์</span>
-                    <span className="text-slate-400 dark:text-slate-500"> · รวม </span><span className="font-semibold text-slate-600 dark:text-slate-300">{Number(r.usage3m).toLocaleString()}{r.unit ? ` (${r.unit})` : ''}</span>
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {!hasData && top5.length === 0 && (
-        <p className="text-center text-sm text-slate-400 dark:text-slate-500 py-4">ยังไม่มีข้อมูลสำหรับแสดงกราฟ</p>
-      )}
-    </div>
-  );
-}
-
-// ---- Quick stats (staff view only) ----
-function StatsStrip({ alerts = { expiring: [], lowStock: [], pendingReceive: [] }, onOpenExpiry, onOpenLowStock, onOpenRequisition, onOpenStock, onStatsReady }) {
-  const [stats, setStats] = React.useState({ inventory: '-', pending: 0 });
-
-  const loadStats = React.useCallback(async () => {
-    if (!supabase) return;
-    const [inv, pend] = await Promise.all([
-      // paginate ครบทุก row (ข้าม 1000-row limit) + กรองยา 'ตัดออกจากบัญชี' ออก
-      // ให้ตรงกับ "รายการยาในคลังจริง" — pattern เดียวกับ fetchDashboardAlerts (Rule #2/#13)
-      fetchAllInventoryRows('code, receive_status'),
-      supabase.from('requisitions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-    ]);
-    const uniqueDrugs = new Set(
-      (inv || [])
-        .filter(r => r.code && !String(r.receive_status || '').includes('ตัดออก'))
-        .map(r => r.code)
-    ).size;
-    const pending = pend.count ?? 0;
-
-    setStats({ inventory: uniqueDrugs || '-', pending });
-    if (onStatsReady) onStatsReady({ inventory: uniqueDrugs || 0, pending });
-  }, [onStatsReady]);
-
-  React.useEffect(() => {
-    loadStats();
-    if (!supabase) return;
-    // อัพเดต pending count แบบ realtime เมื่อมีใบเบิกใหม่หรือสถานะเปลี่ยน
-    const ch = supabase
-      .channel('statsstrip-requisitions')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'requisitions' }, loadStats)
-      .subscribe();
-    return () => supabase.removeChannel(ch);
-  }, [loadStats]);
-
-  const expiryCount   = alerts.expiring.length;
-  const expiredCount  = alerts.expiring.filter(r => r.daysLeft < 0).length;
-  const lowStockCount = alerts.lowStock.length;
-
-  const baseItems = [
-    {
-      label: 'รายการยาในคลัง',
-      subLabel: 'ดูจำนวนคงเหลือ',
-      value: stats.inventory,
-      icon: Boxes,
-      color: 'text-sky-700 dark:text-sky-300', cardBg: 'bg-white dark:bg-slate-900', borderColor: 'border-slate-200 dark:border-slate-700', labelColor: 'text-slate-500 dark:text-slate-400',
-      iconBg: 'bg-sky-100 dark:bg-sky-950/60 text-sky-600',
-      onClick: onOpenStock,
-    },
-    {
-      label: 'ใบเบิกรอดำเนินการ',
-      value: typeof stats.pending === 'number' ? stats.pending : 0,
-      icon: ClipboardList,
-      color:       stats.pending > 0 ? 'text-amber-700 dark:text-amber-300'   : 'text-slate-700 dark:text-slate-200',
-      cardBg:      'bg-white dark:bg-slate-900',
-      borderColor: stats.pending > 0 ? 'border-amber-200 dark:border-amber-900/60' : 'border-slate-200 dark:border-slate-700',
-      labelColor:  'text-slate-500 dark:text-slate-400',
-      iconBg:      stats.pending > 0 ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
-      onClick: stats.pending > 0 ? onOpenRequisition : undefined,
-    },
-    {
-      label: expiredCount > 0 ? `ยาหมดอายุแล้ว ${expiredCount} + ใกล้หมด` : 'ยาใกล้หมดอายุ (16 เดือน)',
-      value: expiryCount,
-      icon: AlertTriangle,
-      color:       expiryCount > 0 ? (expiredCount > 0 ? 'text-red-700 dark:text-red-300' : 'text-orange-700 dark:text-orange-300')   : 'text-slate-700 dark:text-slate-200',
-      cardBg:      'bg-white dark:bg-slate-900',
-      borderColor: expiryCount > 0 ? (expiredCount > 0 ? 'border-red-200 dark:border-red-900/60' : 'border-orange-200 dark:border-orange-900/60') : 'border-slate-200 dark:border-slate-700',
-      labelColor:  'text-slate-500 dark:text-slate-400',
-      iconBg:      expiryCount > 0 ? (expiredCount > 0 ? 'bg-red-100 dark:bg-red-950/60 text-red-600' : 'bg-orange-100 dark:bg-orange-950/60 text-orange-600') : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
-      onClick: expiryCount > 0 ? onOpenExpiry : undefined,
-    },
-  ];
-
-  const staffItems = [
-    {
-      label: 'Stock ต่ำกว่ากำหนด',
-      value: lowStockCount,
-      icon: ShoppingCart,
-      color:       lowStockCount > 0 ? 'text-amber-700 dark:text-amber-300'   : 'text-slate-700 dark:text-slate-200',
-      cardBg:      'bg-white dark:bg-slate-900',
-      borderColor: lowStockCount > 0 ? 'border-amber-200 dark:border-amber-900/60' : 'border-slate-200 dark:border-slate-700',
-      labelColor:  'text-slate-500 dark:text-slate-400',
-      iconBg:      lowStockCount > 0 ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
-      onClick: lowStockCount > 0 ? onOpenLowStock : undefined,
-    },
-  ];
-
-  const items = [...baseItems, ...staffItems];   // การ์ด "Stock ต่ำกว่ากำหนด" แสดงทุก role
-  const colsMap = { 3: 'sm:grid-cols-3', 4: 'sm:grid-cols-4', 5: 'sm:grid-cols-5', 6: 'sm:grid-cols-3 lg:grid-cols-6' };
-  const cols = colsMap[items.length] || 'sm:grid-cols-2';
-
-  return (
-    <div className={`mt-6 grid grid-cols-2 ${cols} gap-3`}>
-      {items.map(item => {
-        const Icon = item.icon;
-        const cls = `${item.cardBg} border ${item.borderColor} rounded-2xl p-4 shadow-sm ${item.onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`;
-        const content = (
-          <>
-            <div className="flex items-center gap-2 mb-2.5">
-              <div className={`p-1.5 rounded-lg shrink-0 ${item.iconBg}`}>
-                <Icon size={15} />
-              </div>
-              <p className={`text-xs leading-tight ${item.labelColor} text-left flex-1`}>{item.label}</p>
-            </div>
-            <p className={`text-2xl font-bold ${item.color} text-left`}>{typeof item.value === 'number' ? item.value.toLocaleString() : item.value}</p>
-            {item.subLabel && <p className="text-xs mt-1.5 font-bold text-sky-600 underline underline-offset-2 text-left">{item.subLabel}</p>}
-            {item.onClick && !item.subLabel && <p className="text-[10px] mt-1.5 text-slate-400 dark:text-slate-500 text-left">กดเพื่อดูรายละเอียด</p>}
-          </>
-        );
-        return item.onClick
-          ? <button key={item.label} onClick={item.onClick} className={`${cls} text-left`}>{content}</button>
-          : <div key={item.label} className={cls}>{content}</div>;
-      })}
     </div>
   );
 }
