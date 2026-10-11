@@ -196,6 +196,23 @@
 - โมดอลเดิมใน AppRoot (ใกล้หมดอายุ/ต่ำกว่า SS/คืนบริษัท) กด Esc ปิดไม่ได้ — ของเดิม ไม่ได้แตะ
 - `fetchDashboardAlerts` ตัวเรียงลำดับ Top 5 ยังใช้ `toISOString` (วันเริ่มหน้าต่าง 3 เดือนเลื่อน 1 วัน — กระทบแค่ลำดับ) — บั๊กกลุ่มเดียวกับ Phase 0 ยังไม่แก้
 
+### 11.6 Phase 2a — ช่องค้นหาเดียว + บัตรยา (11/10/2569) — ✅ โค้ดเสร็จ + verify · ยังไม่ commit (รอ user ดูภาพ + สั่ง)
+
+**/scrutinize ก่อนทำ → user ตัดสิน 3 ข้อ:** (1) ยอดบนบัตร = **"คงเหลือในบัญชี"** (กฎเดียวกับโมดอลรายการยาในคลัง/Excel — รวมหมดอายุ/รอตรวจรับ) + บรรทัดแยก "พร้อมเบิก · รอตรวจรับ · หมดอายุ" · (2) **แบ่ง Phase 2 เป็น 2a/2b** · (3) **แก้ `fetchStockSummary` ไปด้วย** (`.limit(10000)` ถูก Supabase ตัดที่ 1000/2,897 แถว → 76 รหัสไม่เจอบิลซื้อ 8 รหัสโชว์หน่วยต่างจากหน้าวิเคราะห์สั่งซื้อ)
+
+**ไฟล์:** ใหม่ `src/lib/drugProfile.js` (+test 67) · `src/DrugProfileModal.jsx` · `src/lib/drugSearchEvent.js` — แก้ `CommandPalette.jsx` (กลุ่ม "ยา" ก่อน "เมนู" โหลดรายการยาใหม่ทุกครั้งที่เปิด) · `AppShell.jsx` (ป้าย "ค้นหายา / เมนู" + ฟัง event) · `AppRoot.jsx` (state บัตรยา + ส่งยาไปการ์ดคลัง lot) · `DashboardPanels.jsx` (`DrugSearchLauncher` ช่องใหญ่บนหน้าหลักทุก role) · `StockCardApp.jsx` (prop `initialDrug`) · `db.js` (`fetchDrugSearchIndex` · `fetchDrugProfile` · `fetchStockSummary` ใช้ `fetchLatestReceiptInfo` · `parseUnitFactor`/`_parseExpDate` ย้ายไป drugProfile.js re-export ไว้ · Dashboard ใช้ `isBelowSafetyStock`/`waitDaysSince` ร่วมกับบัตรยา) · `package.json` (`test:drugprofile`)
+
+**กฎที่ล็อกไว้:** บรรทัด lot = lot + วันหมดอายุ (เทียบหลัง parse) + หน่วย — บวกแถวซ้ำ ไม่รวมข้าม exp (Glucose powder lot `-` มี 2 exp) · "ต่ำกว่า SS" = กฎ Dashboard (qty ดิบ ไม่แปลงหน่วย) ยาหลายขนาดบรรจุโชว์แค่ "SS N" · lot `-` ที่ควรใช้ก่อนบอกด้วยวันหมดอายุ · ปุ่ม "เปิดการ์ดคลัง lot" เฉพาะ staff/admin
+
+**verify (ข้อมูลจริง 11/10/2569 — สคริปต์เรียก db.js ตัวจริงผ่าน dev server):** ยอดบัตร = โมดอลรายการยาในคลัง **369/369** (จำนวน+หน่วย) · หน่วยโมดอล vs หน้าวิเคราะห์สั่งซื้อ ต่าง **0** (ก่อนแก้ 8) · ป้ายต่ำกว่า SS = Dashboard **393/393** · ค้นชื่อ/lot/lot ตัวเล็ก (`n690148`) เจอ · staff 1280: ช่องใหญ่→ค้น→Enter→บัตร→การ์ดคลัง lot เปิดยาถูกตัว → เข้าเมนู Stockcard ตรงๆ ไม่ค้างยาเดิม · Ctrl+K จากหน้าอื่นได้ · Esc ปิด · requester 375: บัตรเต็มจอ ไม่มีปุ่มการ์ดคลัง ไม่มีเลื่อนแนวนอน · ไม่มี console error · eslint = baseline · build ผ่าน · golden test ที่เกี่ยวข้องผ่านหมด · E2E 02/09/13 ผ่าน 29/30 — ตก 1 (13 Export Excel) **ตกบน HEAD ด้วย** (เทียบด้วย git stash) · ภาพ `.playwright-mcp/phase2a/*.png` (เฉพาะเครื่องนี้)
+
+**user ขอเพิ่ม (11/10/2569) — โมดอลรายการของคิว:** เดิมเป็นรายการข้อความ + บรรทัด "ยังไม่ทำ · false" (`joinDot` ไม่กรอง `false` จาก `r.willDeplete && '…'` — ลบ `joinDot` แล้ว ไม่มีที่ใช้) → เป็น**ตาราง**ตามชนิดรายการ (จอ ≥ sm) / การ์ด ป้าย:ค่า (จอเล็ก) ใช้นิยามคอลัมน์ชุดเดียว `QUEUE_COLUMNS` ใน [DashboardPanels.jsx](../src/DashboardPanels.jsx) · **คงเหลือ กับ หน่วย แยกคอลัมน์** (หน่วยแบบ `1000เม็ด` ติดตัวเลขแล้วอ่านผิด) · exp แสดง พ.ศ. · verify: จำนวนแถว = เลขในคิวครบ 5 รายการ (17/24/19/5/7) · ไม่มีคำว่า false · จอ 375 ไม่เลื่อนแนวนอน · ภาพ `.playwright-mcp/queue-cols/*.png`
+
+**ค้าง/ให้ user ตัดสิน:**
+- "รอตรวจรับ N วัน" นับขาด 1 วันทุกจุด (Dashboard/คิว/หน้าตรวจนับ/บัตรยา) — `new Date('YYYY-MM-DD')` = เที่ยงคืน UTC · ตอนนี้รวมสูตรไว้ที่ `waitDaysSince` แล้ว แก้ที่เดียวได้ แต่คิว "เกิน 14 วัน" จะเพิ่มขึ้นตัวที่อยู่ขอบพอดี
+- หน่วยแบบ `200เม็ด`/`500เม็ด` บนบัตร (ยอด "18 200เม็ด" = 18 กล่องละ 200) — ปัญหาเดียวกับ memory project_unit_display_ambiguous ยังไม่แก้
+- **Phase 2b ถัดไป:** บิลของ lot (lot `-` จับด้วย invoice ของแถว 21/37 ไม่ใช่ code+lot · lot จริง code+lot = code+lot+exp 560/579 ตรงกันหมด) · เรท + ช่วงเดือน (`fetchMonthlyDispenseUsage` เพิ่มตัวกรองรหัส · ย้ายหน้าต่าง 4 เดือนของ ReorderApp เป็น helper กลาง) · คงอยู่ได้อีก · ประวัติเบิกหน่วยงานตัวเอง (`normDept` — "คลังยา"/"ทดลองระบบ" ไม่มีประวัติ ต้องมี empty state) · ประวัติรับ (staff) · ความสดของบิล = receive_date ล่าสุด (ห้ามใช้ upload_meta `drug_details` ค้าง 26/03)
+
 ## Suggested skills
 - `grill-with-docs` — ถามข้อ 3 ต่อ
 - `anthropic-skills:karpathy` — ก่อนเขียนแผน/ลงมือ

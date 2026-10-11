@@ -13,6 +13,7 @@ import {
 import { SWAP_ACTION_STATUS } from './lib/db';
 import { openDrugSearch } from './lib/drugSearchEvent';
 import { isSwapRed } from './lib/workQueue';
+import { parseExpDate } from './lib/drugProfile';
 
 // ── สี/ไอคอนต่อรายการในคิว ────────────────────────────────────────────
 const SEVERITY = {
@@ -26,7 +27,6 @@ const QUEUE_ICON = {
 };
 
 const fmtNum = (n) => (Number(n) || 0).toLocaleString();
-const joinDot = (...parts) => parts.filter(p => p != null && String(p).trim() !== '' && p !== '-').join(' · ');
 
 const fmtThaiDateTime = (iso) => (iso
   ? new Date(iso).toLocaleString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -132,30 +132,69 @@ export function WorkQueuePanel({ items = [], loading = false, onOpen }) {
 }
 
 // ── โมดอลรายการของคิว — แสดง rows ชุดเดียวกับตัวเลขในคิว (Rule #6) ─────────
-function rowView(key, r) {
+// คอลัมน์ต่อชนิดรายการ: จอ ≥ sm = ตาราง · จอเล็ก = การ์ด (Rule #5) ใช้นิยามคอลัมน์ชุดเดียวกัน
+// คงเหลือกับหน่วยแยกคอลัมน์ — หน่วยแบบ "200เม็ด" คือขนาดบรรจุ ติดกับตัวเลขแล้วอ่านผิดเป็น "3200 เม็ด" ได้
+const numOrDash = (v) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return Number.isFinite(n) ? fmtNum(n) : (v || '-'); };
+const fmtExpTh = (raw) => { const d = parseExpDate(raw); return d ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear() + 543}` : (raw || '-'); };
+const dash = (v) => (v == null || String(v).trim() === '' ? '-' : v);
+
+const COL = {
+  lot:      { label: 'Lot',      cell: r => dash(r.lot) },
+  exp:      { label: 'หมดอายุ',  cell: r => fmtExpTh(r.exp), nowrap: true },
+  location: { label: 'ที่เก็บ',   cell: r => dash(r.location) },
+  qty:      { label: 'คงเหลือ',  cell: r => numOrDash(r.qty), num: true },
+  unit:     { label: 'หน่วย',    cell: r => dash(r.unit), nowrap: true },
+};
+const QUEUE_COLUMNS = {
+  expired:        [COL.lot, COL.exp, COL.location, COL.qty, COL.unit],
+  nearExpiry:     [COL.lot, COL.exp, COL.location, COL.qty, COL.unit],
+  swap:           [COL.lot, { label: 'บริษัท', cell: r => dash(r.company), wide: true }, COL.qty, COL.unit,
+                   { label: 'การดำเนินการ', cell: r => SWAP_ACTION_STATUS[r.actionStatus] || SWAP_ACTION_STATUS.pending, nowrap: true }],
+  outOfStock:     [COL.location, COL.qty, COL.unit, { label: 'Safety Stock', cell: r => numOrDash(r.safety_stock), num: true }],
+  pendingReceive: [COL.lot, COL.location, COL.qty, COL.unit],
+  loanOverdue:    [{ label: 'ทิศทาง', cell: r => (r.direction === 'lend' ? 'ให้ยืม' : 'ยืมมา'), nowrap: true },
+                   { label: 'โรงพยาบาล', cell: r => dash(r.counterparty), wide: true }, COL.lot,
+                   { label: 'จำนวน', cell: r => numOrDash(r.qty), num: true }, COL.unit],
+};
+
+// ชื่อยา + รหัส + หมายเหตุ + ป้ายท้ายแถว
+function rowHead(key, r) {
+  const name = r.name || r.drug_name || r.code || r.drug_code || '-';
+  const code = r.code || r.drug_code || '';
   switch (key) {
     case 'expired':
-      return { title: r.name, sub: joinDot(r.code, r.lot && `lot ${r.lot}`, r.location, r.qty != null && `คงเหลือ ${r.qty}${r.unit ? ` ${r.unit}` : ''}`),
-        badge: `หมดอายุแล้ว ${fmtNum(-r.daysLeft)} วัน`, tone: 'red' };
+      return { name, code, badge: `หมดอายุแล้ว ${fmtNum(-r.daysLeft)} วัน`, tone: 'red' };
     case 'nearExpiry':
-      return { title: r.name, sub: joinDot(r.code, r.lot && `lot ${r.lot}`, r.location, r.exp && `exp ${r.exp}`),
-        badge: r.daysLeft === 0 ? 'หมดอายุวันนี้' : `อีก ${fmtNum(r.daysLeft)} วัน`, tone: r.daysLeft <= 30 ? 'red' : 'amber' };
+      return { name, code, badge: r.daysLeft === 0 ? 'หมดอายุวันนี้' : `อีก ${fmtNum(r.daysLeft)} วัน`, tone: r.daysLeft <= 30 ? 'red' : 'amber' };
     case 'swap': {
       const d = r.daysToDeadline;
-      return { title: r.name, sub: joinDot(r.lot && `lot ${r.lot}`, r.company),
-        extra: joinDot(SWAP_ACTION_STATUS[r.actionStatus] || SWAP_ACTION_STATUS.pending, r.willDeplete && 'คาดว่าจะหมดเองก่อนเส้นตาย'),
+      return { name, code, note: r.willDeplete ? 'คาดว่าจะหมดเองก่อนเส้นตาย' : null,
         badge: d == null ? '-' : d < 0 ? `เลยเส้นตาย ${fmtNum(-d)} วัน` : `เหลือ ${fmtNum(d)} วัน`, tone: isSwapRed(r) ? 'red' : 'amber' };
     }
     case 'outOfStock':
-      return { title: r.name || r.code, sub: joinDot(r.code, r.location), badge: `SS ${fmtNum(r.safety_stock)}${r.unit ? ` ${r.unit}` : ''}`, tone: 'red' };
+      return { name, code, badge: 'หมด', tone: 'red' };
     case 'pendingReceive':
-      return { title: r.name, sub: joinDot(r.code, r.lot && `lot ${r.lot}`, r.location), badge: `รอ ${fmtNum(r.waitDays)} วัน`, tone: 'amber' };
+      return { name, code, badge: r.waitDays == null ? 'ไม่ทราบวันรับ' : `รอ ${fmtNum(r.waitDays)} วัน`, tone: 'amber' };
     case 'loanOverdue':
-      return { title: r.drug_name, sub: joinDot(`${r.direction === 'lend' ? 'ให้ยืม' : 'ยืมมา'} ${r.counterparty || ''}`.trim(), r.qty != null && `${fmtNum(r.qty)}${r.unit ? ` ${r.unit}` : ''}`, r.lot && `lot ${r.lot}`),
-        badge: `ค้าง ${fmtNum(r.overdueDays)} วัน`, tone: 'red' };
+      return { name, code, badge: `ค้าง ${fmtNum(r.overdueDays)} วัน`, tone: 'red' };
     default:
-      return { title: r.name || r.drug_name || '-', sub: '', badge: '', tone: 'slate' };
+      return { name, code, badge: '', tone: 'slate' };
   }
+}
+
+function QueueBadge({ head }) {
+  if (!head.badge) return null;
+  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold tabular-nums whitespace-nowrap ${(SEVERITY[head.tone] || SEVERITY.slate).pill}`}>{head.badge}</span>;
+}
+
+function DrugCell({ head }) {
+  return (
+    <>
+      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-snug">{head.name}</p>
+      {head.code && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">รหัส {head.code}</p>}
+      {head.note && <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-0.5">{head.note}</p>}
+    </>
+  );
 }
 
 export function QueueDetailModal({ item, onClose, manage }) {
@@ -166,10 +205,12 @@ export function QueueDetailModal({ item, onClose, manage }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [item, onClose]);
   if (!item) return null;
+  const cols = QUEUE_COLUMNS[item.key] || [];
+  const rowKey = (r, i) => r.id ?? `${r.code}|${r.lot}|${i}`;
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm sm:p-4" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-label={item.label}
-        className="bg-white dark:bg-slate-900 w-full sm:max-w-2xl max-h-[85vh] flex flex-col rounded-t-2xl sm:rounded-2xl shadow-2xl"
+        className="bg-white dark:bg-slate-900 w-full sm:max-w-5xl max-h-[85vh] flex flex-col rounded-t-2xl sm:rounded-2xl shadow-2xl"
         onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-slate-100 dark:border-slate-800">
           <div className="min-w-0">
@@ -178,21 +219,56 @@ export function QueueDetailModal({ item, onClose, manage }) {
           </div>
           <button type="button" onClick={onClose} aria-label="ปิด" className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"><X size={18} /></button>
         </div>
-        <ul className="flex-1 overflow-y-auto divide-y divide-slate-50 dark:divide-slate-800">
-          {item.rows.map((r, i) => {
-            const v = rowView(item.key, r);
-            return (
-              <li key={r.id ?? `${r.code}|${r.lot}|${i}`} className="flex items-start justify-between gap-3 px-4 py-2.5">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-snug">{v.title}</p>
-                  {v.sub && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{v.sub}</p>}
-                  {v.extra && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{v.extra}</p>}
-                </div>
-                {v.badge && <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold tabular-nums whitespace-nowrap shrink-0 ${(SEVERITY[v.tone] || SEVERITY.slate).pill}`}>{v.badge}</span>}
-              </li>
-            );
-          })}
-        </ul>
+
+        <div className="flex-1 overflow-y-auto">
+          {/* จอ ≥ sm: ตาราง */}
+          <table className="hidden sm:table w-full text-sm">
+            <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800">
+              <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <th className="px-4 py-2">ยา</th>
+                {cols.map(c => <th key={c.label} className={`px-3 py-2 whitespace-nowrap ${c.num ? 'text-right' : ''}`}>{c.label}</th>)}
+                <th className="px-4 py-2 text-right">สถานะ</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {item.rows.map((r, i) => {
+                const head = rowHead(item.key, r);
+                return (
+                  <tr key={rowKey(r, i)} className="align-top hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                    <td className="px-4 py-2.5 min-w-[12rem]"><DrugCell head={head} /></td>
+                    {cols.map(c => (
+                      <td key={c.label} className={`px-3 py-2.5 ${c.num ? 'text-right tabular-nums font-semibold text-slate-800 dark:text-slate-100' : 'text-slate-600 dark:text-slate-300'} ${c.nowrap ? 'whitespace-nowrap' : ''} ${c.wide ? 'min-w-[10rem]' : ''}`}>{c.cell(r)}</td>
+                    ))}
+                    <td className="px-4 py-2.5 text-right"><QueueBadge head={head} /></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {/* จอเล็ก: การ์ด — คอลัมน์ชุดเดียวกันเป็น ป้าย : ค่า */}
+          <ul className="sm:hidden divide-y divide-slate-100 dark:divide-slate-800">
+            {item.rows.map((r, i) => {
+              const head = rowHead(item.key, r);
+              return (
+                <li key={rowKey(r, i)} className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0"><DrugCell head={head} /></div>
+                    <div className="shrink-0"><QueueBadge head={head} /></div>
+                  </div>
+                  <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                    {cols.map(c => (
+                      <div key={c.label} className="flex gap-1.5 min-w-0">
+                        <dt className="text-slate-400 dark:text-slate-500 shrink-0">{c.label}</dt>
+                        <dd className={`text-slate-700 dark:text-slate-200 min-w-0 break-words ${c.num ? 'font-semibold tabular-nums' : ''}`}>{c.cell(r)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-100 dark:border-slate-800">
           <button type="button" onClick={onClose} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2 px-4 font-medium text-sm transition-colors">ปิด</button>
           {manage && (
