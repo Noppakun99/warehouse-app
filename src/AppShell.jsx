@@ -128,8 +128,8 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
   // action item (ทำ action เช่นเปิด print — ไม่เปิดหน้า/ไม่เข้า navStack)
   const doAction = (a) => { onFormAction?.(a); setDrawerOpen(false); setFlyout(null); };
 
-  // ไอคอน/hover เมนูสีเดียว — สีประจำระบบ (COLOR) ใช้เฉพาะข้อที่เปิดอยู่ (เดิมทุกข้อคนละสี ลายตา)
-  const NEUTRAL_ICON = 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400';
+  // ไอคอนเมนู: ข้อที่ไม่ได้เปิด = ไอคอนสีประจำระบบ ไม่มีกล่องพื้น (COLOR.iconText) · ข้อที่เปิดอยู่ = กล่องสีเต็ม
+  // (เดิมทุกข้อมีกล่องสีคนละสี ลายตา — user เลือกแบบนี้ 11/10/2569 หลังลองแบบเทาล้วน) · hover สีเดียว
   const NEUTRAL_HOVER = 'hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100';
 
   // leaf menu item (ใช้ทั้ง top-level และลูกของ submenu) — รองรับทั้ง page (navigate) และ action
@@ -147,7 +147,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
         className={`relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${mini ? 'justify-center' : ''} ${on ? `${col.activeBg} ${col.darkActive} font-semibold` : `text-slate-600 dark:text-slate-300 ${NEUTRAL_HOVER}`}`}
       >
         {on && !mini && <span className={`absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full ${col.bar}`} />}
-        <span className={`p-1 rounded-md shrink-0 ${on ? `${col.icon} ${col.darkIcon}` : NEUTRAL_ICON}`}><Icon size={15} /></span>
+        <span className={`p-1 rounded-md shrink-0 ${on ? `${col.icon} ${col.darkIcon}` : col.iconText}`}><Icon size={15} /></span>
         {!mini && <span className="truncate">{item.title}</span>}
         {badge > 0 && (
           <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none ${mini ? 'absolute top-1 right-1' : 'ml-auto'}`}>
@@ -179,7 +179,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
           className={`relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-semibold transition-colors ${mini ? 'justify-center' : ''} ${page === 'dashboard' ? 'bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-slate-800 hover:text-sky-700 dark:hover:text-sky-300'}`}
         >
           {page === 'dashboard' && !mini && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full bg-sky-500" />}
-          <span className={`p-1 rounded-md shrink-0 ${page === 'dashboard' ? 'bg-sky-100 text-sky-600' : NEUTRAL_ICON}`}><LayoutDashboard size={15} /></span>
+          <span className={`p-1 rounded-md shrink-0 ${page === 'dashboard' ? 'bg-sky-100 text-sky-600' : 'text-sky-600 dark:text-sky-400'}`}><LayoutDashboard size={15} /></span>
           {!mini && 'หน้าหลัก'}
         </button>
 
@@ -223,7 +223,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
                             title={item.title}
                             className={`relative w-full flex items-center justify-center px-2.5 py-2 rounded-lg text-sm transition-colors ${hasActive || fOpen ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100' : `text-slate-600 dark:text-slate-300 ${NEUTRAL_HOVER}`}`}
                           >
-                            <span className={`p-1 rounded-md shrink-0 ${hasActive ? `${subCol.icon} ${subCol.darkIcon}` : NEUTRAL_ICON}`}><SubIcon size={15} /></span>
+                            <span className={`p-1 rounded-md shrink-0 ${hasActive ? `${subCol.icon} ${subCol.darkIcon}` : subCol.iconText}`}><SubIcon size={15} /></span>
                             {hasActive && <span className="absolute right-1 top-1 w-1.5 h-1.5 rounded-full bg-sky-500" />}
                           </button>
                           {/* fixed ไม่ใช่ absolute — nav เป็น overflow-y-auto จะ clip แผงที่ยื่นออกนอกแถบ */}
@@ -248,7 +248,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
                           aria-expanded={open}
                           className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${hasActive && !open ? 'text-slate-800 dark:text-slate-100 font-semibold bg-slate-50 dark:bg-slate-800' : `text-slate-600 dark:text-slate-300 ${NEUTRAL_HOVER}`}`}
                         >
-                          <span className={`p-1 rounded-md shrink-0 ${hasActive ? `${subCol.icon} ${subCol.darkIcon}` : NEUTRAL_ICON}`}><SubIcon size={15} /></span>
+                          <span className={`p-1 rounded-md shrink-0 ${hasActive ? `${subCol.icon} ${subCol.darkIcon}` : subCol.iconText}`}><SubIcon size={15} /></span>
                           <span className="truncate flex-1 text-left">{item.title}</span>
                           <ChevronDown size={15} className={`shrink-0 text-slate-400 dark:text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`} />
                         </button>
