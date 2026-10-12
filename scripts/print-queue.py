@@ -27,7 +27,10 @@ def copies(rel):
 
 def req_date(rel):
     m = re.search(r'[_ ](\d{1,2}\.\d{1,2}\.\d{2})\.pdf$', rel, re.I)   # <หน่วยงาน> <ประเภท>_<ว.ด.ปป>.pdf · ส่งบิล <ว.ด.ปป>.pdf
-    return m.group(1) if m else 'ไม่ทราบวันที่'
+    if m:
+        return m.group(1)
+    m = re.search(r'_(\d{1,2})\.(\d{1,2})\.(\d{4})\.(?:pdf|docx)$', rel, re.I)   # ใบของแถม …_<ว.ด.ค.ศ.>.docx → ว.ด.ปป พ.ศ.
+    return f'{m.group(1)}.{m.group(2)}.{(int(m.group(3)) + 543) % 100:02d}' if m else 'ไม่ทราบวันที่'
 
 
 def read_log():
