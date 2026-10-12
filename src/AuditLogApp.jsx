@@ -197,6 +197,7 @@ const ACTION_LABELS = {
   seed_swap_policy:             { label: 'อัปเดตนโยบายคืนยา',        color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'   },
   export_excel:                 { label: 'ส่งออก Excel',             color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
   submit_requisition:           { label: 'ส่งใบเบิกยา',             color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'        },
+  requisition_conflict_withdrawn: { label: 'ใบเบิกชนกัน (ถอนอัตโนมัติ)', color: 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300' },
   requester_edit_requisition:   { label: 'แก้ไขใบเบิก',             color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'    },
   requester_delete_requisition: { label: 'ลบใบเบิก',                color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'        },
   delete_requisition:           { label: 'ลบใบเบิก (staff)',         color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'        },
@@ -269,6 +270,13 @@ function formatDetails(action, details, recordCount) {
       return [
         d.req_number && `เลขที่ใบเบิก: ${d.req_number}`,
         recordCount != null && `${recordCount} รายการยา`,
+      ].filter(Boolean).join(' · ') || '-';
+
+    case 'requisition_conflict_withdrawn':
+      return [
+        d.req_number && `เลขที่: ${d.req_number}`,
+        d.kind === 'edit' ? 'คืนค่าการแก้ไข' : 'ถอนใบ',
+        ...(d.conflicts || []).map(c => `${c.drug_name} ขอ ${c.requested} เบิกได้ ${c.available} ${c.unit || ''}`.trim()),
       ].filter(Boolean).join(' · ') || '-';
 
     case 'requester_edit_requisition':
@@ -543,7 +551,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
 
   // dropdown กรอง action — จัดกลุ่มตาม workflow, label มาจาก ACTION_LABELS (single source ไม่ duplicate)
   const ACTION_GROUPS = [
-    { label: 'ใบเบิกยา',   keys: ['submit_requisition', 'requester_edit_requisition', 'requester_delete_requisition', 'update_requisition', 'delete_requisition', 'picking_requisition', 'verify_requisition', 'dispense_requisition', 'received_requisition'] },
+    { label: 'ใบเบิกยา',   keys: ['submit_requisition', 'requisition_conflict_withdrawn', 'requester_edit_requisition', 'requester_delete_requisition', 'update_requisition', 'delete_requisition', 'picking_requisition', 'verify_requisition', 'dispense_requisition', 'received_requisition'] },
     { label: 'รับยา',      keys: ['import_receive', 'scan_invoice', 'map_drug_alias', 'update_receive', 'delete_receive'] },
     { label: 'จ่ายยา',     keys: ['import_dispense', 'update_dispense', 'delete_dispense'] },
     { label: 'คืนยา',      keys: ['insert_return', 'confirm_return', 'update_return', 'delete_return', 'flag_swap_return', 'swap_return_action', 'seed_swap_policy'] },

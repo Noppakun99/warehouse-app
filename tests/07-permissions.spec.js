@@ -48,14 +48,16 @@ test.describe('Permissions — requester', () => {
     await expect(menu(page, 'คืนยา / ยาเสียหาย')).toBeVisible({ timeout: 5_000 });
   });
 
-  // Dashboard แสดงกราฟ+stat ทุก role แล้ว (commit 2b16aef) → requester เห็นครบ 4 card
-  test('requester เห็น StatsStrip ครบ 4 card', async ({ authenticatedPage: page }) => {
+  // Dashboard ใหม่ (แผน §11.1 ข้อ 16, 21): requester ไม่มีคิวงาน · ภาพรวม 3 ตัวเลขพับไว้ล่างสุด
+  // (การ์ด "ใบเบิกรอดำเนินการ" ตัดออกแล้ว — เป็น 0 ตลอด)
+  test('requester ไม่มีคิวงาน + ภาพรวมคลังครบ 3 ตัวเลข (กางก่อน)', async ({ authenticatedPage: page }) => {
     await page.goto('/');
     await waitForDashboard(page);
+    await page.getByRole('button', { name: /ภาพรวมคลัง/ }).click();
     await expect(page.getByText('รายการยาในคลัง')).toBeVisible({ timeout: 8_000 });
-    await expect(page.getByText('ใบเบิกรอดำเนินการ')).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText('ยาใกล้หมดอายุ')).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText('Stock ต่ำกว่ากำหนด')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('ใกล้หมดอายุใน 16 เดือน')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('ต่ำกว่า Safety Stock')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('คิวงานวันนี้')).toHaveCount(0);
   });
 });
 
@@ -66,6 +68,7 @@ test.describe('Permissions — staff', () => {
     if (!page) test.skip();
     await page.goto('/');
     await waitForDashboard(page);
+    await menu(page, 'วิเคราะห์').click(); // staff: อยู่ใต้เมนูแม่ "วิเคราะห์" (ผู้เบิกเห็นข้อเดียว = ไม่มีเมนูแม่)
     await expect(menu(page, 'วิเคราะห์การเบิก')).toBeVisible({ timeout: 5_000 });
   });
 
@@ -76,6 +79,9 @@ test.describe('Permissions — staff', () => {
     if (!page) test.skip();
     await page.goto('/');
     await waitForDashboard(page);
+    // admin เห็นเมนูแม่ "ตั้งค่าและดูแลระบบ" (กางแล้วมีจัดการผู้ใช้งาน) · staff เห็นแค่ Audit Log ข้อเดียว (ไม่มีเมนูแม่)
+    const sys = menu(page, 'ตั้งค่าและดูแลระบบ');
+    if (await sys.isVisible().catch(() => false)) await sys.click();
     await expect(menu(page, 'จัดการผู้ใช้งาน')).not.toBeVisible();
   });
 
@@ -83,19 +89,21 @@ test.describe('Permissions — staff', () => {
     if (!page) test.skip();
     await page.goto('/');
     await waitForDashboard(page);
+    await menu(page, 'วิเคราะห์').click();
     await menu(page, 'วิเคราะห์การเบิก').click();
     await expect(
       page.getByText(/วิเคราะห์|ช่วงเวลา|แนวโน้ม/i).first()
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test('staff เห็น StatsStrip ครบ 4 card', async ({ staffPage: page }) => {
+  // จอคอม (Desktop Chrome ≥ lg): คิวงาน + ภาพรวมกางเสมอ
+  test('staff เห็นคิวงานวันนี้ + ภาพรวมคลังครบ 3 ตัวเลข', async ({ staffPage: page }) => {
     if (!page) test.skip();
     await page.goto('/');
     await waitForDashboard(page);
+    await expect(page.getByText('คิวงานวันนี้')).toBeVisible({ timeout: 8_000 });
     await expect(page.getByText('รายการยาในคลัง')).toBeVisible({ timeout: 8_000 });
-    await expect(page.getByText('ใบเบิกรอดำเนินการ')).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText('ยาใกล้หมดอายุ')).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText('Stock ต่ำกว่ากำหนด')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('ใกล้หมดอายุใน 16 เดือน')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('ต่ำกว่า Safety Stock')).toBeVisible({ timeout: 5_000 });
   });
 });

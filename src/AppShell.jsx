@@ -8,12 +8,14 @@
 // Mobile (< lg): sidebar = drawer overlay เปิดด้วย hamburger
 // ============================================================
 import React, { useState, useEffect, useRef } from 'react';
-import { Pill, LayoutDashboard, ChevronLeft, ChevronDown, Menu, X, LogOut, RefreshCcw, Shield, ShieldCheck, User, KeyRound, Eye, EyeOff, Check, Sun, Moon, Search } from 'lucide-react';
+import { Pill, LayoutDashboard, ChevronLeft, ChevronDown, Menu, X, LogOut, RefreshCcw, Shield, ShieldCheck, User, KeyRound, Eye, EyeOff, Check, Sun, Moon, Search, RotateCcw, TrendingDown, ClipboardCheck, Database } from 'lucide-react';
 import { NAV_GROUPS, COLOR } from './navConfig';
 import { changeOwnPassword } from './lib/db';
 import NotificationBell from './NotificationBell';
 import CommandPalette from './CommandPalette';
 import ExcelSyncControl from './ExcelSync';
+import { DRUG_SEARCH_OPEN_EVENT } from './lib/drugSearchEvent';
+import { InstallAppMenuItem } from './InstallApp';
 
 // submenu ที่มี active page อยู่ข้างใน → เปิดไว้ตั้งแต่แรก
 const submenuKeyOf = (pageKey) => {
@@ -29,6 +31,23 @@ const readCollapsed = () => {
   try { return localStorage.getItem(COLLAPSE_KEY) === '1'; } catch { return false; }
 };
 
+// แถบปุ่มล่างจอ (จอ < lg) — ข้อตกลงแผน Dashboard ข้อ 20 · ปุ่มที่ 4 "เมนู" เปิด drawer เดิม
+// 'dispense-mine' = ประวัติเบิกที่ตั้งตัวกรองหน่วยงานตัวเองไว้ก่อน (ข้อ 27 — route ใน AppRoot)
+const BOTTOM_NAV = {
+  requester: [
+    { page: 'dashboard',     icon: LayoutDashboard, title: 'หน้าหลัก' },
+    { page: 'return',        icon: RotateCcw,       title: 'คืนยา' },
+    { page: 'dispense-mine', icon: TrendingDown,    title: 'ประวัติเบิก' },
+  ],
+  staff: [
+    { page: 'dashboard',  icon: LayoutDashboard, title: 'หน้าหลัก' },
+    { page: 'stockcount', icon: ClipboardCheck,  title: 'ตรวจนับ' },
+    { page: 'inventory',  icon: Database,        title: 'แผนผังคลัง' },
+  ],
+};
+// หน้าที่มีแถบปุ่มล่างจอของตัวเอง (ส่งใบเบิก/อนุมัติ/ตะกร้า fixed bottom-0) — ไม่แสดงแถบล่าง กันทับปุ่มหลัก
+const NO_BOTTOM_NAV = new Set(['requisition']);
+
 // ธีมสว่าง/มืด — default = สว่างเสมอ (ไม่ตาม prefers-color-scheme โดยเจตนา:
 // dark ครอบแค่ shell ถ้า auto-dark ผู้ใช้จะเจอแถบมืด+เนื้อหาสว่างโดยไม่ได้สั่ง)
 const THEME_KEY = 'theme';
@@ -36,7 +55,7 @@ const readDark = () => {
   try { return localStorage.getItem(THEME_KEY) === 'dark'; } catch { return false; }
 };
 
-export default function AppShell({ page, onNavigate, onFormAction, onRefresh, displayName, role, permissions, auth, onLogout, children, badges = {} }) {
+export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, onRefresh, displayName, role, permissions, auth, onLogout, children, badges = {} }) {
   const isStaff = role === 'staff' || role === 'admin';
   // เมนูแสดงเมื่อ role อนุญาต หรือ admin grant permission รายคน (key = item.page)
   const canSee = (it) => it.roles.includes(role) || (it.page && (permissions || []).includes(it.page));
@@ -49,8 +68,11 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
   const [flyout, setFlyout] = useState(null); // { key, top, left } ของ submenu ที่กางอยู่ตอนแถบยุบ (desktop)
   const [dark, setDark] = useState(readDark);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const bottomItems = BOTTOM_NAV[isStaff ? 'staff' : 'requester'];
+  const showBottomNav = !!auth && !NO_BOTTOM_NAV.has(page);
 
-  // ⌘K (Mac) / Ctrl+K (Windows) เปิดช่องค้นหาเมนู — ผูกเฉพาะตอน login แล้ว
+  // ⌘K (Mac) / Ctrl+K (Windows) เปิดช่องค้นหายา/เมนู — ผูกเฉพาะตอน login แล้ว
+  // + ช่องใหญ่บนหน้าหลักเปิดตัวเดียวกันผ่าน openDrugSearch() (lib/drugSearchEvent.js)
   useEffect(() => {
     if (!auth) return;
     const onKey = (e) => {
@@ -59,13 +81,20 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
         setPaletteOpen(o => !o);
       }
     };
+    const onOpenEvent = () => setPaletteOpen(true);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener(DRUG_SEARCH_OPEN_EVENT, onOpenEvent);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener(DRUG_SEARCH_OPEN_EVENT, onOpenEvent);
+    };
   }, [auth]);
 
   // sync class 'dark' ที่ <html> — Tailwind darkMode:'class' อ่านจากตรงนี้
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
+    // แถบสถานะมือถือ/แอปที่ติดตั้ง = สี top bar (bg-white / dark:bg-slate-900)
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0f172a' : '#ffffff');
     try { localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light'); } catch { /* localStorage ปิด — ธีมไม่ถูกจำ แต่ยังสลับได้ */ }
   }, [dark]);
 
@@ -99,6 +128,10 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
   // action item (ทำ action เช่นเปิด print — ไม่เปิดหน้า/ไม่เข้า navStack)
   const doAction = (a) => { onFormAction?.(a); setDrawerOpen(false); setFlyout(null); };
 
+  // ไอคอนเมนู: ข้อที่ไม่ได้เปิด = ไอคอนสีประจำระบบ ไม่มีกล่องพื้น (COLOR.iconText) · ข้อที่เปิดอยู่ = กล่องสีเต็ม
+  // (เดิมทุกข้อมีกล่องสีคนละสี ลายตา — user เลือกแบบนี้ 11/10/2569 หลังลองแบบเทาล้วน) · hover สีเดียว
+  const NEUTRAL_HOVER = 'hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100';
+
   // leaf menu item (ใช้ทั้ง top-level และลูกของ submenu) — รองรับทั้ง page (navigate) และ action
   const renderLeaf = (item, mini) => {
     const Icon = item.icon;
@@ -111,10 +144,10 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
         key={item.page || item.action}
         onClick={() => (isAction ? doAction(item.action) : go(item.page))}
         title={item.title}
-        className={`relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${mini ? 'justify-center' : ''} ${on ? `${col.activeBg} ${col.darkActive} font-semibold` : `text-slate-600 dark:text-slate-300 ${col.hover} dark:hover:bg-slate-800`}`}
+        className={`relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${mini ? 'justify-center' : ''} ${on ? `${col.activeBg} ${col.darkActive} font-semibold` : `text-slate-600 dark:text-slate-300 ${NEUTRAL_HOVER}`}`}
       >
         {on && !mini && <span className={`absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full ${col.bar}`} />}
-        <span className={`p-1 rounded-md shrink-0 ${col.icon} ${col.darkIcon}`}><Icon size={15} /></span>
+        <span className={`p-1 rounded-md shrink-0 ${on ? `${col.icon} ${col.darkIcon}` : col.iconText}`}><Icon size={15} /></span>
         {!mini && <span className="truncate">{item.title}</span>}
         {badge > 0 && (
           <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none ${mini ? 'absolute top-1 right-1' : 'ml-auto'}`}>
@@ -146,7 +179,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
           className={`relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-semibold transition-colors ${mini ? 'justify-center' : ''} ${page === 'dashboard' ? 'bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300' : 'text-slate-600 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-slate-800 hover:text-sky-700 dark:hover:text-sky-300'}`}
         >
           {page === 'dashboard' && !mini && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full bg-sky-500" />}
-          <span className="p-1 rounded-md shrink-0 bg-sky-100 text-sky-600"><LayoutDashboard size={15} /></span>
+          <span className={`p-1 rounded-md shrink-0 ${page === 'dashboard' ? 'bg-sky-100 text-sky-600' : 'text-sky-600 dark:text-sky-400'}`}><LayoutDashboard size={15} /></span>
           {!mini && 'หน้าหลัก'}
         </button>
 
@@ -172,6 +205,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
                   if (item.children) {
                     const children = item.children.filter(canSee);
                     if (children.length === 0) return null;
+                    if (children.length === 1) return renderLeaf(children[0], mini);
                     const SubIcon = item.icon;
                     const open = !!openMenus[item.key];
                     const hasActive = children.some(c => c.page === page);
@@ -187,9 +221,9 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
                               setFlyout(f => (f?.key === item.key ? null : { key: item.key, top: r.top, left: r.right + 8 }));
                             }}
                             title={item.title}
-                            className={`relative w-full flex items-center justify-center px-2.5 py-2 rounded-lg text-sm transition-colors ${hasActive || fOpen ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100' : `text-slate-600 dark:text-slate-300 ${subCol.hover} dark:hover:bg-slate-800`}`}
+                            className={`relative w-full flex items-center justify-center px-2.5 py-2 rounded-lg text-sm transition-colors ${hasActive || fOpen ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100' : `text-slate-600 dark:text-slate-300 ${NEUTRAL_HOVER}`}`}
                           >
-                            <span className={`p-1 rounded-md shrink-0 ${subCol.icon} ${subCol.darkIcon}`}><SubIcon size={15} /></span>
+                            <span className={`p-1 rounded-md shrink-0 ${hasActive ? `${subCol.icon} ${subCol.darkIcon}` : subCol.iconText}`}><SubIcon size={15} /></span>
                             {hasActive && <span className="absolute right-1 top-1 w-1.5 h-1.5 rounded-full bg-sky-500" />}
                           </button>
                           {/* fixed ไม่ใช่ absolute — nav เป็น overflow-y-auto จะ clip แผงที่ยื่นออกนอกแถบ */}
@@ -211,9 +245,10 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
                       <div key={item.key}>
                         <button
                           onClick={() => toggleMenu(item.key)}
-                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${hasActive && !open ? 'text-slate-800 dark:text-slate-100 font-semibold bg-slate-50 dark:bg-slate-800' : `text-slate-600 dark:text-slate-300 ${subCol.hover} dark:hover:bg-slate-800`}`}
+                          aria-expanded={open}
+                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${hasActive && !open ? 'text-slate-800 dark:text-slate-100 font-semibold bg-slate-50 dark:bg-slate-800' : `text-slate-600 dark:text-slate-300 ${NEUTRAL_HOVER}`}`}
                         >
-                          <span className={`p-1 rounded-md shrink-0 ${subCol.icon} ${subCol.darkIcon}`}><SubIcon size={15} /></span>
+                          <span className={`p-1 rounded-md shrink-0 ${hasActive ? `${subCol.icon} ${subCol.darkIcon}` : subCol.iconText}`}><SubIcon size={15} /></span>
                           <span className="truncate flex-1 text-left">{item.title}</span>
                           <ChevronDown size={15} className={`shrink-0 text-slate-400 dark:text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`} />
                         </button>
@@ -242,6 +277,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
             {!mini && 'โหลดหน้านี้ใหม่'}
           </button>
         )}
+        <InstallAppMenuItem mini={mini} />
         <button onClick={onLogout} title="ออกจากระบบ" className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-slate-500 dark:text-slate-300 hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 dark:hover:text-red-400 transition-colors ${mini ? 'justify-center' : ''}`}>
           <span className="p-1 rounded-md shrink-0 bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400"><LogOut size={15} /></span>
           {!mini && 'ออกจากระบบ'}
@@ -278,8 +314,8 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
         </>
       )}
 
-      {/* ── Content (sub-app เดิม พร้อม header ของตัวเอง) ── */}
-      <div className={`${collapsed ? 'lg:pl-16' : 'lg:pl-60'} transition-all duration-200`}>
+      {/* ── Content (sub-app เดิม พร้อม header ของตัวเอง) ── เว้นล่าง h-16 ให้แถบปุ่มล่างจอ (จอเล็ก) */}
+      <div className={`${collapsed ? 'lg:pl-16' : 'lg:pl-60'} ${showBottomNav ? 'pb-16 lg:pb-0' : ''} transition-all duration-200`}>
         {/* Top bar (แถบสีฟ้า) — ซ้าย: hamburger (mobile) · ขวา: user chip + กระดิ่ง.
             ไม่ sticky โดยเจตนา → เลื่อนหายไปกับหน้า ให้ header sticky ของ sub-app คุม top-0 เอง (กันชน) */}
         {auth && (
@@ -302,15 +338,15 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
                 <div className="p-1.5 rounded-lg bg-gradient-to-br from-sky-500 to-blue-600 text-white shrink-0"><Pill size={16} /></div>
                 <span className="font-black text-slate-800 dark:text-slate-100 tracking-tight truncate">คลังยา</span>
               </button>
-              {/* ช่องค้นหาเมนู — จอกว้างแสดงเป็นช่อง, จอเล็กเหลือไอคอนแว่นขยาย (ที่ไม่พอ) */}
+              {/* ช่องค้นหายา/เมนู — จอกว้างแสดงเป็นช่อง, จอเล็กเหลือไอคอนแว่นขยาย (ที่ไม่พอ) */}
               <button
                 type="button"
                 onClick={() => setPaletteOpen(true)}
-                title="ค้นหาเมนู (Ctrl+K)"
+                title="ค้นหายา หรือเมนู (Ctrl+K)"
                 className="hidden sm:flex items-center gap-2 w-56 lg:w-72 ml-1 lg:ml-3 px-3 h-9 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-200/70 dark:bg-slate-800/60 text-slate-600 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 hover:border-slate-400 dark:hover:border-slate-600 transition-colors"
               >
                 <Search size={15} className="shrink-0" />
-                <span className="text-sm truncate">ค้นหาเมนู...</span>
+                <span className="text-sm truncate">ค้นหายา / เมนู...</span>
                 <kbd className="ml-auto text-[10px] font-sans font-semibold px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 shrink-0">Ctrl K</kbd>
               </button>
             </div>
@@ -319,8 +355,8 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
               <button
                 type="button"
                 onClick={() => setPaletteOpen(true)}
-                title="ค้นหาเมนู"
-                aria-label="ค้นหาเมนู"
+                title="ค้นหายา / เมนู"
+                aria-label="ค้นหายา / เมนู"
                 className="sm:hidden p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
                 <Search size={19} />
@@ -344,13 +380,36 @@ export default function AppShell({ page, onNavigate, onFormAction, onRefresh, di
         {children}
       </div>
 
-      {/* ช่องค้นหาเมนู — เฉพาะตอน login แล้ว (กันเปิดด้วย Ctrl+K ตอนอยู่หน้า login) */}
+      {/* ── แถบปุ่มล่างจอ (จอเล็ก) — z-30 อยู่ใต้ drawer (40/50) และโมดอลทุกตัว (≥ 50) ── */}
+      {showBottomNav && (
+        <nav aria-label="เมนูลัด" className="lg:hidden fixed inset-x-0 bottom-0 z-30 h-16 grid grid-cols-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-800">
+          {bottomItems.map(it => {
+            const Icon = it.icon;
+            const on = page === it.page;
+            return (
+              <button key={it.page} type="button" onClick={() => go(it.page)} aria-current={on ? 'page' : undefined}
+                className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors ${on ? 'text-sky-600 dark:text-sky-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
+                <Icon size={21} strokeWidth={on ? 2.4 : 2} />
+                <span className="truncate max-w-full px-1">{it.title}</span>
+              </button>
+            );
+          })}
+          <button type="button" onClick={() => setDrawerOpen(true)}
+            className="flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">
+            <Menu size={21} />
+            <span>เมนู</span>
+          </button>
+        </nav>
+      )}
+
+      {/* ช่องค้นหายา/เมนู — เฉพาะตอน login แล้ว (กันเปิดด้วย Ctrl+K ตอนอยู่หน้า login) */}
       {auth && (
         <CommandPalette
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
           onNavigate={go}
           onFormAction={doAction}
+          onOpenDrug={(code) => { setDrawerOpen(false); onOpenDrug?.(code); }}
           role={role}
           permissions={permissions}
         />

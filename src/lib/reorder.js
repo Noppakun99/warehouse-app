@@ -1,6 +1,8 @@
 // reorder.js — Pharmacy reorder analysis (pure functions, no I/O)
 // อ้างอิง spec §3 Step 1-8 — ห้าม mutate input
 
+import { localYmd } from '../../supabase/functions/_shared/usageRow.js';
+
 export const RISK_MULTIPLIER = { Normal: 1.0, Essential: 1.5, Critical: 2.0 };
 export const ORDER_FACTOR = 2.3;        // Excel: Avg/เดือน × 2.3 (คงที่ ไม่มี Refill mode)
 export const DEFAULT_LEAD_TIME = 20;    // Excel default LT เมื่อไม่มีข้อมูล
@@ -212,4 +214,54 @@ export function groupBySupplier(rows) {
     g.totalQty += r.orderQty;
   }
   return [...map.values()].sort((a, b) => b.totalAmount - a.totalAmount);
+}
+
+// ────────────────────────────────────────────────────────────
+// ช่วงสถิติ + รูปแบบแสดงผล — ย้ายจาก ReorderApp.jsx (11/10/2569) ให้บัตรยาใช้ตัวเดียวกัน
+// ช่วงตั้งต้น = isoMonthsAgo(4)..isoPrevMonthEnd() = 4 เดือนที่ปิดงวดแล้ว (CONTEXT §เรท)
+// ────────────────────────────────────────────────────────────
+
+// คงอยู่ได้อีก (Coverage): คงเหลือ ÷ Avg/วัน → "X ปี Y ด. Z วัน" (หน่วยเดียวกันทั้งคู่)
+export const fmtCoverage = (stock, avgDay) => {
+  if (!avgDay || avgDay <= 0) return stock > 0 ? '∞' : '—';
+  let days = Math.floor(stock / avgDay);
+  if (days <= 0) return '0 วัน';
+  const y = Math.floor(days / 365); days -= y * 365;
+  const mo = Math.floor(days / 30); days -= mo * 30;
+  const parts = [];
+  if (y) parts.push(`${y} ปี`);
+  if (mo) parts.push(`${mo} ด.`);
+  if (days) parts.push(`${days} วัน`);
+  return parts.join(' ') || '0 วัน';
+};
+
+export function isoMonthsAgo(months) {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - months);
+  return localYmd(d);
+}
+
+// วันสุดท้ายของเดือนก่อนหน้า (ปิดงวดเดือนปัจจุบันที่ยังไม่ครบออก)
+export function isoPrevMonthEnd() {
+  const d = new Date();
+  d.setDate(0);
+  return localYmd(d);
+}
+
+export function listMonthYM(fromIso, toIso) {
+  const out = [];
+  const start = new Date(fromIso); start.setDate(1);
+  const end = new Date(toIso); end.setDate(1);
+  while (start <= end) {
+    out.push(start.toISOString().slice(0, 7));
+    start.setMonth(start.getMonth() + 1);
+  }
+  return out;
+}
+
+export function thaiMonthLabel(ym) {
+  const [y, m] = ym.split('-');
+  const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+  return `${months[+m - 1]} ${(+y + 543) % 100}`;
 }

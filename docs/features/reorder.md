@@ -133,7 +133,7 @@ npm run test:reorder    # 33 golden assertions — ต้องผ่าน 100%
 
 ## ข้อจำกัด / TODO
 
-1. **dispense_type filter** — spec ระบุให้กรองรายการที่ `dispense_type='บันทึกเท่านั้น'` ออก แต่ตาราง `dispense_logs` ไม่มี column นี้ ปัจจุบัน filter จาก `main_log`/`note` ที่มีคำว่า "บันทึก" — อาจไม่ครอบคลุม ต้องยืนยันกับ user
+1. ~~**dispense_type filter**~~ **แก้แล้ว 2026-10-10** — `fetchMonthlyDispenseUsage` ตัดแถวด้วย `isUsageRow` ([_shared/usageRow.js](../../supabase/functions/_shared/usageRow.js)) = 4 แบบเดียวกับสูตร E4 ชีทวิเคราะห์สั่งซื้อ (ชนิดรายการ `บันทึกเท่านั้น`/`ยาโครงการ` · หน่วยงาน `คืนยา`/`เบิกเพื่อแลกเปลี่ยนคืนยา`) แทนกฎเดิม main_log/note มีคำว่า "บันทึก". ผลจริงหน้าต่าง มิ.ย.–ก.ย.69: เรทเปลี่ยน 50 รหัส (SS/ROP เปลี่ยน 24) — **46/50 ตรงยอดรายเดือนในชีท Excel แล้ว** (ก่อนแก้ 0/50); 4 ที่เหลือ (ยาสมุนไพร 1660083/1590019/81/1590033) ต่างกันที่ packsize ×50/×100 ระหว่างแอปกับ Excel ไม่ใช่กฎตัดแถว — ยังไม่แก้
 2. ~~**Mark ordered** เก็บใน localStorage~~ **ย้ายเข้า DB แล้ว 2026-07-03** — table `reorder_orders` (`fetchReorderOrders`/`setReorderOrder` ใน [db.js](../../src/lib/db.js)); sync ข้ามเครื่อง/คน. persist จนกว่าคนกดยกเลิกเอง (ไม่ auto-reset). migration apply แล้ว (prod 2026-07-04)
 3. **Phase 2**: ~~reconcile view (upload Excel เทียบ)~~ **เสร็จ 2026-07-03** (tab "เทียบกับ Excel" — `reconcileRows` ใน [reorder.js](../../src/lib/reorder.js), read-only diff ±1, audit `reconcile_excel`).
    - ~~auto-revert Refill~~ **ยกเลิก** — Refill mode ถูกลบโดยตั้งใจ (Q1 DONE 2026-06-13, ใช้ `excludedMonth` แทน) → ไม่มีอะไรให้ revert

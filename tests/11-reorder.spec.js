@@ -13,8 +13,8 @@ import { test, expect, waitForAppShell } from './fixtures.js';
 async function gotoReorder(page) {
   await page.goto('/');
   await waitForAppShell(page);
-  // Dashboard → คลิก card "Stock ต่ำกว่ากำหนด" → เปิด modal แจ้งเตือน
-  await page.getByRole('button', { name: /Stock ต่ำกว่ากำหนด/ }).first().click();
+  // Dashboard → คลิกการ์ด "ต่ำกว่า Safety Stock" ในภาพรวม (เดิมชื่อ "Stock ต่ำกว่ากำหนด") → เปิด modal แจ้งเตือน
+  await page.getByRole('button', { name: /ต่ำกว่า Safety Stock/ }).first().click();
   // ใน modal มีปุ่ม "เปิดระบบวิเคราะห์การสั่งซื้อ" (desktop) → คลิกเข้า ReorderApp
   await page.getByRole('button', { name: /เปิดระบบวิเคราะห์การสั่งซื้อ/ }).click();
   await page.waitForSelector('text=ระบบวิเคราะห์การสั่งซื้อยา', { timeout: 10_000 });
@@ -38,20 +38,22 @@ test.describe('ReorderApp — smoke', () => {
     if (!page) test.skip();
     await gotoReorder(page);
 
+    // ชื่อ tab ซ้ำกับเมนูย่อย "วิเคราะห์สั่งซื้อ" ใน sidebar (กางอยู่เมื่ออยู่หน้านี้) → .last() = tab ในหน้า
+    // (sidebar render ก่อนเนื้อหาใน DOM) — ไม่ระบุแล้ว strict mode เจอ 2 ปุ่ม
     const tabs = ['ตารางวิเคราะห์', 'ใบสั่งซื้อแยกบริษัท', 'Verification', 'History'];
     for (const t of tabs) {
-      await expect(page.getByRole('button', { name: new RegExp(t) })).toBeVisible();
+      await expect(page.getByRole('button', { name: new RegExp(t) }).last()).toBeVisible();
     }
 
     // คลิก Verification → เห็นปุ่ม "Run tests"
-    await page.getByRole('button', { name: /Verification/ }).click();
+    await page.getByRole('button', { name: /Verification/ }).last().click();
     await expect(page.getByRole('button', { name: /Run tests/ })).toBeVisible();
   });
 
   test('Verification tab รัน golden tests ผ่าน 100%', async ({ staffPage: page }) => {
     if (!page) test.skip();
     await gotoReorder(page);
-    await page.getByRole('button', { name: /Verification/ }).click();
+    await page.getByRole('button', { name: /Verification/ }).last().click();
     await page.getByRole('button', { name: /Run tests/ }).click();
     // ต้องเห็น "0 ล้มเหลว" ในผลลัพธ์
     await expect(page.getByText(/0 ล้มเหลว/)).toBeVisible({ timeout: 5_000 });
@@ -72,8 +74,11 @@ test.describe('ReorderApp — smoke', () => {
 
   test('Mobile 375px — แสดง card layout', async ({ staffPage: page }) => {
     if (!page) test.skip();
-    await page.setViewportSize({ width: 375, height: 800 });
+    // เข้าหน้าจากจอคอมก่อน แล้วค่อยย่อ — ทางเข้าบน Dashboard มือถือต่างกัน (ภาพรวมพับไว้ +
+    // ปุ่ม "เปิดระบบวิเคราะห์การสั่งซื้อ" ในโมดอลซ่อนบนจอ < sm) ไม่ใช่สิ่งที่ test นี้ตรวจ
+    await page.setViewportSize({ width: 1280, height: 800 });
     await gotoReorder(page);
+    await page.setViewportSize({ width: 375, height: 800 });
     // ต้องไม่เห็น desktop table (มี th)
     const tableHeader = page.locator('table thead tr th:has-text("คงเหลือ")');
     await expect(tableHeader).toBeHidden({ timeout: 5_000 });

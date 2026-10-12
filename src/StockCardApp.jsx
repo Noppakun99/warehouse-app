@@ -129,7 +129,7 @@ function KindBadge({ kind, side, noDeduct }) {
   return <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold border ${cls}`}>{kind || '-'}</span>
 }
 
-export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {} }) {
+export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}, initialDrug = null, onInitialDrugUsed }) {
   const [drugOptions, setDrugOptions] = useState([])
   const [nameToCode, setNameToCode] = useState({})
   const [drugName, setDrugName] = useState('')
@@ -239,6 +239,15 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
     } catch (e) { setError(e.message); setData(null) }
     finally { setLoading(false) }
   }
+
+  // เปิดจากบัตรยา (ปุ่ม "เปิดการ์ดคลัง lot") — โหลดยานั้นทันที แล้วบอก AppRoot ล้างค่า
+  // (ไม่ล้าง → เข้าเมนู Stockcard ครั้งหน้าจะเด้งยาตัวเดิมขึ้นมาเอง)
+  useEffect(() => {
+    if (!initialDrug?.code) return
+    openDrugByCode(initialDrug.code, initialDrug.name || '')
+    onInitialDrugUsed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDrug])
 
   // แยกยาที่ "ต้องตรวจจริง" ออกจากยาที่ต่างเพราะย้ายข้อมูล Excel (52% ของ drift ทั้งระบบ)
   const visibleIssues = useMemo(

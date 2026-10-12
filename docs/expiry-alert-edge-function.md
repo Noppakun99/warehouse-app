@@ -160,7 +160,9 @@ cron ยิงมาทุกวัน แล้ว **ฟังก์ชัน�
 (การส่งปกติของบอทไม่ควรเด้งกระดิ่งทุกสัปดาห์; กระดิ่งเก็บไว้ให้เรื่องผิดปกติอย่าง `line_quota_low`)
 ⚠️ ผลข้างเคียงคือ **อีเมลส่งไม่ออกก็ไม่เด้งกระดิ่ง** เหมือนกัน — ต้องเข้าไปดูหน้า Audit Log เอง
 
-**สถานะ deploy:** version 31 (19 ส.ค. 2026) — เทียบแล้วตรงกับ `supabase/functions/expiry-alert/index.ts` ทุกตัวอักษร
+**สถานะ deploy:** version 35 (11 ต.ค. 2569 ผ่าน CLI จาก commit `539f520` — อัปโหลด `index.ts` + `_shared/usageRow.js`, verify_jwt คงเดิม) · ยิงทดสอบ `{"date":"2026-10-10"}` ได้ 200 `คลังปิด (วันเสาร์)` = บูต + import `_shared` ผ่าน ไม่มีอีเมล/LINE ออก
+
+> coverage (เรท 6 เดือน) ตัดแถวที่ไม่ใช่การใช้ด้วย `isUsageRow` จาก `_shared/usageRow.js` ไฟล์เดียวกับแอป (แก้ 10/10/2569 · deploy แล้ว 11/10/2569 — อีเมล/LINE นับเรทตรงกับแอป)
 
 > ⚠️ **เลข version กระโดดเร็วกว่าจำนวนครั้งที่ deploy** — `supabase secrets set` ก็ bump version ของทุก
 > function ด้วย (แก้ `ALERT_EMAILS` 4 ครั้งระหว่างทดสอบ = +4 version) อย่าใช้เลข version เดาว่าโค้ดเปลี่ยนกี่รอบ
@@ -173,7 +175,7 @@ recipients: 1 · slot: "force (ข้ามการเช็ครอบ)"` · 
 
 > 💡 **deploy ด้วย CLI ดีกว่าให้ agent พิมพ์เนื้อไฟล์ผ่าน MCP** — `supabase functions deploy` อัปโหลดไฟล์จริง
 > ไม่มีโอกาสพิมพ์ตก (ไฟล์นี้ ~59KB เกินลิมิต output ของ agent ด้วย). โทเค็นอยู่ใน env ของ MCP server:
-> `SUPABASE_ACCESS_TOKEN` ใน `~/.claude.json` → `mcpServers.supabase.env`
+> `SUPABASE_ACCESS_TOKEN` ใน `.mcp.json` ของ repo (เครื่อง Admin) หรือ `~/.claude.json` (เครื่องเดิม) → `mcpServers.supabase.env` · `npx supabase functions deploy expiry-alert --project-ref kgjocnfafhqqioneqapk` (เตือน Docker ไม่รันได้ ไม่เป็นไร)
 >
 > ⚠️ **อ่านค่า secret เดิมกลับไม่ได้** (`secrets list` ให้แค่ digest) — ถ้าจะแก้ชั่วคราวต้องรู้ค่าเดิมก่อน
 > แล้วยืนยันตอนคืนด้วยการเทียบ digest. ผู้รับปัจจุบัน = 4 คนตามที่จดไว้ข้างบน (ยืนยันด้วย digest แล้ว)

@@ -17,9 +17,12 @@ test.describe('Dashboard', () => {
     await expect(menu(page, 'คืนยา / ยาเสียหาย')).toBeVisible();
   });
 
-  test('StatsStrip แสดงตัวเลขรายการยาในคลัง', async ({ authenticatedPage: page }) => {
+  // authenticatedPage = requester → ภาพรวมคลังพับไว้ (แผน Dashboard §11.1 ข้อ 16) ต้องกางก่อน
+  test('ภาพรวมคลัง (พับไว้) กางแล้วเห็นตัวเลขรายการยาในคลัง', async ({ authenticatedPage: page }) => {
     await page.goto('/');
     await dismissStartupPopup(page);
+    await expect(page.getByText('รายการยาในคลัง')).toBeHidden();
+    await page.getByRole('button', { name: /ภาพรวมคลัง/ }).click();
     await expect(page.getByText('รายการยาในคลัง')).toBeVisible({ timeout: 8_000 });
   });
 

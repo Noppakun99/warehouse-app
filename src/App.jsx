@@ -11,7 +11,7 @@ import {
   Search, Package, MapPin, X, UploadCloud, FileSpreadsheet,
   AlertCircle, BarChart3, Layers, Pill, FileText,
   ChevronUp, ChevronDown, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw, FileDown, Eye, EyeOff,
-  ShieldCheck, Link2, Filter, Printer,
+  ShieldCheck, Link2, Filter, Printer, Settings2,
 } from 'lucide-react';
 
 // คอลัมน์ตาม CSV master ต้นทาง (ยอดคลังยา_master_69.csv) เฉพาะ field ที่ inventory เก็บจริง
@@ -123,6 +123,8 @@ const formatDateTime = (dateObj) => {
 export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, canGoBack }) {
   const isStaff = role === 'staff' || role === 'admin';
   const [inventory, setInventory] = useState(initialInventory);
+  // ระหว่างโหลด inventory ว่าง → ห้ามโชว์ "ยังไม่มีข้อมูลในคลัง" (บนมือถือค้างหลายวินาที ดูเหมือนข้อมูลหาย)
+  const [invLoaded, setInvLoaded] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [drugDetails, setDrugDetails] = useState(initialDrugDetails);
   const [swapPolicies, setSwapPolicies] = useState({}); // { [company]: { returnMonths, canReturn, differsByItem, rawNote } }
@@ -131,10 +133,9 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   const [logUpdateDate, setLogUpdateDate] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeZone,      setActiveZone]      = useState(null);   // null = auto-first
+  const [activeZone,      setActiveZone]      = useState(null);   // null = ทุกโซน (ผังรวม) · 'A'… = โซนเดียว · '__other__' = พื้นที่อื่น
   const [hideEmptySlots,  setHideEmptySlots]  = useState(false);
   const [typeFilter,      setTypeFilter]      = useState('');     // '' = ทุกชนิด (กรองชนิดยา เช่น Herb)
-  const [collapsedLevels, setCollapsedLevels] = useState(new Set());
   const [showManageMenu,  setShowManageMenu]  = useState(false);
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [expandedDetailsId, setExpandedDetailsId] = useState(null);
@@ -187,6 +188,8 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
       } catch (err) {
         setErrorMsg('ไม่สามารถเชื่อมต่อ Supabase: ' + err.message + ' (ใช้ข้อมูลท้องถิ่นแทน)');
         setTimeout(() => setErrorMsg(''), 8000);
+      } finally {
+        setInvLoaded(true);
       }
     }
     loadFromSupabase();
@@ -618,20 +621,12 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
 
   // Zone tab helpers
   const zoneKeys = useMemo(() => Object.keys(filteredLayout).sort(), [filteredLayout]);
+  // ค่าเริ่มต้น = ผังรวมทุกโซน (เปิดหน้ามาเห็นตำแหน่งทั้งคลังทันที — เดิมเห็นทีละโซน)
   const activeZoneKey = useMemo(() => {
     if (activeZone === '__other__') return '__other__';
     if (activeZone && zoneKeys.includes(activeZone)) return activeZone;
-    return zoneKeys[0] || null;
+    return '__all__';
   }, [activeZone, zoneKeys]);
-
-  const toggleLevel = useCallback((cab, lev) => {
-    const key = `${cab}-${lev}`;
-    setCollapsedLevels(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }, []);
 
   const handleLocationClick = (locationId) => {
     const allItems = inventory[locationId] || [];
@@ -683,29 +678,18 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
 
     const isEmpty = itemCount === 0;
 
-    // Heatmap square: ว่าง = จาง+dashed, มีของ = indigo เข้มตามความหนาแน่น
-    // expiry override: ใกล้หมด = amber, หมดแล้ว = rose
-    let fill   = 'bg-indigo-400';
-    let border = 'border-indigo-200 dark:border-indigo-900/60';
-    let ring   = 'hover:ring-2 hover:ring-indigo-300';
+    // ช่องบนผัง = ป้ายรหัสตำแหน่ง + จำนวนยา (เดิมเป็นสี่เหลี่ยมสีเปล่า ต้องชี้/กดทีละช่องถึงรู้ว่าช่องไหนคืออะไร)
+    // สี: ว่าง = เส้นประ · มียา = น้ำเงินอ่อน · มี lot ใกล้หมดอายุ = เหลือง · หมดอายุแล้ว = แดง (ต้องตรง legend ในการ์ดโซน)
+    let tone = 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-900/60 text-indigo-800 dark:text-indigo-200 hover:border-indigo-400';
     let StatusIcon = null;
-
-    const opacity = itemCount <= 2 ? 0.45 : itemCount <= 6 ? 0.65 : itemCount <= 12 ? 0.85 : 1;
-
     if (isEmpty) {
-      fill   = 'bg-slate-100 dark:bg-slate-800';
-      border = 'border-slate-200 dark:border-slate-700 border-dashed';
-      ring   = 'hover:ring-2 hover:ring-slate-300';
+      tone = 'bg-transparent border-dashed border-slate-300 dark:border-slate-700 text-slate-400 dark:text-slate-500 hover:border-slate-400';
     } else if (hasExpired) {
-      fill   = 'bg-rose-500';
-      border = 'border-rose-200 dark:border-rose-900/60';
-      ring   = 'hover:ring-2 hover:ring-rose-300';
-      StatusIcon = <AlertTriangle size={11} className="absolute -top-1 -right-1 text-rose-600 bg-white dark:bg-slate-900 rounded-full drop-shadow" />;
+      tone = 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-900/70 text-rose-800 dark:text-rose-200 hover:border-rose-500';
+      StatusIcon = <AlertTriangle size={11} className="shrink-0 text-rose-600 dark:text-rose-400" />;
     } else if (hasNearExpiry) {
-      fill   = 'bg-amber-500';
-      border = 'border-amber-200 dark:border-amber-900/60';
-      ring   = 'hover:ring-2 hover:ring-amber-300';
-      StatusIcon = <Clock size={11} className="absolute -top-1 -right-1 text-amber-600 bg-white dark:bg-slate-900 rounded-full drop-shadow" />;
+      tone = 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-900/70 text-amber-800 dark:text-amber-200 hover:border-amber-500';
+      StatusIcon = <Clock size={11} className="shrink-0 text-amber-600 dark:text-amber-400" />;
     }
 
     // รายการยาสำหรับ tooltip (สูงสุด 4 รายการ)
@@ -715,17 +699,14 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
       <div className="relative group/slot">
         <button
           onClick={() => handleLocationClick(id)}
-          aria-label={`ตำแหน่ง ${id} — ${itemCount} รายการ`}
-          className={`
-            relative cursor-pointer transition-all duration-150 border rounded-lg
-            w-9 h-9 shrink-0 ${border} ${ring}
-            ${highlighted
-              ? 'ring-4 ring-yellow-400 scale-110 z-10 shadow-lg'
-              : 'hover:scale-110 active:scale-95'}
-          `}
+          aria-label={`ตำแหน่ง ${id} — ${isEmpty ? 'ว่าง' : `${itemCount} รายการ`}`}
+          className={`flex flex-col items-start justify-center min-w-16 h-11 px-2 rounded-lg border text-left transition-all duration-150 ${tone}
+            ${highlighted ? 'ring-4 ring-yellow-400 bg-yellow-100 dark:bg-yellow-900/50 border-yellow-500 scale-105 z-10 shadow-lg' : 'active:scale-95'}`}
         >
-          <span className={`absolute inset-0 rounded-lg ${fill}`} style={!isEmpty && !hasExpired && !hasNearExpiry ? { opacity } : undefined} />
-          {StatusIcon}
+          <span className="text-[11px] font-bold leading-tight tracking-tight whitespace-nowrap">{id}</span>
+          <span className="flex items-center gap-1 text-[10px] leading-tight opacity-80 whitespace-nowrap">
+            {StatusIcon}{isEmpty ? 'ว่าง' : `${itemCount} ยา`}
+          </span>
         </button>
 
         {/* Hover tooltip — รหัสตำแหน่ง + รายการยา */}
@@ -1042,18 +1023,18 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
 
       {/* ── Top header bar ── */}
       <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 flex items-center justify-between sticky top-0 z-30 shadow-sm">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-8 h-8 bg-sky-500 rounded-lg flex items-center justify-center shrink-0">
               <Database size={16} className="text-white" />
             </div>
-            <div>
-              <h1 className="text-base font-bold text-slate-800 dark:text-slate-100 leading-tight cursor-pointer hover:text-sky-600 transition-colors" onClick={onRefresh}>
-                ระบบแผนผังและข้อมูลคลังยา
+            <div className="min-w-0">
+              <h1 className="text-base font-bold text-slate-800 dark:text-slate-100 leading-tight truncate cursor-pointer hover:text-sky-600 transition-colors" onClick={onRefresh}>
+                แผนผังคลังยา
               </h1>
               {logUpdateDate && (
-                <p className="text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1">
+                <p className="hidden sm:flex text-[11px] text-slate-400 dark:text-slate-500 items-center gap-1">
                   <Clock size={10}/> อัพเดตล่าสุด: <span className="font-medium text-slate-500 dark:text-slate-400">{formatDateTime(logUpdateDate)}</span>
                 </p>
               )}
@@ -1069,9 +1050,9 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
             <ShieldCheck size={15}/><span className="hidden sm:inline">{consistencyLoading ? 'กำลังตรวจ...' : 'ตรวจความสอดคล้อง'}</span>
           </button>
           <div className="relative">
-            <button onClick={() => setShowManageMenu(v => !v)}
+            <button onClick={() => setShowManageMenu(v => !v)} aria-label="จัดการข้อมูล" title="จัดการข้อมูล"
               className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-900/60 hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
-              จัดการข้อมูล <ChevronDown size={14} className={`transition-transform ${showManageMenu ? 'rotate-180' : ''}`}/>
+              <Settings2 size={15} className="sm:hidden" /><span className="hidden sm:inline">จัดการข้อมูล</span> <ChevronDown size={14} className={`transition-transform ${showManageMenu ? 'rotate-180' : ''}`}/>
             </button>
             {showManageMenu && (
               <div className="absolute right-0 top-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 py-1 min-w-[200px]">
@@ -1099,43 +1080,6 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
 
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-5 space-y-4">
 
-        {/* ── Alert stat cards ── */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <div onClick={() => expiredItems.length > 0 && setExpiryViewFilter('expired')}
-            className={`bg-white dark:bg-slate-900 rounded-2xl border-2 p-4 transition-all shadow-sm ${expiredItems.length > 0 ? 'border-red-200 dark:border-red-900/60 hover:border-red-400 cursor-pointer hover:shadow-md' : 'border-slate-100 dark:border-slate-800 opacity-60'}`}>
-            <div className="flex items-center justify-between mb-2">
-              <div className="w-8 h-8 bg-red-100 dark:bg-red-950/60 rounded-lg flex items-center justify-center">
-                <AlertTriangle size={16} className={expiredItems.length > 0 ? 'text-red-500' : 'text-slate-300 dark:text-slate-500'}/>
-              </div>
-              <span className={`text-2xl font-black ${expiredItems.length > 0 ? 'text-red-600' : 'text-slate-300 dark:text-slate-500'}`}>{expiredItems.length}</span>
-            </div>
-            <p className={`text-xs font-semibold ${expiredItems.length > 0 ? 'text-red-500' : 'text-slate-400 dark:text-slate-500'}`}>หมดอายุแล้ว</p>
-          </div>
-
-          <div onClick={() => nearExpiryItems.length > 0 && setExpiryViewFilter('near')}
-            className={`bg-white dark:bg-slate-900 rounded-2xl border-2 p-4 transition-all shadow-sm ${nearExpiryItems.length > 0 ? 'border-amber-200 dark:border-amber-900/60 hover:border-amber-400 cursor-pointer hover:shadow-md' : 'border-slate-100 dark:border-slate-800 opacity-60'}`}>
-            <div className="flex items-center justify-between mb-2">
-              <div className="w-8 h-8 bg-amber-100 dark:bg-amber-950/60 rounded-lg flex items-center justify-center">
-                <Clock size={16} className={nearExpiryItems.length > 0 ? 'text-amber-500' : 'text-slate-300 dark:text-slate-500'}/>
-              </div>
-              <span className={`text-2xl font-black ${nearExpiryItems.length > 0 ? 'text-amber-600' : 'text-slate-300 dark:text-slate-500'}`}>{nearExpiryItems.length}</span>
-            </div>
-            <p className={`text-xs font-semibold ${nearExpiryItems.length > 0 ? 'text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}>ใกล้หมดอายุ (16 เดือน)</p>
-            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 leading-tight">{formatDateDisplay(todayForDisplay)} – {formatDateDisplay(targetDateForDisplay)}</p>
-          </div>
-
-          <div onClick={() => pendingReceiveItems.length > 0 && setExpiryViewFilter('pending')}
-            className={`bg-white dark:bg-slate-900 rounded-2xl border-2 p-4 transition-all shadow-sm ${pendingReceiveItems.length > 0 ? 'border-sky-200 dark:border-sky-900/60 hover:border-sky-400 cursor-pointer hover:shadow-md' : 'border-slate-100 dark:border-slate-800 opacity-60'}`}>
-            <div className="flex items-center justify-between mb-2">
-              <div className="w-8 h-8 bg-sky-100 dark:bg-sky-950/60 rounded-lg flex items-center justify-center">
-                <Package size={16} className={pendingReceiveItems.length > 0 ? 'text-sky-500' : 'text-slate-300 dark:text-slate-500'}/>
-              </div>
-              <span className={`text-2xl font-black ${pendingReceiveItems.length > 0 ? 'text-sky-600' : 'text-slate-300 dark:text-slate-500'}`}>{pendingReceiveItems.length}</span>
-            </div>
-            <p className={`text-xs font-semibold ${pendingReceiveItems.length > 0 ? 'text-sky-500' : 'text-slate-400 dark:text-slate-500'}`}>รอตรวจรับ</p>
-          </div>
-        </div>
-
         {/* ── Search + hidden file inputs ── */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 space-y-3">
           <div className="flex gap-2 items-stretch">
@@ -1149,6 +1093,24 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
               className="flex-1"
               inputClassName="py-2.5"
             />
+          </div>
+
+          {/* แจ้งเตือนเป็นป้ายแถวเดียว (เดิมการ์ดใหญ่ 3 ใบกินจอเหนือผัง — หน้านี้มีไว้หาตำแหน่งยา) · กดเปิดรายการได้เหมือนเดิม */}
+          <div className="flex items-center gap-2 overflow-x-auto sm:flex-wrap -mx-1 px-1 pb-0.5">
+            {[
+              { key: 'expired', n: expiredItems.length, label: 'หมดอายุแล้ว', icon: AlertTriangle, tone: 'border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 hover:border-rose-400' },
+              { key: 'near', n: nearExpiryItems.length, label: 'ใกล้หมดอายุ (16 เดือน)', icon: Clock, tone: 'border-amber-200 dark:border-amber-900/60 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 hover:border-amber-400' },
+              { key: 'pending', n: pendingReceiveItems.length, label: 'รอตรวจรับ', icon: Package, tone: 'border-sky-200 dark:border-sky-900/60 text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 hover:border-sky-400' },
+            ].map(c => {
+              const Icon = c.icon;
+              return (
+                <button key={c.key} type="button" disabled={!invLoaded || c.n === 0} onClick={() => setExpiryViewFilter(c.key)}
+                  className={`shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-default ${c.n > 0 ? c.tone : 'border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500'}`}>
+                  <Icon size={13} className="shrink-0" /> {c.label}
+                  <span className="tabular-nums font-black">{invLoaded ? c.n.toLocaleString() : '–'}</span>
+                </button>
+              );
+            })}
           </div>
 
           {/* แจ้งเตือนยาตัดออกจากบัญชี — เด้งเมื่อค้นเจอยาที่ถูกตัดออก (รวม qty=0 ที่ตารางซ่อน) */}
@@ -1231,7 +1193,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                   </div>
                 ))}
               </div>
-              {showColumnGuide === 'drug' && <p className="text-xs text-slate-400 dark:text-slate-500">💡 สามารถใช้ไฟล์ Log คลังยาไฟล์เดียวกันได้</p>}
+              {showColumnGuide === 'drug' && <p className="text-xs text-slate-400 dark:text-slate-500">สามารถใช้ไฟล์ Log คลังยาไฟล์เดียวกันได้</p>}
             </div>
           )}
         </div>
@@ -1240,18 +1202,22 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         {(zoneKeys.length > 0 || Object.keys(filteredOtherZones).length > 0 || typeFilter) && (
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 shadow-sm space-y-2.5">
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex gap-1.5 flex-wrap flex-1 min-w-0">
+            <div className="flex gap-1.5 overflow-x-auto sm:flex-wrap flex-1 min-w-0 -mx-1 px-1 pb-0.5">
+              <button onClick={() => setActiveZone(null)}
+                className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && !typeFilter && activeZoneKey === '__all__' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700'}`}>
+                ทุกโซน
+              </button>
               {zoneKeys.map(cab => (
                 <button key={cab} onClick={() => setActiveZone(cab)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && !typeFilter && activeZoneKey === cab ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700'}`}>
+                  className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && !typeFilter && activeZoneKey === cab ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700'}`}>
                   Log {cab}
                   <span className="ml-1.5 opacity-70">({summary[cab]?.names.size || 0})</span>
                 </button>
               ))}
               {Object.keys(filteredOtherZones).length > 0 && (
                 <button onClick={() => setActiveZone('__other__')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && !typeFilter && activeZoneKey === '__other__' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700'}`}>
-                  โซนอื่นๆ
+                  className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && !typeFilter && activeZoneKey === '__other__' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700'}`}>
+                  พื้นที่อื่น
                   <span className="ml-1.5 opacity-70">({Object.keys(filteredOtherZones).length})</span>
                 </button>
               )}
@@ -1286,43 +1252,6 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
               )}
             </div>
           )}
-          </div>
-        )}
-
-        {/* List of sections — % การใช้พื้นที่ต่อ zone (ซ่อนตอนค้นหา) */}
-        {!searchTerm && sectionUsage.length > 0 && (
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400"><Layers size={15} /></div>
-                <span className="text-sm font-bold text-slate-700 dark:text-slate-200">รายการโซน</span>
-                <span className="text-xs text-slate-400 dark:text-slate-500">% การใช้พื้นที่</span>
-              </div>
-              {/* Legend — ระดับการใช้พื้นที่ (ตาม % ของ slot ที่มีของ) */}
-              <div className="hidden sm:flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
-                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-500" /> ว่าง/น้อย (&lt;60%)</span>
-                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-400" /> ค่อนข้างเต็ม (60–85%)</span>
-                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-600" /> เกือบเต็ม (≥85%)</span>
-              </div>
-            </div>
-            <div className="divide-y divide-slate-50">
-              {sectionUsage.map(({ cab, used, total, pct }) => {
-                // สีต้องตรงกับ legend ด้านบน (แก้ที่นี่ต้องแก้ legend ด้วย)
-                const barColor = pct >= 85 ? 'bg-orange-600' : pct >= 60 ? 'bg-yellow-400' : 'bg-indigo-500';
-                const isActive = !searchTerm && activeZoneKey === cab;
-                return (
-                  <button key={cab} onClick={() => setActiveZone(cab)}
-                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${isActive ? 'bg-indigo-50 dark:bg-indigo-900/50' : 'hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-                    <span className={`text-sm font-bold w-20 shrink-0 ${isActive ? 'text-indigo-700 dark:text-indigo-200' : 'text-slate-700 dark:text-slate-200'}`}>Log {cab}</span>
-                    <span className="text-xs text-slate-400 dark:text-slate-500 w-24 shrink-0 hidden sm:inline">ใช้ {used}/{total} ช่อง</span>
-                    <div className="flex-1 h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                      <div className={`h-full rounded-full ${barColor} transition-all`} style={{ width: `${pct}%` }} />
-                    </div>
-                    <span className="text-sm font-bold text-slate-700 dark:text-slate-200 w-12 text-right shrink-0">{pct}%</span>
-                  </button>
-                );
-              })}
-            </div>
           </div>
         )}
 
@@ -1366,6 +1295,18 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
             <Search size={48} className="text-slate-300 dark:text-slate-500 mb-4" />
             <h3 className="text-xl font-bold text-slate-700 dark:text-slate-200 mb-2">ไม่พบรายการที่ค้นหา</h3>
           </div>
+        ) : !invLoaded ? (
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-5" aria-busy="true">
+            <p className="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-2 mb-4"><RefreshCcw size={14} className="animate-spin" /> กำลังโหลดแผนผังคลัง…</p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {[0, 1].map(i => (
+                <div key={i} className="space-y-2 animate-pulse">
+                  <div className="h-5 w-24 rounded bg-slate-200 dark:bg-slate-700" />
+                  {[0, 1, 2].map(j => <div key={j} className="h-11 rounded-lg bg-slate-100 dark:bg-slate-800" />)}
+                </div>
+              ))}
+            </div>
+          </div>
         ) : Object.keys(inventory).length === 0 ? (
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border-2 border-dashed border-slate-200 dark:border-slate-700 p-12 flex flex-col items-center justify-center text-center">
             <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center mb-4">
@@ -1389,72 +1330,71 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                 <MapPin size={20} className="text-indigo-500" /> ตำแหน่งบนแผนผัง
               </h3>
             )}
-            <div className="grid grid-cols-1 gap-6">
-              {(searchTerm || typeFilter
-                ? zoneKeys
-                : (activeZoneKey && activeZoneKey !== '__other__' ? [activeZoneKey] : zoneKeys)
-              ).filter(cab => filteredLayout[cab]).map(cabinet => (
-                <div key={cabinet} className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                  <div className="bg-indigo-600 text-white py-3 px-5 flex justify-between items-center">
-                    <h2 className="text-sm font-bold flex items-center gap-2">
-                      <Layers size={16}/> Log {cabinet}
-                    </h2>
-                    <div className="flex gap-2">
-                      <span className="bg-white/20 px-2.5 py-1 rounded-full text-xs font-medium">
-                        {summary[cabinet]?.names.size || 0} รายการยา
-                      </span>
-                      <span className="bg-white/20 px-2.5 py-1 rounded-full text-xs font-medium">
-                        {summary[cabinet]?.lots.size || 0} Lot
-                      </span>
-                    </div>
-                  </div>
 
-                  <div className="p-4 bg-slate-50 dark:bg-slate-800/50 space-y-2">
-                    {Object.keys(filteredLayout[cabinet]).sort((a, b) => Number(a) - Number(b)).map(level => {
-                      const levelKey = `${cabinet}-${level}`;
-                      const isCollapsed = collapsedLevels.has(levelKey);
-                      const allSlots = filteredLayout[cabinet][level];
-                      const displaySlots = hideEmptySlots
-                        ? allSlots.filter(slot =>
-                            (inventory[slot.id] || []).some(item =>
-                              parseFloat(String(item.qty || '0').replace(/,/g, '')) > 0
-                            )
-                          )
-                        : allSlots;
-                      if (hideEmptySlots && displaySlots.length === 0) return null;
-                      return (
-                        <div key={levelKey}>
-                          {/* Accordion header */}
-                          <button
-                            onClick={() => toggleLevel(cabinet, level)}
-                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 transition-colors text-left"
-                          >
-                            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">ชั้น {level}</span>
-                            <span className="text-xs text-slate-400 dark:text-slate-500">{displaySlots.length} ช่อง</span>
-                            <div className="flex-1" />
-                            {isCollapsed
-                              ? <ChevronDown size={14} className="text-slate-400 dark:text-slate-500 shrink-0" />
-                              : <ChevronUp   size={14} className="text-slate-400 dark:text-slate-500 shrink-0" />
-                            }
-                          </button>
-                          {!isCollapsed && (
-                            <div className="flex flex-wrap gap-1.5 px-1 pt-2 pb-1">
-                              {displaySlots.map(slot => <Slot key={slot.id} id={slot.id} />)}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
+            {/* คำอธิบายสีช่อง — ต้องตรงกับ tone ใน Slot */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-slate-500 dark:text-slate-400 px-1">
+              <span className="inline-flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded border border-indigo-200 bg-indigo-50 dark:bg-indigo-950/40" /> มียา</span>
+              <span className="inline-flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded border border-amber-300 bg-amber-50 dark:bg-amber-950/40" /> มี lot ใกล้หมดอายุ (16 เดือน)</span>
+              <span className="inline-flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded border border-rose-300 bg-rose-50 dark:bg-rose-950/40" /> มี lot หมดอายุแล้ว</span>
+              <span className="inline-flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded border border-dashed border-slate-300 dark:border-slate-600" /> ช่องว่าง</span>
+              {searchTerm && <span className="inline-flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded ring-2 ring-yellow-400 bg-yellow-100" /> ตรงกับที่ค้นหา</span>}
+              <span className="text-slate-400 dark:text-slate-500">กดช่องเพื่อดูยาในช่อง</span>
             </div>
 
-            {(searchTerm || activeZoneKey === '__other__') && Object.keys(filteredOtherZones).length > 0 && (
+            {/* ผังโซน: ทุกโซนพร้อมกัน (ค่าเริ่มต้น) หรือโซนเดียวจากแท็บ · แต่ละชั้นเป็นแถว ช่องติดป้ายรหัสตำแหน่ง */}
+            {(() => {
+              const cabs = (searchTerm || typeFilter || activeZoneKey === '__all__'
+                ? zoneKeys
+                : (activeZoneKey !== '__other__' ? [activeZoneKey] : [])
+              ).filter(cab => filteredLayout[cab]);
+              if (cabs.length === 0) return null;
+              return (
+                <div className={`grid grid-cols-1 gap-4 ${cabs.length > 1 ? 'xl:grid-cols-2' : ''}`}>
+                  {cabs.map(cabinet => {
+                    const use = sectionUsage.find(u => u.cab === cabinet);
+                    const levels = Object.keys(filteredLayout[cabinet]).sort((a, b) => Number(a) - Number(b));
+                    return (
+                      <div key={cabinet} className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 dark:border-slate-800">
+                          <span className="p-1.5 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 shrink-0"><Layers size={15} /></span>
+                          <h2 className="font-bold text-slate-800 dark:text-slate-100">Log {cabinet}</h2>
+                          <span className="ml-auto text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                            {summary[cabinet]?.names.size || 0} ยา · {summary[cabinet]?.lots.size || 0} Lot{use ? ` · ใช้ ${use.used}/${use.total} ช่อง` : ''}
+                          </span>
+                        </div>
+                        <div className="p-3 space-y-2">
+                          {levels.map(level => {
+                            const allSlots = filteredLayout[cabinet][level];
+                            const displaySlots = hideEmptySlots
+                              ? allSlots.filter(slot =>
+                                  (inventory[slot.id] || []).some(item =>
+                                    parseFloat(String(item.qty || '0').replace(/,/g, '')) > 0
+                                  )
+                                )
+                              : allSlots;
+                            if (displaySlots.length === 0) return null;
+                            return (
+                              <div key={level} className="flex items-start gap-2">
+                                <span className="w-12 shrink-0 pt-3 text-xs font-bold text-slate-500 dark:text-slate-400">ชั้น {level}</span>
+                                <div className="flex flex-wrap gap-1.5 min-w-0">
+                                  {displaySlots.map(slot => <Slot key={slot.id} id={slot.id} />)}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {(searchTerm || activeZoneKey === '__other__' || activeZoneKey === '__all__') && Object.keys(filteredOtherZones).length > 0 && (
               <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden mt-6">
                 <div className="bg-indigo-600 text-white py-3 px-5 flex justify-between items-center">
                   <h2 className="text-sm font-bold flex items-center gap-2">
-                    <FileSpreadsheet size={16}/> โซนอื่นๆ หรือจัดเก็บแบบเหมาโซน
+                    <FileSpreadsheet size={16}/> พื้นที่อื่น (จัดเก็บแบบเหมาโซน)
                   </h2>
                 </div>
                 <div className="p-6 bg-slate-50 dark:bg-slate-800 flex flex-wrap gap-4">

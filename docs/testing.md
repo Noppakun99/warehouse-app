@@ -35,6 +35,7 @@ TEST_STAFF_USER=test2 TEST_STAFF_PASS=555555 npx playwright test
 | `08-ap-workflow.spec.js` | AP Workflow UX — flow disabled state, tooltip, badge, sub-tab nav (staff only) |
 | `09-ux-smoke.spec.js` | UX Smoke — ทุก sub-app เปิดได้ไม่ crash + no JS error + mobile 375px + consistency (no emoji, Thai text, no ISO date visible) |
 | `10-a11y-quality.spec.js` | A11y/quality — login form autoComplete, keyboard nav, icon button aria-label |
+| `15-mobile-bottom-nav.spec.js` | ผู้เบิก 375px (อ่านอย่างเดียว): แถบปุ่มล่างจอ 4 ปุ่ม/ซ่อนบนคอม · "ประวัติเบิก" ตั้งตัวกรองหน่วยงานตัวเอง + ไม่มีโหลดแบบไม่กรองแข่ง (ดักทุก request) · หน่วยงานไม่มีประวัติ = ไม่กรอง · หน้าเบิกยาไม่มีแถบ · ปุ่มบันทึกคืนยาไม่จม (จอเตี้ย 560) · การ์ดแนะนำปิดแล้วจำ · ปุ่มย้อนของเบราว์เซอร์ = กลับหน้าก่อน / ปิดบัตรยา / ย้อนจากการ์ดคลัง lot (staff) · PWA ติดตั้งได้ (CDP `Page.getInstallabilityErrors` ว่าง) · ตัวกรองมือถือ (FilterSheet) ประวัติเบิก/รับยา: เลือกหน่วยงานใน sheet → request กรองจริง · จอคอมยังเป็นแถวเดิม. staff popup คืนบริษัทโผล่ช้ากว่าที่ `login()` รอ → `dismissStartupPopup(page, 15_000)`. เคสหน่วยงานอื่นแก้ `department` ใน sessionStorage `wh_auth` แล้ว reload (บัญชี `test` = **ห้องยา G**) — ไม่แตะ DB. ⚠️ ช่องกรองหน่วยงานโชว์ "ทุกหน่วยงาน" ชั่วครู่ก่อนตั้งค่า → ตรวจหลังตารางโหลด (`openDispense`) ไม่งั้นผ่านหลอก |
 
 ## Notes
 

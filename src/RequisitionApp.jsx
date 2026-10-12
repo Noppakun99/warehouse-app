@@ -11,7 +11,8 @@ import {
 import { exportToExcel } from './lib/exportExcel';
 import { parseUnit } from './lib/unitParser';
 import { allocateFefo } from './lib/lotAllocation';
-import { deleteRequesterRequisition, updateRequesterRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt } from './lib/db';
+import { findOverReserved, availableForOwn, increasedCodes } from './lib/reservationCheck';
+import { deleteRequesterRequisition, updateRequesterRequisition, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 
 // ============================================================
@@ -1191,11 +1192,13 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
         // Re-validate ณ เวลา submit — ระดับรหัสยา หน่วยย่อยสุด (B-base, ADR-0004)
         // คงเหลือ = Σ(lot.qty × packSize) แปลงเป็นหน่วยย่อย; หัก reservation ต่อ code
         const codes = [...new Set(cart.map(i => i.code).filter(Boolean))];
+        let invBaseMap = {};
         if (codes.length > 0) {
-          const [invBaseMap, reservedNow] = await Promise.all([
+          const [invNow, reservedNow] = await Promise.all([
             fetchInvBaseByCode(codes),
             fetchReservedBase(codes),
           ]);
+          invBaseMap = invNow;
           const conflicts = cart.filter(item => {
             const k = codeKey(item.code);
             const effective = Math.max(0, (invBaseMap[k] ?? 0) - (reservedNow[k] ?? 0));
@@ -1213,33 +1216,53 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
           }
         }
 
-        // เลขใบเบิกสุ่ม 4 หลัก ชนกันในวันเดียวได้ (req_number UNIQUE) → retry เลขใหม่ ไม่โยน error ดิบใส่ผู้ใช้
-        let req = null;
-        for (let attempt = 0; attempt < 3; attempt++) {
-          const { data, error: e1 } = await supabase.from('requisitions')
-            .insert({ req_number: genReqNumber(), department: info.department, requester_name: info.name, status: 'pending' })
-            .select().single();
-          if (!e1) { req = data; break; }
-          if (e1.code !== '23505' || attempt === 2) throw e1;
-        }
+        // หัวใบ+รายการในธุรกรรมเดียว (ADR-0028) — เลขใบสุ่ม 4 หลักชนได้ db.js ลองเลขใหม่ให้
         // เบิกระดับยา: ไม่ระบุ lot/exp/ราคา — คลังจัดสรร lot (FEFO) ตอน picking (ADR-0004)
-        const { error: e2 } = await supabase.from('requisition_items').insert(
+        const req = await submitRequisition(
+          { department: info.department, requester_name: info.name },
           cart.map(item => ({
-            requisition_id: req.id,
-            drug_code:      item.code,
-            drug_name:      item.name,
-            drug_unit:      item.unit || null,
-            drug_type:      item.drugType || null,
-            requested_qty:  item.requestedQty,
-            item_note:      item.note?.trim() || null,
-          }))
+            drug_code:     item.code,
+            drug_name:     item.name,
+            drug_unit:     item.unit || null,
+            drug_type:     item.drugType || null,
+            requested_qty: item.requestedQty,
+            item_note:     item.note?.trim() || null,
+          })),
+          genReqNumber,
         );
-        if (e2) throw e2;
         // ผู้กดจริง (staff/admin ที่ login) — ต่างจากผู้เบิก proxy (info.name) เมื่อ staff เบิกแทนหน่วยงาน (Critical Rule #1)
         // ถ้าไม่มี auth จริง (เช่น requester ที่ไม่ผ่าน app login) → ใช้ info.name เป็น actor เดิม
         const resolved = resolveAuditUserName(auth);
         const actorName = resolved !== '-' ? resolved : info.name;
         const onBehalfOf = actorName !== info.name ? info.name : undefined;
+
+        // ตรวจซ้ำหลังบันทึก (ADR-0028): ยอดจองรวมใบตัวเองแล้วเกินคงเหลือ = หน่วยงานอื่นส่งยาตัวเดียวกันพร้อมกัน
+        // → ถอนใบตัวเอง (ทั้งสองใบอาจถูกถอน — ปลอดภัยกว่าจองเกิน) · ตะกร้าไม่ล้าง ผู้เบิกแก้จำนวนแล้วส่งใหม่
+        // ใช้คงเหลือชุดเดียวกับตอนตรวจก่อนบันทึก (คงเหลือเปลี่ยนเฉพาะตอนนำเข้า — ที่ชนกันคือยอดจอง)
+        // ห้ามอ่านคงเหลือใหม่: fetchInvBaseByCode กลืน error เป็น {} → คงเหลือ 0 → ถอนใบที่ถูกต้องเพราะเน็ตสะดุด
+        if (codes.length > 0) {
+          const reservedAfter = await fetchReservedBase(codes);
+          const over = findOverReserved({ invBase: invBaseMap, reserved: reservedAfter, codes: codes.map(codeKey) });
+          if (over.length > 0 && await withdrawRequisition(req.id)) {
+            const conflicts = over.flatMap(o => {
+              const lines = cart.filter(item => codeKey(item.code) === o.code);
+              const own = lines.reduce((s, item) => s + item.requestedQty, 0);
+              const available = availableForOwn({ inv: o.inv, reserved: o.reserved, own });
+              return lines.map(item => ({ drug_code: item.code, drug_name: item.name, unit: item.unit || '', requested: item.requestedQty, available }));
+            });
+            insertAuditLog({
+              action: 'requisition_conflict_withdrawn', table_name: 'requisitions',
+              user_name: actorName, department: info.department,
+              record_count: conflicts.length,
+              details: { kind: 'submit', req_number: req.req_number, requisition_id: req.id, req_department: info.department, conflicts, ...(onBehalfOf ? { on_behalf_of: onBehalfOf } : {}) },
+            });
+            setError(`มีหน่วยงานอื่นเบิกยานี้พร้อมกัน — ยังไม่ได้ส่งใบเบิก แก้จำนวนแล้วส่งใหม่:\n${
+              conflicts.map(c => `${c.drug_name}: ขอ ${c.requested.toLocaleString()} แต่เบิกได้ ${c.available.toLocaleString()} ${c.unit}`.trim()).join('\n')
+            }`);
+            return;
+          }
+        }
+
         insertAuditLog({
           action: 'submit_requisition', table_name: 'requisitions',
           user_name: actorName, department: info.department,
@@ -1404,7 +1427,7 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
               </div>
             </div>
           ); })}
-        {error && <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2 flex items-center gap-2"><AlertCircle size={14}/>{error}</p>}
+        {error && <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2 flex items-start gap-2 whitespace-pre-line"><AlertCircle size={14} className="shrink-0 mt-0.5"/>{error}</p>}
       </div>
       {cart.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
@@ -1935,11 +1958,13 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
     try {
       // re-validate คงเหลือ−จอง ก่อนบันทึก (ปุ่ม +/− ในโมดอลไม่มี cap) — ไม่นับยอดจองของใบตัวเอง
       const codes = [...new Set((editDraft?.items || []).map(i => i.drug_code).filter(Boolean))];
+      let invBaseMap = {};
       if (supabase && codes.length > 0) {
-        const [invBaseMap, reservedOther] = await Promise.all([
+        const [invNow, reservedOther] = await Promise.all([
           fetchInvBaseByCode(codes),
           fetchReservedBase(codes, { excludeReqId: confirmModal.req.id }),
         ]);
+        invBaseMap = invNow;
         const effectiveOf = (it) => {
           const k = codeKey(it.drug_code);
           return Math.max(0, (invBaseMap[k] ?? 0) - (reservedOther[k] ?? 0));
@@ -1953,7 +1978,47 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
           return;
         }
       }
-      await updateRequesterRequisition(confirmModal.req.id, editDraft, auth);
+      const req = confirmModal.req;
+      const original = req.requisition_items || [];
+      await updateRequesterRequisition(req.id, editDraft, auth, { audit: false });
+
+      // ตรวจซ้ำหลังบันทึก (ADR-0028) เฉพาะรหัสที่จำนวนเพิ่มขึ้น (ลดลงทำให้จองเกินไม่ได้)
+      // ชนกับหน่วยงานอื่น → คืนจำนวน/หมายเหตุเดิมทั้งใบ โมดอลยังเปิดพร้อมค่าที่ผู้เบิกแก้ไว้
+      const incKeys = increasedCodes(
+        original.map(i => ({ code: i.drug_code, qty: i.requested_qty })),
+        (editDraft?.items || []).map(i => ({ code: i.drug_code, qty: i.requested_qty })),
+        codeKey,
+      );
+      if (supabase && incKeys.length > 0) {
+        const incCodes = [...new Set((editDraft?.items || []).map(i => i.drug_code).filter(c => incKeys.includes(codeKey(c))))];
+        const reservedAfter = await fetchReservedBase(incCodes); // คงเหลือใช้ชุดก่อนบันทึก (เหตุผลเดียวกับตอนส่งใบ)
+        const over = findOverReserved({ invBase: invBaseMap, reserved: reservedAfter, codes: incKeys });
+        if (over.length > 0) {
+          await updateRequesterRequisition(req.id, {
+            note: req.note,
+            items: original.map(i => ({ id: i.id, requested_qty: i.requested_qty, note: i.note })),
+          }, auth, { audit: false });
+          const conflicts = over.flatMap(o => {
+            const lines = (editDraft?.items || []).filter(it => codeKey(it.drug_code) === o.code);
+            const own = lines.reduce((s, it) => s + (Number(it.requested_qty) || 0), 0);
+            const available = availableForOwn({ inv: o.inv, reserved: o.reserved, own });
+            return lines.map(it => ({ drug_code: it.drug_code, drug_name: it.drug_name, unit: it.drug_unit || '', requested: Number(it.requested_qty) || 0, available }));
+          });
+          const resolved = resolveAuditUserName(auth);
+          insertAuditLog({
+            action: 'requisition_conflict_withdrawn', table_name: 'requisitions',
+            user_name: resolved !== '-' ? resolved : info.name, department: info.department,
+            record_count: conflicts.length,
+            details: { kind: 'edit', req_number: req.req_number, requisition_id: req.id, req_department: info.department, conflicts },
+          });
+          setEditError('มีหน่วยงานอื่นเบิกยานี้พร้อมกัน — ยังไม่ได้บันทึกการแก้ไข: ' + conflicts.map(c =>
+            `${c.drug_name} ขอ ${c.requested.toLocaleString()} แต่เบิกได้ ${c.available.toLocaleString()} ${c.unit}`.trim()
+          ).join(' · '));
+          setSaving(false);
+          return;
+        }
+      }
+      insertAuditLog({ action: 'requester_edit_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { requisition_id: req.id } });
       setActionMsg('แก้ไขใบเบิกสำเร็จ — เจ้าหน้าที่คลังยารับทราบแล้ว');
       setConfirmModal(null);
       load();

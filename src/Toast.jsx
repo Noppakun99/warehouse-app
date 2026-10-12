@@ -24,7 +24,7 @@ export default function Toast({ message, tone = 'success', onClose }) {
   return (
     <div
       role="status"
-      className={`fixed top-3 inset-x-4 md:inset-x-auto md:top-auto md:bottom-5 md:right-5 z-[60] flex items-start gap-2.5 rounded-xl shadow-2xl pl-4 pr-3 py-3 text-sm max-w-sm ${
+      className={`fixed top-3 inset-x-4 md:inset-x-auto md:top-auto md:bottom-20 lg:bottom-5 md:right-5 z-[60] flex items-start gap-2.5 rounded-xl shadow-2xl pl-4 pr-3 py-3 text-sm max-w-sm ${
         isError ? 'bg-rose-700 text-white' : 'bg-slate-800 text-white'
       }`}
     >

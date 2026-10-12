@@ -22,9 +22,11 @@ import {
 } from './lib/db';
 import { exportToExcel } from './lib/exportExcel';
 import { openPrintView } from './lib/openPrintView';
+import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import {
   analyzeBatch, analyzeDrug, STATUS, DEFAULT_LEAD_TIME,
   computeSafetyStock, reconcileRows,
+  fmtCoverage, isoMonthsAgo, isoPrevMonthEnd, listMonthYM, thaiMonthLabel,
 } from './lib/reorder';
 
 // ────────────────────────────────────────────────────────────
@@ -98,7 +100,7 @@ function parseExpToDate(raw) {
 
 const fmtBaht = (n) => new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
 const fmtNum  = (n) => new Intl.NumberFormat('th-TH').format(Math.round(n || 0));
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => localYmd(new Date());
 
 // ISO → DD/MM/YY (พ.ศ.) สั้น
 const fmtThaiDate = (iso) => {
@@ -106,41 +108,13 @@ const fmtThaiDate = (iso) => {
   return m ? `${m[3]}/${m[2]}/${(Number(m[1]) + 543) % 100}` : '-';
 };
 
-// คงอยู่ได้อีก (Coverage): คงเหลือ ÷ Avg/วัน → "X ปี Y ด. Z วัน" (หน่วยเดียวกันทั้งคู่)
-const fmtCoverage = (stock, avgDay) => {
-  if (!avgDay || avgDay <= 0) return stock > 0 ? '∞' : '—';
-  let days = Math.floor(stock / avgDay);
-  if (days <= 0) return '0 วัน';
-  const y = Math.floor(days / 365); days -= y * 365;
-  const mo = Math.floor(days / 30); days -= mo * 30;
-  const parts = [];
-  if (y) parts.push(`${y} ปี`);
-  if (mo) parts.push(`${mo} ด.`);
-  if (days) parts.push(`${days} วัน`);
-  return parts.join(' ') || '0 วัน';
-};
-
-function isoMonthsAgo(months) {
-  const d = new Date();
-  d.setDate(1);
-  d.setMonth(d.getMonth() - months);
-  return d.toISOString().slice(0, 10);
-}
-
-// วันสุดท้ายของเดือนก่อนหน้า (ปิดงวดเดือนปัจจุบันที่ยังไม่ครบออก)
-function isoPrevMonthEnd() {
-  const d = new Date();
-  d.setDate(0);
-  return d.toISOString().slice(0, 10);
-}
-
 // วันที่ 1 ของ N เดือนเต็มที่จบแล้ว (นับย้อนจากเดือนก่อนหน้า) — คู่กับ isoPrevMonthEnd
 // n=3 → 3 เดือนเต็มก่อนเดือนปัจจุบัน (เช่น ก.ค. → 01/04); n='all' → null (ให้ backend ใช้ทั้งหมด)
 function isoMonthStartBack(n) {
   const d = new Date();
   d.setDate(1);
   d.setMonth(d.getMonth() - n); // ถอย n เดือน จากวันที่ 1 เดือนปัจจุบัน = วันที่ 1 ของ n เดือนก่อน
-  return d.toISOString().slice(0, 10);
+  return localYmd(d);
 }
 
 // ตัวเลือกช่วงเร็ว — set statsFrom/statsTo ทีเดียว (ถึง = สิ้นเดือนก่อนเสมอ)
@@ -149,23 +123,6 @@ const QUICK_RANGES = [
   { months: 6,  label: '6 เดือน' },
   { months: 12, label: '12 เดือน' },
 ];
-
-function listMonthYM(fromIso, toIso) {
-  const out = [];
-  const start = new Date(fromIso); start.setDate(1);
-  const end = new Date(toIso); end.setDate(1);
-  while (start <= end) {
-    out.push(start.toISOString().slice(0, 7));
-    start.setMonth(start.getMonth() + 1);
-  }
-  return out;
-}
-
-function thaiMonthLabel(ym) {
-  const [y, m] = ym.split('-');
-  const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-  return `${months[+m - 1]} ${(+y + 543) % 100}`;
-}
 
 function fmtDateTimeThai(iso) {
   if (!iso) return '-';
@@ -555,7 +512,9 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
         const rc = receiptByCk[ck] || {};
         // stock + usage เก็บเป็นเม็ด → แปลงเป็นหน่วยซื้อล่าสุด (pack) ก่อนคำนวณ
         // ตัวหาร = factor หน่วยซื้อล่าสุด (fallback: หน่วย inventory → pack_size → 1)
-        const packFactor = rc.factor || parseUnitFactor(info.unit).factor || parseFloat(cfg.pack_size) || 1;
+        // ตัวคูณต้องมาจากแหล่งเดียวกับป้ายหน่วย (unit: rc.unit || info.unit ข้างล่าง) — ยาที่มีแต่บิลสนับสนุน/ยืม
+        // ได้ entry ที่ unit=null แต่ factor=1 ค่าตั้งต้น → rc.factor || … ไม่ fallback = ยอดเป็นเม็ดแต่ป้ายว่า "1000เม็ด"
+        const packFactor = (rc.unit ? rc.factor : parseUnitFactor(info.unit).factor) || parseFloat(cfg.pack_size) || 1;
         const toPack = (qtyBase) => packFactor > 0 ? qtyBase / packFactor : qtyBase;
         const monthlyUsage = monthsInRange
           .filter(mm => mm !== excludedMonth)

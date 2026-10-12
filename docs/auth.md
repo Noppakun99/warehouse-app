@@ -43,16 +43,13 @@ const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-')
 - `full_name` ว่าง หรือ `'-'` → แสดง `username` แทน
 - ใช้ใน: navbar header, welcome section, prefilledUser.name
 
-## StatsStrip (Dashboard)
+## หน้าหลัก (Dashboard) ตาม role — แทน StatsStrip เดิม (10/10/2569, แผน docs/handoff-2026-10-10-dashboard.md §11)
 
-- แสดงให้ **ทุก role** เห็น
-- requester เห็น 3 card: รายการยาในคลัง + ใบเบิกรอดำเนินการ + ยาใกล้หมดอายุ
-- staff/admin เห็น 4 card: เพิ่ม Stock ต่ำกว่ากำหนด
-- `fetchDashboardAlerts()` ถูกเรียกสำหรับ **ทุก role**
-- คลิก "ใบเบิกรอดำเนินการ":
-  - staff/admin → `page='requisition'` → StaffDashboard (filter=pending)
-  - requester → `page='requisition-history'` → RequesterRoot initialStep='history'
-- `loadStats` ใช้ `useCallback` + subscribe `postgres_changes` บน `requisitions` table → realtime
+- **staff/admin**: คิวงานวันนี้ (`src/lib/workQueue.js`) 2/3 ซ้าย + ภาพรวมคลังขวา (จอเล็กพับไว้) + กราฟมูลค่าเบิก vs รับ · popup หมดอายุค้างชั้น / คืนบริษัทแดง เฉพาะ lot ที่ยังไม่เคยเห็น วันละครั้ง · รายการ "โควตา LINE" เฉพาะ admin
+- **requester**: ไม่มีคิว ไม่มี popup — แบนเนอร์ยาต้องคืนบริษัท + ภาพรวมชุดเดียวกับ staff พับไว้
+- ทุก role: บรรทัด "ข้อมูลคงคลัง ณ นำเข้าล่าสุด" + รอบเบิก-รับถัดไป (`resolveCycles` ตัวเดียวกับบอท LINE)
+- ภาพรวม 3 ตัวเลข: รายการยาในคลัง · ใกล้หมดอายุใน 16 เดือน · ต่ำกว่า Safety Stock (+ ยาต้องสั่งซื้อ 5 อันดับ) — `fetchDashboardAlerts()` ถูกเรียกสำหรับ **ทุก role**
+- การ์ด "ใบเบิกรอดำเนินการ" + realtime บน `requisitions` **ตัดออกแล้ว** (เป็น 0 ตลอด) — ใบเบิกค้างดูที่ badge ในเมนู/กระดิ่ง
 
 ## RequisitionApp Navigation
 

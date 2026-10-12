@@ -14,8 +14,9 @@ import {
   LineChart, Line, Legend,
 } from 'recharts';
 import { exportToExcel } from './lib/exportExcel';
-import { normalizeLotSearch, insertAuditLog, resolveAuditUserName } from './lib/db';
+import { normalizeLotSearch, insertAuditLog, resolveAuditUserName, resolveDispenseDepartment } from './lib/db';
 import { openExcelSync } from './lib/excelSyncEvent';
+import FilterSheet, { FilterButton } from './FilterSheet';
 
 // ค่า department ที่ "ไม่ใช่หน่วยงานจริง" — เป็นการปรับปรุงระบบ/ความเคลื่อนไหวพิเศษ
 // ตัดออกจาก dropdown กรองหน่วยงาน + กราฟสรุประดับหน่วยงาน แต่ยังคงแสดงเป็นแถวในตารางเบิกตามปกติ
@@ -200,8 +201,12 @@ const DISPENSE_EXCEL_COLS = [
 // ============================================================
 // Root
 // ============================================================
-export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBack }) {
+// initialDept = ตั้งตัวกรองหน่วยงานไว้ก่อน (ปุ่ม "ประวัติเบิก" บนแถบล่างของผู้เบิก — page 'dispense-mine')
+// เป็นแค่ค่าเริ่มต้น เปลี่ยน/ล้างได้ ไม่ใช่การจำกัดสิทธิ์
+export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBack, initialDept = '' }) {
   const [showSummary, setShowSummary] = useState(false);
+  // ตัวกรองที่ตั้งอยู่ในหน้า → ส่งให้โมดอลสรุปเป็นค่าเริ่มต้น (เดิมเปิดมาทุกหน่วยงาน/ทุกช่วงเสมอ ไม่ตรงตารางที่ดูอยู่)
+  const [viewFilters, setViewFilters] = useState({});
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
   const isAdmin = auth.role === 'admin';
 
@@ -225,8 +230,8 @@ export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBa
         </div>
       </div>
 
-      <DispenseView isAdmin={isAdmin} auth={auth} />
-      {showSummary      && <DispenseSummaryModal onClose={() => setShowSummary(false)} />}
+      <DispenseView isAdmin={isAdmin} auth={auth} initialDept={initialDept} onFiltersChange={setViewFilters} />
+      {showSummary      && <DispenseSummaryModal initial={viewFilters} onClose={() => setShowSummary(false)} />}
     </div>
   );
 }
@@ -396,12 +401,15 @@ function EditModal({ row, onClose, onSaved, auth = {} }) {
 // ============================================================
 // View / Search
 // ============================================================
-function DispenseView({ isAdmin = false, auth = {} }) {
+function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersChange }) {
   const [rows, setRows]             = useState([]);
   const [loading, setLoading]       = useState(true);
   const [exportLoading, setExportLoading] = useState(false);
   const [search, setSearch]         = useState('');
   const [deptFilter, setDeptFilter] = useState('');
+  // ชื่อหน่วยงานใน app_users ("ER (ฉุกเฉิน)") ≠ dispense_logs ("ER") → ต้องหาชื่อจริงก่อน (resolveDispenseDepartment)
+  // ระหว่างรอห้ามโหลดตาราง/สถิติ — load ไม่มีตัวกันผลเก่า ผลแบบไม่กรองกลับมาทีหลังจะทับผลที่กรองแล้ว
+  const [deptReady, setDeptReady]   = useState(!initialDept);
   const [typeFilter, setTypeFilter] = useState('');   // '' = ทุกชนิดยา (dispense_logs.drug_type เช่น Tablet/Herb)
   const [drugTypes, setDrugTypes]   = useState([]);
   const [dateFrom, setDateFrom]     = useState('');
@@ -423,9 +431,12 @@ function DispenseView({ isAdmin = false, auth = {} }) {
   const [aggStats, setAggStats] = useState(null);
   const [isMobile, setIsMobile]       = useState(() => window.innerWidth < 768);
   const [mobileDetail, setMobileDetail] = useState(null);
+  const [filterOpen, setFilterOpen] = useState(false);   // bottom sheet ตัวกรอง (มือถือ)
+  const closeFilter = useCallback(() => setFilterOpen(false), []);
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
+    if (!deptReady) return;
     setLoading(true);
     let q = supabase.from('dispense_logs').select('*')
       .order('dispense_date', { ascending: false })
@@ -443,7 +454,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     const { data } = await q;
     setRows(data || []);
     setLoading(false);
-  }, [search, deptFilter, typeFilter, dateFrom, dateTo, page]);
+  }, [search, deptFilter, typeFilter, dateFrom, dateTo, page, deptReady]);
 
   const handleExport = useCallback(async () => {
     if (!supabase) return;
@@ -473,7 +484,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
 
   // โหลด aggregate stats (count, qty, value) ของทุก rows ที่ตรงกับ filter — ไม่ใช่แค่หน้าปัจจุบัน
   const loadAgg = useCallback(async () => {
-    if (!supabase) return;
+    if (!supabase || !deptReady) return;
     setAggStats(null);
     const isoFrom = thaiToIso(dateFrom) || dateFrom;
     const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
@@ -503,7 +514,7 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     const minDate = minResult.data?.[0]?.dispense_date || null;
     const maxDate = maxResult.data?.[0]?.dispense_date || null;
     setAggStats({ count: count ?? data.length, drugCount, totalValue, minDate, maxDate });
-  }, [search, deptFilter, typeFilter, dateFrom, dateTo]);
+  }, [search, deptFilter, typeFilter, dateFrom, dateTo, deptReady]);
 
   useEffect(() => { const t = setTimeout(loadAgg, 300); return () => clearTimeout(t); }, [loadAgg]);
 
@@ -524,6 +535,15 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     fetchAllDepts(supabase).then(setDepts);
   }, []);
 
+  // หน่วยงานที่ไม่มีประวัติเบิก (คลังยา/ทดลองระบบ) จับคู่ไม่ได้ → เปิดแบบไม่กรอง
+  useEffect(() => {
+    if (!initialDept) return;
+    resolveDispenseDepartment(initialDept)
+      .then(hit => { if (hit) setDeptFilter(hit); })
+      .catch(() => {})
+      .finally(() => setDeptReady(true));
+  }, [initialDept]);
+
   useEffect(() => {
     if (!supabase) return;
     fetchAllRows(() => supabase.from('dispense_logs').select('drug_name, drug_type')).then(data => {
@@ -543,6 +563,8 @@ function DispenseView({ isAdmin = false, auth = {} }) {
   const scopeLabel = [deptFilter, typeFilter].filter(Boolean).join(' · ');
 
   const clearAll = () => { setSearch(''); setDeptFilter(''); setTypeFilter(''); setDateFrom(''); setDateTo(''); setPage(0); };
+
+  useEffect(() => { onFiltersChange?.({ dept: deptFilter, dateFrom, dateTo }); }, [onFiltersChange, deptFilter, dateFrom, dateTo]);
 
   const handleDelete = async (row, e) => {
     e.stopPropagation();
@@ -605,19 +627,8 @@ function DispenseView({ isAdmin = false, auth = {} }) {
     setPage(0);
   };
 
-  return (
-    <div className="p-4 space-y-4 max-w-5xl mx-auto">
-      {editingRow && (
-        <EditModal
-          row={editingRow}
-          auth={auth}
-          onClose={() => setEditingRow(null)}
-          onSaved={() => { setEditingRow(null); load(); }}
-        />
-      )}
-      {/* Filter card */}
-      <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
-        <div className="flex flex-wrap gap-2">
+  // ตัวกรอง — เก็บเป็นตัวแปรชุดเดียว วางใน layout เดิม (คอม) หรือใน FilterSheet (มือถือ) อย่างใดอย่างหนึ่ง
+  const searchBox = (
           <div className="relative flex-1 min-w-[180px]" ref={searchRef}>
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input
@@ -642,15 +653,23 @@ function DispenseView({ isAdmin = false, auth = {} }) {
               </div>
             )}
           </div>
+  );
+  const deptSelect = (
           <SearchableSelect value={deptFilter} onChange={v => { setDeptFilter(v); setPage(0); }}
             options={departments} emptyLabel="ทุกหน่วยงาน" placeholder="ทุกหน่วยงาน"
-            className="w-44" />
+            className={isMobile ? 'w-full' : 'w-44'} />
+  );
+  const typeSelect = (
           <SearchableSelect value={typeFilter} onChange={v => { setTypeFilter(v); setPage(0); }}
             options={drugTypes} emptyLabel="ทุกชนิดยา" placeholder="ทุกชนิดยา"
-            className="w-36" />
+            className={isMobile ? 'w-full' : 'w-36'} />
+  );
+  const clearBtn = (
           <button onClick={clearAll} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
             <RefreshCcw size={16} />
           </button>
+  );
+  const excelBtn = (
           <button
             onClick={handleExport}
             disabled={exportLoading || (aggStats ? aggStats.count === 0 : rows.length === 0)}
@@ -658,8 +677,8 @@ function DispenseView({ isAdmin = false, auth = {} }) {
             title="ส่งออก Excel (ทุก row)">
             <FileDown size={14} /> {exportLoading ? 'กำลังส่งออก...' : 'Excel'}
           </button>
-        </div>
-        {/* Date range row */}
+  );
+  const dateRow = (
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">ตั้งแต่</span>
           <ThaiDateInput value={dateFrom} onChange={v => { setDateFrom(v); setPage(0); }} />
@@ -671,7 +690,41 @@ function DispenseView({ isAdmin = false, auth = {} }) {
               className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1"><X size={12}/>ล้างวันที่</button>
           )}
         </div>
+  );
+  // มือถือ: บอกตัวกรองที่ใช้อยู่ใต้ช่องค้นหา (ตัวกรองซ่อนใน sheet — ไม่บอก = ดูเหมือนรายการทั้งหมด)
+  const dateLabel = (dateFrom || dateTo) ? `${dateFrom || '…'} – ${dateTo || 'วันนี้'}` : '';
+  const activeFilters = [deptFilter, typeFilter, dateLabel].filter(Boolean);
+
+  return (
+    <div className="p-4 space-y-4 max-w-5xl mx-auto">
+      {editingRow && (
+        <EditModal
+          row={editingRow}
+          auth={auth}
+          onClose={() => setEditingRow(null)}
+          onSaved={() => { setEditingRow(null); load(); }}
+        />
+      )}
+      {/* Filter card — มือถือ: ช่องค้นหา + ปุ่มตัวกรอง (bottom sheet) · คอม: layout เดิม */}
+      <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
+        <div className="flex flex-wrap gap-2">
+          {searchBox}
+          {isMobile
+            ? <FilterButton activeCount={activeFilters.length} onOpen={() => setFilterOpen(true)} />
+            : <>{deptSelect}{typeSelect}{clearBtn}{excelBtn}</>}
+        </div>
+        {isMobile
+          ? (activeFilters.length > 0 && <p className="text-xs text-sky-700 dark:text-sky-300 truncate">กรอง: {activeFilters.join(' · ')}</p>)
+          : dateRow}
       </div>
+      {isMobile && (
+        <FilterSheet open={filterOpen} onClose={closeFilter} onClear={clearAll}>
+          {deptSelect}
+          {typeSelect}
+          {dateRow}
+          <div className="flex justify-end">{excelBtn}</div>
+        </FilterSheet>
+      )}
 
       {/* ตารางประวัติเบิกยาที่เลือก */}
       {selectedDrug && (
@@ -711,18 +764,18 @@ function DispenseView({ isAdmin = false, auth = {} }) {
           </div>
 
           {/* Summary cards */}
-          <div className="grid grid-cols-3 gap-3 px-4 py-3">
-            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
-              <p className="text-2xl font-bold text-white tabular-nums">{filteredDrugRows.length.toLocaleString()}</p>
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 px-4 py-3">
+            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-slate-300/50">
+              <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{filteredDrugRows.length.toLocaleString()}</p>
               <p className="text-xs text-slate-300 mt-0.5">รายการ (กรอง)</p>
             </div>
-            <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-3.5 text-center shadow-lg shadow-rose-300/60">
+            <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-rose-300/60">
               <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
-              <p className="relative text-2xl font-bold text-white tabular-nums">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+              <p className="relative text-base sm:text-2xl font-bold text-white tabular-nums break-all">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
               <p className="relative text-xs text-rose-50 mt-0.5">ปริมาณรวม (ออก)</p>
             </div>
-            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
-              <p className="text-2xl font-bold text-white tabular-nums">{drugTotalVal.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-amber-200/60">
+              <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{drugTotalVal.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
               <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวม (บาท)</p>
             </div>
           </div>
@@ -828,18 +881,18 @@ function DispenseView({ isAdmin = false, auth = {} }) {
               <span className="text-slate-600 dark:text-slate-300">{dateDiff(aggStats.minDate, aggStats.maxDate)}</span>
             </div>
           )}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
-              <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-slate-300/50">
+              <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
               <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{scopeLabel ? ` (${scopeLabel})` : ' ทุกหน่วยงาน'}</p>
             </div>
-            <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-3.5 text-center shadow-lg shadow-rose-300/60">
+            <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-rose-300/60">
               <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
-              <p className="relative text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.drugCount.toLocaleString() : '...'}</p>
+              <p className="relative text-base sm:text-2xl font-bold text-white tabular-nums break-all">{aggStats ? aggStats.drugCount.toLocaleString() : '...'}</p>
               <p className="relative text-xs text-rose-50 mt-0.5">จำนวนชนิดยา{scopeLabel ? ` (${scopeLabel})` : ' ทุกหน่วยงาน'}</p>
             </div>
-            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
-              <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
+            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-amber-200/60">
+              <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
               <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวม (บาท){scopeLabel ? ` (${scopeLabel})` : ' ทุกหน่วยงาน'}</p>
             </div>
           </div>
@@ -1135,11 +1188,14 @@ function ValTip({ active, payload, label, lbl, money }) {
   );
 }
 
-function DispenseSummaryModal({ onClose }) {
+// initial = ตัวกรองที่ตั้งอยู่ในหน้าประวัติเบิก { dept, dateFrom, dateTo } (DD/MM/YYYY พ.ศ. แบบเดียวกับ ThaiDateInput) — เปลี่ยนต่อในโมดอลได้
+function DispenseSummaryModal({ onClose, initial = {} }) {
   const [activeTab, setActiveTab]   = useState('overview'); // 'overview' | 'monthly'
-  const [dateFrom, setDateFrom]     = useState('');
-  const [dateTo, setDateTo]         = useState('');
-  const [deptFilter, setDeptFilter] = useState('');
+  const [dateFrom, setDateFrom]     = useState(initial.dateFrom || '');
+  const [dateTo, setDateTo]         = useState(initial.dateTo || '');
+  const [deptFilter, setDeptFilter] = useState(initial.dept || '');
+  // ช่วงวันที่ตั้งมาจากหน้า ห้ามให้ค่า "วันแรก–วันล่าสุดในระบบ" ที่โหลดตามมาทับ
+  const [seeded] = useState(() => ({ from: !!initial.dateFrom, to: !!initial.dateTo }));
   const [departments, setDepts]     = useState([]);
   const [stats, setStats]           = useState(null);
   const [loading, setLoading]       = useState(true);
@@ -1183,10 +1239,10 @@ function DispenseSummaryModal({ onClose }) {
     });
     // ดึงวันแรก-วันล่าสุด → แปลงเป็น dd/mm/yyyy (ใช้ทั้งตั้งค่า date input และแสดงช่วงข้อมูลจริง)
     supabase.from('dispense_logs').select('dispense_date').order('dispense_date', { ascending: true  }).limit(1)
-      .then(({ data }) => { if (data?.[0]?.dispense_date) { const t = isoToThai(data[0].dispense_date); setDateFrom(t); setDataRange(r => ({ ...r, from: t })); } });
+      .then(({ data }) => { if (data?.[0]?.dispense_date) { const t = isoToThai(data[0].dispense_date); if (!seeded.from) setDateFrom(t); setDataRange(r => ({ ...r, from: t })); } });
     supabase.from('dispense_logs').select('dispense_date').order('dispense_date', { ascending: false }).limit(1)
-      .then(({ data }) => { if (data?.[0]?.dispense_date) { const t = isoToThai(data[0].dispense_date); setDateTo(t); setDataRange(r => ({ ...r, to: t })); } });
-  }, []);
+      .then(({ data }) => { if (data?.[0]?.dispense_date) { const t = isoToThai(data[0].dispense_date); if (!seeded.to) setDateTo(t); setDataRange(r => ({ ...r, to: t })); } });
+  }, [seeded]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -1486,7 +1542,7 @@ function DispenseSummaryModal({ onClose }) {
                 const deptValPct  = (topDeptVal && stats.totalValue > 0) ? Math.round(topDeptVal[1] / stats.totalValue * 100) : 0;
                 const avgPerDay   = stats.uniqueDays > 0 ? Math.round(stats.totalValue / stats.uniqueDays) : 0;
                 return (<>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-2 sm:gap-3">
                   {[
                     { label:'รายการเบิกทั้งหมด', value: cardTotal != null ? cardTotal.toLocaleString() : '...', unit:`รายการ (${filterLabel})`, Icon: FileSpreadsheet, bg:'bg-indigo-50 dark:bg-indigo-950/40', bd:'border-indigo-200 dark:border-indigo-900/60', lbl:'text-indigo-600', val:'text-indigo-900 dark:text-indigo-200' },
                     { label:'จำนวนวันที่มีการเบิก', value: cardDays != null ? cardDays.toLocaleString() : '...', unit:`วัน (${filterLabel})`, Icon: CalendarDays, bg:'bg-rose-50 dark:bg-rose-950/40', bd:'border-rose-200 dark:border-rose-900/60', lbl:'text-rose-600', val:'text-rose-900 dark:text-rose-200' },

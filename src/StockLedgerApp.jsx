@@ -191,7 +191,7 @@ function SeedModal({ open, onClose, onSeeded, auth }) {
                   <p className="font-bold text-amber-600">{fmtBaht(preview.tieOut.project)}</p>
                 </div>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">⚠️ ตรวจยอดแยก 4 หมวด (ยา/มิใช่ยา/บริจาค/โครงการ) ให้ตรงไฟล์ส่งบัญชีก่อนยืนยัน — งวดที่ล็อกแล้วแก้ไม่ได้</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">ตรวจยอดแยก 4 หมวด (ยา/มิใช่ยา/บริจาค/โครงการ) ให้ตรงไฟล์ส่งบัญชีก่อนยืนยัน — งวดที่ล็อกแล้วแก้ไม่ได้</p>
             </div>
           )}
         </div>

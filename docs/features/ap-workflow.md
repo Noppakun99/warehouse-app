@@ -221,12 +221,9 @@ fetchApBatches()                                       // → [{ batch_id, sent_
 
 ทุก function เขียน audit log อัตโนมัติ: `ap_acknowledge`, `ap_unacknowledge`, `ap_mark_inspected`, `ap_send_batch`, `ap_mark_posted`, `ap_unpost`, `ap_uninspect`, `ap_unsend_batch`, `ap_reset_batch`, `print_ap_batch`
 
-## StatsStrip Dashboard Card
+## Dashboard Card (ถอดแล้ว)
 
-- เพิ่ม card "รอตั้งหนี้" — แสดงจำนวนบิลที่ `ap_stage IN ('inspected', 'sent_batch')` (distinct bill_number)
-- ถ้ามีบิลค้าง > 7 วัน → เปลี่ยน label เป็น "ค้าง > 7 วัน X บิล" + สีแดง
-- คลิก → `onNavigate('receive-ap')` → เปิด ReceiveLogApp ด้วย `initialTab='ap'`
-- query เฉพาะ `isStaff` เท่านั้น
+- การ์ด "รอตั้งหนี้" บน StatsStrip **ถอดออกแล้ว** (commit eeb7bf2) และ StatsStrip ทั้งแถบถูกแทนด้วยคิวงานวันนี้ (10/10/2569) — คิวยังไม่มีรายการ AP: ทางเข้าแท็บส่งบัญชีคือเมนูย่อย "ประวัติรับยา ▸ ส่งบัญชี" (`page='receive-ap'`)
 
 ## Deep Linking
 

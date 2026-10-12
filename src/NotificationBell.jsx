@@ -15,6 +15,7 @@ import { fetchNotifications } from './lib/db';
 const NOTIF_LABELS = {
   // ── Requisition lifecycle ──
   submit_requisition:           { label: 'ส่งใบเบิกใหม่',        color: 'text-[#1E90FF]',  dot: 'bg-[#1E90FF]' },
+  requisition_conflict_withdrawn: { label: 'ใบเบิกชนกัน',        color: 'text-orange-600', dot: 'bg-orange-400' },
   requester_edit_requisition:   { label: 'แก้ไขใบเบิก',          color: 'text-amber-600',  dot: 'bg-amber-400' },
   requester_delete_requisition: { label: 'ลบใบเบิก',             color: 'text-red-600',    dot: 'bg-red-400'   },
   delete_requisition:           { label: 'ลบใบเบิก',             color: 'text-red-600',    dot: 'bg-red-400'   },
@@ -80,6 +81,10 @@ function notifMessage(n) {
   switch (n.action) {
     case 'submit_requisition':
       return `${who} ส่งใบเบิก${reqRef ? ` ${reqRef}` : ''} ${n.record_count ? `(${n.record_count} รายการ)` : ''} · ${n.department}`;
+    case 'requisition_conflict_withdrawn': {
+      const drugs = [...new Set((d.conflicts || []).map(c => c.drug_name).filter(Boolean))].join(', ');
+      return `${n.department} ${d.kind === 'edit' ? 'แก้ไขใบเบิก' : 'ส่งใบเบิก'}ไม่สำเร็จ — หน่วยงานอื่นเบิกพร้อมกันจนยาไม่พอ${drugs ? ` (${drugs})` : ''}`;
+    }
     case 'picking_requisition':
       return `${who} จัดยาใบเบิก${reqRef ? ` ${reqRef}` : ''}${d.picker_name ? ` (${d.picker_name})` : ''}`;
     case 'verify_requisition':
@@ -155,6 +160,8 @@ function notifMessage(n) {
     case 'requester_delete_requisition':
     case 'delete_requisition':
       return `${who} ลบใบเบิก${reqRef ? ` ${reqRef}` : ''} · ${n.department}`;
+    case 'add_annual_count_lot':
+      return `${who} เพิ่ม lot เข้ารอบตรวจนับประจำปี${d.name ? ` "${d.name}"` : ''}${d.lot ? ` Lot ${d.lot}` : ''}`;
     default:
       return `${who} · ${n.department}`;
   }

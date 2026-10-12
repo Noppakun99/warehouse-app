@@ -4,7 +4,8 @@
 import { test, expect } from '@playwright/test';
 import { login } from './helpers/auth.js';
 
-// staff/admin เห็น SwapReturnPopup เด้ง auto ตอน login — helper ปิดให้สนิท (async, ต้องรอโผล่ก่อน)
+// staff/admin: popup คืนบริษัทเด้งเอง "เฉพาะ lot แดงที่ยังไม่เคยเห็น วันละครั้ง" (Dashboard Phase 1)
+// → context ใหม่ของ Playwright เด้งครั้งแรก ครั้งต่อไปไม่เด้ง — helper ปิดถ้ามี (async, ต้องรอโผล่ก่อน)
 async function dismissSwapPopup(page) {
   const swapTitle = page.getByText('ยาต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด');
   await swapTitle.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {}); // requester ไม่มี — ข้าม
@@ -14,16 +15,34 @@ async function dismissSwapPopup(page) {
   }
 }
 
+// เปิดรายการคืนบริษัททั้งหมดแบบไม่พึ่ง popup อัตโนมัติ: คิวงาน "ยาต้องคืนบริษัท" → "บันทึกการคืนบริษัท"
+// ไม่มีรายการในคิว = คลังจัดการครบแล้ว → skip ไม่ใช่ fail
+async function openSwapList(page) {
+  const queueItem = page.locator('section:has(h3:has-text("คิวงานวันนี้")) li > button', { hasText: 'ยาต้องคืนบริษัท' });
+  await queueItem.first().waitFor({ state: 'visible', timeout: 20000 }).catch(() => {});
+  test.skip(await queueItem.count() === 0, 'ไม่มียาต้องคืนบริษัทในข้อมูลปัจจุบัน');
+  // คิวแสดงหลังข้อมูลคืนบริษัทโหลดเสร็จ = popup อัตโนมัติ (ถ้าจะเด้ง) ตัดสินแล้ว → ปิดเลยไม่ต้องรอโผล่
+  // (เดิมเรียก dismissSwapPopup ที่รอ 8 วิ — popup ที่ login ปิดไปแล้วไม่โผล่ซ้ำ เสียเวลาฟรีจนเกินงบ 30 วิ)
+  const ack = page.getByRole('button', { name: 'รับทราบ' });
+  for (let i = 0; i < 3 && await ack.first().isVisible().catch(() => false); i++) {
+    await ack.first().click({ force: true }).catch(() => {});
+    await page.waitForTimeout(400);
+  }
+  await queueItem.first().click();
+  await page.getByRole('button', { name: /บันทึกการคืนบริษัท/ }).click();
+  await page.getByText('ยาต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด').waitFor({ state: 'visible', timeout: 8000 });
+}
+
+// การ์ด "ใกล้หมดอายุใน 16 เดือน" ในภาพรวม — ห้ามจับ /ใกล้หมด/ เฉยๆ: รายการคิว "ยาใกล้หมดอายุ ≤90 วัน" มาก่อนใน DOM
 async function openExpiryModal(page) {
-  await page.locator('button', { hasText: /ใกล้หมด/ }).first().click();
+  await page.locator('button', { hasText: 'ใกล้หมดอายุใน 16 เดือน' }).first().click();
   await page.getByText('แจ้งเตือนยาใกล้หมดอายุ').waitFor({ timeout: 10000 });
   await page.waitForTimeout(2500); // รอ drugDetails/swapPolicies โหลด (lazy)
 }
 
 test('popup ส้ม: คลิกรายการ → กางประวัติรับยา (จาก receive_logs)', async ({ page }) => {
   await login(page, 'Kao_9', '96409999');
-  const swapTitle = page.getByText('ยาต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด');
-  await swapTitle.waitFor({ state: 'visible', timeout: 8000 });
+  await openSwapList(page);
   await page.waitForTimeout(2000);
 
   // popup แสดงรายการ due/overdue ตามข้อมูลจริง ณ วันรัน — ถ้าคลังเคลียร์หมดจะไม่มีอะไรให้คลิก
@@ -43,8 +62,9 @@ test('โมดอลชมพู: banner คืนบริษัท + คล�
   await dismissSwapPopup(page);
   await openExpiryModal(page);
 
-  // banner คืนบริษัทแสดง (มีรายการ due/overdue)
-  await expect(page.getByText(/ต้องเปลี่ยน\/คืนบริษัทก่อนพ้นกำหนด/).first()).toBeVisible();
+  // banner คืนบริษัทแสดง (มีรายการ due/overdue) — โมดอลโหลดนโยบาย/ประวัติรับยาเองแบบ lazy
+  // 5 วิ (default) ไม่พอตอน Supabase ตอบช้า → flaky (ผ่าน 2 ตก 1 ใน 3 รอบ 10/10/2569)
+  await expect(page.getByText(/ต้องเปลี่ยน\/คืนบริษัทก่อนพ้นกำหนด/).first()).toBeVisible({ timeout: 15_000 });
 
   // กาง banner → คลิกรายการ → ประวัติรับยากางออก
   await page.getByRole('button', { name: /ต้องเปลี่ยน\/คืนบริษัทก่อนพ้นกำหนด/ }).click();
@@ -72,17 +92,20 @@ test('ประวัติรับยา strict: lot+exp ตรง = การ
   }
 
   // (2) Amoxicillin 1000028 lot N670219 — lot ไม่มีใน receive_logs → strict: ไม่โชว์บิลระดับรหัส บอกไม่พบตรงๆ
+  // lot ที่ฝังไว้หลุดจากโมดอลเมื่อของหมด/เลย 16 เดือน → ข้ามท่อนนี้แบบเดียวกับท่อน (1) แทนค้างจน timeout
   await page.locator('input[placeholder*="ค้นหา"]').first().fill('Amoxicillin trihydrate');
   await page.waitForTimeout(800);
-  await modal.locator('tr', { hasText: 'N670219' }).first().locator('td').first().click();
+  const amoxRow = modal.locator('tr', { hasText: 'N670219' }).first();
+  test.skip(await amoxRow.count() === 0 && await budesonide.count() === 0, 'lot ตัวอย่างทั้ง 2 ตัวไม่อยู่ในโมดอลแล้ว (ของหมด) — ต้องหา lot ตัวอย่างใหม่');
+  if (await amoxRow.count() === 0) return;
+  await amoxRow.locator('td').first().click();
   await expect(page.getByText(/ไม่พบบิลของ lot\/EXP รายการนี้|ไม่พบข้อมูลในประวัติรับยา/).first()).toBeVisible({ timeout: 4000 });
   expect(await page.getByText('ตรงกับ lot + EXP รายการนี้').count()).toBe(0); // ต้องไม่มี note เขียวหลอก
 });
 
 test('deadline ต้องคืน: popup ส้ม = banner ชมพู (clamp สิ้นเดือน, ไม่ spillover)', async ({ page }) => {
   await login(page, 'Kao_9', '96409999');
-  const swapTitle = page.getByText('ยาต้องเปลี่ยน/คืนบริษัทก่อนพ้นกำหนด');
-  await swapTitle.waitFor({ state: 'visible', timeout: 8000 });
+  await openSwapList(page);
   await page.waitForTimeout(1500);
   const popupDeadlines = await page.getByText(/ต้องคืนภายใน/).allInnerTexts();
 

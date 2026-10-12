@@ -21,9 +21,9 @@ export async function waitForAppShell(page, timeout = 15_000) {
   await dismissStartupPopup(page);
 }
 
-// popup "ยาต้องเปลี่ยน/คืนบริษัท" เด้งอัตโนมัติทุกครั้งที่ staff/admin เข้า Dashboard
-// → บังทั้ง sidebar และ StatsStrip ทำให้ assertion อ่านสถานะผิด ต้องปิดก่อนทุกครั้ง
-// (เด้งซ้ำทุก goto('/') ไม่ใช่แค่ตอน login — จึงเรียกจาก waitForAppShell ไม่ใช่ login)
+// popup "ยาต้องเปลี่ยน/คืนบริษัท" / "ยาหมดอายุค้างคลัง" ของ staff/admin เด้ง "เฉพาะ lot ที่คนนั้นยังไม่เคยเห็น
+// วันละครั้ง" (จำใน localStorage — Dashboard Phase 1) → context ใหม่ของ Playwright เด้งครั้งแรกเสมอ
+// บังทั้ง sidebar และหน้าหลัก ทำให้ assertion อ่านสถานะผิด ต้องปิดก่อน (ไม่เด้ง = ผ่านไปเฉยๆ)
 export async function dismissStartupPopup(page, appearTimeout = 4_000) {
   const ack = page.getByRole('button', { name: 'รับทราบ' }).first();
   // popup โผล่หลังโหลดข้อมูลเสร็จ → รอสั้นๆ ให้มันปรากฏก่อน (ถ้าไม่มีก็ผ่านไปเลย)
