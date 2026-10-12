@@ -25,7 +25,9 @@ day = datetime.date.fromisoformat(cfg['date'])
 DM = f'{day.day} {MONTHS[day.month - 1]}'          # "30 กันยายน"
 YEAR = str(day.year + 543)
 
-def exp_be(iso):                                   # Exp แสดงเป็น พ.ศ. dd/mm/yyyy
+def exp_be(iso):                                   # Exp แสดงเป็น พ.ศ. dd/mm/yyyy · ไม่มี exp (ชุดตรวจ/ถุงของ) = "-"
+    if not iso or iso == '-':
+        return '-'
     e = datetime.date.fromisoformat(iso)
     return f'{e.day:02d}/{e.month:02d}/{e.year + 543}'
 
