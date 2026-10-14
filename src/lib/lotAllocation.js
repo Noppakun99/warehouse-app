@@ -41,3 +41,71 @@ export function allocateFefo(requestBase, fefoLots) {
   const overBase      = Math.max(0, allocatedBase - req);
   return { allocation, allocatedBase, shortfallBase, overBase, fulfilled: shortfallBase === 0 };
 }
+
+// ชนิดรายการที่นับเป็น "ยาสนับสนุน" — บริจาค-* / ยาโครงการ ไม่นับ (CONTEXT.md §การจัดสรร lot)
+export const SUPPORTED_ITEM_TYPES = ['สนับสนุน', 'สนับสนุน2'];
+export const isSupportedLot = (lot) => SUPPORTED_ITEM_TYPES.includes(String(lot?.itemType || '').trim());
+
+// วันนี้ + 6 เดือน (clamp วันสิ้นเดือน: 31/8 → 28/2 ไม่ล้นไปมีนาคม)
+const plusSixMonths = (today) => {
+  const t = new Date(today); t.setHours(0, 0, 0, 0);
+  const last = new Date(t.getFullYear(), t.getMonth() + 7, 0).getDate();
+  return new Date(t.getFullYear(), t.getMonth() + 6, Math.min(t.getDate(), last));
+};
+
+/**
+ * เรียง lot ตามลำดับจ่าย (หัวหน้าสั่ง 14/10/2569) แทน FEFO ล้วน:
+ *   1) ยาซื้อ (ไม่ใช่สนับสนุน) ที่หมดอายุภายใน 6 เดือน  2) ยาสนับสนุน  3) ที่เหลือ
+ *   ภายในกลุ่มเรียง FEFO · lot ไม่มี exp ไว้ท้ายกลุ่ม
+ * @param lots      [{ exp, itemType, ... }]
+ * @param parseExp  (raw) => Date|null — ตัวแปลง exp ของผู้เรียก (รูปแบบ exp ใน inventory หลายแบบ)
+ * @returns array ใหม่ (ไม่แก้ array เดิม)
+ */
+export function sortLotsForDispense(lots, parseExp, today = new Date()) {
+  const limit = plusSixMonths(today);
+  const tier = (l, d) => {
+    if (isSupportedLot(l)) return 1;
+    return d && d <= limit ? 0 : 2;
+  };
+  return lots
+    .map(l => ({ l, d: parseExp(l.exp) }))
+    .sort((a, b) => {
+      const ta = tier(a.l, a.d), tb = tier(b.l, b.d);
+      if (ta !== tb) return ta - tb;
+      if (!a.d && !b.d) return 0;
+      if (!a.d) return 1;
+      if (!b.d) return -1;
+      return a.d - b.d;
+    })
+    .map(x => x.l);
+}
+
+/**
+ * หมายเหตุ "lot ไม่เรียง exp" — มี lot ที่จ่ายได้ exp ก่อน lot ที่จัดให้ แต่ไม่ได้ใช้/ใช้ไม่หมด
+ * @param allocation  ผลจาก allocateFefo (base = เม็ด)
+ * @param lots        lot ที่ใช้คำนวณ allocation (มี base, itemType, baseUnit)
+ * @returns '' ถ้าเรียง exp ปกติ
+ */
+export function lotOrderNote(allocation, lots, parseExp, fmtExp = (x) => x) {
+  if (!allocation?.length) return '';
+  const key = (l) => `${String(l.lot || '').trim()}|${String(l.exp || '').trim()}`;
+  const used = {};
+  allocation.forEach(a => { used[key(a)] = (used[key(a)] || 0) + (a.base || 0); });
+  const usedDates = allocation.map(a => parseExp(a.exp)).filter(Boolean);
+  if (!usedDates.length) return '';
+  const latest = new Date(Math.max(...usedDates));
+  const skipped = lots.filter(l => {
+    const d = parseExp(l.exp);
+    return d && d < latest && (l.base || 0) - (used[key(l)] || 0) > 0;
+  });
+  if (!skipped.length) return '';
+  const byKey = Object.fromEntries(lots.map(l => [key(l), l]));
+  const reason = allocation.some(a => isSupportedLot(byKey[key(a)]))
+    ? 'จ่ายยาสนับสนุนก่อน'
+    : 'จ่ายยาซื้อที่หมดอายุภายใน 6 เดือนก่อน';
+  const list = skipped.map(l => {
+    const left = (l.base || 0) - (used[key(l)] || 0);
+    return `lot ${l.lot} exp ${fmtExp(l.exp)} ยังเหลือ ${left.toLocaleString()}${l.baseUnit ? ` ${l.baseUnit}` : ''}`;
+  });
+  return `lot ไม่เรียง exp: ${reason} (${list.join(' · ')})`;
+}

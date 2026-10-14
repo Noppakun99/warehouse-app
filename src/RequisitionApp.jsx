@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { exportToExcel } from './lib/exportExcel';
 import { parseUnit } from './lib/unitParser';
-import { allocateFefo } from './lib/lotAllocation';
+import { allocateFefo, sortLotsForDispense, lotOrderNote, isSupportedLot } from './lib/lotAllocation';
 import { findOverReserved, availableForOwn, increasedCodes } from './lib/reservationCheck';
 import { deleteRequesterRequisition, updateRequesterRequisition, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
@@ -178,17 +178,12 @@ async function computeReqAllocations(reqs) {
       const key = `${code}|${String(r.lot||'').trim()}`;
       if (!logMap[key]) logMap[key] = { main_log: r.main_log || '', detail_log: r.location || '', item_type: r.item_type || '' };
       if (String(r.receive_status || '').includes('ตัดออก')) discontinuedCodes.add(code);
-      const { packSize } = parseUnit(r.unit);
+      const { packSize, baseUnit } = parseUnit(r.unit);
       const packs = parseFloat(r.qty) || 0;
-      if (packs > 0) (fefoByCode[code] = fefoByCode[code] || []).push({ lot: r.lot, exp: r.exp, unit: r.unit, location: r.location, packSize: packSize || 1, packs, base: packs * (packSize || 1) });
+      if (packs > 0) (fefoByCode[code] = fefoByCode[code] || []).push({ lot: r.lot, exp: r.exp, unit: r.unit, location: r.location, itemType: r.item_type || '', baseUnit: baseUnit || '', packSize: packSize || 1, packs, base: packs * (packSize || 1) });
     });
-    // แถวซ้ำ lot เดียวกัน → บวกรวมก่อนเรียง FEFO (คงเหลือราย lot ต้องเต็มจำนวน)
-    Object.keys(fefoByCode).forEach(c => { fefoByCode[c] = mergeSameLotEntries(fefoByCode[c]); });
-    Object.values(fefoByCode).forEach(lots => lots.sort((a, b) => {
-      const da = parseExp(a.exp), db = parseExp(b.exp);
-      if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
-      return da - db;
-    }));
+    // แถวซ้ำ lot เดียวกัน → บวกรวมก่อนเรียง (คงเหลือราย lot ต้องเต็มจำนวน) · ลำดับจ่าย = ยาสนับสนุนก่อน (sortLotsForDispense)
+    Object.keys(fefoByCode).forEach(c => { fefoByCode[c] = sortLotsForDispense(mergeSameLotEntries(fefoByCode[c]), parseExp); });
     (rl || []).forEach(r => {
       const code = String(r.drug_code||'').trim();
       const key = `${code}|${String(r.lot||'').trim()}`;
@@ -226,7 +221,7 @@ async function computeReqAllocations(reqs) {
       }
     }
   });
-  return { allocByItem, priceMap, logMap, onHandByCode, onHandByLot, pendingCodes, discontinuedCodes, supplierChangedLots };
+  return { allocByItem, priceMap, logMap, onHandByCode, onHandByLot, pendingCodes, discontinuedCodes, supplierChangedLots, fefoByCode };
 }
 
 // แปลง list ของ requisitions → flat rows สำหรับ Excel
@@ -510,7 +505,10 @@ const mergeSameLotEntries = (lots) => {
   for (const l of lots) {
     const k = `${String(l.lot || '').trim()}|${String(l.exp || '').trim()}`;
     const prev = map.get(k);
-    if (prev) { prev.packs += l.packs || 0; prev.base += l.base || 0; }
+    if (prev) {
+      prev.packs += l.packs || 0; prev.base += l.base || 0;
+      if (isSupportedLot(l)) prev.itemType = l.itemType; // lot เดียวกันมีแถวสนับสนุน → นับทั้ง lot เป็นยาสนับสนุน
+    }
     else map.set(k, { ...l });
   }
   return [...map.values()];
@@ -693,15 +691,10 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
         const base = packs * (packSize || 1);
         totalBaseRaw += base;
         if (baseUnit && baseUnit !== '-') baseUnitCount[baseUnit] = (baseUnitCount[baseUnit] || 0) + packs;
-        if (packs > 0) fefoLots.push({ lot: lot.lot, exp: lot.exp, unit: lot.unit, packSize: packSize || 1, packs, base, baseUnit, location: lot.location || '', supplier: lot.supplier || '' });
+        if (packs > 0) fefoLots.push({ lot: lot.lot, exp: lot.exp, unit: lot.unit, itemType: lot.itemType || '', packSize: packSize || 1, packs, base, baseUnit, location: lot.location || '', supplier: lot.supplier || '' });
       });
-      // แถวซ้ำ lot เดียวกัน (จาก DB) → บวกรวมเป็น entry เดียวก่อนเรียง FEFO
-      const fefoUnique = mergeSameLotEntries(fefoLots);
-      fefoUnique.sort((a, b) => {
-        const da = parseExp(a.exp), db = parseExp(b.exp);
-        if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
-        return da - db;
-      });
+      // แถวซ้ำ lot เดียวกัน (จาก DB) → บวกรวมเป็น entry เดียวก่อนเรียง · ลำดับจ่าย = ยาสนับสนุนก่อน
+      const fefoUnique = sortLotsForDispense(mergeSameLotEntries(fefoLots), parseExp);
       // baseUnit = หน่วยย่อยที่พบบ่อยสุด (ปกติยาตัวเดียวกันหน่วยเดียว)
       const baseUnit = Object.keys(baseUnitCount).sort((a, b) => baseUnitCount[b] - baseUnitCount[a])[0] || (drug.unit || '');
       const reservedBase = reservedMap[codeKey(drug.code)] || 0;
@@ -800,8 +793,8 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
     if (supabase) {
       // Separate queries to avoid comma in term breaking PostgREST or() syntax
       const [{ data: byName }, { data: byCode }] = await Promise.all([
-        supabase.from('inventory').select('id, code, name, unit, qty, lot, exp, location, invoice').ilike('name', `%${term}%`).order('name').limit(300),
-        supabase.from('inventory').select('id, code, name, unit, qty, lot, exp, location, invoice').ilike('code', `%${term}%`).order('name').limit(300),
+        supabase.from('inventory').select('id, code, name, unit, qty, lot, exp, location, invoice, item_type').ilike('name', `%${term}%`).order('name').limit(300),
+        supabase.from('inventory').select('id, code, name, unit, qty, lot, exp, location, invoice, item_type').ilike('code', `%${term}%`).order('name').limit(300),
       ]);
       // dedupe ด้วย row id เท่านั้น (แถวเดิมโผล่ทั้ง byName+byCode) — ห้าม key ด้วย code|name|lot
       // เพราะ inventory มีแถวซ้ำ lot เดียวกันหลายแถวจริง (qty แยกกัน) จะกลืนคงเหลือหาย
@@ -877,7 +870,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
         const isExpired = expDate && expDate < today;
         const detail = getDetail(row);
         if (!grouped[key].type && detail.drugType && detail.drugType !== '-') grouped[key].type = detail.drugType;
-        grouped[key].lots.push({ lot: row.lot, exp: row.exp, qty: rowQty, rawQty: row.qty, unit: row.unit, drugType: detail.drugType || '', location: row.location || '', supplier: detail.supplier || '', pending: isPending, expired: isExpired });
+        grouped[key].lots.push({ lot: row.lot, exp: row.exp, qty: rowQty, rawQty: row.qty, unit: row.unit, itemType: row.item_type || '', drugType: detail.drugType || '', location: row.location || '', supplier: detail.supplier || '', pending: isPending, expired: isExpired });
       });
 
       setRawResults(Object.values(grouped));
@@ -1614,7 +1607,7 @@ const lotBeforeAfter = (req, code, lot, out, snap, onHandByLot, lastImportAt) =>
 // รายรหัส×lot เรียงตามเส้นทางเดินหยิบ (MainLog → DetailedLog) — ดู CONTEXT.md §ใบ lot คุม
 // ============================================================
 async function printLotControl(req, preopenedWin) {
-  const { allocByItem, onHandByLot, onHandByCode, logMap, pendingCodes, discontinuedCodes, supplierChangedLots } =
+  const { allocByItem, onHandByLot, onHandByCode, logMap, pendingCodes, discontinuedCodes, supplierChangedLots, fefoByCode } =
     await computeReqAllocations([req]);
   const lastImportAt = await fetchLastInventoryImportAt();
   const pad = n => String(n).padStart(2, '0');
@@ -1646,6 +1639,11 @@ async function printLotControl(req, preopenedWin) {
     const itemNotes = [];
     if (item.item_note) itemNotes.push(item.item_note);
     if (item.staff_note) itemNotes.push(item.staff_note);
+    // จ่าย lot ไม่เรียง exp (ยาสนับสนุนก่อน) ต้องแจ้งบนใบเสมอ — CONTEXT.md §การจัดสรร lot
+    if (alloc && alloc.length) {
+      const orderNote = lotOrderNote(alloc, (fefoByCode[code] || []).filter(lotNotExpired), parseExp, fmtExp);
+      if (orderNote) itemNotes.push(orderNote);
+    }
     if (out < want) {
       // "ยาหมดรอของส่ง" = สถานะสด ณ วันพิมพ์ (live) โดยเจตนา — ผู้เบิกต้องรู้ว่า "ตอนนี้" ยาหมดหรือยัง
       // ไม่ผูกกับ snapshot ที่คอลัมน์คงเหลือหลังจ่ายใช้ (นั่นคือยอด ณ ตอนจัด) จึงอาจต่างจากคอลัมน์นั้นในใบเก่า
@@ -2400,26 +2398,16 @@ function PickingModal({ req, auth, onClose, onDone }) {
         if (!map[code]) map[code] = [];
         map[code].push(row);
       });
-      // sort FEFO client-side
-      Object.values(map).forEach(lots => {
-        lots.sort((a, b) => {
-          const da = parseExp(a.exp), db = parseExp(b.exp);
-          if (!da && !db) return 0;
-          if (!da) return 1;
-          if (!db) return -1;
-          return da - db;
-        });
-      });
-      // คำนวณ FEFO allocation สดจากของจริง ณ ตอนนี้ (ADR-0005) — approved_qty เป็นเม็ด
+      // คำนวณ allocation สดจากของจริง ณ ตอนนี้ (ADR-0005) — approved_qty เป็นเม็ด · ลำดับจ่าย = ยาสนับสนุนก่อน
       setItemStates(prev => prev.map(item => {
         const lots = map[String(item.drug_code || '').trim()] || [];
         // บวกรวมแถวซ้ำ lot เดียวกันก่อน — ห้ามปล่อยซ้ำเข้า allocation/onhand (บัคแถวซ้ำ 2026-07-18)
-        const fefoLots = mergeSameLotEntries(lots.map(l => {
+        const fefoLots = sortLotsForDispense(mergeSameLotEntries(lots.map(l => {
           const { packSize, baseUnit } = parseUnit(l.unit);
           const packs = parseFloat(l.qty) || 0;
           // unit = หน่วยเต็ม (แสดง packs × unit), baseUnit = หน่วยย่อยล้วน (เม็ด/amp/ขวด) สำหรับ label คงเหลือ
-          return { lot: l.lot, exp: l.exp, unit: l.unit, location: l.location, baseUnit: baseUnit || l.unit, packSize: packSize || 1, packs, base: packs * (packSize || 1) };
-        }));
+          return { lot: l.lot, exp: l.exp, unit: l.unit, location: l.location, itemType: l.item_type || '', baseUnit: baseUnit || l.unit, packSize: packSize || 1, packs, base: packs * (packSize || 1) };
+        })), parseExp);
         // lot หมดอายุห้ามจัด (FEFO จะหยิบ exp เก่าสุดก่อน = หมดอายุก่อน) — ให้ตรงกับฝั่งค้นหาผู้เบิก
         const alloc = allocateFefo(item.approved_qty, fefoLots.filter(lotNotExpired));
         const first = alloc.allocation[0];
@@ -3255,15 +3243,10 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         const { packSize } = parseUnit(row.unit);
         const packs = parseFloat(row.qty) || 0;
         if (packs <= 0) return;
-        (map[code] = map[code] || []).push({ lot: row.lot, exp: row.exp, unit: row.unit, location: row.location, packSize: packSize || 1, packs, base: packs * (packSize || 1) });
+        (map[code] = map[code] || []).push({ lot: row.lot, exp: row.exp, unit: row.unit, location: row.location, itemType: row.item_type || '', packSize: packSize || 1, packs, base: packs * (packSize || 1) });
       });
-      // map นี้ใช้ preview allocation เท่านั้น → บวกรวมแถวซ้ำ + ตัด lot หมดอายุตั้งแต่ต้นทาง
-      Object.keys(map).forEach(c => { map[c] = mergeSameLotEntries(map[c]).filter(lotNotExpired); });
-      Object.values(map).forEach(lots => lots.sort((a, b) => {
-        const da = parseExp(a.exp), db = parseExp(b.exp);
-        if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
-        return da - db;
-      }));
+      // map นี้ใช้ preview allocation เท่านั้น → บวกรวมแถวซ้ำ + ตัด lot หมดอายุตั้งแต่ต้นทาง · ลำดับจ่าย = ยาสนับสนุนก่อน
+      Object.keys(map).forEach(c => { map[c] = sortLotsForDispense(mergeSameLotEntries(map[c]).filter(lotNotExpired), parseExp); });
       setFefoMap(map);
     }).catch(() => {});
   }, [req.id]);

@@ -2727,7 +2727,7 @@ export async function fetchInventoryByCodes(codes) {
   if (!supabase || !codes.length) return []
   const { data, error } = await supabase
     .from('inventory')
-    .select('code, name, lot, exp, qty, unit, location, main_log')
+    .select('code, name, lot, exp, qty, unit, location, main_log, item_type')
     .in('code', codes)
     .gt('qty', 0)
   if (error) throw error
