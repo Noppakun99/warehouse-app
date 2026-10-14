@@ -2,7 +2,7 @@
 # ใช้: python scripts/check-complete.py
 # ตรวจ 9 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
 #            · รูปบิลมีแถวดัชนี / แถวดัชนีมีไฟล์จริง · รูปตรวจรับรอถ่ายซ้ำ · แถวรับยามีแถว Master · บิลซื้อยังไม่ส่งจัดซื้อ
-#            · ใบเบิกศูนย์/รพ.สต. มีชีทในไฟล์สรุปเบิกยา
+#            · ใบเบิกศูนย์/รพ.สต. มีชีทในไฟล์สรุปเบิกยา · นัดเตือน (_นัดเตือน.csv)
 import csv, datetime, glob, os, re, sys, warnings
 
 import openpyxl
@@ -222,5 +222,32 @@ for sub in sorted(os.listdir(RPST_PDF)):
         else:
             bad(f'ยังไม่ทำไฟล์สรุป: {sub} ใบ {d} (เพิ่มชีท "{d}" ในไฟล์สรุปของ {RPST_MAP[sub]})')
 ok(f'{n_rpst_ok}/{n_rpst} ใบมีชีทสรุปแล้ว')
+
+# 10) นัดเตือน — งานที่ระบบคลังมองไม่เห็นเอง เช่น ยา "สั่งเมื่อขอ" ที่กล่องอยู่ที่ห้องยา ใกล้หมดอายุแล้วต้องแลกเปลี่ยน/แจ้งซื้อ
+#     (inventory ไม่มี lot นั้น จึงไม่มีระบบไหนเตือน — user ขอ 14/10/2569) · ถึงวันเริ่มเตือนแล้วยังไม่ทำ = ไม่ครบ
+#     ทำเสร็จ → ใส่วันที่ในช่อง "เสร็จแล้ว" · เพิ่มนัดใหม่ = เพิ่มแถว (วันที่ พ.ศ. ว/ด/ปปปป)
+REMIND = os.path.join(HOME, r'Desktop\ยอดคงคลัง\_นัดเตือน.csv')
+head('นัดเตือน (Desktop\\ยอดคงคลัง\\_นัดเตือน.csv)')
+if not os.path.exists(REMIND):
+    ok('ไม่มีไฟล์นัดเตือน')
+else:
+    later = []
+    for r in read_csv(REMIND):
+        if (r.get('เสร็จแล้ว') or '').strip():
+            continue
+        m = re.match(r'(\d{1,2})/(\d{1,2})/(\d{4})$', (r.get('เริ่มเตือน') or '').strip())
+        if not m:
+            bad(f'วันที่เริ่มเตือนอ่านไม่ได้: {r}')
+            continue
+        start = datetime.date(int(m.group(3)) - 543, int(m.group(2)), int(m.group(1)))
+        what = f"{r.get('เรื่อง', '')} ({r.get('รหัส', '')}) — {r.get('รายละเอียด', '')}"
+        if start <= today:
+            bad(f'ถึงกำหนด {be(start)}: {what}')
+        elif (start - today).days <= 30:
+            print(f'  … อีก {(start - today).days} วัน ({be(start)}): {what}')
+        else:
+            later.append(start)
+    if later:
+        ok(f'นัดล่วงหน้า {len(later)} รายการ · ใกล้สุด {be(min(later))}')
 
 print(f'\n{"ครบทุกข้อ" if problems == 0 else f"ไม่ครบ {problems} จุด"}')
