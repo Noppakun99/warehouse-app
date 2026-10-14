@@ -23,6 +23,15 @@ TH_MONTH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', '�
 # คอลัมน์เบิกรายเดือน E–P = 12 เดือนล่าสุดที่ปิดแล้ว เรียงเก่า→ใหม่ — เดือนของคอลัมน์อยู่แถว 2 (จัดชีทใหม่ 04/10/2569)
 MONTH_COLS = ['E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P']
 
+# รายงานซื้อยา: ชื่อคอลัมน์ในโค้ด/plan.json = ตำแหน่งเดิม (Avg/วัน = 'T', หมายเหตุ = 'S')
+# 14/10/2569 ย้าย Avg/วัน มาต่อ Avg/เดือน (N) → ตำแหน่งจริง O, ของเดิม O–S เลื่อนเป็น P–T · Sheet1 = ตำแหน่งจริง +1 คอลัมน์
+# apply.ps1 มีตารางเดียวกัน ($PHYS) — แก้ตำแหน่งคอลัมน์ต้องแก้ทั้ง 2 ไฟล์
+PHYS_MAP = {'O': 'P', 'P': 'Q', 'Q': 'R', 'R': 'S', 'S': 'T', 'T': 'O'}
+
+
+def phys(key):
+    return PHYS_MAP.get(key, key)
+
 
 def out(*a):
     print(*a, flush=True)
@@ -159,6 +168,10 @@ def load_report(path):
     rp, s1 = wb['รายงานซื้อยา'], wb['Sheet1']
     if str(rp['E4'].value).strip() != 'รหัสHosxp':
         raise SystemExit(f'หัวคอลัมน์ E4 ของรายงานไม่ใช่ "รหัสHosxp" (เจอ {rp["E4"].value!r}) — โครงสร้างไฟล์เปลี่ยน หยุดก่อน')
+    for key, want in (('N', 'Avg/เดือน'), ('T', 'Avg/วัน'), ('O', 'คงเหลือ'), ('S', 'หมายเหตุ')):
+        got = str(rp[f'{phys(key)}4'].value or '').strip()
+        if not got.startswith(want):
+            raise SystemExit(f'หัวคอลัมน์ {phys(key)}4 ไม่ใช่ "{want}…" (เจอ {got!r}) — ตำแหน่งคอลัมน์รายงานเปลี่ยน แก้ PHYS_MAP ใน pr.py + apply.ps1 ก่อน')
     rows = []
     for r in range(5, rp.max_row + 1):
         code = rp.cell(r, 5).value
@@ -166,7 +179,7 @@ def load_report(path):
             continue
         rows.append(dict(row=r, code=str(code).strip(), A=rp.cell(r, 1).value, B=rp.cell(r, 2).value,
                          C=rp.cell(r, 3).value, unit=str(rp.cell(r, 8).value).strip(), name=rp.cell(r, 7).value,
-                         S=rp.cell(r, 19).value))
+                         S=rp[f'{phys("S")}{r}'].value))
     archive = defaultdict(list)
     s1_last = 2
     for r in range(3, s1.max_row + 1):
@@ -176,7 +189,7 @@ def load_report(path):
         s1_last = r
         if isinstance(s1.cell(r, 3).value, dt.datetime):
             archive[str(code).strip()].append(s1.cell(r, 3).value)
-    head = {k: rp[k].value for k in ('A1', 'O4', 'P4', 'Q4')}
+    head = {k: rp[k].value for k in ('A1', f'{phys("O")}4', f'{phys("P")}4', f'{phys("Q")}4')}
     return rows, archive, s1_last, head
 
 
@@ -389,9 +402,9 @@ def cmd_plan(a):
     mm = lambda t: f"{TH_MONTH[t[1] - 1]}{(t[0] + 543) % 100}"
     headers = {
         'A1': [r'UPDATE: วันที่ [\d/]+', f'UPDATE: วันที่ {dstr}'],
-        'O4': [r'คงเหลือ\s+[\d/]+', f'คงเหลือ  {dstr}'],
-        'P4': [r'\(.*\)', f'({mm(allm[0])} - {mm(allm[-1])})'],
-        'Q4': [r'\(.*\)', f'({TH_MONTH[win[0][1] - 1]} - {TH_MONTH[win[-1][1] - 1]} {(win[-1][0] + 543) % 100})'],
+        f'{phys("O")}4': [r'คงเหลือ\s+[\d/]+', f'คงเหลือ  {dstr}'],
+        f'{phys("P")}4': [r'\(.*\)', f'({mm(allm[0])} - {mm(allm[-1])})'],
+        f'{phys("Q")}4': [r'\(.*\)', f'({TH_MONTH[win[0][1] - 1]} - {TH_MONTH[win[-1][1] - 1]} {(win[-1][0] + 543) % 100})'],
     }
     plan = dict(date=today.date().isoformat(), report_rows=len(rows), sheet1_last=s1_last,
                 moves=moves, c_updates=c_upd, refresh=refresh, new=new, headers=headers, warnings=warn)
@@ -460,7 +473,7 @@ def cmd_verify(a):
 
     for r in drows:
         code = str(dp.cell(r, 5).value).strip()
-        g = lambda L: dp[f'{L}{r}'].value
+        g = lambda L: dp[f'{phys(L)}{r}'].value   # L = ชื่อคอลัมน์ในแผน → ตำแหน่งจริง
         if not str(dp[f'D{r}'].value or '').startswith('='):
             errs.append(f'D{r} ไม่ใช่สูตร')
         if code in nmap:
@@ -475,7 +488,8 @@ def cmd_verify(a):
             rowless = lambda v: (re.sub(r'([A-Z])\d+', r'\1#', v) if isinstance(v, str) and v.startswith('=')
                                  else (None if v == '' else v))
             for L in 'ABDEFGHS':   # สูตร D เลื่อนเลขแถวตามการลบแถว — เทียบแบบตัดเลขแถวออก
-                if rowless(dp[f'{L}{r}'].value) != rowless(sp[f'{L}{o}'].value):
+                P = phys(L)
+                if rowless(dp[f'{P}{r}'].value) != rowless(sp[f'{P}{o}'].value):
                     errs.append(f'แถวเดิม {code} คอลัมน์ {L} ถูกแก้โดยไม่อยู่ในแผน')
             ec = cmap.get(code)
             if ec is not None and not same(g('C'), ec):
@@ -498,8 +512,9 @@ def cmd_verify(a):
         if m['kind'] == 'cancel':
             if s1.cell(r, 2).value == CHECKED:
                 errs.append(f'Sheet1 แถว {r} {m["code"]}: ยกเลิกแจ้งต้องเป็น ☐ ไม่ใช่ ☑')
-            if str(s1.cell(r, 20).value or '').strip() != m['S'].strip():
-                errs.append(f'Sheet1 แถว {r} {m["code"]}: หมายเหตุไม่ตรง ({s1.cell(r, 20).value!r})')
+            s_col = col_idx(phys('S')) + 2   # Sheet1 = ตำแหน่งในรายงาน +1 คอลัมน์ (col_idx เริ่ม 0)
+            if str(s1.cell(r, s_col).value or '').strip() != m['S'].strip():
+                errs.append(f'Sheet1 แถว {r} {m["code"]}: หมายเหตุไม่ตรง ({s1.cell(r, s_col).value!r})')
     if s1.cell(start + len(moved), 6).value not in (None, ''):
         errs.append('Sheet1: มีแถวเกินจากที่ย้าย (ซ้ำ?)')
     for k, (_, rep) in plan['headers'].items():

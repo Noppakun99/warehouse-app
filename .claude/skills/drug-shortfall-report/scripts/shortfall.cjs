@@ -132,9 +132,10 @@ for (const [sn, off] of [['รายงานซื้อยา', 4], ['Sheet1',
     if (!ord) continue;
     if (!poName[c]) poName[c] = String(r[6]).trim();
     if (!poUnit[c]) poUnit[c] = String(r[7]).trim();
+    // 14/10/2569 ย้าย Avg/วัน มาเป็นคอลัมน์ O → คงเหลือ P[15] · จำนวนแนะนำ S[18] · หมายเหตุ T[19] (ทั้ง 2 ชีท)
     (po[c] = po[c] || []).push({
       tick: String(r[0]).trim(), ord, sup: String(r[9]).trim(),
-      stock27: String(r[14]).trim(), rec: String(r[17]).trim(), note: String(r[18]).trim()
+      stock27: String(r[15]).trim(), rec: String(r[18]).trim(), note: String(r[19]).trim()
     });
   }
 }

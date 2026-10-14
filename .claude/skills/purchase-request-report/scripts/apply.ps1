@@ -8,6 +8,9 @@ $out = Join-Path $WorkDir 'report_out.xlsx'
 Copy-Item -LiteralPath (Join-Path $WorkDir 'report.xlsx') -Destination $out -Force
 $CHECKED = [string][char]0x2611; $UNCHECKED = [string][char]0x2610
 $cols = 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'T'
+# ชื่อคอลัมน์ในแผน = ตำแหน่งเดิม → ตำแหน่งจริงในรายงาน (14/10/2569 ย้าย Avg/วัน มาเป็น O) — ตารางเดียวกับ PHYS_MAP ใน pr.py
+$PHYS = @{ O = 'P'; P = 'Q'; Q = 'R'; R = 'S'; S = 'T'; T = 'O' }
+function Phys([string]$k) { if ($PHYS.ContainsKey($k)) { $PHYS[$k] } else { $k } }
 
 function SetV($cell, $v) {
   if ($null -eq $v -or ($v -is [string] -and $v -eq '')) { $cell.Formula = '' }
@@ -40,7 +43,7 @@ try {
     $r = [int]$m.row
     if ((CodeAt $rp $r) -ne $m.code) { throw "แถว $r ไม่ใช่รหัส $($m.code)" }
     if ($m.tick) { $rp.Range("A$r").Formula = $CHECKED }
-    if ($m.S) { $rp.Range("S$r").Formula = [string]$m.S }          # ยกเลิกแจ้ง: เหตุผลไปกับแถว
+    if ($m.S) { $rp.Range("$(Phys 'S')$r").Formula = [string]$m.S }          # ยกเลิกแจ้ง: เหตุผลไปกับแถว
     $null = $rp.Range("A${r}:T${r}").Copy($s1.Range("B$next"))
     $e = $s1.Range("E$next"); $v = $e.Value2; $e.Value2 = $v      # ระยะเวลา: สูตร → ค่า ให้เหมือนแถวเก่าใน Sheet1
     $next++
@@ -52,7 +55,7 @@ try {
   $idx = Index
   foreach ($x in $plan.refresh) {
     $r = $idx[$x.code]; if (-not $r) { throw "refresh: ไม่พบรหัส $($x.code)" }
-    foreach ($k in $cols) { SetV $rp.Range("$k$r") $x.values.$k }
+    foreach ($k in $cols) { SetV $rp.Range("$(Phys $k)$r") $x.values.$k }
   }
   "refreshed: $(@($plan.refresh).Count)"
 
@@ -65,8 +68,8 @@ try {
     SetDate $rp.Range("C$r") $x.C
     $rp.Range("D$r").Formula = "=IF(OR(NOT(ISNUMBER(B$r)),NOT(ISNUMBER(C$r))),`"-`",B$r-C$r)"
     if ($x.code -match '^\d+$') { $rp.Range("E$r").Value2 = [double]$x.code } else { $rp.Range("E$r").Formula = [string]$x.code }
-    foreach ($k in 'F', 'G', 'H', 'S') { SetV $rp.Range("$k$r") $x.$k }
-    foreach ($k in $cols) { SetV $rp.Range("$k$r") $x.$k }
+    foreach ($k in 'F', 'G', 'H', 'S') { SetV $rp.Range("$(Phys $k)$r") $x.$k }
+    foreach ($k in $cols) { SetV $rp.Range("$(Phys $k)$r") $x.$k }
   }
   "new: $(@($plan.new).Count) → รายงาน $($lo.ListRows.Count) แถว"
 
