@@ -71,16 +71,20 @@ const SHARED_CSS = `
   .note-line { font-size: 11px; margin-bottom: 7px; }
   .note-line span { display: inline-block; border-bottom: 1px dotted #000; min-width: 74%; margin-left: 5px;
     height: 15px; vertical-align: bottom; }
-  .sig-row { display: grid; gap: 18px; margin-top: 6px; page-break-inside: avoid; }
-  .sig-2 { grid-template-columns: 1fr 1fr; }
-  .sig-3 { grid-template-columns: 1fr 1fr 1fr; }
-  .sig-box { padding: 5px 8px; text-align: center; }
-  .sig-title { font-size: 10.5px; font-weight: 700; color: #000; margin-bottom: 20px; }
-  .sig-line { border-bottom: 1px solid #000; }
-  .sig-label { font-size: 9.5px; color: #000; margin-top: 4px; }
-  .sig-date { font-size: 9.5px; color: #000; margin-top: 5px; }
-  .sig-date span { display: inline-block; border-bottom: 1px dotted #000; min-width: 70px; margin-left: 4px;
-    height: 13px; vertical-align: bottom; }
+  /* กล่องลงนาม — ทุกช่องเซ็นอยู่ที่เดียว เรียงตามขั้นตอน แต่ละแถวบอกฝ่าย + เซ็นยืนยันอะไร */
+  .sign { border: 2px solid #000; margin-top: 6px; page-break-inside: avoid; }
+  .sign-h { display: flex; justify-content: space-between; gap: 8px; padding: 3px 8px; border-bottom: 2px solid #000;
+    font-size: 11px; font-weight: 700; }
+  .sign-h .legend { font-weight: 400; font-size: 10px; }
+  .sign table { margin: 0; page-break-inside: avoid; }
+  .sign th { font-size: 10px; }
+  .sign td { height: 40px; font-size: 10.5px; }
+  .sign td.step { text-align: center; font-size: 15px; font-weight: 700; }
+  .sign td.who { font-weight: 700; line-height: 1.3; }
+  .sign td.who small { display: block; font-weight: 400; font-size: 9.5px; }
+  .sign td.what { line-height: 1.3; }
+  .tag { display: inline-block; border: 1px solid #000; padding: 0 4px; font-size: 9.5px; font-weight: 700; }
+  .pp { white-space: nowrap; font-weight: 400; font-size: 9.5px; margin-right: 6px; }
   .foot { font-size: 9px; color: #000; text-align: right; margin-top: 4px; }
   .tbl-wrap { width: 100%; }
   @media print { button { display: none !important; } thead { display: table-header-group; } .tbl-wrap { overflow: visible; } }
@@ -112,6 +116,29 @@ const partyBox = () => `
   <ul>
     ${PARTY_TYPES.map((t) => `<li><span class="bx"></span> ${t}${t.includes('ระบุ') ? '<span class="fl fl-l"></span>' : ''}</li>`).join('')}
   </ul>
+</div>`;
+
+// ── กล่องลงนาม (ใช้ทั้ง 2 ใบ) ─────────────────────────────────────────
+// ใบเปล่าไม่รู้ทิศทาง → แถวผู้ส่ง/ผู้รับให้ติ๊กฝ่ายเอง (data-p ให้ loan-slip.mjs ติ๊กแทนตามทิศทาง)
+// ผู้นำส่ง (คนกลาง) — เคส Amoxi-Clav ผู้แทนบริษัทนำของไปคืน รพ.อื่นแทนเรา: ต้องมีลายเซ็นคนที่ถือของระหว่างทาง
+const HOSPITAL_SHORT = 'รพ.ประชาธิปัตย์';
+const partyPick = (key) =>
+  `<br/><span class="pp"><span class="bx" data-p="${key}-us"></span> ${HOSPITAL_SHORT}</span>` +
+  `<span class="pp"><span class="bx" data-p="${key}-them"></span> คู่สัญญา</span>`;
+
+const COURIER_ROW = {
+  who: 'ผู้นำส่ง (คนกลาง)<small>ถ้ามี เช่น ผู้แทนบริษัท · ชื่อ/หน่วยงาน <span class="fl fl-m" data-courier></span></small>',
+  what: 'รับยาจาก ① ไปส่งถึงผู้รับครบ (ไม่มีคนกลาง เว้นว่าง)',
+};
+
+const signBox = (rows) => `
+<div class="sign">
+  <div class="sign-h"><span>ลงนาม — เรียงตามขั้นตอน</span><span class="legend">ติ๊กฝ่ายของผู้ส่ง/ผู้รับให้ตรงกับทิศทางข้างบน</span></div>
+  <table>
+    <colgroup><col style="width:5%"><col style="width:26%"><col style="width:26%"><col style="width:19%"><col style="width:15%"><col style="width:9%"></colgroup>
+    <tr><th>ขั้น</th><th>ใครเซ็น</th><th>เซ็นเพื่อยืนยันว่า</th><th>ลายมือชื่อ</th><th>ชื่อตัวบรรจง</th><th>วันที่</th></tr>
+    ${rows.map((r, i) => `<tr><td class="step">${'①②③④⑤'[i]}</td><td class="who">${r.who}</td><td class="what">${r.what}</td><td></td><td></td><td></td></tr>`).join('')}
+  </table>
 </div>`;
 
 // ── ใบที่ 1: ใบยืมยา ────────────────────────────────────────────────
@@ -221,26 +248,12 @@ ${partyBox()}
 </table>
 </div>
 
-<div class="sig-row sig-3">
-  <div class="sig-box">
-    <p class="sig-title">ผู้ส่งมอบ</p>
-    <div class="sig-line"></div>
-    <p class="sig-label">ลายมือชื่อ / ชื่อตัวบรรจง</p>
-    <p class="sig-date">วันที่ <span></span></p>
-  </div>
-  <div class="sig-box">
-    <p class="sig-title">ผู้รับของ</p>
-    <div class="sig-line"></div>
-    <p class="sig-label">ลายมือชื่อ / ชื่อตัวบรรจง</p>
-    <p class="sig-date">วันที่ <span></span></p>
-  </div>
-  <div class="sig-box">
-    <p class="sig-title">ผู้อนุมัติ<br/>(หัวหน้าหน่วยงาน)</p>
-    <div class="sig-line"></div>
-    <p class="sig-label">ลายมือชื่อ / ชื่อตัวบรรจง</p>
-    <p class="sig-date">วันที่ <span></span></p>
-  </div>
-</div>
+${signBox([
+  { who: `ผู้ส่งมอบยา${partyPick('s')}`, what: 'ส่งมอบยาตามรายการข้างบนครบ' },
+  COURIER_ROW,
+  { who: `ผู้รับยา${partyPick('r')}`, what: 'ได้รับยาครบ · ฝ่ายผู้ยืมรับว่าจะคืนตามกำหนด' },
+  { who: `หัวหน้าคลังยา (ผู้อนุมัติ)<br/><span class="tag">${HOSPITAL_SHORT}</span>`, what: 'อนุมัติการยืม / ให้ยืมครั้งนี้' },
+])}
 
 <p class="foot">เก็บใบนี้ไว้จนกว่าจะคืนครบ — ใบคืนต้องอ้างเลขที่ใบยืมเดียวกัน · บันทึกเข้าระบบที่เมนู "ยืม-คืนยาระหว่าง รพ." · พิมพ์เมื่อ ${todayThaiDate()}</p>
 ${printScript()}
@@ -350,20 +363,12 @@ ${partyBox()}
   <b>คืนไม่ครบ</b> ให้เขียนตามที่คืนจริง ส่วนที่เหลือยังค้างอยู่ในใบยืมเดิม <u>ห้ามปิดใบ</u>
 </p>
 
-<div class="sig-row sig-2">
-  <div class="sig-box">
-    <p class="sig-title">ผู้ส่งคืน</p>
-    <div class="sig-line"></div>
-    <p class="sig-label">ลายมือชื่อ / ชื่อตัวบรรจง</p>
-    <p class="sig-date">วันที่ <span></span></p>
-  </div>
-  <div class="sig-box">
-    <p class="sig-title">ผู้รับคืน</p>
-    <div class="sig-line"></div>
-    <p class="sig-label">ลายมือชื่อ / ชื่อตัวบรรจง</p>
-    <p class="sig-date">วันที่ <span></span></p>
-  </div>
-</div>
+${signBox([
+  { who: `ผู้ส่งคืน${partyPick('s')}`, what: 'ส่งคืนตามรายการข้างบน (lot ที่คืนจริง)' },
+  COURIER_ROW,
+  { who: `ผู้รับคืน${partyPick('r')}`, what: 'ได้รับคืนครบ ปิดรายการยืมนี้' },
+  { who: `หัวหน้าคลังยา<br/><span class="tag">${HOSPITAL_SHORT}</span><small>เซ็นภายหลังได้</small>`, what: 'รับทราบการปิดรายการ (ยอดลูกหนี้/เจ้าหนี้ยืม)' },
+])}
 
 <p class="foot">บันทึกเข้าระบบ: เมนู "ยืม-คืนยาระหว่าง รพ." → กรอกวันที่รับคืน + เลขที่ใบคืน ในรายการเดิม · พิมพ์เมื่อ ${todayThaiDate()}</p>
 ${printScript()}

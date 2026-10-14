@@ -11,6 +11,7 @@
 // { "kind": "out" | "return", "ln": "LN-70/001", "fileDate": "8.10.69", "title": "อภ Losartan50",
 //   "slipDate": "", "direction": "lend" | "borrow", "counterparty": "...", "coordinator": "", "phone": "",
 //   "partyType": "โรงพยาบาล" | "บริษัทยา" | "อื่นๆ", "partyOther": "",
+//   "courier": ""   ← ผู้นำส่ง (คนกลาง) เช่น "ผู้แทน บ.ดีทแฮล์ม" — ว่าง = เว้นให้เขียนมือ (ทั้ง 2 ใบ)
 //   out:    "reason": { "pick": "shortage"|"urgent"|"help"|"other", "text": "" },
 //           "returnTerm": { "pick": "po"|"date"|"other", "po": "", "eta": "", "date": "", "text": "" },
 //           "responsible": { "pick": "store"|"handover", "who": "", "date": "" },
@@ -143,6 +144,12 @@ function build(job, form) {
     }
     if (job.note) rep('<p class="note-line">หมายเหตุเพิ่มเติม <span></span></p>', `<p class="note-line">หมายเหตุเพิ่มเติม <span style="font-weight:700;">${esc(job.note)}</span></p>`)
   }
+
+  // กล่องลงนาม — ติ๊กฝ่ายของผู้ส่ง/ผู้รับตามทิศทาง: ใบยืม lend / ใบคืน borrow = เราเป็นผู้ส่ง
+  const weSend = out ? job.direction === 'lend' : job.direction === 'borrow'
+  rep(`<span class="bx" data-p="s-${weSend ? 'us' : 'them'}"></span>`, TICK)
+  rep(`<span class="bx" data-p="r-${weSend ? 'them' : 'us'}"></span>`, TICK)
+  if (job.courier) rep('<span class="fl fl-m" data-courier></span>', W(job.courier, 88))
 
   // ตาราง — สร้าง tbody ใหม่ทั้งก้อน (ขั้นต่ำ 6 แถวเหมือนฟอร์มเปล่า)
   const items = job.items || []
