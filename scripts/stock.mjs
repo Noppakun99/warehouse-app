@@ -20,7 +20,7 @@ const words = args.argv.filter((a, i) => !a.startsWith('--') && args.argv[i - 1]
 if (!words.length) die('ใส่คำค้น เช่น  node scripts/stock.mjs ors ผู้ใหญ่')
 
 // ชื่อเรียกสั้นที่ไม่อยู่ในชื่อยาของ Master — เจอคำที่ยังค้นไม่ติดให้เติมที่นี่
-const ALIAS = { ors: 'oralrehydration' }
+const ALIAS = { ors: 'oralrehydration', tnk: 'tenecteplase' }
 
 const norm = (s) => String(s ?? '').toLowerCase().replace(/[\s,]+/g, '')
 const tokens = words.map(norm).filter(Boolean).map((t) => ALIAS[t] || t)
