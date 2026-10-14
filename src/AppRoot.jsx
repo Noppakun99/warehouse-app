@@ -47,6 +47,7 @@ import { printReturnForm, printVendorExchangeForm } from './lib/returnForm';
 import { printExchangeOutForm, printExchangeInForm, printExchangePair } from './lib/vendorExchangeCycle';
 import { printExpiryDispositionForm, printDestroyForm } from './lib/expiryDispositionForm';
 import { printLoanOutForm, printLoanReturnForm } from './lib/drugLoanForm';
+import { printAfterHoursForm } from './lib/afterHoursForm';
 
 
 // ============================================================
@@ -184,6 +185,7 @@ export default function AppRoot() {
     else if (action === 'vendorExchangeForm') printVendorExchangeForm();
     else if (action === 'expiryDisposition') printExpiryDispositionForm();
     else if (action === 'destroyForm') printDestroyForm();
+    else if (action === 'afterHoursForm') printAfterHoursForm();
     else if (action === 'loanOutForm') printLoanOutForm();
     else if (action === 'loanReturnForm') printLoanReturnForm();
     else if (action === 'exchangePair') printExchangePair();
