@@ -3,6 +3,7 @@
 # ตรวจ 9 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
 #            · รูปบิลมีแถวดัชนี / แถวดัชนีมีไฟล์จริง · รูปตรวจรับรอถ่ายซ้ำ · แถวรับยามีแถว Master · บิลซื้อยังไม่ส่งจัดซื้อ
 #            · ใบเบิกศูนย์/รพ.สต. มีชีทในไฟล์สรุปเบิกยา · นัดเตือน (_นัดเตือน.csv)
+#            · รายงานแจ้งซื้อยารอบล่าสุดมีสำเนาส่งหัวหน้า
 import csv, datetime, glob, os, re, sys, warnings
 
 import openpyxl
@@ -249,5 +250,36 @@ else:
             later.append(start)
     if later:
         ok(f'นัดล่วงหน้า {len(later)} รายการ · ใกล้สุด {be(min(later))}')
+
+# 11) รายงานแจ้งซื้อยารอบล่าสุด (A1 "UPDATE: วันที่ d/m/yy") ต้องมีสำเนาส่งหัวหน้า (สกิล purchase-request-report ขั้น 6b)
+#     รอบ 9/10/2569 publish แล้วไม่ได้ส่ง ไม่มีใครเห็น 5 วัน (scrutinize 15/10/2569) · สำเนาวันที่ ≥ วันรอบ = ส่งแล้ว
+REPORT = os.path.join(HOME, r'OneDrive\รายงานการซื้อยา_69.xlsx')
+ARCHIVE_DIR = os.path.join(HOME, r'Desktop\ยอดคงคลัง\รายงานขอซื้อยา')
+head('รายงานแจ้งซื้อยา ↔ สำเนาส่งหัวหน้า (Desktop\\ยอดคงคลัง\\รายงานขอซื้อยา)')
+try:
+    a1 = str(openpyxl.load_workbook(REPORT, read_only=True)['รายงานซื้อยา']['A1'].value or '')
+except PermissionError:
+    a1 = None
+    print('  … อ่านรายงานไม่ได้ (เปิดอยู่ใน Excel) — ข้ามข้อนี้')
+if a1 is not None:
+    m = re.search(r'UPDATE:\s*วันที่\s*(\d{1,2})/(\d{1,2})/(\d{2,4})', a1)
+    if not m:
+        bad(f'อ่านวันที่รอบจาก A1 ไม่ได้: {a1[:60]!r}')
+    else:
+        y = int(m.group(3))
+        y = y + 2500 - 543 if y < 100 else (y - 543 if y > 2400 else y)
+        rnd = datetime.date(y, int(m.group(2)), int(m.group(1)))
+        copies = []
+        for p in glob.glob(os.path.join(ARCHIVE_DIR, 'รายงานการซื้อยา_*.xlsx')):
+            n = re.match(r'รายงานการซื้อยา_(\d{1,2})\.(\d{1,2})\.(\d{2,4})', os.path.basename(p))
+            if n:
+                cy = int(n.group(3))
+                cy = cy + 2500 - 543 if cy < 100 else cy
+                copies.append(datetime.date(cy, int(n.group(2)), int(n.group(1))))
+        sent = [c for c in copies if c >= rnd]
+        if sent:
+            ok(f'รอบ {be(rnd)} มีสำเนาส่งหัวหน้า ({be(min(sent))})')
+        else:
+            bad(f'รายงานแจ้งซื้อรอบ {be(rnd)} ยังไม่มีสำเนาส่งหัวหน้า — ทำขั้น 6b แล้วส่งหัวหน้า')
 
 print(f'\n{"ครบทุกข้อ" if problems == 0 else f"ไม่ครบ {problems} จุด"}')
