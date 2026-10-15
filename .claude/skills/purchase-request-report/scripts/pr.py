@@ -28,6 +28,29 @@ MONTH_COLS = ['E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P']
 # apply.ps1 มีตารางเดียวกัน ($PHYS) — แก้ตำแหน่งคอลัมน์ต้องแก้ทั้ง 2 ไฟล์
 PHYS_MAP = {'O': 'P', 'P': 'Q', 'Q': 'R', 'R': 'S', 'S': 'T', 'T': 'O'}
 
+# ยาซื้อ → ยาสนับสนุน สสจ. ที่เป็นยาเดียวกัน ขนาด/หน่วยเดียวกัน แต่แยกรหัส (หัวหน้านับคงเหลือรวมทั้ง 2 รหัส — user สั่ง 15/10/2569)
+# ชีทวิเคราะห์รวมเฉพาะแถวรหัสเดียวกัน ยาสนับสนุนที่ใช้รหัสเดียวกับยาซื้อจึงนับอยู่แล้ว ไม่ต้องใส่ที่นี่
+# ค่า = (รหัสยาสนับสนุน, ตัวคูณแปลงหน่วยยาสนับสนุน → หน่วยยาซื้อ) · คู่ที่ user ยืนยันว่าไม่ใช่ยาเดียวกัน/ไม่บวก:
+# ยาหอมเทพจิตร ซอง↔ขวด · Clotrimazole 5g↔ลามาโซน 10g (user 15/10/2569: ไม่บวก ใส่หมายเหตุพอ)
+SUPPORT_TWIN = {
+    '1470011': ('81', 1),     # ขมิ้นชัน 500mg 100เม็ด ↔ 100แคปซูล
+    '1520044': ('82', 1),     # ไพลครีม 30g หลอด
+    '1520054': ('84', 1),     # ลูกประคบ ลูก
+    '1520023': ('64', 0.5),   # มะขามแขก 200เม็ด ↔ 100แคปซูล = ครึ่งกล่อง (user 15/10/2569: แคปซูล = เม็ด ยาเดียวกัน)
+}
+
+
+def twin_q(d, code):
+    """(คงเหลือรวม, Avg/วันรวม, รหัสยาสนับสนุน, คงเหลือยาสนับสนุนในหน่วยของยาซื้อ) — ไม่มีคู่ = ค่าของรหัสเดียว"""
+    r, ac = d.analysis[code], d.ac
+    q, day = num(r[ac['q']]), num(r[ac['day']])
+    sc, f = SUPPORT_TWIN.get(code, (None, 1))
+    s = d.analysis.get(sc) if sc else None
+    if s is None:
+        return q, day, None, 0
+    sq = num(s[ac['q']]) * f
+    return q + sq, day + num(s[ac['day']]) * f, sc, sq
+
 
 def phys(key):
     return PHYS_MAP.get(key, key)
@@ -308,7 +331,7 @@ def parse_date(s):
 def row_values(d, code):
     r, c = d.analysis[code], d.ac
     v = lambda k: r[c[k]]
-    return dict(I=v('price'), J=v('supplier'), K=v('lt'), L=v('ss'), M=v('max'), N=v('avg'), O=v('q'),
+    return dict(I=v('price'), J=v('supplier'), K=v('lt'), L=v('ss'), M=v('max'), N=v('avg'), O=twin_q(d, code)[0],
                 P=v('total'), Q=v('sum3'), R=v('rec'), T=v('day'))
 
 
@@ -357,6 +380,10 @@ def cmd_plan(a):
             keep.append(x)
             continue
         after = [t for t in d.buy.get(x['code'], []) if t >= b]
+        # แถว "แจ้งซ้ำ: ของมาแล้ว d/m/yy" ถูกสร้างเพราะการรับวันนั้นเอง — การรับวันเดียวกับวันแจ้งไม่ใช่ของรอบใหม่
+        # (เดิมรอบที่ 2 ในวันเดียวกันย้ายแถวแจ้งซ้ำไป Sheet1 แล้วเพิ่มกลับเป็นรายการใหม่วนซ้ำ — 14/10/2569)
+        if f"แจ้งซ้ำ: ของมาแล้ว {be(b)}" in str(x['S'] or ''):
+            after = [t for t in after if t.date() > b.date()]
         if after:
             moves.append(dict(row=x['row'], code=x['code'], name=x['name'], kind='delivered', tick=x['A'] != CHECKED, S=None,
                               notified=b.date().isoformat(), delivered=min(after).date().isoformat()))
@@ -375,6 +402,9 @@ def cmd_plan(a):
             warn.append(f"{x['code']} {x['name']}: หน่วยในรายงาน '{x['unit']}' ≠ ชีทวิเคราะห์ '{r[d.ac['unit']]}' — ไม่อัพเดตตัวเลข")
             continue
         refresh.append(dict(code=x['code'], values={k: clean(v) for k, v in row_values(d, x['code']).items()}))
+        _, _, sc, sq = twin_q(d, x['code'])
+        if sc:
+            warn.append(f"{x['code']} {x['name']}: คงเหลือในรายงาน = ยาซื้อ + ยาสนับสนุนรหัส {sc} ({qfmt(sq)}) — หมายเหตุแถวนี้ต้องบอกเอง (สคริปต์ไม่แตะหมายเหตุแถวเดิม)")
     # 3) รายการใหม่ — ห้ามซ้ำกับรายการที่ยังรอของ (แบบ ก)
     pending = {x['code'] for x in keep}
     moved = {m['code']: m for m in moves}
@@ -391,6 +421,9 @@ def cmd_plan(a):
         lb = d.last_buy(code)
         if prev and lb and lb >= max(prev):
             note.append(f"แจ้งซ้ำ: ของมาแล้ว {be(lb)} แต่ยังต่ำกว่า ROP")
+        _, _, sc, sq = twin_q(d, code)
+        if sc:
+            note.append(f"คงเหลือรวมยาสนับสนุน สสจ. (รหัส {sc}) {qfmt(sq)} {r[d.ac['unit']]}")
         new.append(dict(code=code, status=stv, F=r[d.ac['type']], G=r[d.ac['name']], H=r[d.ac['unit']],
                         C=lb.date().isoformat() if lb else '-', S=' / '.join(note),
                         **{k: clean(v) for k, v in row_values(d, code).items()}))
@@ -546,41 +579,55 @@ def cmd_line(a):
     notes = dict(n.split('=', 1) for n in (a.note or []))
     c = d.dc
     last, unmet = {}, {}
+    # ขอเบิกแล้วจ่ายไม่ครบ — รวมต่อคำขอ (วันที่+หน่วยงาน+รหัส+หน่วย) เพราะคำขอเดียวแตกหลายแถว lot ได้
+    # จ่าย 0 = "ไม่มีจ่าย" · จ่ายบางส่วน = "จ่ายได้ N ไม่พอ" (เดิมนับเฉพาะจ่าย 0 — แถวที่ได้บางส่วนหลุด 14/10/2569)
+    asked = defaultdict(lambda: [0.0, 0.0])
     for r in d.disp:
         code = str(r[c['code']]).strip()
         if r[c['kind']] in NOT_REAL_DISPENSE:
             continue
-        key = (r[c['date']], r[c['dept']], r[c['qty']], r[c['unit']], r[c['req']])
         if num(r[c['qty']]) > 0:
+            key = (r[c['date']], r[c['dept']], r[c['qty']], r[c['unit']], r[c['req']])
             if code not in last or r[c['date']] >= last[code][0]:
                 last[code] = key
-        elif num(r[c['req']]) > 0:
-            if code not in unmet or r[c['date']] >= unmet[code][0]:
-                unmet[code] = key
+        k = (r[c['date']], str(r[c['dept']]).strip(), code, str(r[c['unit']]).strip())
+        asked[k][0] += num(r[c['qty']])
+        asked[k][1] = max(asked[k][1], num(r[c['req']]))
+    for (date, dept, code, unit), (got, req) in asked.items():
+        if req > 0 and got < req and (code not in unmet or date >= unmet[code][0]):
+            unmet[code] = (date, dept, got, unit, req)
     ac = d.ac
     sel = []
+    twin_skip = []
     for code, r in d.analysis.items():
-        stv, q, day = r[ac['status']], num(r[ac['q']]), num(r[ac['day']])
+        stv = r[ac['status']]
+        q, day, sc, sq = twin_q(d, code)
+        if sc and stv in ORDER_STATUSES and q > 0 and q >= day * 7:
+            twin_skip.append(f"{code} {str(r[ac['name']]).strip()} (รวมยาสนับสนุนรหัส {sc} = {qfmt(q)})")
+            continue
         if stv == 'หมดสต็อค' or (stv in ORDER_STATUSES and day > 0 and q < day * 7):
             sel.append((0 if stv == 'หมดสต็อค' else 1, code, r))
     sel.sort(key=lambda t: t[0])
-    lines = [f"เรียน{a.to}", "รบกวนช่วยติดตามยาที่คงเหลือไม่พอจ่าย ตามรายการด้านล่างนี้ด้วยนะครับ", ""]
-    audit = []
-    for i, (_, code, r) in enumerate(sel, 1):
+    # รูปแบบที่ user แก้แล้วส่งจริง 14/10/2569 — ไม่มี "เรียน…"/"ขอบคุณ…" · เหตุผลลงท้าย "ครับ" ทุกข้อ
+    lines = [f"ฝาก{a.to}ติดตามยา ตามรายการด้านล่างนี้ครับ", ""]
+    audit, items = [], []
+    for grp, code, r in sel:
         unit = r[ac['unit']]
         sup = str(r[ac['supplier']] or '-').strip()
         sup = sup[len('บริษัท '):] if sup.startswith('บริษัท ') else sup
         n = notify.get(code)
         prev = max(archive[code]) if archive.get(code) else None
         lb = d.last_buy(code)
-        s = (f"{i}. {str(r[ac['name']]).strip()} คงเหลือ {qfmt(r[ac['q']])} x {unit} ที่คลัง "
+        tq, tday, sc, sq = twin_q(d, code)
+        s = (f"{str(r[ac['name']]).strip()} คงเหลือ {qfmt(tq)} x {unit} ที่คลัง "
+             + (f"(รวมยาสนับสนุน สสจ. {qfmt(sq)}) " if sc else "") +
              f"แจ้งสั่งวันที่ {ce(n) if n else (ce(prev) + ' (รอบก่อน)' if prev else '-')} บริษัท {sup} ")
         L = last.get(code)
         s += (f"เบิกล่าสุดวันที่ {ce(L[0])} {str(L[1]).strip()} จำนวน {qfmt(L[2])} x {L[3]} " if L else "ยังไม่มีประวัติเบิก ")
         s += f"วันที่มาส่งล่าสุด {ce(lb) if lb else '-'}"
         # เหตุผล — จากข้อมูลจริงเท่านั้น
         why = []
-        q, day = num(r[ac['q']]), num(r[ac['day']])
+        q, day = tq, tday
         if q > 0:
             why.append(f"เหลือ {qfmt(q)} {unit} ใช้สัปดาห์ละประมาณ {qfmt(round(day * 7))} {unit} ไม่พอจ่ายสัปดาห์นี้")
         if n and n.date() == today.date():
@@ -597,20 +644,41 @@ def cmd_line(a):
         else:
             why.append("ยังไม่มีแถวแจ้งสั่งในรายงาน")
         U = unmet.get(code)
+        # ด่วน = หน่วยงานขอเบิกภายใน 14 วันแล้วยังไม่ได้ของ/ได้ไม่ครบ (user สั่ง 14/10/2569 ให้ยกขึ้นบนแยกหัวข้อ)
+        urgent = bool(U and (not L or U[0] >= L[0]) and (today - U[0]).days <= 14)
         if U and (not L or U[0] >= L[0]):
-            why.append(f"วันที่ {ce(U[0])} {str(U[1]).strip()} ขอเบิก {qfmt(U[4])} {U[3]} แต่ไม่มีจ่าย")
+            why.append(f"วันที่ {ce(U[0])} {U[1]} ขอเบิก {qfmt(U[4])} x {U[3]} "
+                       + ("แต่ไม่มีจ่าย" if U[2] <= 0 else f"จ่ายได้ {qfmt(U[2])} ไม่พอจ่าย"))
         if code in notes:
             why.insert(0, notes[code])
-        s += f"\n   เหตุผล: {' / '.join(why)}"
-        lines += [s, ""]
+        s += f"\n   เหตุผล: {' / '.join(why)} ครับ"
+        items.append((0 if urgent else 1, grp, s))
         audit.append((code, r[ac['status']], 'แจ้ง' if n else ('Sheet1' if prev else 'ไม่มี')))
-    lines.append("ขอบคุณมากครับ")
-    out('\n'.join(lines))
+    items.sort(key=lambda t: (t[0], t[1]))
+    heads = {0: 'ด่วน — หน่วยงานขอเบิกแล้วยังไม่ได้ของ / ได้ไม่ครบ', 1: 'ติดตามทั่วไป'}
+    i = 0
+    for sec in (0, 1):
+        part = [t for t in items if t[0] == sec]
+        if part:
+            lines += [f"【{heads[sec]}】", ""]
+        for _, _, s in part:
+            i += 1
+            lines += [f"{i}. {s}", ""]
+    out('\n'.join(lines).rstrip())
     out('\n---- ตรวจสอบ (ไม่ต้องส่งไลน์) ----')
-    out(f'{len(sel)} รายการ: หมดสต็อค {sum(1 for t in sel if t[0] == 0)} · ไม่พอจ่ายภายใน 7 วัน {sum(1 for t in sel if t[0] == 1)}')
+    out(f'{len(sel)} รายการ (ด่วน {sum(1 for t in items if t[0] == 0)}): หมดสต็อค {sum(1 for t in sel if t[0] == 0)} · ไม่พอจ่ายภายใน 7 วัน {sum(1 for t in sel if t[0] == 1)}')
+    if twin_skip:
+        out('ไม่อยู่ในไลน์เพราะยาสนับสนุนรหัสคู่ยังพอ (SUPPORT_TWIN):', '; '.join(twin_skip))
     miss = [c for c, _, src in audit if src != 'แจ้ง']
     if miss:
         out('!! ไม่มีแถวแจ้งสั่งในรายงานปัจจุบัน (ควรเพิ่มก่อนส่ง):', miss)
+    # ขอเบิกไม่ครบ 14 วันล่าสุด แต่ไม่ติดไลน์ (คลังมีของ — มักรอตรวจรับ หรือจำกัดจ่ายตั้งใจ) ให้ user ตัดสินเอง
+    picked = {code for _, code, _ in sel}
+    for code, (date, dept, got, unit, req) in ((k, v) for k, v in unmet.items() if k not in picked and (today - v[0]).days <= 14):
+        r = d.analysis.get(code)
+        nm = str(r[ac['name']]).strip() if r is not None else code
+        st = f"{r[ac['status']]} คงเหลือ {qfmt(r[ac['q']])}" if r is not None else '-'
+        out(f'?? ขอเบิกไม่ครบแต่ไม่อยู่ในไลน์: {ce(date)} {dept} {nm} ขอ {qfmt(req)} x {unit} ได้ {qfmt(got)} | {st}')
     unk = [k for k in notes if k not in {c for c, _, _ in audit}]
     if unk:
         out('!! --note ระบุรหัสที่ไม่อยู่ในรายการ:', unk)
