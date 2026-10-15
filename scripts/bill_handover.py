@@ -4,6 +4,8 @@ usage: python scripts/bill_handover.py [--bills b1,b2] [--since YYYY-MM-DD] [--f
 ระบุ --bills = ด่านกัน: บิลที่หาเจอต้องตรงชุดนี้เป๊ะ ไม่งั้นหยุด
 ไม่มี --commit = สร้าง HTML/PDF ใน temp อย่างเดียว ไม่แตะโฟลเดอร์จริง/ทะเบียน
 ส่งรอบ 2+ ในวันเดียว → ส่งบิล2 <ว.ด.ปป>.pdf, ส่งบิล3 … (ตามชื่อไฟล์เดิมของคลัง)
+--reissue สบ.70/004 = ออกใบเดิมใหม่หลังแก้ชีท (เลขที่/วันที่ส่ง/ชื่อไฟล์/ชุดบิลเดิม) — เฉพาะใบที่จัดซื้อยังไม่เซ็นรับ
+  PDF เดิมสำรองไว้ใน temp ก่อนเขียนทับ · แถวทะเบียนของใบนั้นถูกแทนที่ตำแหน่งเดิม
 """
 import sys, os, csv, html, datetime, subprocess, tempfile, time, warnings
 from collections import OrderedDict
@@ -102,6 +104,24 @@ def main():
     fy = fiscal2(today)
     nums = [int(r['เลขที่ใบ'].split('/')[1]) for r in reg_rows if r['เลขที่ใบ'].startswith(f'สบ.{fy}/')]
     doc_no = f'สบ.{fy}/{(max(nums) + 1) if nums else 1:03d}'
+    reissue = arg('--reissue')
+    only_keys, reissue_file = None, None
+    if reissue:
+        old = [r for r in reg_rows if r['เลขที่ใบ'] == reissue]
+        if not old:
+            sys.exit(f'STOP: {reissue} not in register')
+        if any(r['จัดซื้อเซ็นรับ'].strip() for r in old):
+            sys.exit(f'STOP: {reissue} signed by procurement already — do not reissue')
+        # ทะเบียนไม่ติ๊ก ≠ ยังไม่เซ็น — รูปเซ็นรับที่ยังไม่ลงอาจเป็นใบนี้ (15/10/2569 ออก สบ.70/004 ใหม่ทับใบที่เซ็นแล้ว)
+        signed_inbox = os.path.join(os.path.expanduser('~'), 'OneDrive', 'เอกสารคลังยา_รอลง', 'จัดซื้อเซ็นรับ')
+        if os.path.isdir(signed_inbox) and any(os.path.isfile(os.path.join(signed_inbox, f)) for f in os.listdir(signed_inbox)):
+            sys.exit(f'STOP: มีรูปเซ็นรับค้างใน {signed_inbox} — ลงติ๊กทะเบียนก่อน แล้วค่อย --reissue')
+        doc_no, reissue_file = reissue, old[0]['ไฟล์ใบส่ง']
+        d, m, y = (int(x) for x in old[0]['วันที่ส่ง'].split('/'))
+        today = datetime.date(y - 543, m, d)
+        only_keys = {(r['เลขที่บิล'], r['วันที่รับ']) for r in old}
+        sent_keys -= only_keys
+        since = min(since, min(datetime.date(int(k[1][6:]) - 543, int(k[1][3:5]), int(k[1][:2])) for k in only_keys))
 
     ws = openpyxl.load_workbook(src, read_only=True, data_only=True)['รับยา']
     bills = OrderedDict()
@@ -113,7 +133,7 @@ def main():
             continue
         bill = str(r[7]).strip()
         key = (bill, short(rd))
-        if key in sent_keys:
+        if key in sent_keys or (only_keys is not None and key not in only_keys):
             continue
         b = bills.setdefault((bill, str(r[17]).strip(), rd), {'rows': []})
         b['rows'].append({'n': n, 'name': str(r[3]).strip(), 'po': str(r[8] or '-').strip(),
@@ -220,7 +240,7 @@ tfoot td {{ font-weight: 700; border-top: 2px solid #000; }}
 · เฉพาะสถานะการซื้อ = การซื้อ · ทะเบียน _ทะเบียนส่งบิลจัดซื้อ.csv</div>
 </body></html>'''
 
-    fname = out_name(today)
+    fname = reissue_file or out_name(today)
     html_path = os.path.join(HERE, 'bill_handover.html')
     with open(html_path, 'w', encoding='utf-8') as f:
         f.write(page)
@@ -246,20 +266,36 @@ tfoot td {{ font-weight: 700; border-top: 2px solid #000; }}
     if not commit:
         return
     dest = os.path.join(OUT_DIR, fname)
-    if os.path.exists(dest):
+    if reissue:
+        if got != {k[0] for k in only_keys}:
+            sys.exit(f'STOP: reissue bills {sorted(got)} != register {sorted(k[0] for k in only_keys)}')
+        bak = os.path.join(HERE, f'{fname[:-4]}_ก่อนออกใหม่_{datetime.datetime.now():%Y%m%d_%H%M%S}.pdf')
+        if os.path.exists(dest):
+            os.replace(dest, bak)
+            print('old PDF backup:', bak)
+    elif os.path.exists(dest):
         sys.exit(f'STOP: {dest} exists')
     with open(pdf_tmp, 'rb') as a, open(dest, 'wb') as b:
         b.write(a.read())
-    new = not os.path.exists(REG)
-    with open(REG, 'a', encoding='utf-8-sig' if new else 'utf-8', newline='') as f:
-        w = csv.DictWriter(f, fieldnames=REG_COLS)
-        if new:
+    new_rows = [{'เลขที่ใบ': doc_no, 'วันที่ส่ง': short(today), 'วันที่รับ': short(rd), 'เลขที่บิล': bill,
+                 'บริษัท': sup, 'เลขที่PO': ', '.join(sorted({x['po'] for x in b['rows']})),
+                 'จำนวนรายการ': len(b['rows']), 'มูลค่า(บาท)': f'{sum(x["val"] for x in b["rows"]):.2f}',
+                 'ไฟล์ใบส่ง': fname, 'จัดซื้อเซ็นรับ': '', 'วันที่เซ็นรับ': '', 'หมายเหตุ': ''}
+                for (bill, sup, rd), b in items]
+    if reissue:
+        at = next(i for i, r in enumerate(reg_rows) if r['เลขที่ใบ'] == reissue)
+        rest = [r for r in reg_rows if r['เลขที่ใบ'] != reissue]
+        with open(REG, 'w', encoding='utf-8-sig', newline='') as f:
+            w = csv.DictWriter(f, fieldnames=REG_COLS)
             w.writeheader()
-        for (bill, sup, rd), b in items:
-            w.writerow({'เลขที่ใบ': doc_no, 'วันที่ส่ง': short(today), 'วันที่รับ': short(rd), 'เลขที่บิล': bill,
-                        'บริษัท': sup, 'เลขที่PO': ', '.join(sorted({x['po'] for x in b['rows']})),
-                        'จำนวนรายการ': len(b['rows']), 'มูลค่า(บาท)': f'{sum(x["val"] for x in b["rows"]):.2f}',
-                        'ไฟล์ใบส่ง': fname, 'จัดซื้อเซ็นรับ': '', 'วันที่เซ็นรับ': '', 'หมายเหตุ': ''})
+            w.writerows(rest[:at] + new_rows + rest[at:])
+    else:
+        new = not os.path.exists(REG)
+        with open(REG, 'a', encoding='utf-8-sig' if new else 'utf-8', newline='') as f:
+            w = csv.DictWriter(f, fieldnames=REG_COLS)
+            if new:
+                w.writeheader()
+            w.writerows(new_rows)
     print('COMMITTED', dest, REG)
 
 

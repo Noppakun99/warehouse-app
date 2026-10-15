@@ -2,6 +2,7 @@
 # ใช้: python scripts/check-complete.py
 # ตรวจ 9 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
 #            · รูปบิลมีแถวดัชนี / แถวดัชนีมีไฟล์จริง · รูปตรวจรับรอถ่ายซ้ำ · แถวรับยามีแถว Master · บิลซื้อยังไม่ส่งจัดซื้อ
+#            · บิลซื้อลง "ยามาส่ง" ในระบบติดตามการสั่งซื้อของจัดซื้อแล้ว (อ่านระบบผ่านเน็ต — scripts/po_match.py)
 #            · ใบเบิกศูนย์/รพ.สต. มีชีทในไฟล์สรุปเบิกยา · นัดเตือน (_นัดเตือน.csv)
 #            · รายงานแจ้งซื้อยารอบล่าสุดมีสำเนาส่งหัวหน้า
 import csv, datetime, glob, os, re, sys, warnings
@@ -148,8 +149,9 @@ if not pend:
 
 # 5) + 6) อ่านชีทรับยา / Master (ค่าที่ Excel คำนวณไว้ตอน Save ล่าสุด)
 wr = openpyxl.load_workbook(RECV_XLSM, read_only=True, data_only=True)
-recv = []
+recv, recv_raw = [], []
 for i, r in enumerate(wr['รับยา'].iter_rows(min_row=2, max_col=18, values_only=True), 2):
+    recv_raw.append(r)
     if not r[3]:
         continue
     recv.append(dict(row=i, code=str(r[1] or '').strip(), name=str(r[3]).strip(), status=str(r[4] or '').strip(),
@@ -182,6 +184,32 @@ for (bill, d), x in todo:
 ok(f'{len(bills) - len(todo)}/{len(bills)} บิลส่งแล้ว')
 for s in unsigned:
     print(f'  … ใบส่ง {s} จัดซื้อยังไม่เซ็นรับ')
+
+# 7b) บิลซื้อ ↔ ระบบติดตามการสั่งซื้อของจัดซื้อ (Apps Script) — คลังลง "ยามาส่ง" เฉพาะแท็บคลังยา (user สั่ง 15/10/2569)
+#     บิลรับเข้าแล้วแต่ PO ในระบบยังรอยามาส่ง / ยอดไม่ตรง / ช่อง PO ในชีทว่าง = ไม่ครบ → python scripts/po_match.py [--commit]
+head('บิลซื้อ ↔ ระบบติดตามการสั่งซื้อ (แท็บคลังยา)')
+try:
+    import po_match
+    po_rows = po_match.call('api_bootstrap')['rows']
+except Exception as e:  # เน็ตคลังล่ม ต.ค.69 (memory internet-outage-oct69) — ตรวจไม่ได้ ≠ ครบ
+    po_rows = None
+    bad(f'เชื่อมระบบจัดซื้อไม่ได้ ({type(e).__name__}) — ตรวจข้อนี้ไม่ได้ ลองใหม่เมื่อเน็ตใช้ได้')
+if po_rows is not None:
+    po_out, po_todo = po_match.match(po_rows, po_match.bills_from_rows(recv_raw, po_match.po_since(po_rows)))
+    for r in po_out:
+        if po_match.is_problem(r['ผล']):
+            bad(f"{r['เลขที่PO']} บิล {r.get('บิล(ชีท)', '') or '-'} — {r['ผล']}")
+    late = [r for r in po_out if r['ผล'] == 'รอยามาส่ง — เกินกำหนด']
+    for r in late:
+        print(f"  … {r['เลขที่PO']} ยาเกิน {po_match.OVERDUE_DAYS} วันยังไม่มาส่ง (ออก PO {r['วันที่ออกPO']}) {r['บริษัท(ระบบ)']}")
+    # ส่งบางส่วน = ยังไม่ลงระบบโดยเจตนา (ลงครั้งเดียวเมื่อครบ PO) — ไม่ใช่ปัญหา แต่ต้องรู้ว่ารอบิลที่เหลือ
+    #   บริษัทไม่ส่งส่วนที่เหลือแล้ว (จัดซื้อยืนยัน) → python scripts/po_match.py --short-ok "<เลข PO>" --commit
+    for r in po_out:
+        if r['ผล'].startswith('ส่งบางส่วน'):
+            print(f"  … {r['เลขที่PO']} {r['ผล']} · บิล {r['บิล(ชีท)']}")
+    n_done = sum(1 for r in po_out if r['ผล'].startswith('ตรงกัน'))
+    n_wait = sum(1 for r in po_out if r['ผล'].startswith('รอยามาส่ง'))
+    ok(f'PO ในระบบ {len(po_rows)} ใบ · ลงยามาส่งตรงชีทแล้ว {n_done} · รอยามาส่ง {n_wait}')
 
 # 8) ใบเบิกหน่วยงานภายนอก (PDF ใต้ รพสต_เทศบาล\<ศูนย์>\) ต้องมีชีทชื่อ <ว.ด.ปป> ในไฟล์สรุปของศูนย์นั้น
 #    (ไฟล์สรุปส่งไลน์ให้ศูนย์ — memory rpst-dispense-summary) · นับเฉพาะปีงบ 70 ขึ้นไป (เริ่มทำไฟล์สรุปทุกใบ)
