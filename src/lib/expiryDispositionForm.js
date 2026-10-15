@@ -24,23 +24,27 @@ function todayThaiDate() {
 }
 
 // ขาวดำล้วน (เครื่องพิมพ์ไม่มีสี) — ชุดเดียวกับ vendorExchangeCycle.js
+// ความสูงแถวรายการต่อใบ — ตั้งให้แต่ละใบเต็ม A4 หน้าเดียวพอดี (ใบที่ใช้ SHARED_CSS ร่วมกันมีเนื้อหาสูงไม่เท่ากัน)
+const EXPIRY_ROW_H = 39;
+const DESTROY_ROW_H = 27;
+
 const SHARED_CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Sarabun', sans-serif; font-size: 12px; color: #000; background: #fff; padding: 12px 18px 14px; }
+  body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #000; background: #fff; padding: 12px 18px 14px; }
   @page { size: A4 portrait; margin: 10mm; }
   .h-row { text-align: center; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 8px; }
-  h1 { font-size: 17px; font-weight: 700; color: #000; }
-  .sub { font-size: 12px; color: #000; font-weight: 700; margin-top: 2px; }
-  .legal { font-size: 9.5px; font-weight: 400; margin-top: 2px; }
+  h1 { font-size: 19px; font-weight: 700; color: #000; }
+  .sub { font-size: 13px; color: #000; font-weight: 700; margin-top: 2px; }
+  .legal { font-size: 10.5px; font-weight: 400; margin-top: 2px; }
   .refbox { border: 2px solid #000; padding: 5px 8px; margin-bottom: 7px; display: flex;
-    justify-content: space-between; align-items: center; gap: 10px; font-size: 12px; font-weight: 700; }
-  .refbox .num { font-size: 14px; letter-spacing: 1px; }
+    justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; }
+  .refbox .num { font-size: 15px; letter-spacing: 1px; }
   .refbox span.fill { display: inline-block; border-bottom: 1px solid #000; min-width: 92px; margin-left: 5px;
-    height: 14px; vertical-align: bottom; }
-  .meta { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 11px; color: #000; margin-bottom: 7px; }
+    height: 17px; vertical-align: bottom; }
+  .meta { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 12px; color: #000; margin-bottom: 7px; }
   .meta span { display: inline-block; border-bottom: 1px dotted #000; min-width: 120px; margin-left: 5px;
-    height: 14px; vertical-align: bottom; }
-  .box { border: 1px solid #000; padding: 5px 8px; margin-bottom: 7px; font-size: 11px; }
+    height: 17px; vertical-align: bottom; }
+  .box { border: 1px solid #000; padding: 5px 8px; margin-bottom: 7px; font-size: 12px; }
   .box ul { list-style: none; display: flex; flex-wrap: wrap; gap: 5px 14px; margin-top: 4px; }
   /* baseline ไม่ใช่ center — ไม่งั้น .fl (เส้นเขียนมือ) ถูกดันขึ้นไปกลางบรรทัด */
   .box li { display: flex; align-items: baseline; gap: 4px; }
@@ -48,34 +52,34 @@ const SHARED_CSS = `
   /* รายการที่มีช่องเขียนหลายช่องต่อบรรทัด — ให้กินเต็มความกว้าง 1 ข้อ/บรรทัด */
   .box ul.stack { flex-direction: column; gap: 7px; }
   .box ul.stack li { width: 100%; flex-wrap: wrap; }
-  .bx { display: inline-block; width: 12px; height: 12px; border: 1px solid #000; vertical-align: middle; flex: none; }
+  .bx { display: inline-block; width: 14px; height: 14px; border: 1px solid #000; vertical-align: middle; flex: none; }
   /* ช่องเว้นให้เขียนมือ — ต้อง align bottom + มีความสูง ไม่งั้นเส้นลอยไปกลางบรรทัด (ดูเหมือนขีดฆ่า) */
-  .fl { display: inline-block; border-bottom: 1px solid #000; height: 14px; vertical-align: bottom;
+  .fl { display: inline-block; border-bottom: 1px solid #000; height: 17px; vertical-align: bottom;
     margin: 0 3px; min-width: 60px; }
   .fl-s { min-width: 44px; }
   .fl-m { min-width: 82px; }
   .fl-l { min-width: 130px; }
   .fl-xl { min-width: 155px; }
-  table { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 7px; page-break-inside: avoid;
+  table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 7px; page-break-inside: avoid;
     table-layout: fixed; }
   th { background: #fff; color: #000; font-weight: 700; padding: 3px 2px; text-align: center; border: 1px solid #000;
     word-wrap: break-word; }
   td { padding: 3px 3px; border: 1px solid #000; height: 30px; vertical-align: middle; word-wrap: break-word; }
   td.c { text-align: center; }
-  .note-line { font-size: 11px; margin-bottom: 7px; }
+  .note-line { font-size: 12px; margin-bottom: 7px; }
   .note-line span { display: inline-block; border-bottom: 1px dotted #000; min-width: 74%; margin-left: 5px;
-    height: 14px; vertical-align: bottom; }
+    height: 17px; vertical-align: bottom; }
   .sig-row { display: grid; gap: 18px; margin-top: 8px; page-break-inside: avoid; }
   .sig-2 { grid-template-columns: 1fr 1fr; }
   .sig-3 { grid-template-columns: 1fr 1fr 1fr; }
   .sig-box { padding: 5px 8px; text-align: center; }
-  .sig-title { font-size: 10.5px; font-weight: 700; color: #000; margin-bottom: 24px; }
+  .sig-title { font-size: 11.5px; font-weight: 700; color: #000; margin-bottom: 24px; }
   .sig-line { border-bottom: 1px solid #000; }
-  .sig-label { font-size: 9.5px; color: #000; margin-top: 4px; }
-  .sig-date { font-size: 9.5px; color: #000; margin-top: 5px; }
+  .sig-label { font-size: 10.5px; color: #000; margin-top: 4px; }
+  .sig-date { font-size: 10.5px; color: #000; margin-top: 5px; }
   .sig-date span { display: inline-block; border-bottom: 1px dotted #000; min-width: 70px; margin-left: 4px;
-    height: 14px; vertical-align: bottom; }
-  .foot { font-size: 9px; color: #000; text-align: right; margin-top: 6px; }
+    height: 17px; vertical-align: bottom; }
+  .foot { font-size: 10px; color: #000; text-align: right; margin-top: 6px; }
   .tbl-wrap { width: 100%; }
   @media print { button { display: none !important; } thead { display: table-header-group; } .tbl-wrap { overflow: visible; } }
   @media screen and (max-width: 768px) {
@@ -119,7 +123,7 @@ export function printExpiryDispositionForm() {
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>ใบสำรวจยาหมดอายุ - คัดแยกปลายทาง</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
-<style>${SHARED_CSS}</style>
+<style>${SHARED_CSS}  td { height: ${EXPIRY_ROW_H}px; }</style>
 </head><body>
 ${printBtn()}
 
@@ -228,7 +232,7 @@ export function printDestroyForm() {
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>ใบส่งทำลายยาหมดอายุ</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
-<style>${SHARED_CSS}</style>
+<style>${SHARED_CSS}  td { height: ${DESTROY_ROW_H}px; }</style>
 </head><body>
 ${printBtn()}
 

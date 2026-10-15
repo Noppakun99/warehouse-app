@@ -32,53 +32,57 @@ const REASONS = [
 ];
 
 // CSS ร่วม 2 ใบ — ขาวดำล้วน (เครื่องพิมพ์ไม่มีสี) ตัวอักษร/เส้น #000 พื้นขาว
+// ความสูงแถวรายการต่อใบ — ตั้งให้แต่ละใบเต็ม A4 หน้าเดียวพอดี (ใบที่ใช้ SHARED_CSS ร่วมกันมีเนื้อหาสูงไม่เท่ากัน)
+const OUT_ROW_H = 46;   // ใบส่งคืนบริษัท (ขาออก) — ใบคู่ใช้ style ของใบนี้ทั้ง 2 แผ่น จึงมี .sheet2 ด้วย
+const IN_ROW_H = 36;    // ใบรับยาเปลี่ยนกลับ (ขาเข้า)
+
 const SHARED_CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Sarabun', sans-serif; font-size: 12px; color: #000; background: #fff; padding: 12px 18px 14px; }
+  body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #000; background: #fff; padding: 12px 18px 14px; }
   @page { size: A4 portrait; margin: 10mm; }
   .h-row { text-align: center; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 8px; }
-  h1 { font-size: 17px; font-weight: 700; color: #000; }
-  .sub { font-size: 12px; color: #000; font-weight: 700; margin-top: 2px; }
+  h1 { font-size: 19px; font-weight: 700; color: #000; }
+  .sub { font-size: 13px; color: #000; font-weight: 700; margin-top: 2px; }
   .refbox { border: 2px solid #000; padding: 5px 8px; margin-bottom: 7px; display: flex;
-    justify-content: space-between; align-items: center; gap: 10px; font-size: 12px; font-weight: 700; }
-  .refbox .num { font-size: 14px; letter-spacing: 1px; }
+    justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; }
+  .refbox .num { font-size: 15px; letter-spacing: 1px; }
   .refbox span.fill { display: inline-block; border-bottom: 1px solid #000; min-width: 92px; margin-left: 5px;
-    height: 16px; vertical-align: bottom; }
-  .meta { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 11px; color: #000; margin-bottom: 7px; }
+    height: 19px; vertical-align: bottom; }
+  .meta { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 12px; color: #000; margin-bottom: 7px; }
   .meta span { display: inline-block; border-bottom: 1px dotted #000; min-width: 120px; margin-left: 5px;
-    height: 14px; vertical-align: bottom; }
+    height: 17px; vertical-align: bottom; }
   /* ช่องเว้นให้เขียนมือ — ต้อง align bottom + มีความสูง ไม่งั้นเส้นลอยไปกลางบรรทัด (ดูเหมือนขีดฆ่า) */
-  .fl { display: inline-block; border-bottom: 1px solid #000; height: 14px; vertical-align: bottom;
+  .fl { display: inline-block; border-bottom: 1px solid #000; height: 17px; vertical-align: bottom;
     margin: 0 3px; min-width: 60px; }
   .fl-s { min-width: 44px; }
   .fl-m { min-width: 82px; }
   .fl-l { min-width: 130px; }
-  .reasons { border: 1px solid #000; padding: 5px 8px; margin-bottom: 7px; font-size: 11px; }
-  .reasons b { font-size: 11px; }
+  .reasons { border: 1px solid #000; padding: 5px 8px; margin-bottom: 7px; font-size: 12px; }
+  .reasons b { font-size: 12px; }
   .reasons ul { list-style: none; display: flex; flex-wrap: wrap; gap: 5px 14px; margin-top: 4px; }
   /* baseline ไม่ใช่ center — ไม่งั้น .fl (เส้นเขียนมือ) ถูกดันขึ้นไปกลางบรรทัด */
   .reasons li { display: flex; align-items: baseline; gap: 4px; }
   .reasons li .bx { align-self: center; }
-  .bx { display: inline-block; width: 11px; height: 11px; border: 1px solid #000; vertical-align: middle; flex: none; }
+  .bx { display: inline-block; width: 13px; height: 13px; border: 1px solid #000; vertical-align: middle; flex: none; }
   .bx-lg { width: 12px; height: 12px; }
-  table { width: 100%; border-collapse: collapse; font-size: 10.5px; margin-bottom: 7px; page-break-inside: avoid;
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-bottom: 7px; page-break-inside: avoid;
     table-layout: fixed; }
   th { background: #fff; color: #000; font-weight: 700; padding: 3px 2px; text-align: center; border: 1px solid #000;
     word-wrap: break-word; }
   td { padding: 3px 3px; border: 1px solid #000; height: 30px; vertical-align: middle; word-wrap: break-word; }
   td.c { text-align: center; }
-  .note-line { font-size: 11px; margin-bottom: 7px; }
+  .note-line { font-size: 12px; margin-bottom: 7px; }
   .note-line span { display: inline-block; border-bottom: 1px dotted #000; min-width: 74%; margin-left: 5px;
-    height: 15px; vertical-align: bottom; }
+    height: 18px; vertical-align: bottom; }
   .sig-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 8px; page-break-inside: avoid; }
   .sig-box { padding: 5px 10px; text-align: center; }
-  .sig-title { font-size: 11px; font-weight: 700; color: #000; margin-bottom: 24px; }
+  .sig-title { font-size: 12px; font-weight: 700; color: #000; margin-bottom: 24px; }
   .sig-line { border-bottom: 1px solid #000; }
-  .sig-label { font-size: 10px; color: #000; margin-top: 4px; }
-  .sig-date { font-size: 10px; color: #000; margin-top: 5px; }
+  .sig-label { font-size: 11px; color: #000; margin-top: 4px; }
+  .sig-date { font-size: 11px; color: #000; margin-top: 5px; }
   .sig-date span { display: inline-block; border-bottom: 1px dotted #000; min-width: 88px; margin-left: 5px;
-    height: 13px; vertical-align: bottom; }
-  .foot { font-size: 9px; color: #000; text-align: right; margin-top: 6px; }
+    height: 16px; vertical-align: bottom; }
+  .foot { font-size: 10px; color: #000; text-align: right; margin-top: 6px; }
   .tbl-wrap { width: 100%; }
   /* ใบที่ 2 ของโหมดพิมพ์คู่ — ต้องขึ้นหน้ากระดาษใหม่เสมอ */
   .sheet2 { break-before: page; page-break-before: always; }
@@ -87,7 +91,7 @@ const SHARED_CSS = `
   @media screen {
     /* บนจอไม่มีขอบกระดาษ — ใส่เส้นคั่นให้เห็นว่าเป็นคนละแผ่น */
     .sheet2 { margin-top: 26px; padding-top: 20px; border-top: 3px double #000; }
-    .sheet2-hint { display: block; font-size: 11px; font-weight: 700; text-align: center; margin-bottom: 10px; }
+    .sheet2-hint { display: block; font-size: 12px; font-weight: 700; text-align: center; margin-bottom: 10px; }
   }
   @media screen and (max-width: 768px) {
     body { padding: 12px; }
@@ -145,7 +149,7 @@ function buildExchangeOutHtml({ vxNo = '', supplier = '', outDate = '', rows = [
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>ใบส่งคืนยาให้บริษัท</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
-<style>${SHARED_CSS}</style>
+<style>${SHARED_CSS}  td { height: ${OUT_ROW_H}px; } .sheet2 td { height: ${IN_ROW_H}px; }</style>
 </head><body>
 ${printBtn()}
 
@@ -259,7 +263,7 @@ function buildExchangeInHtml({ rows = [], vxNo = '', supplier = '', outDate = ''
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>ใบรับยาเปลี่ยนกลับจากบริษัท</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
-<style>${SHARED_CSS}</style>
+<style>${SHARED_CSS}  td { height: ${IN_ROW_H}px; }</style>
 </head><body>
 ${printBtn()}
 

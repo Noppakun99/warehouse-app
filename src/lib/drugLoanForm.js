@@ -31,61 +31,65 @@ function todayThaiDate() {
 const PARTY_TYPES = ['โรงพยาบาล', 'บริษัทยา', 'อื่นๆ (ระบุ)'];
 
 // ขาวดำล้วน (เครื่องพิมพ์ไม่มีสี) — ชุดเดียวกับ vendorExchangeCycle.js / expiryDispositionForm.js
+// ความสูงแถวรายการต่อใบ — ตั้งให้แต่ละใบเต็ม A4 หน้าเดียวพอดี (ใบที่ใช้ SHARED_CSS ร่วมกันมีเนื้อหาสูงไม่เท่ากัน)
+const LOAN_OUT_ROW_H = 24;
+const LOAN_RETURN_ROW_H = 31;
+
 const SHARED_CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Sarabun', sans-serif; font-size: 12px; color: #000; background: #fff; padding: 8px 18px 10px; }
+  body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #000; background: #fff; padding: 8px 18px 10px; }
   @page { size: A4 portrait; margin: 10mm; }
   .h-row { text-align: center; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 6px; }
-  h1 { font-size: 17px; font-weight: 700; color: #000; }
-  .sub { font-size: 12px; color: #000; font-weight: 700; margin-top: 2px; }
-  .legal { font-size: 9.5px; font-weight: 400; margin-top: 2px; }
+  h1 { font-size: 19px; font-weight: 700; color: #000; }
+  .sub { font-size: 13px; color: #000; font-weight: 700; margin-top: 2px; }
+  .legal { font-size: 10.5px; font-weight: 400; margin-top: 2px; }
   .refbox { border: 2px solid #000; padding: 4px 8px; margin-bottom: 5px; display: flex;
-    justify-content: space-between; align-items: center; gap: 10px; font-size: 12px; font-weight: 700; }
-  .refbox .num { font-size: 14px; letter-spacing: 1px; }
+    justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; }
+  .refbox .num { font-size: 15px; letter-spacing: 1px; }
   .refbox span.fill { display: inline-block; border-bottom: 1px solid #000; min-width: 92px; margin-left: 5px;
-    height: 16px; vertical-align: bottom; }
-  .meta { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 11px; color: #000; margin-bottom: 5px; }
+    height: 19px; vertical-align: bottom; }
+  .meta { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 12px; color: #000; margin-bottom: 5px; }
   .meta span { display: inline-block; border-bottom: 1px dotted #000; min-width: 120px; margin-left: 5px;
-    height: 14px; vertical-align: bottom; }
+    height: 17px; vertical-align: bottom; }
   /* ช่องเว้นให้เขียนมือ — ต้อง align bottom + มีความสูง ไม่งั้นเส้นลอยไปกลางบรรทัด (ดูเหมือนขีดฆ่า) */
-  .fl { display: inline-block; border-bottom: 1px solid #000; height: 14px; vertical-align: bottom;
+  .fl { display: inline-block; border-bottom: 1px solid #000; height: 17px; vertical-align: bottom;
     margin: 0 3px; min-width: 60px; }
   .fl-s { min-width: 46px; }
   .fl-m { min-width: 88px; }
   .fl-l { min-width: 135px; }
   .fl-xl { min-width: 200px; }
-  .box { border: 1px solid #000; padding: 4px 8px; margin-bottom: 5px; font-size: 11px; }
+  .box { border: 1px solid #000; padding: 4px 8px; margin-bottom: 5px; font-size: 12px; }
   .box ul { list-style: none; display: flex; flex-wrap: wrap; gap: 3px 14px; margin-top: 3px; }
   /* baseline ไม่ใช่ center — ไม่งั้น .fl ถูกดันขึ้นไปกลางบรรทัด */
   .box li { display: flex; align-items: baseline; gap: 4px; }
   .box li .bx { align-self: center; }
   .box ul.stack { flex-direction: column; gap: 4px; }
   .box ul.stack li { width: 100%; flex-wrap: wrap; }
-  .bx { display: inline-block; width: 12px; height: 12px; border: 1px solid #000; vertical-align: middle; flex: none; }
-  table { width: 100%; border-collapse: collapse; font-size: 10.5px; margin-bottom: 5px; page-break-inside: avoid;
+  .bx { display: inline-block; width: 14px; height: 14px; border: 1px solid #000; vertical-align: middle; flex: none; }
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-bottom: 5px; page-break-inside: avoid;
     table-layout: fixed; }
   th { background: #fff; color: #000; font-weight: 700; padding: 3px 2px; text-align: center; border: 1px solid #000;
     word-wrap: break-word; }
   td { padding: 2px 3px; border: 1px solid #000; height: 26px; vertical-align: middle; word-wrap: break-word; }
   td.c { text-align: center; }
-  .note-line { font-size: 11px; margin-bottom: 7px; }
+  .note-line { font-size: 12px; margin-bottom: 7px; }
   .note-line span { display: inline-block; border-bottom: 1px dotted #000; min-width: 74%; margin-left: 5px;
-    height: 15px; vertical-align: bottom; }
+    height: 18px; vertical-align: bottom; }
   /* กล่องลงนาม — ทุกช่องเซ็นอยู่ที่เดียว เรียงตามขั้นตอน แต่ละแถวบอกฝ่าย + เซ็นยืนยันอะไร */
   .sign { border: 2px solid #000; margin-top: 6px; page-break-inside: avoid; }
   .sign-h { display: flex; justify-content: space-between; gap: 8px; padding: 3px 8px; border-bottom: 2px solid #000;
-    font-size: 11px; font-weight: 700; }
-  .sign-h .legend { font-weight: 400; font-size: 10px; }
+    font-size: 12px; font-weight: 700; }
+  .sign-h .legend { font-weight: 400; font-size: 11px; }
   .sign table { margin: 0; page-break-inside: avoid; }
-  .sign th { font-size: 10px; }
-  .sign td { height: 40px; font-size: 10.5px; }
-  .sign td.step { text-align: center; font-size: 15px; font-weight: 700; }
+  .sign th { font-size: 11px; }
+  .sign td { height: 40px; font-size: 11.5px; }
+  .sign td.step { text-align: center; font-size: 17px; font-weight: 700; }
   .sign td.who { font-weight: 700; line-height: 1.3; }
-  .sign td.who small { display: block; font-weight: 400; font-size: 9.5px; }
+  .sign td.who small { display: block; font-weight: 400; font-size: 10.5px; }
   .sign td.what { line-height: 1.3; }
-  .tag { display: inline-block; border: 1px solid #000; padding: 0 4px; font-size: 9.5px; font-weight: 700; }
-  .pp { white-space: nowrap; font-weight: 400; font-size: 9.5px; margin-right: 6px; }
-  .foot { font-size: 9px; color: #000; text-align: right; margin-top: 4px; }
+  .tag { display: inline-block; border: 1px solid #000; padding: 0 4px; font-size: 10.5px; font-weight: 700; }
+  .pp { white-space: nowrap; font-weight: 400; font-size: 10.5px; margin-right: 6px; }
+  .foot { font-size: 10px; color: #000; text-align: right; margin-top: 4px; }
   .tbl-wrap { width: 100%; }
   @media print { button { display: none !important; } thead { display: table-header-group; } .tbl-wrap { overflow: visible; } }
   @media screen and (max-width: 768px) {
@@ -161,7 +165,7 @@ export function printLoanOutForm() {
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>ใบยืมยา</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
-<style>${SHARED_CSS}</style>
+<style>${SHARED_CSS}  td { height: ${LOAN_OUT_ROW_H}px; }</style>
 </head><body>
 ${printBtn()}
 
@@ -280,7 +284,7 @@ export function printLoanReturnForm() {
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>ใบคืนยา (ตามใบยืม)</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
-<style>${SHARED_CSS}</style>
+<style>${SHARED_CSS}  td { height: ${LOAN_RETURN_ROW_H}px; }</style>
 </head><body>
 ${printBtn()}
 

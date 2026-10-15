@@ -13,45 +13,46 @@
 import { openPrintView } from './openPrintView';
 
 const HOSPITAL_NAME = 'โรงพยาบาลประชาธิปัตย์';
-const REVISION = '14/10/2569';
+const REVISION = '15/10/2569';
 const ROW_COUNT = 9;
 
 const CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Sarabun', sans-serif; font-size: 12px; color: #000; background: #fff; padding: 8px 18px 10px; }
+  body { font-family: 'Sarabun', sans-serif; font-size: 13px; color: #000; background: #fff; padding: 6px 14px 8px; }
   @page { size: A4 portrait; margin: 10mm; }
-  .h-row { text-align: center; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 6px; }
-  h1 { font-size: 16px; font-weight: 700; }
-  .sub { font-size: 12px; font-weight: 700; margin-top: 2px; }
-  .legal { font-size: 9.5px; margin-top: 2px; }
-  .refbox { border: 2px solid #000; padding: 4px 8px; margin-bottom: 5px; display: flex;
-    justify-content: space-between; align-items: baseline; gap: 10px; font-size: 12px; font-weight: 700; }
-  .refbox .small { font-weight: 400; font-size: 10px; }
+  /* ขนาดทั้งหมดตั้งให้เต็ม A4 หน้าเดียวพอดี (15/10/2569) — เพิ่มแถว/บรรทัดต้อง render ตรวจว่าไม่ล้นหน้า 2 */
+  .h-row { text-align: center; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 8px; }
+  h1 { font-size: 19px; font-weight: 700; }
+  .sub { font-size: 14px; font-weight: 700; margin-top: 2px; }
+  .legal { font-size: 10.5px; margin-top: 2px; }
+  .refbox { border: 2px solid #000; padding: 6px 10px; margin-bottom: 8px; display: flex;
+    justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13.5px; font-weight: 700; }
+  .refbox .small { font-weight: 400; font-size: 11px; }
   /* ช่องเว้นให้เขียนมือ — ต้อง align bottom + มีความสูง ไม่งั้นเส้นลอยไปกลางบรรทัด (ดูเหมือนขีดฆ่า) */
-  .fl { display: inline-block; border-bottom: 1px solid #000; height: 15px; vertical-align: bottom; margin: 0 3px; min-width: 60px; }
-  .fl-s { min-width: 46px; } .fl-m { min-width: 88px; } .fl-l { min-width: 150px; } .fl-xl { min-width: 230px; } .fl-xxl { min-width: 320px; }
-  .line.shift { gap: 4px 22px; font-size: 12px; }
-  .line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; font-size: 11.5px; margin-bottom: 5px; }
-  .bx { display: inline-block; width: 12px; height: 12px; border: 1px solid #000; vertical-align: middle; margin-right: 3px; }
-  .box { border: 1px solid #000; padding: 4px 8px; margin-bottom: 5px; font-size: 11px; line-height: 1.7; }
+  .fl { display: inline-block; border-bottom: 1px solid #000; height: 18px; vertical-align: bottom; margin: 0 3px; min-width: 60px; }
+  .fl-s { min-width: 50px; } .fl-m { min-width: 96px; } .fl-l { min-width: 165px; } .fl-xl { min-width: 240px; } .fl-xxl { min-width: 330px; }
+  .line.shift { gap: 4px 22px; font-size: 13.5px; }
+  .line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; font-size: 13px; margin-bottom: 6px; }
+  .bx { display: inline-block; width: 14px; height: 14px; border: 1px solid #000; vertical-align: middle; margin-right: 4px; }
+  .box { border: 1px solid #000; padding: 5px 10px; margin-bottom: 6px; font-size: 12.5px; line-height: 1.75; }
   .box b.t { margin-right: 6px; }
-  table { width: 100%; border-collapse: collapse; font-size: 10.5px; margin-bottom: 5px; table-layout: fixed; page-break-inside: avoid; }
-  th { background: #fff; font-weight: 700; padding: 3px 2px; text-align: center; border: 1px solid #000; }
-  th small { display: block; font-weight: 400; font-size: 8.5px; }
-  td { padding: 2px 3px; border: 1px solid #000; height: 25px; vertical-align: middle; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 6px; table-layout: fixed; page-break-inside: avoid; }
+  th { background: #fff; font-weight: 700; padding: 4px 2px; text-align: center; border: 1px solid #000; }
+  th small { display: block; font-weight: 400; font-size: 9.5px; }
+  td { padding: 2px 4px; border: 1px solid #000; height: 28px; vertical-align: middle; }
   td.c { text-align: center; }
-  .sign { border: 2px solid #000; margin-top: 6px; page-break-inside: avoid; }
-  .sign-h { display: flex; justify-content: space-between; gap: 8px; padding: 3px 8px; border-bottom: 2px solid #000; font-size: 11px; font-weight: 700; }
-  .sign-h .legend { font-weight: 400; font-size: 10px; }
+  .sign { border: 2px solid #000; margin-top: 8px; page-break-inside: avoid; }
+  .sign-h { display: flex; justify-content: space-between; gap: 8px; padding: 4px 10px; border-bottom: 2px solid #000; font-size: 12.5px; font-weight: 700; }
+  .sign-h .legend { font-weight: 400; font-size: 11px; }
   .sign table { margin: 0; }
-  .sign th { font-size: 10px; }
-  .sign td { height: 38px; font-size: 10.5px; }
-  .sign td.step { text-align: center; font-size: 15px; font-weight: 700; }
-  .sign td.who { font-weight: 700; line-height: 1.3; }
-  .sign td.who small { display: block; font-weight: 400; font-size: 9.5px; }
-  .sign td.what { line-height: 1.3; }
-  .tag { display: inline-block; border: 1px solid #000; padding: 0 4px; font-size: 9.5px; font-weight: 700; }
-  .foot { font-size: 9px; text-align: right; margin-top: 4px; }
+  .sign th { font-size: 11px; }
+  .sign td { height: 38px; font-size: 11.5px; }
+  .sign td.step { text-align: center; font-size: 18px; font-weight: 700; }
+  .sign td.who { font-weight: 700; line-height: 1.35; }
+  .sign td.who small { display: block; font-weight: 400; font-size: 10.5px; }
+  .sign td.what { line-height: 1.35; }
+  .tag { display: inline-block; border: 1px solid #000; padding: 0 4px; font-size: 10.5px; font-weight: 700; }
+  .foot { font-size: 10px; text-align: right; margin-top: 5px; }
   @media print { button { display: none !important; } }
   @media screen and (max-width: 768px) { body { padding: 12px; } .tbl-wrap { overflow-x: auto; } table { min-width: 720px; } }
 `;
@@ -122,7 +123,7 @@ ${withPrintButton ? `<button id="btnPrint" type="button" style="position:fixed;t
 </div>
 
 <div class="box"><b class="t">เหตุผลที่ขอเบิกนอกรอบ</b>
-  <span class="bx"></span>ลืมเบิกตามรอบ &nbsp; <span class="bx"></span>ใช้เกินคาด &nbsp; <span class="bx"></span>ผู้ป่วยฉุกเฉินจำนวนมาก &nbsp; <span class="bx"></span>อื่นๆ<span class="fl fl-l"></span><br/>
+  <span class="bx"></span>ลืมเบิกตามรอบ &nbsp; <span class="bx"></span>ใช้เกินคาด &nbsp; <span class="bx"></span>ผู้ป่วยฉุกเฉินจำนวนมาก &nbsp; <span class="bx"></span>อื่นๆ<span class="fl fl-m"></span><br/>
   ยาที่มีอยู่คาดว่าพอใช้ถึงวันที่<span class="fl fl-m"></span>เวลา<span class="fl fl-s"></span>น.
 </div>
 
@@ -141,7 +142,7 @@ ${withPrintButton ? `<button id="btnPrint" type="button" style="position:fixed;t
 </div>
 
 <div class="box" style="margin-top:6px;"><b class="t">คลังรับใบ / ลงทะเบียน</b>
-  <span class="bx"></span>ลงชีทเบิกแล้ว &nbsp; <span class="bx"></span>แนบใบเบิกประจำรอบวันที่<span class="fl fl-m"></span> &nbsp; หมายเหตุ<span class="fl fl-l"></span><br/>
+  <span class="bx"></span>ลงชีทเบิกแล้ว &nbsp; <span class="bx"></span>แนบใบเบิกประจำรอบวันที่<span class="fl fl-m"></span> &nbsp; หมายเหตุ<span class="fl fl-m"></span><br/>
   ผู้ลงทะเบียน (คลังยา)<span class="fl fl-l"></span>วันที่<span class="fl fl-m"></span>
 </div>
 
