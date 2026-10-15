@@ -1,9 +1,14 @@
 // ใบขอเบิกยา / น้ำเกลือ / เวชภัณฑ์ นอกเวลาที่กำหนด — ใบเปล่าให้หน่วยงานกรอกมือ ไม่ดึงข้อมูลจากระบบ
 // ฉบับปรับปรุง 14/10/2569 (แทนไฟล์ Desktop\ยอดคงคลัง\แบบฟอร์มขอเบิกยา-นอกเวลา.html ฉบับ 23/09/2569)
 //   - ช่องเซ็นทั้งหมดอยู่กล่องเดียวท้ายใบ เรียงตามขั้นตอน ① ขอ → ② รับรอง → ③ จ่าย → ④ รับ → ⑤ อนุมัติ
-//   - ② ควรคนละคนกับ ① แต่ไม่บังคับ: เวรที่มีคนเดียวติ๊ก "ไม่มีผู้รับรอง" แล้วหัวหน้าคลัง (⑤) ตรวจแทน
-//     (บังคับเด็ดขาด = เวรดึกกรอกใบไม่ได้ → กลับไปเบิกปากเปล่าที่ไม่มีหลักฐานเลย)
+//   - ② = ผู้เบิกตามระเบียบฯ พ.ศ. 2560 ข้อ 204 ("หัวหน้างานที่ต้องใช้พัสดุนั้นเป็นผู้เบิก" — ไม่ต้องเป็นหัวหน้ากลุ่มงาน)
+//     ① เป็นแค่คนกรอกใบ · ห้ามเว้น ② (ใบจะไม่มีผู้เบิกตามระเบียบ) — เวรที่ผู้ขอเป็นหัวหน้าเวรเอง ติ๊กแล้วเซ็น ① ② คนเดียว
+//     ระเบียบไม่ห้ามคนเดียวกัน · ⑤ หัวหน้าคลัง (ผู้สั่งจ่ายตามข้อ 205) ตรวจซ้ำ
 //   - "ใครจ่ายยา": ห้องยาจ่ายแทน = ไม่ตัดยอดคลัง คลังบันทึกไว้เป็นหลักฐานเท่านั้น
+//   - จ่ายจริง + Lot/EXP + หมายเหตุ = ผู้จ่ายยา ③ (คนหยิบหน้างาน) กรอกตอนหยิบ ไม่ใช่คลังกรอกทีหลัง — lot รู้แน่ตอนถือกล่องเท่านั้น
+//     (lot ผิด = ตัดยอดผิดแถวใน Master) · คลังกรอกเฉพาะเลขรับใบเบิก บย. + กล่อง "คลังรับใบ / ลงทะเบียน" (15/10/2569)
+//   - กล่อง "คลังรับใบ / ลงทะเบียน" มีชื่อผู้ลงทะเบียน: ข้อ 205 วรรคสอง ให้ผู้จ่ายตรวจใบเบิก ลงทะเบียน เก็บใบเบิก
+//     — ห้องยาจ่ายแทน ③ เป็นคนห้องยา จึงต้องมีชื่อคนคลังที่ลงทะเบียนแยก (ไม่เพิ่มแถวลงนาม ใบยาวเกิน)
 // PDF ใบเปล่าที่แจกในกลุ่มไลน์ / Google Drive สร้างจาก buildAfterHoursFormHtml() ตัวเดียวกัน — ห้ามแก้ไฟล์ HTML แยก
 import { openPrintView } from './openPrintView';
 
@@ -24,7 +29,8 @@ const CSS = `
   .refbox .small { font-weight: 400; font-size: 10px; }
   /* ช่องเว้นให้เขียนมือ — ต้อง align bottom + มีความสูง ไม่งั้นเส้นลอยไปกลางบรรทัด (ดูเหมือนขีดฆ่า) */
   .fl { display: inline-block; border-bottom: 1px solid #000; height: 15px; vertical-align: bottom; margin: 0 3px; min-width: 60px; }
-  .fl-s { min-width: 46px; } .fl-m { min-width: 88px; } .fl-l { min-width: 150px; } .fl-xl { min-width: 230px; }
+  .fl-s { min-width: 46px; } .fl-m { min-width: 88px; } .fl-l { min-width: 150px; } .fl-xl { min-width: 230px; } .fl-xxl { min-width: 320px; }
+  .line.shift { gap: 4px 22px; font-size: 12px; }
   .line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; font-size: 11.5px; margin-bottom: 5px; }
   .bx { display: inline-block; width: 12px; height: 12px; border: 1px solid #000; vertical-align: middle; margin-right: 3px; }
   .box { border: 1px solid #000; padding: 4px 8px; margin-bottom: 5px; font-size: 11px; line-height: 1.7; }
@@ -52,8 +58,8 @@ const CSS = `
 
 const SIGN_ROWS = [
   { who: 'ผู้ขอเบิก', tag: 'หน่วยงาน', what: 'ขอเบิกตามรายการ ช่อง "ขอเบิก"' },
-  { who: 'หัวหน้าหน่วยงาน / หัวหน้าเวร', tag: 'หน่วยงาน', note: 'ควรเป็นคนละคนกับ ①',
-    what: 'รับรองว่าจำเป็นต้องใช้นอกรอบจริง<br/><span class="bx"></span>เวรนี้ไม่มีผู้รับรอง — ให้ ⑤ ตรวจแทน' },
+  { who: 'หัวหน้างาน / หัวหน้าเวร', tag: 'หน่วยงาน', note: 'ผู้เบิกตามระเบียบฯ ข้อ 204',
+    what: 'รับรองว่าจำเป็นต้องใช้นอกรอบจริง<br/><span class="bx"></span>ผู้ขอเบิกเป็นหัวหน้าเวรเอง (เซ็น ① ② คนเดียวได้) — ⑤ ตรวจซ้ำ' },
   { who: 'ผู้จ่ายยา', tag: 'คลังยา / ห้องยา', note: 'คนที่หยิบยาจ่ายจริง', what: 'จ่ายตามช่อง "จ่ายจริง" ครบถ้วน' },
   { who: 'ผู้รับยา', tag: 'หน่วยงาน', note: 'เป็นคนเดียวกับ ① ได้', what: 'ได้รับยาครบตามช่อง "จ่ายจริง"' },
   { who: 'หัวหน้าคลังยา', tag: 'คลังยา', note: 'เซ็นภายหลังได้', what: 'อนุมัติการจ่ายนอกรอบ' },
@@ -89,13 +95,18 @@ ${withPrintButton ? `<button id="btnPrint" type="button" style="position:fixed;t
 </div>
 
 <div class="line">
-  <span>หน่วยงาน<span class="fl fl-xl"></span></span>
-  <span>โทร/ต่อ<span class="fl fl-s"></span></span>
+  <span>หน่วยงาน<span class="fl fl-xxl"></span></span>
+  <span>โทร/ต่อ<span class="fl fl-l"></span></span>
 </div>
 <div class="line">
-  <span>วันที่<span class="fl fl-m"></span></span>
-  <span>เวลา<span class="fl fl-s"></span>น.</span>
-  <span>เวร <span class="bx"></span>เช้า 08–16 &nbsp;<span class="bx"></span>บ่าย 16–24 &nbsp;<span class="bx"></span>ดึก 24–08</span>
+  <span>วันที่<span class="fl fl-l"></span></span>
+  <span>เวลาที่ขอเบิก<span class="fl fl-m"></span>น.</span>
+</div>
+<div class="line shift">
+  <b>เวร</b>
+  <span><span class="bx"></span>เช้า (08.00 – 16.00 น.)</span>
+  <span><span class="bx"></span>บ่าย (16.00 – 24.00 น.)</span>
+  <span><span class="bx"></span>ดึก (24.00 – 08.00 น.)</span>
 </div>
 
 <div class="tbl-wrap">
@@ -103,7 +114,7 @@ ${withPrintButton ? `<button id="btnPrint" type="button" style="position:fixed;t
   <colgroup><col style="width:5%"><col style="width:33%"><col style="width:12%"><col style="width:12%"><col style="width:12%"><col style="width:14%"><col style="width:12%"></colgroup>
   <thead>
     <tr><th rowspan="2">ที่</th><th rowspan="2">ชื่อยา / เวชภัณฑ์<small>รูปแบบ ความแรง ขนาด</small></th><th rowspan="2">คงเหลือ<br/>ที่หน่วยงาน<small>จำนวน × หน่วย</small></th>
-      <th colspan="2">จำนวน (ระบุหน่วย)</th><th colspan="2">คลังยากรอก</th></tr>
+      <th colspan="2">จำนวน (ระบุหน่วย)</th><th colspan="2">ผู้จ่ายยา ③ กรอกตอนหยิบ<small>คลังยา / ห้องยา ที่อยู่หน้างาน</small></th></tr>
     <tr><th>ขอเบิก</th><th>จ่ายจริง</th><th>Lot / EXP</th><th>หมายเหตุ</th></tr>
   </thead>
   <tbody>${rows}</tbody>
@@ -129,8 +140,9 @@ ${withPrintButton ? `<button id="btnPrint" type="button" style="position:fixed;t
   </table>
 </div>
 
-<div class="box" style="margin-top:6px;"><b class="t">คลังยาบันทึก</b>
-  <span class="bx"></span>ลงชีทเบิกแล้ว &nbsp; <span class="bx"></span>แนบใบเบิกประจำรอบวันที่<span class="fl fl-m"></span> &nbsp; หมายเหตุ<span class="fl fl-l"></span>
+<div class="box" style="margin-top:6px;"><b class="t">คลังรับใบ / ลงทะเบียน</b>
+  <span class="bx"></span>ลงชีทเบิกแล้ว &nbsp; <span class="bx"></span>แนบใบเบิกประจำรอบวันที่<span class="fl fl-m"></span> &nbsp; หมายเหตุ<span class="fl fl-l"></span><br/>
+  ผู้ลงทะเบียน (คลังยา)<span class="fl fl-l"></span>วันที่<span class="fl fl-m"></span>
 </div>
 
 <p class="foot">ใบเบิกนอกเวลา · ฉบับปรับปรุง ${REVISION} · เก็บที่คลังยา 1 ฉบับ / หน่วยงาน 1 ฉบับ</p>
