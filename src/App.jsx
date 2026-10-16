@@ -11,7 +11,7 @@ import {
   Search, Package, MapPin, X, UploadCloud, FileSpreadsheet,
   AlertCircle, BarChart3, Layers, Pill, FileText,
   ChevronUp, ChevronDown, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw, FileDown, Eye, EyeOff,
-  ShieldCheck, Link2, Filter, Printer, Settings2,
+  ShieldCheck, Link2, Filter, Printer, Settings2, ArrowUpDown,
 } from 'lucide-react';
 
 // คอลัมน์ตาม CSV master ต้นทาง (ยอดคลังยา_master_69.csv) เฉพาะ field ที่ inventory เก็บจริง
@@ -143,6 +143,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   const [modalSearch, setModalSearch] = useState('');
   const [modalTimeFilter, setModalTimeFilter] = useState('all'); // all | expired | soon30 | soon90 | soon180 | soon16m
   const [modalLogFilter, setModalLogFilter] = useState('all');   // 'all' | <invoice>
+  const [modalWaitSort, setModalWaitSort] = useState('loc');     // รอตรวจรับ: loc | waitDesc (รอนานสุดก่อน) | waitAsc
   const [zonePillsOpen, setZonePillsOpen] = useState(false);     // ซ่อน pill กรองโซนไว้ก่อน คลิกแล้วกาง
   const [timePillsOpen, setTimePillsOpen] = useState(false);     // ซ่อน pill กรองช่วงเวลาไว้ก่อน คลิกแล้วกาง (ลดความรก)
   const [modalExporting, setModalExporting] = useState(false);
@@ -2124,9 +2125,20 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           });
           return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'en', { numeric: true }));
         })();
-        const sortByLoc = (arr) => [...arr].sort((a, b) =>
-          (a.location || '￿').localeCompare(b.location || '￿', 'en', { numeric: true })
-        );
+        const cmpLoc = (a, b) =>
+          (a.location || '￿').localeCompare(b.location || '￿', 'en', { numeric: true });
+        // เรียงตามวันที่รอ: ไม่ทราบวันรับอยู่ท้ายเสมอ (ทั้ง 2 ทิศ) · วันเท่ากันเรียงตามตำแหน่งต่อ
+        const sortByLoc = (arr) => [...arr].sort((a, b) => {
+          if (modalWaitSort !== 'loc') {
+            if (a.waitDays == null || b.waitDays == null) {
+              if (a.waitDays != null) return -1;
+              if (b.waitDays != null) return 1;
+            } else if (a.waitDays !== b.waitDays) {
+              return modalWaitSort === 'waitDesc' ? b.waitDays - a.waitDays : a.waitDays - b.waitDays;
+            }
+          }
+          return cmpLoc(a, b);
+        });
         const zoneFiltered = modalLogFilter !== 'all'
           ? searched.filter(r => zoneOf(r) === modalLogFilter)
           : searched;
@@ -2263,6 +2275,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           const notes = [];
           if (modalSearch) notes.push(`คำค้น "${modalSearch}"`);
           if (modalLogFilter !== 'all') notes.push(`โซน ${modalLogFilter}`);
+          if (!isExpiryMode && modalWaitSort !== 'loc') notes.push(modalWaitSort === 'waitDesc' ? 'เรียงรอนานสุดก่อน' : 'เรียงรอน้อยสุดก่อน');
           if (isExpiryMode && modalTimeFilter !== 'all') {
             notes.push(`ช่วงเวลา ${({ expired: 'หมดอายุแล้ว', soon30: 'ภายใน 30 วัน', soon90: '1–3 เดือน', soon180: '3–6 เดือน', soon16m: '6–16 เดือน' })[modalTimeFilter] || modalTimeFilter}`);
           }
@@ -2296,7 +2309,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                   {modalExporting ? <RefreshCcw size={12} className="animate-spin"/> : <FileDown size={12}/>}
                   <span className="hidden sm:inline">{modalExporting ? 'กำลังส่งออก...' : 'Excel'}</span>
                 </button>
-                <button onClick={() => { setExpiryViewFilter(null); setModalSearch(''); setModalTimeFilter('all'); setModalLogFilter('all'); }} className="text-white/70 hover:text-white transition-colors bg-black/10 p-2 rounded-xl hover:bg-black/20">
+                <button onClick={() => { setExpiryViewFilter(null); setModalSearch(''); setModalTimeFilter('all'); setModalLogFilter('all'); setModalWaitSort('loc'); }} className="text-white/70 hover:text-white transition-colors bg-black/10 p-2 rounded-xl hover:bg-black/20">
                   <X size={18} />
                 </button>
               </div>
@@ -2395,10 +2408,24 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                   )}
                 </div>
               )}
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {q ? `ผลการค้นหา: ${timeFiltered.length} รายการ` : `พบ ${timeFiltered.length} รายการ`}
-                {expiryViewFilter !== 'pending' && ' · เรียงตามวันหมดอายุก่อน'}
-              </p>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {q ? `ผลการค้นหา: ${timeFiltered.length} รายการ` : `พบ ${timeFiltered.length} รายการ`}
+                  {expiryViewFilter !== 'pending' && ' · เรียงตามวันหมดอายุก่อน'}
+                </p>
+                {!isExpiryMode && (
+                  <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                    <ArrowUpDown size={13} />
+                    เรียง
+                    <select value={modalWaitSort} onChange={e => setModalWaitSort(e.target.value)}
+                      className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-sky-400">
+                      <option value="loc">ตามตำแหน่ง</option>
+                      <option value="waitDesc">รอนานสุดก่อน</option>
+                      <option value="waitAsc">รอน้อยสุดก่อน</option>
+                    </select>
+                  </label>
+                )}
+              </div>
             </div>
 
             {isExpiryMode && dueReturns.length > 0 && (
@@ -2639,7 +2666,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
             </div>
 
             <div className="bg-white dark:bg-slate-900 p-4 border-t border-slate-200 dark:border-slate-700 flex justify-end shrink-0 rounded-b-2xl">
-              <button onClick={() => { setExpiryViewFilter(null); setModalSearch(''); setModalTimeFilter('all'); setModalLogFilter('all'); }} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-medium transition-colors shadow-sm">
+              <button onClick={() => { setExpiryViewFilter(null); setModalSearch(''); setModalTimeFilter('all'); setModalLogFilter('all'); setModalWaitSort('loc'); }} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-medium transition-colors shadow-sm">
                 ปิดหน้าต่าง
               </button>
             </div>

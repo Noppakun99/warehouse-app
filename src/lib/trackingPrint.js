@@ -54,6 +54,12 @@ const cell = (v) => {
 
 // สรุปเหนือตารางของใบรอตรวจรับ — นับจาก rows ชุดเดียวกับตาราง (Rule #6)
 // บิล key = เลขบิล+วันรับ ไม่ใส่บริษัท: supplier เติมราย lot จาก drugDetails (อาจว่างบาง lot) → บิลเดียวนับเป็น 2
+// ใบรอตรวจรับ: ตัดคำนำหน้า/ท้ายชื่อบริษัท ให้ช่องบริษัทไม่ขึ้นบรรทัดใหม่ (ชื่อเต็มยังอยู่ใน Excel)
+const shortSupplier = (s) => String(s ?? '')
+  .replace(/^\s*(บริษัท|บจก\.|หจก\.|ห้างหุ้นส่วนจำกัด)\s*/, '')
+  .replace(/\s*จำกัด\s*(\(มหาชน\))?\s*$/, '')
+  .trim();
+
 const isBlank = (v) => { const s = String(v ?? '').trim(); return s === '' || s === '-'; };
 export function summarizePending(rows) {
   const drugs = new Set(), bills = new Set(), pos = new Set();
@@ -71,17 +77,18 @@ export function summarizePending(rows) {
   return { lots: rows.length, drugs: drugs.size, bills: bills.size, noBill, pos: pos.size, noPo, maxWait, minWait, noDate };
 }
 
+// สรุปบรรทัดเดียว (เดิม 5 กล่อง) — คืนพื้นที่ให้แถวรายการ
 function pendingSummaryHtml(rows) {
   const s = summarizePending(rows);
-  const box = (label, value, note = '') =>
-    `<div class="sbox"><div class="sl">${esc(label)}</div><div class="sv">${esc(value)}</div>${note ? `<div class="sn">${esc(note)}</div>` : ''}</div>`;
+  const item = (label, value, note = '') =>
+    `<span><b>${esc(label)}</b> ${esc(value)}${note ? ` (${esc(note)})` : ''}</span>`;
   const wait = (d) => (d == null ? '-' : fmtWaitDays(d));
   return `<div class="sum">
-  ${box('รายการยา', `${s.drugs} รายการ`, `${s.lots} lot`)}
-  ${box('บิล', `${s.bills} บิล`, s.noBill ? `ไม่มีเลขบิล ${s.noBill} lot` : '')}
-  ${box('PO', `${s.pos} ใบ`, s.noPo ? `ไม่มี PO ${s.noPo} lot` : '')}
-  ${box('รอนานสุด', wait(s.maxWait))}
-  ${box('รอน้อยสุด', wait(s.minWait), s.noDate ? `ไม่ทราบวันรับ ${s.noDate} lot` : '')}
+  ${item('รายการยา', `${s.drugs} รายการ`, `${s.lots} lot`)}
+  ${item('บิล', `${s.bills} บิล`, s.noBill ? `ไม่มีเลขบิล ${s.noBill} lot` : '')}
+  ${item('PO', `${s.pos} ใบ`, s.noPo ? `ไม่มี PO ${s.noPo} lot` : '')}
+  ${item('รอนานสุด', wait(s.maxWait))}
+  ${item('รอน้อยสุด', wait(s.minWait), s.noDate ? `ไม่ทราบวันรับ ${s.noDate} lot` : '')}
 </div>`;
 }
 
@@ -96,8 +103,24 @@ function pendingSummaryHtml(rows) {
  *   โมดอลแผนผัง: มี รหัสยา/สถานะ(นับวัน)/นโยบายเปลี่ยนยา แทน สถานะตรวจรับ (ตรงกับ EXPIRY_EXCEL_COLS)
  */
 export function printTrackingList(rows, { title, isExpiryMode = false, filterNote = '', printedBy = '', dashboardMode = false } = {}) {
+  // ใบรอตรวจรับ: ตัด ชนิด/สถานะตรวจรับ (ทุกแถวคือ "รอตรวจรับ") ให้ทุกแถวอยู่บรรทัดเดียว
+  // ย่อชื่อบริษัท — Excel ยังมีชื่อเต็ม
+  const pendingMode = !isExpiryMode && !dashboardMode;
   // โมดอล Dashboard ใช้ชุดคอลัมน์ของตัวเอง ให้ตรงกับ Excel ของโมดอลเดียวกัน (Rule #6)
-  const cols = dashboardMode ? [
+  const cols = pendingMode ? [
+    { header: 'ลำดับ',   get: (_r, i) => i + 1, cls: 'c w-no' },
+    { header: 'ชื่อยา',  get: r => r.name },
+    { header: 'ตำแหน่ง', get: r => r.location, cls: 'c nowrap' },
+    { header: 'Lot',     get: r => r.lot, cls: 'c' },
+    { header: 'วันหมดอายุ', get: r => r.exp, cls: 'c nowrap' },
+    // ช่องเดียว "5 x 1000เม็ด" — แยก 2 คอลัมน์แล้วชื่อยา/บริษัทตัดบรรทัด 10/45 แถว (ทดสอบ 16/10/2569)
+    { header: 'คงเหลือ x หน่วย', get: r => isBlank(r.unit) ? r.qty : `${isBlank(r.qty) ? '-' : r.qty} x ${r.unit}`, cls: 'c nowrap' },
+    { header: 'บิลยา',   get: r => r.invoice, cls: 'c' },
+    { header: 'PO',      get: r => r.po, cls: 'c nowrap' },
+    { header: 'วันที่รับเข้า', get: r => fmtThaiFromIso(r._receiveDate), cls: 'c nowrap' },
+    { header: 'รอมาแล้ว', get: r => fmtWaitDays(r.waitDays), cls: 'c nowrap b' },
+    { header: 'บริษัท',  get: r => shortSupplier(r.supplier) },
+  ] : dashboardMode ? [
     { header: 'ลำดับ',   get: (_r, i) => i + 1, cls: 'c w-no' },
     { header: 'ชื่อยา',  get: r => r.name },
     { header: 'รหัสยา',  get: r => r.code, cls: 'c' },
@@ -151,16 +174,21 @@ export function printTrackingList(rows, { title, isExpiryMode = false, filterNot
   .sub { font-size: 12px; color: #334155; font-weight: 600; margin-top: 2px; }
   .meta { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; color: #475569; margin-bottom: 8px; }
   .meta .note { font-weight: 600; }
-  .sum { display: flex; gap: 8px; margin-bottom: 8px; }
-  .sbox { flex: 1; border: 1px solid #000; border-radius: 4px; padding: 4px 8px; text-align: center; }
-  .sl { font-size: 11px; font-weight: 600; }
-  .sv { font-size: 16px; font-weight: 700; }
-  .sn { font-size: 10px; }
+  .sum { display: flex; flex-wrap: wrap; gap: 2px 16px; border: 1px solid #000; border-radius: 4px; padding: 3px 8px; margin-bottom: 6px; font-size: 11px; }
   table { width: 100%; border-collapse: collapse; font-size: 11px; }
   th { background: #f1f5f9; font-weight: 700; padding: 5px 6px; text-align: center; border: 1px solid #000; }
   td { padding: 4px 6px; border: 1px solid #94a3b8; vertical-align: middle; }
   td.c { text-align: center; }
   td.nowrap { white-space: nowrap; }
+  td.b { font-weight: 700; }
+  /* ใบรอตรวจรับ: กว้าง = พื้นที่พิมพ์ A4 แนวนอน (297 − 2×8mm) ให้จอกับกระดาษตัดบรรทัดเหมือนกัน
+     11.5px ทุกแถวอยู่บรรทัดเดียว (45 lot = 2 หน้า) — แนวตั้งชื่อยา/บริษัทตัดบรรทัด 35/45 แถว อ่านยาก
+     ไม่ย่อให้จบหน้าเดียว: เคยลอง zoom อัตโนมัติ (16/10/2569) ตัวหนังสือเล็กจนอ่านไม่ออก — ล้นหน้า 2 ดีกว่า */
+  .pending .page { width: 281mm; margin: 0 auto; }
+  .pending table { font-size: 11.5px; }
+  .pending th { padding: 4px 3px; border-color: #000; }
+  .pending td { padding: 4px 3px; border-color: #475569; }
+  .pending th.w-no, .pending td.w-no { width: 30px; }
   th.w-no, td.w-no { width: 34px; }
   tbody tr:nth-child(even) { background: #f8fafc; }
   td.empty { padding: 18px; color: #64748b; }
@@ -173,8 +201,9 @@ export function printTrackingList(rows, { title, isExpiryMode = false, filterNot
     thead { display: table-header-group; }
     tr { page-break-inside: avoid; }
   }
-</style></head><body>
+</style></head><body class="${pendingMode ? 'pending' : ''}">
 <button class="btn" onclick="window.print()">พิมพ์</button>
+<div class="page">
 <div class="h-row">
   <h1>${esc(title)}</h1>
   <div class="sub">${esc(HOSPITAL_NAME)}</div>
@@ -191,6 +220,7 @@ ${!isExpiryMode && !dashboardMode && rows.length > 0 ? pendingSummaryHtml(rows) 
 <div class="foot">
   <span>${printedBy ? 'ผู้พิมพ์: ' + esc(printedBy) : ''}</span>
   <span>พิมพ์เมื่อ ${todayThaiDateTime()}</span>
+</div>
 </div>
 </body></html>`;
 
