@@ -52,6 +52,39 @@ const cell = (v) => {
   return s === '' ? '-' : esc(s);
 };
 
+// สรุปเหนือตารางของใบรอตรวจรับ — นับจาก rows ชุดเดียวกับตาราง (Rule #6)
+// บิล key = เลขบิล+วันรับ ไม่ใส่บริษัท: supplier เติมราย lot จาก drugDetails (อาจว่างบาง lot) → บิลเดียวนับเป็น 2
+const isBlank = (v) => { const s = String(v ?? '').trim(); return s === '' || s === '-'; };
+export function summarizePending(rows) {
+  const drugs = new Set(), bills = new Set(), pos = new Set();
+  let noBill = 0, noPo = 0, noDate = 0, maxWait = null, minWait = null;
+  for (const r of rows) {
+    drugs.add(isBlank(r.code) ? `name:${String(r.name ?? '').trim()}` : String(r.code).trim());
+    if (isBlank(r.invoice)) noBill++; else bills.add(`${String(r.invoice).trim()}|${r._receiveDate || ''}`);
+    if (isBlank(r.po)) noPo++; else pos.add(String(r.po).trim());
+    if (r.waitDays == null) noDate++;
+    else {
+      if (maxWait == null || r.waitDays > maxWait) maxWait = r.waitDays;
+      if (minWait == null || r.waitDays < minWait) minWait = r.waitDays;
+    }
+  }
+  return { lots: rows.length, drugs: drugs.size, bills: bills.size, noBill, pos: pos.size, noPo, maxWait, minWait, noDate };
+}
+
+function pendingSummaryHtml(rows) {
+  const s = summarizePending(rows);
+  const box = (label, value, note = '') =>
+    `<div class="sbox"><div class="sl">${esc(label)}</div><div class="sv">${esc(value)}</div>${note ? `<div class="sn">${esc(note)}</div>` : ''}</div>`;
+  const wait = (d) => (d == null ? '-' : fmtWaitDays(d));
+  return `<div class="sum">
+  ${box('รายการยา', `${s.drugs} รายการ`, `${s.lots} lot`)}
+  ${box('บิล', `${s.bills} บิล`, s.noBill ? `ไม่มีเลขบิล ${s.noBill} lot` : '')}
+  ${box('PO', `${s.pos} ใบ`, s.noPo ? `ไม่มี PO ${s.noPo} lot` : '')}
+  ${box('รอนานสุด', wait(s.maxWait))}
+  ${box('รอน้อยสุด', wait(s.minWait), s.noDate ? `ไม่ทราบวันรับ ${s.noDate} lot` : '')}
+</div>`;
+}
+
 /**
  * @param {Array} rows       แถวที่ผ่านตัวกรองแล้ว (ต้องเป็นชุดเดียวกับที่แสดงในตาราง/ส่งออก Excel)
  * @param {object} opts
@@ -118,6 +151,11 @@ export function printTrackingList(rows, { title, isExpiryMode = false, filterNot
   .sub { font-size: 12px; color: #334155; font-weight: 600; margin-top: 2px; }
   .meta { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; color: #475569; margin-bottom: 8px; }
   .meta .note { font-weight: 600; }
+  .sum { display: flex; gap: 8px; margin-bottom: 8px; }
+  .sbox { flex: 1; border: 1px solid #000; border-radius: 4px; padding: 4px 8px; text-align: center; }
+  .sl { font-size: 11px; font-weight: 600; }
+  .sv { font-size: 16px; font-weight: 700; }
+  .sn { font-size: 10px; }
   table { width: 100%; border-collapse: collapse; font-size: 11px; }
   th { background: #f1f5f9; font-weight: 700; padding: 5px 6px; text-align: center; border: 1px solid #000; }
   td { padding: 4px 6px; border: 1px solid #94a3b8; vertical-align: middle; }
@@ -145,6 +183,7 @@ export function printTrackingList(rows, { title, isExpiryMode = false, filterNot
   <span class="note">${filterNote ? esc(filterNote) : 'แสดงทุกรายการ'}</span>
   <span>รวม ${rows.length} รายการ</span>
 </div>
+${!isExpiryMode && !dashboardMode && rows.length > 0 ? pendingSummaryHtml(rows) : ''}
 <table>
   <thead><tr>${thead}</tr></thead>
   <tbody>${tbody}</tbody>
