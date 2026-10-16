@@ -148,7 +148,7 @@ function statusChips(p) {
       ? `ควรใช้ของที่หมดอายุ ${fmtThaiDate(p.useFirst.expDate)} ก่อน`
       : `ควรใช้ lot ${p.useFirst.lot} ก่อน (หมดอายุ ${fmtThaiDate(p.useFirst.expDate)})`,
   });
-  if (p.discontinued) out.push({ tone: 'slate', icon: Ban, text: p.discontinuedQty > 0 ? `ตัดออกจากบัญชี (ค้าง ${fmtNum(p.discontinuedQty)})` : 'ตัดออกจากบัญชี' });
+  if (p.discontinued) out.push({ tone: 'slate', icon: Ban, text: p.total > 0 ? 'ตัดออกจากบัญชียา · จ่ายของที่เหลือจนหมด' : 'ตัดออกจากบัญชียา' });
   else if (p.excludeStatus === 'สั่งเมื่อขอ') out.push({ tone: 'slate', icon: Ban, text: 'สั่งเมื่อขอ' });
   return out;
 }

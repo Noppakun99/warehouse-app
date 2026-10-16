@@ -96,8 +96,11 @@ export function stockTotalInMainUnit(stockRows = [], mainUnit) {
   return Math.ceil(main.factor > 0 ? base / main.factor : base)
 }
 
-// แถวที่นับเข้ายอดคงเหลือ (= โมดอลรายการยาในคลัง): qty > 0 และไม่ตัดออกจากบัญชี
-export const isStockRow = (row) => toNum(row?.qty) > 0 && !isDiscontinuedRow(row)
+// แถวที่นับเข้ายอดคงเหลือของบัตรยา/ช่องค้นหา: qty > 0 — **รวมแถวตัดออกจากบัญชี**
+// ตัดออก = เลิกสั่งซื้อ ไม่ใช่ของหายจากคลัง: ของที่เหลือยังจ่ายต่อจนหมด (หน้าเบิกไม่บล็อก) ต้องเห็นยอด/lot/ที่เก็บ
+// (16/10/2569 — Cefdinir 1660111 ของจริง 60 ขวด บัตรขึ้น 0 + "ไม่มีของในคลัง") · โมดอลรายการยาในคลังไม่แสดงยาตัดออกเลย
+// จึงไม่มียอดของรหัสนี้ให้ขัดกัน · Dashboard นับด้วยกฎของตัวเองใน db.js (ไม่ได้ใช้ฟังก์ชันนี้)
+export const isStockRow = (row) => toNum(row?.qty) > 0
 
 // ── ต่ำกว่า Safety Stock (กฎ Dashboard) ─────────────────────────────────
 // รวม qty ดิบทุกแถวของรหัส (ไม่แปลงหน่วย · นับรอตรวจรับ/หมดอายุด้วย) เทียบ SS สูงสุดของรหัส
@@ -252,7 +255,6 @@ export function buildDrugProfile({
   const useFirst = readyLots.length > 1 ? readyLots[0] : null   // lot เดียวไม่ต้องบอก "ใช้ก่อน"
 
   const ssAgg = ssAggregate(rows)
-  const discontinuedQty = rows.filter(r => isDiscontinuedRow(r) && toNum(r.qty) > 0).reduce((s, r) => s + toNum(r.qty), 0)
   const zeroLots = uniq(rows.filter(r => !isStockRow(r) && !isDiscontinuedRow(r)).map(r => r.lot))
     .filter(l => !lots.some(x => x.lot === l)).length
 
@@ -279,7 +281,6 @@ export function buildDrugProfile({
     // หน่วยของ qty/SS ดิบ (กฎ Dashboard ไม่แปลงหน่วย) — หลายหน่วย = null: ยอดดิบเทียบกับยอดรวมบนบัตรไม่ได้ ห้ามโชว์คู่กัน
     ssUnit: uniq(rows.map(r => r.unit)).length === 1 ? uniq(rows.map(r => r.unit))[0] : null,
     discontinued: ssAgg.discontinued,
-    discontinuedQty: round2(discontinuedQty),
     excludeStatus: excludeStatus || null,
     rate: usageRate({ usage, rows, mainUnit }),
     dispenseHistory: dispenseHistory(dispenseRows, department),

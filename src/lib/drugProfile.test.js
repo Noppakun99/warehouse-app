@@ -82,7 +82,7 @@ section('ค้นหายา')
   ])
   assertEq(index.length, 4, '1 รายการต่อรหัส')
   assertDeep(index.find(d => d.code === '1001').lots, ['26E266', '25A001'], 'lot ไม่ซ้ำ ไม่เอา -')
-  assertEq(index.find(d => d.code === '3003').inStock, false, 'มีแต่แถวตัดออก = ไม่มีของ')
+  assertEq(index.find(d => d.code === '3003').inStock, true, 'แถวตัดออกที่ยังมีของ = มีของ (ตัดออก = เลิกซื้อ ไม่ใช่ของหาย)')
   assertDeep(searchDrugs(index, 'para').map(r => r.code), ['1001', '2002'], 'ชื่อขึ้นต้น · มีของมาก่อน')
   assertDeep(searchDrugs(index, '100').map(r => r.code), ['100', '1001', '3003'], 'รหัสตรงตัว > รหัสขึ้นต้น > lot มีคำ (261001)')
   assertEq(searchDrugs(index, '26e266')[0]?.matchedLot, '26E266', 'ค้น lot ไม่สนพิมพ์เล็ก-ใหญ่ (lot ตัว E ไม่ถูกแปลง)')
@@ -150,11 +150,10 @@ section('บัตรยา')
     { code: '8008', name: 'Old drug', unit: 'vial', lot: '-', exp: '-', qty: 0 },
   ]
   const p = buildDrugProfile({ rows, today: TODAY })
-  assertEq(p.total, 0, 'แถวตัดออกไม่นับเข้ายอด')
+  assertEq(p.total, 4, 'แถวตัดออกที่ยังมีของ นับเข้ายอด (Cefdinir 1660111: ของจริง 60 บัตรเคยขึ้น 0)')
   assertEq(p.discontinued, true, 'flag ตัดออก')
-  assertEq(p.discontinuedQty, 4, 'แสดงจำนวนที่ค้างในแถวตัดออก')
-  assertEq(p.lots.length, 0, 'ไม่มี lot ที่มีของ')
-  assertEq(p.useFirst, null, 'ไม่มี lot ให้ใช้ก่อน')
+  assertEq(p.lots.length, 1, 'แสดง lot ของที่เหลือ ให้รู้ exp/ที่เก็บ')
+  assertEq(p.useFirst, null, 'lot เดียว ไม่ต้องบอกใช้ก่อน')
   assertEq(buildDrugProfile({ rows: [] }), null, 'ไม่มีแถว = null')
 }
 {
