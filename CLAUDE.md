@@ -291,7 +291,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | External: Apps Script แจ้งเตือนยาใกล้หมดอายุ (backup) | [docs/apps-script-expiry-alert.md](docs/apps-script-expiry-alert.md) | reference สคริปต์เดิม |
 | External: INVS — กระบวนการคลังมาตรฐาน สธ. + INV DataSet + ระเบียบพัสดุ | [docs/invs-warehouse-reference.md](docs/invs-warehouse-reference.md) | **ก่อนออกแบบฟีเจอร์คลังใหม่** — ดูว่าราชการทำกันยังไง / จะส่งข้อมูลกระทรวงต้องมี field อะไร |
 | แผนงานปรับกระบวนการคลังตาม INVS (roadmap 11 ข้อ + งานที่ค้าง) | [docs/handoff-invs-2026-08-24.md](docs/handoff-invs-2026-08-24.md) | สานงานโครงสร้างหน่วยงาน / จ่ายด่วน / ค้างจ่าย ต่อ |
-| External: Nate Herk (YouTube) — วิธีทำงานกับ Claude Code/AI (skill, บริบท, ตรวจงาน, permission, LLM Wiki) + เทียบกับ repo นี้ | [docs/reference-nateherk-ai-automation.md](docs/reference-nateherk-ai-automation.md) | ก่อนปรับ CLAUDE.md / skill / hook / ออกแบบฟีเจอร์ AI ในแอป |
+| External: Nate Herk (YouTube) — วิธีทำงานกับ Claude Code/AI (skill, บริบท, ตรวจงาน, permission, LLM Wiki, ประหยัด token, ใช้คู่ Codex, handoff + `/clear`) + เทียบกับ repo นี้ | [docs/reference-nateherk-ai-automation.md](docs/reference-nateherk-ai-automation.md) | ก่อนปรับ CLAUDE.md / skill / hook / ออกแบบฟีเจอร์ AI ในแอป / **token ไม่พอ** |
 | External: 2 คลิปสร้างแอปด้วย Claude (Expo native + หลังบ้านแยก / เว็บ + Supabase) — เลือก PWA โค้ดชุดเดียว, ล็อกการจองต้องบังคับฝั่ง DB, ช่องว่างมือถือของเรา | [docs/reference-mobile-app-videos.md](docs/reference-mobile-app-videos.md) | ทำให้มือถือใช้ได้เหมือนคอม / ก่อน pilot เบิกยาออนไลน์ / คิดทำแอป native-PWA |
 | อ้างอิงดีไซน์เมนู sidebar + แผนผังคลังยา (Dribbble InventiEase/Untitled UI + YouTube NN/g, DesignCourse, Bin Location Labeling) — หลักการที่ใช้ + ที่ยังไม่ทำ | [docs/reference-sidebar-map-design.md](docs/reference-sidebar-map-design.md) | ก่อนปรับเมนู/หน้าแผนผังอีกรอบ |
 
@@ -313,7 +313,7 @@ Single-page React app (no React Router) สำหรับระบบคลั�
 | `/karpathy-checklist` | Quick-check 4 ข้อก่อนลงมือ (Think / Simple / Surgical / Goal-Driven) |
 | `/grill-with-docs` | ซักค้านแผนทีละข้อกับ domain model + อัพเดต CONTEXT.md/ADR inline |
 | `/scrutinize` | รีวิว plan/PR/diff แบบ outsider — ตั้งคำถาม intent + trace code path จริง |
-| `/handoff` | ย่อบทสนทนาเป็นเอกสารส่งต่อ (เซฟใน temp dir) ให้ agent ใหม่ทำงานต่อ |
+| `/handoff` | สรุปงานเป็นเอกสารส่งต่อก่อน `/clear` (~120K token / เปลี่ยนงาน / ทิ้งเกิน 1 ชม.) — `/handoff git` = เซฟ `docs/` + push ให้อีกเครื่อง/Codex ทำต่อ · มีเช็คลิสต์งานคลังยา (Excel Save แล้วหรือยัง, เลขเอกสาร, คิวพิมพ์, โฟลเดอร์รอลง) |
 | `/stock-check` | ตอบ "<ยา> เหลือเท่าไหร่" ทันที — `scripts/stock.mjs` อ่านชีท Master: ยอดรวม/จ่ายได้/รอตรวจรับ/ราย lot + exp (คำย่อเติมที่ `ALIAS` ในสคริปต์) |
 | `/free-goods-report` | ใบของแถม (.docx) ยาบริจาค/สนับสนุนตามวันรับ — ดึงชีทรับยา+Master, ตรวจรหัส/lot/เอกสาร, แก้ Excel ผ่าน COM เท่านั้น |
 | `/purchase-request-report` | รายงานแจ้งการสั่งซื้อยา (รายงานการซื้อยา_69.xlsx) — ย้ายของที่มาส่งแล้วไป Sheet1, เพิ่มรายการใหม่ไม่ซ้ำที่รอของ, ข้อความไลน์ตามยาแบบสุภาพ+เหตุผล; สคริปต์ check/plan/apply/verify/publish (COM บนสำเนา กัน AutoSave OneDrive) · **หลัง publish ทุกรอบต้องทำสำเนา `Desktop\ยอดคงคลัง\รายงานขอซื้อยา\รายงานการซื้อยา_<ว.ด.ปี ค.ศ.>.xlsx`** (ชีทรายงานชีทเดียว — ขั้น 6b `archive_copy.ps1`; user สั่ง 14/10/2569 หลังรอบ 9–14/10 ไม่ตามมา) |

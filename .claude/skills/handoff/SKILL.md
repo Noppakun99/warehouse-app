@@ -1,28 +1,58 @@
 ---
 name: handoff
-description: Compact the current conversation into a handoff document for another agent to pick up.
-argument-hint: "What will the next session be used for?"
+description: สรุปงานใน session นี้เป็นเอกสารส่งต่อ (แบบ session handoff ของ Nate Herk) ให้ session ใหม่ / เครื่องอื่น / Codex ทำต่อได้ทันที — ใช้เมื่อ user สั่ง "handoff", "สรุปงาน", "ส่งต่องาน", "ก่อน clear", "จะไปทำต่ออีกเครื่อง" หรือเมื่อ context ใกล้ ~120K token
+argument-hint: "session ถัดไปจะทำอะไร (ไม่ใส่ก็ได้) · ใส่ 'git' = เซฟลง docs/ แล้ว commit+push ให้อีกเครื่องอ่าน"
 ---
 
-Write a handoff document summarising the current conversation so a fresh agent can continue the work. Save to the temporary directory of the user's OS - not the current workspace.
+สรุปบทสนทนานี้เป็นเอกสารส่งต่อ ให้ agent ใหม่ (session ใหม่หลัง `/clear`, เครื่องอื่น, หรือ Codex) ทำงานต่อได้**โดยไม่ต้องไล่ถาม user ใหม่**
 
-**เมื่อไรควรเรียก**: เมื่อ context window ใช้ไปราว 25% (เช่น ~250K จาก 1M) — อย่ารอ autocompact เพราะมันเริ่มทำงานช้าเกินไป คุณภาพคำตอบจะตกไปก่อนแล้ว (context rot)
+## เมื่อไรควรเรียก
+- context ใช้ไปราว **120K token** (เช็คด้วย `/context`) — อย่ารอ autocompact (~95%) เพราะคุณภาพตกไปก่อนแล้ว (context rot) และ compact เก็บรายละเอียดได้แค่ 20–30%
+- **เปลี่ยนเรื่องงาน** (เช่น ลงบิลเสร็จ → จะทำใบเบิก)
+- **ทิ้ง session นานเกิน 1 ชม.** — prompt cache หมดอายุ ส่งข้อความถัดไปจะอ่านทั้งแชทราคาเต็ม เริ่มใหม่ถูกกว่า
+- Claude เริ่มวนซ้ำ / ลืมกฎที่ตกลงไว้ / ติดปัญหาเดิม (ส่งต่อให้ Codex ช่วยได้)
+- จะย้ายไปทำต่ออีกเครื่อง
 
-**โครงที่ต้องมีครบ** — ขาดข้อไหน session ถัดไปจะต้องไล่ถามใหม่:
+## ปลายทาง (เลือกตาม argument)
+| argument | เซฟที่ | ใช้เมื่อ |
+|---|---|---|
+| (ไม่ใส่) | temp dir ของ OS + **พิมพ์ "บล็อกวางต่อ" ท้ายคำตอบ** | `/clear` แล้วทำต่อเครื่องเดิม |
+| `git` | `docs/handoff-<ปปปป-ดด-วว>-<หัวข้อสั้น>.md` → เพิ่มแถวในตาราง Topic ของ CLAUDE.md (อ่านเมื่อ = **เริ่มงานต่อจากเครื่องอื่น**) → commit + push | ทำต่อเครื่องอื่น / งานหลายวัน |
 
-1. **เริ่มจากไหน** — โจทย์ตั้งต้นของ session นี้
-2. **ตัดสินใจอะไรไปแล้ว** — และเหตุผล (ที่ยังไม่ได้ลง ADR)
-3. **ส่งมอบอะไรไปแล้ว** — ที่ commit/แก้เสร็จจริง
+ก่อน commit: `git status` ต้องมีแค่ไฟล์ handoff + CLAUDE.md · **ห้าม add** `scripts/gas*.mjs`, `scripts/.yt-*.mjs`, `.env`, ไฟล์ Excel, รูปเอกสาร
+
+## โครงที่ต้องมีครบ (ขาดข้อไหน session ถัดไปต้องไล่ถามใหม่)
+1. **เริ่มจากไหน** — โจทย์ตั้งต้นของ session นี้ (1–2 บรรทัด)
+2. **ตัดสินใจอะไรไปแล้ว** — และเหตุผล (เฉพาะที่ยังไม่ได้ลง ADR / CLAUDE.md / memory)
+3. **ส่งมอบอะไรไปแล้ว** — ที่ commit / Save / พิมพ์เสร็จจริง (ระบุ commit hash, แถว, เลขเอกสาร)
 4. **ไฟล์สำคัญสำหรับรอบหน้า** — path + ทำอะไรค้างไว้ในไฟล์นั้น
-5. **สถานะที่ยังรันอยู่** — background task, branch ที่ยืนอยู่, migration ที่ยังไม่ได้รัน
-6. **verify ที่ยังไม่ได้ทำ** — lint/test ที่ควรรันแต่ยังไม่ได้รัน
+5. **สถานะที่ยังรันอยู่** — background task, Chrome CDP, branch, migration ที่ยังไม่รัน
+6. **verify ที่ยังไม่ได้ทำ** — lint / test / ด่านตรวจ Excel ที่ควรรันแต่ยังไม่รัน
 7. **คำถามเปิด** — ที่รอ user เคาะ
-8. **เริ่มต่อตรงไหน** — ขั้นถัดไปที่เป็นรูปธรรม
+8. **เริ่มต่อตรงไหน** — ขั้นถัดไปที่เป็นรูปธรรม (คำสั่ง/ไฟล์/แถวแรกที่ต้องทำ)
+9. **skill ที่ควรเรียก** — เช่น `/stock-check`, `anthropic-skills:verify-4sheet-v2`, `/purchase-request-report`
 
-Include a "suggested skills" section in the document, which suggests skills that the agent should invoke.
+## เช็คลิสต์งานคลังยา (ใส่ในข้อ 3–6 ถ้า session นี้แตะเรื่องนั้น)
+- **ไฟล์ Excel** (`ยอดคงคลัง_69.xlsm`, `รายงานการซื้อยา_69.xlsx`, ไฟล์สรุปเบิก รพ.สต.): **Save ไฟล์จริงแล้ว หรือยังอยู่แค่สำเนาใน scratchpad** (บอก path สำเนา) · ชีท + แถวที่เพิ่ม/แก้ · ด่านที่ผ่านแล้ว (Y เพิ่ม = ยอดบิล, AA = 0, แถว "ยอด ยา นำไปใช้เดือนถัดไป" ✅, diff ทีละเซลล์)
+- **เลขเอกสารที่ออกไปแล้ว** — บย./สบ./เลขรับใบเบิก (คอลัมน์ AD) ตัวล่าสุด กันออกเลขซ้ำ
+- **PDF + คิวพิมพ์** — ทำแล้วกี่ไฟล์ (ห้องยาต้อง 2 ฉบับ) · เข้าคิว `_สถานะพิมพ์.csv` แล้วหรือยัง
+- **ทะเบียน CSV** ที่ติ๊กแล้ว/ยัง (ส่งบิลจัดซื้อ, ส่งบัญชี, ยืมยา)
+- **นำเข้าแอป (Supabase)** แล้วหรือยัง
+- **โฟลเดอร์พักเอกสาร** `เอกสารคลังยา_รอลง\` — รัน `find` ก่อนเขียน handoff แล้วบอกว่าค้างกี่ไฟล์ โฟลเดอร์ไหน
+- งานที่**ห้ามทำซ้ำ** ใน session ใหม่ (เช่น บิลที่ลงแล้ว, การ์ด Store ER ที่ลงแล้ว)
 
-Do not duplicate content already captured in other artifacts (PRDs, plans, ADRs, issues, commits, diffs). Reference them by path or URL instead.
+## กติกา
+- **ไม่คัดลอกสิ่งที่อยู่ในไฟล์อื่นแล้ว** (CLAUDE.md, ADR, commit, skill) — อ้าง path แทน
+- **ตัวเลขต้องมาจากที่ตรวจจริงใน session** ไม่ประมาณ · ไม่แน่ใจให้เขียนว่า "ยังไม่ได้ตรวจ"
+- **ตัดข้อมูลอ่อนไหวออก**: key/รหัสผ่าน, ชื่อ-HN ผู้ป่วย, เบอร์โทร (ชื่อหน่วยงาน/ชื่อเรียกผู้รับ PDF เช่น พี่เจี๊ยบ ใส่ได้)
+- ยาวพอให้ทำต่อได้ ไม่เกิน ~80 บรรทัด — handoff ยาวเกินก็กลายเป็นบริบทบวมใน session ใหม่
+- วันที่ใช้ พ.ศ. แบบ repo (`18/10/2569`)
 
-Redact any sensitive information, such as API keys, passwords, or personally identifiable information.
+## บล็อกวางต่อ (ท้ายคำตอบทุกครั้ง)
+พิมพ์บล็อกนี้ใน code fence ให้ user ก๊อป → `/clear` → วาง:
 
-If the user passed arguments, treat them as a description of what the next session will focus on and tailor the doc accordingly.
+```
+ทำงานต่อจาก handoff: <path ไฟล์ handoff>
+อ่านไฟล์นั้นก่อน แล้วสรุปสั้น ๆ ว่าเข้าใจสถานะว่าอะไร + ขั้นถัดไปคืออะไร
+รอให้ผมยืนยันก่อนลงมือ
+```
