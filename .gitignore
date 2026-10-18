@@ -34,3 +34,6 @@ playwright-report/
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright Apps Script helper output
+scripts/.gas-out/

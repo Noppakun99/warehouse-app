@@ -22,6 +22,10 @@
 - โครงสร้างคอลัมน์ใน Excel: รหัสยา, ชื่อยา, เรท/เดือน, เรทอดีต, SS, Lead Time, …?
 - Excel rate จะ override dispense_logs calculation หรือแสดงคู่กัน?
 
+**สถานะ 2026-08-08**: ทำแล้วสำหรับ ReorderApp (ปุ่ม "Import ผลวิเคราะห์ (Excel)" + Tab "ผลจาก Excel"
++ snapshot `analysis_runs.source='excel'`) ดู [features/reorder.md](features/reorder.md)
+เหลือเฉพาะข้อ 4 ด้านล่าง (ย้าย `orderedItems` ออกจาก localStorage) และการรวมกับหน้า `view === 'order'` เดิม
+
 **สิ่งที่ต้องทำเมื่อพร้อม**
 1. ออกแบบ import schema (เพิ่ม column ใน `drug_details` หรือสร้าง table `drug_usage_rates`)
 2. สร้าง CSV/Excel import UI ใน order view พร้อม preview + unmatched drugs

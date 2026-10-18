@@ -14,11 +14,12 @@ import {
   fetchInventory, fetchDrugReorderConfig, upsertDrugReorderConfig,
   bulkUpsertDrugReorderConfig, fetchMonthlyDispenseUsage, saveAnalysisRun,
   fetchAnalysisRuns, deleteAnalysisRun, logReorderAction,
+  parseAnalysisExcel, saveExcelAnalysisRun,
 } from './lib/db';
 import { exportToExcel } from './lib/exportExcel';
 import {
   analyzeBatch, analyzeDrug, STATUS, REFILL_FACTOR, DEFAULT_LEAD_TIME,
-  computeSafetyStock,
+  computeSafetyStock, verifyExcelRow, summarizeVerification,
 } from './lib/reorder';
 
 // ────────────────────────────────────────────────────────────
@@ -366,6 +367,129 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
 }
 
 // ────────────────────────────────────────────────────────────
+// Import ผลวิเคราะห์จาก Excel — Excel เป็นเจ้าของสูตร แอปแค่แสดง + ตรวจสอบ
+// ดู docs/features/reorder-excel-redesign.md
+// ────────────────────────────────────────────────────────────
+function ImportAnalysisModal({ open, onClose, onLoaded, auth }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [preview, setPreview] = useState(null); // { parsed, verified, summary, fileName }
+
+  const reset = () => { setPreview(null); setError(''); };
+
+  const handleFile = async (file) => {
+    setBusy(true); reset();
+    try {
+      const parsed = await parseAnalysisExcel(file);
+      const verified = parsed.rows.map(r => verifyExcelRow(r));
+      setPreview({ parsed, verified, summary: summarizeVerification(verified), fileName: file.name });
+    } catch (e) { setError(e.message || 'อ่านไฟล์ไม่ได้'); }
+    finally { setBusy(false); }
+  };
+
+  const useWithoutSaving = () => { onLoaded(preview); onClose(); reset(); };
+
+  const saveAndUse = async () => {
+    setBusy(true);
+    try {
+      const { summary } = preview;
+      const id = await saveExcelAnalysisRun({
+        parsed: preview.parsed,
+        verification: { total: summary.total, pass: summary.pass, fail: summary.fail, byStep: summary.byStep },
+        fileName: preview.fileName,
+      }, auth);
+      onLoaded({ ...preview, runId: id });
+      onClose(); reset();
+      alert(`บันทึก Snapshot จาก Excel สำเร็จ (ID #${id})`);
+    } catch (e) { setError(e.message || 'บันทึกไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  };
+
+  if (!open) return null;
+  const s = preview?.summary;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-gradient-to-r from-teal-600 to-emerald-600 text-white px-5 py-3.5 rounded-t-2xl flex items-center justify-between">
+          <h2 className="font-bold flex items-center gap-2"><FileSpreadsheet size={16}/> Import ผลวิเคราะห์ (Excel)</h2>
+          <button onClick={onClose} className="text-white/80 hover:text-white"><X size={20}/></button>
+        </div>
+
+        <div className="p-5 space-y-3 text-sm">
+          <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 text-xs text-teal-800">
+            <p className="font-bold mb-1">Excel เป็นเจ้าของสูตร</p>
+            <p className="text-teal-700">
+              แอปจะแสดงตัวเลขจากชีต "วิเคราะห์สั่งซื้อ" ตรง ๆ ไม่คำนวณซ้ำ — แล้วรันสูตรในโค้ดเทียบเบื้องหลัง
+              เพื่อบอกว่าตรงกันหรือไม่ (คอลัมน์ ✓/✗) · ระบบสแกนหาแถวหัวตารางเอง และรับคอลัมน์เดือนแบบ dynamic
+            </p>
+          </div>
+
+          <input type="file" accept=".xlsx,.xls" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+            className="block w-full text-sm border border-slate-300 rounded-lg p-2 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:bg-teal-600 file:text-white"/>
+
+          {busy && <p className="text-slate-500 flex items-center gap-1.5"><Loader2 size={14} className="animate-spin"/> กำลังประมวลผล…</p>}
+          {error && <p className="text-rose-600 text-xs">{error}</p>}
+
+          {preview && (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <Stat label="แถวข้อมูล" value={fmtNum(preview.parsed.rows.length)}/>
+                <Stat label="เดือนที่พบ" value={preview.parsed.months.length}/>
+                <Stat label="แถวหัวตาราง" value={`แถวที่ ${preview.parsed.headerRowIndex + 1}`}/>
+                <Stat label="ตรงกันทุก step" value={`${s.pass}/${s.total}`} tone={s.fail === 0 ? 'emerald' : 'rose'}/>
+              </div>
+
+              <div className={`rounded-xl border-2 p-3 ${s.fail === 0 ? 'bg-emerald-50 border-emerald-300' : 'bg-rose-50 border-rose-300'}`}>
+                <div className="flex items-center gap-2 font-bold mb-2 text-xs">
+                  {s.fail === 0 ? <CheckCircle2 size={16} className="text-emerald-700"/> : <XCircle size={16} className="text-rose-700"/>}
+                  <span className={s.fail === 0 ? 'text-emerald-800' : 'text-rose-800'}>
+                    {s.fail === 0 ? 'สูตรในโค้ดตรงกับ Excel ทุกแถว' : `พบ ${s.fail} แถวที่สูตรไม่ตรง — ตรวจก่อนใช้ผล`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  {[
+                    ['ss', 'Safety Stock'], ['rop', 'ROP'],
+                    ['orderQty', 'จำนวนสั่ง'], ['amount', 'มูลค่า'],
+                  ].map(([k, label]) => (
+                    <div key={k} className="bg-white/70 rounded-lg px-2 py-1.5 border border-slate-200">
+                      <p className="text-slate-500">{label}</p>
+                      <p className={s.byStep[k]?.fail ? 'text-rose-700 font-bold' : 'text-emerald-700 font-bold'}>
+                        {s.byStep[k]?.pass ?? 0}/{s.total}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-500">
+                ช่วงข้อมูล: {preview.parsed.months.map(m => m.label.replace(/^เบิก\s*/, '')).join(' · ') || '—'}
+              </p>
+              {preview.parsed.unmatchedHeaders.length > 0 && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                  คอลัมน์ที่ระบบไม่รู้จัก (ไม่ถูกนำเข้า): {preview.parsed.unmatchedHeaders.join(' · ')}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="border-t border-slate-200 px-5 py-3 flex items-center justify-end gap-2 bg-slate-50 rounded-b-2xl">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-200 rounded-lg">ยกเลิก</button>
+          <button onClick={useWithoutSaving} disabled={!preview || busy}
+            className="px-4 py-2 text-sm border border-teal-600 text-teal-700 hover:bg-teal-50 disabled:opacity-50 rounded-lg">
+            ดูผลอย่างเดียว
+          </button>
+          <button onClick={saveAndUse} disabled={!preview || busy}
+            className="px-4 py-2 text-sm bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-1.5">
+            {busy ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} บันทึก Snapshot
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
 // Main App
 // ────────────────────────────────────────────────────────────
 export default function ReorderApp({ onBack, auth = {} }) {
@@ -408,9 +532,11 @@ export default function ReorderApp({ onBack, auth = {} }) {
   });
 
   // ── UI ──
-  const [tab, setTab] = useState('analysis'); // analysis | supplier | verify | history
+  const [tab, setTab] = useState('analysis'); // analysis | excel | supplier | verify | history
   const [editingDrug, setEditingDrug] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [importExcelOpen, setImportExcelOpen] = useState(false);
+  const [excelRun, setExcelRun] = useState(null); // { parsed, verified, summary, fileName, runId? }
 
   // Initial fetch
   useEffect(() => {
@@ -584,6 +710,9 @@ export default function ReorderApp({ onBack, auth = {} }) {
             <button onClick={() => setImportOpen(true)} className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium">
               <Upload size={14}/> Import Master
             </button>
+            <button onClick={() => setImportExcelOpen(true)} className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium">
+              <FileSpreadsheet size={14}/> Import ผลวิเคราะห์ (Excel)
+            </button>
             <button onClick={saveSnapshot} disabled={!result || running} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium">
               <Save size={14}/> บันทึก Snapshot
             </button>
@@ -619,6 +748,11 @@ export default function ReorderApp({ onBack, auth = {} }) {
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
           <div className="flex border-b border-slate-200 overflow-x-auto bg-gradient-to-r from-slate-50 to-white">
             <TabBtn id="analysis" cur={tab} set={setTab} icon={<ListChecks size={14}/>}>ตารางวิเคราะห์</TabBtn>
+            {excelRun && (
+              <TabBtn id="excel" cur={tab} set={setTab} icon={<FileSpreadsheet size={14}/>}>
+                ผลจาก Excel ({excelRun.summary.pass}/{excelRun.summary.total})
+              </TabBtn>
+            )}
             <TabBtn id="supplier" cur={tab} set={setTab} icon={<Building2 size={14}/>}>ใบสั่งซื้อแยกบริษัท {result?.suppliers?.length ? `(${result.suppliers.length})` : ''}</TabBtn>
             <TabBtn id="verify"   cur={tab} set={setTab} icon={<ShieldAlert size={14}/>}>Verification</TabBtn>
             <TabBtn id="history"  cur={tab} set={setTab} icon={<History size={14}/>}>History</TabBtn>
@@ -627,6 +761,8 @@ export default function ReorderApp({ onBack, auth = {} }) {
           <div className="p-3 sm:p-5">
             {loadingData ? (
               <LoadingState text="กำลังโหลดข้อมูลคลัง + Master…"/>
+            ) : tab === 'excel' && excelRun ? (
+              <ExcelAnalysisTab excelRun={excelRun} stockInfo={stockInfo} search={search} auth={auth}/>
             ) : running && !result ? (
               <LoadingState text="กำลังคำนวณ…"/>
             ) : !result ? (
@@ -651,6 +787,10 @@ export default function ReorderApp({ onBack, auth = {} }) {
 
       <MasterEditModal open={!!editingDrug} drug={editingDrug} onClose={() => setEditingDrug(null)} onSave={onMasterSaved}/>
       <ImportMasterModal open={importOpen} onClose={() => setImportOpen(false)} onImported={onMasterImported} auth={auth}/>
+      <ImportAnalysisModal
+        open={importExcelOpen} onClose={() => setImportExcelOpen(false)} auth={auth}
+        onLoaded={(run) => { setExcelRun(run); setTab('excel'); }}
+      />
     </div>
   );
 }
@@ -948,6 +1088,135 @@ function Stat({ label, value, tone = 'slate' }) {
       <div className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">{label}</div>
       <div className={`text-sm font-black tabular-nums ${t.text}`}>{value}</div>
     </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Excel tab — แสดงเลขจาก Excel ตรง ๆ + join สต็อกสดจาก DB + คอลัมน์ ✓/✗
+// ────────────────────────────────────────────────────────────
+function ExcelAnalysisTab({ excelRun, stockInfo, search, auth }) {
+  const [onlyFail, setOnlyFail] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const { parsed, verified, summary } = excelRun;
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return parsed.rows.map((r, i) => {
+      const live = stockInfo[codeKey(r.code)];
+      return { ...r, verify: verified[i], liveStock: live ? live.stock : null };
+    }).filter(r => {
+      if (onlyFail && r.verify.allOk) return false;
+      if (!q) return true;
+      return (r.code || '').toLowerCase().includes(q) || (r.name || '').toLowerCase().includes(q);
+    });
+  }, [parsed, verified, stockInfo, search, onlyFail]);
+
+  const unmatchedCount = useMemo(
+    () => parsed.rows.filter(r => !stockInfo[codeKey(r.code)]).length,
+    [parsed, stockInfo]
+  );
+
+  const exportRows = async () => {
+    setExporting(true);
+    try {
+      await exportToExcel(rows, [
+        { header: 'รหัส', key: 'code' },
+        { header: 'ชื่อยา', key: 'name' },
+        { header: 'หน่วย', key: 'unit' },
+        { header: 'กลุ่มความเสี่ยง', key: 'riskGroup' },
+        { header: 'ตัวคูณ SS', key: 'ssMultiplier' },
+        { header: 'คงเหลือ (Excel)', key: 'stock' },
+        { header: 'คงเหลือ (ระบบ)', value: r => (r.liveStock == null ? '-' : r.liveStock) },
+        { header: 'Safety Stock', key: 'ss' },
+        { header: 'Lead Time', key: 'leadTimeDays' },
+        { header: 'ROP', key: 'rop' },
+        { header: 'สถานะ', key: 'status' },
+        { header: 'จำนวนสั่ง', key: 'orderQty' },
+        { header: 'ราคา/หน่วย', key: 'pricePerUnit' },
+        { header: 'มูลค่า', key: 'amount' },
+        { header: 'บริษัท', key: 'supplier' },
+        { header: 'วันที่รับเข้าล่าสุด', key: 'lastReceived' },
+        { header: 'ตรวจสูตร', value: r => (r.verify.allOk ? 'ตรง' : 'ไม่ตรง') },
+      ], 'reorder', `ผลวิเคราะห์จากExcel_${todayIso()}.xlsx`, auth);
+    } finally { setExporting(false); }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className={`rounded-xl border p-3 text-sm flex items-center justify-between flex-wrap gap-2
+        ${summary.fail === 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
+        <span className={summary.fail === 0 ? 'text-emerald-800' : 'text-rose-800'}>
+          {summary.fail === 0 ? <CheckCircle2 size={15} className="inline mr-1.5 -mt-0.5"/> : <XCircle size={15} className="inline mr-1.5 -mt-0.5"/>}
+          สูตรตรงกัน <b>{summary.pass}/{summary.total}</b> แถว
+          {excelRun.fileName && <span className="text-slate-500"> · {excelRun.fileName}</span>}
+          {excelRun.runId && <span className="text-slate-500"> · Snapshot #{excelRun.runId}</span>}
+        </span>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-xs text-slate-600">
+            <input type="checkbox" checked={onlyFail} onChange={(e) => setOnlyFail(e.target.checked)} className="accent-rose-600"/>
+            แสดงเฉพาะแถวที่ไม่ตรง
+          </label>
+          <button onClick={exportRows} disabled={exporting}
+            className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-medium">
+            {exporting ? <Loader2 size={13} className="animate-spin"/> : <FileSpreadsheet size={13}/>} Export Excel
+          </button>
+        </div>
+      </div>
+
+      {unmatchedCount > 0 && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 flex items-center gap-1.5">
+          <AlertCircle size={13}/> {unmatchedCount} รายการใน Excel ไม่พบรหัสยาในคลัง — คอลัมน์ "คงเหลือ (ระบบ)" จะเป็น "-"
+        </p>
+      )}
+
+      {rows.length === 0 ? <EmptyState text="ไม่มีรายการตรงกับ filter"/> : (
+        <div className="overflow-auto rounded-xl border border-slate-200 max-h-[70vh]">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-100 sticky top-0 z-10">
+              <tr className="text-slate-600">
+                {['รหัส','ชื่อยา','กลุ่ม','ตัวคูณ','คงเหลือ (Excel)','คงเหลือ (ระบบ)','SS','LT','ROP','สถานะ','จำนวนสั่ง','มูลค่า','รับเข้าล่าสุด','ตรวจสูตร'].map(h => (
+                  <th key={h} className="px-2 py-2 text-left font-semibold whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={`${r.code}-${i}`} className={`border-t border-slate-100 ${r.verify.allOk ? '' : 'bg-rose-50'}`}>
+                  <td className="px-2 py-1.5 font-mono whitespace-nowrap">{r.code}</td>
+                  <td className="px-2 py-1.5 max-w-[220px] truncate" title={r.name}>{r.name || '—'}</td>
+                  <td className="px-2 py-1.5 whitespace-nowrap">{r.riskGroup || '—'}</td>
+                  <td className="px-2 py-1.5 text-right">{r.ssMultiplier || '—'}</td>
+                  <td className="px-2 py-1.5 text-right">{fmtNum(r.stock)}</td>
+                  <td className={`px-2 py-1.5 text-right ${r.liveStock == null ? 'text-slate-400' : r.liveStock !== r.stock ? 'text-amber-700 font-semibold' : ''}`}>
+                    {r.liveStock == null ? '-' : fmtNum(r.liveStock)}
+                  </td>
+                  <td className="px-2 py-1.5 text-right">{fmtNum(r.ss)}</td>
+                  <td className="px-2 py-1.5 text-right">{r.leadTimeDays}</td>
+                  <td className="px-2 py-1.5 text-right">{fmtNum(r.rop)}</td>
+                  <td className="px-2 py-1.5 whitespace-nowrap">{r.status || '—'}</td>
+                  <td className="px-2 py-1.5 text-right font-semibold">{fmtNum(r.orderQty)}</td>
+                  <td className="px-2 py-1.5 text-right">{fmtBaht(r.amount)}</td>
+                  <td className="px-2 py-1.5 whitespace-nowrap text-slate-500">{r.lastReceived || '—'}</td>
+                  <td className="px-2 py-1.5"><VerifyCell verify={r.verify}/></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const VERIFY_STEP_LABELS = { ss: 'SS', rop: 'ROP', orderQty: 'จำนวนสั่ง', amount: 'มูลค่า' };
+
+function VerifyCell({ verify }) {
+  if (verify.allOk) return <span className="text-emerald-600 font-bold" title="สูตรในโค้ดให้ผลตรงกับ Excel ทุก step">✓</span>;
+  const bad = Object.entries(verify.steps).filter(([, s]) => !s.ok);
+  return (
+    <span className="text-rose-700 whitespace-nowrap" title={bad.map(([k, s]) => `${VERIFY_STEP_LABELS[k]}: แอป=${s.app} Excel=${s.excel}`).join('\n')}>
+      ✗ {bad.map(([k, s]) => `${VERIFY_STEP_LABELS[k]} ${s.delta > 0 ? '+' : ''}${s.delta}`).join(', ')}
+    </span>
   );
 }
 

@@ -7,6 +7,8 @@ import {
   analyzeDrug, analyzeBatch,
   computeSafetyStock,
   STATUS,
+  normalizeStatus, monthHeaderToYm, parseAnalysisSheet,
+  verifyExcelRow, summarizeVerification,
 } from './reorder.js';
 
 let pass = 0, fail = 0;
@@ -195,6 +197,83 @@ section('Test 9: ใกล้หมดอายุ (≤180 วัน)');
     leadTimeDays: 15, nearestExpiryDays: 90, pricePerUnit: 2,
   });
   assertEq(r.status, STATUS.NEAR_EXPIRY, 'Status = ใกล้หมดอายุ');
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Test 10 — ssMultiplier override ชนะ riskGroup (Excel เก็บตัวคูณเป็นตัวเลข)
+// ────────────────────────────────────────────────────────────────────
+section('Test 10: ssMultiplier override');
+{
+  const base = { code: 'X', monthlyUsage: [30,30,30,30], stock: 0, leadTimeDays: 10 };
+  const byGroup = analyzeDrug({ ...base, riskGroup: 'Critical' });
+  const byMult  = analyzeDrug({ ...base, riskGroup: 'Normal', ssMultiplier: 2.0 });
+  assertEq(byMult.ss, byGroup.ss, 'ssMultiplier=2.0 ให้ SS เท่ากับ riskGroup=Critical');
+  assertEq(analyzeDrug({ ...base, riskGroup: 'Essential', ssMultiplier: null }).ss,
+    analyzeDrug({ ...base, riskGroup: 'Essential' }).ss, 'ssMultiplier=null → ใช้ riskGroup ตามเดิม');
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Test 11 — parse ชีต Excel: สแกนหา header + คอลัมน์เดือน dynamic + emoji
+// ────────────────────────────────────────────────────────────────────
+section('Test 11: parseAnalysisSheet');
+{
+  assertEq(normalizeStatus('📋 สั่งเมื่อขอ'), STATUS.ON_DEMAND, 'normalizeStatus ตัด emoji');
+  assertEq(monthHeaderToYm('เบิก ธ.ค.68'), '2025-12', 'เบิก ธ.ค.68 → 2025-12');
+  assertEq(monthHeaderToYm('เบิก ม.ค.69'), '2026-01', 'เบิก ม.ค.69 → 2026-01');
+
+  // แถว 0-1 = title/ปุ่ม — header อยู่แถว 2 → parser ต้องสแกนเจอเอง
+  const aoa = [
+    ['วิเคราะห์การสั่งซื้อยา  |  Update: เม.ย.69'],
+    [],
+    ['รหัส','รายการยา','หน่วย','เบิก ธ.ค.68','เบิก ม.ค.69','Max/เดือน','Avg/เดือน','Avg/วัน',
+     'คงเหลือ (หน่วย)','Safety Stock','Lead Time (วัน)','ROP = SS + Avg×LT','สถานะ',
+     'จำนวนแนะนำสั่งซื้อ (หน่วย)','ราคา/หน่วย (บาท)','มูลค่าสั่งซื้อ (บาท)','กลุ่มความเสี่ยง',
+     'ตัวคูณกลุ่มความเสี่ยง','วันที่รับเข้าล่าสุด','คงเหลือ - ROP'],
+    [1530004,'NSS 1000ml','bott',922,730,922,826,12.5,260,1127,11.4,1270,'❌ สั่งเพิ่ม',1650,21,34650,'Critical',2,'21/04/2026',-1010],
+    ['', '', '', '', ''],
+  ];
+  const p = parseAnalysisSheet(aoa);
+  assertEq(p.headerRowIndex, 2, 'สแกนเจอ header ที่แถว index 2');
+  assertEq(p.rows.length, 1, 'ข้ามแถวที่ไม่มีรหัส');
+  assertEq(p.months.length, 2, 'จับคอลัมน์เดือน 2 เดือนจาก prefix "เบิก "');
+  assertEq(p.statsFrom, '2025-12-01', 'statsFrom จากเดือนที่มียอดจริง');
+  assertEq(p.statsTo, '2026-01-01', 'statsTo จากเดือนที่มียอดจริง');
+  assertEq(p.rows[0].code, '1530004', 'code เป็น string');
+  assertEq(p.rows[0].status, STATUS.REORDER, 'สถานะถูกตัด emoji');
+  assertEq(p.rows[0].ssMultiplier, 2, 'อ่านตัวคูณ SS');
+  assertEq(p.rows[0].lastReceived, '21/04/2026', 'อ่านวันที่รับเข้าล่าสุด');
+  assertEq(p.unmatchedHeaders.includes('คงเหลือ - ROP'), true, 'รายงานคอลัมน์ที่ไม่ได้ map');
+
+  let threw = false;
+  try { parseAnalysisSheet([['ก'],['ข']]); } catch { threw = true; }
+  assertEq(threw, true, 'ไม่มีแถว header → throw');
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Test 12 — verifyExcelRow: ตรวจทีละ step + ไม่ให้ error ลาม cascade
+// ────────────────────────────────────────────────────────────────────
+section('Test 12: verifyExcelRow');
+{
+  // ค่าจริงจากชีต "วิเคราะห์สั่งซื้อ" (NSS 1000ml) — สูตรในโค้ดต้องให้ผลตรงทุก step
+  const good = {
+    avgDay: 12.5246, ssMultiplier: 2, leadTimeDays: 11.4,
+    max: 922, avgMonth: 955, stock: 260, status: STATUS.REORDER,
+    ss: 1127, rop: 1270, orderQty: 1650, pricePerUnit: 21, amount: 34650,
+  };
+  const v = verifyExcelRow(good);
+  assertEq(v.allOk, true, 'แถวจริงจาก Excel ตรงทุก step');
+
+  // SS ผิดที่เดียว → step อื่นต้องยังผ่าน (ใช้ ROP ของ Excel ไม่ใช่ที่โค้ดคำนวณ)
+  const bad = verifyExcelRow({ ...good, ss: 900 });
+  assertEq(bad.steps.ss.ok, false, 'SS ที่ต่างถูกจับได้');
+  assertEq(bad.steps.ss.delta, 227, 'รายงาน delta ของ SS');
+  assertEq(bad.steps.rop.ok, true, 'error ที่ SS ไม่ลามไป ROP');
+  assertEq(bad.steps.orderQty.ok, true, 'error ที่ SS ไม่ลามไปจำนวนสั่ง');
+
+  const s = summarizeVerification([v, bad]);
+  assertEq(s.total, 2, 'summarize นับ total');
+  assertEq(s.pass, 1, 'summarize นับ pass');
+  assertEq(s.byStep.ss.fail, 1, 'summarize แยกราย step');
 }
 
 // ────────────────────────────────────────────────────────────────────

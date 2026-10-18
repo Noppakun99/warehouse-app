@@ -44,6 +44,7 @@ const ACTION_LABELS = {
   delete_analysis_run:          { label: 'ลบ Snapshot สั่งซื้อ',     color: 'bg-red-100 text-red-700'       },
   update_reorder_config:        { label: 'แก้ Master ยา',           color: 'bg-violet-100 text-violet-700' },
   import_reorder_config:        { label: 'Import Master ยา',        color: 'bg-indigo-100 text-indigo-700' },
+  import_analysis_excel:        { label: 'Import ผลวิเคราะห์ (Excel)', color: 'bg-teal-100 text-teal-700'  },
   mark_ordered:                 { label: 'ทำเครื่องหมายสั่งแล้ว',     color: 'bg-emerald-100 text-emerald-700'},
   unmark_ordered:               { label: 'ยกเลิกสั่งแล้ว',           color: 'bg-slate-100 text-slate-600'   },
   print_po:                     { label: 'พิมพ์ใบสั่งซื้อ',           color: 'bg-blue-100 text-blue-700'     },

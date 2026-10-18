@@ -1,4 +1,6 @@
+import * as XLSX from 'xlsx'
 import { supabase } from './supabase'
+import { parseAnalysisSheet } from './reorder'
 
 const CHUNK_SIZE = 500
 
@@ -682,6 +684,7 @@ export async function fetchNotifications() {
     'analysis_run',
     'update_reorder_config',
     'import_reorder_config',
+    'import_analysis_excel',
     'mark_ordered',
     'print_po',
   ]
@@ -1583,11 +1586,69 @@ export async function saveAnalysisRun(run, auth = {}) {
   return data.id
 }
 
+// ── Import ผลวิเคราะห์จาก Excel "วิเคราะห์สั่งซื้อ" ──────────
+// Excel เป็นเจ้าของสูตร — แอปเก็บเลขจาก Excel มาแสดงตรง ๆ แล้วรัน reorder.js
+// เทียบเบื้องหลังเป็น regression guard (ดู docs/features/reorder-excel-redesign.md)
+
+// คืนผลจาก parseAnalysisSheet + sheetName ที่เลือก
+export async function parseAnalysisExcel(file) {
+  const buf = await file.arrayBuffer()
+  const wb = XLSX.read(buf, { type: 'array' })
+  const sheetName = wb.SheetNames.find(n => n.includes('วิเคราะห์')) || wb.SheetNames[0]
+  const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, blankrows: false })
+  return { sheetName, ...parseAnalysisSheet(aoa) }
+}
+
+// บันทึก snapshot จาก Excel (source='excel') + audit action import_analysis_excel
+export async function saveExcelAnalysisRun({ parsed, verification, fileName }, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const reorderRows = parsed.rows.filter(r => (r.orderQty || 0) > 0).length
+  const totalAmount = Math.round(parsed.rows.reduce((s, r) => s + (r.amount || 0), 0) * 100) / 100
+  const byStatus = {}
+  for (const r of parsed.rows) byStatus[r.status || '-'] = (byStatus[r.status || '-'] || 0) + 1
+
+  const payload = {
+    run_by: resolveAuditUserName(auth),
+    source: 'excel',
+    mode: 'normal',
+    stats_from: parsed.statsFrom,
+    stats_to: parsed.statsTo,
+    lead_time_default: 15,
+    snapshot_date: new Date().toISOString().slice(0, 10),
+    total_rows: parsed.rows.length,
+    reorder_rows: reorderRows,
+    total_amount: totalAmount,
+    summary: {
+      byStatus,
+      source: 'excel',
+      fileName: fileName || null,
+      sheetName: parsed.sheetName,
+      months: parsed.months.map(m => m.ym),
+      verification: verification || null,
+    },
+    results: parsed.rows,
+    notes: parsed.title || null,
+  }
+  const { data, error } = await supabase.from('analysis_runs').insert(payload).select('id').single()
+  if (error) throw error
+  await insertAuditLog({
+    action: 'import_analysis_excel', table_name: 'analysis_runs',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: parsed.rows.length,
+    details: {
+      run_id: data.id, file_name: fileName || null,
+      total_rows: parsed.rows.length, reorder_rows: reorderRows, total_amount: totalAmount,
+      verify_pass: verification?.pass ?? null, verify_fail: verification?.fail ?? null,
+    },
+  })
+  return data.id
+}
+
 export async function fetchAnalysisRuns(limit = 50) {
   if (!supabase) return []
   const { data, error } = await supabase
     .from('analysis_runs')
-    .select('id, run_at, run_by, mode, stats_from, stats_to, snapshot_date, total_rows, reorder_rows, total_amount, summary, notes')
+    .select('id, run_at, run_by, source, mode, stats_from, stats_to, snapshot_date, total_rows, reorder_rows, total_amount, summary, notes')
     .order('run_at', { ascending: false })
     .limit(limit)
   if (error) throw error

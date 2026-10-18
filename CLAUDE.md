@@ -22,7 +22,7 @@ npm run dev          # Start development server
 npm run build        # Production build
 npm run lint         # Run ESLint
 npm run preview      # Preview production build
-npm run test:reorder # Golden tests สำหรับ src/lib/reorder.js (33 assertions)
+npm run test:reorder # Golden tests สำหรับ src/lib/reorder.js (57 assertions)
 ```
 
 ไม่มี test runner ทั่วไป — `unitParser.test.js` standalone (`node src/unitParser.test.js`); `reorder.test.js` มี script ให้รัน `npm run test:reorder`
