@@ -61,7 +61,7 @@ const FORMS = {
       ['1501141', 'Povidone-iodine 450ml', '450ml', 'Apply'],
       ['1460260', 'Povidone-iodinegargle', '30ml', 'Apply'],
       ['1510302', 'Povidone-iodineoint 50gm', '50gm', 'Apply'],
-      ['1440314', 'SilverSulfadiazine 450gm', 'bott', 'Apply'],
+      ['1440314', 'SilverSulfadiazine 500gm', 'bott', 'Apply'],
       ['1600012', 'SodiumSulfateenemaUnison 133ml', '500กรัม', 'Apply'],
       ['1570027', 'Terramycineyeointment 3.5gm', 'หลอด', 'Apply'],
       ['1000296', 'Tetracaine 0.5% ,eyedrop ,15ml', 'ขวด', 'Apply'],
