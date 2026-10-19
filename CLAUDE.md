@@ -173,9 +173,8 @@ node scripts/stock.mjs <คำค้น> [--all]  # เช็คคงเหล�
 
 ## Architecture
 
-**ย้ายไป [src/CLAUDE.md](src/CLAUDE.md)** (โหลดเองเมื่ออ่าน/แก้ไฟล์ใน `src/`) — app flow + navStack/history + PWA · AppShell/navConfig/แถบล่างจอ · ฟอร์มพิมพ์ 14 ใบ · sub-apps ทุกตัว · data layer · pure modules · dead code
-**ก่อนแก้ component / เพิ่ม sub-app / แก้ฟอร์มพิมพ์ ต้องอ่านไฟล์นั้น** · Single-page React (ไม่มี React Router) — ทุก Supabase query ผ่าน `src/lib/db.js` · schema [docs/schema.md](docs/schema.md)
-**ทำงานใน `supabase/functions/` · `tests/` · `scripts/loan-slip.mjs` โดยไม่ได้เปิดไฟล์ใน `src/` → ไฟล์นั้นไม่โหลดเอง ต้อง Read [src/CLAUDE.md](src/CLAUDE.md) เอง** (กฎ #10/#11 edge function · `clickMenu`/แถบล่างจอใน tests · anchor ใบยืม-คืนยา อยู่ในนั้น)
+**⛔ ก่อนแก้ไฟล์ใน `src/` · `supabase/functions/` · `tests/` · `scripts/loan-slip.mjs` ต้อง Read [src/CLAUDE.md](src/CLAUDE.md) ก่อน (ครั้งเดียวต่อ session)** — **ไม่โหลดเอง** (ทดสอบ 19/10/2569: Read ไฟล์ใน `src/lib/` ผ่านส่วนขยาย VS Code ไม่มีเนื้อหา src/CLAUDE.md แนบมา) · **บังคับด้วย PreToolUse hook** [.claude/hooks/require-src-claude-md.mjs](.claude/hooks/require-src-claude-md.mjs) (19/10/2569): Edit/Write ไฟล์ใน path เหล่านี้ถูกปฏิเสธจนกว่าจะ Read src/CLAUDE.md หลัง /clear·compact ล่าสุด — ไม่ครอบการแก้ผ่าน Bash (sed/heredoc) · ในนั้น: app flow + navStack/history + PWA · AppShell/navConfig/แถบล่างจอ · ฟอร์มพิมพ์ 14 ใบ · sub-apps ทุกตัว · data layer · pure modules · dead code · Key shared functions · **Critical Rules ตัวเต็ม** (กฎ #10/#11 edge function · `clickMenu`/แถบล่างจอใน tests · anchor ใบยืม-คืนยา)
+Single-page React (ไม่มี React Router) — ทุก Supabase query ผ่าน `src/lib/db.js` · schema [docs/schema.md](docs/schema.md)
 
 ## Documentation Index
 
@@ -367,7 +366,7 @@ node scripts/stock.mjs <คำค้น> [--all]  # เช็คคงเหล�
 
 ## Critical Rules (ต้องอ่าน)
 
-**ตัวเต็มย้ายไป [src/CLAUDE.md](src/CLAUDE.md) §Critical Rules** — เลขกฎเดิม (โค้ด/เอกสารอ้าง "CLAUDE.md rule #N") · ดัชนี:
+**ตัวเต็มย้ายไป [src/CLAUDE.md](src/CLAUDE.md) §Critical Rules — ไม่โหลดเอง ต้อง Read ก่อนแก้โค้ด (ดู §Architecture)** — เลขกฎเดิม (โค้ด/เอกสารอ้าง "CLAUDE.md rule #N") · ดัชนี:
 
 - #1 Audit Log Auth
 - #2 Supabase 1000-row limit

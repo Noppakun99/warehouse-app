@@ -1,6 +1,6 @@
 # src/CLAUDE.md
 
-ย้ายมาจาก root `CLAUDE.md` แบบคำต่อคำ (19/10/2569) — โหลดเองเมื่อทำงานกับไฟล์ใน `src/`
+ย้ายมาจาก root `CLAUDE.md` แบบคำต่อคำ (19/10/2569) — **ไม่โหลดเอง** (ทดสอบ 19/10/2569 ผ่านส่วนขยาย VS Code) root สั่งให้ Read ไฟล์นี้ก่อนแก้ไฟล์ใน `src/` · `supabase/functions/` · `tests/` · `scripts/loan-slip.mjs`
 
 > **path / ลิงก์ทุกตัวในไฟล์นี้อ้างจาก root ของ repo** (เช่น `src/AppRoot.jsx`, `docs/patterns.md`) ไม่ใช่จากโฟลเดอร์ `src/` — คงไว้ตามต้นฉบับ
 > "section Commands" / "§Commands" = หัวข้อ `## Commands` ใน root `CLAUDE.md`
