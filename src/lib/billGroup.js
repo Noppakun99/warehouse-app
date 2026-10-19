@@ -1,6 +1,7 @@
 // billGroup.js — จัดกลุ่ม receive_logs rows เป็น "บิลจริง" สำหรับ AP workflow
 // แยกออกจาก db.js เพราะเป็น pure (ไม่พึ่ง supabase) → unit-test ได้ด้วย node ตรงๆ
 // ดู docs/features/ap-workflow.md + CLAUDE.md rule #19
+// ทดสอบขั้น 3
 
 // Identity ของ "บิลจริง" = bill_number + supplier + receive_date (ผูกกับครั้งที่รับ)
 // เลขบิลไม่ unique: ซ้ำได้ทั้งคนละบริษัท (group A) และบริษัทเดียวคนละวัน (group B)
