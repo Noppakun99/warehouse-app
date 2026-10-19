@@ -68,8 +68,15 @@ head('รูปใบเบิก ↔ PDF')
 pdfs = {os.path.basename(p): os.path.relpath(p, REQ_PDF) for p in glob.glob(os.path.join(REQ_PDF, '**', '*.pdf'), recursive=True)
         if not os.path.relpath(p, REQ_PDF).startswith('รอพิมพ์')}   # สำเนาในที่พักรอพิมพ์ไม่ใช่ต้นฉบับ
 imgs = [p for p in glob.glob(os.path.join(REQ_IMG, '*', '*')) if os.path.isfile(p)]
+# รูปที่เก็บเป็นหลักฐานอย่างเดียว ไม่ได้ลงชีทเบิก จึงไม่มี PDF (ชื่อไฟล์ → เหตุผล)
+NO_PDF = {
+    '16.10.69_ปฐมภูมิ_คืนยาน้ำท่วม_เก็บห้องยาG.jpg': 'ปฐมภูมิคืนยาน้ำท่วม 109 ชุด เก็บห้องยาG ไม่ลง Master (user ตกลง 19/10/2569)',
+}
 n = 0
 for p in imgs:
+    if os.path.basename(p) in NO_PDF:
+        n += 1
+        continue
     m = re.match(r'^(.+?)_(.+)_([^_]+)$', os.path.splitext(os.path.basename(p))[0])
     if not m:
         bad(f'ชื่อรูปไม่ตามแบบ <วันที่>_<หน่วยงาน>_<ประเภท>: {os.path.relpath(p, REQ_IMG)}')
