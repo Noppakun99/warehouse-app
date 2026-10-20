@@ -6,10 +6,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   X, Pill, Database, MapPin, Layers, Hourglass, AlertTriangle, CircleCheck, PackageX, Ban, ScrollText,
-  TrendingDown, Loader2, CalendarClock, Receipt, ChevronDown, Activity, History, Truck,
+  TrendingDown, Loader2, CalendarClock, Receipt, ChevronDown, Activity, History, Truck, Info,
 } from 'lucide-react';
 import { fetchDrugProfile } from './lib/db';
-import { parseExpDate, packUnitLabel } from './lib/drugProfile';
+import { parseExpDate, packUnitLabel, packWord } from './lib/drugProfile';
 
 const fmtNum = (n) => (Number(n) || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 const fmtThaiDate = (d) => (d ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear() + 543}` : '-');
@@ -24,6 +24,51 @@ const fmtIsoTh = (iso) => {
 };
 const fmtMoney = (n) => (Number(n) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const isPurchase = (t) => !t || t === 'การซื้อ';
+
+// โน้ตอธิบายหน่วยใต้ยอดรวม (unitNote ใน drugProfile.js) — กรณี 1 หน่วยหลักต่างจากของในคลัง · กรณี 2 หน่วยซื้อเปลี่ยน
+const billRef = (b) => `บิล ${b.billNumber}${b.receiveDate ? ` · ${fmtIsoTh(b.receiveDate)}` : ''}`;
+function UnitNote({ note }) {
+  const mainShort = note.mainFactor > 1 ? packWord(note.mainUnit) : note.mainUnit;
+  const conv = (c) => {
+    const parts = [`${fmtNum(c.qty)} ${c.factor > 1 ? packUnitLabel(c.unit) : c.unit}`];
+    if (c.factor > 1) parts.push(`= ${fmtNum(c.baseQty)} ${c.base}`);
+    if (note.mainFactor > 1) parts.push(`÷ ${fmtNum(note.mainFactor)} = ${fmtNum(c.inMain)} ${mainShort}`);
+    else if (c.factor === 1) parts.push(`= ${fmtNum(c.inMain)} ${note.mainUnit}`);
+    return parts.join(' ');
+  };
+  const { change } = note;
+  return (
+    <div className="mt-2 space-y-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+      {note.conversions.length > 0 && (
+        <p className="flex gap-1.5">
+          <Info size={12} className="shrink-0 mt-0.5" />
+          <span>
+            แสดงเป็น {packUnitLabel(note.mainUnit)} {note.bill
+              ? <>ตามหน่วยบิลซื้อล่าสุด ({billRef(note.bill)} · {note.bill.supplier})</>
+              : 'ตามหน่วยของ lot แรกในคลัง (ยังไม่มีบิลซื้อ)'}
+            {note.conversions.filter(c => c.convertible).map(c => (
+              <span key={c.unit} className="block">ของในคลังเป็น {c.unit} แปลงผ่านหน่วยย่อย: <b className="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{conv(c)}</b></span>
+            ))}
+          </span>
+        </p>
+      )}
+      {note.conversions.filter(c => !c.convertible).map(c => (
+        <p key={c.unit} className="flex gap-1.5 text-amber-700 dark:text-amber-300">
+          <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+          <span>ของในคลัง {fmtNum(c.qty)} {packUnitLabel(c.unit)} หน่วยย่อยไม่ตรงกับหน่วยหลัก ({c.base} กับ {note.mainBase}) แปลงรวมไม่ได้ — ยอดคงเหลือรวมด้านบนเชื่อไม่ได้ ให้ดูยอดราย lot</span>
+        </p>
+      ))}
+      {change && (
+        <p className="flex gap-1.5">
+          <Info size={12} className="shrink-0 mt-0.5" />
+          <span>
+            หน่วยซื้อเปลี่ยนจาก <b className="font-semibold text-slate-600 dark:text-slate-300">{packUnitLabel(change.from.unit)}</b> ({billRef(change.from)}{change.from.supplier !== change.to.supplier ? ` · ${change.from.supplier}` : ''}) เป็น <b className="font-semibold text-slate-600 dark:text-slate-300">{packUnitLabel(change.to.unit)}</b> ({billRef(change.to)}{change.from.supplier !== change.to.supplier ? ` · ${change.to.supplier}` : ''})
+          </span>
+        </p>
+      )}
+    </div>
+  );
+}
 
 // ตารางย่อยในบัตร: จอ ≥ sm = ตาราง · จอเล็ก = การ์ด ป้าย:ค่า (Rule #5 — pattern เดียวกับโมดอลรายการของคิว)
 function MiniTable({ cols, rows, rowKey }) {
@@ -262,9 +307,7 @@ export default function DrugProfileModal({ code, isStaff, department = null, onC
                       ))}
                     </p>
                   )}
-                  {p.multiUnit && (
-                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">มีหลายขนาดบรรจุ — แปลงเป็น {packUnitLabel(p.mainUnit)} ก่อนรวม</p>
-                  )}
+                  {p.unitNote && <UnitNote note={p.unitNote} />}
                 </div>
 
                 {chips.length > 0 && (

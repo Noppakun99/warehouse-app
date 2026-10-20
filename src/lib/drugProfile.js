@@ -21,9 +21,19 @@ export const parseUnitFactor = (unit) => {
 // ป้ายหน่วยสำหรับแสดงผล — inventory.unit เก็บหน่วยซื้อแบบ <ขนาดบรรจุ><หน่วยย่อย> ("200เม็ด" = กล่องละ 200 เม็ด)
 // "18 200เม็ด" อ่านไม่ออก → "18 กล่อง (200 เม็ด)" · คำว่า "กล่อง" ตามหน้าเบิกยา (lotPackLabel) ให้ทั้งระบบพูดเหมือนกัน
 // แสดงผลอย่างเดียว — ห้ามใช้ค่านี้คำนวณ (ตัวคูณยังมาจาก parseUnitFactor)
+// เลขนำหน้าที่เป็นปริมาตร/น้ำหนัก (450ml, 50gm) = ขนาดของภาชนะ 1 ชิ้น ไม่ใช่กล่องละ N ชิ้น
+// (user 20/10/2569: "1 ขวด = 450ml" — Povidine/OliveOil 450ml เคยขึ้น "กล่อง (450 ml)")
+const VOLUME_BASE = /^(ml|มล\.?|cc|l|ลิตร)$/i
+const WEIGHT_BASE = /^(gm|g|กรัม|kg)$/i
+export function packWord(unit) {
+  const { base } = parseUnitFactor(unit)
+  if (VOLUME_BASE.test(base)) return 'ขวด'
+  if (WEIGHT_BASE.test(base)) return 'ชิ้น'
+  return 'กล่อง'
+}
 export function packUnitLabel(unit) {
   const { factor, base } = parseUnitFactor(unit)
-  if (factor > 1) return `กล่อง (${factor.toLocaleString('en-US')} ${base})`
+  if (factor > 1) return `${packWord(unit)} (${factor.toLocaleString('en-US')} ${base})`
   return String(unit || '-').trim() || '-'
 }
 
@@ -282,10 +292,59 @@ export function buildDrugProfile({
     ssUnit: uniq(rows.map(r => r.unit)).length === 1 ? uniq(rows.map(r => r.unit))[0] : null,
     discontinued: ssAgg.discontinued,
     excludeStatus: excludeStatus || null,
+    unitNote: unitNote({ mainUnit, purchaseUnit, stockRows, receiveRows }),
     rate: usageRate({ usage, rows, mainUnit }),
     dispenseHistory: dispenseHistory(dispenseRows, department),
     receiveHistory: receiveRows.slice(0, HISTORY_LIMIT).map(receiveView),
     lastReceiveDate: receiveRows.reduce((m, r) => (r.receive_date && (!m || r.receive_date > m) ? r.receive_date : m), null),
+  }
+}
+
+// ── โน้ตอธิบายหน่วยบนบัตรยา (20/10/2569 — Para 500 บัตรขึ้น 130 กล่อง (500 เม็ด) ทั้งที่ซื้อกล่องละ 1000) ──────
+// กรณี 1 (conversions): ของในคลังมีหน่วยอื่นที่ไม่ใช่หน่วยหลัก → บอกว่าหน่วยหลักมาจากไหน + แปลงผ่านหน่วยย่อยยังไง
+//   sameBase = false (เช่น 450ml กับ ขวด) และมีขนาดบรรจุ > 1 ฝั่งใดฝั่งหนึ่ง = แปลงไม่ได้จริง ยอดรวมเชื่อไม่ได้
+//   (stockTotalInMainUnit คูณ/หารตามเลขนำหน้าเท่านั้น — ไม่รู้ว่า ml กับ ขวด คนละอย่าง)
+// กรณี 2 (change): หน่วยของบิลซื้อล่าสุด ≠ บิลซื้อใบก่อนหน้า (คนละบิล) → บอกว่าเปลี่ยนจากอะไรเป็นอะไร
+// receiveRows ต้องเรียงใหม่→เก่า (ลำดับเดียวกับ latestPurchaseUnit)
+const billView = (r) => ({
+  unit: r.drug_unit, billNumber: String(r.bill_number || '').trim() || '-',
+  supplier: String(r.supplier_current || '').trim() || '-', receiveDate: r.receive_date || null,
+})
+export function unitNote({ mainUnit, purchaseUnit = null, stockRows = [], receiveRows = [] }) {
+  const purchases = receiveRows.filter(r => isPurchaseReceipt(r) && r.drug_unit)
+  const latest = purchases[0] || null
+  const latestKey = latest ? `${latest.bill_number}|${latest.receive_date}` : null
+  const prev = latest ? purchases.find(r => `${r.bill_number}|${r.receive_date}` !== latestKey) : null
+
+  const main = parseUnitFactor(mainUnit)
+  const byUnit = new Map()
+  for (const r of stockRows) {
+    const u = String(r.unit || '-').trim() || '-'
+    if (u === String(mainUnit || '').trim()) continue
+    byUnit.set(u, (byUnit.get(u) || 0) + toNum(r.qty))
+  }
+  const conversions = [...byUnit.entries()].map(([unit, qty]) => {
+    const { factor, base } = parseUnitFactor(unit)
+    const sameBase = base.toLowerCase() === main.base.toLowerCase()
+    return {
+      unit, qty: round2(qty), factor, base, sameBase,
+      convertible: sameBase || (factor === 1 && main.factor === 1),
+      baseQty: round2(qty * factor),
+      inMain: round2(qty * factor / (main.factor || 1)),
+    }
+  })
+
+  const change = latest && prev && String(latest.drug_unit).trim() !== String(prev.drug_unit).trim()
+    ? { from: billView(prev), to: billView(latest) } : null
+  if (!conversions.length && !change) return null
+
+  const fromPurchase = !!purchaseUnit && purchaseUnit === mainUnit
+  return {
+    mainUnit, mainFactor: main.factor, mainBase: main.base,
+    basis: fromPurchase ? 'purchase' : 'stock',
+    bill: fromPurchase && latest && latest.drug_unit === mainUnit ? billView(latest) : null,
+    conversions,
+    change,
   }
 }
 

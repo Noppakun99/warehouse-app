@@ -103,7 +103,7 @@ npm run test:workqueue     # Golden tests สำหรับ src/lib/workQueue.j
 npm run test:popupseen     # Golden tests สำหรับ src/lib/popupSeen.js — popup เฉพาะ lot ที่คนนั้นยังไม่เคยเห็น วันละครั้ง (16 assertions)
 npm run test:reservecheck  # Golden tests สำหรับ src/lib/reservationCheck.js — ตรวจยอดจองซ้ำหลังส่งใบเบิก + จำลองทุกลำดับ 2 ใบพร้อมกันต้องไม่จองเกิน (17 assertions, ADR-0028)
 npm run test:installenv    # Golden tests สำหรับ src/lib/installEnv.js — ปุ่มติดตั้งแอป (PWA) แสดงแบบไหนต่อเครื่อง: Android prompt / iPhone / LINE in-app / ติดตั้งแล้ว-คอม = ไม่แสดง (14 assertions)
-npm run test:drugprofile   # Golden tests สำหรับ src/lib/drugProfile.js — บัตรยา + ค้นหายา: ยอดรวม = โมดอลรายการยาในคลัง, ต่ำกว่า SS = Dashboard, บรรทัด lot+exp, บิลของ lot, เรท/คงอยู่ได้อีก = สูตรหน้าวิเคราะห์สั่งซื้อ, ประวัติเบิกหน่วยงานตัวเอง (95 assertions)
+npm run test:drugprofile   # Golden tests สำหรับ src/lib/drugProfile.js — บัตรยา + ค้นหายา: ยอดรวม = โมดอลรายการยาในคลัง, ต่ำกว่า SS = Dashboard, บรรทัด lot+exp, บิลของ lot, เรท/คงอยู่ได้อีก = สูตรหน้าวิเคราะห์สั่งซื้อ, ประวัติเบิกหน่วยงานตัวเอง, โน้ตอธิบายหน่วย (114 assertions)
 npm run test:linechat      # Golden tests สำหรับ src/lib/lineChatImport.js — ⚠️ ยังไม่มี consumer ในแอป (ดู Dead code ด้านล่าง)
 ```
 

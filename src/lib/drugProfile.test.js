@@ -258,11 +258,65 @@ console.log('\n=== packUnitLabel (ป้ายหน่วยแสดงผล)
 {
   assertEq(packUnitLabel('200เม็ด'), 'กล่อง (200 เม็ด)', 'ขนาดบรรจุนำหน้า → กล่อง (ขนาด หน่วยย่อย)')
   assertEq(packUnitLabel('1000เม็ด'), 'กล่อง (1,000 เม็ด)', 'คั่นหลักพัน')
-  assertEq(packUnitLabel('450ml'), 'กล่อง (450 ml)', 'หน่วยอังกฤษ')
+  assertEq(packUnitLabel('450ml'), 'ขวด (450 ml)', 'ปริมาตร = ขนาดขวด 1 ขวด ไม่ใช่กล่อง (user: 1 ขวด = 450ml)')
+  assertEq(packUnitLabel('60cc'), 'ขวด (60 cc)', 'cc = ปริมาตร')
+  assertEq(packUnitLabel('50gm'), 'ชิ้น (50 gm)', 'น้ำหนัก = ขนาดชิ้น (หลอด/กระปุก) ไม่ใช่กล่อง')
+  assertEq(packUnitLabel('450กรัม'), 'ชิ้น (450 กรัม)', 'กรัม = น้ำหนัก')
+  assertEq(packUnitLabel('50amp'), 'กล่อง (50 amp)', 'amp = กล่องละ 50 amp')
   assertEq(packUnitLabel('vial'), 'vial', 'ไม่มีตัวเลข = คงเดิม')
   assertEq(packUnitLabel('1เม็ด'), '1เม็ด', 'ขนาด 1 = คงเดิม (ไม่ใช่กล่อง)')
   assertEq(packUnitLabel(''), '-', 'ว่าง = -')
   assertEq(packUnitLabel(null), '-', 'null = -')
+}
+
+section('โน้ตอธิบายหน่วย (unitNote)')
+{
+  // กรณี 1 — Furosemide inj 1000137 (ข้อมูลจริง 20/10/2569): บิลซื้อ 50amp แต่ Master นับ amp
+  const recv = [
+    { drug_unit: '50amp', purchase_type: 'การซื้อ', price_per_unit: 325, bill_number: '3001266847', receive_date: '2026-09-21', supplier_current: 'องค์การเภสัชกรรม' },
+    { drug_unit: '50amp', purchase_type: 'การซื้อ', price_per_unit: 325, bill_number: '3001246292', receive_date: '2026-08-18', supplier_current: 'องค์การเภสัชกรรม' },
+  ]
+  const rows = [
+    { code: '1000137', name: 'Furosemide inj', unit: 'amp', lot: 'J690287', exp: '01/01/2029', qty: 600 },
+    { code: '1000137', name: 'Furosemide inj', unit: 'amp', lot: 'J690200', exp: '01/01/2029', qty: 200 },
+  ]
+  const p = buildDrugProfile({ rows, purchaseUnit: latestPurchaseUnit(recv), receiveRows: recv, today: TODAY })
+  assertEq(p.total, 16, '800 amp ÷ 50 = 16 กล่อง')
+  const n = p.unitNote
+  assertEq(n.basis, 'purchase', 'หน่วยหลักมาจากบิลซื้อ')
+  assertEq(n.bill?.billNumber, '3001266847', 'อ้างบิลซื้อล่าสุด')
+  assertEq(n.conversions.length, 1, 'หน่วยในคลังที่ต่างจากหน่วยหลัก 1 แบบ')
+  assertDeep([n.conversions[0].unit, n.conversions[0].qty, n.conversions[0].inMain, n.conversions[0].convertible], ['amp', 800, 16, true], 'amp 800 → 16 กล่อง แปลงได้')
+  assertEq(n.change, null, 'บิลก่อนหน้าก็ 50amp → ไม่มีโน้ตหน่วยซื้อเปลี่ยน')
+}
+{
+  // กรณี 2 — หน่วยซื้อเปลี่ยน (แบบ 1460094: 100เม็ด → 500เม็ด) · บิลเดียวกันหลายแถวไม่นับเป็น "บิลก่อนหน้า"
+  const recv = [
+    { drug_unit: '500เม็ด', purchase_type: 'การซื้อ', price_per_unit: 9, bill_number: 'NEW', receive_date: '2026-07-24', supplier_current: 'บ.ใหม่' },
+    { drug_unit: '500เม็ด', purchase_type: 'การซื้อ', price_per_unit: 9, bill_number: 'NEW', receive_date: '2026-07-24', supplier_current: 'บ.ใหม่' },
+    { drug_unit: '200เม็ด', purchase_type: 'บริจาค', price_per_unit: 0, bill_number: 'DON', receive_date: '2026-01-01', supplier_current: 'สสจ' },
+    { drug_unit: '100เม็ด', purchase_type: 'การซื้อ', price_per_unit: 2, bill_number: 'OLD', receive_date: '2025-06-24', supplier_current: 'บ.เดิม' },
+  ]
+  const rows = [{ code: '1460094', name: 'X', unit: '500เม็ด', lot: 'L1', exp: '01/01/2029', qty: 3 }]
+  const n = buildDrugProfile({ rows, purchaseUnit: latestPurchaseUnit(recv), receiveRows: recv, today: TODAY }).unitNote
+  assertEq(n.conversions.length, 0, 'ของในคลังหน่วยเดียวกับหน่วยหลัก → ไม่มีกรณี 1')
+  assertDeep([n.change?.from.unit, n.change?.from.billNumber, n.change?.to.unit, n.change?.to.billNumber], ['100เม็ด', 'OLD', '500เม็ด', 'NEW'], 'เปลี่ยนจาก 100เม็ด (OLD) เป็น 500เม็ด (NEW) — ข้ามบริจาค + แถวบิลเดียวกัน')
+  const same = buildDrugProfile({ rows, purchaseUnit: '500เม็ด', receiveRows: recv.slice(0, 2), today: TODAY })
+  assertEq(same.unitNote, null, 'หน่วยตรงกัน + ไม่มีบิลก่อนหน้า → ไม่มีโน้ต')
+}
+{
+  // หน่วยย่อยไม่ตรงกัน (แบบ 1000222: บิลซื้อ ขวด · Master 450ml) → แปลงไม่ได้ ต้องเตือน
+  const recv = [{ drug_unit: 'ขวด', purchase_type: 'การซื้อ', price_per_unit: 30, bill_number: 'B1', receive_date: '2025-03-01', supplier_current: 'บ.A' }]
+  const rows = [{ code: '1000222', name: 'Syrup', unit: '450ml', lot: 'L', exp: '01/01/2029', qty: 14 }]
+  const n = buildDrugProfile({ rows, purchaseUnit: 'ขวด', receiveRows: recv, today: TODAY }).unitNote
+  assertEq(n.conversions[0].convertible, false, '450ml กับ ขวด หน่วยย่อยต่าง + ขนาดบรรจุ > 1 = แปลงไม่ได้')
+  // 1 : 1 คนละชื่อ (bott กับ ขวด) — ตัวเลขไม่เพี้ยน ไม่ต้องเตือน
+  const b = buildDrugProfile({ rows: [{ ...rows[0], unit: 'bott', qty: 9 }], purchaseUnit: 'ขวด', receiveRows: recv, today: TODAY }).unitNote
+  assertEq(b.conversions[0].convertible, true, 'bott กับ ขวด ขนาด 1 ทั้งคู่ = นับ 1:1 ได้')
+  assertEq(b.conversions[0].sameBase, false, 'แต่บอกว่าชื่อหน่วยต่าง')
+  // ไม่มีบิลซื้อ → หน่วยหลัก = lot แรก
+  const s = buildDrugProfile({ rows: [{ ...rows[0], unit: '450ml', qty: 2 }, { ...rows[0], lot: 'M', unit: '60ml', qty: 3 }], today: TODAY }).unitNote
+  assertDeep([s.basis, s.bill, s.conversions[0].inMain], ['stock', null, 0.4], 'ไม่มีบิลซื้อ: basis = stock · 3×60 ÷ 450 = 0.4')
 }
 
 console.log(`\n${pass} ผ่าน · ${fail} ตก`)
