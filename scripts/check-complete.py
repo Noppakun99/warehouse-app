@@ -232,6 +232,9 @@ RPST_MAP = {   # โฟลเดอร์ PDF → โฟลเดอร์ไฟ
     'เทศบาลนครรังสิต': 'เทศบาลนครรังสิต',
     'วัดประยูร': 'ใบเบิกยารพ.สต.วัดประยุร',
 }
+RPST_CANCELLED = {   # ใบที่ยกเลิก — PDF ยังอยู่ (คู่รูปใบเบิกในข้อ "รูปใบเบิก ↔ PDF") แต่ไม่ต้องมีชีทสรุป
+    ('ศ.1', '1.10.69'),
+}
 n_rpst = n_rpst_ok = 0
 for sub in sorted(os.listdir(RPST_PDF)):
     pdir = os.path.join(RPST_PDF, sub)
@@ -241,7 +244,9 @@ for sub in sorted(os.listdir(RPST_PDF)):
     for p in glob.glob(os.path.join(pdir, '*.pdf')):
         m = re.search(r'_(\d{1,2})\.(\d{1,2})\.(\d{2})\.pdf$', p)
         if m and (int(m.group(3)) * 100 + int(m.group(2))) >= 6910:
-            want.append(f'{int(m.group(1))}.{int(m.group(2))}.{m.group(3)}')
+            d = f'{int(m.group(1))}.{int(m.group(2))}.{m.group(3)}'
+            if (sub, d) not in RPST_CANCELLED:
+                want.append(d)
     if not want:
         continue
     if sub not in RPST_MAP:
