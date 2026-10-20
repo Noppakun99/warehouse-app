@@ -7,6 +7,8 @@ export const RISK_MULTIPLIER = { Normal: 1.0, Essential: 1.5, Critical: 2.0 };
 export const ORDER_FACTOR = 2.3;        // Excel: Avg/เดือน × 2.3 (คงที่ ไม่มี Refill mode)
 export const DEFAULT_LEAD_TIME = 20;    // Excel default LT เมื่อไม่มีข้อมูล
 export const SS_BASE_DAYS = 30;         // Excel: Avg/วัน × 30 × ตัวคูณ (ไม่มี cap)
+export const DAYS_PER_MONTH = 30.4;     // Excel: Avg/วัน = ROUND(Avg/เดือน ÷ 30.4, 4)
+export const ORDER_CYCLE_DAYS = 7;      // Excel ชีทวิเคราะห์สั่งซื้อ ช่อง AM2 "รอบสั่งซื้อ" — คลังเปลี่ยนใน Excel ต้องแก้ที่นี่ด้วย
 export const NEAR_EXPIRY_DAYS = 180;
 
 export const STATUS = {
@@ -26,10 +28,12 @@ export function computeStats(monthlyUsage) {
   if (months.length === 0) return { max: 0, avgMonth: 0, avgDay: 0 };
   const max = Math.max(...months);
   const sum = months.reduce((s, m) => s + m, 0);
-  const avgMonth = sum / months.length;
-  // Excel: ROUND(avg_monthly/30, 4) — ปัดทศนิยม 4 ตำแหน่งก่อนคำนวณ SS/ROP
+  // Excel: S = ROUND(ผลรวม/จำนวนเดือน, 2) ก่อนหาร 30.4 (ไม่ปัด = Avg/วัน คลาดหลักที่ 4 เช่น Para 0.9101 แทน 0.9102)
+  const avgMonth = Math.round((sum / months.length) * 100) / 100;
+  // Excel: ROUND(avg_monthly/30.4, 4) — ปัดทศนิยม 4 ตำแหน่งก่อนคำนวณ SS/ROP
   // (ถ้าไม่ปัด ค่าจะคลาด ±1 ที่ขอบ round เช่น Lidocaine 38/55 แทน 37/54)
-  const avgDay = Math.round((avgMonth / 30) * 1e4) / 1e4;
+  // ตัวหาร 30 → 30.4 ตามชีทวิเคราะห์สั่งซื้อที่จัดใหม่ (ตรวจ 20/10/2569: คอลัมน์ T ทั้ง 457 แถว) · SS ยังคูณ 30 (SS_BASE_DAYS)
+  const avgDay = Math.round((avgMonth / DAYS_PER_MONTH) * 1e4) / 1e4;
   return { max, avgMonth, avgDay };
 }
 
@@ -38,8 +42,9 @@ export function computeSafetyStock(avgDay, riskMultiplier) {
   return Math.max(1, Math.round(avgDay * SS_BASE_DAYS * riskMultiplier));
 }
 
+// Excel: X = ROUND(SS + Avg/วัน × (LT + $AM$2), 0) — AM2 = รอบสั่งซื้อ (ตรวจ 20/10/2569 = 7 วัน)
 export function computeROP(rawSS, avgDay, leadTimeDays) {
-  return Math.round(rawSS + avgDay * leadTimeDays);
+  return Math.round(rawSS + avgDay * (leadTimeDays + ORDER_CYCLE_DAYS));
 }
 
 // Step 6 — จัดสถานะ (priority order)

@@ -39,13 +39,13 @@ section('Test 1: Atorvastatin 40mg — Excel formula (SS ฐาน 30)');
     pricePerUnit: 33.30,
   });
 
-  // avgDay=73.9417; SS=round(73.9417×30×1.5)=3327; ROP=round(3327+73.9417×15.5)=4473
-  // target=MIN(2833×3, MAX(2218.25×2.3, 2833×2, 4473))=MIN(8499, 5666)=5666; V=5666−4400=1266
+  // avgDay=ROUND(2218.25/30.4,4)=72.9688; SS=round(72.9688×30×1.5)=3284; ROP=round(3284+72.9688×(15.5+7 รอบสั่งซื้อ))=4926
+  // target=MIN(2833×3, MAX(2218.25×2.3, 2833×2, 4926))=MIN(8499, 5666)=5666; V=5666−4400=1266
   assertEq(r.max, 2833, 'Max = 2833');
   assertEq(r.avgMonth, 2218.25, 'Avg/mo = 2218.25');
-  assertEq(r.avgDay, 73.94166666666666, 'Avg/d ≈ 73.9417');
-  assertEq(r.ss, 3327, 'SS = 3327 (round of 3327.375)');
-  assertEq(r.rop, 4473, 'ROP = 4473');
+  assertEq(r.avgDay, 72.9688, 'Avg/d = 2218.25/30.4 ปัด 4 ตำแหน่ง');
+  assertEq(r.ss, 3284, 'SS = 3284 (round of 3283.596)');
+  assertEq(r.rop, 4926, 'ROP = 4926 (LT + รอบสั่งซื้อ 7 วัน)');
   assertEq(r.status, STATUS.REORDER, 'Status = สั่งเพิ่ม');
   assertEq(r.orderQty, 1266, 'V (orderQty) = 1266');
   assertEq(r.amount, 42157.80, 'Amount = 42157.80');
@@ -89,18 +89,18 @@ section('Test 3: คงเหลือ=0 → หมดสต็อค, V>0');
 // ────────────────────────────────────────────────────────────────────
 section('Test 4: Acetaminophen syrup — Excel reference (SS=506, ROP=686)');
 {
-  // จากรูป Excel: Avg/วัน=11.25 (Avg/mo=337.5), Essential(×1.5), LT=16, stock=900
-  // SS=round(11.25×30×1.5)=506; ROP=round(506+11.25×16)=686
+  // จากรูป Excel (สมัยหาร 30): Avg/mo=337.5, Essential(×1.5), LT=16, stock=900 → SS=506, ROP=686
+  // ชีทปัจจุบันหาร 30.4 (20/10/2569): Avg/วัน=ROUND(337.5/30.4,4)=11.102; SS=round(11.102×30×1.5)=500; ROP=round(500+11.102×(16+7))=755
   const r = analyzeDrug({
     code: 'PARA-SYR', name: 'Acetaminophen 120mg/5ml',
     monthlyUsage: [337.5, 337.5, 337.5, 337.5], // avgMonth=337.5 → avgDay=11.25
     stock: 900, leadTimeDays: 16,
     riskGroup: 'Essential',
   });
-  assertEq(r.avgDay, 11.25, 'Avg/วัน = 11.25');
-  assertEq(r.ss, 506, 'SS = 506');
-  assertEq(r.rop, 686, 'ROP = 686');
-  assertEq(r.status, STATUS.SUFFICIENT, 'Status = คงคลังเพียงพอ (stock 900 > ROP 686)');
+  assertEq(r.avgDay, 11.102, 'Avg/วัน = 337.5/30.4 ปัด 4 ตำแหน่ง');
+  assertEq(r.ss, 500, 'SS = 500');
+  assertEq(r.rop, 755, 'ROP = 755');
+  assertEq(r.status, STATUS.SUFFICIENT, 'Status = คงคลังเพียงพอ (stock 900 > ROP 755)');
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -196,24 +196,25 @@ section('Test 9: ใกล้หมดอายุ (≤180 วัน)');
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Test 10 — Lidocaine (แถวจริง Excel) — จับบั๊ก round avgDay 4 ตำแหน่ง
+// Test 10 — Para 500 (แถวจริง ชีทวิเคราะห์สั่งซื้อ 20/10/2569 แถว 91) — ปัด Avg/เดือน 2 ตำแหน่ง แล้ว Avg/วัน 4 ตำแหน่ง
 // ────────────────────────────────────────────────────────────────────
-section('Test 10: Lidocaine — round avgDay (Excel: SS=37, ROP=54, order=200)');
+section('Test 10: Para 500 — Excel S=27.67 · T=0.9102 · V(SS)=55');
 {
-  // avgMonth=25; avgDay=ROUND(25/30,4)=0.8333; SS=round(0.8333×30×1.5)=37; ROP=round(37+0.8333×20)=54
-  // target=MIN(100×3, MAX(round(25×2.3)=58, 100×2=200, 54))=MIN(300,200)=200; V=200−0=200
-  // ถ้าไม่ปัด avgDay (0.83333…): SS=round(37.5)=38, ROP=55 — บั๊กเดิม
+  // Excel: S=ROUND((17+34+32)/3,2)=27.67 · T=ROUND(27.67/30.4,4)=0.9102 · V=MAX(1,ROUND(0.9102×30×2,0))=55 (ตัวคูณ AH = MAX(2, IFS(VEN…)) = 2 ทุกแถว แม้ VEN E — แอปจึงต้องใช้ Critical ×2 ให้ได้ค่าเท่ากัน)
+  // ไม่ปัด S: 27.6667/30.4 = 0.9101 · ไม่ปัด T: 0.910197… — assertEq มี tolerance 1e-3 จึงเช็ค 2 ค่านี้แบบเท่ากันเป๊ะ
   const r = analyzeDrug({
-    code: 'LIDO', name: 'Lidocaine',
-    monthlyUsage: [100, 0, 0, 0], stock: 0,
-    leadTimeDays: 20, riskGroup: 'Essential',
+    code: '1000227', name: 'Acetaminophen 500mg ,Para',
+    monthlyUsage: [17, 34, 32], stock: 65,
+    leadTimeDays: 16.4, riskGroup: 'Critical',
   });
-  assertEq(r.avgMonth, 25, 'Avg/mo = 25');
-  assertEq(r.avgDay, 0.8333, 'Avg/d = 0.8333 (round 4)');
-  assertEq(r.ss, 37, 'SS = 37 (ปัด avgDay ก่อน ไม่ใช่ 38)');
-  assertEq(r.rop, 54, 'ROP = 54 (ไม่ใช่ 55)');
-  assertEq(r.status, STATUS.OUT_OF_STOCK, 'Status = หมดสต็อค');
-  assertEq(r.orderQty, 200, 'V = 200 (Max×2)');
+  assertEq(r.avgMonth === 27.67, true, 'Avg/mo = ROUND(83/3, 2) = 27.67 (Excel S)');
+  assertEq(r.avgDay === 0.9102, true, 'Avg/d = ROUND(27.67/30.4, 4) = 0.9102 (Excel T — ไม่ใช่ 0.9101)');
+  assertEq(r.ss, 55, 'SS = 55 (Excel V)');
+  assertEq(r.max, 34, 'Max = 34 (Excel R)');
+  // Excel X = ROUND(55 + 0.9102×(16.4+7), 0) = 76 · AA = MIN(34×3, MAX(ROUND(27.67×2.3)=64, 68, 76)) − 65 = 11
+  assertEq(r.rop, 76, 'ROP = 76 (Excel X — LT 16.4 + รอบสั่งซื้อ 7 วัน)');
+  assertEq(r.status, STATUS.REORDER, 'Status = สั่งเพิ่ม (Excel Z)');
+  assertEq(r.orderQty, 11, 'จำนวนแนะนำสั่ง = 11 (Excel AA)');
 }
 
 // ────────────────────────────────────────────────────────────────────

@@ -1582,8 +1582,8 @@ function VerifyTab() {
     });
     assert('Atorvastatin · Max', r1.max, 2833);
     assert('Atorvastatin · Avg/mo', r1.avgMonth, 2218.25);
-    assert('Atorvastatin · SS', r1.ss, 3327);
-    assert('Atorvastatin · ROP', r1.rop, 4473);
+    assert('Atorvastatin · SS', r1.ss, 3284);
+    assert('Atorvastatin · ROP', r1.rop, 4926);
     assert('Atorvastatin · V', r1.orderQty, 1266);
     assert('Atorvastatin · Amount', r1.amount, 42157.80);
     assert('Atorvastatin · Status', r1.status, STATUS.REORDER);
@@ -1596,14 +1596,14 @@ function VerifyTab() {
     const r3 = analyzeDrug({ code: 'X', monthlyUsage: [100,100,100,100], stock: 0 });
     assert('หมดสต็อค · status', r3.status, STATUS.OUT_OF_STOCK);
 
-    // Test 4: Acetaminophen syrup — Excel reference (SS=506, ROP=686)
+    // Test 4: Acetaminophen syrup — Avg/วัน = 337.5/30.4 (เดิมหาร 30: SS=506, ROP=686)
     const r4 = analyzeDrug({
       code: 'PARA-SYR', name: 'Acetaminophen 120mg/5ml',
       monthlyUsage: [337.5, 337.5, 337.5, 337.5], stock: 900,
       leadTimeDays: 16, riskGroup: 'Essential',
     });
-    assert('Para syrup · SS = 506', r4.ss, 506);
-    assert('Para syrup · ROP = 686', r4.rop, 686);
+    assert('Para syrup · SS = 500', r4.ss, 500);
+    assert('Para syrup · ROP = 755', r4.rop, 755);
     assert('Para syrup · status = เพียงพอ', r4.status, STATUS.SUFFICIENT);
 
     // Test 5: Edge case (no usage)
@@ -1611,14 +1611,16 @@ function VerifyTab() {
     assert('ไม่เคยเบิก · V = 1 (fallback)', r5.orderQty, 1);
     assert('ไม่เคยเบิก · SS = 1', r5.ss, 1);
 
-    // Test 6: Lidocaine (แถวจริง Excel) — round avgDay 4 ตำแหน่ง
+    // Test 6: Para 500 (แถวจริงชีทวิเคราะห์ 20/10/2569) — ปัด Avg/เดือน 2 ตำแหน่ง แล้ว Avg/วัน 4 ตำแหน่ง
     const r6 = analyzeDrug({
-      code: 'LIDO', name: 'Lidocaine',
-      monthlyUsage: [100, 0, 0, 0], stock: 0, leadTimeDays: 20, riskGroup: 'Essential',
+      code: '1000227', name: 'Acetaminophen 500mg ,Para',
+      monthlyUsage: [17, 34, 32], stock: 65, leadTimeDays: 16.4, riskGroup: 'Critical',
     });
-    assert('Lidocaine · SS = 37 (ไม่ใช่ 38)', r6.ss, 37);
-    assert('Lidocaine · ROP = 54 (ไม่ใช่ 55)', r6.rop, 54);
-    assert('Lidocaine · V = 200', r6.orderQty, 200);
+    assert('Para 500 · Avg/mo = 27.67 (Excel S)', r6.avgMonth === 27.67, true);
+    assert('Para 500 · Avg/d = 0.9102 (Excel T ไม่ใช่ 0.9101)', r6.avgDay === 0.9102, true);
+    assert('Para 500 · SS = 55 (Excel V)', r6.ss, 55);
+    assert('Para 500 · ROP = 76 (Excel X — LT + รอบสั่งซื้อ 7 วัน)', r6.rop, 76);
+    assert('Para 500 · แนะนำสั่ง = 11 (Excel AA)', r6.orderQty, 11);
 
     // Test 7: VEN ว่าง → default 1.5 = Essential (ADR-0002)
     const rBlank = analyzeDrug({ code: 'B', monthlyUsage: [300,300,300,300], stock: 0, leadTimeDays: 15 });

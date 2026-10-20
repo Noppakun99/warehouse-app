@@ -226,9 +226,9 @@ section('เรท + คงอยู่ได้อีก (กฎหน้าว
   const rows = [{ qty: 18, unit: '200เม็ด' }, { qty: -1, unit: '200เม็ด', receive_status: 'ตัดออกจากบัญชี' }]
   const r = usageRate({ usage, rows, mainUnit: '200เม็ด' })
   assertEq(r.avgMonth, 6, '(6+0+12+6)/4 = 6 กล่อง/เดือน (เดือนที่ไม่เบิกนับเป็น 0)')
-  assertEq(r.avgDay, 0.2, 'Avg/วัน = 6/30 ปัด 4 ตำแหน่ง')
-  assertEq(r.coverageDays, 85, 'คงเหลือทุกแถว (18−1 = 17) ÷ 0.2 = 85 วัน (กฎ stockInfo ของ ReorderApp)')
-  assertEq(r.coverage, '2 ด. 25 วัน', 'รูปแบบเดียวกับหน้าวิเคราะห์สั่งซื้อ')
+  assertEq(r.avgDay, 0.1974, 'Avg/วัน = 6/30.4 ปัด 4 ตำแหน่ง (ตัวหารเดียวกับชีทวิเคราะห์สั่งซื้อ)')
+  assertEq(r.coverageDays, 86, 'คงเหลือทุกแถว (18−1 = 17) ÷ 0.1974 = 86 วัน (กฎ stockInfo ของ ReorderApp)')
+  assertEq(r.coverage, '2 ด. 26 วัน', 'รูปแบบเดียวกับหน้าวิเคราะห์สั่งซื้อ')
   assertEq(r.monthLabel, 'มิ.ย. 69–ก.ย. 69', 'เขียนช่วงเดือนกำกับ')
   assertEq(usageRate({ usage: { months: ['2026-09'], monthsBase: {} }, rows, mainUnit: '200เม็ด' }).coverage, '∞', 'ไม่มีการเบิก + มีของ = ∞')
   assertEq(usageRate({ usage: null, rows, mainUnit: 'x' }), null, 'ไม่มีข้อมูลเรท = null')

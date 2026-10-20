@@ -24,11 +24,11 @@
 | L | รวมทุกเดือน | ผลรวม E–K + AE–AH (11 เดือน) |
 | M | Max/เดือน (ธ.ค.–มี.ค.) | `MAX(F,G,H,I)` |
 | N | Avg/เดือน (ธ.ค.–มี.ค.) | `(F+G+H+I)/4` |
-| O | Avg/วัน | `N/30` |
+| O | Avg/วัน | `N/30.4` (เดิม `N/30` — ชีทปัจจุบันใช้ 30.4 ตรวจ 20/10/2569) |
 | P | คงเหลือ (หน่วย) | SUMPRODUCT Master!U (คงเหลือหลังจ่าย) × packsize ÷ packsize หน่วยสั่ง |
 | Q | Safety Stock | `MAX(1, ROUND(Avg/วัน × 30 × ตัวคูณSS, 0))` — **ฐาน 30 วัน, ไม่ cap** |
 | R | Lead Time (วัน) [avg] | `AVERAGEIFS(รับยา[leadtime])` กรอง 0–90; default **20** ถ้าไม่มีข้อมูล |
-| S | ROP | `SS + Avg/วัน × LeadTime` |
+| S | ROP | `SS + Avg/วัน × (LeadTime + รอบสั่งซื้อ AM2=7)` (เพิ่มรอบสั่งซื้อ — ตรวจ 20/10/2569) |
 | T | คงเหลือ − ROP | `P − S` (ติดลบ = ต้องสั่ง) |
 | U | สถานะ | priority 6 ระดับ (ดู §สถานะ) |
 | V | จำนวนแนะนำสั่งซื้อ | `MIN(Max×3, MAX(Avg×2.3, Max×2, ROP)) − คงเหลือ` (ดู §order qty) |
@@ -57,7 +57,7 @@ ROUND( SUMPRODUCT(
 ### สถิติ (M–O) — ช่วงอ้างอิง ธ.ค.68–มี.ค.69
 - ใช้ **เฉพาะ 4 เดือน F,G,H,I** (ธ.ค.,ม.ค.,ก.พ.,มี.ค.)
 - **ตัด พ.ย.68 (E)** = เดือนแรก/หัว, **ตัด เม.ย.69 (J)** = ช่วง Refill 2 เดือน ยอดผิดปกติ
-- Max = MAX 4 เดือน; Avg/เดือน = ผลรวม÷4; Avg/วัน = Avg/เดือน÷30
+- Max = MAX 4 เดือน; Avg/เดือน = ผลรวม÷4; Avg/วัน = Avg/เดือน÷30.4 (เดิม ÷30)
 
 ### Safety Stock (Q)
 ```
@@ -67,7 +67,7 @@ SS = MAX(1, ROUND(Avg/วัน × 30 × ตัวคูณSS, 0))
 
 ### ROP (S)
 ```
-ROP = SS + Avg/วัน × LeadTime
+ROP = SS + Avg/วัน × (LeadTime + รอบสั่งซื้อ 7 วัน)
 ```
 
 ### สถานะ (U) — priority order (หยุดเมื่อตรง)
@@ -99,7 +99,7 @@ ROP = SS + Avg/วัน × LeadTime
 | สถิติ 4 เดือน (ตัดหัว+เม.ย.) | F,G,H,I (ตัด E, J) | window 4 เดือน + `excludedMonth` ตัด 1 เดือน | ✅ ตรง (ผ่าน excludedMonth) | — |
 | **Safety Stock** | `Avg/วัน × 30 × ตัวคูณ`, **ไม่ cap** | `MAX(1, round(Avg/วัน × 30 × ตัวคูณ))` | ✅ **DONE** (แก้แล้ว) | — |
 | **Lead Time** | AVERAGEIFS กรอง 0–90, default **20** | กรอง 0–90 ใน `parseLt`, default 20 | ✅ **DONE** | — |
-| ROP | `SS + Avg/วัน × LT` | เหมือนกัน | ✅ ตรง | — |
+| ROP | `SS + Avg/วัน × (LT + 7)` | เหมือนกัน (แอปเพิ่มรอบสั่งซื้อ 20/10/2569) | ✅ ตรง | — |
 | **คงเหลือ − ROP** | col T มี | คอลัมน์ + Excel export | ✅ **DONE** (เพิ่มแล้ว) | — |
 | สถานะ 6 ระดับ | priority ① → ⑥ | เหมือนเป๊ะ | ✅ ตรง | — |
 | **order qty factor** | `Avg×2.3` คงที่ | `ORDER_FACTOR=2.3` คงที่ (ลบ mode) | ✅ **DONE** | — |

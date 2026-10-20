@@ -59,7 +59,7 @@ Step 3: Max = MAX(เดือนในช่วงคำนวณ)
         Avg/d  = Avg/mo / 30
 
 Step 5: SS  = MAX(1, ROUND(Avg/d × 30 × ตัวคูณ))   ← ฐาน 30 วัน, ไม่มี cap (ตรง Excel)
-        ROP = ROUND(SS + Avg/d × leadTime, 0)
+        ROP = ROUND(SS + Avg/d × (leadTime + ORDER_CYCLE_DAYS 7), 0)
         ตัวคูณ (VEN): V/Critical=2.0, E/Essential=1.5, N/Normal=1.0
 
 Step 6: status priority (หยุดเมื่อตรง):
