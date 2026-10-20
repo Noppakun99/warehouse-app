@@ -58,7 +58,9 @@ for j in cfg['jobs']:
          '\n'.join([lines[0].split(' ', 1)[1]] + lines[1:]))   # \n = ขึ้นบรรทัดใหม่ใน run เดียวกัน
     for r in p.runs[10:]: r.text = ''
     body = '\n'.join(x.text for x in d.paragraphs)
+    # ใบใหม่จากยูนีซัน/ยา UNIMA เหมือนต้นแบบ (20/10/2569) = คำนั้นมีจริงในข้อมูลใหม่ ไม่ใช่ข้อความตกค้าง
+    fresh = j['source'] + ' ' + ' '.join(f"{it['text']} {it['lot']}" for it in items)
     for bad in ('ยูนีซัน', 'UNIMA', 'LE2624', '27 สิงห'):
-        assert bad not in body, f'ข้อความต้นแบบหลงเหลือ: {bad}'
+        assert bad in fresh or bad not in body, f'ข้อความต้นแบบหลงเหลือ: {bad}'
     out = os.path.join(a.outdir, j['out'])
     d.save(out); print('saved', out)
