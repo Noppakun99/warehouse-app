@@ -60,7 +60,7 @@ Step 3: Max = MAX(เดือนในช่วงคำนวณ)
 
 Step 5: SS  = MAX(1, ROUND(Avg/d × 30 × ตัวคูณ))   ← ฐาน 30 วัน, ไม่มี cap (ตรง Excel)
         ROP = ROUND(SS + Avg/d × (leadTime + ORDER_CYCLE_DAYS 7), 0)
-        ตัวคูณ (VEN): V/Critical=2.0, E/Essential=1.5, N/Normal=1.0
+        ตัวคูณ = MAX(2, VEN) — VEN: V/Critical=2.0, E/Essential=1.5, N/Normal=1.0 → ใช้ ×2 ทุกกลุ่ม (ADR-0029 = ชีท AH)
 
 Step 6: status priority (หยุดเมื่อตรง):
         1. exclude_status='ตัดออก'  → ตัดออก

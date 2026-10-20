@@ -5,7 +5,7 @@
 /* eslint-disable no-undef */
 import {
   analyzeDrug, analyzeBatch,
-  computeSafetyStock,
+  computeSafetyStock, SS_MIN_MULTIPLIER,
   STATUS,
   reconcileRows, parseReconcileCsvRow, parseCsvNumber, normalizeCsvStatus,
 } from './reorder.js';
@@ -39,16 +39,16 @@ section('Test 1: Atorvastatin 40mg — Excel formula (SS ฐาน 30)');
     pricePerUnit: 33.30,
   });
 
-  // avgDay=ROUND(2218.25/30.4,4)=72.9688; SS=round(72.9688×30×1.5)=3284; ROP=round(3284+72.9688×(15.5+7 รอบสั่งซื้อ))=4926
-  // target=MIN(2833×3, MAX(2218.25×2.3, 2833×2, 4926))=MIN(8499, 5666)=5666; V=5666−4400=1266
+  // avgDay=ROUND(2218.25/30.4,4)=72.9688; ตัวคูณ MAX(2, E 1.5)=2 (ADR-0029); SS=round(72.9688×30×2)=4378; ROP=round(4378+72.9688×(15.5+7 รอบสั่งซื้อ))=6020
+  // target=MIN(2833×3, MAX(ROUND(2218.25×2.3)=5102, 2833×2, 6020))=MIN(8499, 6020)=6020; V=6020−4400=1620
   assertEq(r.max, 2833, 'Max = 2833');
   assertEq(r.avgMonth, 2218.25, 'Avg/mo = 2218.25');
   assertEq(r.avgDay, 72.9688, 'Avg/d = 2218.25/30.4 ปัด 4 ตำแหน่ง');
-  assertEq(r.ss, 3284, 'SS = 3284 (round of 3283.596)');
-  assertEq(r.rop, 4926, 'ROP = 4926 (LT + รอบสั่งซื้อ 7 วัน)');
+  assertEq(r.ss, 4378, 'SS = 4378 (round of 4378.128 — ตัวคูณขั้นต่ำ ×2)');
+  assertEq(r.rop, 6020, 'ROP = 6020 (LT + รอบสั่งซื้อ 7 วัน)');
   assertEq(r.status, STATUS.REORDER, 'Status = สั่งเพิ่ม');
-  assertEq(r.orderQty, 1266, 'V (orderQty) = 1266');
-  assertEq(r.amount, 42157.80, 'Amount = 42157.80');
+  assertEq(r.orderQty, 1620, 'V (orderQty) = 1620');
+  assertEq(r.amount, 53946.00, 'Amount = 53946.00');
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ section('Test 3: คงเหลือ=0 → หมดสต็อค, V>0');
 section('Test 4: Acetaminophen syrup — Excel reference (SS=506, ROP=686)');
 {
   // จากรูป Excel (สมัยหาร 30): Avg/mo=337.5, Essential(×1.5), LT=16, stock=900 → SS=506, ROP=686
-  // ชีทปัจจุบันหาร 30.4 (20/10/2569): Avg/วัน=ROUND(337.5/30.4,4)=11.102; SS=round(11.102×30×1.5)=500; ROP=round(500+11.102×(16+7))=755
+  // ชีทปัจจุบันหาร 30.4 + ตัวคูณ MAX(2,…) (20/10/2569): Avg/วัน=ROUND(337.5/30.4,4)=11.102; SS=round(11.102×30×2)=666; ROP=round(666+11.102×(16+7))=921
   const r = analyzeDrug({
     code: 'PARA-SYR', name: 'Acetaminophen 120mg/5ml',
     monthlyUsage: [337.5, 337.5, 337.5, 337.5], // avgMonth=337.5 → avgDay=11.25
@@ -98,9 +98,9 @@ section('Test 4: Acetaminophen syrup — Excel reference (SS=506, ROP=686)');
     riskGroup: 'Essential',
   });
   assertEq(r.avgDay, 11.102, 'Avg/วัน = 337.5/30.4 ปัด 4 ตำแหน่ง');
-  assertEq(r.ss, 500, 'SS = 500');
-  assertEq(r.rop, 755, 'ROP = 755');
-  assertEq(r.status, STATUS.SUFFICIENT, 'Status = คงคลังเพียงพอ (stock 900 > ROP 755)');
+  assertEq(r.ss, 666, 'SS = 666');
+  assertEq(r.rop, 921, 'ROP = 921');
+  assertEq(r.status, STATUS.REORDER, 'Status = สั่งเพิ่ม (stock 900 ≤ ROP 921)');
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -200,12 +200,12 @@ section('Test 9: ใกล้หมดอายุ (≤180 วัน)');
 // ────────────────────────────────────────────────────────────────────
 section('Test 10: Para 500 — Excel S=27.67 · T=0.9102 · V(SS)=55');
 {
-  // Excel: S=ROUND((17+34+32)/3,2)=27.67 · T=ROUND(27.67/30.4,4)=0.9102 · V=MAX(1,ROUND(0.9102×30×2,0))=55 (ตัวคูณ AH = MAX(2, IFS(VEN…)) = 2 ทุกแถว แม้ VEN E — แอปจึงต้องใช้ Critical ×2 ให้ได้ค่าเท่ากัน)
+  // Excel: S=ROUND((17+34+32)/3,2)=27.67 · T=ROUND(27.67/30.4,4)=0.9102 · V=MAX(1,ROUND(0.9102×30×2,0))=55 (ตัวคูณ AH = MAX(2, IFS(VEN…)) = 2 ทุกแถว แม้ VEN E — ADR-0029)
   // ไม่ปัด S: 27.6667/30.4 = 0.9101 · ไม่ปัด T: 0.910197… — assertEq มี tolerance 1e-3 จึงเช็ค 2 ค่านี้แบบเท่ากันเป๊ะ
   const r = analyzeDrug({
     code: '1000227', name: 'Acetaminophen 500mg ,Para',
     monthlyUsage: [17, 34, 32], stock: 65,
-    leadTimeDays: 16.4, riskGroup: 'Critical',
+    leadTimeDays: 16.4, riskGroup: 'Essential',   // VEN จริงของ Para = E
   });
   assertEq(r.avgMonth === 27.67, true, 'Avg/mo = ROUND(83/3, 2) = 27.67 (Excel S)');
   assertEq(r.avgDay === 0.9102, true, 'Avg/d = ROUND(27.67/30.4, 4) = 0.9102 (Excel T — ไม่ใช่ 0.9101)');
@@ -218,17 +218,19 @@ section('Test 10: Para 500 — Excel S=27.67 · T=0.9102 · V(SS)=55');
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Test 11 — VEN ว่าง/null → default Essential (1.5), ไม่ใช่ Normal (1.0)
+// Test 11 — ตัวคูณ SS ขั้นต่ำ ×2 ทุกกลุ่ม (Excel AH = MAX(2, IFS(VEN…)) — ADR-0029)
 // ────────────────────────────────────────────────────────────────────
-section('Test 11: VEN ว่าง → default 1.5 (ADR-0002)');
+section('Test 11: ตัวคูณ SS = MAX(2, VEN) — V/E/N/ว่าง ได้ SS เท่ากัน');
 {
-  // ไม่ส่ง riskGroup → ต้อง fallback 1.5 (เท่ากับ Essential) ไม่ใช่ 1.0 (Normal)
-  const blank = analyzeDrug({ code: 'B', monthlyUsage: [300,300,300,300], stock: 0, leadTimeDays: 15 });
-  const ess   = analyzeDrug({ code: 'E', monthlyUsage: [300,300,300,300], stock: 0, leadTimeDays: 15, riskGroup: 'Essential' });
-  const norm  = analyzeDrug({ code: 'N', monthlyUsage: [300,300,300,300], stock: 0, leadTimeDays: 15, riskGroup: 'Normal' });
-  assertEq(blank.ss, ess.ss, 'VEN ว่าง SS = Essential SS (×1.5)');
-  if (blank.ss > norm.ss) pass++;
-  else { fail++; fails.push(`  ✗ VEN ว่าง SS (${blank.ss}) ต้อง > Normal SS (${norm.ss})`); }
+  const mk = (riskGroup) => analyzeDrug({ code: 'X', monthlyUsage: [300,300,300,300], stock: 0, leadTimeDays: 15, riskGroup });
+  const crit = mk('Critical'), ess = mk('Essential'), norm = mk('Normal'), blank = mk(undefined);
+  // avgDay = ROUND(300/30.4, 4) = 9.8684 → SS = ROUND(9.8684×30×2) = 592
+  assertEq(SS_MIN_MULTIPLIER, 2, 'ตัวคูณขั้นต่ำ = 2');
+  assertEq(crit.ss, 592, 'V SS = 592 (×2)');
+  assertEq(ess.ss, 592, 'E SS = 592 (×1.5 → ขั้นต่ำ ×2)');
+  assertEq(norm.ss, 592, 'N SS = 592 (×1 → ขั้นต่ำ ×2)');
+  assertEq(blank.ss, 592, 'VEN ว่าง SS = 592 (default 1.5 ADR-0002 → ขั้นต่ำ ×2)');
+  assertEq(ess.ssMult, 2, 'ssMult ที่คืนให้ UI แสดง = 2');
 }
 
 // ────────────────────────────────────────────────────────────────────

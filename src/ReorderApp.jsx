@@ -25,7 +25,7 @@ import { openPrintView } from './lib/openPrintView';
 import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import {
   analyzeBatch, analyzeDrug, STATUS, DEFAULT_LEAD_TIME,
-  computeSafetyStock, reconcileRows,
+  computeSafetyStock, reconcileRows, SS_MIN_MULTIPLIER,
   fmtCoverage, isoMonthsAgo, isoPrevMonthEnd, listMonthYM, thaiMonthLabel,
 } from './lib/reorder';
 
@@ -56,14 +56,16 @@ const TONE_CLASSES = {
 };
 
 // VEN (Excel) ↔ risk_group (schema เดิม): V=Vital=Critical, E=Essential, N=Non-essential=Normal
+// ตัวคูณที่ใช้จริง = MAX(SS_MIN_MULTIPLIER, VEN) ตามชีท (ADR-0029) — ป้ายต้องบอกค่าที่คำนวณจริง (Rule #6)
+const multLabel = (m) => m >= SS_MIN_MULTIPLIER ? `×${m}` : `×${m} → ใช้ ×${SS_MIN_MULTIPLIER} ตามชีท`;
 const RISK_OPTIONS = [
-  { value: 'Critical',  label: 'V — Vital (2.0×)',         color: 'text-rose-700 dark:text-rose-300'  },
-  { value: 'Essential', label: 'E — Essential (1.5×)',     color: 'text-amber-700 dark:text-amber-300' },
-  { value: 'Normal',    label: 'N — Non-essential (1.0×)', color: 'text-slate-600 dark:text-slate-300' },
+  { value: 'Critical',  label: `V — Vital (${multLabel(2)})`,         color: 'text-rose-700 dark:text-rose-300'  },
+  { value: 'Essential', label: `E — Essential (${multLabel(1.5)})`,   color: 'text-amber-700 dark:text-amber-300' },
+  { value: 'Normal',    label: `N — Non-essential (${multLabel(1)})`, color: 'text-slate-600 dark:text-slate-300' },
 ];
 
 // risk_group → ตัวอักษร VEN (สำหรับ badge)
-// ว่าง/null = ยังไม่จัดกลุ่ม → "E?" (คำนวณด้วย default 1.5 = Essential, ? = ค่า default ไม่ใช่จัดกลุ่มจริง — ดู docs/adr/0002)
+// ว่าง/null = ยังไม่จัดกลุ่ม → "E?" (default 1.5 = Essential, ? = ค่า default ไม่ใช่จัดกลุ่มจริง — ดู docs/adr/0002 · ขั้นต่ำ ×2 ยกทับอยู่ ADR-0029)
 const venLetter = (risk) =>
   risk === 'Critical' ? 'V' : risk === 'Essential' ? 'E' : risk === 'Normal' ? 'N' : 'E?';
 
@@ -928,7 +930,7 @@ function DrugDetailPanel({ r, months, onClose }) {
             </DetailField>
             {r.amount > 0 && <DetailField label="มูลค่าที่ต้องซื้อ"><span className="text-emerald-700 dark:text-emerald-300 font-bold">฿{fmtBaht(r.amount)}</span></DetailField>}
             <DetailField label="ราคา/หน่วยซื้อ">{r.pricePerUnit > 0 ? `฿${fmtBaht(r.pricePerUnit)}` : '—'}</DetailField>
-            <DetailField label="VEN">{venLetter(r.riskGroup)}</DetailField>
+            <DetailField label="VEN">{venLetter(r.riskGroup)}{r.ssMult != null && <span className="text-slate-400 dark:text-slate-500"> · ตัวคูณ SS ×{r.ssMult}</span>}</DetailField>
             <DetailField label="Lead Time">{r.leadTimeDays ? `${Math.round(r.leadTimeDays)} วัน` : '—'}</DetailField>
             <DetailField label="บริษัทล่าสุด">{r.supplier || '—'}</DetailField>
             <DetailField label="วันรับล่าสุด">{r.receiveDate ? fmtThaiDate(r.receiveDate) : '—'}</DetailField>
@@ -1582,10 +1584,10 @@ function VerifyTab() {
     });
     assert('Atorvastatin · Max', r1.max, 2833);
     assert('Atorvastatin · Avg/mo', r1.avgMonth, 2218.25);
-    assert('Atorvastatin · SS', r1.ss, 3284);
-    assert('Atorvastatin · ROP', r1.rop, 4926);
-    assert('Atorvastatin · V', r1.orderQty, 1266);
-    assert('Atorvastatin · Amount', r1.amount, 42157.80);
+    assert('Atorvastatin · SS (×2 ขั้นต่ำ)', r1.ss, 4378);
+    assert('Atorvastatin · ROP', r1.rop, 6020);
+    assert('Atorvastatin · V', r1.orderQty, 1620);
+    assert('Atorvastatin · Amount', r1.amount, 53946.00);
     assert('Atorvastatin · Status', r1.status, STATUS.REORDER);
 
     // Test 2: Excluded
@@ -1596,15 +1598,15 @@ function VerifyTab() {
     const r3 = analyzeDrug({ code: 'X', monthlyUsage: [100,100,100,100], stock: 0 });
     assert('หมดสต็อค · status', r3.status, STATUS.OUT_OF_STOCK);
 
-    // Test 4: Acetaminophen syrup — Avg/วัน = 337.5/30.4 (เดิมหาร 30: SS=506, ROP=686)
+    // Test 4: Acetaminophen syrup — Avg/วัน = 337.5/30.4 · ตัวคูณขั้นต่ำ ×2 (เดิมหาร 30 ×1.5: SS=506, ROP=686)
     const r4 = analyzeDrug({
       code: 'PARA-SYR', name: 'Acetaminophen 120mg/5ml',
       monthlyUsage: [337.5, 337.5, 337.5, 337.5], stock: 900,
       leadTimeDays: 16, riskGroup: 'Essential',
     });
-    assert('Para syrup · SS = 500', r4.ss, 500);
-    assert('Para syrup · ROP = 755', r4.rop, 755);
-    assert('Para syrup · status = เพียงพอ', r4.status, STATUS.SUFFICIENT);
+    assert('Para syrup · SS = 666', r4.ss, 666);
+    assert('Para syrup · ROP = 921', r4.rop, 921);
+    assert('Para syrup · status = สั่งเพิ่ม', r4.status, STATUS.REORDER);
 
     // Test 5: Edge case (no usage)
     const r5 = analyzeDrug({ code: 'X', monthlyUsage: [0,0,0,0], stock: 0 });
@@ -1614,7 +1616,7 @@ function VerifyTab() {
     // Test 6: Para 500 (แถวจริงชีทวิเคราะห์ 20/10/2569) — ปัด Avg/เดือน 2 ตำแหน่ง แล้ว Avg/วัน 4 ตำแหน่ง
     const r6 = analyzeDrug({
       code: '1000227', name: 'Acetaminophen 500mg ,Para',
-      monthlyUsage: [17, 34, 32], stock: 65, leadTimeDays: 16.4, riskGroup: 'Critical',
+      monthlyUsage: [17, 34, 32], stock: 65, leadTimeDays: 16.4, riskGroup: 'Essential',
     });
     assert('Para 500 · Avg/mo = 27.67 (Excel S)', r6.avgMonth === 27.67, true);
     assert('Para 500 · Avg/d = 0.9102 (Excel T ไม่ใช่ 0.9101)', r6.avgDay === 0.9102, true);
@@ -1622,10 +1624,12 @@ function VerifyTab() {
     assert('Para 500 · ROP = 76 (Excel X — LT + รอบสั่งซื้อ 7 วัน)', r6.rop, 76);
     assert('Para 500 · แนะนำสั่ง = 11 (Excel AA)', r6.orderQty, 11);
 
-    // Test 7: VEN ว่าง → default 1.5 = Essential (ADR-0002)
-    const rBlank = analyzeDrug({ code: 'B', monthlyUsage: [300,300,300,300], stock: 0, leadTimeDays: 15 });
-    const rEss   = analyzeDrug({ code: 'E', monthlyUsage: [300,300,300,300], stock: 0, leadTimeDays: 15, riskGroup: 'Essential' });
-    assert('VEN ว่าง · SS = Essential (×1.5)', rBlank.ss, rEss.ss);
+    // Test 7: ตัวคูณ SS = MAX(2, VEN) — V/E/N/ว่าง ได้ ×2 เท่ากัน (ADR-0029)
+    const ssOf = (riskGroup) => analyzeDrug({ code: 'X', monthlyUsage: [300,300,300,300], stock: 0, leadTimeDays: 15, riskGroup }).ss;
+    assert('V · SS = 592 (×2)', ssOf('Critical'), 592);
+    assert('E · SS = 592 (×1.5 → ×2)', ssOf('Essential'), 592);
+    assert('N · SS = 592 (×1 → ×2)', ssOf('Normal'), 592);
+    assert('VEN ว่าง · SS = 592 (×1.5 → ×2)', ssOf(undefined), 592);
 
     // SS ฐาน 30 ไม่ cap
     assert('SS Critical (avg/d=10) = 600', computeSafetyStock(10, 2.0), 600);

@@ -64,6 +64,7 @@ ROUND( SUMPRODUCT(
 SS = MAX(1, ROUND(Avg/วัน × 30 × ตัวคูณSS, 0))
 ```
 ตัวคูณ SS มาจาก VEN: V=2.0, E=1.5, N=1.0 — **ฐาน 30 วัน, ไม่มี cap**
+⚠️ ชีทปัจจุบัน (ตรวจ 20/10/2569 คอลัมน์ AH) = `MAX(2, IFS(VEN…))` → ×2 ทุกแถว · แอปตามแล้ว ([ADR-0029](../adr/0029-ss-multiplier-floor-2.md))
 
 ### ROP (S)
 ```

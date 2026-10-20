@@ -4,6 +4,7 @@
 import { localYmd } from '../../supabase/functions/_shared/usageRow.js';
 
 export const RISK_MULTIPLIER = { Normal: 1.0, Essential: 1.5, Critical: 2.0 };
+export const SS_MIN_MULTIPLIER = 2;     // Excel AH = MAX(2, IFS(VEN…)) → ×2 ทุกกลุ่ม (ADR-0029) — ยกเลิกขั้นต่ำนี้ VEN จะกลับมามีผล
 export const ORDER_FACTOR = 2.3;        // Excel: Avg/เดือน × 2.3 (คงที่ ไม่มี Refill mode)
 export const DEFAULT_LEAD_TIME = 20;    // Excel default LT เมื่อไม่มีข้อมูล
 export const SS_BASE_DAYS = 30;         // Excel: Avg/วัน × 30 × ตัวคูณ (ไม่มี cap)
@@ -81,8 +82,8 @@ export function analyzeDrug(drug) {
     nearestExpiryDays = null,
   } = drug;
 
-  // VEN ว่าง/null → default Essential (1.5) ตาม Excel spec (ดู docs/adr/0002)
-  const riskMult = RISK_MULTIPLIER[riskGroup] ?? 1.5;
+  // VEN ว่าง/null → default Essential (1.5) ตาม Excel spec (ดู docs/adr/0002) แล้วยกขึ้นเป็นขั้นต่ำ ×2 (ADR-0029)
+  const riskMult = Math.max(SS_MIN_MULTIPLIER, RISK_MULTIPLIER[riskGroup] ?? 1.5);
   const { max, avgMonth, avgDay } = computeStats(monthlyUsage);
   const ss = computeSafetyStock(avgDay, riskMult);
   const rop = computeROP(ss, avgDay, leadTimeDays);
@@ -92,7 +93,7 @@ export function analyzeDrug(drug) {
 
   return {
     code, name, supplier, riskGroup, leadTimeDays,
-    max, avgMonth, avgDay, ss, rop, stock,
+    max, avgMonth, avgDay, ssMult: riskMult, ss, rop, stock,
     status, orderQty, amount, pricePerUnit,
   };
 }
