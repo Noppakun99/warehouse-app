@@ -6,6 +6,8 @@
 - ไม่ใช้ Supabase Auth — เก็บใน `app_users` table เอง
 - `auth` state object: `{ id, username, name (= full_name), role, department }`
 - `auth` ส่งผ่าน props จาก AppRoot ลงไปทุก sub-app ที่ต้องการ
+- **session login = `sessionStorage` key `wh_auth`** → ปิดแอป/แท็บแล้วต้อง login ใหม่ (ตัดสิน 11/10/2569 — มือถือ ward ใช้ร่วมกัน)
+- **จดจำชื่อผู้ใช้ (21/10/2569 — แบบ A: จำชื่ออย่างเดียว ไม่จำการ login)**: ช่องติ๊ก "จดจำชื่อผู้ใช้ในเครื่องนี้" ใน `LoginPage` ([AppRoot.jsx](../src/AppRoot.jsx)) **ติ๊กไว้เป็นค่าเริ่มต้น** (user เลือก — คลังมีเครื่องเดียว) · localStorage `login_remember_username`: ไม่มี key = ยังไม่เคยเลือก (ติ๊ก) · `''` = เลือกไม่จดจำ (ครั้งหน้าไม่ติ๊ก) · มีค่า = เติมชื่อให้ · เขียนเฉพาะตอน login **สำเร็จ** · ไม่เก็บรหัสผ่าน · ไม่แตะ `wh_auth` · E2E `tests/01-login.spec.js` describe "จดจำชื่อผู้ใช้"
 
 ## Three Roles
 

@@ -43,3 +43,46 @@ test.describe('Login / Logout', () => {
     await expect(page.getByPlaceholder('กรอกชื่อผู้ใช้')).toBeVisible({ timeout: 5_000 });
   });
 });
+
+// จดจำชื่อผู้ใช้ต่อเครื่อง (localStorage) — ไม่จำการ login: ออกจากระบบแล้วต้องกรอกรหัสผ่านใหม่
+test.describe('จดจำชื่อผู้ใช้', () => {
+  const loginThenLogout = async (page) => {
+    await page.getByPlaceholder('รหัสผ่าน').fill('111111');
+    await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
+    await waitForAppShell(page);
+    await page.getByRole('button', { name: 'ออกจากระบบ' }).click();
+    await expect(page.getByPlaceholder('กรอกชื่อผู้ใช้')).toBeVisible({ timeout: 5_000 });
+  };
+
+  test('ติ๊กไว้เป็นค่าเริ่มต้น → ออกจากระบบแล้วชื่อยังอยู่ รหัสผ่านว่าง', async ({ page }) => {
+    await page.goto('/');
+    const remember = page.getByLabel('จดจำชื่อผู้ใช้ในเครื่องนี้');
+    await expect(remember).toBeChecked();
+    await page.getByPlaceholder('กรอกชื่อผู้ใช้').fill('test');
+    await loginThenLogout(page);
+    await page.reload();
+    await expect(page.getByPlaceholder('กรอกชื่อผู้ใช้')).toHaveValue('test');
+    await expect(page.getByPlaceholder('รหัสผ่าน')).toHaveValue('');
+    await expect(remember).toBeChecked();
+    // ไม่จำการ login — reload แล้วยังอยู่หน้า login
+    await expect(shellMark(page)).not.toBeVisible();
+  });
+
+  test('เอาติ๊กออก → ไม่จำชื่อ และจำว่าเลือกไม่จดจำ', async ({ page }) => {
+    await page.goto('/');
+    await page.getByPlaceholder('กรอกชื่อผู้ใช้').fill('test');
+    await page.getByLabel('จดจำชื่อผู้ใช้ในเครื่องนี้').uncheck();
+    await loginThenLogout(page);
+    await page.reload();
+    await expect(page.getByPlaceholder('กรอกชื่อผู้ใช้')).toHaveValue('');
+    await expect(page.getByLabel('จดจำชื่อผู้ใช้ในเครื่องนี้')).not.toBeChecked();
+  });
+
+  test('มือถือ 375px — ช่องติ๊กแสดงครบ ไม่ล้นจอแนวนอน', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 700 });
+    await page.goto('/');
+    await expect(page.getByLabel('จดจำชื่อผู้ใช้ในเครื่องนี้')).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+});
