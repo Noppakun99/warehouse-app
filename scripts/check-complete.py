@@ -198,6 +198,7 @@ for s in unsigned:
 
 # 7a) ตรวจรับแล้ว ↔ หลักฐาน — รายการที่มีรูปตรวจรับ (บิลในภาพ) ต้องอยู่ในเอกสารสรุปตรวจรับ (scripts/inspection_ack.py)
 #     ไม่มีรูป = ไม่อยู่ในใบ แสดงเป็น … (ถ่ายซ้ำได้เฉพาะบิลเดือนปัจจุบัน / user ตัดสินรายกรณี) · ไม่นับใบที่ยกเลิก
+#     เฉพาะแถว การซื้อ — ของแถม/บริจาค/สนับสนุน ไม่ต้องให้ผู้ตรวจรับยาซื้อเซ็น (user 21/10/2569)
 #     นิยาม CONTEXT §เอกสารสรุปตรวจรับ (21/10/2569) · ตรรกะจับคู่รูป/ทะเบียนใช้ตัวเดียวกับ inspection_ack.py
 from inspection_ack import photo_index, issued, is_issued, is_cancelled  # noqa: E402
 head(f'ตรวจรับแล้ว (ตั้งแต่ {be(ACK_SINCE)}) ↔ เอกสารสรุปตรวจรับ / หลักฐาน')
@@ -209,7 +210,7 @@ for r in recv_raw:
     if r[3] and str(r[15] or '').strip() == 'ตรวจรับแล้ว' and isinstance(r[16], datetime.datetime) and r[16] >= ACK_SINCE:
         bill = str(r[7]).strip() if r[7] not in (None, '', '-') else f'(ไม่มีเลขบิล) {r[1]}'
         code, purchase = str(r[1]).strip(), str(r[4] or '').strip() == 'การซื้อ'
-        if is_issued(iss, bill, str(r[17] or '-').strip(), be(r[16]), code, purchase):
+        if not purchase or is_issued(iss, bill, str(r[17] or '-').strip(), be(r[16]), code, purchase):
             continue
         tgt = rounds if (str(r[7]).strip(), code, purchase) in ack_photos else waiting
         tgt.setdefault(be(r[16]), []).append(bill)

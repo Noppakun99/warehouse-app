@@ -1,6 +1,7 @@
 """เอกสารสรุปตรวจรับ (ตร.<ปีงบ>/<ลำดับ>) ให้ผู้ตรวจรับเซ็นรับทราบ — อ่านชีท 'รับยา' (read-only) → HTML → PDF + ทะเบียน CSV
 usage: python scripts/inspection_ack.py [--date DD/MM/YYYY] [--bills b1,b2] [--file <recv.xlsm>] [--commit]
-1 ใบ = 1 รอบตรวจรับ (วันที่ตรวจรับ Q เดียวกัน) · รวมทุกสถานะการซื้อ แยกหัวข้อ การซื้อ / ไม่ได้ซื้อ (user ตกลง 21/10/2569)
+1 ใบ = 1 รอบตรวจรับ (วันที่ตรวจรับ Q เดียวกัน) · **เฉพาะแถว การซื้อ** — ของแถม/บริจาค/สนับสนุน/ยืม/คืน ไม่ต้องให้ผู้ตรวจรับยาซื้อเซ็น
+  (user 21/10/2569 — เดิมรวมทุกสถานะแยกหัวข้อ · ของไม่ได้ซื้อมีเอกสารของตัวเอง เช่น ใบของแถม / ใบตรวจรับพัสดุของ สสจ.)
   --date   = วันที่ตรวจรับ (พ.ศ.) ของรอบที่จะออก — ไม่ระบุ: ถ้าค้างรอบเดียวใช้รอบนั้น ค้างหลายรอบ = หยุดให้เลือก
   --bills  = ออกเฉพาะบิลชุดนี้ (กรรมการคนละคนในวันเดียวกัน → แยกใบ) — บิลที่ระบุต้องเจอครบ ไม่งั้นหยุด
   --reshoot-date-ok = ยืนยันแล้วว่ารูปถ่ายซ้ำที่วันถ่ายตรงวันตรวจรับในชีท ลงวันถูก (ไม่ใส่ = commit หยุด)
@@ -131,7 +132,7 @@ def main():
         bill = str(r[7]).strip() if r[7] not in (None, '', '-') else f'(ไม่มีเลขบิล) {r[1]}'
         sup = str(r[17] or '-').strip()
         code, purchase = str(r[1]).strip(), str(r[4] or '').strip() == 'การซื้อ'
-        if is_issued(iss, bill, sup, short(qd), code, purchase):
+        if not purchase or is_issued(iss, bill, sup, short(qd), code, purchase):
             continue
         has_photo = (str(r[7]).strip(), code, purchase) in photos
         (pending if has_photo else nophoto).setdefault(qd, []).append((n, bill, sup, r))
