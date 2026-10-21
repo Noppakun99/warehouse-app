@@ -3,14 +3,17 @@ usage: python scripts/inspection_ack.py [--date DD/MM/YYYY] [--bills b1,b2] [--f
 1 ใบ = 1 รอบตรวจรับ (วันที่ตรวจรับ Q เดียวกัน) · รวมทุกสถานะการซื้อ แยกหัวข้อ การซื้อ / ไม่ได้ซื้อ (user ตกลง 21/10/2569)
   --date   = วันที่ตรวจรับ (พ.ศ.) ของรอบที่จะออก — ไม่ระบุ: ถ้าค้างรอบเดียวใช้รอบนั้น ค้างหลายรอบ = หยุดให้เลือก
   --bills  = ออกเฉพาะบิลชุดนี้ (กรรมการคนละคนในวันเดียวกัน → แยกใบ) — บิลที่ระบุต้องเจอครบ ไม่งั้นหยุด
+  --reshoot-date-ok = ยืนยันแล้วว่ารูปถ่ายซ้ำที่วันถ่ายตรงวันตรวจรับในชีท ลงวันถูก (ไม่ใส่ = commit หยุด)
   ไม่มี --commit = สร้าง PDF ใน temp อย่างเดียว ไม่แตะโฟลเดอร์จริง/ทะเบียน/คิวพิมพ์
   --commit = PDF → Desktop\\ยอดคงคลัง\\เอกสารตรวจรับ + แถวทะเบียน + แถวคิวพิมพ์ (_สถานะพิมพ์.csv) → แล้วรัน print-queue.py
-ทะเบียนนับซ้ำด้วย (เลขบิล, บริษัท, วันที่ตรวจรับ) — บิลเดียวตรวจรับ 2 วัน = 2 ใบ
-คอลัมน์ "รูปตรวจรับ" = มีแถว เอกสาร=รูปตรวจรับ ใน _ดัชนีบิล.csv ที่ (เลขบิล, รหัส) ตรงกัน · ช่อง ✓ ให้ผู้ตรวจรับติ๊กรายตัว
-  ใบที่เซ็นแล้ว = หลักฐานแทนรูปที่หาย/ไม่ได้ถ่าย (user 21/10/2569) → รูปใบเซ็นเข้าโฟลเดอร์พัก ผู้ตรวจรับเซ็น\\
+รายการในใบ = เฉพาะแถวที่มีรูปตรวจรับ (บิลอยู่ในภาพ) — แถวเอกสาร=รูปตรวจรับ ใน _ดัชนีบิล.csv ที่ (เลขบิล, รหัส, ซื้อ?) ตรงกัน
+  ไม่นับรูป "รอถ่ายซ้ำ" (ไม่มีบิลในภาพ) · แถวไม่มีรูป = ไม่อยู่ในใบ คงสถานะตรวจรับแล้ว (CONTEXT §เอกสารสรุปตรวจรับ 21/10/2569)
+ทะเบียนนับซ้ำรายแถว (เลขบิล, บริษัท, วันที่ตรวจรับ, ซื้อ?, รหัส — ช่อง รหัสยา) ไม่นับใบที่หมายเหตุ "ยกเลิก"
+  → รูปถ่ายซ้ำที่มาทีหลัง = ใบเลขใหม่ของวันตรวจรับเดิม (ไม่ต้องรอรูปครบรอบ) · แถวทะเบียนเก่าที่ไม่มีรหัสยา = ทั้งบิล
+ช่อง ✓ ให้ผู้ตรวจรับติ๊กรายตัว → รูปใบเซ็นเข้าโฟลเดอร์พัก ผู้ตรวจรับเซ็น\\
   → ติ๊กทะเบียน (ผู้ตรวจรับเซ็น/วันที่เซ็น) → ย้ายรูปไป เอกสารตรวจรับ\\เซ็นแล้ว\\ · check-complete ตรวจข้อนี้
 """
-import sys, os, csv, html, datetime, subprocess, tempfile, time, warnings
+import sys, os, re, csv, html, shutil, datetime, subprocess, tempfile, time, warnings
 from collections import OrderedDict
 import openpyxl
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -24,16 +27,55 @@ SINCE = datetime.date(2026, 10, 20)  # รอบแรกที่ออกเ�
 OUT_DIR = r'C:\Users\PRH0000484\Desktop\ยอดคงคลัง\เอกสารตรวจรับ'
 REG = os.path.join(OUT_DIR, '_ทะเบียนเอกสารตรวจรับ.csv')
 REG_COLS = ['เลขที่ใบ', 'วันที่ออก', 'วันที่ตรวจรับ', 'วันที่รับ', 'เลขที่บิล', 'บริษัท', 'สถานะการซื้อ', 'เลขที่PO',
-            'จำนวนรายการ', 'มูลค่า(บาท)', 'ไม่มีรูปตรวจรับ', 'ไฟล์', 'ผู้ตรวจรับเซ็น', 'วันที่เซ็น', 'หมายเหตุ']
+            'จำนวนรายการ', 'มูลค่า(บาท)', 'ไม่มีรูปตรวจรับ', 'ไฟล์', 'ผู้ตรวจรับเซ็น', 'วันที่เซ็น', 'หมายเหตุ', 'รหัสยา']
 PRINT_REG = r'C:\Users\PRH0000484\Desktop\รวมเบิกยา\PDF\_สถานะพิมพ์.csv'
 BILL_INDEX = r'C:\Users\PRH0000484\Desktop\บิลยา_ตรวจรับ\_ดัชนีบิล.csv'
+RESHOOT_DATE = re.compile(r'ถ่ายซ้ำ[^\d·]*?(\d{1,2}/\d{1,2}/\d{4})')
 
 
-def photo_keys():
-    # key แยก ซื้อ/ไม่ได้ซื้อ — บิลเดียวมีทั้งแถวซื้อและของแถมรหัสเดียวกัน (ยูนีซัน 102610001212: รูปตรวจรับเป็นของแถม 16 ไม่ใช่ซื้อ 80)
+def photo_index():
+    """{(เลขบิล, รหัส, ซื้อ?): วันถ่ายซ้ำ 'dd/mm/yyyy' หรือ None (รูปที่ถ่ายตอนตรวจ)} — ใช้ร่วมกับ check-complete.py
+    key แยก ซื้อ/ไม่ได้ซื้อ — บิลเดียวมีทั้งแถวซื้อและของแถมรหัสเดียวกัน (ยูนีซัน 102610001212: รูปตรวจรับเป็นของแถม 16 ไม่ใช่ซื้อ 80)
+    รูป "รอถ่ายซ้ำ" ไม่มีบิลในภาพ = ไม่ใช่หลักฐานแม้แก้เป็น "ถ่ายซ้ำแล้ว" แล้ว — หลักฐานคือแถวรูปถ่ายซ้ำที่เพิ่มแยก
+    (Nicardipine 126100028: แถวเดิม "ถ่ายซ้ำแล้ว 21/10" = วันได้รูป · แถวถ่ายซ้ำ "รูปถ่ายพร้อมเอกสารบิล 20/10")"""
+    out = {}
     with open(BILL_INDEX, encoding='utf-8-sig', newline='') as f:
-        return {(r['เลขที่บิล'].strip(), r['รหัส'].strip(), r['ประเภท'].strip() == 'ซื้อ') for r in csv.DictReader(f)
-                if r['เอกสาร'].strip() == 'รูปตรวจรับ' and 'ไม่ใช่รูปตรวจรับ' not in r['หมายเหตุ']}
+        for r in csv.DictReader(f):
+            note = r['หมายเหตุ']
+            if r['เอกสาร'].strip() != 'รูปตรวจรับ' or 'ไม่ใช่รูปตรวจรับ' in note or 'รอถ่ายซ้ำ' in note:
+                continue
+            m = RESHOOT_DATE.search(note) if 'ถ่ายซ้ำ' in note else None
+            d = None
+            if m:
+                dd, mm, yy = m.group(1).split('/')
+                d = f'{int(dd):02d}/{int(mm):02d}/{yy}'
+            key = (r['เลขที่บิล'].strip(), r['รหัส'].strip(), r['ประเภท'].strip() == 'ซื้อ')
+            out[key] = out.get(key) or d
+    return out
+
+
+def is_cancelled(r):
+    return 'ยกเลิก' in (r.get('หมายเหตุ') or '')
+
+
+def issued(reg_rows):
+    """รายการที่ออกใบแล้ว (ไม่นับใบยกเลิก) — {(บิล, บริษัท, วันตรวจรับ, ซื้อ?): set(รหัส) หรือ None = ทั้งบิล (แถวก่อนมีช่อง รหัสยา)}"""
+    out = {}
+    for r in reg_rows:
+        if is_cancelled(r):
+            continue
+        k = (r['เลขที่บิล'].strip(), r['บริษัท'].strip(), r['วันที่ตรวจรับ'].strip(), r['สถานะการซื้อ'].strip() == 'การซื้อ')
+        codes = {c.strip() for c in (r.get('รหัสยา') or '').split(',') if c.strip()}
+        if not codes or (k in out and out[k] is None):
+            out[k] = None
+        else:
+            out.setdefault(k, set()).update(codes)
+    return out
+
+
+def is_issued(iss, bill, sup, qd, code, purchase):
+    s = iss.get((bill, sup, qd, purchase), set())
+    return s is None or code in s
 
 
 def parse_th(s):
@@ -52,7 +94,8 @@ def num(v):
 def out_name(d):
     tail = f'{d.day}.{d.month}.{(d.year + 543) % 100}.pdf'
     n = 1
-    while os.path.exists(os.path.join(OUT_DIR, f'สรุปตรวจรับ{n if n > 1 else ""} {tail}')):
+    # ชื่อไฟล์ของใบยกเลิกก็ห้ามซ้ำ — คิวพิมพ์ copy ด้วยชื่อไฟล์
+    while any(os.path.exists(os.path.join(OUT_DIR, sub, f'สรุปตรวจรับ{n if n > 1 else ""} {tail}')) for sub in ('', 'ยกเลิก')):
         n += 1
     return f'สรุปตรวจรับ{n if n > 1 else ""} {tail}'
 
@@ -70,13 +113,15 @@ def main():
     if os.path.exists(REG):
         with open(REG, encoding='utf-8-sig', newline='') as f:
             reg_rows = list(csv.DictReader(f))
-    done = {(r['เลขที่บิล'], r['บริษัท'], r['วันที่ตรวจรับ']) for r in reg_rows}
+    iss = issued(reg_rows)
     fy = fiscal2(today)
+    # เลขที่ใบยกเลิกก็นับ — ห้ามใช้ซ้ำ
     nums = [int(r['เลขที่ใบ'].split('/')[1]) for r in reg_rows if r['เลขที่ใบ'].startswith(f'ตร.{fy}/')]
     doc_no = f'ตร.{fy}/{(max(nums) + 1) if nums else 1:03d}'
 
+    photos = photo_index()
     ws = openpyxl.load_workbook(src, read_only=True, data_only=True)['รับยา']
-    pending = OrderedDict()
+    pending, nophoto = OrderedDict(), OrderedDict()
     for n, r in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
         if str(r[15]).strip() != 'ตรวจรับแล้ว' or not isinstance(r[16], datetime.datetime):
             continue
@@ -85,12 +130,22 @@ def main():
             continue
         bill = str(r[7]).strip() if r[7] not in (None, '', '-') else f'(ไม่มีเลขบิล) {r[1]}'
         sup = str(r[17] or '-').strip()
-        if (bill, sup, short(qd)) in done:
+        code, purchase = str(r[1]).strip(), str(r[4] or '').strip() == 'การซื้อ'
+        if is_issued(iss, bill, sup, short(qd), code, purchase):
             continue
-        pending.setdefault(qd, []).append((n, bill, sup, r))
+        has_photo = (str(r[7]).strip(), code, purchase) in photos
+        (pending if has_photo else nophoto).setdefault(qd, []).append((n, bill, sup, r))
+
+    def show_nophoto(dates):
+        for qd in dates:
+            lst = nophoto.get(qd, [])
+            if lst:
+                print(f'ไม่อยู่ในใบ — ตรวจรับ {short(qd)} ยังไม่มีรูปตรวจรับ {len(lst)} รายการ '
+                      f'(ถ่ายซ้ำได้เฉพาะบิลเดือนปัจจุบัน): ' + ', '.join(f'รับยา!{n} {b}' for n, b, _, _ in lst))
 
     if not pending:
-        print(f'ไม่มีรอบตรวจรับค้างออกเอกสาร (ตรวจรับตั้งแต่ {short(SINCE)})')
+        print(f'ไม่มีรายการที่มีรูปตรวจรับค้างออกเอกสาร (ตรวจรับตั้งแต่ {short(SINCE)})')
+        show_nophoto(nophoto)
         return
     if want_date is None:
         if len(pending) > 1:
@@ -108,14 +163,17 @@ def main():
         if got != expected:
             sys.exit(f'STOP: bills found {sorted(got)} != expected {sorted(expected)}')
 
-    photos = photo_keys()
     bills = OrderedDict()
+    same_day = []  # รูปถ่ายซ้ำที่วันถ่าย = วันตรวจรับในชีท → อาจเผลอเอาวันถ่ายซ้ำไปลงเป็นวันตรวจรับ
     for n, bill, sup, r in rows:
         ptype = str(r[4] or '-').strip()
+        code = str(r[1]).strip()
+        if photos[(str(r[7]).strip(), code, ptype == 'การซื้อ')] == short(want_date):
+            same_day.append(f'รับยา!{n} {bill} {str(r[3]).strip()}')
         b = bills.setdefault((bill, sup, ptype), {'rd': r[14], 'rows': []})
-        b['rows'].append({'n': n, 'name': str(r[3]).strip(), 'po': str(r[8] or '-').strip(), 'lot': str(r[5] or '-'),
-                          'exp': cell_date(r[6]), 'qty': num(r[9]), 'unit': str(r[10] or ''), 'val': num(r[13]),
-                          'photo': (str(r[7]).strip(), str(r[1]).strip(), ptype == 'การซื้อ') in photos})
+        b['rows'].append({'n': n, 'code': code, 'name': str(r[3]).strip(), 'po': str(r[8] or '-').strip(),
+                          'lot': str(r[5] or '-'), 'exp': cell_date(r[6]), 'qty': num(r[9]), 'unit': str(r[10] or ''),
+                          'val': num(r[13])})
 
     def sort_key(kv):
         (bill, sup, ptype), b = kv
@@ -126,14 +184,13 @@ def main():
     total = round(sum(x['val'] for _, b in items for x in b['rows']), 2)
     nrows = sum(len(b['rows']) for _, b in items)
     nbills = len({(k[0], k[1]) for k, _ in items})
-    nophoto = sum(1 for _, b in items for x in b['rows'] if not x['photo'])
 
     body, i, section = [], 0, None
     for (bill, sup, ptype), b in items:
         sec = 'ก. การซื้อ' if ptype == 'การซื้อ' else 'ข. ไม่ได้ซื้อ (บริจาค / สนับสนุน / ยืม / คืน / แลกเปลี่ยน)'
         if sec != section:
             section = sec
-            body.append(f'<tr class="sec"><td colspan="13">{sec}</td></tr>')
+            body.append(f'<tr class="sec"><td colspan="12">{sec}</td></tr>')
         i += 1
         rws, span = b['rows'], len(b['rows'])
         sub = sum(x['val'] for x in rws)
@@ -151,7 +208,7 @@ def main():
                    f'<td class="r">{money(x["val"])}</td>')
             if j == 0:
                 tr += f'<td class="r" rowspan="{span}"><b>{money(sub)}</b></td>'
-            tr += ('<td class="c">มี</td>' if x['photo'] else '<td class="c nop">ไม่มี</td>') + '<td class="c"><span class="box"></span></td>'
+            tr += '<td class="c"><span class="box"></span></td>'
             body.append(tr + '</tr>')
 
     stamp = datetime.datetime.fromtimestamp(os.path.getmtime(src))
@@ -196,16 +253,15 @@ tr.tot td {{ font-weight: 700; border-top: 2px solid #000; }}
 </div>
 <p class="lead">คลังยาได้บันทึกสถานะ <b>"ตรวจรับแล้ว"</b> ในทะเบียนรับยา ตามที่ผู้ตรวจรับได้ตรวจรับพัสดุที่คลังยา
 เมื่อวันที่ <b>{th_date(want_date)}</b> จำนวน <b>{nbills} บิล {nrows} รายการ</b> มูลค่ารวม <b>{money(total)} บาท</b>
-ตามรายละเอียดดังนี้ · มีรูปตรวจรับ {nrows - nophoto} รายการ · <b>ไม่มีรูปตรวจรับ {nophoto} รายการ</b>
-(ช่องพื้นเทา — ลายมือชื่อในเอกสารนี้ใช้เป็นหลักฐานการตรวจรับแทนรูป)</p>
+ตามรายละเอียดดังนี้ — ทุกรายการมีรูปตรวจรับ (บิลอยู่ในภาพ) เก็บไว้ที่คลังยา</p>
 <table>
 <thead><tr><th style="width:3%">ที่</th><th style="width:7%">วันที่รับ</th><th style="width:15%">เลขที่บิล / บริษัท</th>
 <th style="width:7.5%">เลขที่ PO</th><th>รายการยา</th><th style="width:7%">Lot</th><th style="width:7%">Exp</th>
 <th style="width:5%">จำนวน</th><th style="width:5.5%">หน่วย</th><th style="width:7%">มูลค่า (บาท)</th><th style="width:7%">รวมบิล (บาท)</th>
-<th style="width:5%">รูปตรวจรับ</th><th style="width:5.5%">ผู้ตรวจรับ ✓</th></tr></thead>
+<th style="width:6%">ผู้ตรวจรับ ✓</th></tr></thead>
 <tbody>{''.join(body)}
 <tr class="tot"><td colspan="9" class="r">รวมทั้งสิ้น {nbills} บิล {nrows} รายการ</td><td colspan="2" class="r">{money(total)}</td>
-<td colspan="2" class="c">ไม่มีรูป {nophoto}</td></tr></tbody>
+<td></td></tr></tbody>
 </table>
 <div class="words">({bahttext(total)})</div>
 <div class="ack">ข้าพเจ้าได้ตรวจรับพัสดุตามรายการที่ทำเครื่องหมาย ✓ ไว้แล้ว และรับทราบการบันทึกผลการตรวจรับของคลังยาตามเอกสารนี้
@@ -223,7 +279,7 @@ tr.tot td {{ font-weight: 700; border-top: 2px solid #000; }}
     <div class="ln">วันที่ <span class="fl"></span></div></div>
 </div>
 <div class="foot">ข้อมูลจากชีท 'รับยา' ไฟล์ รับจากการซื้อ_ยืม_ตุลา2567-2569.xlsm (บันทึกล่าสุด {short(stamp.date())} {stamp:%H:%M})
-· สถานะตรวจรับ = ตรวจรับแล้ว · วันที่ตรวจรับ {short(want_date)} · ทะเบียน เอกสารตรวจรับ\\_ทะเบียนเอกสารตรวจรับ.csv</div>
+· สถานะตรวจรับ = ตรวจรับแล้ว + มีรูปตรวจรับ · วันที่ตรวจรับ {short(want_date)} · ทะเบียน เอกสารตรวจรับ\\_ทะเบียนเอกสารตรวจรับ.csv</div>
 </body></html>'''
 
     fname = out_name(want_date)
@@ -243,17 +299,22 @@ tr.tot td {{ font-weight: 700; border-top: 2px solid #000; }}
     if not os.path.exists(pdf_tmp) or os.path.getsize(pdf_tmp) < 5000:
         sys.exit('STOP: PDF not produced')
 
-    print(f'doc {doc_no} · ตรวจรับ {short(want_date)} · {nbills} bills · {nrows} rows · ไม่มีรูป {nophoto} · total {money(total)} · {bahttext(total)}')
+    print(f'doc {doc_no} · ตรวจรับ {short(want_date)} · {nbills} bills · {nrows} rows · total {money(total)} · {bahttext(total)}')
     for (bill, sup, ptype), b in items:
         print(f'  {cell_date(b["rd"])} {bill} {sup} [{ptype}] rows={[x["n"] for x in b["rows"]]} '
-              f'nophoto={[x["n"] for x in b["rows"] if not x["photo"]]} sum={money(sum(x["val"] for x in b["rows"]))}')
+              f'sum={money(sum(x["val"] for x in b["rows"]))}')
+    show_nophoto([want_date])
     others = [d for d in pending if d != want_date]
     if others:
         print('ยังค้างรอบอื่น:', ', '.join(short(d) for d in others))
+    for s in same_day:
+        print(f'WARN: รูปถ่ายซ้ำวันเดียวกับวันตรวจรับในชีท ({short(want_date)}) — เช็คว่าไม่ได้เอาวันถ่ายซ้ำไปลงเป็นวันตรวจรับ: {s}')
     print('preview:', pdf_tmp, '->', fname)
 
     if not commit:
         return
+    if same_day and '--reshoot-date-ok' not in sys.argv:
+        sys.exit('STOP: มีรูปถ่ายซ้ำวันเดียวกับวันตรวจรับ — ถาม user ก่อน แล้วใส่ --reshoot-date-ok')
     os.makedirs(OUT_DIR, exist_ok=True)
     dest = os.path.join(OUT_DIR, fname)
     if os.path.exists(dest):
@@ -264,15 +325,16 @@ tr.tot td {{ font-weight: 700; border-top: 2px solid #000; }}
                  'วันที่รับ': cell_date(b['rd']), 'เลขที่บิล': bill, 'บริษัท': sup, 'สถานะการซื้อ': ptype,
                  'เลขที่PO': ', '.join(sorted({x['po'] for x in b['rows']})), 'จำนวนรายการ': len(b['rows']),
                  'มูลค่า(บาท)': f'{sum(x["val"] for x in b["rows"]):.2f}',
-                 'ไม่มีรูปตรวจรับ': sum(1 for x in b['rows'] if not x['photo']), 'ไฟล์': fname,
-                 'ผู้ตรวจรับเซ็น': '', 'วันที่เซ็น': '', 'หมายเหตุ': ''}
+                 'ไม่มีรูปตรวจรับ': 0, 'ไฟล์': fname, 'ผู้ตรวจรับเซ็น': '', 'วันที่เซ็น': '', 'หมายเหตุ': '',
+                 'รหัสยา': ','.join(sorted({x['code'] for x in b['rows']}))}
                 for (bill, sup, ptype), b in items]
-    new = not os.path.exists(REG)
-    with open(REG, 'a', encoding='utf-8-sig' if new else 'utf-8', newline='') as f:
+    # เขียนทั้งไฟล์ใหม่ (ไม่ append) — ทะเบียนเดิมยังไม่มีช่อง รหัสยา ต้องเปลี่ยนหัวตาราง · สำรองก่อนเขียน
+    if os.path.exists(REG):
+        shutil.copy2(REG, os.path.join(HERE, f'_ทะเบียนเอกสารตรวจรับ_bak_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv'))
+    with open(REG, 'w', encoding='utf-8-sig', newline='') as f:
         w = csv.DictWriter(f, fieldnames=REG_COLS)
-        if new:
-            w.writeheader()
-        w.writerows(new_rows)
+        w.writeheader()
+        w.writerows(reg_rows + new_rows)
     now = datetime.datetime.now()
     with open(PRINT_REG, 'a', encoding='utf-8', newline='') as f:
         f.write(f'{short(now.date())} {now:%H:%M},{dest},,\r\n')

@@ -2,7 +2,7 @@
 # ใช้: python scripts/check-complete.py
 # ตรวจ 9 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
 #            · รูปบิลมีแถวดัชนี / แถวดัชนีมีไฟล์จริง · รูปตรวจรับรอถ่ายซ้ำ · แถวรับยามีแถว Master · บิลซื้อยังไม่ส่งจัดซื้อ
-#            · รอบตรวจรับมีเอกสารสรุปตรวจรับ (ตร.) + ผู้ตรวจรับเซ็นแล้ว ถ้ามีรายการไม่มีรูปตรวจรับ
+#            · รายการตรวจรับที่มีรูปอยู่ในเอกสารสรุปตรวจรับ (ตร.) + ผู้ตรวจรับเซ็นภายใน 7 วัน
 #            · บิลซื้อลง "ยามาส่ง" ในระบบติดตามการสั่งซื้อของจัดซื้อแล้ว (อ่านระบบผ่านเน็ต — scripts/po_match.py)
 #            · ใบเบิกศูนย์/รพ.สต. มีชีทในไฟล์สรุปเบิกยา · นัดเตือน (_นัดเตือน.csv)
 #            · รายงานแจ้งซื้อยารอบล่าสุดมีสำเนาส่งหัวหน้า
@@ -31,7 +31,7 @@ HANDOVER_SINCE = datetime.datetime(2026, 10, 5)  # ใบส่งบิลจ�
 NEW_NAME = re.compile(r'^\d{4}-\d{2}-\d{2}_')   # รูปบิลที่ตั้งชื่อแบบดัชนี (เริ่ม 05/10/2569)
 RESHOOT_DAYS = 7                                  # รูปตรวจรับรอถ่ายซ้ำค้างเกินนี้ = เตือนหนัก (user เลือก 08/10/2569)
 ACK_SINCE = datetime.datetime(2026, 10, 20)      # เอกสารสรุปตรวจรับใบแรก ตร.70/001 (รอบตรวจรับ 20/10/2569)
-ACK_SIGN_DAYS = 7                                 # ออกเอกสารแล้วผู้ตรวจรับยังไม่เซ็น + มีรายการไม่มีรูป ค้างเกินนี้ = ไม่ครบ
+ACK_SIGN_DAYS = 7                                 # ออกเอกสารแล้วผู้ตรวจรับยังไม่เซ็น ค้างเกินนี้ = ไม่ครบ
 
 problems = 0
 
@@ -196,19 +196,27 @@ ok(f'{len(bills) - len(todo)}/{len(bills)} บิลส่งแล้ว')
 for s in unsigned:
     print(f'  … ใบส่ง {s} จัดซื้อยังไม่เซ็นรับ')
 
-# 7a) ตรวจรับแล้ว ↔ หลักฐาน — ทุกรอบตรวจรับต้องออกเอกสารสรุปตรวจรับ (scripts/inspection_ack.py) · รายการที่ไม่มีรูปตรวจรับ
-#     ใช้ใบที่ผู้ตรวจรับเซ็นแล้วเป็นหลักฐานแทน (user 21/10/2569) → เซ็นแล้วติ๊กทะเบียน ช่อง ผู้ตรวจรับเซ็น/วันที่เซ็น
+# 7a) ตรวจรับแล้ว ↔ หลักฐาน — รายการที่มีรูปตรวจรับ (บิลในภาพ) ต้องอยู่ในเอกสารสรุปตรวจรับ (scripts/inspection_ack.py)
+#     ไม่มีรูป = ไม่อยู่ในใบ แสดงเป็น … (ถ่ายซ้ำได้เฉพาะบิลเดือนปัจจุบัน / user ตัดสินรายกรณี) · ไม่นับใบที่ยกเลิก
+#     นิยาม CONTEXT §เอกสารสรุปตรวจรับ (21/10/2569) · ตรรกะจับคู่รูป/ทะเบียนใช้ตัวเดียวกับ inspection_ack.py
+from inspection_ack import photo_index, issued, is_issued, is_cancelled  # noqa: E402
 head(f'ตรวจรับแล้ว (ตั้งแต่ {be(ACK_SINCE)}) ↔ เอกสารสรุปตรวจรับ / หลักฐาน')
-ack = read_csv(INSPECT_ACK) if os.path.exists(INSPECT_ACK) else []
-ack_key = {(r['เลขที่บิล'].strip(), r['บริษัท'].strip(), r['วันที่ตรวจรับ'].strip()) for r in ack}
-rounds = {}
+ack_all = read_csv(INSPECT_ACK) if os.path.exists(INSPECT_ACK) else []
+ack = [r for r in ack_all if not is_cancelled(r)]
+iss, ack_photos = issued(ack_all), photo_index()
+rounds, waiting = {}, {}
 for r in recv_raw:
     if r[3] and str(r[15] or '').strip() == 'ตรวจรับแล้ว' and isinstance(r[16], datetime.datetime) and r[16] >= ACK_SINCE:
         bill = str(r[7]).strip() if r[7] not in (None, '', '-') else f'(ไม่มีเลขบิล) {r[1]}'
-        if (bill, str(r[17] or '-').strip(), be(r[16])) not in ack_key:
-            rounds.setdefault(be(r[16]), set()).add(bill)
+        code, purchase = str(r[1]).strip(), str(r[4] or '').strip() == 'การซื้อ'
+        if is_issued(iss, bill, str(r[17] or '-').strip(), be(r[16]), code, purchase):
+            continue
+        tgt = rounds if (str(r[7]).strip(), code, purchase) in ack_photos else waiting
+        tgt.setdefault(be(r[16]), []).append(bill)
 for d, bs in sorted(rounds.items()):
-    bad(f'ยังไม่ออกเอกสารสรุปตรวจรับ รอบ {d} ({len(bs)} บิล) — python scripts/inspection_ack.py --date {d}')
+    bad(f'ยังไม่ออกเอกสารสรุปตรวจรับ รอบ {d} ({len(set(bs))} บิล {len(bs)} รายการ มีรูปแล้ว) — python scripts/inspection_ack.py --date {d}')
+for d, bs in sorted(waiting.items()):
+    print(f'  … รอบ {d} ไม่มีรูปตรวจรับ {len(bs)} รายการ ({len(set(bs))} บิล) — ไม่อยู่ในใบ ตร. รอถ่ายซ้ำ/user ตัดสิน')
 docs = {}
 for r in ack:
     docs.setdefault(r['เลขที่ใบ'], []).append(r)
@@ -219,14 +227,14 @@ for no, rs in docs.items():
         continue
     d, m, y = (int(v) for v in rs[0]['วันที่ออก'].split('/'))
     age = (today - datetime.date(y - 543, m, d)).days
-    nop = sum(int(x['ไม่มีรูปตรวจรับ'] or 0) for x in rs)
-    what = f'{no} (ตรวจรับ {rs[0]["วันที่ตรวจรับ"]}) ผู้ตรวจรับยังไม่เซ็น — ไม่มีรูปตรวจรับ {nop} รายการ · ออกมา {age} วัน'
-    if nop and age >= ACK_SIGN_DAYS:
-        bad(what + ' · ตามผู้ตรวจรับเซ็น (หลักฐานเดียวของรายการที่ไม่มีรูป)')
+    what = f'{no} (ตรวจรับ {rs[0]["วันที่ตรวจรับ"]}) ผู้ตรวจรับยังไม่เซ็น · ออกมา {age} วัน'
+    if age >= ACK_SIGN_DAYS:
+        bad(what + ' · ตามผู้ตรวจรับเซ็น')
     else:
         print(f'  … {what}')
 if not rounds:
-    ok(f'ออกเอกสารครบทุกรอบ · ทะเบียน {len(docs)} ใบ · เซ็นแล้ว {n_signed}')
+    n_cancel = len({r['เลขที่ใบ'] for r in ack_all if is_cancelled(r)})
+    ok(f'ออกเอกสารครบทุกรายการที่มีรูป · ทะเบียน {len(docs)} ใบ · เซ็นแล้ว {n_signed} · ยกเลิก {n_cancel}')
 
 # 7b) บิลซื้อ ↔ ระบบติดตามการสั่งซื้อของจัดซื้อ (Apps Script) — คลังลง "ยามาส่ง" เฉพาะแท็บคลังยา (user สั่ง 15/10/2569)
 #     บิลรับเข้าแล้วแต่ PO ในระบบยังรอยามาส่ง / ยอดไม่ตรง / ช่อง PO ในชีทว่าง = ไม่ครบ → python scripts/po_match.py [--commit]
