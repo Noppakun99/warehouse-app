@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { fetchInventory, fetchDrugDetails, fetchUploadMeta, normalizeLotSearch, fetchConsistencyReport, fetchSwapPolicies, flagSwapReturn } from './lib/db';
 import { computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './lib/swapPolicy';
 import { normExpDate } from './lib/receiveMatch';
@@ -120,6 +120,33 @@ const formatDateTime = (dateObj) => {
   });
 };
 
+// ตารางโมดอลติดตาม (รอตรวจรับ / ใกล้หมดอายุ / หมดอายุแล้ว) — ลากขอบขวาหัวคอลัมน์ขยาย-หดได้ · ดับเบิลคลิก = คืนค่าเดิม
+// ความกว้างจำต่อเครื่อง (localStorage) · คอลัมน์ที่โหมดไม่ใช้ก็เก็บไว้ในก้อนเดียวกันได้ (key ต่างกัน)
+const TRACK_COL_DEFAULT = { name: 300, type: 90, loc: 130, lot: 120, bill: 150, po: 120, exp: 110, status: 120, wait: 120, recv: 140, supplier: 200, ret: 110, policy: 240, qty: 120 };
+const TRACK_COL_MIN = 60;
+const TRACK_COL_KEY = 'tracking_modal_colw';
+const loadTrackColW = () => {
+  const out = { ...TRACK_COL_DEFAULT };
+  try {
+    const saved = JSON.parse(localStorage.getItem(TRACK_COL_KEY) || '{}');
+    for (const k of Object.keys(out)) if (Number.isFinite(saved?.[k]) && saved[k] >= TRACK_COL_MIN) out[k] = saved[k];
+  } catch { /* ค่าเสีย/บล็อก storage — ใช้ค่าเริ่มต้น */ }
+  return out;
+};
+
+function ColResizeGrip({ id, width, onResize, onReset }) {
+  const start = useRef(null);
+  const end = () => { start.current = null; };
+  return (
+    <span role="separator" aria-orientation="vertical" title="ลากเพื่อปรับความกว้าง · ดับเบิลคลิกคืนค่าเดิม"
+      onPointerDown={e => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); start.current = { x: e.clientX, w: width }; }}
+      onPointerMove={e => { if (start.current) onResize(id, Math.max(TRACK_COL_MIN, Math.round(start.current.w + e.clientX - start.current.x))); }}
+      onPointerUp={end} onPointerCancel={end}
+      onDoubleClick={() => onReset(id)}
+      className="absolute top-0 right-0 h-full w-2 cursor-col-resize select-none touch-none border-r border-slate-200 dark:border-slate-700 hover:bg-sky-300/60 dark:hover:bg-sky-600/60" />
+  );
+}
+
 export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, canGoBack }) {
   const isStaff = role === 'staff' || role === 'admin';
   const [inventory, setInventory] = useState(initialInventory);
@@ -148,6 +175,11 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   const [timePillsOpen, setTimePillsOpen] = useState(false);     // ซ่อน pill กรองช่วงเวลาไว้ก่อน คลิกแล้วกาง (ลดความรก)
   const [modalExporting, setModalExporting] = useState(false);
   const [returnBannerOpen, setReturnBannerOpen] = useState(false); // แถบเตือนคืนยา (พับได้ ให้ตารางมีที่อ่าน)
+  const [trackColW, setTrackColW] = useState(loadTrackColW);
+  useEffect(() => { try { localStorage.setItem(TRACK_COL_KEY, JSON.stringify(trackColW)); } catch { /* โหมดส่วนตัว/บล็อก storage — ใช้ค่าในหน่วยความจำต่อ */ } }, [trackColW]);
+  const resizeTrackCol = useCallback((id, w) => setTrackColW(p => ({ ...p, [id]: w })), []);
+  const resetTrackCol = useCallback(id => setTrackColW(p => ({ ...p, [id]: TRACK_COL_DEFAULT[id] })), []);
+  const trackGrip = id => <ColResizeGrip id={id} width={trackColW[id]} onResize={resizeTrackCol} onReset={resetTrackCol} />;
   const [isMobileExpiry, setIsMobileExpiry] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
   useEffect(() => {
     const fn = () => setIsMobileExpiry(window.innerWidth < 768);
@@ -1991,6 +2023,10 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
 
       {expiryViewFilter && (() => {
         const isExpiryMode = expiryViewFilter === 'near' || expiryViewFilter === 'expired';
+        // ลำดับต้องตรงกับ <th> ของตาราง (colgroup คุมความกว้าง)
+        const trackCols = isExpiryMode
+          ? ['name', 'type', 'loc', 'lot', 'exp', 'status', 'supplier', 'ret', 'policy', 'qty']
+          : ['name', 'type', 'loc', 'lot', 'bill', 'po', 'wait', 'recv', 'supplier', 'qty'];
         const computeDays = (item) => {
           const d = parseDateString(item.exp);
           if (!d) return null;
@@ -2563,30 +2599,32 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                   ))}
                 </div>
               ) : (
-                <table className="w-auto text-xs table-auto">
+                <table className="text-xs table-fixed [&_td]:overflow-hidden [&_th]:overflow-hidden"
+                  style={{ width: trackCols.reduce((s, c) => s + trackColW[c], 0) }}>
+                  <colgroup>{trackCols.map(c => <col key={c} style={{ width: trackColW[c] }} />)}</colgroup>
                   <thead className="sticky top-0 z-20">
                     <tr className="text-slate-500 dark:text-slate-400 font-semibold border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800">
-                      <th className="px-3 py-2 text-left bg-slate-50 dark:bg-slate-800">ชื่อยา</th>
-                      <th className="px-3 py-2 text-left bg-slate-50 dark:bg-slate-800">ชนิด</th>
-                      <th className="px-3 py-2 text-left bg-slate-50 dark:bg-slate-800">ตำแหน่ง</th>
-                      <th className="px-3 py-2 text-left bg-slate-50 dark:bg-slate-800">Lot</th>
-                      {!isExpiryMode && <th className="px-3 py-2 text-left bg-slate-50 dark:bg-slate-800 whitespace-nowrap">บิลยา</th>}
-                      {!isExpiryMode && <th className="px-3 py-2 text-left bg-slate-50 dark:bg-slate-800 whitespace-nowrap">PO</th>}
-                      {isExpiryMode && <th className="px-3 py-2 text-center bg-slate-50 dark:bg-slate-800">วันหมดอายุ</th>}
-                      {isExpiryMode && <th className="px-3 py-2 text-center bg-slate-50 dark:bg-slate-800">สถานะ</th>}
-                      {!isExpiryMode && <th className="px-3 py-2 text-center bg-slate-50 dark:bg-slate-800">รอตรวจรับมา</th>}
-                      {!isExpiryMode && <th className="px-3 py-2 text-left bg-slate-50 dark:bg-slate-800">สถานะรับ</th>}
-                      <th className="px-3 py-2 text-left bg-slate-50 dark:bg-slate-800">บริษัท</th>
-                      {isExpiryMode && <th className="px-3 py-2 text-center bg-slate-50 dark:bg-slate-800 whitespace-nowrap">คืนบริษัท</th>}
-                      {isExpiryMode && <th className="px-3 py-2 text-left bg-slate-50 dark:bg-slate-800">นโยบายเปลี่ยนยา</th>}
-                      <th className="px-3 py-2 text-right bg-slate-50 dark:bg-slate-800 whitespace-nowrap">คงเหลือ</th>
+                      <th className="relative px-3 py-2 text-left bg-slate-50 dark:bg-slate-800">ชื่อยา{trackGrip('name')}</th>
+                      <th className="relative px-3 py-2 text-left bg-slate-50 dark:bg-slate-800">ชนิด{trackGrip('type')}</th>
+                      <th className="relative px-3 py-2 text-left bg-slate-50 dark:bg-slate-800">ตำแหน่ง{trackGrip('loc')}</th>
+                      <th className="relative px-3 py-2 text-left bg-slate-50 dark:bg-slate-800">Lot{trackGrip('lot')}</th>
+                      {!isExpiryMode && <th className="relative px-3 py-2 text-left bg-slate-50 dark:bg-slate-800 whitespace-nowrap">บิลยา{trackGrip('bill')}</th>}
+                      {!isExpiryMode && <th className="relative px-3 py-2 text-left bg-slate-50 dark:bg-slate-800 whitespace-nowrap">PO{trackGrip('po')}</th>}
+                      {isExpiryMode && <th className="relative px-3 py-2 text-center bg-slate-50 dark:bg-slate-800">วันหมดอายุ{trackGrip('exp')}</th>}
+                      {isExpiryMode && <th className="relative px-3 py-2 text-center bg-slate-50 dark:bg-slate-800">สถานะ{trackGrip('status')}</th>}
+                      {!isExpiryMode && <th className="relative px-3 py-2 text-center bg-slate-50 dark:bg-slate-800">รอตรวจรับมา{trackGrip('wait')}</th>}
+                      {!isExpiryMode && <th className="relative px-3 py-2 text-left bg-slate-50 dark:bg-slate-800">สถานะรับ{trackGrip('recv')}</th>}
+                      <th className="relative px-3 py-2 text-left bg-slate-50 dark:bg-slate-800">บริษัท{trackGrip('supplier')}</th>
+                      {isExpiryMode && <th className="relative px-3 py-2 text-center bg-slate-50 dark:bg-slate-800 whitespace-nowrap">คืนบริษัท{trackGrip('ret')}</th>}
+                      {isExpiryMode && <th className="relative px-3 py-2 text-left bg-slate-50 dark:bg-slate-800">นโยบายเปลี่ยนยา{trackGrip('policy')}</th>}
+                      <th className="relative px-3 py-2 text-right bg-slate-50 dark:bg-slate-800 whitespace-nowrap">คงเหลือ{trackGrip('qty')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {timeFiltered.map((r, i) => (
                       <tr key={i} className={`border-b ${isExpiryMode ? rowColor(r.daysLeft) : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-sky-50 dark:hover:bg-sky-950/50 transition-colors'}`}>
-                        <td className="px-3 py-2.5 font-semibold text-slate-800 dark:text-slate-100 max-w-[200px]">
-                          <span className="block truncate">{r.name || '-'}</span>
+                        <td className="px-3 py-2.5 font-semibold text-slate-800 dark:text-slate-100">
+                          <span className="block break-words">{r.name || '-'}</span>
                           {r.code && r.code !== '-' && <span className="text-slate-400 dark:text-slate-500 font-normal">{r.code}</span>}
                         </td>
                         <td className="px-3 py-2.5">{r.type ? <DrugTypeBadge type={r.type} /> : <span className="text-slate-500 dark:text-slate-400">-</span>}</td>
@@ -2630,7 +2668,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                           </td>
                         )}
                         {!isExpiryMode && (
-                          <td className="px-3 py-2.5 max-w-[180px]">
+                          <td className="px-3 py-2.5">
                             <div className="flex items-center gap-1 flex-wrap">
                               {statusChips(r.receiveStatus).length > 0
                                 ? statusChips(r.receiveStatus).map((s, j) => (
@@ -2640,7 +2678,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                             </div>
                           </td>
                         )}
-                        <td className="px-3 py-2.5 text-slate-700 dark:text-slate-200 text-xs max-w-[160px] truncate" title={r.supplier || '-'}>{r.supplier || '-'}</td>
+                        <td className="px-3 py-2.5 text-slate-700 dark:text-slate-200 text-xs truncate" title={r.supplier || '-'}>{r.supplier || '-'}</td>
                         {isExpiryMode && (
                           <td className="px-3 py-2.5 text-center whitespace-nowrap">
                             {(() => { const b = returnBadge(r.returnInfo); return b ? (
@@ -2649,7 +2687,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                           </td>
                         )}
                         {isExpiryMode && (
-                          <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs max-w-[220px]" title={r.swapPolicy || '-'}>
+                          <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs" title={r.swapPolicy || '-'}>
                             <span className="line-clamp-2 leading-snug">{r.swapPolicy || '-'}</span>
                           </td>
                         )}
