@@ -30,7 +30,7 @@ MASTER_SINCE = datetime.datetime(2026, 10, 3)    # ต้นงวด ต.ค.69
 HANDOVER_SINCE = datetime.datetime(2026, 10, 5)  # ใบส่งบิลจัดซื้อใบแรก สบ.70/001
 NEW_NAME = re.compile(r'^\d{4}-\d{2}-\d{2}_')   # รูปบิลที่ตั้งชื่อแบบดัชนี (เริ่ม 05/10/2569)
 RESHOOT_DAYS = 7                                  # รูปตรวจรับรอถ่ายซ้ำค้างเกินนี้ = เตือนหนัก (user เลือก 08/10/2569)
-ACK_SINCE = datetime.datetime(2026, 10, 20)      # เอกสารสรุปตรวจรับใบแรก ตร.70/001 (รอบตรวจรับ 20/10/2569)
+ACK_SINCE = datetime.datetime(2026, 10, 1)       # = SINCE ใน inspection_ack.py — รอบ 05–20/10 อยู่ใน ตร.70/002 (ออกใหม่ 21/10/2569)
 ACK_SIGN_DAYS = 7                                 # ออกเอกสารแล้วผู้ตรวจรับยังไม่เซ็น ค้างเกินนี้ = ไม่ครบ
 
 problems = 0
@@ -228,7 +228,8 @@ for no, rs in docs.items():
         continue
     d, m, y = (int(v) for v in rs[0]['วันที่ออก'].split('/'))
     age = (today - datetime.date(y - 543, m, d)).days
-    what = f'{no} (ตรวจรับ {rs[0]["วันที่ตรวจรับ"]}) ผู้ตรวจรับยังไม่เซ็น · ออกมา {age} วัน'
+    qds = sorted({x['วันที่ตรวจรับ'] for x in rs}, key=lambda s: s.split('/')[::-1])
+    what = f'{no} (ตรวจรับ {qds[0] if len(qds) == 1 else qds[0] + "–" + qds[-1]}) ผู้ตรวจรับยังไม่เซ็น · ออกมา {age} วัน'
     if age >= ACK_SIGN_DAYS:
         bad(what + ' · ตามผู้ตรวจรับเซ็น')
     else:
