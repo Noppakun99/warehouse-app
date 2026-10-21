@@ -42,6 +42,23 @@ test.describe('Login / Logout', () => {
     await page.getByRole('button', { name: 'ออกจากระบบ' }).click();
     await expect(page.getByPlaceholder('กรอกชื่อผู้ใช้')).toBeVisible({ timeout: 5_000 });
   });
+
+  // ธีมมืดครอบเฉพาะหลัง login — ออกจากระบบแล้ว class 'dark' ต้องไม่ค้างที่ <html> (เดิมค้าง หน้า login ขึ้นมืด)
+  test('ธีมมืด → ออกจากระบบแล้วหน้า login กลับสว่าง', async ({ page }) => {
+    await page.goto('/');
+    await page.evaluate(() => localStorage.setItem('theme', 'dark'));
+    await page.getByPlaceholder('กรอกชื่อผู้ใช้').fill('test');
+    await page.getByPlaceholder('รหัสผ่าน').fill('111111');
+    await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
+    await waitForAppShell(page);
+    await expect(page.locator('html')).toHaveClass(/\bdark\b/);
+    await page.getByRole('button', { name: 'ออกจากระบบ' }).click();
+    await expect(page.getByPlaceholder('กรอกชื่อผู้ใช้')).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('html')).not.toHaveClass(/\bdark\b/);
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#ffffff');
+    // ธีมที่เลือกไว้ไม่หาย
+    expect(await page.evaluate(() => localStorage.getItem('theme'))).toBe('dark');
+  });
 });
 
 // จดจำชื่อผู้ใช้ต่อเครื่อง (localStorage) — ไม่จำการ login: ออกจากระบบแล้วต้องกรอกรหัสผ่านใหม่
