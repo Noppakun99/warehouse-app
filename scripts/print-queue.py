@@ -22,6 +22,8 @@ def copies(rel):
         return 1
     if 'ส่งบิลให้พี่โก้' in rel:      # ใบส่งบิลจัดซื้อ (path เต็มนอก PDF\) จัดซื้อเซ็นรับ 1 ฉบับ
         return 1
+    if 'เอกสารตรวจรับ' in rel:        # สรุปตรวจรับ ตร.xx — ผู้ตรวจรับเซ็นแล้วคืนคลัง 1 ฉบับ (scripts/inspection_ack.py)
+        return 1
     return 3 if top.startswith('ห้องยา') else 2
 
 

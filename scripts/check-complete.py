@@ -2,6 +2,7 @@
 # ใช้: python scripts/check-complete.py
 # ตรวจ 9 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
 #            · รูปบิลมีแถวดัชนี / แถวดัชนีมีไฟล์จริง · รูปตรวจรับรอถ่ายซ้ำ · แถวรับยามีแถว Master · บิลซื้อยังไม่ส่งจัดซื้อ
+#            · รอบตรวจรับมีเอกสารสรุปตรวจรับ (ตร.) + ผู้ตรวจรับเซ็นแล้ว ถ้ามีรายการไม่มีรูปตรวจรับ
 #            · บิลซื้อลง "ยามาส่ง" ในระบบติดตามการสั่งซื้อของจัดซื้อแล้ว (อ่านระบบผ่านเน็ต — scripts/po_match.py)
 #            · ใบเบิกศูนย์/รพ.สต. มีชีทในไฟล์สรุปเบิกยา · นัดเตือน (_นัดเตือน.csv)
 #            · รายงานแจ้งซื้อยารอบล่าสุดมีสำเนาส่งหัวหน้า
@@ -20,6 +21,7 @@ PRINT_LOG = os.path.join(REQ_PDF, '_สถานะพิมพ์.csv')
 BILL_DIR = os.path.join(HOME, r'Desktop\บิลยา_ตรวจรับ')
 BILL_INDEX = os.path.join(BILL_DIR, '_ดัชนีบิล.csv')
 HANDOVER = os.path.join(HOME, r'Desktop\ยอดคงคลัง\ส่งบิลให้พี่โก้\_ทะเบียนส่งบิลจัดซื้อ.csv')
+INSPECT_ACK = os.path.join(HOME, r'Desktop\ยอดคงคลัง\เอกสารตรวจรับ\_ทะเบียนเอกสารตรวจรับ.csv')
 RECV_XLSM = os.path.join(HOME, r'OneDrive\รับจากการซื้อ_ยืม_ตุลา2567-2569.xlsm')
 STOCK_XLSM = os.path.join(HOME, r'OneDrive\ยอดคลังยา_69.xlsm')
 
@@ -28,6 +30,8 @@ MASTER_SINCE = datetime.datetime(2026, 10, 3)    # ต้นงวด ต.ค.69
 HANDOVER_SINCE = datetime.datetime(2026, 10, 5)  # ใบส่งบิลจัดซื้อใบแรก สบ.70/001
 NEW_NAME = re.compile(r'^\d{4}-\d{2}-\d{2}_')   # รูปบิลที่ตั้งชื่อแบบดัชนี (เริ่ม 05/10/2569)
 RESHOOT_DAYS = 7                                  # รูปตรวจรับรอถ่ายซ้ำค้างเกินนี้ = เตือนหนัก (user เลือก 08/10/2569)
+ACK_SINCE = datetime.datetime(2026, 10, 20)      # เอกสารสรุปตรวจรับใบแรก ตร.70/001 (รอบตรวจรับ 20/10/2569)
+ACK_SIGN_DAYS = 7                                 # ออกเอกสารแล้วผู้ตรวจรับยังไม่เซ็น + มีรายการไม่มีรูป ค้างเกินนี้ = ไม่ครบ
 
 problems = 0
 
@@ -191,6 +195,38 @@ for (bill, d), x in todo:
 ok(f'{len(bills) - len(todo)}/{len(bills)} บิลส่งแล้ว')
 for s in unsigned:
     print(f'  … ใบส่ง {s} จัดซื้อยังไม่เซ็นรับ')
+
+# 7a) ตรวจรับแล้ว ↔ หลักฐาน — ทุกรอบตรวจรับต้องออกเอกสารสรุปตรวจรับ (scripts/inspection_ack.py) · รายการที่ไม่มีรูปตรวจรับ
+#     ใช้ใบที่ผู้ตรวจรับเซ็นแล้วเป็นหลักฐานแทน (user 21/10/2569) → เซ็นแล้วติ๊กทะเบียน ช่อง ผู้ตรวจรับเซ็น/วันที่เซ็น
+head(f'ตรวจรับแล้ว (ตั้งแต่ {be(ACK_SINCE)}) ↔ เอกสารสรุปตรวจรับ / หลักฐาน')
+ack = read_csv(INSPECT_ACK) if os.path.exists(INSPECT_ACK) else []
+ack_key = {(r['เลขที่บิล'].strip(), r['บริษัท'].strip(), r['วันที่ตรวจรับ'].strip()) for r in ack}
+rounds = {}
+for r in recv_raw:
+    if r[3] and str(r[15] or '').strip() == 'ตรวจรับแล้ว' and isinstance(r[16], datetime.datetime) and r[16] >= ACK_SINCE:
+        bill = str(r[7]).strip() if r[7] not in (None, '', '-') else f'(ไม่มีเลขบิล) {r[1]}'
+        if (bill, str(r[17] or '-').strip(), be(r[16])) not in ack_key:
+            rounds.setdefault(be(r[16]), set()).add(bill)
+for d, bs in sorted(rounds.items()):
+    bad(f'ยังไม่ออกเอกสารสรุปตรวจรับ รอบ {d} ({len(bs)} บิล) — python scripts/inspection_ack.py --date {d}')
+docs = {}
+for r in ack:
+    docs.setdefault(r['เลขที่ใบ'], []).append(r)
+n_signed = 0
+for no, rs in docs.items():
+    if all(x['ผู้ตรวจรับเซ็น'].strip() for x in rs):
+        n_signed += 1
+        continue
+    d, m, y = (int(v) for v in rs[0]['วันที่ออก'].split('/'))
+    age = (today - datetime.date(y - 543, m, d)).days
+    nop = sum(int(x['ไม่มีรูปตรวจรับ'] or 0) for x in rs)
+    what = f'{no} (ตรวจรับ {rs[0]["วันที่ตรวจรับ"]}) ผู้ตรวจรับยังไม่เซ็น — ไม่มีรูปตรวจรับ {nop} รายการ · ออกมา {age} วัน'
+    if nop and age >= ACK_SIGN_DAYS:
+        bad(what + ' · ตามผู้ตรวจรับเซ็น (หลักฐานเดียวของรายการที่ไม่มีรูป)')
+    else:
+        print(f'  … {what}')
+if not rounds:
+    ok(f'ออกเอกสารครบทุกรอบ · ทะเบียน {len(docs)} ใบ · เซ็นแล้ว {n_signed}')
 
 # 7b) บิลซื้อ ↔ ระบบติดตามการสั่งซื้อของจัดซื้อ (Apps Script) — คลังลง "ยามาส่ง" เฉพาะแท็บคลังยา (user สั่ง 15/10/2569)
 #     บิลรับเข้าแล้วแต่ PO ในระบบยังรอยามาส่ง / ยอดไม่ตรง / ช่อง PO ในชีทว่าง = ไม่ครบ → python scripts/po_match.py [--commit]
