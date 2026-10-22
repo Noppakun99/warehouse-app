@@ -18,7 +18,7 @@ import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
 import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS, fetchSwapReturnActions, swapActionKey, fetchLatestLineQuotaAlerts, fetchDrugLoans, loanOverdueDays, fetchOpenAnnualCount, fetchUploadMeta, fetchHolidayMap } from './lib/db';
-import { computeReturnStatus } from './lib/swapPolicy';
+import { buildLotReturnPolicies, returnPolicyLabel, policySourceNote } from './lib/drugProfile';
 import { matchReceiveDetails } from './lib/receiveMatch';
 import { buildWorkQueue, describeNextCycle, isSwapRed, isSwapOpen } from './lib/workQueue';
 import { pickPopupRows, readSeen, writeSeen, popupStorageKey } from './lib/popupSeen';
@@ -282,7 +282,7 @@ export default function AppRoot() {
         content = <TemperatureLogApp key={subKey} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       default:
-        content = <Dashboard key={subKey} auth={auth} onNavigate={setPage} />;
+        content = <Dashboard key={subKey} auth={auth} onNavigate={setPage} onOpenDrug={openDrug} />;
     }
   }
 
@@ -684,7 +684,7 @@ function takeNewPopupRows(kind, userId, rows) {
   return show;
 }
 
-function Dashboard({ auth, onNavigate }) {
+function Dashboard({ auth, onNavigate, onOpenDrug }) {
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
   const [alerts, setAlerts] = useState({ expiring: [], lowStock: [], pendingReceive: [] });
   const [alertsLoaded, setAlertsLoaded] = useState(false);
@@ -862,7 +862,7 @@ function Dashboard({ auth, onNavigate }) {
 
       {/* Alert modals */}
       {alertModal === 'expiry' && (
-        <ExpiryAlertSection expiring={alerts.expiring} onClose={() => setAlertModal(null)} auth={auth} />
+        <ExpiryAlertSection expiring={alerts.expiring} onClose={() => setAlertModal(null)} auth={auth} onOpenDrug={onOpenDrug} />
       )}
       {alertModal === 'lowStock' && (
         <LowStockAlertSection lowStock={alerts.lowStock} onClose={() => setAlertModal(null)}
@@ -1423,7 +1423,7 @@ function ReceiveHistoryDetail({ details = [], scope = 'code_lot' }) {
   );
 }
 
-function ExpiryAlertSection({ expiring = [], onClose, auth }) {
+function ExpiryAlertSection({ expiring = [], onClose, auth, onOpenDrug }) {
   const [filter, setFilter]     = React.useState('all'); // all | expired | soon30 | soon90 | soon180 | soon16m
   const [zoneFilter, setZoneFilter] = React.useState('all'); // โซนที่เก็บ A/B/C ... (จาก location prefix)
   const [search, setSearch]     = React.useState('');
@@ -1446,8 +1446,12 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
 
   // โหลด drugDetails + นโยบายคืนยา ตอนเปิดโมดอลเท่านั้น (query receive_logs ทั้งหมด — หนัก จึง lazy)
   const [swapActions, setSwapActions] = React.useState({});   // code|lot|company → สถานะดำเนินการคืนบริษัท (ลง Excel/พิมพ์ด้วย)
+  // สถานะโหลดประวัติรับยา — ช่องบริษัท/นโยบายต้องบอก "กำลังโหลด"/"โหลดไม่สำเร็จ" ไม่ใช่ "-" (ดูเหมือนไม่มีข้อมูล)
+  const [detailsStatus, setDetailsStatus] = React.useState('loading'); // loading | ready | error
   React.useEffect(() => {
-    fetchDrugDetails().then(setDrugDetails).catch(() => setDrugDetails(null));
+    fetchDrugDetails()
+      .then(d => { setDrugDetails(d); setDetailsStatus('ready'); })
+      .catch(() => { setDrugDetails(null); setDetailsStatus('error'); });
     fetchSwapPolicies().then(setSwapPolicies).catch(() => setSwapPolicies({}));
     fetchSwapReturnActions().then(setSwapActions).catch(() => setSwapActions({}));
   }, []);
@@ -1465,13 +1469,6 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
     return all.find(d => (d._code || '').toLowerCase() === code && (d._lot || '').toLowerCase() === lot)
         || all.find(d => (d._code || '').toLowerCase() === code)
         || null;
-  };
-  const buildSwapPolicy = (d) => {
-    if (!d) return '';
-    const parts = [];
-    if (d._drug_swap_policy && d._drug_swap_policy !== '-') parts.push(d._drug_swap_policy);
-    if (d.supplier_changed && d.supplier_changed !== '-')   parts.push(d.supplier_changed);
-    return parts.join(' | ');
   };
   const zoneOf = (r) => {
     const m = (r.location || '').trim().toUpperCase().match(/^([A-Z]+)/);
@@ -1492,27 +1489,33 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
     }
     return found;
   };
-  // นโยบายคืนยา: บริษัทของ lot → policy → deadline ต้องคืนก่อนหมดอายุ (ADR-0012, ตรรกะเดียวกับ App.jsx)
-  const buildReturnInfo = (lotSupplier, item) => {
-    const pol = lotSupplier ? swapPolicies[lotSupplier] : null;
-    if (!pol) return null;
-    const exp = item.expDate instanceof Date ? item.expDate : null;
-    if (!exp || isNaN(exp)) return { ...pol, status: 'no_policy', deadline: null, daysToDeadline: null };
-    const r = computeReturnStatus({ exp, months: pol.returnMonths, today: new Date() });
-    return { ...pol, ...r };
-  };
-  const enriched = expiring.map(item => {
+  // นโยบายคืนบริษัทราย lot — buildLotReturnPolicies ตัวเดียวกับบัตรยา (กฎ = fetchSwapReturnDue → deadline ตรง popup)
+  const policyRows = drugDetails ? Object.values(drugDetails).map(d => ({
+    drug_code: d._code, drug_name: d._name, lot: d._lot, bill_number: d._invoice,
+    supplier_current: d.supplier_current || d._company, drug_swap_policy: d._drug_swap_policy,
+    swap_tier_detail: d._swap_tier_detail, swap_condition_am: d._swap_condition_am, receive_date: d.receive_date,
+  })) : [];
+  const lotPolicies = buildLotReturnPolicies({
+    lots: expiring.map(i => ({ code: i.code, lot: i.lot, expDate: i.expDate })),
+    receiveRows: policyRows, companyPolicies: swapPolicies, today: new Date(),
+  });
+  const enriched = expiring.map((item, idx) => {
     const d = lookupDetail(item);
     const lotSupplier = supplierForLot(item);
     const det = allDetailsFor(item);
+    const rp = lotPolicies[idx];
     // สถานะดำเนินการคืนบริษัท — key เดียวกับ fetchSwapReturnDue (code|lot|company)
-    const act = swapActions[swapActionKey(item.code, item.lot, lotSupplier || d?.supplier_current || '')] || null;
+    const act = swapActions[swapActionKey(item.code, item.lot, rp.company || lotSupplier || d?.supplier_current || '')] || null;
+    // บริษัท = ของ lot นี้ · ไม่พบบิลของ lot → บริษัทจากบิลอื่นของยานี้ (ติดป้าย ไม่ใช้คิดกำหนดคืน)
+    const codeSupplier = d?.supplier_current || d?._company || '';
     return {
       ...item,
-      supplier: d?.supplier_current || d?._company || '',
-      swapPolicy: buildSwapPolicy(d),
+      supplier: rp.company || codeSupplier,
+      supplierFromOtherLot: !rp.company && !!codeSupplier,
+      swapPolicy: [rp.policyText, d?.supplier_changed && d.supplier_changed !== '-' ? d.supplier_changed : null].filter(Boolean).join(' | '),
+      swapPolicySource: policySourceNote(rp),
       zone: zoneOf(item),
-      returnInfo: buildReturnInfo(lotSupplier, item),
+      returnInfo: rp,
       details: det.rows,
       detailScope: det.scope,
       actionStatus: act?.status || 'pending',
@@ -1580,27 +1583,28 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
 
   // ── นโยบายคืนยา (ADR-0012): badge + banner + แจ้งหัวหน้า — ตรรกะเดียวกับโมดอลระบบแผนผัง ──
   const flagKeyOf = (r) => `${(r.code||'-')}|${(r.lot||'-')}|${(r.location||'-')}`;
-  const returnBadge = (ri) => {
-    if (!ri) return null;
-    if (ri.differsByItem) return { text: 'ต้องเช็กเอกสาร', cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700' };
-    if (ri.canReturn === false) return { text: 'บริษัทไม่รับคืน', cls: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700' };
-    if (ri.status === 'overdue') return { text: 'พ้นกำหนดคืน', cls: 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60' };
-    if (ri.status === 'due')     return { text: `ต้องคืนใน ${ri.daysToDeadline} วัน`, cls: 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300' };
-    if (ri.status === 'ok' && ri.returnMonths != null) return { text: `คืนก่อน ${ri.returnMonths} ด.`, cls: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60' };
-    return null;
+  // ป้ายเดียวกับบัตรยา (returnPolicyLabel) — แสดงเฉพาะสถานะที่ต้องทำอะไร/บอกผลชัด ไม่โชว์ "ไม่พบบิล" ซ้ำทุกแถว
+  const BADGE_CLS = {
+    red: 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60',
+    amber: 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300',
+    emerald: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60',
+    slate: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700',
   };
-  // รายการที่ต้องเด้ง banner = due/overdue (คืนได้ + ไม่กำกวม)
-  const dueReturns = enriched.filter(r =>
-    r.returnInfo && !r.returnInfo.differsByItem && r.returnInfo.canReturn !== false &&
-    (r.returnInfo.status === 'due' || r.returnInfo.status === 'overdue')
-  );
+  const returnBadge = (ri) => {
+    if (!ri || ri.status === 'no_company' || ri.status === 'no_policy') return null;
+    const l = returnPolicyLabel(ri);
+    return l && { text: l.text, cls: BADGE_CLS[l.tone] };
+  };
+  // รายการที่ต้องเด้ง banner = due/overdue (สถานะเดียวกับ popup คืนบริษัท)
+  const dueReturns = enriched.filter(r => r.returnInfo && (r.returnInfo.status === 'due' || r.returnInfo.status === 'overdue'));
+  const detailsPlaceholder = detailsStatus === 'loading' ? 'กำลังโหลด…' : detailsStatus === 'error' ? 'โหลดไม่สำเร็จ' : '-';
   const fmtThaiDate = (d) => d ? `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()+543}` : '-';
   const handleFlagReturn = async (r) => {
     const ri = r.returnInfo;
     try {
       await flagSwapReturn({
         drugCode: r.code, drugName: r.name, lot: r.lot, company: r.supplier,
-        returnMonths: ri?.returnMonths, deadline: ri?.deadline ? ri.deadline.toISOString().slice(0,10) : null,
+        returnMonths: ri?.returnMonths, deadline: ri?.deadlineIso || null,
         daysLeft: ri?.daysToDeadline,
       }, auth);
       setSwapFlagged(prev => ({ ...prev, [flagKeyOf(r)]: true }));
@@ -1857,18 +1861,20 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                   <div><span className="text-slate-400 dark:text-slate-500">Exp:</span> <span className="text-slate-700 dark:text-slate-200">{fmtExp(r.exp)}</span></div>
                   {/* วงเล็บครอบหน่วย — "1 500เม็ด" อ่านเป็น 1,500 ได้ ต้องเป็น "1 (500เม็ด)" (ล้อ pattern ที่ใช้อยู่แล้วในไฟล์นี้) */}
                   <div className="col-span-2"><span className="text-slate-400 dark:text-slate-500">คงเหลือ:</span> <span className="text-slate-800 dark:text-slate-100 font-bold">{r.qty || '-'}</span>{r.unit ? <span className="text-slate-500 dark:text-slate-400"> ({r.unit})</span> : null}</div>
-                  {r.supplier && (
-                    <div className="col-span-2"><span className="text-slate-400 dark:text-slate-500">บริษัท:</span> <span className="text-slate-700 dark:text-slate-200">{r.supplier}</span></div>
-                  )}
-                  {r.swapPolicy && (
-                    <div className="col-span-2"><span className="text-slate-400 dark:text-slate-500">นโยบายเปลี่ยนยา:</span> <span className="text-slate-700 dark:text-slate-200">{r.swapPolicy}</span></div>
-                  )}
+                  <div className="col-span-2"><span className="text-slate-400 dark:text-slate-500">บริษัท:</span> <span className="text-slate-700 dark:text-slate-200">{r.supplier || detailsPlaceholder}</span>{r.supplierFromOtherLot && <span className="text-slate-400 dark:text-slate-500"> (จากบิลอื่นของยานี้)</span>}</div>
+                  <div className="col-span-2"><span className="text-slate-400 dark:text-slate-500">นโยบายเปลี่ยนยา:</span> <span className="text-slate-700 dark:text-slate-200">{r.swapPolicy || detailsPlaceholder}</span>{r.swapPolicySource && <span className="block text-[10px] text-slate-400 dark:text-slate-500">{r.swapPolicySource}</span>}</div>
                 </div>
                 <div className="flex items-center gap-1 mt-1.5 text-[11px] font-semibold text-red-600">
                   <ChevronDown size={13} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                   {isOpen ? 'ซ่อนประวัติรับยา' : 'ดูประวัติรับยา'}
                 </div>
               </button>
+              {onOpenDrug && r.code && r.code !== '-' && (
+                <button type="button" onClick={() => onOpenDrug(r.code)}
+                  className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-sky-700 dark:text-sky-300 hover:underline">
+                  <Pill size={12} /> เปิดบัตรยา
+                </button>
+              )}
               {isOpen && <ReceiveHistoryDetail details={r.details} scope={r.detailScope} />}
             </div>
             );
@@ -1902,7 +1908,10 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                   <td className="px-4 py-2.5 font-semibold text-slate-800 dark:text-slate-100 max-w-[200px]">
                     <span className="flex items-center gap-1">
                       <ChevronDown size={13} className={`text-slate-400 dark:text-slate-500 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-                      <span className="truncate">{r.name || '-'}</span>
+                      {onOpenDrug && r.code && r.code !== '-' ? (
+                        <button type="button" title="เปิดบัตรยา" onClick={(e) => { e.stopPropagation(); onOpenDrug(r.code); }}
+                          className="truncate text-left text-sky-700 dark:text-sky-300 hover:underline">{r.name || '-'}</button>
+                      ) : <span className="truncate">{r.name || '-'}</span>}
                     </span>
                     {r.code && r.code !== '-' && (
                       <span className="text-slate-400 dark:text-slate-500 font-normal pl-[18px] block">{r.code}</span>
@@ -1921,9 +1930,13 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                       {rb && <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${rb.cls}`}>{rb.text}</span>}
                     </div>
                   </td>
-                  <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs max-w-[160px] truncate" title={r.supplier || '-'}>{r.supplier || '-'}</td>
-                  <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300 text-xs max-w-[220px]" title={r.swapPolicy || '-'}>
-                    <span className="line-clamp-2 leading-snug">{r.swapPolicy || '-'}</span>
+                  <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs max-w-[160px]" title={r.supplier || detailsPlaceholder}>
+                    <span className="block truncate">{r.supplier || detailsPlaceholder}</span>
+                    {r.supplierFromOtherLot && <span className="block text-[10px] text-slate-400 dark:text-slate-500">จากบิลอื่นของยานี้</span>}
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300 text-xs max-w-[220px]" title={r.swapPolicy || detailsPlaceholder}>
+                    <span className="line-clamp-2 leading-snug">{r.swapPolicy || detailsPlaceholder}</span>
+                    {r.swapPolicySource && <span className="block text-[10px] text-slate-400 dark:text-slate-500 line-clamp-1">{r.swapPolicySource}</span>}
                   </td>
                   <td className="px-4 py-2.5 text-right font-bold text-slate-700 dark:text-slate-200">{r.qty || '-'}</td>
                   <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">{r.unit || '-'}</td>

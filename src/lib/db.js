@@ -8,6 +8,7 @@ import { isUsageRow, localYmd } from '../../supabase/functions/_shared/usageRow.
 import {
   parseUnitFactor, parseExpDate as _parseExpDate, waitDaysSince, isBelowSafetyStock, isPurchaseReceipt,
   pickMainUnit, stockTotalInMainUnit, latestPurchaseUnit, buildSearchIndex, buildDrugProfile, normDept,
+  latestPolicyByCompany,
 } from './drugProfile.js'
 import { isoMonthsAgo, isoPrevMonthEnd, listMonthYM } from './reorder.js'
 // ReorderApp import parseUnitFactor จาก db.js มาแต่เดิม — คงทางเข้าเดิมไว้ (ตัวจริงอยู่ drugProfile.js)
@@ -2598,7 +2599,7 @@ export async function fetchDrugProfile(drugCode, { department = null } = {}) {
       .eq('code', code).order('location').order('id')),
     // ลำดับเดียวกับ fetchLatestReceiptInfo (ใหม่→เก่า, id ใหม่→เก่า) — latestPurchaseUnit พึ่งลำดับนี้
     pageAll(() => supabase.from('receive_logs')
-      .select('drug_code, lot, drug_unit, receive_date, purchase_type, price_per_unit, bill_number, supplier_current, qty_received')
+      .select('drug_code, drug_name, lot, drug_unit, receive_date, purchase_type, price_per_unit, bill_number, supplier_current, qty_received, drug_swap_policy, swap_tier_detail, swap_condition_am')
       .eq('drug_code', code)
       .order('receive_date', { ascending: false, nullsFirst: false }).order('id', { ascending: false })),
     supabase.from('drug_reorder_config').select('exclude_status').eq('code', code).maybeSingle(),
@@ -2618,6 +2619,21 @@ export async function fetchDrugProfile(drugCode, { department = null } = {}) {
     if (r.receive_date && (!receiveDates[k] || r.receive_date > receiveDates[k])) receiveDates[k] = r.receive_date
   }
 
+  // นโยบายคืนบริษัทราย lot: ตารางนโยบายบริษัท (deadline V1) + บิลใบล่าสุดที่มีนโยบายของบริษัทเดียวกัน (ยาใดก็ได้ —
+  // ข้อความสำรองเมื่อบิลของ lot ไม่มีนโยบาย) · โหลดล้ม = บัตรยายังเปิดได้ หัวข้อนโยบายบอกว่าโหลดไม่สำเร็จ
+  let returnPolicyError = false
+  const companies = [...new Set(receiveRows.map(r => String(r.supplier_current || '').trim()).filter(c => c && c !== '-'))]
+  const [companyPolicies, billPolicyRows] = await Promise.all([
+    fetchSwapPolicies(),
+    Promise.all(companies.map(co => supabase.from('receive_logs')
+      .select('drug_name, bill_number, supplier_current, drug_swap_policy, receive_date')
+      .eq('supplier_current', co).not('drug_swap_policy', 'is', null).not('drug_swap_policy', 'in', '("","-")')
+      .order('receive_date', { ascending: false, nullsFirst: false }).limit(1)
+      .then(({ data, error }) => { if (error) throw error; return data || [] })))
+      .then(rs => rs.flat())
+      .catch(() => { returnPolicyError = true; return [] }),
+  ])
+
   const profile = buildDrugProfile({
     rows,
     purchaseUnit: latestPurchaseUnit(receiveRows),
@@ -2627,8 +2643,10 @@ export async function fetchDrugProfile(drugCode, { department = null } = {}) {
     usage: { months: listMonthYM(rateFrom, rateTo), monthsBase: monthly[code]?.months || {} },
     dispenseRows,
     department,
+    companyPolicies,
+    companyBillPolicies: latestPolicyByCompany(billPolicyRows),
   })
-  return profile && { ...profile, inventoryUpdatedAt: uploadMeta?.inventory?.updated_at || null }
+  return profile && { ...profile, returnPolicyError, inventoryUpdatedAt: uploadMeta?.inventory?.updated_at || null }
 }
 
 // --- Reorder: หน่วย/ราคา/บริษัท/วันรับ/lead time ต่อรหัสยา (จาก receive_logs) ---

@@ -8,6 +8,7 @@ import {
   packUnitLabel, parseUnitFactor, parseExpDate, stockTotalInMainUnit, latestPurchaseUnit, pickMainUnit,
   ssAggregate, isBelowSafetyStock, buildSearchIndex, searchDrugs, buildDrugProfile,
   waitDaysSince, lotBills, usageRate, normDept, dispenseHistory, HISTORY_LIMIT,
+  buildLotReturnPolicies, latestPolicyByCompany,
 } from './drugProfile.js'
 
 let pass = 0, fail = 0
@@ -317,6 +318,42 @@ section('โน้ตอธิบายหน่วย (unitNote)')
   // ไม่มีบิลซื้อ → หน่วยหลัก = lot แรก
   const s = buildDrugProfile({ rows: [{ ...rows[0], unit: '450ml', qty: 2 }, { ...rows[0], lot: 'M', unit: '60ml', qty: 3 }], today: TODAY }).unitNote
   assertDeep([s.basis, s.bill, s.conversions[0].inMain], ['stock', null, 0.4], 'ไม่มีบิลซื้อ: basis = stock · 3×60 ÷ 450 = 0.4')
+}
+
+section('นโยบายคืนบริษัทราย lot (buildLotReturnPolicies — กฎเดียวกับ fetchSwapReturnDue)')
+{
+  const recv = [
+    // Cefdinir: บิล LBS ของ lot ไม่มีนโยบาย · บิล LBS ยาอื่นมีนโยบาย
+    { drug_code: '1660111', drug_name: 'Cefdinir', lot: 'C1', supplier_current: 'LBS', drug_swap_policy: '-', receive_date: '2025-05-01', bill_number: 'B-CEF' },
+    { drug_code: '1000001', drug_name: 'ยาอื่น', lot: 'X', supplier_current: 'LBS', drug_swap_policy: 'เงื่อนไขเดียวกันทุกรายการ · เปลี่ยนคืนได้หลังจากหมดอายุไปแล้ว', receive_date: '2026-01-10', bill_number: 'B-OTH' },
+    { drug_code: '1000001', drug_name: 'ยาอื่น', lot: 'Y', supplier_current: 'LBS', drug_swap_policy: 'ข้อความเก่า', receive_date: '2025-01-10', bill_number: 'B-OLD' },
+    // Levofloxacin: tier ระบุชัดในบิลของ lot (V2 before_exp 6 เดือน)
+    { drug_code: 'A680191', lot: 'L1', supplier_current: 'อภ.', drug_swap_policy: 'รับเปลี่ยนยาก่อนหมดอายุ 6 เดือน', swap_tier_detail: 'รับเปลี่ยนยาก่อนหมดอายุ 6 เดือน', receive_date: '2026-03-01', bill_number: 'B-LEV' },
+    // lot เดียวกันสองบริษัท → กำกวม
+    { drug_code: 'Z1', lot: 'D', supplier_current: 'บ.A', receive_date: '2026-01-01' },
+    { drug_code: 'Z1', lot: 'D', supplier_current: 'บ.B', receive_date: '2025-01-01' },
+    // บริษัทเงื่อนไขต่างรายการ + ไม่มี tier → review
+    { drug_code: 'Z2', lot: 'E', supplier_current: 'บ.C', swap_condition_am: 'แตกต่างกัน แล้วแต่รายการ', receive_date: '2026-01-01' },
+  ]
+  const table = { LBS: { returnMonths: 3, canReturn: true, differsByItem: false, rawNote: 'ตาราง LBS' }, 'บ.C': { returnMonths: 6, canReturn: true, differsByItem: false } }
+  const lots = [
+    { code: '1660111', lot: 'C1', expDate: new Date(2026, 11, 31) },
+    { code: 'A680191', lot: 'L1', expDate: new Date(2027, 1, 28) },
+    { code: 'Z1', lot: 'D', expDate: new Date(2027, 0, 1) },
+    { code: 'Z2', lot: 'E', expDate: new Date(2027, 0, 1) },
+    { code: 'NOPE', lot: 'Q', expDate: new Date(2027, 0, 1) },
+  ]
+  const [cef, lev, amb, rev, none] = buildLotReturnPolicies({ lots, receiveRows: recv, companyPolicies: table, today: TODAY })
+  assertDeep([cef.company, cef.policySource, cef.policyRef?.billNumber], ['LBS', 'company_bill', 'B-OTH'], 'lot ไม่มีนโยบาย → ข้อความจากบิล LBS ใบล่าสุดที่มีนโยบาย + ป้ายที่มา')
+  assertEq(cef.policyText, 'เงื่อนไขเดียวกันทุกรายการ · เปลี่ยนคืนได้หลังจากหมดอายุไปแล้ว', 'ข้อความนโยบายจากบิลยาอื่น')
+  assertDeep([cef.method, cef.deadlineIso, cef.status], ['v1', '2026-09-30', 'overdue'], 'deadline คิดจากตารางบริษัท (3 ด. · clamp สิ้นเดือน 31/12 → 30/9) ไม่ใช้ข้อความบิลอื่น')
+  assertDeep([lev.policySource, lev.method, lev.deadlineIso, lev.status], ['lot', 'v2', '2026-08-28', 'overdue'], 'tier ชัดในบิลของ lot → V2 exp − 6 เดือน')
+  assertDeep([amb.ambiguous, amb.status, amb.company], [true, 'no_company', null], 'lot เดียวคนละบริษัท → กำกวม ไม่ประเมิน (ADR-0012)')
+  assertEq(rev.status, 'review', 'บริษัทเงื่อนไขต่างรายการ + ไม่มี tier → review (ไม่ใช้ตาราง 6 เดือน)')
+  assertEq(none.status, 'no_company', 'ไม่มีบิล → no_company')
+  const due = buildLotReturnPolicies({ lots: [{ code: '1660111', lot: 'C1', expDate: new Date(2027, 1, 15) }], receiveRows: recv, companyPolicies: table, today: TODAY })[0]
+  assertDeep([due.deadlineIso, due.daysToDeadline, due.status], ['2026-11-15', 35, 'due'], 'เหลือ ≤ 60 วัน = due (buffer เดียวกับ popup)')
+  assertDeep(Object.keys(latestPolicyByCompany(recv)).sort(), ['LBS', 'อภ.'], 'นโยบายบริษัท = บิลใหม่สุดที่มีข้อความ ข้าม "-"')
 }
 
 console.log(`\n${pass} ผ่าน · ${fail} ตก`)

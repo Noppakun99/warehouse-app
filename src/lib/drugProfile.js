@@ -8,6 +8,7 @@
 //   parseExpDate / parseUnitFactor = ตัวเดียวกับที่ db.js ใช้ (ย้ายมาที่นี่ให้ node รัน test ได้)
 
 import { computeStats, fmtCoverage, thaiMonthLabel } from './reorder.js'
+import { computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './swapPolicy.js'
 
 const toNum = (v) => parseFloat(String(v ?? '0').replace(/,/g, '')) || 0
 
@@ -192,6 +193,7 @@ const round2 = (n) => Math.round(n * 100) / 100
 export function buildDrugProfile({
   rows = [], purchaseUnit = null, receiveDates = {}, excludeStatus = null, today = new Date(),
   receiveRows = [], usage = null, dispenseRows = [], department = null,
+  companyPolicies = {}, companyBillPolicies = null,
 }) {
   if (!rows.length) return null
   const t0 = new Date(today); t0.setHours(0, 0, 0, 0)
@@ -260,6 +262,10 @@ export function buildDrugProfile({
     if (b.expDate) return 1
     return a.lot.localeCompare(b.lot)
   })
+
+  // นโยบายคืนบริษัทราย lot — ฟังก์ชันเดียวกับโมดอลใกล้หมดอายุ (deadline = popup คืนบริษัท)
+  const policies = buildLotReturnPolicies({ lots: lots.map(l => ({ code, lot: l.lot, expDate: l.expDate })), receiveRows, companyPolicies, companyBillPolicies, today: t0 })
+  lots.forEach((l, i) => { l.returnPolicy = policies[i] })
 
   const readyLots = lots.filter(l => !l.pending && !l.expired)
   const useFirst = readyLots.length > 1 ? readyLots[0] : null   // lot เดียวไม่ต้องบอก "ใช้ก่อน"
@@ -435,4 +441,121 @@ export function dispenseHistory(sortedRows = [], department = null) {
   const own = department ? normDept(department) : null
   const matched = own ? sortedRows.filter(r => normDept(r.department) === own) : sortedRows
   return { department: department || null, total: matched.length, rows: matched.slice(0, HISTORY_LIMIT).map(dispenseView) }
+}
+
+// ── นโยบายคืนบริษัทราย lot (22/10/2569) — ใช้ร่วม บัตรยา (DrugProfileModal) + โมดอลใกล้หมดอายุ (ExpiryAlertSection) ──
+// กฎเลือกบริษัท / นโยบาย / deadline = fetchSwapReturnDue (db.js) ทุกข้อ → deadline บนบัตร = popup คืนบริษัท:
+//   บริษัท   = แถว receive_logs ใหม่สุดของ รหัส+lot ที่มีบริษัท · lot เดียวกันคนละบริษัท = กำกวม ไม่ประเมิน (ADR-0012)
+//   deadline = tier ของบิลนั้นที่ระบุชัด (V2 · ADR-0014/0015) → ไม่มี tier ใช้ตารางนโยบายบริษัท (V1)
+// ข้อความนโยบายที่แสดง: บิลของ lot → ไม่มีใช้นโยบายบริษัทเดียวกันจากบิลยาอื่น (ใบล่าสุด) → ตารางนโยบายบริษัท
+//   ข้อความจากบิลยาอื่นแสดงพร้อมป้ายที่มาเท่านั้น ไม่ใช้คิด deadline (บริษัทให้เงื่อนไขต่างรายยาได้)
+export const POLICY_SOURCE_LABEL = {
+  lot: 'จากบิลของ lot นี้',
+  company_bill: 'นโยบายบริษัทจากบิลยาอื่น',
+  company_table: 'ตารางนโยบายบริษัท',
+}
+const cleanText = (v) => { const s = String(v ?? '').trim(); return s && s !== '-' ? s : null }
+const byReceiveDesc = (rows) => [...rows].sort((a, b) => String(b.receive_date || '').localeCompare(String(a.receive_date || '')))
+const isoLocal = (d) => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : null
+
+// นโยบายบริษัทจากบิลใบล่าสุดที่มีข้อความ → { [บริษัท]: { text, billNumber, receiveDate, drugName } }
+export function latestPolicyByCompany(receiveRows = []) {
+  const out = {}
+  for (const r of byReceiveDesc(receiveRows)) {
+    const co = cleanText(r.supplier_current)
+    const text = cleanText(r.drug_swap_policy)
+    if (!co || !text || out[co]) continue
+    out[co] = { text, billNumber: cleanText(r.bill_number), receiveDate: r.receive_date || null, drugName: cleanText(r.drug_name) }
+  }
+  return out
+}
+
+// lots = [{ code, lot, expDate }] · receiveRows = receive_logs (ต้องมี drug_code, lot, supplier_current, drug_swap_policy,
+// swap_tier_detail, swap_condition_am, receive_date, bill_number) · companyPolicies = fetchSwapPolicies()
+// companyBillPolicies = latestPolicyByCompany ของบิลทุกยา (ไม่ส่ง = หาจาก receiveRows เอง)
+// → array ตามลำดับ lots: { company, ambiguous, policyText, policySource, policyRef, status, deadline, deadlineIso,
+//    daysToDeadline, percent, note, returnMonths, method }
+//   status: ok | due | overdue | no_return | review | no_policy | no_company
+export function buildLotReturnPolicies({ lots = [], receiveRows = [], companyPolicies = {}, companyBillPolicies = null, today = new Date() }) {
+  const t0 = new Date(today); t0.setHours(0, 0, 0, 0)
+  const lotKey = (code, lot) => `${String(code || '').trim().toLowerCase()}|${String(lot || '-').trim().toLowerCase() || '-'}`
+  const idx = new Map()   // code|lot → { supplier (null = กำกวม), row (บิลที่ใช้), receiveDate }
+  for (const r of byReceiveDesc(receiveRows)) {
+    const code = String(r.drug_code || '').trim()
+    if (!code) continue
+    const k = lotKey(code, r.lot)
+    let e = idx.get(k)
+    if (!e) { e = { supplier: undefined, row: null, receiveDate: r.receive_date || null }; idx.set(k, e) }
+    const co = cleanText(r.supplier_current)
+    if (!co) continue
+    if (e.supplier === undefined) { e.supplier = co; e.row = r }
+    else if (e.supplier !== null && e.supplier !== co) e.supplier = null
+  }
+  const billPolicies = companyBillPolicies || latestPolicyByCompany(receiveRows)
+
+  return lots.map(({ code, lot, expDate }) => {
+    const e = idx.get(lotKey(code, lot))
+    const base = {
+      company: null, ambiguous: false, policyText: null, policySource: null, policyRef: null,
+      status: 'no_company', deadline: null, deadlineIso: null, daysToDeadline: null, percent: null, note: null, returnMonths: null, method: null,
+    }
+    if (!e || e.supplier === undefined) return base
+    if (e.supplier === null) return { ...base, ambiguous: true, note: 'lot เดียวกันรับจากหลายบริษัท — ไม่ประเมิน' }
+    const company = e.supplier
+    const table = companyPolicies[company] || null
+    const lotText = cleanText(e.row.drug_swap_policy)
+    const shown = lotText ? { policyText: lotText, policySource: 'lot', policyRef: null }
+      : billPolicies[company] ? { policyText: billPolicies[company].text, policySource: 'company_bill',
+        policyRef: { billNumber: billPolicies[company].billNumber, receiveDate: billPolicies[company].receiveDate, drugName: billPolicies[company].drugName } }
+      : cleanText(table?.rawNote) ? { policyText: cleanText(table.rawNote), policySource: 'company_table', policyRef: null }
+      : { policyText: null, policySource: null, policyRef: null }
+    const out = { ...base, company, ...shown, status: 'no_policy' }
+
+    const exp = expDate instanceof Date && !isNaN(expDate) ? expDate : null
+    if (!exp) return out
+    const rIso = e.receiveDate ? String(e.receiveDate).split('T')[0] : null
+    const rDate = rIso ? parseExpDate(rIso.split('-').reverse().join('/')) : null
+    const differsByCompany = /แตกต่าง|แล้วแต่รายการ/.test(cleanText(e.row.swap_condition_am) || '')
+    const tierDetail = cleanText(e.row.swap_tier_detail)
+    const policyV2 = tierDetail ? parseReturnPolicyV2(tierDetail) : null
+    const explicit = !!policyV2 && policyV2.shape !== 'ambiguous' && !policyV2.needsReview
+    const done = (r, extra) => ({ ...out, ...extra, status: r.status, deadline: r.deadline || null, deadlineIso: isoLocal(r.deadline), daysToDeadline: r.daysToDeadline ?? null })
+
+    if (differsByCompany && !explicit) return { ...out, status: 'review', note: 'บริษัทให้เงื่อนไขต่างกันแต่ละรายการ — เช็กเอกสาร' }
+    if (explicit) {
+      const r = computeReturnStatusV2({ policy: policyV2, exp, receiveDate: rDate, today: t0 })
+      return done(r, { method: 'v2', percent: r.percent ?? null, note: r.note || null,
+        returnMonths: policyV2.beforeExpMonths ?? policyV2.afterExpMonths ?? policyV2.receiveThresholdMonths ?? null })
+    }
+    if (tierDetail) return { ...out, status: 'review', note: 'เงื่อนไขในบิลกำกวม — เช็กเอกสาร' }
+    if (!table) return out
+    if (table.differsByItem) return { ...out, status: 'review', note: 'บริษัทให้เงื่อนไขต่างกันแต่ละรายการ — เช็กเอกสาร' }
+    if (table.returnMonths == null) return table.canReturn === false ? { ...out, status: 'no_return', note: 'บริษัทไม่รับคืน' } : out
+    const r = computeReturnStatus({ exp, months: table.returnMonths, today: t0 })
+    return done(r, { method: 'v1', returnMonths: table.returnMonths, note: `คืนก่อนหมดอายุ ${table.returnMonths} เดือน (ตารางนโยบายบริษัท)` })
+  })
+}
+
+// ป้ายสถานะนโยบายคืนของ lot — ข้อความเดียวกันทั้งบัตรยาและโมดอลใกล้หมดอายุ (tone = สีที่ UI แปลงเอง)
+export function returnPolicyLabel(rp) {
+  if (!rp) return null
+  switch (rp.status) {
+    case 'overdue': return { tone: 'red', text: 'พ้นกำหนดคืน' }
+    case 'due': return { tone: 'amber', text: `ต้องคืนใน ${rp.daysToDeadline} วัน` }
+    case 'ok': return { tone: 'emerald', text: rp.deadline ? 'ยังไม่ถึงกำหนดคืน' : 'คืนได้' }
+    case 'no_return': return { tone: 'slate', text: 'บริษัทไม่รับคืน' }
+    case 'review': return { tone: 'slate', text: 'ต้องเช็กเอกสาร' }
+    case 'no_policy': return { tone: 'slate', text: 'ไม่มีนโยบายคืน' }
+    default: return { tone: 'slate', text: rp.ambiguous ? 'หลายบริษัท ไม่ประเมิน' : 'ไม่พบบิลของ lot' }
+  }
+}
+
+// ป้ายที่มาของข้อความนโยบาย — ข้อความจากบิลยาอื่นต้องบอกบิล/ยา/วันรับ (ไม่ใช่หลักฐานของ lot นี้)
+export function policySourceNote(rp) {
+  if (!rp?.policySource) return null
+  if (rp.policySource !== 'company_bill' || !rp.policyRef) return POLICY_SOURCE_LABEL[rp.policySource]
+  const ref = rp.policyRef
+  const m = String(ref.receiveDate || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
+  const date = m ? ` · ${m[3]}/${m[2]}/${Number(m[1]) + 543}` : ''
+  return `${POLICY_SOURCE_LABEL.company_bill} (บิล ${ref.billNumber || '-'}${ref.drugName ? ` · ${ref.drugName}` : ''}${date})`
 }

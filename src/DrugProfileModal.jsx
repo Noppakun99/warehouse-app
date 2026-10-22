@@ -6,10 +6,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   X, Pill, Database, MapPin, Layers, Hourglass, AlertTriangle, CircleCheck, PackageX, Ban, ScrollText,
-  TrendingDown, Loader2, CalendarClock, Receipt, ChevronDown, Activity, History, Truck, Info,
+  TrendingDown, Loader2, CalendarClock, Receipt, ChevronDown, Activity, History, Truck, Info, RotateCcw,
 } from 'lucide-react';
 import { fetchDrugProfile } from './lib/db';
-import { parseExpDate, packUnitLabel, packWord } from './lib/drugProfile';
+import { parseExpDate, packUnitLabel, packWord, returnPolicyLabel, policySourceNote } from './lib/drugProfile';
 
 const fmtNum = (n) => (Number(n) || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 const fmtThaiDate = (d) => (d ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear() + 543}` : '-');
@@ -233,6 +233,35 @@ function LotRow({ l }) {
   );
 }
 
+// นโยบายคืนบริษัทราย lot (staff/admin) — buildLotReturnPolicies ตัวเดียวกับโมดอลใกล้หมดอายุ · deadline = popup คืนบริษัท
+function ReturnPolicyRow({ l }) {
+  const rp = l.returnPolicy;
+  const label = returnPolicyLabel(rp);
+  const sourceNote = policySourceNote(rp);
+  return (
+    <li className="py-2">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 min-w-0">
+          lot {l.lot}<span className="font-normal text-slate-500 dark:text-slate-400"> · {rp?.company || (rp?.ambiguous ? 'หลายบริษัท' : 'ไม่ทราบบริษัท')}</span>
+        </p>
+        {label && <span className={`shrink-0 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${CHIP[label.tone]}`}>{label.text}</span>}
+      </div>
+      {(rp?.deadline || rp?.note) && (
+        <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
+          {rp.deadline && <>ต้องคืนภายใน <b className="font-semibold tabular-nums">{fmtThaiDate(rp.deadline)}</b>{rp.note ? ' · ' : ''}</>}{rp.note}
+        </p>
+      )}
+      {rp?.policyText ? (
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 break-words">
+          {rp.policyText}{sourceNote && <span className="block text-[11px] text-slate-400 dark:text-slate-500">{sourceNote}</span>}
+        </p>
+      ) : (
+        <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">ไม่มีข้อความนโยบายในบิลของบริษัทนี้</p>
+      )}
+    </li>
+  );
+}
+
 export default function DrugProfileModal({ code, isStaff, department = null, onClose, onOpenStockCard }) {
   // ผลโหลดผูกกับรหัสที่ขอ — เปลี่ยนรหัส = ถือว่ายังไม่โหลด (ไม่โชว์บัตรของยาตัวก่อน)
   const [state, setState] = useState({ code: null, profile: null, error: '' });
@@ -355,6 +384,21 @@ export default function DrugProfileModal({ code, isStaff, department = null, onC
                   <p className="px-4 pb-3 text-[11px] text-slate-400 dark:text-slate-500">ไม่แสดง {p.zeroLots} lot ที่คงเหลือ 0</p>
                 )}
               </div>
+
+              {/* นโยบายคืนบริษัท — staff/admin เท่านั้น */}
+              {isStaff && p.lots.length > 0 && (
+                <section className="border-t border-slate-100 dark:border-slate-800 px-4 py-3">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 inline-flex items-center gap-1">
+                    <RotateCcw size={12} /> นโยบายคืนบริษัท
+                  </p>
+                  {p.returnPolicyError && (
+                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300 inline-flex items-center gap-1"><AlertTriangle size={12} className="shrink-0" /> โหลดนโยบายจากบิลยาอื่นไม่สำเร็จ — ข้อความนโยบายอาจไม่ครบ</p>
+                  )}
+                  <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {p.lots.map(l => <ReturnPolicyRow key={l.key} l={l} />)}
+                  </ul>
+                </section>
+              )}
 
               {/* ประวัติเบิก — ผู้เบิกเห็นเฉพาะหน่วยงานตัวเอง (CONTEXT §บัตรยา) */}
               <section className="border-t border-slate-100 dark:border-slate-800 px-4 py-3">
