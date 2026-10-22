@@ -25,8 +25,16 @@ MONTH_COLS = ['E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P']
 
 # รายงานซื้อยา: ชื่อคอลัมน์ในโค้ด/plan.json = ตำแหน่งเดิม (Avg/วัน = 'T', หมายเหตุ = 'S')
 # 14/10/2569 ย้าย Avg/วัน มาต่อ Avg/เดือน (N) → ตำแหน่งจริง O, ของเดิม O–S เลื่อนเป็น P–T · Sheet1 = ตำแหน่งจริง +1 คอลัมน์
+# 22/10/2569 (/grill-with-docs) แทรก 4 คอลัมน์ — migrate_layout.ps1: Q จุดสั่งซื้อ (ROP) · R เหตุผลที่แจ้ง · S คงอยู่ได้อีก (วัน)
+#   · W มูลค่าสั่ง (บาท) → ยอดเบิกรวม T · 3 เดือน U · จำนวนแนะนำ V · หมายเหตุ X (รายงาน A–X · Sheet1 B–Y)
 # apply.ps1 มีตารางเดียวกัน ($PHYS) — แก้ตำแหน่งคอลัมน์ต้องแก้ทั้ง 2 ไฟล์
-PHYS_MAP = {'O': 'P', 'P': 'Q', 'Q': 'R', 'R': 'S', 'S': 'T', 'T': 'O'}
+PHYS_MAP = {'O': 'P', 'P': 'T', 'Q': 'U', 'R': 'V', 'S': 'X', 'T': 'O',
+            'ROP': 'Q', 'WHY': 'R', 'COV': 'S', 'VAL': 'W'}
+NUM_KEYS = ['I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'T', 'ROP', 'WHY', 'COV', 'VAL']   # ค่าที่ plan เขียนทุกรอบ
+WHY_TEXT = {'หมดสต็อค': 'หมดสต็อค', 'สั่งเพิ่ม': 'สั่งเพิ่ม (คงเหลือ ≤ จุดสั่งซื้อ)',
+            'สั่งเพิ่ม ใกล้หมดอายุ': 'สั่งเพิ่ม ใกล้หมดอายุ (lot ไกลสุด ≤ 240 วัน)',
+            'คงคลังเพียงพอ': 'ถึงเกณฑ์พอแล้ว — พิจารณายกเลิกแจ้ง'}
+URGENT_REQ_DAYS = 14   # ด่วน ข้อ 3: หน่วยงานขอเบิกภายใน N วันแล้วไม่ได้ของ/ได้ไม่ครบ (CONTEXT §ด่วน)
 
 # ยาซื้อ → ยาสนับสนุน สสจ. ที่เป็นยาเดียวกัน ขนาด/หน่วยเดียวกัน แต่แยกรหัส (หัวหน้านับคงเหลือรวมทั้ง 2 รหัส — user สั่ง 15/10/2569)
 # ชีทวิเคราะห์รวมเฉพาะแถวรหัสเดียวกัน ยาสนับสนุนที่ใช้รหัสเดียวกับยาซื้อจึงนับอยู่แล้ว ไม่ต้องใส่ที่นี่
@@ -128,7 +136,8 @@ class Data:
             ('total', 'รวมทุกเดือน', 0), ('max', 'Max/เดือน', 1), ('avg', 'Avg/เดือน', 1), ('day', 'Avg/วัน', 1),
             ('q', 'คงเหลือ (หน่วย)', 0), ('ss', 'Safety Stock', 0), ('lt', 'Lead Time', 1), ('rop', 'ROP', 1),
             ('status', 'สถานะ', 0), ('rec', 'จำนวนแนะนำสั่งซื้อ', 1), ('price', 'ราคา/หน่วย', 1),
-            ('supplier', 'บริษัทล่าสุด', 0), ('ae', 'ตัดออกจากบัญชี', 1), ('sum3', 'รวมเบิก3เดือนล่าสุด', 0)]}
+            ('supplier', 'บริษัทล่าสุด', 0), ('ae', 'ตัดออกจากบัญชี', 1), ('sum3', 'รวมเบิก3เดือนล่าสุด', 0),
+            ('val', 'มูลค่าสั่งซื้อ', 1)]}
         self.ac = c
         self.amonth = rows[hi - 1]  # แถว 2 = วันที่ต้นเดือนของคอลัมน์ E–P
         self.arow0 = hi + 2  # เลขแถว Excel ของข้อมูลแถวแรก
@@ -185,16 +194,79 @@ class Data:
         v = self.buy.get(code)
         return max(v) if v else None
 
+    def request_stats(self):
+        """(เบิกล่าสุดต่อรหัส, ขอเบิกแล้วจ่ายไม่ครบล่าสุดต่อรหัส) — ใช้ร่วมกันทั้งรายงาน (ด่วน) และข้อความไลน์"""
+        c = self.dc
+        last, unmet = {}, {}
+        # ขอเบิกแล้วจ่ายไม่ครบ — รวมต่อคำขอ (วันที่+หน่วยงาน+รหัส+หน่วย) เพราะคำขอเดียวแตกหลายแถว lot ได้
+        # จ่าย 0 = "ไม่มีจ่าย" · จ่ายบางส่วน = "จ่ายได้ N ไม่พอ" (เดิมนับเฉพาะจ่าย 0 — แถวที่ได้บางส่วนหลุด 14/10/2569)
+        asked = defaultdict(lambda: [0.0, 0.0])
+        for r in self.disp:
+            code = str(r[c['code']]).strip()
+            if r[c['kind']] in NOT_REAL_DISPENSE:
+                continue
+            if num(r[c['qty']]) > 0:
+                key = (r[c['date']], r[c['dept']], r[c['qty']], r[c['unit']], r[c['req']])
+                if code not in last or r[c['date']] >= last[code][0]:
+                    last[code] = key
+            k = (r[c['date']], str(r[c['dept']]).strip(), code, str(r[c['unit']]).strip())
+            asked[k][0] += num(r[c['qty']])
+            asked[k][1] = max(asked[k][1], num(r[c['req']]))
+        for (date, dept, code, unit), (got, req) in asked.items():
+            if req > 0 and got < req and (code not in unmet or date >= unmet[code][0]):
+                unmet[code] = (date, dept, got, unit, req)
+        return last, unmet
+
+
+def open_request(code, today, last, unmet):
+    """คำขอเบิกที่ยังไม่ได้ของ/ได้ไม่ครบภายใน URGENT_REQ_DAYS วัน และยังไม่มีการจ่ายหลังจากนั้น — ไม่มี = None"""
+    U, L = unmet.get(code), last.get(code)
+    if U and (not L or U[0] >= L[0]) and (today - U[0]).days <= URGENT_REQ_DAYS:
+        return U
+    return None
+
+
+def coverage_days(d, code):
+    """คงอยู่ได้อีก (วัน) = คงเหลือ ÷ Avg/วัน (รวมยาสนับสนุนรหัสคู่) · ไม่มีเรท = '-'"""
+    q, day, _, _ = twin_q(d, code)
+    if q <= 0:
+        return 0
+    return round(q / day) if day > 0 else '-'
+
+
+def reason(d, code):
+    """เหตุผลที่แจ้ง = สถานะปัจจุบันของชีทวิเคราะห์ (CONTEXT §รายงานแจ้งการสั่งซื้อยา)
+    ยาที่มีรหัสคู่ยาสนับสนุน: คงเหลือในรายงานเป็นยอดรวม → ตัดสินจากยอดรวมเทียบจุดสั่งซื้อ ไม่ให้ขัดกับคอลัมน์คงเหลือ"""
+    r, ac = d.analysis[code], d.ac
+    st = r[ac['status']]
+    q, _, sc, _ = twin_q(d, code)
+    if sc and st in ('หมดสต็อค', 'สั่งเพิ่ม'):
+        st = 'หมดสต็อค' if q <= 0 else ('สั่งเพิ่ม' if q <= num(r[ac['rop']]) else 'คงคลังเพียงพอ')
+    return WHY_TEXT.get(st, str(st or '-').replace('📋 ', '').replace('✂️ ', ''))
+
+
+def is_urgent(d, code, today, last, unmet):
+    """ด่วน (CONTEXT §ด่วน) = หมดสต็อค / คงอยู่ได้อีก ≤ Lead Time / หน่วยงานขอเบิกภายใน 14 วันแล้วไม่ได้ของ"""
+    r = d.analysis.get(code)
+    if r is None:
+        return False
+    cov = coverage_days(d, code)
+    if cov == 0 or (cov != '-' and cov <= num(r[d.ac['lt']])):
+        return True
+    return open_request(code, today, last, unmet) is not None
+
 
 def load_report(path):
     wb = openpyxl.load_workbook(path, data_only=True)
     rp, s1 = wb['รายงานซื้อยา'], wb['Sheet1']
     if str(rp['E4'].value).strip() != 'รหัสHosxp':
         raise SystemExit(f'หัวคอลัมน์ E4 ของรายงานไม่ใช่ "รหัสHosxp" (เจอ {rp["E4"].value!r}) — โครงสร้างไฟล์เปลี่ยน หยุดก่อน')
-    for key, want in (('N', 'Avg/เดือน'), ('T', 'Avg/วัน'), ('O', 'คงเหลือ'), ('S', 'หมายเหตุ')):
+    for key, want in (('N', 'Avg/เดือน'), ('T', 'Avg/วัน'), ('O', 'คงเหลือ'), ('S', 'หมายเหตุ'), ('ROP', 'จุดสั่งซื้อ'),
+                      ('WHY', 'เหตุผลที่แจ้ง'), ('COV', 'คงอยู่ได้อีก'), ('P', 'ยอดเบิก รวม'), ('R', 'จำนวนแนะนำ'), ('VAL', 'มูลค่าสั่ง')):
         got = str(rp[f'{phys(key)}4'].value or '').strip()
         if not got.startswith(want):
-            raise SystemExit(f'หัวคอลัมน์ {phys(key)}4 ไม่ใช่ "{want}…" (เจอ {got!r}) — ตำแหน่งคอลัมน์รายงานเปลี่ยน แก้ PHYS_MAP ใน pr.py + apply.ps1 ก่อน')
+            raise SystemExit(f'หัวคอลัมน์ {phys(key)}4 ไม่ใช่ "{want}…" (เจอ {got!r}) — ตำแหน่งคอลัมน์รายงานเปลี่ยน แก้ PHYS_MAP ใน pr.py + apply.ps1 ก่อน'
+                             + (' · ไฟล์ยังเป็นโครงเดิม 20 คอลัมน์ → รัน migrate_layout.ps1 ก่อน' if key == 'ROP' else ''))
     rows = []
     for r in range(5, rp.max_row + 1):
         code = rp.cell(r, 5).value
@@ -332,7 +404,8 @@ def row_values(d, code):
     r, c = d.analysis[code], d.ac
     v = lambda k: r[c[k]]
     return dict(I=v('price'), J=v('supplier'), K=v('lt'), L=v('ss'), M=v('max'), N=v('avg'), O=twin_q(d, code)[0],
-                P=v('total'), Q=v('sum3'), R=v('rec'), T=v('day'))
+                P=v('total'), Q=v('sum3'), R=v('rec'), T=v('day'),
+                ROP=v('rop'), WHY=reason(d, code), COV=coverage_days(d, code), VAL=v('val'))
 
 
 def clean(x):
@@ -428,6 +501,11 @@ def cmd_plan(a):
                         C=lb.date().isoformat() if lb else '-', S=' / '.join(note),
                         **{k: clean(v) for k, v in row_values(d, code).items()}))
     new.sort(key=lambda x: (order[x['status']], str(x['G']).lower()))
+    # 3b) ด่วน → อักษรสีแดงทั้งแถว (apply.ps1 ทาสีทุกแถวของตารางใหม่ทุกรอบ — สีแดงเป็นของสคริปต์ ไม่ระบายเอง)
+    last, unmet = d.request_stats()
+    urgent = sorted(c for c in [x['code'] for x in refresh] + [x['code'] for x in new]
+                    if is_urgent(d, c, today, last, unmet))
+    enough = [x['code'] for x in refresh if x['values']['WHY'].startswith('ถึงเกณฑ์พอแล้ว')]
     # 4) หัวรายงาน
     cols, _ = month_cols(d)
     win = [m for _, m in rate_window(d, cols)]
@@ -440,7 +518,7 @@ def cmd_plan(a):
         f'{phys("Q")}4': [r'\(.*\)', f'({TH_MONTH[win[0][1] - 1]} - {TH_MONTH[win[-1][1] - 1]} {(win[-1][0] + 543) % 100})'],
     }
     plan = dict(date=today.date().isoformat(), report_rows=len(rows), sheet1_last=s1_last,
-                moves=moves, c_updates=c_upd, refresh=refresh, new=new, headers=headers, warnings=warn)
+                moves=moves, c_updates=c_upd, refresh=refresh, new=new, urgent=urgent, headers=headers, warnings=warn)
     with open(os.path.join(a.workdir, 'plan.json'), 'w', encoding='utf-8') as f:
         json.dump(plan, f, ensure_ascii=False, indent=1, default=str)
     # preview
@@ -460,6 +538,17 @@ def cmd_plan(a):
         f"(แจ้งซ้ำเพราะของไม่พอ {sum('แจ้งซ้ำ' in x['S'] for x in new)})")
     for x in new:
         out(f"   {x['code']:>9} | {str(x['G'])[:32]:32} | {x['H']} | {x['status']} | คงเหลือ {x['O']} | แนะนำ {x['R']} | {x['S']}")
+    out(f"\n[4b] ด่วน (อักษรสีแดง): {len(urgent)} แถว")
+    for c in urgent:
+        r = d.analysis[c]
+        cov = coverage_days(d, c)
+        U = open_request(c, today, last, unmet)
+        why = ('หมดสต็อค' if cov == 0 else (f'คงอยู่ได้อีก {cov} วัน ≤ LT {qfmt(r[d.ac["lt"]])}' if cov != '-' and cov <= num(r[d.ac['lt']]) else '')
+               ) or f'{ce(U[0])} {U[1]} ขอ {qfmt(U[4])} ได้ {qfmt(U[2])}'
+        out(f"   {c:>9} {str(r[d.ac['name']])[:34]:34} {why}")
+    if enough:
+        out(f"[4c] ถึงเกณฑ์พอแล้ว — พิจารณายกเลิกแจ้ง (ไม่ลบเอง หัวหน้าตัดสิน): {len(enough)} แถว",
+            ', '.join(f"{c} {str(d.analysis[c][d.ac['name']])[:24]}" for c in enough))
     out('\n[5] หัวรายงาน:', {k: v[1] for k, v in headers.items()})
     if warn:
         out('\n!! คำเตือน (ต้องแจ้งผู้ใช้):')
@@ -513,7 +602,7 @@ def cmd_verify(a):
             x = nmap[code]
             if g('A') != UNCHECKED or not (isinstance(g('B'), dt.datetime) and g('B') == d0):
                 errs.append(f'แถวใหม่ {r} {code}: A/B ไม่ถูก')
-            for L in 'CFGHIJKLMNOPQRST':
+            for L in list('CFGHS') + NUM_KEYS:
                 if not same(g(L), x[L]):
                     errs.append(f'แถวใหม่ {r} {code} {L}: {g(L)!r} ≠ {x[L]!r}')
         else:
@@ -532,6 +621,10 @@ def cmd_verify(a):
             for L, e in rmap.get(code, {}).items():
                 if not same(g(L), e):
                     errs.append(f'{code} {L}: {g(L)!r} ≠ {e!r}')
+        # ด่วน = อักษรสีแดงทั้งแถว · ไม่ด่วน = ไม่แดง
+        red = [str(getattr(dp[f'{L}{r}'].font.color, 'rgb', '') or '').upper().endswith('FF0000') for L in ('E', 'G', 'P')]
+        if (code in plan['urgent']) != all(red) or any(red) != all(red):
+            errs.append(f'{code} แถว {r}: สีอักษร {red} ไม่ตรงสถานะด่วน ({code in plan["urgent"]})')
     # Sheet1
     s1 = dst['Sheet1']
     start = plan['sheet1_last'] + 1
@@ -577,25 +670,7 @@ def cmd_line(a):
         if isinstance(x['B'], dt.datetime):
             notify[x['code']] = max(notify.get(x['code'], x['B']), x['B'])
     notes = dict(n.split('=', 1) for n in (a.note or []))
-    c = d.dc
-    last, unmet = {}, {}
-    # ขอเบิกแล้วจ่ายไม่ครบ — รวมต่อคำขอ (วันที่+หน่วยงาน+รหัส+หน่วย) เพราะคำขอเดียวแตกหลายแถว lot ได้
-    # จ่าย 0 = "ไม่มีจ่าย" · จ่ายบางส่วน = "จ่ายได้ N ไม่พอ" (เดิมนับเฉพาะจ่าย 0 — แถวที่ได้บางส่วนหลุด 14/10/2569)
-    asked = defaultdict(lambda: [0.0, 0.0])
-    for r in d.disp:
-        code = str(r[c['code']]).strip()
-        if r[c['kind']] in NOT_REAL_DISPENSE:
-            continue
-        if num(r[c['qty']]) > 0:
-            key = (r[c['date']], r[c['dept']], r[c['qty']], r[c['unit']], r[c['req']])
-            if code not in last or r[c['date']] >= last[code][0]:
-                last[code] = key
-        k = (r[c['date']], str(r[c['dept']]).strip(), code, str(r[c['unit']]).strip())
-        asked[k][0] += num(r[c['qty']])
-        asked[k][1] = max(asked[k][1], num(r[c['req']]))
-    for (date, dept, code, unit), (got, req) in asked.items():
-        if req > 0 and got < req and (code not in unmet or date >= unmet[code][0]):
-            unmet[code] = (date, dept, got, unit, req)
+    last, unmet = d.request_stats()
     ac = d.ac
     sel = []
     twin_skip = []
@@ -644,8 +719,8 @@ def cmd_line(a):
         else:
             why.append("ยังไม่มีแถวแจ้งสั่งในรายงาน")
         U = unmet.get(code)
-        # ด่วน = หน่วยงานขอเบิกภายใน 14 วันแล้วยังไม่ได้ของ/ได้ไม่ครบ (user สั่ง 14/10/2569 ให้ยกขึ้นบนแยกหัวข้อ)
-        urgent = bool(U and (not L or U[0] >= L[0]) and (today - U[0]).days <= 14)
+        # ด่วน = นิยามเดียวกับอักษรสีแดงในรายงาน (CONTEXT §ด่วน — 22/10/2569) เดิมใช้แค่ "ขอเบิกภายใน 14 วันแล้วไม่ได้ของ"
+        urgent = is_urgent(d, code, today, last, unmet)
         if U and (not L or U[0] >= L[0]):
             why.append(f"วันที่ {ce(U[0])} {U[1]} ขอเบิก {qfmt(U[4])} x {U[3]} "
                        + ("แต่ไม่มีจ่าย" if U[2] <= 0 else f"จ่ายได้ {qfmt(U[2])} ไม่พอจ่าย"))
@@ -655,7 +730,7 @@ def cmd_line(a):
         items.append((0 if urgent else 1, grp, s))
         audit.append((code, r[ac['status']], 'แจ้ง' if n else ('Sheet1' if prev else 'ไม่มี')))
     items.sort(key=lambda t: (t[0], t[1]))
-    heads = {0: 'ด่วน — หน่วยงานขอเบิกแล้วยังไม่ได้ของ / ได้ไม่ครบ', 1: 'ติดตามทั่วไป'}
+    heads = {0: 'ด่วน — หมด / ของจะหมดก่อนบริษัทส่งทัน / หน่วยงานขอเบิกแล้วยังไม่ได้ของ', 1: 'ติดตามทั่วไป'}
     i = 0
     for sec in (0, 1):
         part = [t for t in items if t[0] == sec]

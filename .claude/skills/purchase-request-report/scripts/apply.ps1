@@ -7,9 +7,11 @@ $plan = Get-Content -LiteralPath (Join-Path $WorkDir 'plan.json') -Raw -Encoding
 $out = Join-Path $WorkDir 'report_out.xlsx'
 Copy-Item -LiteralPath (Join-Path $WorkDir 'report.xlsx') -Destination $out -Force
 $CHECKED = [string][char]0x2611; $UNCHECKED = [string][char]0x2610
-$cols = 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'T'
-# ชื่อคอลัมน์ในแผน = ตำแหน่งเดิม → ตำแหน่งจริงในรายงาน (14/10/2569 ย้าย Avg/วัน มาเป็น O) — ตารางเดียวกับ PHYS_MAP ใน pr.py
-$PHYS = @{ O = 'P'; P = 'Q'; Q = 'R'; R = 'S'; S = 'T'; T = 'O' }
+$cols = 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'T', 'ROP', 'WHY', 'COV', 'VAL'   # = NUM_KEYS ใน pr.py
+# ชื่อคอลัมน์ในแผน = ตำแหน่งเดิม → ตำแหน่งจริงในรายงาน — ตารางเดียวกับ PHYS_MAP ใน pr.py
+# (14/10/2569 ย้าย Avg/วัน มาเป็น O · 22/10/2569 แทรก Q ROP · R เหตุผลที่แจ้ง · S คงอยู่ได้อีก · W มูลค่าสั่ง → รายงาน A–X)
+$PHYS = @{ O = 'P'; P = 'T'; Q = 'U'; R = 'V'; S = 'X'; T = 'O'; ROP = 'Q'; WHY = 'R'; COV = 'S'; VAL = 'W' }
+$LASTCOL = 'X'; $RED = 255   # RGB(255,0,0) — อักษรสีแดง = ด่วน (CONTEXT §ด่วน)
 function Phys([string]$k) { if ($PHYS.ContainsKey($k)) { $PHYS[$k] } else { $k } }
 
 function SetV($cell, $v) {
@@ -36,7 +38,8 @@ try {
   foreach ($c in $plan.c_updates) { SetDate $rp.Range("C$($idx[$c.code])") $c.value }
   "C updated: $(@($plan.c_updates).Count)"
 
-  # 2) ย้ายรายการที่มาส่งแล้วไปต่อท้าย Sheet1 (Sheet1 = คอลัมน์ B–U ตรงกับรายงาน A–T)
+  if (-not ([string]$rp.Range("Q4").Text).Trim().StartsWith('จุดสั่งซื้อ')) { throw 'รายงานยังเป็นโครงเดิม 20 คอลัมน์ — รัน migrate_layout.ps1 ก่อน' }
+  # 2) ย้ายรายการที่มาส่งแล้วไปต่อท้าย Sheet1 (Sheet1 = คอลัมน์ B–Y ตรงกับรายงาน A–X)
   $next = $s1.Cells($s1.Rows.Count, 6).End(-4162).Row + 1
   if ($next -ne [int]$plan.sheet1_last + 1) { throw "Sheet1 แถวสุดท้ายไม่ตรงกับตอนทำแผน" }
   foreach ($m in $plan.moves) {
@@ -44,8 +47,9 @@ try {
     if ((CodeAt $rp $r) -ne $m.code) { throw "แถว $r ไม่ใช่รหัส $($m.code)" }
     if ($m.tick) { $rp.Range("A$r").Formula = $CHECKED }
     if ($m.S) { $rp.Range("$(Phys 'S')$r").Formula = [string]$m.S }          # ยกเลิกแจ้ง: เหตุผลไปกับแถว
-    $null = $rp.Range("A${r}:T${r}").Copy($s1.Range("B$next"))
+    $null = $rp.Range("A${r}:${LASTCOL}${r}").Copy($s1.Range("B$next"))
     $e = $s1.Range("E$next"); $v = $e.Value2; $e.Value2 = $v      # ระยะเวลา: สูตร → ค่า ให้เหมือนแถวเก่าใน Sheet1
+    $s1.Range("B${next}:Y${next}").Font.ColorIndex = -4105        # สีแดง (ด่วน) เป็นของรายงาน ไม่ติดไปประวัติ
     $next++
   }
   foreach ($m in ($plan.moves | Sort-Object { [int]$_.row } -Descending)) { $null = $rp.Rows([int]$m.row).Delete() }
@@ -72,6 +76,16 @@ try {
     foreach ($k in $cols) { SetV $rp.Range("$(Phys $k)$r") $x.$k }
   }
   "new: $(@($plan.new).Count) → รายงาน $($lo.ListRows.Count) แถว"
+
+  # 4b) ด่วน = อักษรสีแดงทั้งแถว · ทาใหม่ทุกแถวทุกรอบ (แถวที่หายด่วนกลับเป็นสีปกติ)
+  $urg = @{}; foreach ($c in @($plan.urgent)) { $urg[[string]$c] = $true }
+  $nr = 0
+  for ($r = 5; $r -le 4 + $lo.ListRows.Count; $r++) {
+    $f = $rp.Range("A${r}:${LASTCOL}${r}").Font
+    if ($urg.ContainsKey((CodeAt $rp $r))) { $f.Color = $RED; $nr++ } else { $f.ColorIndex = -4105 }
+  }
+  "urgent (red): $nr / $(@($plan.urgent).Count)"
+  if ($nr -ne @($plan.urgent).Count) { throw 'จำนวนแถวสีแดงไม่ตรงแผน' }
 
   # 5) หัวรายงาน
   foreach ($p in $plan.headers.PSObject.Properties) {
