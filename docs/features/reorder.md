@@ -72,7 +72,7 @@ Step 6: status priority (หยุดเมื่อตรง):
 
 Step 7: ถ้า status ∈ {เพียงพอ, ตัดออก, สั่งเมื่อขอ}: V=0
         มิเช่นนั้น:
-            target = MIN(Max×3, MAX(Avg/mo × 2.3, Max×2, ROP))   ← factor 2.3 คงที่ (ไม่มี Refill mode)
+            target = MIN(Max×3, MAX(Max×2, ROP))   ← เลิก Avg×2.3 แล้ว 22/10/2569 (Excel AA + แอปพร้อมกัน)
             V = target − stock
             ถ้า V ≤ 0: V = MAX(1, Max)       ← fallback (TODO Q3: ยืนยัน Max vs SS)
 ```

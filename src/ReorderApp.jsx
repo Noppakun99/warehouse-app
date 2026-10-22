@@ -1576,7 +1576,7 @@ function VerifyTab() {
       cases.push({ label, actual, expected, ok });
     };
 
-    // Test 1: Atorvastatin (สูตร Excel — SS ฐาน 30, factor 2.3)
+    // Test 1: Atorvastatin (สูตร Excel — SS ฐาน 30)
     const r1 = analyzeDrug({
       code: 'ATOR40', name: 'Atorvastatin 40mg',
       monthlyUsage: [2833, 1477, 1960, 2603], stock: 4400,

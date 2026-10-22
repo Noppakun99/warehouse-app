@@ -25,7 +25,7 @@ function assertEq(actual, expected, label) {
 function section(name) { console.log(`\n=== ${name} ===`); }
 
 // ────────────────────────────────────────────────────────────────────
-// Test 1 — Atorvastatin 40mg — สูตร Excel (SS ฐาน 30 ไม่ cap, factor 2.3)
+// Test 1 — Atorvastatin 40mg — สูตร Excel (SS ฐาน 30 ไม่ cap)
 // ────────────────────────────────────────────────────────────────────
 section('Test 1: Atorvastatin 40mg — Excel formula (SS ฐาน 30)');
 {
@@ -40,7 +40,7 @@ section('Test 1: Atorvastatin 40mg — Excel formula (SS ฐาน 30)');
   });
 
   // avgDay=ROUND(2218.25/30.4,4)=72.9688; ตัวคูณ MAX(2, E 1.5)=2 (ADR-0029); SS=round(72.9688×30×2)=4378; ROP=round(4378+72.9688×(15.5+7 รอบสั่งซื้อ))=6020
-  // target=MIN(2833×3, MAX(ROUND(2218.25×2.3)=5102, 2833×2, 6020))=MIN(8499, 6020)=6020; V=6020−4400=1620
+  // target=MIN(2833×3, MAX(2833×2, 6020))=MIN(8499, 6020)=6020; V=6020−4400=1620
   assertEq(r.max, 2833, 'Max = 2833');
   assertEq(r.avgMonth, 2218.25, 'Avg/mo = 2218.25');
   assertEq(r.avgDay, 72.9688, 'Avg/d = 2218.25/30.4 ปัด 4 ตำแหน่ง');
@@ -211,7 +211,7 @@ section('Test 10: Para 500 — Excel S=27.67 · T=0.9102 · V(SS)=55');
   assertEq(r.avgDay === 0.9102, true, 'Avg/d = ROUND(27.67/30.4, 4) = 0.9102 (Excel T — ไม่ใช่ 0.9101)');
   assertEq(r.ss, 55, 'SS = 55 (Excel V)');
   assertEq(r.max, 34, 'Max = 34 (Excel R)');
-  // Excel X = ROUND(55 + 0.9102×(16.4+7), 0) = 76 · AA = MIN(34×3, MAX(ROUND(27.67×2.3)=64, 68, 76)) − 65 = 11
+  // Excel X = ROUND(55 + 0.9102×(16.4+7), 0) = 76 · AA = MIN(34×3, MAX(68, 76)) − 65 = 11
   assertEq(r.rop, 76, 'ROP = 76 (Excel X — LT 16.4 + รอบสั่งซื้อ 7 วัน)');
   assertEq(r.status, STATUS.REORDER, 'Status = สั่งเพิ่ม (Excel Z)');
   assertEq(r.orderQty, 11, 'จำนวนแนะนำสั่ง = 11 (Excel AA)');
@@ -318,6 +318,18 @@ section('Test 15: reconcileRows keyFn — leading-zero drift');
   assertEq(fixed.summary.excelOnly, 0, 'normalize → ไม่มี orphan');
   assertEq(fixed.summary.appOnly, 0, 'normalize → ไม่มี orphan');
   assertEq(fixed.matched[0].code, '001000230', 'แสดง code เดิม (app.code) ไม่ใช่ normalized key');
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Test — เลิก Avg×2.3 (22/10/2569): เบิกสม่ำเสมอ + LT 0 = เคสเดียวที่ 2.3 เคยชนะ ต้องไม่มีผลแล้ว
+// ────────────────────────────────────────────────────────────────────
+section('Test: จำนวนแนะนำสั่ง = MIN(Max×3, MAX(Max×2, ROP)) − คงเหลือ (ไม่มี Avg×2.3)');
+{
+  const r = analyzeDrug({ code: 'X', monthlyUsage: [300, 300, 300], stock: 0, leadTimeDays: 0, riskGroup: 'Normal' });
+  // avgDay=ROUND(300/30.4,4)=9.8684 · SS=ROUND(9.8684×30×2)=592 · ROP=ROUND(592+9.8684×(0+7))=661
+  // เดิม MAX(ROUND(300×2.3)=690, 600, 661)=690 · ใหม่ MAX(600, 661)=661
+  assertEq(r.rop, 661, 'ROP = 661');
+  assertEq(r.orderQty, 661, 'จำนวนแนะนำสั่ง = 661 (ไม่ใช่ 690 จาก Avg×2.3)');
 }
 
 // ────────────────────────────────────────────────────────────────────

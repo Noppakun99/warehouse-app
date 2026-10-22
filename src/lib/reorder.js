@@ -5,7 +5,6 @@ import { localYmd } from '../../supabase/functions/_shared/usageRow.js';
 
 export const RISK_MULTIPLIER = { Normal: 1.0, Essential: 1.5, Critical: 2.0 };
 export const SS_MIN_MULTIPLIER = 2;     // Excel AH = MAX(2, IFS(VEN…)) → ×2 ทุกกลุ่ม (ADR-0029) — ยกเลิกขั้นต่ำนี้ VEN จะกลับมามีผล
-export const ORDER_FACTOR = 2.3;        // Excel: Avg/เดือน × 2.3 (คงที่ ไม่มี Refill mode)
 export const DEFAULT_LEAD_TIME = 20;    // Excel default LT เมื่อไม่มีข้อมูล
 export const SS_BASE_DAYS = 30;         // Excel: Avg/วัน × 30 × ตัวคูณ (ไม่มี cap)
 export const DAYS_PER_MONTH = 30.4;     // Excel: Avg/วัน = ROUND(Avg/เดือน ÷ 30.4, 4)
@@ -58,11 +57,11 @@ export function classifyStatus({ excludeStatus, stock, nearestExpiryDays, rop })
   return STATUS.SUFFICIENT;
 }
 
-// Step 7 — จำนวนแนะนำสั่งซื้อ (Excel: MIN(Max×3, MAX(Avg×2.3, Max×2, ROP)) − คงเหลือ)
-export function computeOrderQty({ status, max, avgMonth, rop, stock, ss }) {
+// Step 7 — จำนวนแนะนำสั่งซื้อ (Excel AA: MIN(Max×3, MAX(Max×2, ROP)) − คงเหลือ)
+// เลิกตัวคูณ Avg×2.3 แล้ว 22/10/2569 (Excel + แอปพร้อมกัน) — ไม่มีรายการไหนที่ 2.3 เป็นตัวกำหนด (CONTEXT §Refill mode)
+export function computeOrderQty({ status, max, rop, stock, ss }) {
   if (ZERO_V_STATUSES.has(status)) return 0;
-  // Excel §08: ROUND(avg_monthly*2.3,0) ก่อนเทียบใน MAX (กัน avg×2.3 ชนะแล้วได้ทศนิยม)
-  const target = Math.min(max * 3, Math.max(Math.round(avgMonth * ORDER_FACTOR), max * 2, rop));
+  const target = Math.min(max * 3, Math.max(max * 2, rop));
   const v = target - stock;
   if (v <= 0) return max > 0 ? Math.max(1, max) : ss;   // Excel: max=0 → fallback = safety_stock
   return v;
