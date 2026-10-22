@@ -509,7 +509,9 @@ export async function fetchDashboardAlerts() {
     const expDate = _parseExpDate(row.exp)
     // qty="-"/null/ว่าง → parseFloat=NaN → ไม่ถือว่า 0 (ไม่ทราบจำนวน ยังควร alert)
     const isExplicitlyZero = !isNaN(parseFloat(row.qty)) && qtyNum === 0
-    if (expDate && !isNaN(expDate) && expDate <= inLimit && !isExplicitlyZero && !isDiscontinued) {
+    // ยาตัดออกจากบัญชีที่ยังมีของ "ต้องเตือน" — ไม่มีใครเบิกแล้ว เสี่ยงหมดอายุบนชั้นที่สุด
+    // (ตัดออก = เลิกสั่งซื้อ ไม่ใช่ของหายจากคลัง · เคส Cefdinir 60 ขวด 21/10/2569) — ติดธงให้ UI แสดงป้าย
+    if (expDate && !isNaN(expDate) && expDate <= inLimit && !isExplicitlyZero) {
       const daysLeft = Math.floor((expDate - today) / 86400000)
       expiring.push({
         name:     row.name,
@@ -522,6 +524,7 @@ export async function fetchDashboardAlerts() {
         location: row.location,
         type:     row.type,
         unit:     row.unit,
+        discontinued: isDiscontinued,
       })
     }
 

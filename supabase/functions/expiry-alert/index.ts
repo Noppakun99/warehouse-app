@@ -428,6 +428,7 @@ interface DetailEntry {
   swap_condition_am?: string;  // finding #2 — flag แตกต่างกัน/เดียวกัน
 }
 interface AlertItem { r: InvRow; expDate: Date; }
+const isDiscontinued = (row: InvRow) => String(row.receive_status || "").includes("ตัดออก");
 
 /**
  * รายการยา — เรนเดอร์เป็น "การ์ดรายตัว" ไม่ใช่ตาราง
@@ -473,7 +474,7 @@ function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMa
     html += `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;margin:0 0 12px;background:${bg};border:1px solid ${bd};border-radius:8px;">
       <tr><td style="padding:12px 14px;">
         <div style="font-size:16px;font-weight:bold;color:#1e293b;line-height:1.4;word-break:break-word;">${row.name || "-"}</div>
-        <div style="font-size:12px;color:#94a3b8;margin:2px 0 8px;">${row.code || "-"}${row.type ? ` · ${row.type}` : ""}</div>
+        <div style="font-size:12px;color:#94a3b8;margin:2px 0 8px;">${row.code || "-"}${row.type ? ` · ${row.type}` : ""}${isDiscontinued(row) ? ` · <b style="color:#475569;">ตัดออกจากบัญชี</b>` : ""}</div>
         <div style="display:inline-block;background:${dc};color:#ffffff;font-size:13px;font-weight:bold;padding:4px 10px;border-radius:999px;margin-bottom:10px;">
           ${isExpired ? "หมดอายุแล้ว" : "เหลืออีก"} ${Math.abs(days)} วัน
         </div>
@@ -662,7 +663,7 @@ function lineBucket(items: AlertItem[], today: Date, isExpired: boolean, detailM
     const d = detailMap[`${code}|${lot}`] || ({} as DetailEntry);
     const supplier = d.supplier_current || "-";
     const daysLabel = isExpired ? `เกิน ${Math.abs(days)} วัน` : `เหลือ ${days} วัน`;
-    let l = `• ${row.name || "-"} (${row.qty || "-"} ${row.unit || ""}) exp ${fmtDate(item.expDate)} — ${daysLabel} · ${supplier}`;
+    let l = `• ${row.name || "-"}${isDiscontinued(row) ? " [ตัดออกจากบัญชี]" : ""} (${row.qty || "-"} ${row.unit || ""}) exp ${fmtDate(item.expDate)} — ${daysLabel} · ${supplier}`;
     const pol = policyText(row, detailMap);
     if (pol) l += `\n   ↳ นโยบาย: ${pol}`;
     return l;
@@ -908,9 +909,8 @@ Deno.serve(async (req) => {
       const qty = parseFloat(String(row.qty || "0").replace(/,/g, ""));
       if (isNaN(qty) || qty <= 0) continue;
       if (row.receive_status === "รอตรวจรับ") continue;
-      // ยาตัดออกจากบัญชีไม่ต้องเตือน — ตรงกับ fetchDashboardAlerts ในแอป (Rule #6)
-      // loop อื่นในไฟล์นี้ (baseStockByCode/returnDue) กรองอยู่แล้ว เฉพาะตรงนี้ที่ตกหล่น
-      if (String(row.receive_status || "").includes("ตัดออก")) continue;
+      // ยาตัดออกจากบัญชีที่ยังมีของ "ต้องเตือน" (แก้ 21/10/2569 — ตรงกับ fetchDashboardAlerts ในแอป, Rule #6)
+      // ไม่มีใครเบิกแล้ว เสี่ยงหมดอายุบนชั้นที่สุด · ติดป้าย "ตัดออกจากบัญชี" ในอีเมล/LINE (isDiscontinued)
 
       // expired = "ยาหมดอายุค้างคลัง" (CONTEXT §Expired-On-Shelf) — qty>0 ถูกกรองไว้ข้างบนแล้ว
       // แถวหมดอายุที่ qty=0 คือประวัติ (เก็บออก/จ่ายหมดแล้ว) ไม่ใช่ของค้าง → ไม่เตือน

@@ -1332,6 +1332,7 @@ const EXPIRY_EXCEL_COLS = [
   { header: 'Lot',          key: 'lot' },
   { header: 'วันหมดอายุ', key: 'exp' },
   { header: 'สถานะ',       value: r => r.daysLeft < 0 ? `หมดอายุแล้ว ${Math.abs(r.daysLeft)} วัน` : r.daysLeft === 0 ? 'หมดอายุวันนี้' : `อีก ${r.daysLeft} วัน` },
+  { header: 'บัญชียา',     value: r => r.discontinued ? 'ตัดออกจากบัญชี' : '' },
   { header: 'บริษัท',      key: 'supplier' },
   { header: 'นโยบายเปลี่ยนยา', key: 'swapPolicy' },
   { header: 'คงเหลือ',     key: 'qty' },
@@ -1840,6 +1841,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm leading-tight">{r.name || '-'}</p>
                     {r.code && r.code !== '-' && <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">{r.code}</p>}
+                    {r.discontinued && <span className="mt-1 inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">ตัดออกจากบัญชี</span>}
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeColor(r.daysLeft)}`}>
@@ -1905,6 +1907,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth }) {
                     {r.code && r.code !== '-' && (
                       <span className="text-slate-400 dark:text-slate-500 font-normal pl-[18px] block">{r.code}</span>
                     )}
+                    {r.discontinued && <span className="ml-[18px] mt-0.5 inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">ตัดออกจากบัญชี</span>}
                   </td>
                   <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">{r.type || '-'}</td>
                   <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300 font-medium">{r.location || '-'}</td>

@@ -245,8 +245,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         const itemQty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
         // ข้ามยาที่คงเหลือ 0 — ถูกนำออกจากคลังแล้ว ไม่ต้องแจ้งเตือน
         if (itemQty === 0) return;
-        const isDiscontinued = item.receiveStatus && String(item.receiveStatus).includes('ตัดออก');
-        if (isDiscontinued) return;
+        // ยาตัดออกจากบัญชีที่ยังมีของ ยังต้องเตือนหมดอายุ (ตรงกับ fetchDashboardAlerts) — การ์ดแสดง "สถานะ: …|ตัดออก" อยู่แล้ว
 
         const expDate = parseDateString(item.exp);
         const itemData = { ...item, location: loc, originalIndex: idx };
