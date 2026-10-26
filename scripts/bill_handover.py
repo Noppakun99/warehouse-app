@@ -6,6 +6,7 @@ usage: python scripts/bill_handover.py [--bills b1,b2] [--since YYYY-MM-DD] [--f
 ส่งรอบ 2+ ในวันเดียว → ส่งบิล2 <ว.ด.ปป>.pdf, ส่งบิล3 … (ตามชื่อไฟล์เดิมของคลัง)
 --reissue สบ.70/004 = ออกใบเดิมใหม่หลังแก้ชีท (เลขที่/วันที่ส่ง/ชื่อไฟล์/ชุดบิลเดิม) — เฉพาะใบที่จัดซื้อยังไม่เซ็นรับ
   PDF เดิมสำรองไว้ใน temp ก่อนเขียนทับ · แถวทะเบียนของใบนั้นถูกแทนที่ตำแหน่งเดิม
+ช่อง "ได้รับไว้แล้ว เมื่อวันที่ … เวลา … น." พิมพ์วันที่ส่ง + เวลาที่รันให้เลย · --time 14.30 = ระบุเวลาเอง (--reissue ค่าเริ่ม = เวลาว่าง)
 """
 import sys, os, csv, html, datetime, subprocess, tempfile, time, warnings
 from collections import OrderedDict
@@ -176,6 +177,8 @@ def main():
     stamp = datetime.datetime.fromtimestamp(os.path.getmtime(src))
     pending = all(x['status'] == 'รอตรวจรับ' for _, b in items for x in b['rows'])
     note = ' (ยังไม่ได้ตรวจรับ)' if pending else ''
+    # ช่องรับบิลพิมพ์วันที่/เวลาให้เลย (user สั่ง 26/10/2569) · --reissue ไม่รู้เวลาส่งเดิม → เว้นเวลาว่าง
+    ack_time = arg('--time', '' if reissue else f'{datetime.datetime.now():%H.%M}')
     page = f'''<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
 <title>ใบส่งบิลจัดซื้อ {doc_no}</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
@@ -222,8 +225,8 @@ tfoot td {{ font-weight: 700; border-top: 2px solid #000; }}
 </table>
 <div class="words">({bahttext(total)})</div>
 <div class="ack">ข้าพเจ้าได้รับบิลตามรายการข้างต้น จำนวน <span class="fl w"></span> ฉบับ
-ไว้แล้ว เมื่อวันที่ <span class="fl" style="display:inline-block;width:120px;flex:none"></span>
-เวลา <span class="fl" style="display:inline-block;width:70px;flex:none"></span> น.</div>
+ไว้แล้ว เมื่อวันที่ <span class="fl" style="display:inline-block;width:120px;flex:none">{th_date(today)}</span>
+เวลา <span class="fl" style="display:inline-block;width:70px;flex:none">{ack_time}</span> น.</div>
 <div class="sig">
   <div><div class="t">ผู้ส่งบิล (คลังยา)</div>
     <div class="ln">ลงชื่อ <span class="fl"></span></div>
