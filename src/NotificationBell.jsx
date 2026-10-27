@@ -63,6 +63,7 @@ const NOTIF_LABELS = {
   create_annual_count:          { label: 'เริ่มรอบตรวจนับประจำปี', color: 'text-indigo-600', dot: 'bg-indigo-400' },
   close_annual_count:           { label: 'ปิดรอบตรวจนับประจำปี',  color: 'text-indigo-600', dot: 'bg-indigo-400' },
   add_annual_count_lot:         { label: 'เพิ่ม lot เข้ารอบประจำปี', color: 'text-indigo-600', dot: 'bg-indigo-400' },
+  move_location:                { label: 'แจ้งย้ายที่เก็บ',          color: 'text-indigo-600', dot: 'bg-indigo-400' },
   add_unknown_count_item:       { label: 'พบของนอกระบบตอนตรวจนับ', color: 'text-amber-600', dot: 'bg-amber-400' },
   create_temperature_log:       { label: 'บันทึกอุณหภูมิตู้เย็น',  color: 'text-sky-600',     dot: 'bg-sky-400' },
   import_temperature_log:       { label: 'นำเข้าอุณหภูมิจากเครื่อง', color: 'text-sky-600',    dot: 'bg-sky-400' },
@@ -162,6 +163,11 @@ function notifMessage(n) {
       return `${who} ลบใบเบิก${reqRef ? ` ${reqRef}` : ''} · ${n.department}`;
     case 'add_annual_count_lot':
       return `${who} เพิ่ม lot เข้ารอบตรวจนับประจำปี${d.name ? ` "${d.name}"` : ''}${d.lot ? ` Lot ${d.lot}` : ''}`;
+    case 'move_location': {
+      const m = d.moves?.[0];
+      const more = (d.moves?.length || 0) > 1 ? ` (+${d.moves.length - 1} lot)` : '';
+      return `${who} แจ้งย้ายที่เก็บ${m ? ` "${m.name || m.code}" ${m.from} → ${m.to}` : ''}${more}`;
+    }
     default:
       return `${who} · ${n.department}`;
   }

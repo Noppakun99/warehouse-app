@@ -1,11 +1,11 @@
 # เช็คครบ — งานเอกสารคลังที่ทำค้างไว้ครบหรือยัง (อ่านอย่างเดียว ไม่เขียนไฟล์ใด)
 # ใช้: python scripts/check-complete.py
-# ตรวจ 9 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
+# ตรวจ 11 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
 #            · รูปบิลมีแถวดัชนี / แถวดัชนีมีไฟล์จริง · รูปตรวจรับรอถ่ายซ้ำ · แถวรับยามีแถว Master · บิลซื้อยังไม่ส่งจัดซื้อ
 #            · รายการตรวจรับที่มีรูปอยู่ในเอกสารสรุปตรวจรับ (ตร.) + ผู้ตรวจรับเซ็นภายใน 7 วัน
 #            · บิลซื้อลง "ยามาส่ง" ในระบบติดตามการสั่งซื้อของจัดซื้อแล้ว (อ่านระบบผ่านเน็ต — scripts/po_match.py)
 #            · ใบเบิกศูนย์/รพ.สต. มีชีทในไฟล์สรุปเบิกยา · นัดเตือน (_นัดเตือน.csv)
-#            · รายงานแจ้งซื้อยารอบล่าสุดมีสำเนาส่งหัวหน้า
+#            · รายงานแจ้งซื้อยารอบล่าสุดมีสำเนาส่งหัวหน้า · ใบแจ้งย้ายที่เก็บ (แผนผัง) ลง Excel แล้ว
 import csv, datetime, glob, os, re, sys, warnings
 
 import openpyxl
@@ -372,5 +372,27 @@ if a1 is not None:
             ok(f'รอบ {be(rnd)} มีสำเนาส่งหัวหน้า ({be(min(sent))})')
         else:
             bad(f'รายงานแจ้งซื้อรอบ {be(rnd)} ยังไม่มีสำเนาส่งหัวหน้า — ทำขั้น 6b แล้วส่งหัวหน้า')
+
+# 11) ใบแจ้งย้ายที่เก็บที่เจ้าหน้าที่กดในแผนผัง ยังไม่ลง Master D/E (docs/features/location-move.md)
+#     user อนุญาตถาวร 27/10/2569: เจอ pending → รัน skill /apply-location-moves ได้เลยไม่ต้องถาม · conflict = ถาม user
+head('ใบแจ้งย้ายที่เก็บ (แผนผังคลังยา) ↔ Excel Master D/E')
+try:
+    import json, subprocess
+    out = subprocess.run(['node', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'location-moves.mjs'), '--json'],
+                         capture_output=True, text=True, encoding='utf-8', timeout=120)
+    moves = json.loads(out.stdout.strip().splitlines()[-1]) if out.returncode == 0 and out.stdout.strip() else None
+except Exception:
+    moves = None
+if moves is None:
+    bad('อ่านใบแจ้งย้ายจากแอปไม่ได้ (เน็ต/Supabase) — ตรวจข้อนี้ไม่ได้')
+else:
+    for m in moves:
+        what = f"#{m['id']} {m['code']} {m.get('name') or ''} lot {m['lot']}: {m['from_location']} → {m['to_location']} ({m.get('created_by') or '-'})"
+        if m['status'] == 'pending':
+            bad(f'รอลง Excel {what} — รัน /apply-location-moves')
+        else:
+            bad(f"conflict {what} · {m.get('note') or ''} — ถาม user ว่าที่ไหนถูก")
+    if not moves:
+        ok('ไม่มีใบแจ้งย้ายค้าง')
 
 print(f'\n{"ครบทุกข้อ" if problems == 0 else f"ไม่ครบ {problems} จุด"}')

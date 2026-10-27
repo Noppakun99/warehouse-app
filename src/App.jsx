@@ -11,8 +11,9 @@ import {
   Search, Package, MapPin, X, UploadCloud, FileSpreadsheet,
   AlertCircle, BarChart3, Layers, Pill, FileText,
   ChevronUp, ChevronDown, Database, Clock, Check, CalendarDays, AlertTriangle, RefreshCcw, FileDown, Eye, EyeOff,
-  ShieldCheck, Link2, Filter, Printer, Settings2, ArrowUpDown,
+  ShieldCheck, Link2, Filter, Printer, Settings2, ArrowUpDown, MoveRight,
 } from 'lucide-react';
+import LocationMoveModal from './LocationMoveModal';
 
 // คอลัมน์ตาม CSV master ต้นทาง (ยอดคลังยา_master_69.csv) เฉพาะ field ที่ inventory เก็บจริง
 // ไม่รวมคอลมูลค่ารายเดือน/aggregate ของ master ที่คำนวณสดใน Excel (ไม่มีใน DB)
@@ -165,6 +166,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   const [typeFilter,      setTypeFilter]      = useState('');     // '' = ทุกชนิด (กรองชนิดยา เช่น Herb)
   const [showManageMenu,  setShowManageMenu]  = useState(false);
   const [selectedLocation, setSelectedLocation] = useState(null);
+  const [moveItem, setMoveItem] = useState(null);   // การ์ด lot ที่กด "ย้ายที่เก็บ" (staff/admin)
   const [expandedDetailsId, setExpandedDetailsId] = useState(null);
   const [expiryViewFilter, setExpiryViewFilter] = useState(null);
   const [modalSearch, setModalSearch] = useState('');
@@ -885,6 +887,17 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                     <span className="inline-flex items-center gap-1.5 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300 px-3 py-1 rounded-full text-xs font-bold border border-indigo-200 dark:border-indigo-900/60">
                       <MapPin size={14} /> ตำแหน่งจัดเก็บ: {locationId}
                     </span>
+                  )}
+                  {item.pendingMove && (
+                    <span title={`แจ้งโดย ${item.pendingMove.created_by || '-'}`} className="inline-flex items-center gap-1.5 bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 px-3 py-1 rounded-full text-xs font-bold border border-amber-200 dark:border-amber-900/60">
+                      <MoveRight size={14} /> ย้ายจาก {item.pendingMove.from_location} · รอลง Excel
+                    </span>
+                  )}
+                  {isStaff && locationId && (
+                    <button onClick={() => setMoveItem({ ...item, location: locationId })}
+                      className="inline-flex items-center gap-1.5 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 px-3 py-1 rounded-full text-xs font-bold border border-indigo-300 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50">
+                      <MoveRight size={14} /> ย้ายที่เก็บ
+                    </button>
                   )}
                   {isPendingStatus && (
                     <span className="inline-flex items-center gap-1.5 bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 px-3 py-1 rounded-full text-xs font-bold border border-sky-200 dark:border-sky-900/60">
@@ -1986,6 +1999,22 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         );
       })()}
 
+
+      {moveItem && (
+        <LocationMoveModal
+          item={moveItem}
+          inventory={inventory}
+          auth={auth}
+          onClose={() => setMoveItem(null)}
+          onSaved={async (n, to) => {
+            setMoveItem(null);
+            setSelectedLocation(null);
+            try { const inv = await fetchInventory(); if (inv) setInventory(inv); } catch { /* แผนผังเดิมยังใช้ได้ — กด "โหลดใหม่" ทีหลัง */ }
+            setSuccessMsg(`แจ้งย้าย ${n} กอง ไปที่ ${to} แล้ว — แผนผังแสดงที่ใหม่ รอคลังลง Excel`);
+            setTimeout(() => setSuccessMsg(''), 6000);
+          }}
+        />
+      )}
 
       {selectedLocation && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">

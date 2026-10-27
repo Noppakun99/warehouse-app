@@ -41,7 +41,8 @@
     "import:dispense": "node scripts/import-dispense.mjs",
     "export:csv": "node scripts/export-csv.mjs",
     "import:restore": "node scripts/restore.mjs",
-    "test:linechat": "node src/lib/lineChatImport.test.js"
+    "test:linechat": "node src/lib/lineChatImport.test.js",
+    "test:locationmove": "node src/lib/locationMove.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",

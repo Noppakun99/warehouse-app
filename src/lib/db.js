@@ -4,6 +4,7 @@ import { buildConsistencyReport } from './consistencyCheck.js'
 import { parseReturnPolicy, computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './swapPolicy.js'
 import { computeCountMatch } from './countMatch.js'
 import { flattenInventory, backfillDrugUnit, backfillSwapPolicy } from './excelSync.js'
+import { overlayMoves, planMove, reconcileMoves, buildMainLogMap } from './locationMove.js'
 import { isUsageRow, localYmd } from '../../supabase/functions/_shared/usageRow.js'
 import {
   parseUnitFactor, parseExpDate as _parseExpDate, waitDaysSince, isBelowSafetyStock, isPurchaseReceipt,
@@ -42,8 +43,14 @@ export async function fetchAllInventoryRows(selectCols = '*', { orderBy = 'locat
 export async function fetchInventory() {
   if (!supabase) return null
 
-  const data = await fetchAllInventoryRows('*')
-  if (data.length === 0) return null
+  const raw = await fetchAllInventoryRows('*')
+  if (raw.length === 0) return null
+
+  // ใบแจ้งย้ายที่เก็บที่ยังไม่ลง Excel → แผนผังแสดงที่ใหม่ทันที (docs/features/location-move.md)
+  // โหลดใบไม่ได้ (ตารางยังไม่มี/เน็ต) = แสดงตาม Excel ไม่ให้แผนผังล้มทั้งหน้า
+  let moves = []
+  try { moves = await fetchPendingLocationMoves() } catch (e) { console.warn('location_move:', e?.message) }
+  const data = overlayMoves(raw, moves)
 
   // แปลง flat rows → object grouped by location
   const result = {}
@@ -62,6 +69,7 @@ export async function fetchInventory() {
       itemType: row.item_type || null,
       receiveStatus: row.receive_status,
       safetyStock: row.safety_stock != null ? parseFloat(row.safety_stock) : null,
+      pendingMove: row.pending_move || null,
     })
   })
   return result
@@ -94,6 +102,93 @@ export async function saveInventory(inventoryObj, auth = {}, fileName = null) {
     user_name: resolveUserName(auth), department: auth.department,
     record_count: rows.length, details: fileName ? { file: fileName } : null,
   })
+
+  // ทางนำเข้า Master ทุกทาง (CLI + ปุ่มนำเข้าจาก Excel) ผ่านตรงนี้ — ปิดใบแจ้งย้ายที่ไฟล์ตรงแล้ว
+  // ล้ม = แค่เตือน ใบยัง pending ปิดได้รอบนำเข้าถัดไป (ไม่ให้การนำเข้าที่เขียนเสร็จแล้วดูเหมือนล้ม)
+  try { await reconcileLocationMoves(auth) } catch (e) { console.warn('reconcileLocationMoves:', e?.message) }
+}
+
+// --- ใบแจ้งย้ายที่เก็บ (location_move — docs/features/location-move.md) ---
+
+export async function fetchPendingLocationMoves() {
+  if (!supabase) return []
+  const { data, error } = await supabase.from('location_move').select('*')
+    .in('status', ['pending', 'conflict']).order('id')
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * บันทึกใบแจ้งย้าย — piles = กองที่แผนผังแสดง [{ code, name, lot, location, main_log }]
+ * ย้ายต่อจากใบเดิม = supersede ใบเดิม + ใบใหม่ from ค่าใน Excel (planMove)
+ * @returns จำนวนใบที่บันทึก
+ */
+export async function createLocationMoves(piles, toArr, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const [moves, invRows] = await Promise.all([
+    fetchPendingLocationMoves(),
+    fetchAllInventoryRows('location, main_log'),
+  ])
+  const mainLogMap = buildMainLogMap(invRows)
+  const plans = piles.map(p => ({ pile: p, ...planMove(p, toArr, moves, mainLogMap) }))
+  const bad = plans.find(p => p.error)
+  if (bad) throw new Error(`${bad.pile.name || bad.pile.code} lot ${bad.pile.lot}: ${bad.error}`)
+
+  const now = new Date().toISOString()
+  const supersedeIds = plans.flatMap(p => p.supersedeIds)
+  if (supersedeIds.length) {
+    const { error } = await supabase.from('location_move')
+      .update({ status: 'superseded', resolved_at: now, note: 'มีใบแจ้งย้ายใหม่ของกองเดียวกัน' })
+      .in('id', supersedeIds).eq('status', 'pending')
+    if (error) throw error
+  }
+  const who = resolveUserName(auth)
+  const inserts = plans.filter(p => p.insert).map(p => ({ ...p.insert, created_by: who }))
+  if (inserts.length) {
+    const { error } = await supabase.from('location_move').insert(inserts)
+    if (error) {
+      // ต้อง supersede ก่อน insert (unique pending code+lot+from ชนใบเดิมตอนย้ายต่อ) — insert ล้ม = คืนใบเดิม
+      // ไม่งั้นใบเดิมหายเงียบ แผนผังเด้งกลับไปที่เก็บใน Excel
+      if (supersedeIds.length) await supabase.from('location_move').update({ status: 'pending', resolved_at: null, note: null }).in('id', supersedeIds)
+      throw error
+    }
+  }
+
+  await insertAuditLog({
+    action: 'move_location', table_name: 'location_move',
+    user_name: who, department: auth.department, record_count: plans.length,
+    details: { moves: plans.map(p => ({ code: p.pile.code, name: p.pile.name, lot: p.pile.lot, from: p.pile.location, to: p.insert?.to_location ?? p.pile.location })) },
+  })
+  return plans.length
+}
+
+/** เทียบใบ pending กับ inventory (= Excel ล่าสุด) → applied / conflict · เรียกท้าย saveInventory */
+export async function reconcileLocationMoves(auth = {}) {
+  if (!supabase) return { applied: [], pending: [], conflict: [] }
+  const moves = (await fetchPendingLocationMoves()).filter(m => m.status === 'pending')
+  if (moves.length === 0) return { applied: [], pending: [], conflict: [] }
+  const rows = await fetchAllInventoryRows('code, lot, location')
+  const res = reconcileMoves(moves, rows)
+  const now = new Date().toISOString()
+  if (res.applied.length) {
+    const { error } = await supabase.from('location_move').update({ status: 'applied', resolved_at: now })
+      .in('id', res.applied.map(m => m.id)).eq('status', 'pending')
+    if (error) throw error
+  }
+  for (const m of res.conflict) {
+    const { error } = await supabase.from('location_move').update({ status: 'conflict', note: m.note })
+      .eq('id', m.id).eq('status', 'pending')
+    if (error) throw error
+  }
+  if (res.applied.length || res.conflict.length) {
+    await insertAuditLog({
+      action: 'reconcile_location_move', table_name: 'location_move',
+      user_name: resolveUserName(auth), department: auth.department,
+      record_count: res.applied.length + res.conflict.length,
+      details: { applied: res.applied.map(m => m.id), conflict: res.conflict.map(m => ({ id: m.id, note: m.note })) },
+    })
+  }
+  return res
 }
 
 // --- Drug Details (ดึงจาก receive_logs แทน drug_details) ---
@@ -1542,6 +1637,7 @@ export async function fetchNotifications(scope = null) {
     'close_annual_count',
     'add_unknown_count_item',
     'add_annual_count_lot',
+    'move_location',
     'update_stock_count',
     'clear_stock_count_item',
     'refresh_annual_count_qty',
