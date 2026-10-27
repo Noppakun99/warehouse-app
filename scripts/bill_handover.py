@@ -23,6 +23,7 @@ REG_COLS = ['เลขที่ใบ', 'วันที่ส่ง', 'วั�
             'มูลค่า(บาท)', 'ไฟล์ใบส่ง', 'จัดซื้อเซ็นรับ', 'วันที่เซ็นรับ', 'หมายเหตุ']
 EDGE = r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
 SENDER = ('นายนพคุณ ฉายขุนทด', 'เจ้าพนักงานเภสัชกรรมปฏิบัติงาน')
+RECEIVER_POS = 'พนักงานประจำห้องยา'
 MONTHS = ['', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม',
           'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม']
 
@@ -236,7 +237,7 @@ tfoot td {{ font-weight: 700; border-top: 2px solid #000; }}
   <div><div class="t">ผู้รับบิล (งานจัดซื้อ)</div>
     <div class="ln">ลงชื่อ <span class="fl"></span></div>
     <div class="ln">( <span class="fl"></span> )</div>
-    <div class="ln">ตำแหน่ง <span class="fl"></span></div>
+    <div class="ln" style="justify-content:center">ตำแหน่ง {RECEIVER_POS}</div>
     <div class="ln">วันที่ <span class="fl"></span></div></div>
 </div>
 <div class="foot">ข้อมูลจากชีท 'รับยา' ไฟล์ รับจากการซื้อ_ยืม_ตุลา2567-2569.xlsm (บันทึกล่าสุด {short(stamp.date())} {stamp:%H:%M})
