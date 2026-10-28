@@ -14,18 +14,27 @@ async function openMapSearch(page, user, pass, term) {
   await page.getByPlaceholder('ค้นหาชื่อยา, รหัส, ตำแหน่ง, Lot, บิล...').fill(term)
 }
 
-test('staff เห็นปุ่มย้ายที่เก็บ → ติ๊กกองที่เก็บเดียวกันให้ + ปุ่มบันทึกตามชุดชั้น', async ({ page }) => {
+test('staff เห็นปุ่มย้ายที่เก็บ → ติ๊กเฉพาะ lot ที่กด + เลือกทั้งชั้นได้ + ปุ่มบันทึกตามชุดชั้น', async ({ page }) => {
   await openMapSearch(page, 'Kao_9', '96409999', 'P04092')
   const card = page.locator('div', { hasText: 'Hydralazine 20mg' }).filter({ has: page.getByRole('button', { name: 'ย้ายที่เก็บ' }) }).last()
   await card.getByRole('button', { name: 'ย้ายที่เก็บ' }).click()
 
-  const modal = page.locator('div', { hasText: 'กองที่จะย้าย' }).filter({ has: page.getByRole('button', { name: 'บันทึกการย้าย' }) }).last()
-  await expect(modal.getByText('Lot P04077')).toBeVisible()
-  await expect(modal.getByText('Lot P04092')).toBeVisible()
+  const modal = page.locator('div', { hasText: 'Lot ที่จะย้าย' }).filter({ has: page.getByRole('button', { name: 'บันทึกการย้าย' }) }).last()
+  await expect(modal.getByText(/^Lot P040(77|92) · D-4-4$/)).toBeVisible()      // หัวโมดอลบอก lot ที่กด
+  await expect(modal.getByText('Lot P04077', { exact: true })).toBeVisible()
+  await expect(modal.getByText('Lot P04092', { exact: true })).toBeVisible()
+  await expect(modal.getByText('lot ที่เลือก')).toHaveCount(1)
   const boxes = modal.getByRole('checkbox')
   await expect(boxes).toHaveCount(2)
-  await expect(boxes.nth(0)).toBeChecked()
+  await expect(boxes.nth(0)).toBeChecked()                    // lot ที่กดอยู่บนสุด ติ๊กให้
+  await expect(boxes.nth(1)).not.toBeChecked()                // lot อื่นในชั้นเดียวกันไม่ติ๊ก
+  await modal.getByRole('button', { name: 'เลือกทุก lot ในชั้น D-4-4' }).click()
   await expect(boxes.nth(1)).toBeChecked()
+  await expect(modal.getByRole('button', { name: 'เลือกทุก lot ในชั้น D-4-4' })).toHaveCount(0)
+
+  await modal.getByPlaceholder('พิมพ์หรือเลือกชั้น เช่น D-4-4').fill('D-4')   // ชั้นแนะนำเป็นปุ่มใต้ช่อง (ไม่ใช่ datalist)
+  await expect(modal.getByRole('button', { name: /^เพิ่มชั้น D-4-/ }).first()).toBeVisible()
+  await modal.getByPlaceholder('พิมพ์หรือเลือกชั้น เช่น D-4-4').fill('')
 
   const saveBtn = modal.getByRole('button', { name: 'บันทึกการย้าย' })
   await expect(saveBtn).toBeDisabled()                       // ชุดชั้นยังเท่าเดิม
