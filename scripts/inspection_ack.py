@@ -225,7 +225,7 @@ def main():
     total = round(sum(x['val'] for _, b in items for x in b['rows']), 2)
     nrows = sum(len(b['rows']) for _, b in items)
     nbills = len({(k[1], k[2]) for k, _ in items})
-    ncol = 13 if multi else 12
+    ncol = 12 if multi else 11
 
     body, i, section = [], 0, None
     for (qd, bill, sup, ptype), b in items:
@@ -247,36 +247,36 @@ def main():
                        f'<td rowspan="{span}"><b>{html.escape(bill)}</b><br><span class="sm">{html.escape(sup)}</span>{tag}</td>')
             tr += (f'<td class="c">{html.escape(x["po"])}</td>'
                    f'<td>{html.escape(x["name"])}</td>'
-                   f'<td class="c">{html.escape(x["lot"])}</td><td class="c">{html.escape(x["exp"])}</td>'
+                   f'<td class="c">{html.escape(x["lot"])}<br><span class="sm">{html.escape(x["exp"])}</span></td>'
                    f'<td class="r">{qty(x["qty"])}</td><td class="c">{html.escape(x["unit"])}</td>'
                    f'<td class="r">{money(x["val"])}</td>')
             if j == 0:
                 tr += f'<td class="r" rowspan="{span}"><b>{money(sub)}</b></td>'
             tr += '<td class="c"><span class="box"></span></td>'
             body.append(tr + '</tr>')
-    qd_th = '<th style="width:7%">วันที่ตรวจรับ</th>' if multi else ''
-    bill_w = '17%' if multi else '20%'
+    qd_th = '<th style="width:8%">วันที่ตรวจรับ</th>' if multi else ''
+    bill_w = '14%' if multi else '17%'
 
     stamp = datetime.datetime.fromtimestamp(os.path.getmtime(src))
     page = f'''<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
 <title>สรุปตรวจรับ {doc_no}</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
 <style>
-@page {{ size: A4 landscape; margin: 8mm 11mm 8mm 11mm; }}
+@page {{ size: A4 portrait; margin: 9mm 9mm 9mm 9mm; }}
 * {{ box-sizing: border-box; }}
-body {{ font-family: 'Sarabun', 'TH Sarabun New', Tahoma, sans-serif; font-size: 13px; color: #000; background: #fff; margin: 0; }}
-.top {{ display: flex; justify-content: space-between; align-items: flex-start; }}
-h1 {{ font-size: 21px; margin: 0; }}
-.hosp {{ font-size: 15px; font-weight: 700; }}
-.no {{ text-align: right; font-size: 14px; line-height: 1.55; }}
-.no b {{ font-size: 18px; }}
+body {{ font-family: 'Sarabun', 'TH Sarabun New', Tahoma, sans-serif; font-size: 12.5px; color: #000; background: #fff; margin: 0; }}
+.top {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }}
+h1 {{ font-size: 18px; margin: 0; }}
+.hosp {{ font-size: 14px; font-weight: 700; }}
+.no {{ text-align: right; font-size: 13px; line-height: 1.5; white-space: nowrap; }}
+.no b {{ font-size: 16px; }}
 .lead {{ margin: 6px 0 5px; line-height: 1.5; }}
 table {{ width: 100%; border-collapse: collapse; }}
-th, td {{ border: 1px solid #000; padding: 2px 5px; vertical-align: top; font-size: 12px; line-height: 1.35; }}
+th, td {{ border: 1px solid #000; padding: 2px 4px; vertical-align: top; font-size: 11px; line-height: 1.3; }}
 th {{ background: #fff; font-weight: 700; text-align: center; }}
 td.c {{ text-align: center; }} td.r {{ text-align: right; white-space: nowrap; }}
-.sm {{ font-size: 11.5px; }}
-.tag {{ font-size: 11.5px; border: 1px solid #000; padding: 0 4px; }}
+.sm {{ font-size: 10.5px; }}
+.tag {{ font-size: 10.5px; border: 1px solid #000; padding: 0 4px; }}
 td.nop {{ font-weight: 700; background: #e6e6e6; }}
 .box {{ display: inline-block; width: 15px; height: 15px; border: 1.5px solid #000; margin-top: 2px; }}
 tr {{ page-break-inside: avoid; }}
@@ -301,10 +301,10 @@ tr.tot td {{ font-weight: 700; border-top: 2px solid #000; }}
 {"ระหว่างวันที่" if multi else "เมื่อวันที่"} <b>{when}</b> จำนวน <b>{nbills} บิล {nrows} รายการ</b> มูลค่ารวม <b>{money(total)} บาท</b>
 ตามรายละเอียดดังนี้ — ทุกรายการมีรูปตรวจรับ (บิลอยู่ในภาพ) เก็บไว้ที่คลังยา</p>
 <table>
-<thead><tr><th style="width:3%">ที่</th>{qd_th}<th style="width:7%">วันที่รับ</th><th style="width:{bill_w}">เลขที่บิล / บริษัท</th>
-<th style="width:7.5%">เลขที่ PO</th><th>รายการยา</th><th style="width:7%">Lot</th><th style="width:7%">Exp</th>
-<th style="width:5%">จำนวน</th><th style="width:5.5%">หน่วย</th><th style="width:7%">มูลค่า (บาท)</th><th style="width:7%">รวมบิล (บาท)</th>
-<th style="width:6%">ผู้ตรวจรับ ✓</th></tr></thead>
+<thead><tr><th style="width:3%">ที่</th>{qd_th}<th style="width:8%">วันที่รับ</th><th style="width:{bill_w}">เลขที่บิล / บริษัท</th>
+<th style="width:8%">เลขที่ PO</th><th>รายการยา</th><th style="width:9.5%">Lot / Exp</th>
+<th style="width:5.5%">จำนวน</th><th style="width:6.5%">หน่วย</th><th style="width:8.5%">มูลค่า (บาท)</th><th style="width:8.5%">รวมบิล (บาท)</th>
+<th style="width:5%">ผู้ตรวจ รับ ✓</th></tr></thead>
 <tbody>{''.join(body)}
 <tr class="tot"><td colspan="{ncol - 3}" class="r">รวมทั้งสิ้น {nbills} บิล {nrows} รายการ</td><td colspan="2" class="r">{money(total)}</td>
 <td></td></tr></tbody>
@@ -314,11 +314,13 @@ tr.tot td {{ font-weight: 700; border-top: 2px solid #000; }}
 <div class="sig">
   <div><div class="t">ผู้บันทึก (คลังยา)</div>
     <div class="ln">ลงชื่อ <span class="fl"></span></div>
-    <div class="ln" style="justify-content:center">( {SENDER[0]} ) ตำแหน่ง {SENDER[1]}</div>
+    <div class="ln" style="justify-content:center">( {SENDER[0]} )</div>
+    <div class="ln" style="justify-content:center;margin-top:2px">ตำแหน่ง {SENDER[1]}</div>
     <div class="ln">วันที่ <span class="fl"></span></div></div>
   <div><div class="t">ผู้ตรวจรับ (กรรมการตรวจรับ) — ลงนามรับทราบ</div>
     <div class="ln">ลงชื่อ <span class="fl"></span></div>
-    <div class="ln" style="justify-content:center">( {INSPECTOR[0]} ) ตำแหน่ง {INSPECTOR[1]}</div>
+    <div class="ln" style="justify-content:center">( {INSPECTOR[0]} )</div>
+    <div class="ln" style="justify-content:center;margin-top:2px">ตำแหน่ง {INSPECTOR[1]}</div>
     <div class="ln">วันที่ <span class="fl"></span></div></div>
 </div>
 <div class="foot">ข้อมูลจากชีท 'รับยา' ไฟล์ รับจากการซื้อ_ยืม_ตุลา2567-2569.xlsm (บันทึกล่าสุด {short(stamp.date())} {stamp:%H:%M})
