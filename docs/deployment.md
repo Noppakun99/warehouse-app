@@ -51,7 +51,7 @@ VITE_SUPABASE_ANON_KEY  = <legacy anon/public key>
 
 ไม่ต้อง `npm run build` เอง ไม่ต้องลากโฟลเดอร์เข้า Netlify Drop ไม่ต้องกด Trigger
 
-**ไม่อยากให้ build รอบไหน** (เช่น commit แก้ docs) → ใส่ `[skip ci]` ในข้อความ commit
+**ไม่อยากให้ build รอบไหน** (เช่น commit แก้ docs) → ใส่ `[skip ci]` ในข้อความ commit — **บังคับสำหรับ commit เอกสารล้วน** เพราะโควตา deploy มีแค่ ~20 ครั้ง/เดือน (ดู §โควตา build)
 
 **ดูสถานะ:** https://app.netlify.com/projects/my-warehouse-app/deploys
 log ควรจบด้วย `Site is live` — ถ้าอยาก deploy ซ้ำโดยไม่ push ใหม่ กด **Trigger deploy** → **Deploy site**
@@ -60,10 +60,21 @@ log ควรจบด้วย `Site is live` — ถ้าอยาก deploy 
 > (Netlify: "Activate builds… to re-enable the option to trigger deploys") ทำให้ deploy ไม่ได้เลยจาก dashboard
 > ต้องกด **Activate builds** ก่อนถึงจะกลับมาใช้ได้ (เหตุการณ์ 2026-08-07)
 
-### โควตา build
+### โควตา build — แผน Free แบบเครดิต (ตรวจ 28/10/2569)
 
-Free tier 300 นาที/เดือน · build จริง ~27-30 วินาที → **push ได้ ~600 ครั้ง/เดือน**
-push วันละ 10 ครั้งทุกวัน ≈ 150 นาที ยังเหลือครึ่ง — auto-build จึงปลอดภัยกับโควตา
+> ⚠️ ข้อความเดิม "300 นาที/เดือน push ได้ ~600 ครั้ง" เป็นระบบเก่า **ใช้ไม่ได้แล้ว** — บัญชีย้ายมาแผน `credit-free` (Netlify เปลี่ยนเป็นระบบเครดิต ก.ย. 2025)
+
+- **300 เครดิต/รอบ ไม่ทบไปรอบหน้า** · รอบเริ่มวันที่ **11** ของทุกเดือน (`current_billing_period_start`)
+- **deploy production ที่สำเร็จ = 15 เครดิต → ได้แค่ ~20 ครั้ง/รอบ** (deploy ล้ม / rollback / deploy preview / branch deploy ไม่กินเครดิต) · bandwidth + request ของเว็บก็หักเครดิตด้วย (ดูได้ในหน้า Usage ของ dashboard เท่านั้น API ไม่บอก)
+- บัญชีตั้ง `block_builds_when_usage_exceeded` → **เครดิตหมด = push แล้วไม่ขึ้นเว็บ** จนถึงรอบใหม่ · แผน Free ซื้อเครดิตเพิ่มไม่ได้ (ต้องอัปเป็น Personal $9/เดือน 1,000 เครดิต)
+- เหตุการณ์จริง: รอบ 11/10–11/11/2569 deploy ครบ 20 ครั้งวันที่ 28/10 (`b0f2b5c`) → Netlify ให้ grace top-up ชั่วคราว · รอบก่อน 18 ครั้ง
+
+**ข้อตกลง (user เลือกอยู่แผน Free ต่อ — 28/10/2569):**
+1. **รวม commit ไว้ในเครื่อง แล้ว push วันละครั้ง** — commit ได้ตามปกติ แต่ push = deploy 1 ครั้ง
+2. **commit ที่แก้แค่เอกสาร (`docs/`, `*.md`, skill, memory) ใส่ `[skip ci]` ในข้อความ** → ไม่ build ไม่กินเครดิต
+3. ⚠️ **Netlify ดู `[skip ci]` จาก commit บนสุดของการ push เท่านั้น** — push โค้ด + docs พร้อมกัน แล้ว commit บนสุดเป็น docs `[skip ci]` = **โค้ดไม่ขึ้นเว็บแบบเงียบ** → ให้ commit โค้ดอยู่บนสุด หรือไม่ใส่ `[skip ci]` ในรอบที่มีโค้ด
+4. อยากลองบนเว็บก่อนโดยไม่กินเครดิต → push ขึ้น branch อื่น (branch deploy / deploy preview ฟรี)
+5. ก่อน push เช็คว่ารอบนี้ deploy ไปกี่ครั้งแล้ว: `netlify api listSiteDeploys --data '{"site_id":"7704ee11-c868-4cf0-a4a6-28412222876f","per_page":30}'` นับ `state=ready` + `context=production` ตั้งแต่วันที่ 11
 
 ## Verify หลัง deploy
 
@@ -105,5 +116,5 @@ netlify api updateSite --data '{"site_id":"<id>","body":{"repo":{"repo_branch":"
 ส่ง `build_settings` ตรงๆ **API รับแล้วเงียบ ไม่ error แต่ไม่เปลี่ยนค่า** — ต้องอ่านกลับมาตรวจเสมอ อย่าเชื่อ response
 
 ## หมายเหตุ
-- **"credits remaining" ในหน้า project** = โควตา Netlify AI agent คนละตัว ไม่เกี่ยวกับ deploy (ดูโควตา build ด้านบน)
+- **"credits remaining" ในหน้า project** = เครดิตของบัญชีตัวเดียวกับที่ deploy ใช้ (ระบบเครดิต — ข้อความเดิมที่ว่าเป็นโควตา AI agent แยกต่างหาก ไม่จริงแล้ว 28/10/2569)
 - **อย่าลากโฟลเดอร์โปรเจกต์เข้า Netlify Drop** — Drop รับแค่ static output (`dist/`) ถ้าลากทั้งโปรเจกต์ที่มี `node_modules` จะค้าง/ไม่ผ่าน (เหตุการณ์ 2026-08-06)
