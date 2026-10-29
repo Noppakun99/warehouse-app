@@ -88,9 +88,13 @@ try {
   if ($nr -ne @($plan.urgent).Count) { throw 'จำนวนแถวสีแดงไม่ตรงแผน' }
 
   # 5) หัวรายงาน
+  # ค่าเป็น [pattern, replacement] หรือหลายคู่ [[p, r], ...] แทนตามลำดับ (A1: วันที่ + บรรทัดเพดานพื้นที่)
   foreach ($p in $plan.headers.PSObject.Properties) {
     $c = $rp.Range($p.Name); $t = [string]$c.Formula
-    $c.Formula = [regex]::Replace($t, $p.Value[0], $p.Value[1])
+    $pairs = New-Object System.Collections.ArrayList
+    if ($p.Value[0] -is [array]) { foreach ($x in $p.Value) { [void]$pairs.Add($x) } } else { [void]$pairs.Add($p.Value) }
+    foreach ($pr in $pairs) { $t = [regex]::Replace($t, [string]$pr[0], [string]$pr[1]) }
+    $c.Formula = $t
     "$($p.Name): $($c.Text)"
   }
   $wb.Save(); 'SAVED (สำเนาใน WorkDir — ยังไม่แตะ OneDrive)'

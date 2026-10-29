@@ -47,6 +47,22 @@ SUPPORT_TWIN = {
     '1520023': ('64', 0.5),   # มะขามแขก 200เม็ด ↔ 100แคปซูล = ครึ่งกล่อง (user 15/10/2569: แคปซูล = เม็ด ยาเดียวกัน)
 }
 
+# เพดานสั่งตามพื้นที่เก็บ (user ให้ตัวเลข 29/10/2569 — รหัส: (ลัง, หน่วยต่อลัง) ในหน่วยของชีทวิเคราะห์)
+# รหัสในนี้ใช้เกณฑ์เพดานแทนสถานะ/จำนวนแนะนำของชีท (ยกเว้นสั่งเมื่อขอ/ตัดออก) — สูตรเดิม (SS 2 เดือน + LT + 7) สั่งจนห้องเก็บล้น
+# เพดาน = min(พื้นที่, Avg/เดือน × 2) · จุดสั่ง = Avg/วัน × (LT + 7 รอบแจ้งซื้อ + CEIL_BUFFER)
+# จำนวนสั่ง = เพดาน − คงเหลือตอนของมาถึง (คงเหลือ − Avg/วัน × LT) ปัดลงเต็มลัง → ของมาถึงแล้วไม่เกินเพดาน
+CEIL_BUFFER = 15
+CEILING = {
+    '1530004': (150, 10), '1000216': (100, 20), '1560006': (20, 80), '1500009': (120, 10), '1460279': (30, 10),
+    '1501130': (30, 10), '1660020': (20, 10), '1460046': (20, 10), '1620029': (20, 10), '1501131': (10, 10),
+    '1590035': (4, 250), '1000184': (5, 40), '1610003': (10, 37), '1000039': (10, 20), '1680056': (30, 100),
+    '1600019': (30, 12), '1501106': (20, 27), '1620027': (4, 24), '1000122': (4, 24), '1540027': (20, 40),
+    '1000223': (30, 24), '1520002': (30, 16), '1460050': (30, 20), '1000188': (6, 100),
+}
+CEIL_LINE = (f'เพดานพื้นที่ ({len(CEILING)} รายการที่ห้องเก็บจำกัด เช่น น้ำเกลือ/ยาลังใหญ่): เพดาน = MIN(พื้นที่เก็บ, Avg/เดือน × 2) · '
+             f'จุดสั่งซื้อ = Avg/วัน × (Lead Time + 7 + {CEIL_BUFFER} วันกันชน) · '
+             'จำนวนแนะนำ = เพดาน − คงเหลือตอนของมาถึง ปัดลงเต็มลัง (ของมาถึงแล้วไม่เกินพื้นที่)')
+
 
 def twin_q(d, code):
     """(คงเหลือรวม, Avg/วันรวม, รหัสยาสนับสนุน, คงเหลือยาสนับสนุนในหน่วยของยาซื้อ) — ไม่มีคู่ = ค่าของรหัสเดียว"""
@@ -226,6 +242,24 @@ def open_request(code, today, last, unmet):
     return None
 
 
+def ceiling(d, code):
+    """แผนเพดานพื้นที่ของรหัส (CEILING) — ไม่อยู่ในตาราง / สั่งเมื่อขอ / ตัดออก = None"""
+    if code not in CEILING or code not in d.analysis:
+        return None
+    r, ac = d.analysis[code], d.ac
+    if r[ac['status']] not in ORDER_STATUSES + ('คงคลังเพียงพอ',):
+        return None
+    cases, per = CEILING[code]
+    q, day, _, _ = twin_q(d, code)
+    lt = num(r[ac['lt']])
+    space, two = cases * per, round(num(r[ac['avg']]) * 2)
+    ceil_ = min(space, two)
+    trig = round(day * (lt + 7 + CEIL_BUFFER))
+    n = int(max(0, ceil_ - max(0, q - day * lt)) // per) if q <= trig else 0
+    return dict(cases=cases, per=per, space=space, two=two, ceil=ceil_, bind='พื้นที่' if space < two else '2 เดือน',
+                q=q, trig=trig, due=q <= trig, order_cases=n, qty=n * per)
+
+
 def coverage_days(d, code):
     """คงอยู่ได้อีก (วัน) = คงเหลือ ÷ Avg/วัน (รวมยาสนับสนุนรหัสคู่) · ไม่มีเรท = '-'"""
     q, day, _, _ = twin_q(d, code)
@@ -403,9 +437,20 @@ def parse_date(s):
 def row_values(d, code):
     r, c = d.analysis[code], d.ac
     v = lambda k: r[c[k]]
-    return dict(I=v('price'), J=v('supplier'), K=v('lt'), L=v('ss'), M=v('max'), N=v('avg'), O=twin_q(d, code)[0],
+    vals = dict(I=v('price'), J=v('supplier'), K=v('lt'), L=v('ss'), M=v('max'), N=v('avg'), O=twin_q(d, code)[0],
                 P=v('total'), Q=v('sum3'), R=v('rec'), T=v('day'),
                 ROP=v('rop'), WHY=reason(d, code), COV=coverage_days(d, code), VAL=v('val'))
+    cp = ceiling(d, code)
+    if cp:
+        why = ('หมดสต็อค' if cp['q'] <= 0 else f"ถึงจุดสั่งตามเพดานพื้นที่ (คงเหลือ ≤ {cp['trig']})") if cp['due'] \
+            else 'ถึงเกณฑ์พอแล้ว — พิจารณายกเลิกแจ้ง (ยังไม่ถึงจุดสั่งตามเพดานพื้นที่)'
+        vals.update(R=cp['qty'], ROP=cp['trig'], WHY=why, VAL=round(cp['qty'] * num(v('price')), 2))
+    return vals
+
+
+def ceiling_note(cp, unit):
+    return (f"เพดานพื้นที่ {cp['ceil']} {unit} ({cp['bind']} · พื้นที่ {cp['cases']}×{cp['per']} = {cp['space']} · "
+            f"2 เดือน {cp['two']}) → สั่ง {cp['order_cases']} ลัง")
 
 
 def clean(x):
@@ -482,10 +527,20 @@ def cmd_plan(a):
     pending = {x['code'] for x in keep}
     moved = {m['code']: m for m in moves}
     order = {'หมดสต็อค': 0, 'สั่งเพิ่ม ใกล้หมดอายุ': 1, 'สั่งเพิ่ม': 2}
-    new = []
+    new, held = [], []
     for code, r in d.analysis.items():
         stv = r[d.ac['status']]
-        if stv not in ORDER_STATUSES or code in pending or code in cancel:
+        if code in pending or code in cancel:
+            continue
+        cp = ceiling(d, code)
+        if cp:
+            if not (cp['due'] and cp['qty'] > 0):
+                if stv in ORDER_STATUSES:
+                    held.append((code, cp))
+                continue
+            if stv not in ORDER_STATUSES:
+                stv = 'สั่งเพิ่ม'
+        elif stv not in ORDER_STATUSES:
             continue
         note = []
         if stv == 'สั่งเพิ่ม ใกล้หมดอายุ' and code in d.maxexp:
@@ -497,10 +552,17 @@ def cmd_plan(a):
         _, _, sc, sq = twin_q(d, code)
         if sc:
             note.append(f"คงเหลือรวมยาสนับสนุน สสจ. (รหัส {sc}) {qfmt(sq)} {r[d.ac['unit']]}")
+        if cp:
+            note.append(ceiling_note(cp, r[d.ac['unit']]))
         new.append(dict(code=code, status=stv, F=r[d.ac['type']], G=r[d.ac['name']], H=r[d.ac['unit']],
                         C=lb.date().isoformat() if lb else '-', S=' / '.join(note),
                         **{k: clean(v) for k, v in row_values(d, code).items()}))
     new.sort(key=lambda x: (order[x['status']], str(x['G']).lower()))
+    for code in CEILING:
+        cp = ceiling(d, code)
+        if cp and cp['q'] > cp['space']:
+            warn.append(f"{code} {d.analysis[code][d.ac['name']]}: คงเหลือ {qfmt(cp['q'])} เกินพื้นที่เก็บ {cp['space']} "
+                        f"({cp['cases']} ลัง × {cp['per']}) — ส่วนเกินเก็บที่อื่นอยู่หรือพื้นที่ที่ให้ไว้ไม่ครบ")
     # 3b) ด่วน → อักษรสีแดงทั้งแถว (apply.ps1 ทาสีทุกแถวของตารางใหม่ทุกรอบ — สีแดงเป็นของสคริปต์ ไม่ระบายเอง)
     last, unmet = d.request_stats()
     urgent = sorted(c for c in [x['code'] for x in refresh] + [x['code'] for x in new]
@@ -511,8 +573,9 @@ def cmd_plan(a):
     win = [m for _, m in rate_window(d, cols)]
     allm = sorted(m for _, m in cols)
     mm = lambda t: f"{TH_MONTH[t[1] - 1]}{(t[0] + 543) % 100}"
+    # A1 หลายคู่ (แทนตามลำดับ): วันที่ · ลบบรรทัดเพดานเดิม · ต่อบรรทัดเพดานท้ายกล่องเกณฑ์ (รันซ้ำได้ผลเดิม)
     headers = {
-        'A1': [r'UPDATE: วันที่ [\d/]+', f'UPDATE: วันที่ {dstr}'],
+        'A1': [[r'UPDATE: วันที่ [\d/]+', f'UPDATE: วันที่ {dstr}'], [r'\n?เพดานพื้นที่ \([^\n]*', ''], [r'\z', '\n' + CEIL_LINE]],
         f'{phys("O")}4': [r'คงเหลือ\s+[\d/]+', f'คงเหลือ  {dstr}'],
         f'{phys("P")}4': [r'\(.*\)', f'({mm(allm[0])} - {mm(allm[-1])})'],
         f'{phys("Q")}4': [r'\(.*\)', f'({TH_MONTH[win[0][1] - 1]} - {TH_MONTH[win[-1][1] - 1]} {(win[-1][0] + 543) % 100})'],
@@ -549,7 +612,12 @@ def cmd_plan(a):
     if enough:
         out(f"[4c] ถึงเกณฑ์พอแล้ว — พิจารณายกเลิกแจ้ง (ไม่ลบเอง หัวหน้าตัดสิน): {len(enough)} แถว",
             ', '.join(f"{c} {str(d.analysis[c][d.ac['name']])[:24]}" for c in enough))
-    out('\n[5] หัวรายงาน:', {k: v[1] for k, v in headers.items()})
+    if held:
+        out(f"[4d] เพดานพื้นที่ — ชีทขึ้นสั่งเพิ่มแต่ยังไม่ถึงจุดสั่งตามเพดาน (ไม่แจ้งรอบนี้): {len(held)} รายการ")
+        for c, cp in held:
+            out(f"   {c:>9} {str(d.analysis[c][d.ac['name']])[:34]:34} คงเหลือ {qfmt(cp['q'])} > จุดสั่ง {cp['trig']} "
+                f"| เพดาน {cp['ceil']} ({cp['bind']}) | ชีทแนะนำ {qfmt(d.analysis[c][d.ac['rec']])}")
+    out('\n[5] หัวรายงาน:', {k: (v[0][1] if isinstance(v[0], list) else v[1]) for k, v in headers.items()})
     if warn:
         out('\n!! คำเตือน (ต้องแจ้งผู้ใช้):')
         for w in warn:
@@ -643,9 +711,13 @@ def cmd_verify(a):
                 errs.append(f'Sheet1 แถว {r} {m["code"]}: หมายเหตุไม่ตรง ({s1.cell(r, s_col).value!r})')
     if s1.cell(start + len(moved), 6).value not in (None, ''):
         errs.append('Sheet1: มีแถวเกินจากที่ย้าย (ซ้ำ?)')
-    for k, (_, rep) in plan['headers'].items():
-        if rep not in str(dp[k].value):
-            errs.append(f'หัว {k} ไม่มี "{rep}"')
+    for k, v in plan['headers'].items():
+        for _, rep in (v if isinstance(v[0], list) else [v]):
+            if rep and rep.strip() not in str(dp[k].value):
+                errs.append(f'หัว {k} ไม่มี "{rep.strip()[:60]}"')
+    a1 = str(dp['A1'].value)
+    if a1.count('เพดานพื้นที่ (') != 1:
+        errs.append(f'หัว A1: บรรทัดเพดานพื้นที่มี {a1.count("เพดานพื้นที่ (")} บรรทัด (ต้อง 1)')
     out(f'รายงาน: {len(drows)} แถว (คาด {len(exp_codes)}) | Sheet1 เพิ่ม {len(moved)} แถวที่ {start}–{start + len(moved) - 1} | ตาราง {tref}')
     if dpv['D5'].value is None and drows:
         out('หมายเหตุ: ค่าแคชของสูตร D ว่าง (ไฟล์ยังไม่ได้คำนวณ) — ปกติถ้า apply.ps1 เซฟผ่าน Excel จะมีค่า')
