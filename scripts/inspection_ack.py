@@ -8,6 +8,7 @@ usage: python scripts/inspection_ack.py [--date DD/MM/YYYY] [--bills b1,b2] [--f
   --reissue ตร.70/xxx = ออกใบเดิมใหม่ เลขที่/ชื่อไฟล์/แถวคิวพิมพ์เดิม — หยุดถ้าผู้ตรวจรับเซ็นแล้วหรือคิวพิมพ์ติ๊กแล้ว
   --doc-no ตร.70/xxx = ใช้เลขที่ที่ทั้งใบเป็นใบยกเลิก (user สั่งเท่านั้น — ค่าเริ่มต้นห้ามใช้เลขยกเลิกซ้ำ)
   --reshoot-date-ok = ยืนยันแล้วว่ารูปถ่ายซ้ำที่วันถ่ายตรงวันตรวจรับในชีท ลงวันถูก (ไม่ใส่ = commit หยุด)
+  --note "<ข้อความ>" = หมายเหตุใต้ตารางในใบ + ช่องหมายเหตุทะเบียน (เช่น เหตุที่วันตรวจรับในใบไม่ใช่วันที่กรรมการตรวจ — ตร.70/010 29/10/2569)
   ไม่มี --commit = สร้าง PDF ใน temp อย่างเดียว ไม่แตะโฟลเดอร์จริง/ทะเบียน/คิวพิมพ์
   --commit = PDF → Desktop\\ยอดคงคลัง\\เอกสารตรวจรับ + แถวทะเบียน + แถวคิวพิมพ์ (_สถานะพิมพ์.csv) → แล้วรัน print-queue.py
 รายการในใบ = เฉพาะแถวที่มีรูปตรวจรับ (บิลอยู่ในภาพ) — แถวเอกสาร=รูปตรวจรับ ใน _ดัชนีบิล.csv ที่ (เลขบิล, รหัส, ซื้อ?) ตรงกัน
@@ -34,7 +35,12 @@ REG_COLS = ['เลขที่ใบ', 'วันที่ออก', 'วั�
             'จำนวนรายการ', 'มูลค่า(บาท)', 'ไม่มีรูปตรวจรับ', 'ไฟล์', 'ผู้ตรวจรับเซ็น', 'วันที่เซ็น', 'หมายเหตุ', 'รหัสยา']
 PRINT_REG = r'C:\Users\PRH0000484\Desktop\รวมเบิกยา\PDF\_สถานะพิมพ์.csv'
 BILL_INDEX = r'C:\Users\PRH0000484\Desktop\บิลยา_ตรวจรับ\_ดัชนีบิล.csv'
-INSPECTOR = ('น.ส.พรรณศิริ สลางสิงห์', 'จพง.เภสัชกรรมปฏิบัติงาน')  # ผู้ตรวจรับยาซื้อ (user 21/10/2569)
+# คณะกรรมการตรวจรับพัสดุ — จัดซื้อให้แก้จากผู้ตรวจรับคนเดียวเป็นประธาน + กรรมการ (29/10/2569 · รายชื่อตามแบบแสดงความบริสุทธิ์ใจ)
+COMMITTEE = [
+    ('ประธานกรรมการตรวจรับพัสดุ', 'นางสาวนารีรัตน์ กลางสาทร', 'พยาบาลวิชาชีพชำนาญการ'),
+    ('กรรมการและเลขานุการตรวจรับพัสดุ', 'นางสาวรติญา บุญชิด', 'พยาบาลวิชาชีพชำนาญการ'),
+    ('กรรมการตรวจรับพัสดุ', 'นางสาวพรรณศิริ สลางสิงห์', 'เจ้าพนักงานเภสัชกรรมปฏิบัติงาน'),
+]
 RESHOOT_DATE = re.compile(r'ถ่ายซ้ำ[^\d·]*?(\d{1,2}/\d{1,2}/\d{4})')
 
 
@@ -113,6 +119,7 @@ def main():
     expected = arg('--bills')
     expected = set(b.strip() for b in expected.split(',')) if expected else None
     reissue = arg('--reissue')
+    note = (arg('--note') or '').strip()
     commit = '--commit' in sys.argv
     today = datetime.date.today()
 
@@ -262,7 +269,7 @@ def main():
 <title>สรุปตรวจรับ {doc_no}</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
 <style>
-@page {{ size: A4 portrait; margin: 9mm 9mm 9mm 9mm; }}
+@page {{ size: A4 portrait; margin: 7mm 9mm 7mm 9mm; }}
 * {{ box-sizing: border-box; }}
 body {{ font-family: 'Sarabun', 'TH Sarabun New', Tahoma, sans-serif; font-size: 12.5px; color: #000; background: #fff; margin: 0; }}
 .top {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }}
@@ -286,8 +293,10 @@ tr.sec td {{ font-weight: 700; background: #f2f2f2; border-top: 2px solid #000; 
 tr.tot td {{ font-weight: 700; border-top: 2px solid #000; }}
 .words {{ margin-top: 5px; display: flex; align-items: baseline; gap: 6px; }}
 .ack {{ margin-top: 5px; line-height: 1.5; }}
-.sig {{ display: flex; gap: 24px; margin-top: 10px; page-break-inside: avoid; }}
-.sig > div {{ flex: 1; border: 1px solid #000; padding: 6px 14px; }}
+.note {{ margin-top: 5px; line-height: 1.5; border: 1px solid #000; padding: 3px 6px; }}
+.sig {{ display: flex; gap: 6px; margin-top: 8px; page-break-inside: avoid; font-size: 11px; }}
+.sig > div {{ flex: 1; border: 1px solid #000; padding: 4px 6px; }}
+.sig .ln {{ margin-top: 5px; text-align: center; }}
 .sig .t {{ font-weight: 700; text-align: center; margin-bottom: 4px; }}
 .ln {{ display: flex; align-items: baseline; gap: 6px; margin-top: 8px; }}
 .fl {{ display: inline-block; flex: 1; height: 1.5em; vertical-align: bottom; border-bottom: 1px dotted #000; text-align: center; }}
@@ -310,6 +319,7 @@ tr.tot td {{ font-weight: 700; border-top: 2px solid #000; }}
 <td></td></tr></tbody>
 </table>
 <div class="words"><span>({bahttext(total)})</span><span style="margin-left:24px">รายการที่ไม่ได้ทำเครื่องหมาย ✓ โปรดระบุเหตุผล</span><span class="fl"></span></div>
+{f'<div class="note"><b>หมายเหตุ</b> {html.escape(note)}</div>' if note else ''}
 <div class="ack">ข้าพเจ้าได้ตรวจรับพัสดุตามรายการที่ทำเครื่องหมาย ✓ ไว้แล้ว และรับทราบการบันทึกผลการตรวจรับของคลังยาตามเอกสารนี้</div>
 <div class="sig">
   <div><div class="t">ผู้บันทึก (คลังยา)</div>
@@ -317,11 +327,12 @@ tr.tot td {{ font-weight: 700; border-top: 2px solid #000; }}
     <div class="ln" style="justify-content:center">( {SENDER[0]} )</div>
     <div class="ln" style="justify-content:center;margin-top:2px">ตำแหน่ง {SENDER[1]}</div>
     <div class="ln">วันที่ <span class="fl"></span></div></div>
-  <div><div class="t">ผู้ตรวจรับ (กรรมการตรวจรับ) — ลงนามรับทราบ</div>
+{''.join(f"""
+  <div><div class="t">{role}</div>
     <div class="ln">ลงชื่อ <span class="fl"></span></div>
-    <div class="ln" style="justify-content:center">( {INSPECTOR[0]} )</div>
-    <div class="ln" style="justify-content:center;margin-top:2px">ตำแหน่ง {INSPECTOR[1]}</div>
-    <div class="ln">วันที่ <span class="fl"></span></div></div>
+    <div class="ln" style="justify-content:center">( {nm} )</div>
+    <div class="ln" style="justify-content:center;margin-top:2px">ตำแหน่ง {pos}</div>
+    <div class="ln">วันที่ <span class="fl"></span></div></div>""" for role, nm, pos in COMMITTEE)}
 </div>
 <div class="foot">ข้อมูลจากชีท 'รับยา' ไฟล์ รับจากการซื้อ_ยืม_ตุลา2567-2569.xlsm (บันทึกล่าสุด {short(stamp.date())} {stamp:%H:%M})
 · สถานะตรวจรับ = ตรวจรับแล้ว + มีรูปตรวจรับ · วันที่ตรวจรับ {short(d0) if not multi else short(d0) + "–" + short(d1)} · ทะเบียน เอกสารตรวจรับ\\_ทะเบียนเอกสารตรวจรับ.csv</div>
@@ -378,7 +389,8 @@ tr.tot td {{ font-weight: 700; border-top: 2px solid #000; }}
                  'เลขที่PO': ', '.join(sorted({x['po'] for x in b['rows']})), 'จำนวนรายการ': len(b['rows']),
                  'มูลค่า(บาท)': f'{sum(x["val"] for x in b["rows"]):.2f}',
                  'ไม่มีรูปตรวจรับ': 0, 'ไฟล์': fname, 'ผู้ตรวจรับเซ็น': '', 'วันที่เซ็น': '',
-                 'หมายเหตุ': f'ออกใหม่แทนฉบับ {old[0]["วันที่ออก"]} (ยังไม่พิมพ์)' if reissue else '',
+                 'หมายเหตุ': ' · '.join(filter(None, [
+                     f'ออกใหม่แทนฉบับ {old[0]["วันที่ออก"]} (ยังไม่พิมพ์)' if reissue else '', note])),
                  'รหัสยา': ','.join(sorted({x['code'] for x in b['rows']}))}
                 for (qd, bill, sup, ptype), b in items]
     if reissue:  # แถวใหม่แทนที่ตำแหน่งเดิมของใบนั้นในทะเบียน
