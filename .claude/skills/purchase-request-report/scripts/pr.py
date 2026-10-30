@@ -8,7 +8,7 @@
     python pr.py verify --workdir W              ตรวจ report_out.xlsx หลัง apply.ps1
     python pr.py line   --workdir W [--date ...] [--note CODE=ข้อความ ...] [--to พี่...]
 """
-import argparse, datetime as dt, json, os, re, sys, tempfile, warnings
+import argparse, csv, datetime as dt, json, os, re, sys, tempfile, warnings
 from collections import defaultdict, Counter
 
 warnings.filterwarnings('ignore')
@@ -62,6 +62,57 @@ CEILING = {
 CEIL_LINE = (f'เพดานพื้นที่ ({len(CEILING)} รายการที่ห้องเก็บจำกัด เช่น น้ำเกลือ/ยาลังใหญ่): เพดาน = MIN(พื้นที่เก็บ, Avg/เดือน × 2) · '
              f'จุดสั่งซื้อ = Avg/วัน × (Lead Time + 7 + {CEIL_BUFFER} วันกันชน) · '
              'จำนวนแนะนำ = เพดาน − คงเหลือตอนของมาถึง ปัดลงเต็มลัง (ของมาถึงแล้วไม่เกินพื้นที่)')
+
+
+# สถานะ PO ในไลน์ตามยา (user สั่ง 29/10/2569) — ระบบติดตามการสั่งซื้อของจัดซื้อไม่มีรายการยาแยกต่อ PO
+# มีแค่ Medicine_Name ที่จัดซื้อพิมพ์ย่อเอง → จับคู่ด้วยชื่อ (6 ตัวอักษรแรก + ขนาด) · ผลจาก scripts/po_match.py (เขียนทับทุกรอบ)
+PO_CSV = r'C:\Users\PRH0000484\Desktop\ยอดคงคลัง\ส่งบิลให้พี่โก้\_POจัดซื้อ_จับคู่บิล.csv'
+PO_OVERDUE_DAYS = 10
+# ชื่อย่อในระบบที่จับจากชื่อยาไม่ได้ — รหัส: (คำในชื่อ PO, ชื่อเต็มที่ใช้ในไลน์) · user ยืนยันแล้ว
+PO_ALIAS = {
+    '1520002': ('_alc450', 'Ethylalcohol 70% 450ml'),   # PO 028.05/2570 (29/10/2569)
+}
+
+
+def load_po():
+    """PO ที่ยังรอยามาส่ง (รวมส่งบางส่วน) จาก PO_CSV — ไม่มีไฟล์ = None"""
+    if not os.path.exists(PO_CSV):
+        return None
+    rows = []
+    with open(PO_CSV, encoding='utf-8-sig', newline='') as f:
+        for r in csv.DictReader(f):
+            if not r['เลขที่PO'].startswith('PO ') or r['สถานะในระบบ'] != 'รอยามาส่ง':
+                continue
+            dd, mm, yy = r['วันที่ออกPO'].split('/')
+            r['issued'] = dt.datetime(int(yy) - 543, int(mm), int(dd))
+            lab = re.sub(r'_?\d{1,2}_\d{1,2}_\d{4}$', '', r['ชื่อยา(ระบบ)']).strip(' _,')
+            for alias, full in PO_ALIAS.values():
+                lab = lab.replace(alias, ' ' + full)
+            r['label'] = re.sub(r'\s+', ' ', lab).strip(' ,')
+            rows.append(r)
+    return rows
+
+
+def po_match(code, name, pos):
+    """(PO ที่ชื่อ+ขนาดตรง, PO ชื่อคล้ายแต่ขนาดไม่ตรง)"""
+    strong, weak = [], []
+    alias = PO_ALIAS.get(code, (None,))[0]
+    tok = re.match(r'[A-Za-z]+', str(name).strip())
+    key = tok.group(0).lower()[:6] if tok else ''
+    num = re.search(r'\d+(?:\.\d+)?', str(name))
+    for p in pos:
+        raw = p['ชื่อยา(ระบบ)'].lower()
+        if alias and alias.lower() in raw:
+            strong.append(p)
+        elif len(key) >= 5 and key in re.sub(r'[^a-z]', '', raw):
+            (strong if num and num.group(0) in p['label'].lower() else weak).append(p)
+    return strong, weak
+
+
+def po_text(p, today):
+    co = re.sub(r'^บริษัท\s*', '', p['บริษัท(ระบบ)']).strip()
+    part = ' ส่งมาบางส่วนแล้ว' if p['ผล'].startswith('ส่งบางส่วน') else ''
+    return f"มี {p['เลขที่PO']} (ออก {ce(p['issued'])} · {co}){part} ยังไม่มาส่ง {(today - p['issued']).days} วัน"
 
 
 def twin_q(d, code):
@@ -742,6 +793,9 @@ def cmd_line(a):
         if isinstance(x['B'], dt.datetime):
             notify[x['code']] = max(notify.get(x['code'], x['B']), x['B'])
     notes = dict(n.split('=', 1) for n in (a.note or []))
+    po_force = dict(n.split('=', 1) for n in (a.po or []))   # CODE=PO 076.05/2570 · CODE=- (ไม่มี PO)
+    pos = load_po()
+    po_used, po_weak = set(), []
     last, unmet = d.request_stats()
     ac = d.ac
     sel = []
@@ -798,9 +852,29 @@ def cmd_line(a):
                        + ("แต่ไม่มีจ่าย" if U[2] <= 0 else f"จ่ายได้ {qfmt(U[2])} ไม่พอจ่าย"))
         if code in notes:
             why.insert(0, notes[code])
+        if pos is not None:
+            name = str(r[ac['name']]).strip()
+            f = po_force.get(code)
+            if f is not None:
+                hit = [p for p in pos if p['เลขที่PO'] == f.strip()] if f.strip() != '-' else []
+                if f.strip() != '-' and not hit:
+                    raise SystemExit(f'--po {code}: ไม่พบ "{f}" ใน PO ที่ยังรอยามาส่ง')
+            else:
+                hit, weak = po_match(code, name, pos)
+                po_weak += [(code, name, p) for p in weak]
+            po_used.update(p['เลขที่PO'] for p in hit)
+            why.append(' / '.join(po_text(p, today) for p in hit) if hit else 'ยังไม่พบ PO ในระบบติดตามการสั่งซื้อ')
         s += f"\n   เหตุผล: {' / '.join(why)} ครับ"
         items.append((0 if urgent else 1, grp, s))
         audit.append((code, r[ac['status']], 'แจ้ง' if n else ('Sheet1' if prev else 'ไม่มี')))
+    # PO ออกเกิน 10 วันยังไม่มีของเลย ที่ไม่ตรงกับข้อไหน → ข้อในติดตามทั่วไป (user สั่ง 29/10/2569: ไม่ส่งไลน์ตาม PO แยก)
+    for p in (pos or []):
+        if p['เลขที่PO'] in po_used or 'เกินกำหนด' not in p['ผล']:
+            continue
+        co = re.sub(r'^บริษัท\s*', '', p['บริษัท(ระบบ)']).strip()
+        days = (today - p['issued']).days
+        items.append((1, 2, f"{p['label']} — {p['เลขที่PO']} ออกวันที่ {ce(p['issued'])} บริษัท {co}"
+                            f"\n   เหตุผล: ออก PO แล้ว {days} วัน (เกิน {PO_OVERDUE_DAYS} วัน) ยังไม่มีของเข้า ครับ"))
     items.sort(key=lambda t: (t[0], t[1]))
     heads = {0: 'ด่วน — หมด / ของจะหมดก่อนบริษัทส่งทัน / หน่วยงานขอเบิกแล้วยังไม่ได้ของ', 1: 'ติดตามทั่วไป'}
     i = 0
@@ -829,6 +903,18 @@ def cmd_line(a):
     unk = [k for k in notes if k not in {c for c, _, _ in audit}]
     if unk:
         out('!! --note ระบุรหัสที่ไม่อยู่ในรายการ:', unk)
+    if pos is None:
+        out(f'!! ไม่พบ {PO_CSV} — ไลน์ไม่มีสถานะ PO (รัน python scripts/po_match.py ก่อน)')
+    else:
+        out(f'สถานะ PO จาก _POจัดซื้อ_จับคู่บิล.csv (po_match.py รันล่าสุด {dt.datetime.fromtimestamp(os.path.getmtime(PO_CSV)):%d/%m/%Y %H:%M})'
+            f' · PO รอยามาส่ง {len(pos)} ใบ — จับคู่จากชื่อที่จัดซื้อพิมพ์ย่อ ไม่มีรายการยาแยกต่อ PO')
+        for code, name, p in po_weak:
+            out(f'?? PO ชื่อคล้ายแต่ขนาดไม่ตรง (ไลน์เขียนว่ายังไม่พบ PO): {code} {name} ↔ {p["เลขที่PO"]} "{p["label"]}"'
+                f' — ถ้าใช่ใส่ --po "{code}={p["เลขที่PO"]}"')
+        rest = [p for p in pos if p['เลขที่PO'] not in po_used and 'เกินกำหนด' not in p['ผล']]
+        if rest:
+            out('PO รอยามาส่งที่ไม่ได้อยู่ในไลน์ (ไว้ดูชื่อย่อที่จับไม่ได้):',
+                ' · '.join(f"{p['เลขที่PO'][3:]} {p['label'][:40]}" for p in rest))
 
 
 def main():
@@ -838,10 +924,12 @@ def main():
     ap.add_argument('--date', help='วันที่แจ้ง YYYY-MM-DD (ค่าเริ่มต้น = วันนี้)')
     ap.add_argument('--note', action='append', help='เหตุผลเพิ่มจากผู้ใช้ รูปแบบ CODE=ข้อความ (ใช้ซ้ำได้)')
     ap.add_argument('--cancel', action='append', help='plan: ยกเลิกแจ้ง รูปแบบ CODE=เหตุผล → ย้ายไป Sheet1 แบบ ☐ + หมายเหตุ')
+    ap.add_argument('--po', action='append', help='line: กำหนด PO เอง รูปแบบ CODE=PO 076.05/2570 หรือ CODE=- (ไม่มี PO)')
     ap.add_argument('--to', default='พี่', help='ชื่อผู้รับในคำขึ้นต้น เช่น "พี่หัวหน้า"')
     a = ap.parse_args()
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')   # SystemExit ภาษาไทยออก stderr
     {'check': cmd_check, 'plan': cmd_plan, 'verify': cmd_verify, 'line': cmd_line}[a.cmd](a)
 
 
