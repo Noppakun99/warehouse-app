@@ -36,6 +36,8 @@ try {
   foreach ($rr in $RowList) { Invoke-Retry { $null = $ws.Range("B${rr}:Q$rr").Copy($ns.Range("A$dr")) } "copy row $rr"; $dr++ }
   for ($c = 0; $c -lt 16; $c++) { $ns.Columns.Item($c + 1).ColumnWidth = $ws.Columns.Item($c + 2).ColumnWidth }
   $ns.Rows.Item(1).RowHeight = $ws.Rows.Item(6).RowHeight
+  # ฟอร์มใหม่ user ตกลง 02/11/2569: หมายเหตุกว้าง 2 เท่า (ได้พื้นที่จาก MainLog + ชนิด ที่ซ่อน หลัง sort) — ความกว้างรวมเท่าเดิม ตัวอักษรไม่เล็กลง
+  $ns.Columns.Item(16).ColumnWidth = $ws.Columns.Item(17).ColumnWidth + $ws.Columns.Item(3).ColumnWidth + $ws.Columns.Item(6).ColumnWidth
   $n = $RowList.Count
   if ($SortLog) {
     # Excel sort ไม่สนขีด: E-10 < E-11 < E-1-3 · ห้องประชุม/ตู้เย็นอยู่ท้าย
@@ -49,6 +51,7 @@ try {
   } else {
     $k = 2; foreach ($rr in $RowList) { $h0 = $ws.Rows.Item($rr).RowHeight; $null = $ns.Rows.Item($k).AutoFit(); if ($ns.Rows.Item($k).RowHeight -lt $h0) { $ns.Rows.Item($k).RowHeight = $h0 }; $k++ }
   }
+  $ns.Columns.Item(2).Hidden = $true; $ns.Columns.Item(5).Hidden = $true
   $ps = $ns.PageSetup
   Invoke-Retry {
     $ps.PaperSize = 9; $ps.Orientation = 2; $ps.Zoom = $false; $ps.FitToPagesWide = 1; $ps.FitToPagesTall = $false
