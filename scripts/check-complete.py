@@ -74,6 +74,8 @@ pdfs = {os.path.basename(p): os.path.relpath(p, REQ_PDF) for p in glob.glob(os.p
 imgs = [p for p in glob.glob(os.path.join(REQ_IMG, '*', '*')) if os.path.isfile(p)]
 # รูปที่เก็บเป็นหลักฐานอย่างเดียว ไม่ได้ลงชีทเบิก จึงไม่มี PDF (ชื่อไฟล์ → เหตุผล)
 NO_PDF = {
+    '3.11.69_IPD_ยกเลิกD5S5ใบ8.9.69_ใบเบิก.jpg': 'หลักฐานยกเลิก D-5-S/5 ใบ IPD 8/9/69 — ไม่มี PDF ใหม่',
+    '3.11.69_IPD_ยกเลิกD5S5ใบ8.9.69_PDFขีดฆ่า.jpg': 'PDF ใบ 8/9/69 ที่ขีดฆ่า 2 แถว — หลักฐานยกเลิก',
     '16.10.69_ปฐมภูมิ_คืนยาน้ำท่วม_เก็บห้องยาG.jpg': 'ปฐมภูมิคืนยาน้ำท่วม 109 ชุด เก็บห้องยาG ไม่ลง Master (user ตกลง 19/10/2569)',
     '22.10.69_ห้องยาG_ยา_ปก.jpg': 'หน้าปกใบเบิก บย.70/0023 — รายการ/PDF อยู่กับรูป 22.10.69_ห้องยาG_ยา.jpg',
     '26.10.69_ห้องยา1_ยา_ปก.jpg': 'หน้าปกใบเบิก บย.70/0033 — รายการ/PDF อยู่กับรูป 26.10.69_ห้องยา1_ยา.jpg',
@@ -201,7 +203,8 @@ sent = {(r['เลขที่บิล'].strip(), r['วันที่รั�
 unsigned = sorted({r['เลขที่ใบ'] for r in read_csv(HANDOVER) if not r['จัดซื้อเซ็นรับ'].strip()})
 bills = {}
 for x in recv:
-    if x['status'] == 'การซื้อ' and x['date'] and x['date'] >= HANDOVER_SINCE:
+    # บิลยาเสพติด เจ้าหน้าที่ยาเสพติดส่งจัดซื้อเอง คลังไม่ออกใบส่งบิล (user 03/11/2569)
+    if x['status'] == 'การซื้อ' and x['date'] and x['date'] >= HANDOVER_SINCE and 'กองควบคุมวัตถุเสพติด' not in str(x['company']):
         bills.setdefault((x['bill'], be(x['date'])), x)
 todo = [(k, v) for k, v in bills.items() if k not in sent]
 for (bill, d), x in todo:
@@ -266,6 +269,10 @@ if po_rows is not None:
     for r in po_out:
         if po_match.is_problem(r['ผล']):
             bad(f"{r['เลขที่PO']} บิล {r.get('บิล(ชีท)', '') or '-'} — {r['ผล']}")
+    # PO ยาเสพติด: บิลไม่ได้มาถึงคลังเอง (user สั่ง 03/11/2569) — เตือนตั้งแต่ออก PO จนลงบิลแล้ว ไม่นับเป็นไม่ครบ
+    for r in po_out:
+        if r['ผล'].startswith('รอยามาส่ง') and po_match.is_narcotic_po(r):
+            print(f"  … {r['เลขที่PO']} ซื้อยาเสพติด {r['ชื่อยา(ระบบ)']} {float(r['ยอดPO'] or 0):,.2f} บาท (ออก PO {r['วันที่ออกPO']}) — ทวงเจ้าหน้าที่ยาเสพติดส่งบิล")
     late = [r for r in po_out if r['ผล'] == 'รอยามาส่ง — เกินกำหนด']
     for r in late:
         print(f"  … {r['เลขที่PO']} ยาเกิน {po_match.OVERDUE_DAYS} วันยังไม่มาส่ง (ออก PO {r['วันที่ออกPO']}) {r['บริษัท(ระบบ)']}")

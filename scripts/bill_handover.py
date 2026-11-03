@@ -130,6 +130,8 @@ def main():
     for n, r in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
         if r[4] != 'การซื้อ' or not isinstance(r[14], datetime.datetime):
             continue
+        if 'กองควบคุมวัตถุเสพติด' in str(r[17]):  # เจ้าหน้าที่ยาเสพติดส่งบิลให้จัดซื้อเอง (user 03/11/2569)
+            continue
         rd = r[14].date()
         if rd < since:
             continue

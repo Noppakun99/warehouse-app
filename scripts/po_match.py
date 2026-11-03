@@ -190,6 +190,12 @@ def is_problem(res):
         or 'แก้ PO' in res
 
 
+def is_narcotic_po(row):
+    """PO ยาเสพติด = ผู้ขาย อย. (ระบบเขียน อย / อย.) — ใบแจ้งหนี้ส่งถึงเจ้าหน้าที่ยาเสพติด คลังต้องทวงบิล"""
+    company = str(row.get('บริษัท(ระบบ)') or '').replace('.', '').strip()
+    return company == 'อย' or 'คณะกรรมการอาหาร' in company or 'เงินทุนหมุนเวียน' in company
+
+
 def main():
     commit = '--commit' in sys.argv
     short_ok = [x for x in (arg('--short-ok') or '').split(',') if x.strip()]

@@ -209,7 +209,7 @@ if g23:
 unsigned = collections.OrderedDict()
 for e in all_p:
     h = hand.get(e['bill'])
-    if h and h.get('จัดซื้อเซ็นรับ') != '✓':
+    if h and h.get('จัดซื้อเซ็นรับ') not in ('✓', 'ไม่ใช้ใบนี้'):
         unsigned.setdefault(h['เลขที่ใบ'], []).append(e['bill'])
 if unsigned:
     L2.append('')
@@ -220,7 +220,7 @@ for e in g1:
     if e['bill'] not in ok_insp:
         notes.append(f"บิล {e['bill']} ชีทเป็นตรวจรับแล้ว แต่ไม่มีใบ ตร. ที่ใช้งานอยู่ — ยืนยันก่อนส่งข้อความ")
 for e in all_p:
-    if e['bill'] not in hand:
+    if e['bill'] not in hand and not e['bill'].startswith('IT'):  # IT… = บิลยาเสพติด ไม่ออกใบส่งบิล
         notes.append(f"บิล {e['bill']} ยังไม่อยู่ในทะเบียนส่งบิลจัดซื้อ")
 if abs(tot(g1) + tot(g21) + tot(g22) + tot(g23) - tot(all_p)) > 0.005:
     notes.append('⛔ ผลรวมกลุ่มไม่เท่ายอดค้าง')
