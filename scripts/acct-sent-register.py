@@ -13,7 +13,7 @@ STOCK = H + r'\OneDrive\ยอดคลังยา_69.xlsm'
 RECV = H + r'\OneDrive\รับจากการซื้อ_ยืม_ตุลา2567-2569.xlsm'
 OUT = H + r'\Desktop\ยอดคงคลัง\ยอดคงคลังส่งบัญชี\_ทะเบียนบิลส่งบัญชี.csv'
 FY_MONTHS = ['ก.ย.68', 'ต.ค.68', 'พ.ย.68', 'ธ.ค.68', 'ม.ค.69', 'ก.พ.69', 'มี.ค.69', 'เม.ย.69', 'พ.ค.69', 'มิ.ย.69', 'ก.ค.69', 'ส.ค.69']
-SOURCES = [(FY, m, m) for m in FY_MONTHS] + [(STOCK, 'Master_ก.ย.69', 'ก.ย.69'), (STOCK, 'Master', 'ต.ค.69')]
+SOURCES = [(FY, m, m) for m in FY_MONTHS] + [(STOCK, 'Master_ก.ย.69', 'ก.ย.69'), (STOCK, 'Master_ต.ค.69', 'ต.ค.69'), (STOCK, 'Master', 'พ.ย.69')]
 
 
 def bkey(v):
