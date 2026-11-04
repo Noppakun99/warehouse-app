@@ -126,6 +126,38 @@ test.describe('แถบปุ่มล่างจอ — ผู้เบิก
     expect(box.width).toBeLessThanOrEqual(375);
   });
 
+  // อ่านอย่างเดียว — ค้นยา 1 ตัว → แผงยาที่เลือกต้องเป็นการ์ด ไม่ใช่ตารางที่ต้องเลื่อนแนวนอน (รูปจาก user 04/11/2569)
+  async function expectDrugCards(page) {
+    await page.getByPlaceholder(/ค้นหา/).first().fill('Baclofen 10mg');
+    await page.getByRole('button', { name: /^Baclofen 10mg(?!.*\d{6})/ }).first().click();   // แถวใน dropdown — การ์ดรายการหลักของหน้ารับยาเป็น button เหมือนกันแต่มีรหัสยาในชื่อ
+    await expect(page.getByText(/^รหัส: /)).toBeVisible({ timeout: 30_000 });      // เข้าแผงยาที่เลือกแล้ว
+    const card = page.getByRole('button', { name: /Lot .*Exp /i }).first();
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('table')).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth), 'หน้าเลื่อนแนวนอน').toBeLessThanOrEqual(375);
+    await card.click();
+    await expect(page.getByText('หน่วยงาน', { exact: true }).or(page.getByText('บริษัท', { exact: true })).first()).toBeVisible();
+  }
+
+  test('ค้นยาในประวัติเบิก/ประวัติรับบนมือถือ: เป็นการ์ด ไม่ต้องเลื่อนแนวนอน · แตะเปิดรายละเอียด · จอคอมยังเป็นตาราง', async ({ page }) => {
+    await openDispense(page, async () => {
+      await page.getByRole('button', { name: 'เปิดเมนู' }).click();
+      await page.getByRole('button', { name: 'ประวัติเบิกจ่าย', exact: true }).click();
+    });
+    await expectDrugCards(page);
+    await page.locator('.fixed.inset-0.z-50').first().click({ position: { x: 10, y: 10 } });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.locator('table').first()).toBeVisible();
+    await page.setViewportSize({ width: 375, height: 812 });
+
+    await page.getByRole('button', { name: 'เปิดเมนู' }).click();
+    const leaf = page.getByRole('button', { name: 'ประวัติรับยา', exact: true });
+    if (!(await leaf.isVisible().catch(() => false))) await page.getByRole('button', { name: 'รับยา', exact: true }).click();
+    await leaf.click();
+    await expect(page.getByText('บันทึกการรับเข้าคลัง').first()).toBeVisible({ timeout: 15_000 });
+    await expectDrugCards(page);
+  });
+
   test('หน้าเบิกยาออนไลน์ไม่มีแถบล่าง (มีแถบปุ่มของตัวเอง)', async ({ page }) => {
     await page.getByRole('button', { name: 'เปิดเมนู' }).click();
     await page.getByRole('button', { name: 'เบิกยาออนไลน์', exact: true }).click();
@@ -200,6 +232,34 @@ test.describe('แถบปุ่มล่างจอ — ผู้เบิก
 });
 
 test.describe('ติดตั้งเป็นแอป (PWA) + บัตรยา → การ์ดคลัง lot (staff)', () => {
+  test('ลบแถวจากการ์ดยาที่ค้น: การ์ดหายทันที ลบซ้ำไม่ได้ · วันที่เบิกเป็น พ.ศ. Exp เป็น ค.ศ. (ปิดการเขียนทุกตัว ไม่แตะ DB)', async ({ page }) => {
+    const writes = [];
+    await page.route('**/rest/v1/**', (route) => {
+      const m = route.request().method();
+      if (m === 'GET' || m === 'HEAD') return route.continue();
+      writes.push(`${m} ${new URL(route.request().url()).pathname}`);
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[{"id":1}]' });
+    });
+    await login(page, process.env.TEST_STAFF_USER || 'Kao_9', process.env.TEST_STAFF_PASS || '96409999');
+    await dismissStartupPopup(page, 15_000);
+    await page.getByRole('button', { name: 'เปิดเมนู' }).click();
+    await page.getByRole('button', { name: 'ประวัติเบิกจ่าย', exact: true }).click();
+    await page.getByPlaceholder(/ค้นหา/).first().fill('Baclofen 10mg');
+    await page.getByRole('button', { name: /^Baclofen 10mg(?!.*\d{6})/ }).first().click();
+    const cards = page.getByRole('button', { name: /Lot .*Exp /i });
+    await expect(cards.first()).toBeVisible({ timeout: 30_000 });
+    await expect(cards.first()).toContainText(/\/25\d\d/);                  // วันที่เบิก พ.ศ.
+    await expect(cards.first()).toContainText(/Exp \d+\/\d+\/20\d\d/);      // Exp ค.ศ.
+    const before = await cards.count();
+    await cards.first().click();
+    const del = page.getByRole('button', { name: 'ลบ', exact: true });
+    test.skip(!(await del.isVisible().catch(() => false)), 'บัญชีนี้ไม่ใช่ admin');
+    page.once('dialog', d => d.accept());
+    await del.click();
+    await expect(cards).toHaveCount(before - 1);
+    expect(writes.filter(w => w.includes('/dispense_logs')), 'ลบครั้งเดียว').toHaveLength(1);
+  });
+
   test('Chrome ยอมรับว่าติดตั้งได้ (ไม่มี installability error) + manifest/ไอคอนโหลดได้', async ({ page }) => {
     await page.goto('/');
     const res = await page.request.get('/manifest.webmanifest');

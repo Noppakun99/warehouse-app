@@ -66,8 +66,8 @@ useEffect(() => {
 
 | App | สถานะ |
 |-----|------|
-| ReceiveLogApp | card list + bottom sheet ✅ |
-| DispenseLogApp (DispenseView) | card list + bottom sheet ✅ |
+| ReceiveLogApp | card list + bottom sheet ✅ · แผงค้นยาตัวเดียว (`selectedDrug`) เป็นการ์ดด้วย (04/11/2569) |
+| DispenseLogApp (DispenseView) | card list + bottom sheet ✅ · แผงค้นยาตัวเดียว (`selectedDrug`) เป็นการ์ดด้วย (04/11/2569) |
 | ReturnApp (HistoryTab) | card list + bottom sheet ✅ (ปุ่ม Print ใน bottom sheet) |
 | AuditLogApp | card list + edit bottom sheet ✅ |
 | UserManagementApp | card list + action buttons ✅ (ใช้ modal เดิม) |
@@ -211,6 +211,10 @@ if (!hasName && !hasCode) return false;
 - ปุ่ม "ถัดไป" แสดงเฉพาะ `rows.length === PAGE_SIZE`
 - Input พิมพ์เลขหน้า: `key={page}` + `defaultValue={page+1}` → กด Enter หรือ blur เพื่อ jump
 - แสดงข้อความ: หน้า [input] / {totalPages} ({count} รายการ)
+
+### ปีที่แสดงในประวัติเบิก/ประวัติรับ (user ตัดสิน 04/11/2569)
+- วันที่เบิก/รับ/แจ้งสั่ง/ตรวจรับ + chip ช่วงข้อมูล + ช่องวันที่ แสดง **พ.ศ.** ด้วย `fmtDateBE`/`toBE` — **เฉพาะตอนแสดง** state ของ `ThaiDateInput` ยังเป็น ค.ศ. เพราะ `thaiToIso` ใช้แปลงไป query
+- **Exp คง ค.ศ.** (`fmtAnyDate` เรียก `fmtDate` ตัวเดิม) ให้ตรงกับที่พิมพ์บนกล่องยา · ห้ามเปลี่ยน `fmtDate` เป็น พ.ศ. ไม่งั้น Exp และเอกสารพิมพ์ของหน้าส่งบัญชีเปลี่ยนตาม
 
 ### Date Range Display
 - แสดง chip "ข้อมูลตั้งแต่ DD/MM/YYYY – DD/MM/YYYY · X ปี Y เดือน Z วัน" เหนือ stat cards

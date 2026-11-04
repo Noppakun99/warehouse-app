@@ -50,7 +50,7 @@ function ThaiDateInput({ value, onChange, placeholder = 'dd/mm/yyyy', ring = 'fo
   return (
     <div className={`relative ${size} min-h-[36px] border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:outline-none ${ring}`}>
       <span className={`px-2 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>
-        {value || placeholder}
+        {toBE(value || placeholder)}
       </span>
       <input type="date"
         className="absolute inset-0 opacity-0 w-full cursor-pointer text-base"
@@ -184,6 +184,9 @@ const fmtDate = (iso) => {
   if (isNaN(d)) return iso;
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
 };
+// ปี ค.ศ. → พ.ศ. เฉพาะตอนแสดงผล (state ของช่องวันที่ + Exp ยังเป็น ค.ศ. — Exp ตรงกับที่พิมพ์บนกล่องยา)
+const toBE = (s) => (s || '').replace(/(\d{1,2}\/\d{1,2}\/)(\d{4})$/, (_, dm, y) => `${dm}${Number(y) + 543}`) || s;
+const fmtDateBE = (iso) => toBE(fmtDate(iso));
 
 const MON = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
 
@@ -2151,18 +2154,18 @@ function ReceiveView({ auth = {} }) {
           </div>
 
           {/* Summary cards */}
-          <div className="grid grid-cols-3 gap-3 px-4 py-3">
-            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
-              <p className="text-2xl font-bold text-white tabular-nums">{filteredDrugRows.length.toLocaleString()}</p>
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 px-4 py-3">
+            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-slate-300/50">
+              <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{filteredDrugRows.length.toLocaleString()}</p>
               <p className="text-xs text-slate-300 mt-0.5">รายการ (กรอง)</p>
             </div>
-            <div className="relative overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-700 rounded-2xl p-3.5 text-center shadow-lg shadow-emerald-300/60">
+            <div className="relative overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-700 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-emerald-300/60">
               <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
-              <p className="relative text-2xl font-bold text-white tabular-nums">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+              <p className="relative text-base sm:text-2xl font-bold text-white tabular-nums break-all">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
               <p className="relative text-xs text-emerald-50 mt-0.5">ปริมาณรับรวม</p>
             </div>
-            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
-              <p className="text-2xl font-bold text-white tabular-nums">{drugTotalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
+            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-amber-200/60">
+              <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{drugTotalValue.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
               <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวมภาษี (บาท)</p>
             </div>
           </div>
@@ -2172,6 +2175,42 @@ function ReceiveView({ auth = {} }) {
             <p className="text-center text-slate-400 dark:text-slate-500 py-8 text-sm">กำลังโหลด...</p>
           ) : filteredDrugRows.length === 0 ? (
             <p className="text-center text-slate-400 dark:text-slate-500 py-8 text-sm">ไม่พบข้อมูลในช่วงที่เลือก</p>
+          ) : isMobile ? (
+            <div className="px-3 pb-3 space-y-2">
+              {filteredDrugRows.map(r => (
+                <button key={r.id} onClick={() => setMobileDetail(r)}
+                  className="w-full text-left bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-3 shadow-sm active:bg-emerald-50 dark:active:bg-emerald-950/40 transition-colors">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-slate-900 dark:text-slate-50 text-sm">{fmtDateBE(r.receive_date)}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words">{getDetailSupplier(r) || r.supplier_current || '-'}</p>
+                      {r.supplier_changed && r.supplier_changed !== '-' && (
+                        <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-900/60">
+                          <ArrowLeftRight size={10}/> เปลี่ยนบริษัท
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="inline-flex items-center rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold px-2.5 py-0.5 text-sm tabular-nums">{r.qty_received ? `+${r.qty_received.toLocaleString()}` : '-'}</span>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{r.drug_unit || r.unit_per_bill || '-'}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2 text-[11px]">
+                    <span className="font-mono break-all bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md">Lot {r.lot || '-'}</span>
+                    <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md">Exp {fmtAnyDate(r.exp)}</span>
+                  </div>
+                  {r.bill_number && r.bill_number !== '-' && (
+                    <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 break-all">เลขบิล <span className="font-mono text-slate-700 dark:text-slate-200">{r.bill_number}</span></p>
+                  )}
+                  {(r.price_per_unit != null || r.total_price_vat != null) && (
+                    <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+                      <span className="text-slate-500 dark:text-slate-400">{r.price_per_unit != null ? `ราคา/หน่วย ${Number(r.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}` : ''}</span>
+                      <span className="text-amber-700 dark:text-amber-300 font-bold tabular-nums">{r.total_price_vat != null ? `${Number(r.total_price_vat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} บาท` : '-'}</span>
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
           ) : (
             <div className="overflow-x-auto overflow-y-auto max-h-[480px]">
               <table className="w-full text-sm">
@@ -2196,7 +2235,7 @@ function ReceiveView({ auth = {} }) {
                         onClick={() => setDrugExpanded(drugExpanded === r.id ? null : r.id)}
                         className={`border-b border-slate-50 cursor-pointer transition-colors ${drugExpanded === r.id ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'hover:bg-emerald-50 dark:hover:bg-emerald-950/50'}`}
                       >
-                        <td className="px-4 py-3 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDate(r.receive_date)}</td>
+                        <td className="px-4 py-3 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDateBE(r.receive_date)}</td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">
                           {r.qty_received ? <span className="inline-flex items-center justify-end rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold px-2.5 py-0.5 text-xs tabular-nums">+{r.qty_received.toLocaleString()}</span> : '-'}
                         </td>
@@ -2228,8 +2267,8 @@ function ReceiveView({ auth = {} }) {
                           <td colSpan={10} className="px-6 py-3">
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-1.5 text-sm">
                               {[
-                                ['วันที่แจ้งสั่ง',   fmtDate(r.order_date)],
-                                ['วันที่ตรวจรับ',    fmtDate(r.inspect_date)],
+                                ['วันที่แจ้งสั่ง',   fmtDateBE(r.order_date)],
+                                ['วันที่ตรวจรับ',    fmtDateBE(r.inspect_date)],
                                 ['Leadtime',          r.leadtime],
                                 ['ระยะตรวจรับ',       r.inspect_lag],
                                 ['เลขที่ PO',         r.po_number],
@@ -2273,23 +2312,23 @@ function ReceiveView({ auth = {} }) {
           {aggStats?.minDate && aggStats?.maxDate && (
             <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 flex-wrap">
               <CalendarDays size={13} className="text-slate-400 dark:text-slate-500 shrink-0" />
-              <span>ข้อมูลตั้งแต่ <span className="font-semibold text-slate-700 dark:text-slate-200">{isoToThai(aggStats.minDate)}</span> – <span className="font-semibold text-slate-700 dark:text-slate-200">{isoToThai(aggStats.maxDate)}</span></span>
+              <span>ข้อมูลตั้งแต่ <span className="font-semibold text-slate-700 dark:text-slate-200">{toBE(isoToThai(aggStats.minDate))}</span> – <span className="font-semibold text-slate-700 dark:text-slate-200">{toBE(isoToThai(aggStats.maxDate))}</span></span>
               <span className="text-slate-400 dark:text-slate-500">·</span>
               <span className="text-slate-600 dark:text-slate-300">{dateDiff(aggStats.minDate, aggStats.maxDate)}</span>
             </div>
           )}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-3.5 text-center shadow-lg shadow-slate-300/50">
-            <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-slate-300/50">
+            <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
             <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{scopeLabel ? ` (${scopeLabel})` : ' ทุกบริษัท'}</p>
           </div>
-          <div className="relative overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-700 rounded-2xl p-3.5 text-center shadow-lg shadow-emerald-300/60">
+          <div className="relative overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-700 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-emerald-300/60">
             <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
-            <p className="relative text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.billCount.toLocaleString() : '...'}</p>
+            <p className="relative text-base sm:text-2xl font-bold text-white tabular-nums break-all">{aggStats ? aggStats.billCount.toLocaleString() : '...'}</p>
             <p className="relative text-xs text-emerald-50 mt-0.5">จำนวนบิล{scopeLabel ? ` (${scopeLabel})` : ' ทุกบริษัท'}</p>
           </div>
-          <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-3.5 text-center shadow-lg shadow-amber-200/60">
-            <p className="text-2xl font-bold text-white tabular-nums">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
+          <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-amber-200/60">
+            <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
             <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวมภาษี (บาท){scopeLabel ? ` (${scopeLabel})` : ' ทุกบริษัท'}</p>
           </div>
         </div>
@@ -2321,7 +2360,7 @@ function ReceiveView({ auth = {} }) {
             {/* header */}
             <div className="px-4 pb-3 border-b border-slate-100 dark:border-slate-800">
               <p className="font-bold text-slate-900 dark:text-slate-50 text-base leading-tight">{mobileDetail.drug_name}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{mobileDetail.drug_code} · {fmtDate(mobileDetail.receive_date)}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{mobileDetail.drug_code} · {fmtDateBE(mobileDetail.receive_date)}</p>
               {mobileDetail.supplier_changed && mobileDetail.supplier_changed !== '-' && (
                 <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-900/60">
                   <ArrowLeftRight size={11}/> เปลี่ยนบริษัท{mobileDetail.supplier_prev && mobileDetail.supplier_prev !== '-' ? ` (เดิม: ${mobileDetail.supplier_prev})` : ''}
@@ -2354,8 +2393,8 @@ function ReceiveView({ auth = {} }) {
                   ['Exp',              fmtAnyDate(mobileDetail.exp)],
                   ['ชนิดยา',           mobileDetail.drug_type],
                   ['สถานะตรวจรับ',     mobileDetail.receive_status],
-                  ['วันที่แจ้งสั่ง',   fmtDate(mobileDetail.order_date)],
-                  ['วันที่ตรวจรับ',    fmtDate(mobileDetail.inspect_date)],
+                  ['วันที่แจ้งสั่ง',   fmtDateBE(mobileDetail.order_date)],
+                  ['วันที่ตรวจรับ',    fmtDateBE(mobileDetail.inspect_date)],
                   ['เลขที่ PO',        mobileDetail.po_number],
                   ['ประเภทการซื้อ',    mobileDetail.purchase_type],
                   ['Leadtime',         mobileDetail.leadtime],
@@ -2387,7 +2426,7 @@ function ReceiveView({ auth = {} }) {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold text-slate-900 dark:text-slate-50 text-sm leading-tight truncate">{row.drug_name}</p>
-                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{row.drug_code} · {fmtDate(row.receive_date)}</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{row.drug_code} · {fmtDateBE(row.receive_date)}</p>
                 </div>
                 <div className="text-right shrink-0">
                   <span className="inline-flex items-center rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold px-2.5 py-0.5 text-xs tabular-nums">+{(row.qty_received||0).toLocaleString()}</span>
@@ -2444,7 +2483,7 @@ function ReceiveView({ auth = {} }) {
                       onClick={() => setExpanded(expanded === row.id ? null : row.id)}
                       className={`border-b border-slate-100 dark:border-slate-800 cursor-pointer transition-colors ${expanded === row.id ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'hover:bg-emerald-50 dark:hover:bg-emerald-950/50'}`}
                     >
-                      <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDate(row.receive_date)}</td>
+                      <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDateBE(row.receive_date)}</td>
                       <td className="px-4 py-2.5 font-semibold text-slate-900 dark:text-slate-50 max-w-[220px]">
                         <span className="block truncate">{row.drug_name}</span>
                         <span className="text-xs text-slate-600 dark:text-slate-300 font-normal">{row.drug_code}</span>
@@ -2477,8 +2516,8 @@ function ReceiveView({ auth = {} }) {
                         <td colSpan={12} className="px-6 py-3">
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-1.5 text-sm">
                             {[
-                              ['วันที่แจ้งสั่ง',   fmtDate(row.order_date)],
-                              ['วันที่ตรวจรับ',    fmtDate(row.inspect_date)],
+                              ['วันที่แจ้งสั่ง',   fmtDateBE(row.order_date)],
+                              ['วันที่ตรวจรับ',    fmtDateBE(row.inspect_date)],
                               ['Leadtime',          row.leadtime],
                               ['ระยะตรวจรับ',       row.inspect_lag],
                               ['เลขที่ PO',         row.po_number],

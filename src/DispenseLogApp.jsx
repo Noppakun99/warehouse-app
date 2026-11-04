@@ -54,6 +54,9 @@ const fmtDate = (iso) => {
   if (isNaN(d)) return iso;
   return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
 };
+// ปี ค.ศ. → พ.ศ. เฉพาะตอนแสดงผล (state ของช่องวันที่ + Exp ยังเป็น ค.ศ. — Exp ตรงกับที่พิมพ์บนกล่องยา)
+const toBE = (s) => (s || '').replace(/(\d{1,2}\/\d{1,2}\/)(\d{4})$/, (_, dm, y) => `${dm}${Number(y) + 543}`) || s;
+const fmtDateBE = (iso) => toBE(fmtDate(iso));
 
 // ถ้า drug_unit เป็นตัวเลข → ถือว่าเป็นราคา ไม่ใช่หน่วย text
 const isNumericVal = (v) => v != null && String(v).trim() !== '' && !isNaN(parseFloat(String(v))) && isFinite(String(v).trim());
@@ -94,7 +97,7 @@ function ThaiDateInput({ value, onChange, ring = 'focus-within:ring-rose-400', s
   return (
     <div className={`relative ${size} min-h-[36px] border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:outline-none ${ring}`}>
       <span className={`px-2 py-1.5 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>
-        {value || placeholder || 'dd/mm/yyyy'}
+        {toBE(value || placeholder) || 'dd/mm/yyyy'}
       </span>
       <input type="date"
         className="absolute inset-0 opacity-0 w-full cursor-pointer text-base"
@@ -424,6 +427,7 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
   const [selectedDrug, setSelectedDrug] = useState('');
   const [drugRows, setDrugRows]         = useState([]);
   const [drugLoading, setDrugLoading]   = useState(false);
+  const [drugReload, setDrugReload]    = useState(0);
   const [drugDateFrom, setDrugDateFrom] = useState('');
   const [drugDateTo, setDrugDateTo]     = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
@@ -568,9 +572,12 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
 
   const handleDelete = async (row, e) => {
     e.stopPropagation();
-    if (!window.confirm(`ลบรายการ "${row.drug_name}" วันที่ ${fmtDate(row.dispense_date)} ใช่หรือไม่?\nระบบจะคืนยอดคงเหลือ ${row.qty_out || 0} หน่วยกลับ inventory`)) return;
+    if (!window.confirm(`ลบรายการ "${row.drug_name}" วันที่ ${fmtDateBE(row.dispense_date)} ใช่หรือไม่?\nระบบจะคืนยอดคงเหลือ ${row.qty_out || 0} หน่วยกลับ inventory`)) return;
     if (!supabase) return;
-    await supabase.from('dispense_logs').delete().eq('id', row.id);
+    // นับจากแถวที่ลบได้จริง — ลบซ้ำ (แถวหายไปแล้ว) ต้องไม่คืนยอดเข้า inventory ซ้ำ
+    const { data: deleted, error } = await supabase.from('dispense_logs').delete().eq('id', row.id).select('id');
+    setDrugRows(prev => prev.filter(r => r.id !== row.id));
+    if (error || !deleted?.length) { load(); return; }
     await insertAuditLog({
       action: 'delete_dispense', table_name: 'dispense_logs',
       user_name: resolveAuditUserName(auth), department: auth?.department || '-',
@@ -593,7 +600,7 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
       .eq('drug_name', selectedDrug)
       .order('dispense_date', { ascending: false })
       .then(({ data }) => { setDrugRows(data || []); setDrugLoading(false); });
-  }, [selectedDrug]);
+  }, [selectedDrug, drugReload]);
 
   const filteredDrugRows = useMemo(() => drugRows.filter(r => {
     if ((r.qty_out || 0) <= 0) return false;
@@ -702,7 +709,7 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
           row={editingRow}
           auth={auth}
           onClose={() => setEditingRow(null)}
-          onSaved={() => { setEditingRow(null); load(); }}
+          onSaved={() => { setEditingRow(null); load(); setDrugReload(n => n + 1); }}
         />
       )}
       {/* Filter card — มือถือ: ช่องค้นหา + ปุ่มตัวกรอง (bottom sheet) · คอม: layout เดิม */}
@@ -785,6 +792,34 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
             <p className="text-center text-slate-400 dark:text-slate-500 py-8 text-sm">กำลังโหลด...</p>
           ) : filteredDrugRows.length === 0 ? (
             <p className="text-center text-slate-400 dark:text-slate-500 py-8 text-sm">ไม่พบข้อมูลในช่วงที่เลือก</p>
+          ) : isMobile ? (
+            <div className="px-3 pb-3 space-y-2">
+              {filteredDrugRows.map(r => (
+                <button key={r.id} onClick={() => setMobileDetail(r)}
+                  className="w-full text-left bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-3 shadow-sm active:bg-rose-50 dark:active:bg-rose-950/40 transition-colors">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-slate-900 dark:text-slate-50 text-sm">{fmtDateBE(r.dispense_date)}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words">{r.department || '-'}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="inline-flex items-center rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold px-2.5 py-0.5 text-sm tabular-nums">{fmtQtyOut(r.qty_out)}</span>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{getUnit(r) !== '-' ? getUnit(r) : drugUnit}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2 text-[11px]">
+                    <span className="font-mono break-all bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md">Lot {r.lot || '-'}</span>
+                    <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md">Exp {fmtAnyDate(r.exp)}</span>
+                  </div>
+                  {getPrice(r) != null && (
+                    <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+                      <span className="text-slate-500 dark:text-slate-400">ราคา/หน่วย {Number(getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                      <span className="text-amber-700 dark:text-amber-300 font-bold tabular-nums">{((r.qty_out||0)*getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} บาท</span>
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
           ) : (
             <div className="overflow-x-auto overflow-y-auto max-h-[480px]">
               <table className="w-full text-sm">
@@ -808,7 +843,7 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
                         onClick={() => setExpandedDrug(expandedDrug === r.id ? null : r.id)}
                         className={`border-b border-slate-100 dark:border-slate-800 cursor-pointer transition-colors ${expandedDrug === r.id ? 'bg-rose-50 dark:bg-rose-950/40' : 'hover:bg-rose-50 dark:hover:bg-rose-950/50'}`}
                       >
-                        <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDate(r.dispense_date)}</td>
+                        <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDateBE(r.dispense_date)}</td>
                         <td className="px-4 py-2.5 text-rose-700 dark:text-rose-300 font-bold text-right whitespace-nowrap">{fmtQtyOut(r.qty_out)}</td>
                         <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap font-medium">{getUnit(r) !== '-' ? getUnit(r) : drugUnit}</td>
                         <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{r.lot || '-'}</td>
@@ -876,7 +911,7 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
           {aggStats?.minDate && aggStats?.maxDate && (
             <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 flex-wrap">
               <CalendarDays size={13} className="text-slate-400 dark:text-slate-500 shrink-0" />
-              <span>ข้อมูลตั้งแต่ <span className="font-semibold text-slate-700 dark:text-slate-200">{isoToThai(aggStats.minDate)}</span> – <span className="font-semibold text-slate-700 dark:text-slate-200">{isoToThai(aggStats.maxDate)}</span></span>
+              <span>ข้อมูลตั้งแต่ <span className="font-semibold text-slate-700 dark:text-slate-200">{toBE(isoToThai(aggStats.minDate))}</span> – <span className="font-semibold text-slate-700 dark:text-slate-200">{toBE(isoToThai(aggStats.maxDate))}</span></span>
               <span className="text-slate-400 dark:text-slate-500">·</span>
               <span className="text-slate-600 dark:text-slate-300">{dateDiff(aggStats.minDate, aggStats.maxDate)}</span>
             </div>
@@ -915,7 +950,7 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
             <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mt-3 mb-1" />
             <div className="px-4 pb-3 border-b border-slate-100 dark:border-slate-800">
               <p className="font-bold text-slate-900 dark:text-slate-50 text-base leading-tight">{mobileDetail.drug_name}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{mobileDetail.drug_code} · {fmtDate(mobileDetail.dispense_date)}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{mobileDetail.drug_code} · {fmtDateBE(mobileDetail.dispense_date)}</p>
             </div>
             <div className="p-4 space-y-3">
               <div className="grid grid-cols-3 gap-2">
@@ -975,7 +1010,7 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-slate-900 dark:text-slate-50 truncate text-sm">{row.drug_name}</p>
-                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{row.drug_code} · {fmtDate(row.dispense_date)}</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{row.drug_code} · {fmtDateBE(row.dispense_date)}</p>
                 </div>
                 <div className="text-right shrink-0">
                   <span className="inline-flex items-center rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold px-2.5 py-0.5 text-xs tabular-nums">{fmtQtyOut(row.qty_out)}</span>
@@ -1024,7 +1059,7 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
                       onClick={() => setExpanded(expanded === row.id ? null : row.id)}
                       className={`border-b border-slate-50 cursor-pointer transition-colors ${expanded === row.id ? 'bg-rose-50 dark:bg-rose-950/40' : 'hover:bg-rose-50 dark:hover:bg-rose-950/50'}`}
                     >
-                      <td className="px-4 py-3 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDate(row.dispense_date)}</td>
+                      <td className="px-4 py-3 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDateBE(row.dispense_date)}</td>
                       <td className="px-4 py-3 font-semibold text-slate-900 dark:text-slate-50 max-w-[220px]">
                         <span className="block truncate">{row.drug_name}</span>
                         <span className="text-xs text-slate-500 dark:text-slate-400 font-normal">{row.drug_code}</span>
