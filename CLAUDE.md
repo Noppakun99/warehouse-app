@@ -232,7 +232,7 @@ Single-page React (ไม่มี React Router) — ทุก Supabase query �
 | `/karpathy-checklist` | Quick-check 4 ข้อก่อนลงมือ (Think / Simple / Surgical / Goal-Driven) |
 | `/grill-with-docs` | ซักค้านแผนทีละข้อกับ domain model + อัพเดต CONTEXT.md/ADR inline |
 | `/scrutinize` | รีวิว plan/PR/diff แบบ outsider — ตั้งคำถาม intent + trace code path จริง |
-| `/handoff` | สรุปงานเป็นเอกสารส่งต่อก่อน `/clear` (~120K token / เปลี่ยนงาน / ทิ้งเกิน 1 ชม.) — `/handoff git` = เซฟ `docs/` + push ให้อีกเครื่อง/Codex ทำต่อ · มีเช็คลิสต์งานคลังยา (Excel Save แล้วหรือยัง, เลขเอกสาร, คิวพิมพ์, โฟลเดอร์รอลง) |
+| `/handoff` | สรุปงานเป็นเอกสารส่งต่อก่อน `/clear` (~250K token / เปลี่ยนงาน / ทิ้งเกิน 1 ชม.) — `/handoff git` = เซฟ `docs/` + push ให้อีกเครื่อง/Codex ทำต่อ · มีเช็คลิสต์งานคลังยา (Excel Save แล้วหรือยัง, เลขเอกสาร, คิวพิมพ์, โฟลเดอร์รอลง) |
 | `/excel-com` | **โหลดก่อนเขียน `.xlsm`/`.xlsx` ของคลังทุกครั้ง** — ขั้นตอนบังคับ 10 ขั้น (สำเนา scratchpad → COM → Calculate → diff ทีละเซลล์ → codepage VBA → `cmp` → วางกลับ) + กับดัก COM ทั้งหมด (ย้ายจาก CLAUDE.md 19/10/2569) |
 | `/apply-location-moves` | ลงใบแจ้งย้ายที่เก็บ (เจ้าหน้าที่กด "ย้ายที่เก็บ" ในแผนผัง → ตาราง `location_move`) ลง Master D/E + ชีท list → นำเข้า → ใบปิดเอง · **check-complete เจอใบ pending → รันเลยไม่ต้องถาม (user อนุญาตถาวร 27/10/2569)** · conflict = ถาม user · [docs/features/location-move.md](docs/features/location-move.md) |
 | `/close-month-notice` | **ทำทุกเดือนหลังปิดยอด** — ข้อความแจ้งจัดซื้อ: จุดพิมพ์ตกหล่นในทะเบียน (อ้าง "แถว D5") + บิลส่งบัญชี/ค้าง แยกตรวจรับแล้ว/ยังไม่ตรวจรับ และขั้นตอน · `scripts/close-month-notice.py --month <เดือน>` |
