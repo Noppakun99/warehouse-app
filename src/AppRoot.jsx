@@ -42,6 +42,7 @@ import NotificationBell   from './NotificationBell';
 import DashboardV2Preview from './DashboardV2Preview'; // prototype ชั่วคราว — เปิดด้วย ?v2 (ลบได้ทั้งบรรทัด)
 import AppShell           from './AppShell';
 import DrugProfileModal   from './DrugProfileModal';
+import CompanyPolicyApp   from './CompanyPolicyApp';
 import { printInspectWorksheet } from './lib/inspectWorksheet';
 import { printReturnForm, printVendorExchangeForm } from './lib/returnForm';
 import { printExchangeOutForm, printExchangeInForm, printExchangePair } from './lib/vendorExchangeCycle';
@@ -124,6 +125,13 @@ export default function AppRoot() {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, [commitStack]);
+
+  // บริษัทที่เลือกในหน้านโยบายคืนบริษัท — เก็บที่นี่เพราะหน้า remount ตอนกดย้อนจากการ์ดคลัง lot
+  const [policyCompany, setPolicyCompany] = useState(null);
+  const openCompanyPolicy = (name) => {
+    setPolicyCompany(name);
+    setPage('return-policy');
+  };
 
   const openStockCardFor = (code, name) => {
     setStockCardTarget({ code, name });
@@ -278,6 +286,9 @@ export default function AppRoot() {
         content = <StockCardApp key={subKey} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack}
           initialDrug={stockCardTarget} onInitialDrugUsed={() => setStockCardTarget(null)} />;
         break;
+      case 'return-policy':
+        content = <CompanyPolicyApp key={subKey} company={policyCompany} onCompanyChange={setPolicyCompany} onOpenDrug={openDrug} onRefresh={refreshPage} onGoBack={goBack} canGoBack={canGoBack} />;
+        break;
       case 'temperature':
         content = <TemperatureLogApp key={subKey} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
@@ -292,7 +303,7 @@ export default function AppRoot() {
   if (auth) {
     const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username;
     content = (
-      <AppShell page={page} onNavigate={setPage} onFormAction={runFormAction} onOpenDrug={openDrug} onRefresh={refreshPage} displayName={displayName} role={auth.role} permissions={auth.permissions} auth={auth} onLogout={logout} badges={{ return: pendingReturns, requisition: pendingRequisitions }}>
+      <AppShell page={page} onNavigate={setPage} onFormAction={runFormAction} onOpenDrug={openDrug} onOpenCompany={openCompanyPolicy} onRefresh={refreshPage} displayName={displayName} role={auth.role} permissions={auth.permissions} auth={auth} onLogout={logout} badges={{ return: pendingReturns, requisition: pendingRequisitions }}>
         {content}
       </AppShell>
     );

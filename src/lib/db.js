@@ -3,13 +3,13 @@ import { computeClosing, ADJUST_TYPE } from './ledgerRollover.js'
 import { buildConsistencyReport } from './consistencyCheck.js'
 import { parseReturnPolicy, computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './swapPolicy.js'
 import { computeCountMatch } from './countMatch.js'
-import { flattenInventory, backfillDrugUnit, backfillSwapPolicy } from './excelSync.js'
+import { flattenInventory, backfillDrugUnit } from './excelSync.js'
 import { overlayMoves, planMove, reconcileMoves, buildMainLogMap } from './locationMove.js'
 import { isUsageRow, localYmd } from '../../supabase/functions/_shared/usageRow.js'
 import {
   parseUnitFactor, parseExpDate as _parseExpDate, waitDaysSince, isBelowSafetyStock, isPurchaseReceipt,
   pickMainUnit, stockTotalInMainUnit, latestPurchaseUnit, buildSearchIndex, buildDrugProfile, normDept,
-  latestPolicyByCompany,
+  latestPolicyByCompany, COMPANY_WIDE_POLICY_PREFIX,
 } from './drugProfile.js'
 import { isoMonthsAgo, isoPrevMonthEnd, listMonthYM } from './reorder.js'
 // ReorderApp import parseUnitFactor จาก db.js มาแต่เดิม — คงทางเข้าเดิมไว้ (ตัวจริงอยู่ drugProfile.js)
@@ -360,17 +360,9 @@ function _parseExpStr(raw) {
 }
 
 // insertReceiveRows — shared by importReceiveLogs (App.jsx path) and ReceiveLogApp
-// handles: drug_swap_policy backfill → DELETE all → INSERT chunks → audit log
+// handles: DELETE all → INSERT chunks → audit log
 export async function insertReceiveRows(rows, auth = {}) {
   if (!supabase) throw new Error('Supabase not configured')
-
-  // Backfill drug_swap_policy จาก DB สำหรับ row ที่ CSV ไม่มีข้อมูล (ก่อน DELETE)
-  const needLookup = [...new Set(rows.filter(r => !r.drug_swap_policy && r.drug_code && r.drug_code !== '-').map(r => r.drug_code))]
-  if (needLookup.length > 0) {
-    const { data: ddRows } = await supabase.from('receive_logs').select('drug_code, drug_swap_policy').in('drug_code', needLookup)
-    // ตัวเดียวกับที่ปุ่ม "นำเข้าจาก Excel" ใช้คำนวณส่วนต่าง (ห้ามแยกกัน)
-    if (ddRows) backfillSwapPolicy(rows, ddRows)
-  }
 
   const { error: delErr } = await supabase.from('receive_logs').delete().gte('id', 0)
   if (delErr) throw delErr
@@ -2715,15 +2707,16 @@ export async function fetchDrugProfile(drugCode, { department = null } = {}) {
     if (r.receive_date && (!receiveDates[k] || r.receive_date > receiveDates[k])) receiveDates[k] = r.receive_date
   }
 
-  // นโยบายคืนบริษัทราย lot: ตารางนโยบายบริษัท (deadline V1) + บิลใบล่าสุดที่มีนโยบายของบริษัทเดียวกัน (ยาใดก็ได้ —
+  // นโยบายคืนบริษัทราย lot: ตารางนโยบายบริษัท (deadline V1) + บิลใบล่าสุดของบริษัทเดียวกันที่นโยบายใช้ทุกรายการ (ยาใดก็ได้ —
   // ข้อความสำรองเมื่อบิลของ lot ไม่มีนโยบาย) · โหลดล้ม = บัตรยายังเปิดได้ หัวข้อนโยบายบอกว่าโหลดไม่สำเร็จ
+  // กรองข้อความใน query ด้วย: limit(1) แล้วค่อยกรองทีหลัง = บิลล่าสุดเป็นหมายเหตุเมื่อไรก็หาไม่เจอ
   let returnPolicyError = false
   const companies = [...new Set(receiveRows.map(r => String(r.supplier_current || '').trim()).filter(c => c && c !== '-'))]
   const [companyPolicies, billPolicyRows] = await Promise.all([
     fetchSwapPolicies(),
     Promise.all(companies.map(co => supabase.from('receive_logs')
       .select('drug_name, bill_number, supplier_current, drug_swap_policy, receive_date')
-      .eq('supplier_current', co).not('drug_swap_policy', 'is', null).not('drug_swap_policy', 'in', '("","-")')
+      .eq('supplier_current', co).like('drug_swap_policy', `${COMPANY_WIDE_POLICY_PREFIX}%`)
       .order('receive_date', { ascending: false, nullsFirst: false }).limit(1)
       .then(({ data, error }) => { if (error) throw error; return data || [] })))
       .then(rs => rs.flat())
@@ -2743,6 +2736,38 @@ export async function fetchDrugProfile(drugCode, { department = null } = {}) {
     companyBillPolicies: latestPolicyByCompany(billPolicyRows),
   })
   return profile && { ...profile, returnPolicyError, inventoryUpdatedAt: uploadMeta?.inventory?.updated_at || null }
+}
+
+// หน้านโยบายคืนบริษัท: ทุกอย่างที่ buildCompanyPolicyIndex ต้องใช้ · paginate ตาม Rule #2
+export async function fetchCompanyPolicyData() {
+  if (!supabase) return { inventoryRows: [], receiveRows: [], companyPolicies: {} }
+  const receiveRows = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from('receive_logs')
+      .select('drug_code, drug_name, lot, bill_number, supplier_current, drug_swap_policy, swap_tier_detail, swap_condition_am, receive_date')
+      .order('id').range(from, from + 999)
+    if (error) throw error
+    receiveRows.push(...(data || []))
+    if (!data || data.length < 1000) break
+  }
+  const [inventoryRows, companyPolicies] = await Promise.all([
+    fetchAllInventoryRows('code, name, lot, qty, unit, exp, location, receive_status'),
+    fetchSwapPolicies(),
+  ])
+  return { inventoryRows, receiveRows, companyPolicies }
+}
+
+// ชื่อบริษัททั้งหมดที่เคยรับยา (ไม่ซ้ำ) สำหรับช่องค้นหา
+export async function fetchCompanyNames() {
+  if (!supabase) return []
+  const names = new Set()
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from('receive_logs').select('supplier_current').order('id').range(from, from + 999)
+    if (error) throw error
+    for (const r of data || []) { const n = String(r.supplier_current || '').trim(); if (n && n !== '-') names.add(n) }
+    if (!data || data.length < 1000) break
+  }
+  return [...names].sort((a, b) => a.localeCompare(b, 'th'))
 }
 
 // --- Reorder: หน่วย/ราคา/บริษัท/วันรับ/lead time ต่อรหัสยา (จาก receive_logs) ---

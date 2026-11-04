@@ -447,8 +447,8 @@ export function dispenseHistory(sortedRows = [], department = null) {
 // กฎเลือกบริษัท / นโยบาย / deadline = fetchSwapReturnDue (db.js) ทุกข้อ → deadline บนบัตร = popup คืนบริษัท:
 //   บริษัท   = แถว receive_logs ใหม่สุดของ รหัส+lot ที่มีบริษัท · lot เดียวกันคนละบริษัท = กำกวม ไม่ประเมิน (ADR-0012)
 //   deadline = tier ของบิลนั้นที่ระบุชัด (V2 · ADR-0014/0015) → ไม่มี tier ใช้ตารางนโยบายบริษัท (V1)
-// ข้อความนโยบายที่แสดง: บิลของ lot → ไม่มีใช้นโยบายบริษัทเดียวกันจากบิลยาอื่น (ใบล่าสุด) → ตารางนโยบายบริษัท
-//   ข้อความจากบิลยาอื่นแสดงพร้อมป้ายที่มาเท่านั้น ไม่ใช้คิด deadline (บริษัทให้เงื่อนไขต่างรายยาได้)
+// ข้อความนโยบายที่แสดง: บิลของ lot → ไม่มีใช้นโยบาย "เงื่อนไขเดียวกันทุกรายการ" ของบริษัทเดียวกันจากบิลยาอื่น (ใบล่าสุด) → ตารางนโยบายบริษัท
+//   ข้อความจากบิลยาอื่นแสดงพร้อมป้ายที่มาเท่านั้น ไม่ใช้คิด deadline · ข้อความอื่น (เงื่อนไขต่างรายการ/หมายเหตุเฉพาะบิล) ห้ามยืมข้ามยา
 export const POLICY_SOURCE_LABEL = {
   lot: 'จากบิลของ lot นี้',
   company_bill: 'นโยบายบริษัทจากบิลยาอื่น',
@@ -458,13 +458,15 @@ const cleanText = (v) => { const s = String(v ?? '').trim(); return s && s !== '
 const byReceiveDesc = (rows) => [...rows].sort((a, b) => String(b.receive_date || '').localeCompare(String(a.receive_date || '')))
 const isoLocal = (d) => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : null
 
-// นโยบายบริษัทจากบิลใบล่าสุดที่มีข้อความ → { [บริษัท]: { text, billNumber, receiveDate, drugName } }
+export const COMPANY_WIDE_POLICY_PREFIX = 'เงื่อนไขเดียวกันทุกรายการ'
+
+// นโยบายใช้ทุกรายการของบริษัทจากบิลใบล่าสุด → { [บริษัท]: { text, billNumber, receiveDate, drugName } }
 export function latestPolicyByCompany(receiveRows = []) {
   const out = {}
   for (const r of byReceiveDesc(receiveRows)) {
     const co = cleanText(r.supplier_current)
     const text = cleanText(r.drug_swap_policy)
-    if (!co || !text || out[co]) continue
+    if (!co || !text?.startsWith(COMPANY_WIDE_POLICY_PREFIX) || out[co]) continue
     out[co] = { text, billNumber: cleanText(r.bill_number), receiveDate: r.receive_date || null, drugName: cleanText(r.drug_name) }
   }
   return out
@@ -534,6 +536,89 @@ export function buildLotReturnPolicies({ lots = [], receiveRows = [], companyPol
     const r = computeReturnStatus({ exp, months: table.returnMonths, today: t0 })
     return done(r, { method: 'v1', returnMonths: table.returnMonths, note: `คืนก่อนหมดอายุ ${table.returnMonths} เดือน (ตารางนโยบายบริษัท)` })
   })
+}
+
+// ── หน้านโยบายคืนบริษัท (03/11/2569) ──
+// ชื่อบริษัทสำหรับเทียบคำค้น: ตัดคำนำหน้า/ท้าย + วรรณยุกต์ + เครื่องหมาย · รวม เเ/แ, ํา/ำ, ก/ค (แอตแลนติก = แอตแลนติค)
+const normCompany = (s) => String(s || '').toLowerCase().normalize('NFC')
+  .replace(/\u0E4D\u0E32/g, '\u0E33').replace(/เเ/g, 'แ')
+  .replace(/ห้างหุ้นส่วนจำกัด|หสน\.?|บริษัท|\(มหาชน\)|จำกัด/g, '')
+  .replace(/[\u0E47-\u0E4E\s.,()-]/g, '').replace(/ก/g, 'ค')
+
+// ขึ้นต้นด้วยคำค้นมาก่อน · คำค้นเป็นแค่ "บริษัท"/"จำกัด" = ไม่มีผล (กันขึ้นทั้งรายการ)
+export function searchCompanies(names = [], q, limit = 8) {
+  const nq = normCompany(q)
+  if (!nq) return []
+  return names
+    .map(name => ({ name, n: normCompany(name) }))
+    .filter(x => x.n.includes(nq))
+    .sort((a, b) => Number(!a.n.startsWith(nq)) - Number(!b.n.startsWith(nq)) || a.name.localeCompare(b.name, 'th'))
+    .slice(0, limit)
+    .map(x => x.name)
+}
+
+// inventory + receive_logs → lot คงเหลือทุกบรรทัดพร้อมนโยบาย · รวมแถวซ้ำรหัส+lot+exp+หน่วยด้วยการบวก (ห้ามทับ — ตารางมีแถวซ้ำจริง)
+// → { lines, companies: [{ name, lots }] (ทุกบริษัทที่เคยรับยา), unresolvedLots: จำนวน lot ที่ระบุบริษัทไม่ได้,
+//     latestPolicyByName: ข้อความจากบิลล่าสุดของแต่ละบริษัท — บริษัทไม่มีของยังดูนโยบายก่อนสั่งซื้อได้ }
+export function buildCompanyPolicyIndex({ inventoryRows = [], receiveRows = [], companyPolicies = {}, today = new Date() }) {
+  const merged = new Map()
+  for (const r of inventoryRows) {
+    const qty = parseFloat(String(r.qty ?? '').replace(/,/g, ''))
+    if (!(qty > 0)) continue
+    const expDate = parseExpDate(r.exp)
+    const key = [r.code, r.lot, expDate ? expDate.getTime() : r.exp, r.unit].join('|')
+    const status = String(r.receive_status || '')
+    const location = cleanText(r.location)
+    const e = merged.get(key)
+    if (e) {
+      e.qty += qty
+      if (location && !e.locations.includes(location)) e.locations.push(location)
+      e.pending = e.pending || status.includes('รอตรวจรับ')
+      e.excluded = e.excluded || status.includes('ตัดออก')
+    } else {
+      merged.set(key, { key, code: r.code, name: r.name, lot: r.lot, unit: r.unit, qty, expDate,
+        locations: location ? [location] : [], pending: status.includes('รอตรวจรับ'), excluded: status.includes('ตัดออก') })
+    }
+  }
+  const stock = [...merged.values()]
+  const policies = buildLotReturnPolicies({ lots: stock, receiveRows, companyPolicies, today })
+  const lines = stock.map((l, i) => ({ ...l, returnPolicy: policies[i] }))
+  const counts = {}
+  for (const l of lines) if (l.returnPolicy.company) counts[l.returnPolicy.company] = (counts[l.returnPolicy.company] || 0) + 1
+  const names = new Set(receiveRows.map(r => cleanText(r.supplier_current)).filter(Boolean))
+  const latestPolicyByName = {}
+  for (const r of byReceiveDesc(receiveRows)) {
+    const co = cleanText(r.supplier_current)
+    const text = cleanText(r.drug_swap_policy)
+    if (co && text && !latestPolicyByName[co]) latestPolicyByName[co] = text
+  }
+  return {
+    lines,
+    latestPolicyByName,
+    companies: [...names].sort((a, b) => a.localeCompare(b, 'th')).map(name => ({ name, lots: counts[name] || 0 })),
+    unresolvedLots: lines.filter(l => !l.returnPolicy.company).length,
+  }
+}
+
+// lot ของบริษัทหนึ่ง จัดกลุ่มตามข้อความนโยบาย — กลุ่มที่เส้นตายใกล้สุดก่อน · กลุ่มไม่มีนโยบายไว้ท้ายเสมอ
+export function groupCompanyLots(lines = [], company) {
+  const days = (l) => l.returnPolicy.daysToDeadline ?? Infinity
+  const byLot = (a, b) => days(a) - days(b)
+    || (a.expDate?.getTime() ?? Infinity) - (b.expDate?.getTime() ?? Infinity)
+    || String(a.name).localeCompare(String(b.name), 'th')
+  const groups = new Map()
+  for (const l of lines) {
+    if (l.returnPolicy.company !== company) continue
+    const text = l.returnPolicy.policyText || null
+    const source = l.returnPolicy.policySource || null
+    // ข้อความเดียวกันแต่ยืมจากบิลยาอื่น = คนละกลุ่ม ไม่ให้ดูเหมือนเป็นนโยบายในบิลของ lot นั้นเอง
+    const key = `${source}|${text}`
+    if (!groups.has(key)) groups.set(key, { text, source, sourceNote: source && source !== 'lot' ? policySourceNote(l.returnPolicy) : null, lots: [] })
+    groups.get(key).lots.push(l)
+  }
+  return [...groups.values()]
+    .map(g => ({ ...g, lots: [...g.lots].sort(byLot) }))
+    .sort((a, b) => Number(!a.text) - Number(!b.text) || days(a.lots[0]) - days(b.lots[0]) || b.lots.length - a.lots.length)
 }
 
 // ป้ายสถานะนโยบายคืนของ lot — ข้อความเดียวกันทั้งบัตรยาและโมดอลใกล้หมดอายุ (tone = สีที่ UI แปลงเอง)

@@ -25,6 +25,7 @@ export { waitForAppShell };
 //    (admin เห็นทุกเมนูโดยถูกต้อง) — ต้องมี account role=staff ที่ login ได้ก่อน
 const STAFF_USER = process.env.TEST_STAFF_USER || 'Kao_9';
 const STAFF_PASS = process.env.TEST_STAFF_PASS || '96409999';
+export const STAFF_CREDS = [STAFF_USER, STAFF_PASS];
 
 export const test = base.extend({
   // ─── Shared authenticated browser context (worker scope) ─────────────────

@@ -8,7 +8,7 @@ import {
   flattenInventory, backfillDrugUnit, normValue, fingerprint, diffRows, summarizeChangedFields,
   checkFileOlderThanImport, findReceiveStatusConflicts, checkReceiveStatusConflicts, checkAppOnlyDispense,
   readWorkbookGrids, buildSyncPlan, INVENTORY_SPEC, DISPENSE_SPEC,
-  backfillSwapPolicy, readReceiveWorkbookGrids, buildReceivePlan, combinePlans, RECEIVE_SPEC,
+  readReceiveWorkbookGrids, buildReceivePlan, combinePlans, RECEIVE_SPEC,
 } from './excelSync.js'
 import { serialToThai } from './excelSerial.js'
 
@@ -199,12 +199,9 @@ plan = buildSyncPlan(reopened)
 eq([plan.hasChanges, plan.blockers.map(b => b.code)], [true, ['file_older_than_import']], 'ไฟล์เก่ากว่าการนำเข้า + มีส่วนต่าง → ยังบล็อก')
 
 // ── ไฟล์ที่ 2: รับยา + รพ.ยืมยา ───────────────────────────────────────
-section('normValue money + backfillSwapPolicy')
+section('normValue money')
 eq(normValue(1599.9984, 'money'), normValue('1600', 'money'), 'มูลค่า 4 ตำแหน่ง = 2 ตำแหน่งใน DB (เคสจริง 19 แถว)')
 eq(normValue(16199.586, 'money'), '16199.59', 'ปัด 2 ตำแหน่ง')
-const sp = backfillSwapPolicy([{ drug_code: 'A', drug_swap_policy: null }, { drug_code: 'A', drug_swap_policy: 'ของไฟล์' }, { drug_code: 'B', drug_swap_policy: null }],
-  [{ drug_code: 'A', drug_swap_policy: 'ของ DB' }])
-eq(sp.map(r => r.drug_swap_policy), ['ของ DB', 'ของไฟล์', null], 'เติมเฉพาะที่ไฟล์ว่าง · ไม่มีใน DB = คงว่าง')
 
 // หัวตารางชีทรับยา (ตำแหน่งตาม COL ใน receiveSheet.js)
 const RH = Array(29).fill('')
@@ -240,6 +237,8 @@ eq(first.receive.rows[0].receive_date, '2026-09-10', 'วันที่รั�
 eq([rp.hasChanges, rp.receive.diff.unchanged, rp.loan.diff.unchanged.length, rp.blockers.length], [false, 1, 1, 0], 'ไฟล์เดิม (มูลค่าปัดต่างกัน) = ไม่มีส่วนต่าง')
 eq(RECEIVE_SPEC.fields.map(f => f[0]).sort(), Object.keys(first.receive.rows[0]).sort(), 'RECEIVE_SPEC ครบทุกคอลัมน์ที่ rowToReceiveLog สร้าง')
 
+rp = buildReceivePlan({ ...rbase, prevReceive: [{ ...rbase.prevReceive[0], supplier_current: 'บริษัท ข', drug_swap_policy: 'นโยบายของบริษัท ข' }] })
+eq(rp.receive.rows[0].drug_swap_policy, null, 'ไฟล์ไม่มีนโยบาย = คงว่าง ไม่เติมจาก DB ที่รหัสยาเดียวกัน (เคส Phytonadione: แอตแลนติคได้หนังสือภิญโญ)')
 rp = buildReceivePlan({ ...rbase, atRisk: [{ bill_number: 'SCAN-1', reason: 'บิลสแกน' }] })
 eq(rp.blockers.map(b => [b.code, b.overridable]), [['app_only_data', false]], 'บิลที่มีแต่ในแอปจะหาย → บล็อกห้ามข้าม')
 rp = buildReceivePlan({ ...rbase, atRisk: [{ bill_number: 'IV6870281', reason: 'เดิน AP แล้ว' }] })

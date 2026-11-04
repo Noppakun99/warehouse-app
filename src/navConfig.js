@@ -45,6 +45,7 @@ export const NAV_GROUPS = [
     items: [
       { page: 'dispense', icon: TrendingDown, title: 'ประวัติเบิกจ่าย', c: 'rose', roles: ['requester', 'staff', 'admin'] },
       { page: 'stockcard', icon: ScrollText, title: 'การ์ดคลัง (Stockcard)', c: 'teal', roles: ['requester', 'staff', 'admin'] },
+      { page: 'return-policy', icon: Building2, title: 'นโยบายคืนบริษัท', c: 'violet', roles: ['staff', 'admin'] },
       {
         key: 'analyze', icon: Activity, title: 'วิเคราะห์', c: 'cyan', roles: ['requester', 'staff', 'admin'],
         children: [

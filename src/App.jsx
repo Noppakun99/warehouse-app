@@ -2133,6 +2133,13 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           const td = (d?._swap_tier_detail || '').trim();
           return { tierDetail: (td && td !== '-') ? td : null, receiveDate: d?.receive_date || null, condAm: d?._swap_condition_am || '' };
         };
+        // ข้อความนโยบายของ lot — strict รหัส+lot (ADR-0012) ห้ามใช้ lookupDetail ที่ fallback ระดับรหัส: ยาเดียวกันคนละบริษัทได้นโยบายผิด
+        const lotDetail = (item) => {
+          if (!drugDetails) return null;
+          const code = (item.code || '').trim().toLowerCase();
+          const lot  = (item.lot  || '-').trim().toLowerCase();
+          return Object.values(drugDetails).find(x => (x._code || '').toLowerCase() === code && (x._lot || '-').toLowerCase() === lot) || null;
+        };
         // นโยบายคืนยา (ADR-0014 เฟส 2): lot มี tier_detail → V2 (ต่อ lot); ไม่มี → fallback V1 (นโยบายบริษัท)
         const buildReturnInfo = (lotSupplier, item) => {
           const exp = parseDateString(item.exp);
@@ -2163,7 +2170,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
             daysLeft: computeDays(item),
             waitDays: computeWaitDays(item),
             supplier: d?.supplier_current || d?._company || '',
-            swapPolicy: buildSwapPolicy(d),
+            swapPolicy: buildSwapPolicy(lotDetail(item)),
             po: lookupPo(item),
             returnInfo: buildReturnInfo(lotSupplier, item),
           };

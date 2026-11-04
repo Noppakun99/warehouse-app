@@ -43,15 +43,6 @@ export function flattenInventory(inventoryObj = {}) {
   return rows
 }
 
-/** เติมนโยบายคืนยาที่ชีทไม่มี จากแถวเดิมใน DB ที่รหัสยาเดียวกัน (ตัวเดียวกับที่ insertReceiveRows ใช้)
- *  @param dbRows [{ drug_code, drug_swap_policy }] */
-export function backfillSwapPolicy(rows = [], dbRows = []) {
-  const byCode = {}
-  dbRows.forEach(d => { if (d.drug_code && d.drug_swap_policy && !byCode[d.drug_code]) byCode[d.drug_code] = d.drug_swap_policy })
-  rows.forEach(r => { if (!r.drug_swap_policy && byCode[r.drug_code]) r.drug_swap_policy = byCode[r.drug_code] })
-  return rows
-}
-
 /** เติม drug_unit ที่ว่างจากแถวอื่นที่รหัสยาเดียวกัน (แก้แถวเดิม in-place + คืนแถวเดิม) */
 export function backfillDrugUnit(rows = []) {
   const unitByCode = {}
@@ -355,7 +346,8 @@ export function readReceiveWorkbookGrids(XLSX, data) {
 export function buildReceivePlan(p) {
   const parsed = parseReceiveGrid(p.receiveGrid, p.receiveFmtGrid)
   const prevReceive = p.prevReceive || []
-  const receiveRows = backfillSwapPolicy(parsed.rows, prevReceive)
+  // นโยบายคืนยึดตามไฟล์เท่านั้น — ห้ามเติมจาก DB ด้วยรหัสยา (ยาเดียวกันคนละบริษัทได้นโยบายผิด · CONTEXT §นโยบายเปลี่ยนยารายบริษัท)
+  const receiveRows = parsed.rows
   const receiveDiff = diffRows(receiveRows, prevReceive, RECEIVE_SPEC)
 
   const loanParsed = parseLoanGrid(p.loanGrid, serialToThai, p.loanFmtGrid)

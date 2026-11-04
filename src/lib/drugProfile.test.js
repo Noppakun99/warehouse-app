@@ -8,7 +8,7 @@ import {
   packUnitLabel, parseUnitFactor, parseExpDate, stockTotalInMainUnit, latestPurchaseUnit, pickMainUnit,
   ssAggregate, isBelowSafetyStock, buildSearchIndex, searchDrugs, buildDrugProfile,
   waitDaysSince, lotBills, usageRate, normDept, dispenseHistory, HISTORY_LIMIT,
-  buildLotReturnPolicies, latestPolicyByCompany,
+  buildLotReturnPolicies, latestPolicyByCompany, searchCompanies, buildCompanyPolicyIndex, groupCompanyLots,
 } from './drugProfile.js'
 
 let pass = 0, fail = 0
@@ -353,7 +353,81 @@ section('นโยบายคืนบริษัทราย lot (buildLotRet
   assertEq(none.status, 'no_company', 'ไม่มีบิล → no_company')
   const due = buildLotReturnPolicies({ lots: [{ code: '1660111', lot: 'C1', expDate: new Date(2027, 1, 15) }], receiveRows: recv, companyPolicies: table, today: TODAY })[0]
   assertDeep([due.deadlineIso, due.daysToDeadline, due.status], ['2026-11-15', 35, 'due'], 'เหลือ ≤ 60 วัน = due (buffer เดียวกับ popup)')
-  assertDeep(Object.keys(latestPolicyByCompany(recv)).sort(), ['LBS', 'อภ.'], 'นโยบายบริษัท = บิลใหม่สุดที่มีข้อความ ข้าม "-"')
+  assertDeep(Object.keys(latestPolicyByCompany(recv)), ['LBS'], 'ยืมข้ามยาเฉพาะ "เงื่อนไขเดียวกันทุกรายการ" — ข้อความอื่นของ อภ. ไม่นับ')
+  const noted = latestPolicyByCompany([
+    { supplier_current: 'ก', drug_swap_policy: 'NOTED ภายใน พค แลกคืน 50%', receive_date: '2026-05-01', bill_number: 'B2' },
+    { supplier_current: 'ก', drug_swap_policy: 'เงื่อนไขแตกต่างกัน แล้วแต่รายการ', receive_date: '2026-04-01', bill_number: 'B1' },
+  ])
+  assertDeep(noted, {}, 'หมายเหตุเฉพาะบิล + เงื่อนไขต่างรายการ ห้ามยืมไป lot ยาอื่น')
+  const [phyto] = buildLotReturnPolicies({
+    lots: [{ code: '1460199', lot: '263270', expDate: new Date(2028, 0, 1) }],
+    receiveRows: [
+      { drug_code: '1460199', lot: '263270', supplier_current: 'แอตแลนติค', drug_swap_policy: null, receive_date: '2026-06-01', bill_number: 'A1' },
+      { drug_code: '1460199', lot: 'P1', supplier_current: 'ภิญโญ', drug_swap_policy: 'หนังสือจากภิญโญ', receive_date: '2026-07-01', bill_number: 'P1' },
+    ],
+    companyPolicies: {}, today: TODAY,
+  })
+  assertDeep([phyto.company, phyto.policyText, phyto.status], ['แอตแลนติค', null, 'no_policy'], 'lot แอตแลนติคไม่ได้นโยบายภิญโญ · ไม่มีในชีท = ไม่มีนโยบาย')
+}
+
+// ── หน้านโยบายคืนบริษัท ──
+{
+  const names = ['บริษัท แอตแลนติค ฟาร์มาซูติคอล จำกัด', 'บริษัท แอตแลนต้า เมดดิคแคร์ จำกัด', 'บริษัท วิทยาศรม จํากัด', 'ห้างหุ้นส่วนจำกัด ภิญโญฟาร์มาซี', 'บริษัท แม็คโครฟาร์แลป จำกัด', 'องค์การเภสัชกรรม', 'บริษัท ยูเมด้า จำกัด']
+  assertDeep(searchCompanies(names, 'แอตแลนติก'), [names[0]], 'สะกด ก/ค ต่างกันยังเจอ (พิมพ์ แอตแลนติก ในระบบ แอตแลนติค)')
+  assertDeep(searchCompanies(names, 'เเอตแลนต้า'), [names[1]], 'สระแอ 2 ตัว เเ = แ')
+  assertDeep(searchCompanies(names, 'แมคโคร'), [names[4]], 'ไม่สนวรรณยุกต์/ไม้ไต่คู้ (แม็คโคร)')
+  assertDeep(searchCompanies(names, 'ภิญโญ'), [names[3]], 'ตัดคำนำหน้าห้างหุ้นส่วน')
+  assertDeep(searchCompanies(names, 'วิทยาศรม จำกัด'), [names[2]], 'ํา กับ ำ เทียบเท่ากัน')
+  assertDeep(searchCompanies(names, 'บริษัท'), [], 'พิมพ์แค่คำนำหน้า = ไม่ขึ้นทั้งรายการ')
+  assertDeep(searchCompanies(names, '   '), [], 'ช่องว่าง = ไม่มีผล')
+  assertDeep(searchCompanies(['แอลฟาร์มา', 'ฟาร์มาดิกา'], 'ฟาร์มา'), ['ฟาร์มาดิกา', 'แอลฟาร์มา'], 'ขึ้นต้นด้วยคำค้นมาก่อน')
+
+  const receiveRows = [
+    { drug_code: 'A', lot: 'L1', supplier_current: 'บ.ก', drug_swap_policy: 'รับคืนก่อนหมดอายุ 6 เดือน', swap_tier_detail: 'รับเปลี่ยนยาก่อนหมดอายุ 6 เดือน', receive_date: '2026-01-01', bill_number: 'B1' },
+    { drug_code: 'B', lot: 'L2', supplier_current: 'บ.ก', drug_swap_policy: 'เงื่อนไขแตกต่างกัน แล้วแต่รายการ | ตามเอกสาร', swap_tier_detail: 'รับเปลี่ยนยาก่อนหมดอายุ 3 เดือน', receive_date: '2026-01-01', bill_number: 'B2' },
+    { drug_code: 'C', lot: 'L3', supplier_current: 'บ.ก', drug_swap_policy: null, receive_date: '2026-01-01', bill_number: 'B3' },
+    { drug_code: 'D', lot: 'L4', supplier_current: 'บ.ข', drug_swap_policy: null, receive_date: '2026-01-01', bill_number: 'B4' },
+    { drug_code: 'E', lot: 'L5', supplier_current: 'บ.ค', drug_swap_policy: null, receive_date: '2026-01-01', bill_number: 'B5' },
+    { drug_code: 'F', lot: 'L6', supplier_current: 'บ.ก', receive_date: '2026-01-01', bill_number: 'B6' },
+    { drug_code: 'F', lot: 'L6', supplier_current: 'บ.ข', receive_date: '2026-02-01', bill_number: 'B7' },
+  ]
+  const inventoryRows = [
+    { code: 'A', name: 'ยา A', lot: 'L1', qty: '1,000', unit: 'กล่อง', exp: '01/06/2028', location: 'A-1', receive_status: 'ตรวจรับแล้ว|คงไว้' },
+    { code: 'A', name: 'ยา A', lot: 'L1', qty: 30, unit: 'กล่อง', exp: '01/06/2028', location: 'B-2', receive_status: 'รอตรวจรับ|คงไว้' },
+    { code: 'B', name: 'ยา B', lot: 'L2', qty: 5, unit: 'ขวด', exp: '01/01/2027', location: 'C-1', receive_status: 'ตรวจรับแล้ว|ตัดออก' },
+    { code: 'C', name: 'ยา C', lot: 'L3', qty: 7, unit: 'ขวด', exp: '01/01/2027', location: 'C-2', receive_status: '' },
+    { code: 'D', name: 'ยา D', lot: 'L4', qty: 0, unit: 'ขวด', exp: '01/01/2027', location: 'C-3', receive_status: '' },
+    { code: 'F', name: 'ยา F', lot: 'L6', qty: 9, unit: 'ขวด', exp: '01/01/2027', location: 'C-4', receive_status: '' },
+    { code: 'Z', name: 'ยา Z', lot: 'L9', qty: 9, unit: 'ขวด', exp: '01/01/2027', location: 'C-5', receive_status: '' },
+  ]
+  const ix = buildCompanyPolicyIndex({ inventoryRows, receiveRows, companyPolicies: {}, today: TODAY })
+  const a = ix.lines.find(l => l.code === 'A')
+  assertDeep([a.qty, a.locations, a.pending, a.excluded], [1030, ['A-1', 'B-2'], true, false], 'แถวซ้ำ lot เดียวกัน = บวกรวม + รวมที่เก็บ + ติดป้ายรอตรวจรับ (ห้ามทับ)')
+  assertEq(ix.lines.find(l => l.code === 'B').excluded, true, 'lot ตัดออกจากบัญชีติดป้าย')
+  assertEq(ix.lines.some(l => l.code === 'D'), false, 'คงเหลือ 0 ไม่นับ')
+  assertDeep(ix.companies, [{ name: 'บ.ก', lots: 3 }, { name: 'บ.ข', lots: 0 }, { name: 'บ.ค', lots: 0 }], 'ทุกบริษัทที่เคยรับยา · ไม่มีของ = 0 lot')
+  assertEq(ix.unresolvedLots, 2, 'lot กำกวมหลายบริษัท + ไม่มีบิล = ระบุบริษัทไม่ได้ ไม่ปนในบริษัทไหน')
+  const g = groupCompanyLots(ix.lines, 'บ.ก')
+  assertDeep(g.map(x => x.lots.map(l => l.code)), [['B'], ['A'], ['C']], 'เส้นตายใกล้สุดก่อน · กลุ่มไม่มีนโยบายไว้ท้าย')
+  assertEq(g[2].text, null, 'กลุ่มท้าย = ไม่มีข้อความนโยบาย')
+  assertDeep(groupCompanyLots(ix.lines, 'บ.ค'), [], 'บริษัทไม่มี lot คงเหลือ = ไม่มีกลุ่ม')
+  assertEq(ix.latestPolicyByName['บ.ก'], 'รับคืนก่อนหมดอายุ 6 เดือน', 'ข้อความบิลล่าสุดของบริษัท ไว้แสดงตอนไม่มี lot คงเหลือ')
+
+  const borrowed = buildCompanyPolicyIndex({
+    inventoryRows: [
+      { code: 'P', name: 'ยา P', lot: 'P1', qty: 1, unit: 'ขวด', exp: '01/01/2028' },
+      { code: 'Q', name: 'ยา Q', lot: 'Q1', qty: 1, unit: 'ขวด', exp: '01/01/2028' },
+    ],
+    receiveRows: [
+      { drug_code: 'P', lot: 'P1', supplier_current: 'บ.ง', drug_name: 'ยา P', drug_swap_policy: 'เงื่อนไขเดียวกันทุกรายการ | คืนได้', receive_date: '2026-01-01', bill_number: 'B8' },
+      { drug_code: 'Q', lot: 'Q1', supplier_current: 'บ.ง', drug_name: 'ยา Q', drug_swap_policy: null, receive_date: '2026-02-01', bill_number: 'B9' },
+    ],
+    companyPolicies: {}, today: TODAY,
+  })
+  const bg = groupCompanyLots(borrowed.lines, 'บ.ง')
+  assertDeep(bg.map(x => [x.source, x.lots[0].code]), [['lot', 'P'], ['company_bill', 'Q']], 'ข้อความเดียวกันแต่ยืมจากบิลอื่น = แยกกลุ่ม')
+  assertEq(bg[1].sourceNote.includes('B8'), true, 'กลุ่มที่ยืมบอกบิลต้นทาง')
+  assertEq(bg[0].sourceNote, null, 'ข้อความจากบิลของ lot เอง ไม่ต้องมีป้ายที่มา')
 }
 
 console.log(`\n${pass} ผ่าน · ${fail} ตก`)
