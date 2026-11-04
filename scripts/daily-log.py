@@ -5,6 +5,7 @@
 # ดึงจาก: ทะเบียนใบเบิก · ชีท 'รับยา' · ทะเบียนส่งบิลจัดซื้อ · ทะเบียนเอกสารตรวจรับ · ชีท 'รพ.ยืมยา' · ไฟล์ข้อสังเกต
 #        · ไฟล์ที่ทำ: ทะเบียนพิมพ์ (PDF ทุกใบ) · ดัชนีบิล (รูปบิล/COA/ตรวจรับ/ยืม-คืน) · รูปใบเบิก
 #        + เรื่องที่ไม่มีทะเบียน (ตัดสินใจ/เปลี่ยนวิธีทำงาน/รอใคร) เขียนเองใน _บันทึกเพิ่ม.csv
+#        + งานที่ผิดพลาดและการแก้ไข (user สั่ง 04/11/2569) เขียนเองใน _บันทึกผิดพลาด.csv → ชีท ความผิดพลาด
 import csv, datetime, os, sys, warnings
 from collections import OrderedDict, defaultdict
 
@@ -26,6 +27,8 @@ RECV_XLSM = os.path.join(HOME, r'OneDrive\รับจากการซื้�
 OUT_DIR = os.path.join(HOME, r'Desktop\ยอดคงคลัง\บันทึกการทำงาน')
 EXTRA = os.path.join(OUT_DIR, '_บันทึกเพิ่ม.csv')
 EXTRA_HEAD = ['วันที่', 'หัวข้อ', 'รายละเอียด', 'แจ้งหัวหน้า']
+ERRORS = os.path.join(OUT_DIR, '_บันทึกผิดพลาด.csv')
+ERR_VAL = 'มูลค่าคลาดเคลื่อน (บาท)'
 OURS = 'รพ.ประชาธิปัตย์'
 TH_MON = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
 
@@ -229,6 +232,15 @@ for r in read_csv(EXTRA):
     line = f"{r['หัวข้อ']}: {r['รายละเอียด']}"
     (to_head if r.get('แจ้งหัวหน้า', '').strip() in ('ใช่', '✓') else summary)[d].append(line)
 
+# ---- ความผิดพลาด (นับตามวันที่พบ) ----
+errors_all = read_csv(ERRORS)
+errors = [r for r in errors_all if in_month(parse_be(r['วันที่พบ']))]
+for r in errors:
+    d = parse_be(r['วันที่พบ'])
+    state = f"แก้แล้ว {r['วันที่แก้']}" if r['วันที่แก้'].strip() else 'ยังไม่ได้แก้'
+    detail[d].append(('ความผิดพลาด', r['เอกสาร'], r['ประเภทงาน'], f"{r['รายการ']}: {r['ผิดอย่างไร']} → {r['ที่ถูกต้อง']}", None, num(r[ERR_VAL]), state))
+    summary[d].append(f"พบงานผิดพลาด {r['เอกสาร']} {r['รายการ']} ({state})")
+
 # ---- เขียน Excel ----
 days = sorted(set(detail) | set(summary) | set(to_head) | set(files))
 out = openpyxl.Workbook()
@@ -267,6 +279,62 @@ for d in days:
             c = s3.cell(row=s3.max_row, column=3)
             c.hyperlink = p
             c.style = 'Hyperlink'
+s4 = out.create_sheet('ความผิดพลาด', 1)
+for i, w in enumerate([24, 13, 22, 26, 34, 34, 16, 12, 34, 12, 13, 34], 1):
+    s4.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
+
+
+def err_block(title, header, rows):
+    s4.append([title])
+    s4.cell(row=s4.max_row, column=1).font = Font(bold=True, size=12)
+    s4.append(header)
+    for c in s4[s4.max_row]:
+        c.font = Font(bold=True); c.fill = HEAD_FILL
+    for row in rows:
+        s4.append(row)
+    s4.append([])
+
+
+def is_fixed(r):
+    return bool(r['วันที่แก้'].strip())
+
+
+def avg_days(rows, a, b):
+    gaps = [(parse_be(r[b]) - parse_be(r[a])).days for r in rows if parse_be(r[a]) and parse_be(r[b])]
+    return round(sum(gaps) / len(gaps), 1) if gaps else '-'
+
+
+n_fixed = sum(map(is_fixed, errors))
+err_block(f'สรุปงานผิดพลาด {TH_MON[month - 1]}{str(year + 543)[-2:]} (นับตามวันที่พบ)',
+          ['ผิดพลาดทั้งหมด', 'แก้แล้ว', 'ยังไม่ได้แก้', ERR_VAL, 'พบหลังเกิด เฉลี่ย (วัน)', 'แก้หลังพบ เฉลี่ย (วัน)'],
+          [[len(errors), n_fixed, len(errors) - n_fixed, round(sum(num(r[ERR_VAL]) for r in errors), 2),
+            avg_days(errors, 'วันที่เกิด', 'วันที่พบ'), avg_days(errors, 'วันที่พบ', 'วันที่แก้')]])
+work_total = {'ใบเบิก': sum(len(v) for v in req_by_day.values()), 'รับยา/บิล': len(bills), 'ใบส่งบิล': len(hand), 'เอกสารตรวจรับ': len(ack)}
+kind_rows = []
+for k in list(work_total) + [k for k in OrderedDict.fromkeys(r['ประเภทงาน'] for r in errors) if k not in work_total]:
+    rows = [r for r in errors if r['ประเภทงาน'] == k]
+    total = work_total.get(k)
+    kind_rows.append([k, total if total is not None else '-', len(rows), f'{len(rows) / total:.1%}' if total else '-', sum(map(is_fixed, rows)), len(rows) - sum(map(is_fixed, rows))])
+err_block('แยกตามงาน (งานทั้งหมด = ใบ/บิลที่ทำในเดือนนี้)', ['งาน', 'งานทั้งหมด', 'ผิดพลาด', 'ร้อยละ', 'แก้แล้ว', 'ยังไม่ได้แก้'], kind_rows)
+causes = {}
+for r in errors:
+    causes[r['ต้นเหตุ']] = causes.get(r['ต้นเหตุ'], 0) + 1
+err_block('แยกตามต้นเหตุ', ['ต้นเหตุ', 'จำนวน', 'ร้อยละ'],
+          [[k, n, f'{n / len(errors):.0%}'] for k, n in sorted(causes.items(), key=lambda x: -x[1])])
+by_month = OrderedDict()
+for r in sorted(errors_all, key=lambda r: parse_be(r['วันที่พบ'])):
+    d = parse_be(r['วันที่พบ'])
+    t = by_month.setdefault(f'{TH_MON[d.month - 1]}{str(d.year + 543)[-2:]}', [0, 0, 0.0])
+    t[0] += 1; t[1] += is_fixed(r); t[2] += num(r[ERR_VAL])
+err_block('ทุกเดือนในทะเบียน', ['เดือน', 'ผิดพลาด', 'แก้แล้ว', 'ยังไม่ได้แก้', ERR_VAL],
+          [[k, t[0], t[1], t[0] - t[1], round(t[2], 2)] for k, t in by_month.items()])
+ERR_COLS = ['วันที่พบ', 'วันที่เกิด', 'ประเภทงาน', 'เอกสาร', 'รายการ', 'ผิดอย่างไร', 'ที่ถูกต้อง', 'ต้นเหตุ', 'พบโดย', 'วิธีแก้', 'วันที่แก้', ERR_VAL, 'กันซ้ำอย่างไร']
+err_block('รายการ', ERR_COLS, [[num(r[k]) if k == ERR_VAL else r[k] for k in ERR_COLS] for r in errors])
+for row in s4.iter_rows():
+    for c in row:
+        c.alignment = WRAP
+        if isinstance(c.value, float):
+            c.number_format = '#,##0.00'
 for ws in (s1, s2, s3):
     for row in ws.iter_rows(min_row=2):
         for c in row:
@@ -280,7 +348,8 @@ try:
 except PermissionError:
     sys.exit(f'เขียนไม่ได้ — ปิดไฟล์ {path} ใน Excel ก่อนแล้วรันใหม่')
 print(f'{path} · {len(days)} วัน · {sum(len(v) for v in detail.values())} เรื่อง · '
-      f'ไฟล์ {sum(len(v) for v in files.values())}' + (f' (ไม่พบ {missing} — ย้าย/ลบไปแล้ว)' if missing else ''))
+      f'ไฟล์ {sum(len(v) for v in files.values())}' + (f' (ไม่พบ {missing} — ย้าย/ลบไปแล้ว)' if missing else '') +
+      f' · ผิดพลาด {len(errors)} (แก้แล้ว {n_fixed})')
 last = max((d for d in days if d <= today), default=None)
 if last:
     print(f'\n{be(last)}')
