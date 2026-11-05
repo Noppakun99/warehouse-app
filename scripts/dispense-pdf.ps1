@@ -34,22 +34,23 @@ try {
   Invoke-Retry { $null = $ws.Range('B6:Q6').Copy($ns.Range('A1')) } 'copy header'
   $dr = 2
   foreach ($rr in $RowList) { Invoke-Retry { $null = $ws.Range("B${rr}:Q$rr").Copy($ns.Range("A$dr")) } "copy row $rr"; $dr++ }
-  for ($c = 0; $c -lt 16; $c++) { $ns.Columns.Item($c + 1).ColumnWidth = $ws.Columns.Item($c + 2).ColumnWidth }
+  # user ตกลง 05/11/2569: ตัวอักษรบนกระดาษ 10 พอยท์ (เดิม 8) — ตั้งความกว้างเองไม่ใช้ของชีท ให้รวมแล้ว Excel ย่อเหลือ 50% (ชีทตัวอักษร 20) · ปัดเป็น 49% = 9.8 พอยท์
+  $pdfW = @(18.75,18.13,17.5,15,17,35,15,13,18.5,19,18,13.5,12,13.5,15,52)
+  for ($c = 0; $c -lt 16; $c++) { $ns.Columns.Item($c + 1).ColumnWidth = [double]$pdfW[$c] }
   $ns.Rows.Item(1).RowHeight = $ws.Rows.Item(6).RowHeight
-  # ฟอร์มใหม่ user ตกลง 02/11/2569: หมายเหตุกว้าง 2 เท่า (ได้พื้นที่จาก MainLog + ชนิด ที่ซ่อน หลัง sort) — ความกว้างรวมเท่าเดิม ตัวอักษรไม่เล็กลง
-  $ns.Columns.Item(16).ColumnWidth = $ws.Columns.Item(17).ColumnWidth + $ws.Columns.Item(3).ColumnWidth + $ws.Columns.Item(6).ColumnWidth
+  # ความสูงขั้นต่ำ 56 ที่สเกล 50% = 28 พอยท์บนกระดาษ เท่าฉบับเดิม (70 × 40%) จำนวนหน้าจึงไม่เพิ่ม
+  [double]$rowMin = 56
   $n = $RowList.Count
   if ($SortLog) {
     # Excel sort ไม่สนขีด: E-10 < E-11 < E-1-3 · ห้องประชุม/ตู้เย็นอยู่ท้าย
     $mis = [System.Reflection.Missing]::Value
-    $hMin = 0; foreach ($rr in $RowList) { $h = $ws.Rows.Item($rr).RowHeight; if ($h -gt $hMin) { $hMin = $h } }
     Invoke-Retry { $null = $ns.Range("A2:P$($n + 1)").Sort($ns.Range('B2'), 1, $ns.Range('C2'), $mis, 1, $mis, 1, 2) } 'sort'
-    for ($k = 2; $k -le $n + 1; $k++) { $null = $ns.Rows.Item($k).AutoFit(); if ($ns.Rows.Item($k).RowHeight -lt $hMin) { $ns.Rows.Item($k).RowHeight = $hMin } }
+    for ($k = 2; $k -le $n + 1; $k++) { $null = $ns.Rows.Item($k).AutoFit(); if ($ns.Rows.Item($k).RowHeight -lt $rowMin) { $ns.Rows.Item($k).RowHeight = $rowMin } }
     $ord = @(); for ($k = 2; $k -le $n + 1; $k++) { $ord += "$($ns.Range("C$k").Value2)|$($ns.Range("D$k").Value2)" }
     Say ("sorted: " + ($ord -join ' ; '))
     if ($ord.Count -ne $n) { throw 'row count changed after sort' }
   } else {
-    $k = 2; foreach ($rr in $RowList) { $h0 = $ws.Rows.Item($rr).RowHeight; $null = $ns.Rows.Item($k).AutoFit(); if ($ns.Rows.Item($k).RowHeight -lt $h0) { $ns.Rows.Item($k).RowHeight = $h0 }; $k++ }
+    for ($k = 2; $k -le $n + 1; $k++) { $null = $ns.Rows.Item($k).AutoFit(); if ($ns.Rows.Item($k).RowHeight -lt $rowMin) { $ns.Rows.Item($k).RowHeight = $rowMin } }
   }
   $ns.Columns.Item(2).Hidden = $true; $ns.Columns.Item(5).Hidden = $true
   $ps = $ns.PageSetup
