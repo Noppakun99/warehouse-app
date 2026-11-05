@@ -309,6 +309,9 @@ err_block(f'สรุปงานผิดพลาด {TH_MON[month - 1]}{str(y
           ['ผิดพลาดทั้งหมด', 'แก้แล้ว', 'ยังไม่ได้แก้', ERR_VAL, 'พบหลังเกิด เฉลี่ย (วัน)', 'แก้หลังพบ เฉลี่ย (วัน)'],
           [[len(errors), n_fixed, len(errors) - n_fixed, round(sum(num(r[ERR_VAL]) for r in errors), 2),
             avg_days(errors, 'วันที่เกิด', 'วันที่พบ'), avg_days(errors, 'วันที่พบ', 'วันที่แก้')]])
+OUTSIDE = {'บริษัทส่งเอกสาร/ของผิด', 'หน่วยงานเขียนใบไม่ครบ', 'จัดซื้อลงทะเบียนผิด'}
+n_out = sum(r['ต้นเหตุ'] in OUTSIDE for r in errors)
+err_block('แยกคลังทำผิด กับ ต้นทางผิด (บริษัท/หน่วยงาน/จัดซื้อ)', ['คลังทำผิด', 'ต้นทางผิด'], [[len(errors) - n_out, n_out]])
 work_total = {'ใบเบิก': sum(len(v) for v in req_by_day.values()), 'รับยา/บิล': len(bills), 'ใบส่งบิล': len(hand), 'เอกสารตรวจรับ': len(ack)}
 kind_rows = []
 for k in list(work_total) + [k for k in OrderedDict.fromkeys(r['ประเภทงาน'] for r in errors) if k not in work_total]:
