@@ -20,9 +20,10 @@ try {
   $blank = $xl.Workbooks.Add(); $xl.Calculation = -4135
   $wb = $xl.Workbooks.Open($StockPath, 0, $true)
   $ws = $wb.Worksheets.Item('เบิก ')
-  $sig = @(); foreach ($r in $RowList) { $sig += "$($ws.Range("E$r").Value2)|$($ws.Range("J$r").Value2)|$($ws.Range("N$r").Value2)|$($ws.Range("P$r").Value2)" }
-  Say ("rows: " + ($sig -join ' ; '))
-  if (($sig -join ' ; ') -ne $Sig) { throw 'row signature mismatch' }
+  # PowerShell ไม่สนตัวพิมพ์: ห้ามตั้งชื่อ $sig ทับพารามิเตอร์ $Sig (เคยทำให้ด่านนี้ผ่านเสมอ — แก้ 05/11/2569)
+  $actualRows = @(); foreach ($r in $RowList) { $actualRows += "$($ws.Range("E$r").Value2)|$($ws.Range("J$r").Value2)|$($ws.Range("N$r").Value2)|$($ws.Range("P$r").Value2)" }
+  Say ("rows: " + ($actualRows -join ' ; '))
+  if (($actualRows -join ' ; ') -ne $Sig) { throw 'row signature mismatch' }
   if ("$($ws.Range('AD6').Value2)" -ne 'เลขรับใบเบิก') { throw 'AD6 is not เลขรับใบเบิก' }
   $nos = @($RowList | ForEach-Object { "$($ws.Range("AD$_").Value2)".Trim() } | Sort-Object -Unique)
   if ($nos.Count -gt 1) { throw "rows have different เลขรับใบเบิก: $($nos -join ', ')" }
