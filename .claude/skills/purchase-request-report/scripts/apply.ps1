@@ -60,6 +60,12 @@ try {
   foreach ($x in $plan.refresh) {
     $r = $idx[$x.code]; if (-not $r) { throw "refresh: ไม่พบรหัส $($x.code)" }
     foreach ($k in $cols) { SetV $rp.Range("$(Phys $k)$r") $x.values.$k }
+    # เหตุผลยาว (ถึงเกณฑ์พอแล้ว + สาเหตุ) ความสูงแถวเดิมตัดข้อความ — ขยายอย่างเดียว ไม่ย่อแถวที่สูงอยู่แล้ว
+    if (([string]$x.values.WHY).Length -gt 50) {
+      $h = $rp.Rows($r).RowHeight
+      $null = $rp.Rows($r).AutoFit()
+      if ($rp.Rows($r).RowHeight -lt $h) { $rp.Rows($r).RowHeight = $h }
+    }
   }
   "refreshed: $(@($plan.refresh).Count)"
 
