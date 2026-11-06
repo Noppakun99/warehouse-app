@@ -9,6 +9,7 @@
  *   ถ้าไม่มี account → tests จะ skip อัตโนมัติ
  */
 import { test, expect, waitForAppShell } from './fixtures.js';
+import { dismissStartupPopup } from './helpers/auth.js';
 
 /** รอ Dashboard โหลดหลัง sessionStorage restore */
 async function waitForDashboard(page) {
@@ -106,4 +107,70 @@ test.describe('Permissions — staff', () => {
     await expect(page.getByText('ใกล้หมดอายุใน 16 เดือน')).toBeVisible({ timeout: 5_000 });
     await expect(page.getByText('ต่ำกว่า Safety Stock')).toBeVisible({ timeout: 5_000 });
   });
+
+  // อ่านอย่างเดียว — เปิดโมดอล สลับแท็บ/ช่วงวัน คัดลอกลง clipboard
+  // ⛔ ห้ามกด "บันทึก" ในฟอร์มทะเบียน หรือ "ลบมติ" — เขียนตาราง formulary_change บน prod
+  for (const [label, viewport] of [['คอม', { width: 1280, height: 800 }], ['มือถือ 375px', { width: 375, height: 667 }]]) {
+    test(`staff เปิดยาเข้าใหม่/ตัดออกจากคิวงาน ตัวเลขตรงแท็บ และไม่ล้นจอ (${label})`, async ({ staffPage: page }) => {
+      if (!page) test.skip();
+      await page.setViewportSize(viewport);
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+      await page.goto('/');
+      await waitForDashboard(page);
+      const row = page.getByRole('button', { name: /ยาเข้าใหม่ \/ ตัดออกจากบัญชี/ });
+      // popup คืนบริษัท/ยาหมดอายุเด้งวันละครั้งต่อเครื่อง — browser ใหม่ทุกเทสจึงเด้งเสมอ
+      await row.waitFor({ state: 'visible', timeout: 30_000 });
+      await dismissStartupPopup(page);
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      const rowText = await row.innerText();
+      const queueNew = Number(rowText.match(/เข้าใหม่ ([\d,]+) รายการ/)[1].replace(/,/g, ''));
+      const queueOut = Number(rowText.match(/ตัดออกที่ต้องดู ([\d,]+)/)[1].replace(/,/g, ''));
+      await row.click();
+
+      const dialog = page.getByRole('dialog', { name: 'ยาเข้าใหม่ / ตัดออกจากบัญชี' });
+      const tabNum = async (name) => Number((await dialog.getByRole('tab', { name: new RegExp(name) }).innerText()).match(/\(([\d,]+)\)/)[1].replace(/,/g, ''));
+      await expect(dialog.getByRole('tab', { name: /ยาเข้าใหม่/ })).toHaveAttribute('aria-selected', 'true');
+      expect(await tabNum('ยาเข้าใหม่')).toBe(queueNew);       // Rule #6: ตัวเลขในคิว = แท็บ
+      expect(await tabNum('ตัดออกจากบัญชี')).toBe(queueOut);
+
+      // ไม่ล้นจอแนวนอน (Rule #5) — ทั้งหน้าและตารางในโมดอล
+      const noOverflow = async () => {
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+        expect(await dialog.locator('.overflow-y-auto').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+      };
+      await noOverflow();
+      await page.screenshot({ path: `test-results/formulary-new-${viewport.width}.png` });
+
+      // 90 วัน ต้องไม่น้อยกว่า 30 วัน
+      await dialog.getByRole('button', { name: '90 วัน' }).click();
+      expect(await tabNum('ยาเข้าใหม่')).toBeGreaterThanOrEqual(queueNew);
+
+      const copyBtn = dialog.getByRole('button', { name: /คัดลอกข้อความไลน์/ });
+      if (await copyBtn.isEnabled()) {
+        await copyBtn.click();
+        await expect(dialog.getByRole('button', { name: 'คัดลอกแล้ว' })).toBeVisible();
+        const text = await page.evaluate(() => navigator.clipboard.readText());
+        expect(text).toMatch(/^แจ้งจากคลังยา :\r?\n/);   // clipboard ของ Windows แปลง \n เป็น \r\n
+      }
+
+      await dialog.getByRole('tab', { name: /ตัดออกจากบัญชี/ }).click();
+      const heading = dialog.getByRole('heading');
+      expect(Number((await heading.innerText()).match(/\(([\d,]+)\)/)[1].replace(/,/g, ''))).toBe(queueOut);
+      await noOverflow();
+      await page.screenshot({ path: `test-results/formulary-out-${viewport.width}.png` });
+
+      // ทะเบียน — เปิดฟอร์มเพิ่มแล้วยกเลิก (ไม่บันทึก)
+      await dialog.getByRole('tab', { name: /ทะเบียนมติ PTC/ }).click();
+      expect(await tabNum('ทะเบียนมติ PTC')).toBeGreaterThanOrEqual(17);
+      await dialog.getByRole('button', { name: /เพิ่มมติ/ }).click();
+      await expect(dialog.getByLabel('วันที่ประชุม PTC')).toBeAttached();
+      await noOverflow();
+      await page.screenshot({ path: `test-results/formulary-ptc-${viewport.width}.png` });
+      await dialog.getByRole('button', { name: 'ยกเลิก', exact: true }).click();
+      await expect(dialog.getByRole('button', { name: /เพิ่มมติ/ })).toBeVisible();
+
+      await dialog.getByRole('button', { name: 'ปิด', exact: true }).first().click();
+      await expect(dialog).toHaveCount(0);
+    });
+  }
 });

@@ -64,6 +64,9 @@ const NOTIF_LABELS = {
   close_annual_count:           { label: 'ปิดรอบตรวจนับประจำปี',  color: 'text-indigo-600', dot: 'bg-indigo-400' },
   add_annual_count_lot:         { label: 'เพิ่ม lot เข้ารอบประจำปี', color: 'text-indigo-600', dot: 'bg-indigo-400' },
   move_location:                { label: 'แจ้งย้ายที่เก็บ',          color: 'text-indigo-600', dot: 'bg-indigo-400' },
+  add_formulary_change:         { label: 'เพิ่มมติ PTC',             color: 'text-teal-700 dark:text-teal-300', dot: 'bg-teal-500' },
+  update_formulary_change:      { label: 'แก้ไขมติ PTC',             color: 'text-teal-700 dark:text-teal-300', dot: 'bg-teal-400' },
+  delete_formulary_change:      { label: 'ลบมติ PTC',                color: 'text-red-600 dark:text-red-300', dot: 'bg-red-400' },
   add_unknown_count_item:       { label: 'พบของนอกระบบตอนตรวจนับ', color: 'text-amber-600', dot: 'bg-amber-400' },
   create_temperature_log:       { label: 'บันทึกอุณหภูมิตู้เย็น',  color: 'text-sky-600',     dot: 'bg-sky-400' },
   import_temperature_log:       { label: 'นำเข้าอุณหภูมิจากเครื่อง', color: 'text-sky-600',    dot: 'bg-sky-400' },
@@ -167,6 +170,13 @@ function notifMessage(n) {
       const m = d.moves?.[0];
       const more = (d.moves?.length || 0) > 1 ? ` (+${d.moves.length - 1} lot)` : '';
       return `${who} แจ้งย้ายที่เก็บ${m ? ` "${m.name || m.code}" ${m.from} → ${m.to}` : ''}${more}`;
+    }
+    case 'add_formulary_change':
+    case 'update_formulary_change':
+    case 'delete_formulary_change': {
+      const verb = n.action === 'add_formulary_change' ? 'เพิ่ม' : n.action === 'update_formulary_change' ? 'แก้ไข' : 'ลบ';
+      const kind = d.change_type === 'out' ? 'ตัดออก' : 'เข้าบัญชี';
+      return `${who} ${verb}มติ PTC ${kind}${d.drug_name ? ` "${d.drug_name}"` : ''}`;
     }
     default:
       return `${who} · ${n.department}`;

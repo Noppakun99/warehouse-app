@@ -17,7 +17,8 @@ import RequisitionApp     from './RequisitionApp';
 import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
-import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS, fetchSwapReturnActions, swapActionKey, fetchLatestLineQuotaAlerts, fetchDrugLoans, loanOverdueDays, fetchOpenAnnualCount, fetchUploadMeta, fetchHolidayMap } from './lib/db';
+import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS, fetchSwapReturnActions, swapActionKey, fetchLatestLineQuotaAlerts, fetchDrugLoans, loanOverdueDays, fetchOpenAnnualCount, fetchUploadMeta, fetchHolidayMap, fetchFormularyChanges, fetchNewDrugData } from './lib/db';
+import { buildNewDrugs, buildFormularyOut, countReceivedNew, NEW_DRUG_DAYS } from './lib/formularyChange';
 import { buildLotReturnPolicies, returnPolicyLabel, policySourceNote } from './lib/drugProfile';
 import { matchReceiveDetails } from './lib/receiveMatch';
 import { buildWorkQueue, describeNextCycle, isSwapRed, isSwapOpen } from './lib/workQueue';
@@ -25,7 +26,7 @@ import { pickPopupRows, readSeen, writeSeen, popupStorageKey } from './lib/popup
 import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import { resolveCycles } from '../supabase/functions/_shared/announceSchedule.js';
 import { InstallAppCard } from './InstallApp';
-import { DashboardInfoLines, DrugSearchLauncher, WorkQueuePanel, QueueDetailModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner, OnboardingCard } from './DashboardPanels';
+import { DashboardInfoLines, DrugSearchLauncher, WorkQueuePanel, QueueDetailModal, FormularyModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner, OnboardingCard } from './DashboardPanels';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
@@ -709,6 +710,9 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
   const [expiredPopupRows, setExpiredPopupRows] = useState(null); // popup ยาหมดอายุค้างคลัง (เฉพาะ lot ใหม่)
   const [quotaPopup, setQuotaPopup] = useState(null);  // โควตา LINE — เปิดจากคิวของ admin เท่านั้น (ไม่เด้งเอง)
   const [queueExtra, setQueueExtra] = useState({ loans: [], annual: null, quota: [] });
+  // ยาเข้าใหม่/ตัดออก/ทะเบียน PTC — null = ยังโหลดไม่เสร็จ (แถวคิวยังไม่ขึ้น) · formularyTick = โหลดใหม่หลังแก้ทะเบียน
+  const [formularyRaw, setFormularyRaw] = useState(null);
+  const [formularyTick, setFormularyTick] = useState(0);
   const [queueDetailKey, setQueueDetailKey] = useState(null);
   const [uploadMeta, setUploadMeta] = useState(null);
   const [cycle, setCycle] = useState(null);            // รอบเบิก-รับถัดไป (describeNextCycle)
@@ -791,9 +795,33 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
     return () => { alive = false; };
   }, [auth.id, auth.role, isStaff]);
 
+  // แยกจากคิวหลัก — แถวนี้อยู่ท้ายคิว โหลดเสร็จทีหลังไม่ดันแถวอื่น · ล้ม = ไม่แสดงแถว (ไม่ขึ้นตัวเลข 0 ปลอม)
+  useEffect(() => {
+    if (!supabase || !isStaff) return;
+    let alive = true;
+    (async () => {
+      const ptcEntries = await fetchFormularyChanges();
+      const newDrugData = await fetchNewDrugData(ptcEntries);
+      if (alive) setFormularyRaw({ ptcEntries, ...newDrugData });
+    })().catch(() => { if (alive) setFormularyRaw(null); });
+    return () => { alive = false; };
+  }, [auth.id, isStaff, formularyTick]);
+
+  const today = localYmd(new Date());
+  const formularySummary = useMemo(() => {
+    if (!formularyRaw || !alertsLoaded) return null;
+    const newDrugs = buildNewDrugs({ ...formularyRaw, today, days: NEW_DRUG_DAYS[0] });
+    const out = buildFormularyOut({ discontinued: alerts.discontinued || [], ptcEntries: formularyRaw.ptcEntries });
+    return {
+      newCount: countReceivedNew(newDrugs),
+      outToReview: out.length, // = แถวแท็บตัดออก (ยังมีของ + มติที่ Master ยังไม่ตั้งธง) — Rule #6
+      ptcWaiting: newDrugs.filter(d => d.status === 'noStock' || d.status === 'noCode').length,
+    };
+  }, [formularyRaw, alertsLoaded, alerts.discontinued, today]);
+
   const queue = useMemo(
-    () => (isStaff ? buildWorkQueue({ ...alerts, swapDue, ...queueExtra, role: auth.role }) : []),
-    [isStaff, alerts, swapDue, queueExtra, auth.role],
+    () => (isStaff ? buildWorkQueue({ ...alerts, swapDue, ...queueExtra, role: auth.role, formulary: formularySummary }) : []),
+    [isStaff, alerts, swapDue, queueExtra, auth.role, formularySummary],
   );
   const queueDetail = queue.find(it => it.key === queueDetailKey) || null;
   const swapOpenCount = useMemo(() => swapDue.filter(isSwapOpen).length, [swapDue]);
@@ -884,7 +912,10 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
       )}
 
       {/* รายการเบื้องหลังตัวเลขในคิว — array ชุดเดียวกับที่นับ (Rule #6) */}
-      <QueueDetailModal item={queueDetail} manage={queueDetail ? QUEUE_MANAGE[queueDetail.key] : null} onClose={() => setQueueDetailKey(null)} />
+      {queueDetail?.key === 'formulary'
+        ? <FormularyModal raw={formularyRaw} discontinued={alerts.discontinued || []} today={today} auth={auth}
+            onChanged={() => setFormularyTick(t => t + 1)} onClose={() => setQueueDetailKey(null)} />
+        : <QueueDetailModal item={queueDetail} manage={queueDetail ? QUEUE_MANAGE[queueDetail.key] : null} onClose={() => setQueueDetailKey(null)} />}
 
       {/* ยาต้องเปลี่ยน/คืนบริษัท — popup เฉพาะ lot ใหม่ (staff) หรือเปิดจากคิว/แบนเนอร์ (ทุก lot) */}
       {swapPopupRows?.length > 0 && (

@@ -4,7 +4,7 @@
 // ครอบ: เกณฑ์แต่ละรายการในคิว / ซ่อนรายการ 0 / ลำดับความเร่ง / rows = ชุดที่นับ (Rule #6) /
 //       คืนบริษัท: สถานะจัดการแล้ว + คาดว่าจะหมดเอง / admin-only / รอบเบิก-รับ + วันหยุด
 
-import { buildWorkQueue, isSwapRed, describeNextCycle, thaiDayShort } from './workQueue.js'
+import { buildWorkQueue, isSwapRed, describeNextCycle, thaiDayShort, fmtYmdBE } from './workQueue.js'
 import { resolveCycles } from '../../supabase/functions/_shared/announceSchedule.js'
 
 let pass = 0, fail = 0
@@ -110,6 +110,22 @@ section('ลำดับความเร่ง + admin-only + รอบนั�
   assertDeep(ac.progress, { counted: 2, total: 3 }, 'progress นับแล้ว/ทั้งหมด')
   const done = buildWorkQueue({ annual: { session: { id: 1 }, items: [{ counted_qty: 5 }] } })
   assertEq(byKey(done, 'annualCount'), undefined, 'นับครบแล้วแต่รอบยังเปิด → ไม่ขึ้นคิว (count 0)')
+}
+
+section('ยาเข้าใหม่ / ตัดออก — แถวข้อมูลท้ายคิว ไม่หายเมื่อเป็น 0')
+{
+  const f = { newCount: 0, outToReview: 13, ptcWaiting: 3 }
+  const q = buildWorkQueue({ formulary: f, role: 'admin', quota: [{ id: 1 }], expiring: [{ daysLeft: -1 }] })
+  assertDeep(keys(q), ['expired', 'lineQuota', 'formulary'], 'อยู่ท้ายสุด แม้หลังโควตา LINE')
+  const it = byKey(q, 'formulary')
+  assertEq(it.count, 0, 'เข้าใหม่ 0 ยังแสดงแถว (ตัดออกยังต้องเปิดดูได้)')
+  assertEq(it.informational, true, 'ไม่นับเป็นเรื่องค้าง')
+  assertEq(it.severity, 'slate', 'แถวสีเทา')
+  assertEq(it.note, 'เข้าใหม่ 0 รายการ (30 วัน) · ตัดออกที่ต้องดู 13 · มติเข้าบัญชีรอของ 3', 'บรรทัดรอง')
+  assertEq(byKey(buildWorkQueue({ formulary: { newCount: 2, outToReview: 0, ptcWaiting: 0 } }), 'formulary').note,
+    'เข้าใหม่ 2 รายการ (30 วัน) · ตัดออกที่ต้องดู 0', 'ไม่มีมติรอของ = ไม่ขึ้นท้ายข้อความ')
+  assertEq(byKey(buildWorkQueue({}), 'formulary'), undefined, 'ยังโหลดไม่เสร็จ (null) = ไม่แสดง')
+  assertEq(fmtYmdBE('2026-11-05'), '05/11/2569', 'วันที่ พ.ศ.')
 }
 
 section('รอบเบิก-รับถัดไป (announceSchedule ตัวเดียวกับบอท LINE)')

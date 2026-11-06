@@ -8,22 +8,30 @@ import {
 import {
   AlertTriangle, Undo2, PackageX, ClipboardCheck, CalendarClock, ArrowLeftRight, MessageSquareWarning,
   ListChecks, ChevronRight, CircleCheck, X, ArrowRight, Boxes, ShoppingCart, Activity,
-  TrendingUp, TrendingDown, ChevronDown, CalendarDays, Database, Hourglass, Search, RotateCcw, Lightbulb,
+  TrendingUp, TrendingDown, ChevronDown, CalendarDays, Database, Hourglass, Search, RotateCcw, Lightbulb, Copy, Check,
+  BookOpenCheck, Pencil, Trash2, Plus,
 } from 'lucide-react';
-import { SWAP_ACTION_STATUS } from './lib/db';
+import { SWAP_ACTION_STATUS, insertFormularyChange, updateFormularyChange, deleteFormularyChange } from './lib/db';
 import { openDrugSearch } from './lib/drugSearchEvent';
-import { isSwapRed } from './lib/workQueue';
+import { isSwapRed, fmtYmdBE } from './lib/workQueue';
 import { parseExpDate } from './lib/drugProfile';
+import {
+  NEW_DRUG_DAYS, CHANGE_TYPE_LABEL, buildNewDrugs, buildFormularyOut, buildNewDrugLine, countReceivedNew,
+  sortRegistry, validateFormularyEntry, windowFromYmd,
+} from './lib/formularyChange';
+import ConfirmModal from './ConfirmModal';
 
 // ── สี/ไอคอนต่อรายการในคิว ────────────────────────────────────────────
 const SEVERITY = {
   red:   { chip: 'bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-300',     pill: 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300' },
   amber: { chip: 'bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-300', pill: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300' },
   slate: { chip: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300', pill: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' },
+  emerald: { chip: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-300', pill: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' },
 };
 const QUEUE_ICON = {
   expired: AlertTriangle, swap: Undo2, outOfStock: PackageX, pendingReceive: Hourglass,
   nearExpiry: CalendarClock, loanOverdue: ArrowLeftRight, annualCount: ListChecks, lineQuota: MessageSquareWarning,
+  formulary: BookOpenCheck,
 };
 
 const fmtNum = (n) => (Number(n) || 0).toLocaleString();
@@ -69,6 +77,7 @@ export function DrugSearchLauncher() {
 
 // ── คิวงานวันนี้ ─────────────────────────────────────────────────────
 export function WorkQueuePanel({ items = [], loading = false, onOpen }) {
+  const pendingCount = items.filter(it => !it.informational).length;
   return (
     <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
       <header className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
@@ -76,7 +85,7 @@ export function WorkQueuePanel({ items = [], loading = false, onOpen }) {
           <div className="p-1.5 rounded-lg bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-300"><ClipboardCheck size={15} /></div>
           <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">คิวงานวันนี้</h3>
         </div>
-        {!loading && <span className="text-xs text-slate-400 dark:text-slate-500">{items.length > 0 ? `${items.length} เรื่องค้าง` : ''}</span>}
+        {!loading && <span className="text-xs text-slate-400 dark:text-slate-500">{pendingCount > 0 ? `${pendingCount} เรื่องค้าง` : ''}</span>}
       </header>
 
       {loading ? (
@@ -155,7 +164,30 @@ const QUEUE_COLUMNS = {
   loanOverdue:    [{ label: 'ทิศทาง', cell: r => (r.direction === 'lend' ? 'ให้ยืม' : 'ยืมมา'), nowrap: true },
                    { label: 'โรงพยาบาล', cell: r => dash(r.counterparty), wide: true }, COL.lot,
                    { label: 'จำนวน', cell: r => numOrDash(r.qty), num: true }, COL.unit],
+  // โมดอล FormularyModal 3 แท็บ — rows มาจาก formularyChange.js
+  newDrug:        [{ label: 'รับครั้งแรก', cell: r => (r.firstReceive ? fmtYmdBE(r.firstReceive) : '-'), nowrap: true },
+                   { label: 'ตรวจรับแล้ว', cell: r => (r.inspectedQty ? fmtNum(r.inspectedQty) : '-'), num: true },
+                   { label: 'รอตรวจรับ', cell: r => (r.pendingQty ? fmtNum(r.pendingQty) : '-'), num: true },
+                   COL.unit, { label: 'มติ PTC', cell: r => ptcCell(r.ptc, '-'), wide: true }],
+  formularyOut:   [{ label: 'คงเหลือ', cell: r => (r.total == null ? '-' : fmtNum(r.total)), num: true }, COL.unit,
+                   { label: 'Lot ที่มีของ', cell: r => (r.lots ? fmtNum(r.lots) : '-'), num: true },
+                   { label: 'มติ PTC', cell: r => ptcCell(r.ptc, 'ไม่มีในทะเบียน'), wide: true }],
+  ptcRegister:    [{ label: 'วันที่ประชุม', cell: r => fmtYmdBE(r.ptc_date), nowrap: true },
+                   { label: 'อ้างอิง', cell: r => dash(r.ptc_ref) },
+                   { label: 'หมายเหตุ', cell: r => dash(r.note), wide: true }],
 };
+
+function ptcCell(e, empty) {
+  if (!e) return empty;
+  return `${CHANGE_TYPE_LABEL[e.change_type]} ${fmtYmdBE(e.ptc_date)}${e.ptc_ref ? ` · ${e.ptc_ref}` : ''}`;
+}
+const NEW_DRUG_BADGE = {
+  inspected: { badge: 'ตรวจรับแล้ว', tone: 'emerald' },
+  pending:   { badge: 'รอตรวจรับ', tone: 'amber' },
+  noStock:   { badge: 'มติแล้ว รอของ', tone: 'slate' },
+  noCode:    { badge: 'มติแล้ว ยังไม่มีรหัส', tone: 'slate' },
+};
+const NON_PURCHASE_TAG = { 'การสนับสนุน': 'ยาสนับสนุน', 'การบริจาค': 'ยาบริจาค' };
 
 // ชื่อยา + รหัส + หมายเหตุ + ป้ายท้ายแถว
 function rowHead(key, r) {
@@ -177,6 +209,16 @@ function rowHead(key, r) {
       return { name, code, badge: r.waitDays == null ? 'ไม่ทราบวันรับ' : `รอ ${fmtNum(r.waitDays)} วัน`, tone: 'amber' };
     case 'loanOverdue':
       return { name, code, badge: `ค้าง ${fmtNum(r.overdueDays)} วัน`, tone: 'red' };
+    case 'newDrug': {
+      const tags = (r.types || []).map(t => NON_PURCHASE_TAG[t]).filter(Boolean);
+      return { name, code, note: tags.length ? tags.join(' · ') : null, ...(NEW_DRUG_BADGE[r.status] || { badge: '', tone: 'slate' }) };
+    }
+    case 'formularyOut':
+      return r.notFlagged
+        ? { name, code, badge: 'Master ยังไม่ตั้งธง', tone: 'red' }
+        : { name, code, badge: r.total > 0 ? 'ยังมีของ' : 'หมดแล้ว', tone: r.total > 0 ? 'amber' : 'slate' };
+    case 'ptcRegister':
+      return { name, code, badge: CHANGE_TYPE_LABEL[r.change_type] || '', tone: r.change_type === 'in' ? 'emerald' : 'amber' };
     default:
       return { name, code, badge: '', tone: 'slate' };
   }
@@ -197,7 +239,7 @@ function DrugCell({ head }) {
   );
 }
 
-export function QueueDetailModal({ item, onClose, manage }) {
+export function QueueDetailModal({ item, onClose, manage, toolbar = null, footerStart = null, columns = null, bodyTop = null }) {
   useEffect(() => {
     if (!item) return undefined;
     const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
@@ -205,8 +247,8 @@ export function QueueDetailModal({ item, onClose, manage }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [item, onClose]);
   if (!item) return null;
-  const cols = QUEUE_COLUMNS[item.key] || [];
-  const rowKey = (r, i) => r.id ?? `${r.code}|${r.lot}|${i}`;
+  const cols = columns || QUEUE_COLUMNS[item.key] || [];
+  const rowKey = (r, i) => r.key ?? r.id ?? `${r.code}|${r.lot}|${i}`;
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm sm:p-4" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-label={item.label}
@@ -219,8 +261,12 @@ export function QueueDetailModal({ item, onClose, manage }) {
           </div>
           <button type="button" onClick={onClose} aria-label="ปิด" className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"><X size={18} /></button>
         </div>
+        {toolbar}
 
         <div className="flex-1 overflow-y-auto">
+          {/* อยู่ในส่วนเลื่อน — ฟอร์มยาวบนจอเตี้ยต้องเลื่อนถึงปุ่มได้ (toolbar ไม่เลื่อน) */}
+          {bodyTop}
+          {item.rows.length === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">ไม่พบรายการตามตัวกรอง</p>}
           {/* จอ ≥ sm: ตาราง */}
           <table className="hidden sm:table w-full text-sm">
             <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800">
@@ -269,7 +315,8 @@ export function QueueDetailModal({ item, onClose, manage }) {
             })}
           </ul>
         </div>
-        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-100 dark:border-slate-800">
+        <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-3 border-t border-slate-100 dark:border-slate-800">
+          {footerStart}
           <button type="button" onClick={onClose} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2 px-4 font-medium text-sm transition-colors">ปิด</button>
           {manage && (
             <button type="button" onClick={() => { onClose(); manage.run(); }}
@@ -280,6 +327,257 @@ export function QueueDetailModal({ item, onClose, manage }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ── โมดอลยาเข้าใหม่ / ตัดออกจากบัญชี / ทะเบียนมติ PTC — 3 แท็บ ครอบ QueueDetailModal ─────────
+// ตรรกะอยู่ lib/formularyChange.js · รายการคำนวณจากข้อมูลที่ AppRoot โหลดไว้ ไม่ query ใหม่
+// นิยาม CONTEXT.md §ยาเข้าใหม่ · §ยาตัดออกจากบัญชี
+const FORMULARY_TABS = [
+  { key: 'newDrug', label: 'ยาเข้าใหม่' },
+  { key: 'formularyOut', label: 'ตัดออกจากบัญชี' },
+  { key: 'ptcRegister', label: 'ทะเบียนมติ PTC' },
+];
+const EMPTY_FORMULARY_FORM = { change_type: 'in', ptc_date: '', drug_code: '', drug_name: '', ptc_ref: '', note: '' };
+const inputCls = 'w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1.5 text-base sm:text-sm text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500';
+
+// ปฏิทินแสดง พ.ศ. ทับ input type=date (Rule #3/#14 — สำเนาจาก AnalyticsApp)
+function IsoDateInput({ value, onChange, label }) {
+  const display = (iso) => { if (!iso) return null; const [y, m, d] = iso.split('-'); return `${d}/${m}/${Number(y) + 543}`; };
+  return (
+    <div className="relative flex items-center bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus-within:ring-2 focus-within:ring-sky-500">
+      <span className={`px-3 py-1.5 text-base sm:text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>{display(value) || 'วว/ดด/ปปปป'}</span>
+      <input type="date" value={value || ''} onChange={e => onChange(e.target.value)} aria-label={label}
+        onClick={e => { try { e.currentTarget.showPicker?.(); } catch { /* noop */ } }}
+        className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+    </div>
+  );
+}
+
+function FormField({ label, wide = false, children }) {
+  return (
+    <label className={`block ${wide ? 'sm:col-span-2' : ''}`}>
+      <span className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function FormularyEntryForm({ initial, saving, error, onSave, onCancel }) {
+  const [f, setF] = useState(initial);
+  const [localErr, setLocalErr] = useState('');
+  const set = (k) => (v) => setF(p => ({ ...p, [k]: v }));
+  const submit = (e) => {
+    e.preventDefault();
+    const bad = validateFormularyEntry(f);
+    setLocalErr(bad || '');
+    if (!bad) onSave(f);
+  };
+  return (
+    <form onSubmit={submit} className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <FormField label="ประเภทมติ">
+          <select value={f.change_type} onChange={e => set('change_type')(e.target.value)} className={inputCls}>
+            <option value="in">{CHANGE_TYPE_LABEL.in}</option>
+            <option value="out">{CHANGE_TYPE_LABEL.out}</option>
+          </select>
+        </FormField>
+        <FormField label="วันที่ประชุม PTC"><IsoDateInput value={f.ptc_date} onChange={set('ptc_date')} label="วันที่ประชุม PTC" /></FormField>
+        <FormField label={f.change_type === 'out' ? 'รหัสยา (ต้องมี)' : 'รหัสยา (ถ้ามี)'}>
+          <input type="text" value={f.drug_code} onChange={e => set('drug_code')(e.target.value)} placeholder="เช่น 1590035" className={inputCls} />
+        </FormField>
+        <FormField label="ชื่อยาตามเอกสารมติ" wide>
+          <input type="text" value={f.drug_name} onChange={e => set('drug_name')(e.target.value)} className={inputCls} />
+        </FormField>
+        <FormField label="เลขที่/อ้างอิงเอกสาร">
+          <input type="text" value={f.ptc_ref} onChange={e => set('ptc_ref')(e.target.value)} className={inputCls} />
+        </FormField>
+        <FormField label="หมายเหตุ" wide>
+          <input type="text" value={f.note} onChange={e => set('note')(e.target.value)} className={inputCls} />
+        </FormField>
+        <div className="flex items-end gap-2">
+          <button type="button" onClick={onCancel} disabled={saving}
+            className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2 px-3 font-medium text-sm">ยกเลิก</button>
+          <button type="submit" disabled={saving}
+            className="flex-1 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white rounded-xl py-2 px-3 font-semibold text-sm shadow-sm disabled:opacity-60">
+            {saving ? 'กำลังบันทึก…' : 'บันทึก'}
+          </button>
+        </div>
+      </div>
+      {(localErr || error) && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{localErr || error}</p>}
+    </form>
+  );
+}
+
+export function FormularyModal({ raw, discontinued = [], today, auth, onChanged, onClose }) {
+  const [tab, setTab] = useState('newDrug');
+  const [days, setDays] = useState(NEW_DRUG_DAYS[0]);
+  const [outAll, setOutAll] = useState(false);
+  const [q, setQ] = useState('');
+  const [editing, setEditing] = useState(null);   // null | { row: null (เพิ่ม) | entry (แก้) }
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState('');
+  const [toDelete, setToDelete] = useState(null);
+  // จำข้อความที่คัดลอก ไม่ใช่ true/false — เปลี่ยนช่วงวันแล้วปุ่มกลับเป็น "คัดลอก" เอง
+  const [copiedText, setCopiedText] = useState('');
+  const [manualText, setManualText] = useState(''); // คัดลอกอัตโนมัติไม่ได้ (LINE WebView) → ให้เลือกข้อความเอง
+
+  const ptcEntries = useMemo(() => raw?.ptcEntries || [], [raw]);
+  const newDrugs = useMemo(() => (raw ? buildNewDrugs({ ...raw, today, days }) : []), [raw, today, days]);
+  const outWithStock = useMemo(() => buildFormularyOut({ discontinued, ptcEntries }), [discontinued, ptcEntries]);
+  const outEvery = useMemo(() => buildFormularyOut({ discontinued, ptcEntries, onlyWithStock: false }), [discontinued, ptcEntries]);
+  const registry = useMemo(() => sortRegistry(ptcEntries), [ptcEntries]);
+  const line = useMemo(() => buildNewDrugLine(newDrugs, { today, days }), [newDrugs, today, days]);
+  const lineCount = line ? line.split('\n').length - 2 : 0;
+  const copied = !!line && copiedText === line;
+  const received = countReceivedNew(newDrugs);
+
+  const s = q.trim().toLowerCase();
+  const match = (r) => !s || [r.name, r.drug_name, r.code, r.drug_code, r.ptc_ref, r.note].some(v => String(v || '').toLowerCase().includes(s));
+  const all = { newDrug: newDrugs, formularyOut: outAll ? outEvery : outWithStock, ptcRegister: registry }[tab];
+  const rows = all.filter(match);
+  const tabCount = { newDrug: received, formularyOut: outWithStock.length, ptcRegister: registry.length };
+
+  const NOTE = {
+    newDrug: `รับเข้าครั้งแรก ${fmtYmdBE(windowFromYmd(today, days))} – ${fmtYmdBE(today)} · ของเข้าแล้ว ${fmtNum(received)} · มติเข้าบัญชีรอของ ${fmtNum(newDrugs.length - received)} (แสดงทุกช่วงวัน) · ข้อความไลน์ใช้เฉพาะตรวจรับแล้ว`,
+    formularyOut: `ธงจริงอยู่ที่ Master คอลัมน์ A "ตัดออก" · ${outAll ? 'แสดงทุกรายการ' : 'เฉพาะที่ยังมีของ'} · ยอดแปลงเป็นหน่วยหลักของยา`,
+    ptcRegister: 'มติเข้า/ออกบัญชียาจากเอกสารประชุม PTC · แก้ทะเบียนไม่แตะธงตัดออกใน Master',
+  };
+
+  const copyLine = async () => {
+    try {
+      await navigator.clipboard.writeText(line);
+      setCopiedText(line);
+    } catch {
+      setManualText(line);
+    }
+  };
+
+  const save = async (form) => {
+    setSaving(true); setSaveErr('');
+    try {
+      if (editing?.row) await updateFormularyChange(editing.row.id, form, auth);
+      else await insertFormularyChange(form, auth);
+      setEditing(null);
+      onChanged?.();
+    } catch (e) {
+      setSaveErr(e?.message || 'บันทึกไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  };
+  const confirmDelete = async () => {
+    setSaving(true);
+    try {
+      await deleteFormularyChange(toDelete.id, auth);
+      onChanged?.();
+    } catch (e) {
+      setSaveErr(e?.message || 'ลบไม่สำเร็จ');
+    } finally {
+      setToDelete(null);
+      setSaving(false);
+    }
+  };
+
+  const columns = tab === 'ptcRegister'
+    ? [...QUEUE_COLUMNS.ptcRegister, {
+        label: 'จัดการ', nowrap: true, cell: r => (
+          <span className="inline-flex gap-1">
+            <button type="button" onClick={() => { setSaveErr(''); setEditing({ row: r }); }} aria-label={`แก้ไขมติ ${r.drug_name}`}
+              className="p-1.5 rounded-lg text-slate-500 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40"><Pencil size={15} /></button>
+            <button type="button" onClick={() => { setSaveErr(''); setToDelete(r); }} aria-label={`ลบมติ ${r.drug_name}`}
+              className="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"><Trash2 size={15} /></button>
+          </span>
+        ),
+      }]
+    : null;
+
+  const segBtn = (active) => `text-xs font-semibold px-2.5 py-1.5 rounded-md transition-colors whitespace-nowrap ${active ? 'bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-300 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`;
+  const toolbar = (
+    <>
+      {/* flex w-max ไม่ใช่ inline-flex — inline ในกล่อง overflow ถูกตัดขอบล่างจากช่องว่าง baseline */}
+      <div className="px-4 pt-2.5 pb-0.5 overflow-x-auto">
+        <div role="tablist" aria-label="ยาเข้าใหม่ ตัดออก ทะเบียนมติ" className="flex w-max items-center gap-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
+          {FORMULARY_TABS.map(t => (
+            <button key={t.key} type="button" role="tab" aria-selected={tab === t.key}
+              onClick={() => { setTab(t.key); setEditing(null); setSaveErr(''); }} className={segBtn(tab === t.key)}>
+              {t.label} <span className="tabular-nums opacity-70">({fmtNum(tabCount[t.key])})</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center gap-2">
+        {tab === 'newDrug' && (
+          <div className="inline-flex self-start items-center gap-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
+            {NEW_DRUG_DAYS.map(d => (
+              <button key={d} type="button" onClick={() => setDays(d)} aria-pressed={days === d} className={segBtn(days === d)}>{d} วัน</button>
+            ))}
+          </div>
+        )}
+        {tab === 'formularyOut' && (
+          <label className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
+            <input type="checkbox" checked={outAll} onChange={e => setOutAll(e.target.checked)} className="rounded border-slate-300 text-sky-600 focus:ring-sky-500" />
+            แสดงที่หมดแล้วด้วย
+          </label>
+        )}
+        {tab === 'ptcRegister' && !editing && (
+          <button type="button" onClick={() => { setSaveErr(''); setEditing({ row: null }); }}
+            className="inline-flex self-start items-center gap-1.5 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white rounded-xl py-1.5 px-3 font-semibold text-sm shadow-sm whitespace-nowrap">
+            <Plus size={15} /> เพิ่มมติ
+          </button>
+        )}
+        <div className="relative flex-1 min-w-0">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input type="text" value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นชื่อยา รหัส" aria-label="ค้นหายาในแท็บนี้"
+            className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-9 pr-3 py-1.5 text-base sm:text-sm text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500" />
+        </div>
+      </div>
+    </>
+  );
+  const bodyTop = tab !== 'ptcRegister' ? null : editing ? (
+    <FormularyEntryForm key={editing.row?.id ?? 'new'}
+      initial={editing.row
+        ? { ...EMPTY_FORMULARY_FORM, ...editing.row, drug_code: editing.row.drug_code || '', ptc_ref: editing.row.ptc_ref || '', note: editing.row.note || '' }
+        : EMPTY_FORMULARY_FORM}
+      saving={saving} error={saveErr} onSave={save} onCancel={() => { setEditing(null); setSaveErr(''); }} />
+  ) : saveErr ? <p className="px-4 py-2 text-sm text-red-600 dark:text-red-400 border-b border-slate-100 dark:border-slate-800">{saveErr}</p> : null;
+
+  const footerStart = tab === 'newDrug' ? (
+    <div className="w-full sm:w-auto sm:mr-auto">
+      <button type="button" onClick={copyLine} disabled={!line}
+        className="inline-flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 rounded-xl py-2 px-3 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+        {copied ? <Check size={15} /> : <Copy size={15} />}
+        {copied ? 'คัดลอกแล้ว' : `คัดลอกข้อความไลน์ (${fmtNum(lineCount)} ยา)`}
+      </button>
+      {manualText && manualText === line && (
+        <textarea readOnly rows={4} value={manualText} aria-label="ข้อความไลน์สำหรับคัดลอกเอง" onFocus={e => e.target.select()}
+          className="mt-2 w-full sm:w-96 border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-base sm:text-xs text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800" />
+      )}
+    </div>
+  ) : null;
+
+  return (
+    <>
+      <QueueDetailModal
+        item={{ key: tab, label: 'ยาเข้าใหม่ / ตัดออกจากบัญชี', note: NOTE[tab], rows }}
+        columns={columns}
+        bodyTop={bodyTop}
+        onClose={onClose}
+        toolbar={toolbar}
+        footerStart={footerStart}
+      />
+      <ConfirmModal
+        open={!!toDelete}
+        title="ลบมติออกจากทะเบียน"
+        message={toDelete ? `${CHANGE_TYPE_LABEL[toDelete.change_type]} · ${toDelete.drug_name} · มติ ${fmtYmdBE(toDelete.ptc_date)}` : ''}
+        warning="ลบแล้วกู้คืนในแอปไม่ได้ (รายละเอียดเดิมยังอยู่ใน Audit Log) · ไม่แตะธงตัดออกใน Master"
+        confirmText="ลบมติ"
+        tone="danger"
+        loading={saving}
+        onConfirm={confirmDelete}
+        onClose={() => setToDelete(null)}
+      />
+    </>
   );
 }
 

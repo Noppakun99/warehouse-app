@@ -5,6 +5,7 @@ import { parseReturnPolicy, computeReturnStatus, parseReturnPolicyV2, computeRet
 import { computeCountMatch } from './countMatch.js'
 import { flattenInventory, backfillDrugUnit } from './excelSync.js'
 import { overlayMoves, planMove, reconcileMoves, buildMainLogMap } from './locationMove.js'
+import { NEW_DRUG_DAYS, validateFormularyEntry, normalizeFormularyEntry } from './formularyChange.js'
 import { isUsageRow, localYmd } from '../../supabase/functions/_shared/usageRow.js'
 import {
   parseUnitFactor, parseExpDate as _parseExpDate, waitDaysSince, isBelowSafetyStock, isPurchaseReceipt,
@@ -482,16 +483,16 @@ export async function importReceiveLogs(csvText, auth = {}) {
 // _parseExpDate = parseExpDate ใน drugProfile.js (import ด้านบน — ย้ายไปให้ node รัน golden test ได้)
 
 export async function fetchDashboardAlerts() {
-  if (!supabase) return { expiring: [], lowStock: [], pendingReceive: [], drugCount: null }
+  if (!supabase) return { expiring: [], lowStock: [], pendingReceive: [], drugCount: null, discontinued: [] }
 
   // paginate ครบทุก row — ไม่งั้นยาที่เรียงท้าย (เช่นน้ำเกลือ) หายจาก alert (Critical Rule #2)
   let data
   try {
     data = await fetchAllInventoryRows('name, code, exp, qty, lot, location, safety_stock, type, unit, receive_status, invoice')
   } catch {
-    return { expiring: [], lowStock: [], pendingReceive: [], drugCount: null }
+    return { expiring: [], lowStock: [], pendingReceive: [], drugCount: null, discontinued: [] }
   }
-  if (!data) return { expiring: [], lowStock: [], pendingReceive: [], drugCount: null }
+  if (!data) return { expiring: [], lowStock: [], pendingReceive: [], drugCount: null, discontinued: [] }
 
   // ดึง receive_date จาก receive_logs เพื่อคำนวณ waitDays (รอตรวจรับมา X วัน) — ใช้ logic เดียวกับระบบแผนผัง
   // ข้าม 1000-row limit ของ Supabase ด้วย pagination
@@ -562,11 +563,19 @@ export async function fetchDashboardAlerts() {
   // การ์ด "รายการยาในคลัง" — กฎเดียวกับ fetchStockSummary (โมดอลที่การ์ดเปิด) ทุกข้อ: qty>0,
   // ไม่ตัดออก, key = รหัส หรือชื่อถ้ารหัสเป็น '-' (Rule #6 — เดิมนับรหัสที่คงเหลือ 0 ด้วย การ์ด 430 โมดอล 369)
   const stockKeys = new Set()
+  // ยาตัดออกจากบัญชี (Master คอลัมน์ A) ทุกแถว รวมที่หมดแล้ว — formularyChange.buildFormularyOut สลับดูทั้งหมดได้
+  const discByCode = new Map()
 
   data.forEach(row => {
     const isDiscontinued = String(row.receive_status || '').includes('ตัดออก')
     const isPendingReceive = String(row.receive_status || '').includes('รอตรวจรับ')
     const qtyNum = parseFloat(row.qty) || 0
+    if (isDiscontinued) {
+      const dk = (row.code && row.code !== '-') ? row.code.trim() : (row.name || '').trim()
+      const g = discByCode.get(dk) || { code: row.code, name: row.name, rows: [] }
+      g.rows.push({ qty: row.qty, unit: row.unit, lot: row.lot, exp: row.exp, location: row.location })
+      discByCode.set(dk, g)
+    }
 
     if (!isDiscontinued && (parseFloat(String(row.qty || '0').replace(/,/g, '')) || 0) > 0) {
       const sk = (row.code && row.code !== '-') ? row.code.trim() : (row.name || '').trim()
@@ -666,6 +675,7 @@ export async function fetchDashboardAlerts() {
     ),
     pendingReceive,
     drugCount: stockKeys.size,
+    discontinued: [...discByCode.values()],
   }
 }
 
@@ -1328,6 +1338,114 @@ export function loanOverdueDays(row, today = new Date()) {
   return Math.floor((today - d) / 86400000)
 }
 
+// --- ยาเข้าใหม่ / ตัดออก / ทะเบียนมติ PTC (formulary_change — logic ใน formularyChange.js) ---
+
+export async function fetchFormularyChanges() {
+  if (!supabase) return []
+  const { data, error } = await supabase.from('formulary_change').select('*')
+    .order('ptc_date', { ascending: false }).order('id')
+  if (error) throw error
+  return data || []
+}
+
+// select แบบแบ่งหน้า (Rule #2) — build(q) คืน query ที่ยังไม่ใส่ range
+async function _pagedSelect(build) {
+  const PAGE = 1000
+  const rows = []
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await build().range(offset, offset + PAGE - 1)
+    if (error) throw error
+    rows.push(...(data || []))
+    if (!data || data.length < PAGE) break
+  }
+  return rows
+}
+
+/**
+ * ข้อมูลดิบให้ buildNewDrugs — ไม่ scan receive_logs ทั้งตาราง (fetchDashboardAlerts อ่านไปแล้วชุดหนึ่ง)
+ * windowRows = แถวรับช่วงยาวสุด (90 วัน) · priorCodes = รหัสที่มีแถวรับก่อนช่วง ·
+ * firstDispense = วันเบิกแรก (qty_out > 0) ของรหัสเหล่านั้น — เบิกก่อนรับครั้งแรก = ของยกยอด ไม่ใช่ยาใหม่
+ * รหัสมติเข้าบัญชีถูกรวมด้วย เพื่อบอกได้ว่า "ยังไม่เคยมีของ"
+ */
+export async function fetchNewDrugData(ptcEntries = []) {
+  const empty = { windowRows: [], priorCodes: new Set(), firstDispense: new Map() }
+  if (!supabase) return empty
+  const d = new Date()
+  d.setDate(d.getDate() - (Math.max(...NEW_DRUG_DAYS) - 1))
+  const fromYmd = localYmd(d)
+  const windowRows = await _pagedSelect(() => supabase.from('receive_logs')
+    .select('id, receive_date, drug_code, drug_name, lot, exp, qty_received, drug_unit, bill_number, supplier_current, purchase_type, receive_status')
+    .gte('receive_date', fromYmd).order('id'))
+
+  const codes = [...new Set([
+    ...windowRows.map(r => String(r.drug_code || '').trim()),
+    ...ptcEntries.filter(e => e.change_type === 'in').map(e => String(e.drug_code || '').trim()),
+  ])].filter(c => c && c !== '-')
+  const priorCodes = new Set()
+  const firstDispense = new Map()
+  for (let i = 0; i < codes.length; i += 150) {
+    const chunk = codes.slice(i, i + 150)
+    const [prior, disp] = await Promise.all([
+      _pagedSelect(() => supabase.from('receive_logs').select('drug_code').in('drug_code', chunk).lt('receive_date', fromYmd).order('id')),
+      _pagedSelect(() => supabase.from('dispense_logs').select('drug_code, dispense_date').in('drug_code', chunk).gt('qty_out', 0).order('id')),
+    ])
+    for (const r of prior) priorCodes.add(String(r.drug_code).trim())
+    for (const r of disp) {
+      const c = String(r.drug_code).trim()
+      if (r.dispense_date && (!firstDispense.has(c) || r.dispense_date < firstDispense.get(c))) firstDispense.set(c, r.dispense_date)
+    }
+  }
+  return { windowRows, priorCodes, firstDispense }
+}
+
+const _formularyAuditDetails = (r) => ({ change_type: r.change_type, drug_code: r.drug_code, drug_name: r.drug_name, ptc_date: r.ptc_date, ptc_ref: r.ptc_ref })
+const _formularyError = (error) => (error?.code === '23505' ? new Error('มีมตินี้ในทะเบียนแล้ว (ประเภท วันที่ รหัส และชื่อยาซ้ำ)') : error)
+
+export async function insertFormularyChange(form, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const bad = validateFormularyEntry(form)
+  if (bad) throw new Error(bad)
+  const who = resolveUserName(auth)
+  const row = { ...normalizeFormularyEntry(form), created_by: who }
+  const { data, error } = await supabase.from('formulary_change').insert([row]).select().single()
+  if (error) throw _formularyError(error)
+  await insertAuditLog({
+    action: 'add_formulary_change', table_name: 'formulary_change',
+    user_name: who, department: auth.department, record_count: 1, details: _formularyAuditDetails(data),
+  })
+  return data
+}
+
+export async function updateFormularyChange(id, form, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const bad = validateFormularyEntry(form)
+  if (bad) throw new Error(bad)
+  const who = resolveUserName(auth)
+  const { data: before } = await supabase.from('formulary_change').select('*').eq('id', id).single()
+  const { data, error } = await supabase.from('formulary_change')
+    .update({ ...normalizeFormularyEntry(form), updated_by: who, updated_at: new Date().toISOString() })
+    .eq('id', id).select().single()
+  if (error) throw _formularyError(error)
+  await insertAuditLog({
+    action: 'update_formulary_change', table_name: 'formulary_change',
+    user_name: who, department: auth.department, record_count: 1,
+    details: { ..._formularyAuditDetails(data), before: before ? _formularyAuditDetails(before) : null },
+  })
+  return data
+}
+
+export async function deleteFormularyChange(id, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const who = resolveUserName(auth)
+  const { data: before } = await supabase.from('formulary_change').select('*').eq('id', id).single()
+  const { error } = await supabase.from('formulary_change').delete().eq('id', id)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'delete_formulary_change', table_name: 'formulary_change',
+    user_name: who, department: auth.department, record_count: 1, details: before ? _formularyAuditDetails(before) : { id },
+  })
+}
+
 export async function fetchDrugLoans() {
   if (!supabase) return []
   const PAGE = 1000
@@ -1639,6 +1757,10 @@ export async function fetchNotifications(scope = null) {
     'import_temperature_log',
     // ── บอทประกาศ LINE ──
     'line_quota_low',
+    // ── ทะเบียนมติ PTC ──
+    'add_formulary_change',
+    'update_formulary_change',
+    'delete_formulary_change',
   ]
   let query = supabase
     .from('audit_logs')

@@ -245,6 +245,9 @@ const ACTION_LABELS = {
   close_annual_count:           { label: 'ปิดรอบตรวจนับประจำปี',    color: 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'},
   add_annual_count_lot:         { label: 'เพิ่ม lot เข้ารอบประจำปี',  color: 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'},
   move_location:                { label: 'แจ้งย้ายที่เก็บ',            color: 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'},
+  add_formulary_change:         { label: 'เพิ่มมติ PTC',               color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300'        },
+  update_formulary_change:      { label: 'แก้ไขมติ PTC',               color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300'        },
+  delete_formulary_change:      { label: 'ลบมติ PTC',                  color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'            },
   reconcile_location_move:      { label: 'ปิดใบแจ้งย้ายที่เก็บ (ตาม Excel)', color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'},
   add_unknown_count_item:       { label: 'พบของนอกระบบตอนตรวจนับ', color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'},
   create_temperature_log:       { label: 'บันทึกอุณหภูมิตู้เย็น',    color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'},
@@ -561,6 +564,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
     { label: 'คลัง/Inventory', keys: ['import_inventory', 'move_location', 'reconcile_location_move', 'create_stock_count', 'create_annual_count', 'close_annual_count', 'add_annual_count_lot', 'add_unknown_count_item', 'update_stock_count', 'clear_stock_count_item', 'refresh_annual_count_qty', 'followup_stock_count', 'delete_stock_count', 'seed_ledger', 'close_ledger_period', 'reopen_ledger_period', 'add_ledger_adjustment', 'create_temperature_log', 'update_temperature_log', 'delete_temperature_log', 'import_temperature_log'] },
     { label: 'ส่งบัญชี (AP)', keys: ['ap_acknowledge', 'ap_unacknowledge', 'ap_mark_inspected', 'ap_uninspect', 'ap_send_batch', 'ap_unsend_batch', 'ap_mark_posted', 'ap_unpost', 'ap_reset_batch', 'print_ap_batch', 'print_ack_batch', 'export_ap_batch'] },
     { label: 'วิเคราะห์สั่งซื้อ', keys: ['analysis_run', 'analysis_view', 'delete_analysis_run', 'update_reorder_config', 'import_reorder_config', 'mark_ordered', 'unmark_ordered', 'print_po', 'reconcile_excel'] },
+    { label: 'บัญชียา (PTC)', keys: ['add_formulary_change', 'update_formulary_change', 'delete_formulary_change'] },
     { label: 'อื่นๆ',      keys: ['export_excel', 'login'] },
   ];
 

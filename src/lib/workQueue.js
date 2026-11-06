@@ -21,6 +21,12 @@ export const isSwapOpen = (r) => !SWAP_ACTION_DONE.has(r?.actionStatus || 'pendi
 export const isSwapRed = (r) =>
   isSwapOpen(r) && !r?.willDeplete && r?.daysToDeadline != null && r.daysToDeadline <= QUEUE_THRESHOLDS.swapRedDays
 
+// 'YYYY-MM-DD' → '05/11/2569'
+export const fmtYmdBE = (ymd) => {
+  const [y, m, d] = String(ymd || '').split('-')
+  return y && m && d ? `${d}/${m}/${Number(y) + 543}` : String(ymd || '')
+}
+
 /**
  * @param {object} p
  * @param {Array} p.expiring        alerts.expiring (มี daysLeft; ตัด qty=0 และยาตัดออกมาแล้ว)
@@ -31,11 +37,12 @@ export const isSwapRed = (r) =>
  * @param {{session, items}|null} p.annual  fetchOpenAnnualCount()
  * @param {Array} p.quota           fetchLatestLineQuotaAlerts() — แสดงเฉพาะ admin
  * @param {string} p.role
- * @returns {Array<{key, label, count, severity: 'red'|'amber'|'slate', note, rows, progress?}>}
+ * @param {{newCount, outToReview, ptcWaiting}|null} p.formulary  ยาเข้าใหม่/ตัดออก (formularyChange.js) — null = ยังโหลดไม่เสร็จ
+ * @returns {Array<{key, label, count, severity: 'red'|'amber'|'slate', note, rows, progress?, informational?}>}
  */
 export function buildWorkQueue({
   expiring = [], lowStock = [], pendingReceive = [], swapDue = [], loans = [],
-  annual = null, quota = [], role = 'staff',
+  annual = null, quota = [], role = 'staff', formulary = null,
 } = {}) {
   const T = QUEUE_THRESHOLDS
   const items = []
@@ -105,6 +112,18 @@ export function buildWorkQueue({
     })
   }
 
+  // ท้ายคิวเสมอ + informational: ไม่นับเป็นเรื่องค้าง · ไม่ซ่อนเมื่อยาเข้าใหม่ = 0
+  // (ข้อยกเว้นของ push — ยาตัดออกที่ยังมีของ/ทะเบียน PTC ต้องเปิดดูได้ตลอด · CONTEXT §คิวงานวันนี้)
+  if (formulary) {
+    items.push({
+      key: 'formulary', label: 'ยาเข้าใหม่ / ตัดออกจากบัญชี', count: formulary.newCount,
+      severity: 'slate', informational: true,
+      note: [`เข้าใหม่ ${formulary.newCount} รายการ (30 วัน)`, `ตัดออกที่ต้องดู ${formulary.outToReview}`,
+        formulary.ptcWaiting ? `มติเข้าบัญชีรอของ ${formulary.ptcWaiting}` : ''].filter(Boolean).join(' · '),
+      rows: [],
+    })
+  }
+
   return items
 }
 
@@ -120,7 +139,7 @@ export function thaiDayShort(ymd) {
   return `${WEEKDAY_TH[dt.getUTCDay()]} ${d} ${MONTH_TH[m - 1]}`
 }
 
-const addDaysYmd = (ymd, n) => {
+export const addDaysYmd = (ymd, n) => {
   const [y, m, d] = String(ymd).split('-').map(Number)
   const dt = new Date(Date.UTC(y, m - 1, d + n))
   return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
