@@ -1366,16 +1366,23 @@ async function _pagedSelect(build) {
  * windowRows = แถวรับช่วงยาวสุด (90 วัน) · priorCodes = รหัสที่มีแถวรับก่อนช่วง ·
  * firstDispense = วันเบิกแรก (qty_out > 0) ของรหัสเหล่านั้น — เบิกก่อนรับครั้งแรก = ของยกยอด ไม่ใช่ยาใหม่
  * รหัสมติเข้าบัญชีถูกรวมด้วย เพื่อบอกได้ว่า "ยังไม่เคยมีของ"
+ * คอลัมน์โมดอล: stockByCode = แถว inventory ที่มีของ (คงเหลือ) ของรหัสในช่วง ·
+ * outReceiveByCode = ประวัติรับของรหัสที่ Master ตั้งธงตัดออก (วันที่รับ/บริษัท/ราคา — inventory ไม่มี 3 ช่องนี้)
  */
 export async function fetchNewDrugData(ptcEntries = []) {
-  const empty = { windowRows: [], priorCodes: new Set(), firstDispense: new Map() }
+  const empty = { windowRows: [], priorCodes: new Set(), firstDispense: new Map(), stockByCode: new Map(), outReceiveByCode: new Map() }
   if (!supabase) return empty
   const d = new Date()
   d.setDate(d.getDate() - (Math.max(...NEW_DRUG_DAYS) - 1))
   const fromYmd = localYmd(d)
   const windowRows = await _pagedSelect(() => supabase.from('receive_logs')
-    .select('id, receive_date, drug_code, drug_name, lot, exp, qty_received, drug_unit, bill_number, supplier_current, purchase_type, receive_status')
+    .select('id, receive_date, drug_code, drug_name, lot, exp, qty_received, drug_unit, bill_number, supplier_current, price_per_unit, purchase_type, receive_status')
     .gte('receive_date', fromYmd).order('id'))
+  const groupBy = (rows, key) => {
+    const m = new Map()
+    for (const r of rows) { const c = String(r[key] || '').trim(); if (!m.has(c)) m.set(c, []); m.get(c).push(r) }
+    return m
+  }
 
   const codes = [...new Set([
     ...windowRows.map(r => String(r.drug_code || '').trim()),
@@ -1395,7 +1402,25 @@ export async function fetchNewDrugData(ptcEntries = []) {
       if (r.dispense_date && (!firstDispense.has(c) || r.dispense_date < firstDispense.get(c))) firstDispense.set(c, r.dispense_date)
     }
   }
-  return { windowRows, priorCodes, firstDispense }
+
+  const windowCodes = [...new Set(windowRows.map(r => String(r.drug_code || '').trim()))].filter(c => c && c !== '-')
+  const stockRows = []
+  for (let i = 0; i < windowCodes.length; i += 150) {
+    stockRows.push(...await _pagedSelect(() => supabase.from('inventory').select('id, code, qty, unit')
+      .in('code', windowCodes.slice(i, i + 150)).order('id')))
+  }
+  const stockByCode = groupBy(stockRows.filter(r => (parseFloat(String(r.qty ?? '').replace(/,/g, '')) || 0) > 0), 'code')
+
+  const outRows = await _pagedSelect(() => supabase.from('inventory').select('id, code')
+    .ilike('receive_status', '%ตัดออก%').order('id'))
+  const outCodes = [...new Set(outRows.map(r => String(r.code || '').trim()))].filter(c => c && c !== '-')
+  const outRecv = []
+  for (let i = 0; i < outCodes.length; i += 150) {
+    outRecv.push(...await _pagedSelect(() => supabase.from('receive_logs')
+      .select('id, drug_code, receive_date, supplier_current, price_per_unit, drug_unit')
+      .in('drug_code', outCodes.slice(i, i + 150)).order('id')))
+  }
+  return { windowRows, priorCodes, firstDispense, stockByCode, outReceiveByCode: groupBy(outRecv, 'drug_code') }
 }
 
 const _formularyAuditDetails = (r) => ({ change_type: r.change_type, drug_code: r.drug_code, drug_name: r.drug_name, ptc_date: r.ptc_date, ptc_ref: r.ptc_ref })

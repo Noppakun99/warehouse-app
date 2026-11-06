@@ -811,7 +811,7 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
   const formularySummary = useMemo(() => {
     if (!formularyRaw || !alertsLoaded) return null;
     const newDrugs = buildNewDrugs({ ...formularyRaw, today, days: NEW_DRUG_DAYS[0] });
-    const out = buildFormularyOut({ discontinued: alerts.discontinued || [], ptcEntries: formularyRaw.ptcEntries });
+    const out = buildFormularyOut({ discontinued: alerts.discontinued || [], ptcEntries: formularyRaw.ptcEntries, receiveByCode: formularyRaw.outReceiveByCode });
     return {
       newCount: countReceivedNew(newDrugs),
       outToReview: out.length, // = แถวแท็บตัดออก (ยังมีของ + มติที่ Master ยังไม่ตั้งธง) — Rule #6

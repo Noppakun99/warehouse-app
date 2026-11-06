@@ -25,6 +25,24 @@ const normCode = (c) => {
 }
 const num = (v) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : 0 }
 
+/**
+ * สรุปแถวรับของรหัสหนึ่ง: วันรับครั้งแรก/ล่าสุด + บริษัท/ราคาของแถวรับล่าสุด (ราคา 0/ว่าง ข้ามไปแถวก่อนหน้า)
+ * @returns {{firstReceive, lastReceive, supplier, price, priceUnit}}
+ */
+export function receiveSummary(rows = []) {
+  const dated = rows.filter(r => r.receive_date)
+  if (dated.length === 0) return { firstReceive: null, lastReceive: null, supplier: '', price: null, priceUnit: '' }
+  const sorted = [...dated].sort((a, b) => (a.receive_date < b.receive_date ? 1 : a.receive_date > b.receive_date ? -1 : (b.id || 0) - (a.id || 0)))
+  const priced = sorted.find(r => num(r.price_per_unit) > 0)
+  return {
+    firstReceive: sorted[sorted.length - 1].receive_date,
+    lastReceive: sorted[0].receive_date,
+    supplier: String(sorted.find(r => String(r.supplier_current || '').trim())?.supplier_current || '').trim(),
+    price: priced ? num(priced.price_per_unit) : null,
+    priceUnit: String(priced?.drug_unit || '').trim(),
+  }
+}
+
 /** มติล่าสุดของรหัส+ประเภท (มติหลายครั้งของรหัสเดียว = เอาวันที่ล่าสุด) */
 export function ptcByCode(entries = [], changeType) {
   const map = new Map()
@@ -45,12 +63,14 @@ export function ptcByCode(entries = [], changeType) {
  * @param {Set}    p.priorCodes   รหัสที่มีแถวรับก่อนช่วงยาวสุด (ทุกชนิด)
  * @param {Map}    p.firstDispense รหัส → วันเบิกแรกสุด 'YYYY-MM-DD'
  * @param {Array}  p.ptcEntries   formulary_change ทั้งหมด
+ * @param {Map}    p.stockByCode  รหัส → แถว inventory ที่มีของ [{qty, unit}] (คงเหลือ — รวมรอตรวจรับ แบบบัตรยา)
  * @param {string} p.today        'YYYY-MM-DD'
  * @param {number} p.days         ช่วงที่เลือก
- * @returns {Array<{key, code, name, unit, firstReceive, types, inspectedQty, pendingQty, rows, ptc, status}>}
+ * @returns {Array<{key, code, name, unit, firstReceive, lastReceive, supplier, price, total, types, inspectedQty, pendingQty, rows, ptc, status}>}
  *   status: 'inspected' (มีของตรวจรับแล้ว) | 'pending' (รอตรวจรับทั้งหมด) | 'noStock' (มติแล้ว ยังไม่เคยรับ) | 'noCode' (มติแล้ว ยังไม่มีรหัส)
+ *   total: คงเหลือในหน่วยของแถวรับล่าสุด (null = มติที่ยังไม่มีของ)
  */
-export function buildNewDrugs({ windowRows = [], priorCodes = new Set(), firstDispense = new Map(), ptcEntries = [], today, days = NEW_DRUG_DAYS[0] } = {}) {
+export function buildNewDrugs({ windowRows = [], priorCodes = new Set(), firstDispense = new Map(), ptcEntries = [], stockByCode = new Map(), today, days = NEW_DRUG_DAYS[0] } = {}) {
   const from = windowFromYmd(today, days)
   const ptcIn = ptcByCode(ptcEntries, 'in')
 
@@ -79,9 +99,13 @@ export function buildNewDrugs({ windowRows = [], priorCodes = new Set(), firstDi
       if (r.receive_status === RECEIVE_STATUS.inspected) inspectedQty += num(r.qty_received)
       else if (r.receive_status === RECEIVE_STATUS.pending) pendingQty += num(r.qty_received)
     }
+    const unit = String(rows[0].drug_unit || '').trim()
+    const recv = receiveSummary(rows)
+    const stock = stockByCode.get(g.code) || []
     out.push({
       key: `r:${g.code}`, code: g.code, name: rows[0].drug_name || g.code,
-      unit: String(rows[0].drug_unit || '').trim(), firstReceive,
+      unit, firstReceive, lastReceive: recv.lastReceive, supplier: recv.supplier, price: recv.price,
+      total: stock.length ? stockTotalInMainUnit(stock, unit) : 0,
       types: [...new Set(rows.map(r => r.purchase_type))],
       inspectedQty, pendingQty, rows, ptc: ptcIn.get(g.code) || null,
       status: inspectedQty > 0 ? 'inspected' : 'pending',
@@ -97,7 +121,7 @@ export function buildNewDrugs({ windowRows = [], priorCodes = new Set(), firstDi
     const code = normCode(e.drug_code)
     if (code && everReceived.has(code)) continue
     waiting.push({
-      key: `p:${e.id}`, code, name: e.drug_name, unit: '', firstReceive: null, types: [],
+      key: `p:${e.id}`, code, name: e.drug_name, unit: '', firstReceive: null, lastReceive: null, supplier: '', price: null, total: null, types: [],
       inspectedQty: 0, pendingQty: 0, rows: [], ptc: e, status: code ? 'noStock' : 'noCode',
     })
   }
@@ -130,10 +154,11 @@ export function buildNewDrugLine(list = [], { today, days = NEW_DRUG_DAYS[0] } =
  * @param {object} p
  * @param {Array} p.discontinued fetchDashboardAlerts().discontinued — [{code, name, rows:[{qty, unit, lot, exp, location}]}]
  * @param {Array} p.ptcEntries   formulary_change ทั้งหมด
+ * @param {Map}   p.receiveByCode รหัส → แถว receive_logs (วันที่รับ/บริษัท/ราคา — inventory ไม่มี)
  * @param {boolean} p.onlyWithStock ตั้งต้น true = เฉพาะที่มีของเหลือ (+ มติที่ Master ยังไม่ตั้งธงเสมอ)
- * @returns {Array<{key, code, name, total, unit, lots, rows, ptc, notFlagged}>}
+ * @returns {Array<{key, code, name, total, unit, lots, firstReceive, lastReceive, supplier, price, priceUnit, rows, ptc, notFlagged}>}
  */
-export function buildFormularyOut({ discontinued = [], ptcEntries = [], onlyWithStock = true } = {}) {
+export function buildFormularyOut({ discontinued = [], ptcEntries = [], receiveByCode = new Map(), onlyWithStock = true } = {}) {
   const ptcOut = ptcByCode(ptcEntries, 'out')
   const flagged = new Set()
   const list = discontinued.map(d => {
@@ -144,13 +169,14 @@ export function buildFormularyOut({ discontinued = [], ptcEntries = [], onlyWith
     return {
       key: `f:${code || d.name}`, code, name: d.name || code, unit,
       total: stock.length ? stockTotalInMainUnit(stock, unit) : 0,
-      lots: stock.length, rows: stock, ptc: ptcOut.get(code) || null, notFlagged: false,
+      lots: stock.length, ...receiveSummary(receiveByCode.get(code) || []),
+      rows: stock, ptc: ptcOut.get(code) || null, notFlagged: false,
     }
   })
   // มติตัดออกแล้ว แต่ Master คอลัมน์ A ยังไม่ตั้งธง — ต้องเห็นเสมอ (แอปยังถือว่าเป็นยาในบัญชี)
   for (const [code, e] of ptcOut) {
     if (flagged.has(code)) continue
-    list.push({ key: `p:${e.id}`, code, name: e.drug_name, unit: '', total: null, lots: 0, rows: [], ptc: e, notFlagged: true })
+    list.push({ key: `p:${e.id}`, code, name: e.drug_name, unit: '', total: null, lots: 0, ...receiveSummary([]), rows: [], ptc: e, notFlagged: true })
   }
   return list
     .filter(d => !onlyWithStock || d.notFlagged || d.total > 0)

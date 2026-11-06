@@ -154,6 +154,20 @@ const COL = {
   qty:      { label: 'คงเหลือ',  cell: r => numOrDash(r.qty), num: true },
   unit:     { label: 'หน่วย',    cell: r => dash(r.unit), nowrap: true },
 };
+// ยาเข้าใหม่ / ตัดออก — วันที่รับ บริษัท ราคา มาจากแถวรับ (receiveSummary ใน formularyChange.js)
+const fmtPrice = (v) => (v == null ? '-' : Number(v).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const FCOL = {
+  received: { label: 'วันที่รับ', nowrap: true, cell: r => (!r.firstReceive ? '-' : (
+    <>
+      {fmtYmdBE(r.firstReceive)}
+      {r.lastReceive && r.lastReceive !== r.firstReceive && <span className="block text-xs text-slate-400 dark:text-slate-500">ล่าสุด {fmtYmdBE(r.lastReceive)}</span>}
+    </>
+  )) },
+  total:    { label: 'คงเหลือ', cell: r => (r.total == null ? '-' : fmtNum(r.total)), num: true },
+  supplier: { label: 'บริษัท', cell: r => dash(r.supplier), wide: true },
+  // ราคาคิดต่อหน่วยในบิล — แท็บตัดออก หน่วยบิลต่างหน่วยคงเหลือได้ จึงกำกับหน่วยไว้
+  price:    { label: 'ราคา/หน่วย', num: true, nowrap: true, cell: r => `${fmtPrice(r.price)}${r.price != null && r.priceUnit && r.priceUnit !== r.unit ? ` / ${r.priceUnit}` : ''}` },
+};
 const QUEUE_COLUMNS = {
   expired:        [COL.lot, COL.exp, COL.location, COL.qty, COL.unit],
   nearExpiry:     [COL.lot, COL.exp, COL.location, COL.qty, COL.unit],
@@ -164,22 +178,36 @@ const QUEUE_COLUMNS = {
   loanOverdue:    [{ label: 'ทิศทาง', cell: r => (r.direction === 'lend' ? 'ให้ยืม' : 'ยืมมา'), nowrap: true },
                    { label: 'โรงพยาบาล', cell: r => dash(r.counterparty), wide: true }, COL.lot,
                    { label: 'จำนวน', cell: r => numOrDash(r.qty), num: true }, COL.unit],
-  // โมดอล FormularyModal 3 แท็บ — rows มาจาก formularyChange.js
-  newDrug:        [{ label: 'รับครั้งแรก', cell: r => (r.firstReceive ? fmtYmdBE(r.firstReceive) : '-'), nowrap: true },
+  // โมดอล FormularyModal 3 แท็บ — rows มาจาก formularyChange.js · มติ PTC กางอ่านที่แถว (rowDetail) ไม่เป็นคอลัมน์
+  newDrug:        [FCOL.received,
                    { label: 'ตรวจรับแล้ว', cell: r => (r.inspectedQty ? fmtNum(r.inspectedQty) : '-'), num: true },
                    { label: 'รอตรวจรับ', cell: r => (r.pendingQty ? fmtNum(r.pendingQty) : '-'), num: true },
-                   COL.unit, { label: 'มติ PTC', cell: r => ptcCell(r.ptc, '-'), wide: true }],
-  formularyOut:   [{ label: 'คงเหลือ', cell: r => (r.total == null ? '-' : fmtNum(r.total)), num: true }, COL.unit,
+                   FCOL.total, COL.unit, FCOL.supplier, FCOL.price],
+  formularyOut:   [FCOL.received, FCOL.total, COL.unit,
                    { label: 'Lot ที่มีของ', cell: r => (r.lots ? fmtNum(r.lots) : '-'), num: true },
-                   { label: 'มติ PTC', cell: r => ptcCell(r.ptc, 'ไม่มีในทะเบียน'), wide: true }],
+                   FCOL.supplier, FCOL.price],
   ptcRegister:    [{ label: 'วันที่ประชุม', cell: r => fmtYmdBE(r.ptc_date), nowrap: true },
                    { label: 'อ้างอิง', cell: r => dash(r.ptc_ref) },
                    { label: 'หมายเหตุ', cell: r => dash(r.note), wide: true }],
 };
 
-function ptcCell(e, empty) {
-  if (!e) return empty;
-  return `${CHANGE_TYPE_LABEL[e.change_type]} ${fmtYmdBE(e.ptc_date)}${e.ptc_ref ? ` · ${e.ptc_ref}` : ''}`;
+// กางใต้แถวยา (แท็บยาเข้าใหม่ / ตัดออก) — กดชื่อยาเพื่อเปิด/ปิด
+function PtcDetail({ e }) {
+  if (!e) return <p className="text-xs text-slate-500 dark:text-slate-400">ไม่มีมติในทะเบียน PTC</p>;
+  const line = (label, value) => (
+    <div className="flex gap-2 min-w-0">
+      <dt className="text-slate-400 dark:text-slate-500 shrink-0">{label}</dt>
+      <dd className="text-slate-700 dark:text-slate-200 min-w-0 break-words">{value}</dd>
+    </div>
+  );
+  return (
+    <dl className="space-y-1 text-xs rounded-lg bg-slate-50 dark:bg-slate-800/60 px-3 py-2">
+      {line('มติ PTC', <span className="font-semibold">{CHANGE_TYPE_LABEL[e.change_type]} · ประชุม {fmtYmdBE(e.ptc_date)}</span>)}
+      {e.ptc_ref && line('อ้างอิง', e.ptc_ref)}
+      {line('ชื่อตามเอกสาร', e.drug_name)}
+      {e.note && line('หมายเหตุ', e.note)}
+    </dl>
+  );
 }
 const NEW_DRUG_BADGE = {
   inspected: { badge: 'ตรวจรับแล้ว', tone: 'emerald' },
@@ -229,17 +257,30 @@ function QueueBadge({ head }) {
   return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold tabular-nums whitespace-nowrap ${(SEVERITY[head.tone] || SEVERITY.slate).pill}`}>{head.badge}</span>;
 }
 
+// span block ไม่ใช่ p — ต้องอยู่ใน <button> ได้ (แถวที่กางรายละเอียดได้)
 function DrugCell({ head }) {
   return (
     <>
-      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-snug">{head.name}</p>
-      {head.code && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">รหัส {head.code}</p>}
-      {head.note && <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-0.5">{head.note}</p>}
+      <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100 leading-snug">{head.name}</span>
+      {head.code && <span className="block text-xs text-slate-400 dark:text-slate-500 mt-0.5">รหัส {head.code}</span>}
+      {head.note && <span className="block text-xs text-emerald-700 dark:text-emerald-300 mt-0.5">{head.note}</span>}
     </>
   );
 }
 
-export function QueueDetailModal({ item, onClose, manage, toolbar = null, footerStart = null, columns = null, bodyTop = null }) {
+// ช่องยา: มี rowDetail = ปุ่ม ▸ กางรายละเอียดใต้แถว
+function DrugToggle({ head, open, onToggle }) {
+  if (!onToggle) return <DrugCell head={head} />;
+  return (
+    <button type="button" onClick={onToggle} aria-expanded={open} className="flex items-start gap-1.5 text-left w-full">
+      <ChevronRight size={15} className={`mt-0.5 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-90' : ''}`} />
+      <span className="min-w-0"><DrugCell head={head} /></span>
+    </button>
+  );
+}
+
+export function QueueDetailModal({ item, onClose, manage, toolbar = null, footerStart = null, columns = null, bodyTop = null, rowDetail = null, statusLabel = 'สถานะ' }) {
+  const [openRows, setOpenRows] = useState(() => new Set());
   useEffect(() => {
     if (!item) return undefined;
     const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
@@ -249,21 +290,27 @@ export function QueueDetailModal({ item, onClose, manage, toolbar = null, footer
   if (!item) return null;
   const cols = columns || QUEUE_COLUMNS[item.key] || [];
   const rowKey = (r, i) => r.key ?? r.id ?? `${r.code}|${r.lot}|${i}`;
+  const toggleFor = (k) => (rowDetail ? () => setOpenRows(prev => {
+    const next = new Set(prev);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    return next;
+  }) : null);
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm sm:p-4" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-label={item.label}
         className="bg-white dark:bg-slate-900 w-full sm:max-w-5xl max-h-[85vh] flex flex-col rounded-t-2xl sm:rounded-2xl shadow-2xl"
         onClick={e => e.stopPropagation()}>
-        <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+        <div className="shrink-0 flex items-start justify-between gap-3 px-4 py-3 border-b border-slate-100 dark:border-slate-800">
           <div className="min-w-0">
             <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">{item.label} <span className="tabular-nums text-slate-400 dark:text-slate-500 font-semibold">({fmtNum(item.rows.length)})</span></h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{item.note}</p>
           </div>
           <button type="button" onClick={onClose} aria-label="ปิด" className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"><X size={18} /></button>
         </div>
-        {toolbar}
+        {/* shrink-0: แถบแท็บเป็น overflow-x-auto (min-height = 0) — จอเตี้ยแล้วถูกบีบจนแท็บหายใต้ส่วนเลื่อน */}
+        {toolbar && <div className="shrink-0">{toolbar}</div>}
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {/* อยู่ในส่วนเลื่อน — ฟอร์มยาวบนจอเตี้ยต้องเลื่อนถึงปุ่มได้ (toolbar ไม่เลื่อน) */}
           {bodyTop}
           {item.rows.length === 0 && <p className="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">ไม่พบรายการตามตัวกรอง</p>}
@@ -273,20 +320,27 @@ export function QueueDetailModal({ item, onClose, manage, toolbar = null, footer
               <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 <th className="px-4 py-2">ยา</th>
                 {cols.map(c => <th key={c.label} className={`px-3 py-2 whitespace-nowrap ${c.num ? 'text-right' : ''}`}>{c.label}</th>)}
-                <th className="px-4 py-2 text-right">สถานะ</th>
+                <th className="px-4 py-2 text-right">{statusLabel}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {item.rows.map((r, i) => {
                 const head = rowHead(item.key, r);
+                const k = rowKey(r, i);
+                const open = openRows.has(k);
                 return (
-                  <tr key={rowKey(r, i)} className="align-top hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                    <td className="px-4 py-2.5 min-w-[12rem]"><DrugCell head={head} /></td>
-                    {cols.map(c => (
-                      <td key={c.label} className={`px-3 py-2.5 ${c.num ? 'text-right tabular-nums font-semibold text-slate-800 dark:text-slate-100' : 'text-slate-600 dark:text-slate-300'} ${c.nowrap ? 'whitespace-nowrap' : ''} ${c.wide ? 'min-w-[10rem]' : ''}`}>{c.cell(r)}</td>
-                    ))}
-                    <td className="px-4 py-2.5 text-right"><QueueBadge head={head} /></td>
-                  </tr>
+                  <React.Fragment key={k}>
+                    <tr className="align-top hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-2.5 min-w-[12rem]"><DrugToggle head={head} open={open} onToggle={toggleFor(k)} /></td>
+                      {cols.map(c => (
+                        <td key={c.label} className={`px-3 py-2.5 ${c.num ? 'text-right tabular-nums font-semibold text-slate-800 dark:text-slate-100' : 'text-slate-600 dark:text-slate-300'} ${c.nowrap ? 'whitespace-nowrap' : ''} ${c.wide ? 'min-w-[10rem]' : ''}`}>{c.cell(r)}</td>
+                      ))}
+                      <td className="px-4 py-2.5 text-right"><QueueBadge head={head} /></td>
+                    </tr>
+                    {open && (
+                      <tr><td colSpan={cols.length + 2} className="px-4 pb-3 pt-0 pl-10">{rowDetail(r)}</td></tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
@@ -296,12 +350,15 @@ export function QueueDetailModal({ item, onClose, manage, toolbar = null, footer
           <ul className="sm:hidden divide-y divide-slate-100 dark:divide-slate-800">
             {item.rows.map((r, i) => {
               const head = rowHead(item.key, r);
+              const k = rowKey(r, i);
+              const open = openRows.has(k);
               return (
-                <li key={rowKey(r, i)} className="px-4 py-3">
+                <li key={k} className="px-4 py-3">
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0"><DrugCell head={head} /></div>
+                    <div className="min-w-0"><DrugToggle head={head} open={open} onToggle={toggleFor(k)} /></div>
                     <div className="shrink-0"><QueueBadge head={head} /></div>
                   </div>
+                  {open && <div className="mt-2">{rowDetail(r)}</div>}
                   <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                     {cols.map(c => (
                       <div key={c.label} className="flex gap-1.5 min-w-0">
@@ -315,7 +372,7 @@ export function QueueDetailModal({ item, onClose, manage, toolbar = null, footer
             })}
           </ul>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-3 border-t border-slate-100 dark:border-slate-800">
+        <div className="shrink-0 flex flex-wrap items-center justify-end gap-2 px-4 py-3 border-t border-slate-100 dark:border-slate-800">
           {footerStart}
           <button type="button" onClick={onClose} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2 px-4 font-medium text-sm transition-colors">ปิด</button>
           {manage && (
@@ -424,8 +481,9 @@ export function FormularyModal({ raw, discontinued = [], today, auth, onChanged,
 
   const ptcEntries = useMemo(() => raw?.ptcEntries || [], [raw]);
   const newDrugs = useMemo(() => (raw ? buildNewDrugs({ ...raw, today, days }) : []), [raw, today, days]);
-  const outWithStock = useMemo(() => buildFormularyOut({ discontinued, ptcEntries }), [discontinued, ptcEntries]);
-  const outEvery = useMemo(() => buildFormularyOut({ discontinued, ptcEntries, onlyWithStock: false }), [discontinued, ptcEntries]);
+  const receiveByCode = raw?.outReceiveByCode;
+  const outWithStock = useMemo(() => buildFormularyOut({ discontinued, ptcEntries, receiveByCode }), [discontinued, ptcEntries, receiveByCode]);
+  const outEvery = useMemo(() => buildFormularyOut({ discontinued, ptcEntries, receiveByCode, onlyWithStock: false }), [discontinued, ptcEntries, receiveByCode]);
   const registry = useMemo(() => sortRegistry(ptcEntries), [ptcEntries]);
   const line = useMemo(() => buildNewDrugLine(newDrugs, { today, days }), [newDrugs, today, days]);
   const lineCount = line ? line.split('\n').length - 2 : 0;
@@ -433,7 +491,7 @@ export function FormularyModal({ raw, discontinued = [], today, auth, onChanged,
   const received = countReceivedNew(newDrugs);
 
   const s = q.trim().toLowerCase();
-  const match = (r) => !s || [r.name, r.drug_name, r.code, r.drug_code, r.ptc_ref, r.note].some(v => String(v || '').toLowerCase().includes(s));
+  const match = (r) => !s || [r.name, r.drug_name, r.code, r.drug_code, r.ptc_ref, r.note, r.supplier].some(v => String(v || '').toLowerCase().includes(s));
   const all = { newDrug: newDrugs, formularyOut: outAll ? outEvery : outWithStock, ptcRegister: registry }[tab];
   const rows = all.filter(match);
   const tabCount = { newDrug: received, formularyOut: outWithStock.length, ptcRegister: registry.length };
@@ -528,7 +586,7 @@ export function FormularyModal({ raw, discontinued = [], today, auth, onChanged,
         )}
         <div className="relative flex-1 min-w-0">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input type="text" value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นชื่อยา รหัส" aria-label="ค้นหายาในแท็บนี้"
+          <input type="text" value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นชื่อยา รหัส บริษัท" aria-label="ค้นหายาในแท็บนี้"
             className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-9 pr-3 py-1.5 text-base sm:text-sm text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500" />
         </div>
       </div>
@@ -562,6 +620,8 @@ export function FormularyModal({ raw, discontinued = [], today, auth, onChanged,
         item={{ key: tab, label: 'ยาเข้าใหม่ / ตัดออกจากบัญชี', note: NOTE[tab], rows }}
         columns={columns}
         bodyTop={bodyTop}
+        rowDetail={tab === 'ptcRegister' ? null : (r) => <PtcDetail e={r.ptc} />}
+        statusLabel={tab === 'newDrug' ? 'ตรวจรับ' : 'สถานะ'}
         onClose={onClose}
         toolbar={toolbar}
         footerStart={footerStart}

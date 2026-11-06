@@ -110,7 +110,8 @@ test.describe('Permissions — staff', () => {
 
   // อ่านอย่างเดียว — เปิดโมดอล สลับแท็บ/ช่วงวัน คัดลอกลง clipboard
   // ⛔ ห้ามกด "บันทึก" ในฟอร์มทะเบียน หรือ "ลบมติ" — เขียนตาราง formulary_change บน prod
-  for (const [label, viewport] of [['คอม', { width: 1280, height: 800 }], ['มือถือ 375px', { width: 375, height: 667 }]]) {
+  // จอเตี้ย 1072×456 = จอที่ user ส่งรูปมา 06/11/2569 (แท็บถูกบีบหายใต้ส่วนเลื่อน)
+  for (const [label, viewport] of [['คอม', { width: 1280, height: 800 }], ['คอมจอเตี้ย', { width: 1072, height: 456 }], ['มือถือ 375px', { width: 375, height: 667 }]]) {
     test(`staff เปิดยาเข้าใหม่/ตัดออกจากคิวงาน ตัวเลขตรงแท็บ และไม่ล้นจอ (${label})`, async ({ staffPage: page }) => {
       if (!page) test.skip();
       await page.setViewportSize(viewport);
@@ -139,7 +140,23 @@ test.describe('Permissions — staff', () => {
         expect(await dialog.locator('.overflow-y-auto').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
       };
       await noOverflow();
-      await page.screenshot({ path: `test-results/formulary-new-${viewport.width}.png` });
+      // แถบแท็บต้องไม่ถูกบีบ (กล่อง overflow-x ของแท็บสูงไม่น้อยกว่าเนื้อในของมัน)
+      const tabBar = dialog.getByRole('tablist').locator('xpath=..');
+      expect(await tabBar.evaluate(el => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(0);
+      await page.screenshot({ path: `test-results/formulary-new-${viewport.width}x${viewport.height}.png` });
+
+      // มติ PTC ไม่เป็นคอลัมน์ — กด ▸ ที่ชื่อยาแล้วกางใต้แถว (user เลือก 06/11/2569) · คอลัมน์บริษัท/ราคามีทั้งตารางและการ์ด
+      await expect(dialog.getByText('บริษัท', { exact: true }).locator('visible=true').first()).toBeVisible();
+      await expect(dialog.getByText('ราคา/หน่วย', { exact: true }).locator('visible=true').first()).toBeVisible();
+      const toggle = dialog.locator('button[aria-expanded]').locator('visible=true').first();
+      if (await toggle.count()) {
+        await toggle.click();
+        await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+        await expect(dialog.getByText(/^(มติ PTC|ไม่มีมติในทะเบียน PTC)$/).locator('visible=true').first()).toBeVisible();
+        await noOverflow();
+        await toggle.click();
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      }
 
       // 90 วัน ต้องไม่น้อยกว่า 30 วัน
       await dialog.getByRole('button', { name: '90 วัน' }).click();

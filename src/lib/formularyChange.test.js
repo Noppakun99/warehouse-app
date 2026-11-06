@@ -5,7 +5,7 @@
 
 import {
   buildNewDrugs, countReceivedNew, buildNewDrugLine, buildFormularyOut, sortRegistry,
-  validateFormularyEntry, normalizeFormularyEntry, windowFromYmd, ptcByCode,
+  validateFormularyEntry, normalizeFormularyEntry, windowFromYmd, ptcByCode, receiveSummary,
 } from './formularyChange.js'
 
 let pass = 0, fail = 0
@@ -126,6 +126,39 @@ section('ยาตัดออกจากบัญชี')
   assertEq(def.find(d => d.code === 'C').ptc, null, 'ไม่พบมติในทะเบียน')
   assertEq(def.find(d => d.code === 'Z').notFlagged, true, 'มติแต่ยังไม่ตั้งธง')
   assertEq(buildFormularyOut({ discontinued, ptcEntries: ptc, onlyWithStock: false }).length, 4, 'สลับดูทั้งหมด รวมที่หมดแล้ว')
+}
+
+section('คอลัมน์โมดอล — วันที่รับ · บริษัท · ราคา · คงเหลือ')
+{
+  const s = receiveSummary([
+    { id: 1, receive_date: '2026-10-10', supplier_current: 'เก่า', price_per_unit: 20, drug_unit: 'ขวด' },
+    { id: 3, receive_date: '2026-11-03', supplier_current: 'ใหม่', price_per_unit: 0, drug_unit: 'ขวด' },
+    { id: 2, receive_date: '2026-11-03', supplier_current: 'กลาง', price_per_unit: 25.68, drug_unit: 'กล่อง' },
+  ])
+  assertDeep([s.firstReceive, s.lastReceive], ['2026-10-10', '2026-11-03'], 'วันรับแรก/ล่าสุด')
+  assertEq(s.supplier, 'ใหม่', 'บริษัทของแถวรับล่าสุด (วันเท่ากัน id มากก่อน)')
+  assertDeep([s.price, s.priceUnit], [25.68, 'กล่อง'], 'ราคา 0 ข้ามไปแถวถัดไปที่มีราคา + หน่วยของราคา')
+  assertDeep(receiveSummary([]), { firstReceive: null, lastReceive: null, supplier: '', price: null, priceUnit: '' }, 'ไม่มีแถวรับ')
+
+  const list = buildNewDrugs({
+    windowRows: [R(1, 'N', '2026-11-01', { supplier_current: 'ซิลลิค', price_per_unit: 25.68, drug_unit: '10เม็ด' }),
+                 R(2, 'N', '2026-11-04', { supplier_current: 'ซิลลิค', price_per_unit: 26 , drug_unit: '10เม็ด' })],
+    stockByCode: new Map([['N', [{ qty: '3', unit: '10เม็ด' }, { qty: '10', unit: 'เม็ด' }]]]),
+    ptcEntries: [{ id: 9, change_type: 'in', drug_name: 'รอของ', ptc_date: '2026-10-09' }],
+    today,
+  })
+  const n = list.find(d => d.code === 'N')
+  assertDeep([n.firstReceive, n.lastReceive, n.supplier, n.price, n.total], ['2026-11-01', '2026-11-04', 'ซิลลิค', 26, 4],
+    'ยาเข้าใหม่: วันรับแรก/ล่าสุด · ราคาล่าสุด · คงเหลือแปลงหน่วยของแถวรับล่าสุด (30+10 เม็ด = 4 x 10เม็ด)')
+  assertEq(buildNewDrugs({ windowRows: [R(1, 'N', '2026-11-01')], today })[0].total, 0, 'ไม่มีแถวคงเหลือ = 0')
+  assertEq(list.find(d => d.name === 'รอของ').total, null, 'มติรอของ = ไม่มียอด (แสดง -)')
+
+  const out = buildFormularyOut({
+    discontinued: [{ code: 'A', name: 'Alpha', rows: [{ qty: '5', unit: 'ขวด' }] }],
+    receiveByCode: new Map([['A', [{ id: 1, receive_date: '2025-01-02', supplier_current: 'ก', price_per_unit: 12, drug_unit: 'ขวด' }]]]),
+  })
+  assertDeep([out[0].lastReceive, out[0].supplier, out[0].price, out[0].priceUnit], ['2025-01-02', 'ก', 12, 'ขวด'], 'ตัดออก: ข้อมูลรับจาก receiveByCode')
+  assertEq(buildFormularyOut({ discontinued: [{ code: 'A', name: 'Alpha', rows: [{ qty: '5', unit: 'ขวด' }] }] })[0].supplier, '', 'ไม่มีประวัติรับ = ว่าง')
 }
 
 section('ทะเบียน + ฟอร์ม')
