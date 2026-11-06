@@ -1787,7 +1787,7 @@ function ReceiveView({ auth = {} }) {
     };
     // ดึงทุก field ที่ต้องใช้กรอง blank+dedup เพื่อให้ stat card ตรงกับ displayRows ในตาราง
     const [data, minResult, maxResult] = await Promise.all([
-      fetchAllRows(() => applyFilters(supabase.from('receive_logs').select('id, drug_name, drug_code, lot, exp, bill_number, supplier_current, receive_date, qty_received, total_price_vat'))),
+      fetchAllRows(() => applyFilters(supabase.from('receive_logs').select('id, drug_name, drug_code, lot, exp, bill_number, supplier_current, receive_date, qty_received, total_price_vat, purchase_type'))),
       applyFilters(supabase.from('receive_logs').select('receive_date').not('receive_date', 'is', null).order('receive_date', { ascending: true }).limit(1)),
       applyFilters(supabase.from('receive_logs').select('receive_date').not('receive_date', 'is', null).order('receive_date', { ascending: false }).limit(1)),
     ]);
@@ -1923,13 +1923,18 @@ function ReceiveView({ auth = {} }) {
     setPage(0);
   };
 
-  // dedup key: วันที่+ชื่อยา+lot+exp+เลขบิล (ใช้ drug_name แทน drug_code เพราะบางแถว code = "-")
+  // dedup key: วันที่+ชื่อยา+lot+exp+เลขบิล+ชนิดการรับ+จำนวน (ใช้ drug_name แทน drug_code เพราะบางแถว code = "-")
+  // ⚠️ ต้องมีชนิดการรับ + จำนวน — บิลเดียวแยก 2 แถวจริง (ของแถมติดบิลซื้อ Povidone 40+8 · แบ่งจำนวน Atorvastatin 1,100+300)
+  //    เดิมไม่มี 2 ช่องนี้ แถวที่สองหายจากตาราง/การ์ดสรุป/Excel 18 แถว (scrutinize 06/11/2569) · กันได้เฉพาะแถวซ้ำทุกช่อง
+  //    ทุก query ที่ใช้คีย์นี้ต้อง select purchase_type + qty_received ด้วย (การ์ดสรุป loadAgg)
   const dedupKey = (r) => [
     r.receive_date || '',
     (r.drug_name   || '').trim().toLowerCase(),
     (r.lot         || '').trim().toLowerCase().replace(/^-$/, ''),
     (r.exp         || '').trim().toLowerCase().replace(/^-$/, ''),
     (r.bill_number || '').trim().toLowerCase().replace(/^-$/, ''),
+    (r.purchase_type || '').trim(),
+    String(Number(r.qty_received) || 0),
   ].join('|');
 
   // กรองด้วย date range จาก main filter + dedup
