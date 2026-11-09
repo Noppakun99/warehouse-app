@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Plan a warehouse-app feature before coding: surface assumptions, scope, and affected files. Use for any change touching 2+ files or with unclear requirements.
+description: "Plan a warehouse-app feature before coding: surface assumptions, scope, and affected files. Use for any change touching 2+ files or with unclear requirements."
 ---
 
 # Skill: plan
