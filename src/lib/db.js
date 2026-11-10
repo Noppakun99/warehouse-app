@@ -5,6 +5,7 @@ import { parseReturnPolicy, computeReturnStatus, parseReturnPolicyV2, computeRet
 import { computeCountMatch } from './countMatch.js'
 import { flattenInventory, backfillDrugUnit } from './excelSync.js'
 import { overlayMoves, planMove, reconcileMoves, buildMainLogMap } from './locationMove.js'
+import { SLIP_KIND, nextLoanNumber, validateOutForm, buildOutJob, buildReturnJob, openReturnByLoanId, reconcileSlips } from './loanSlip.js'
 import { NEW_DRUG_DAYS, validateFormularyEntry, normalizeFormularyEntry } from './formularyChange.js'
 import { isUsageRow, localYmd } from '../../supabase/functions/_shared/usageRow.js'
 import {
@@ -1590,7 +1591,168 @@ export async function importDrugLoans({ inserts = [], updates = [], deleteIds = 
       deleted_ids: deleteIds.slice(0, 20),
     },
   })
-  return { inserted, updated, deleted }
+  // ทางนำเข้าทะเบียนทุกทาง (CLI import:loan · ปุ่มนำเข้า Excel · นำเข้า CSV) ผ่านตรงนี้ — ปิดใบแจ้งยืม/รับคืนที่ทะเบียนตรงแล้ว
+  // ล้ม = แค่เตือน ใบยัง pending ปิดได้รอบนำเข้าถัดไป
+  let slips = null
+  try { slips = await reconcileLoanSlips(auth) } catch (e) { console.warn('reconcileLoanSlips:', e?.message) }
+  return { inserted, updated, deleted, slips }
+}
+
+// --- ใบแจ้งยืม / ใบแจ้งรับคืน (drug_loan_slip — docs/features/loan-slip.md · logic ใน loanSlip.js) ---
+// แอปไม่เขียน drug_loan ตรง: Excel ทะเบียน รพ.ยืมยา เป็นตัวจริง → ใบ pending → Claude ลง Excel → import ปิดใบ
+
+export async function fetchOpenLoanSlips() {
+  if (!supabase) return []
+  const { data, error } = await supabase.from('drug_loan_slip').select('*')
+    .in('status', ['pending', 'conflict']).order('id')
+  if (error) throw error
+  return data || []
+}
+
+/** lot ที่มีของของรหัส + ราคาจากบิลรับ (ราคา lot นั้น หรือบิลล่าสุด) — ฟอร์มใบแจ้งยืม */
+export async function fetchLoanSlipDrug(code) {
+  const c = String(code || '').trim()
+  if (!supabase || !c) return { lots: [], prices: [] }
+  const [inv, rec] = await Promise.all([
+    supabase.from('inventory').select('id, code, name, lot, exp, qty, unit, location').eq('code', c).order('exp'),
+    supabase.from('receive_logs').select('lot, price_per_unit, drug_unit, receive_date, purchase_type')
+      .eq('drug_code', c).order('receive_date', { ascending: false }).limit(200),
+  ])
+  if (inv.error) throw inv.error
+  if (rec.error) throw rec.error
+  // inventory มีแถวซ้ำ code+lot จริง (Do Not งานโค้ด) → รวมจำนวน/ที่เก็บเป็น lot เดียว ไม่งั้นเช็คคงเหลือต่อแถวแล้วให้ยืมได้น้อยกว่าที่มี
+  const qtyOf = (r) => parseFloat(String(r.qty ?? '').replace(/,/g, '')) || 0
+  const byLot = new Map()
+  for (const r of inv.data || []) {
+    if (qtyOf(r) <= 0) continue
+    const k = String(r.lot ?? '').trim().toUpperCase() || '-'
+    const cur = byLot.get(k)
+    if (!cur) { byLot.set(k, { ...r, qty: qtyOf(r) }); continue }
+    cur.qty += qtyOf(r)
+    const locs = new Set(String(cur.location || '').split(',').map(x => x.trim()).filter(Boolean))
+    String(r.location || '').split(',').map(x => x.trim()).filter(Boolean).forEach(x => locs.add(x))
+    cur.location = [...locs].join(', ')
+  }
+  return { lots: [...byLot.values()], prices: rec.data || [] }
+}
+
+const _slipAudit = (row) => ({
+  slip_id: row.id, kind: row.kind, kind_label: SLIP_KIND[row.kind], ln: row.ln || row.job?.loanDoc || null,
+  direction: row.direction, direction_label: LOAN_DIRECTION[row.direction], counterparty: row.counterparty,
+  drug_name: row.job?.items?.[0]?.name, item_count: row.job?.items?.length || 0,
+})
+
+/**
+ * บันทึกใบแจ้ง — kind 'out': form = ฟอร์มใบแจ้งยืม (แอปออกเลข LN) · kind 'return': groupRows/picks ของใบยืมเดิม
+ * @returns แถว drug_loan_slip ที่บันทึก (job พร้อมพิมพ์)
+ */
+export async function createLoanSlip({ kind, form, groupRows = [], picks = {} }, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const who = resolveUserName(auth)
+  let row
+  if (kind === 'out') {
+    const bad = validateOutForm(form)
+    if (bad) throw new Error(bad)
+    if (form.partyDoc) {
+      // ใช้หนังสือ/ใบขอยืมของคู่สัญญา — ไม่ออก LN (ln = null ไม่ชน unique index)
+      const job = buildOutJob(form, '')
+      const { data, error } = await supabase.from('drug_loan_slip').insert({
+        kind, direction: job.direction, counterparty: job.counterparty, ln: null, slip_date: job.loanDateIso, job, created_by: who,
+      }).select().single()
+      if (error) throw error
+      row = data
+    }
+    for (let attempt = 0; attempt < 3 && !row; attempt++) {
+      const [loans, slips] = await Promise.all([
+        supabase.from('drug_loan').select('loan_doc').ilike('loan_doc', 'LN-%'),
+        supabase.from('drug_loan_slip').select('ln').eq('kind', 'out'),
+      ])
+      if (loans.error) throw loans.error
+      if (slips.error) throw slips.error
+      const ln = nextLoanNumber([...(loans.data || []).map(r => r.loan_doc), ...(slips.data || []).map(r => r.ln)])
+      const job = buildOutJob(form, ln)
+      const { data, error } = await supabase.from('drug_loan_slip').insert({
+        kind, direction: job.direction, counterparty: job.counterparty, ln, slip_date: job.loanDateIso, job, created_by: who,
+      }).select().single()
+      if (error?.code === '23505') continue   // อีกเครื่องได้เลขนี้ไปก่อน → ออกเลขใหม่
+      if (error) throw error
+      row = data
+    }
+    if (!row) throw new Error('ออกเลขที่ใบยืมไม่สำเร็จ (เลขชนกันหลายครั้ง) — ลองใหม่อีกครั้ง')
+  } else if (kind === 'return') {
+    const job = buildReturnJob(form, groupRows, picks)
+    const ids = job.items.map(i => i.loanId)
+    const open = openReturnByLoanId(await fetchOpenLoanSlips())
+    const dup = ids.find(id => open.has(id))
+    if (dup) throw new Error(`รายการนี้มีใบแจ้งรับคืนค้างอยู่แล้ว (ใบ #${open.get(dup).id}) — ยกเลิกใบเดิมก่อนออกใบใหม่`)
+    const { data, error } = await supabase.from('drug_loan_slip').insert({
+      kind, direction: job.direction, counterparty: job.counterparty, ln: job.ln || null,
+      slip_date: form.slipDate || null, job, loan_ids: ids, created_by: who,
+    }).select().single()
+    if (error) throw error
+    row = data
+  } else throw new Error('ชนิดใบไม่ถูกต้อง')
+
+  await insertAuditLog({
+    action: 'create_loan_slip', table_name: 'drug_loan_slip',
+    user_name: who, department: auth.department, record_count: row.job.items.length, details: _slipAudit(row),
+  })
+  return row
+}
+
+export async function cancelLoanSlip(id, reason, auth = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  const { data, error } = await supabase.from('drug_loan_slip')
+    .update({ status: 'cancelled', resolved_at: new Date().toISOString(), note: String(reason || '').trim() || 'ยกเลิกในแอป' })
+    .eq('id', id).in('status', ['pending', 'conflict']).select().single()
+  if (error) throw error
+  await insertAuditLog({
+    action: 'cancel_loan_slip', table_name: 'drug_loan_slip',
+    user_name: resolveUserName(auth), department: auth.department, record_count: 1,
+    details: { ..._slipAudit(data), reason: data.note },
+  })
+  return data
+}
+
+/**
+ * เทียบใบที่เปิดอยู่ (pending + conflict) กับ drug_loan (= ทะเบียน Excel ล่าสุด) → applied / conflict
+ * เรียกท้าย importDrugLoans + import-loan.mjs ตอนไฟล์ไม่มีอะไรเปลี่ยน (ทะเบียนลงไว้ก่อนออกใบ)
+ */
+export async function reconcileLoanSlips(auth = {}) {
+  if (!supabase) return { applied: [], conflict: [], pending: [] }
+  const slips = await fetchOpenLoanSlips()
+  if (slips.length === 0) return { applied: [], conflict: [], pending: [] }
+  const res = reconcileSlips(slips, await fetchDrugLoans())
+  const byId = new Map(slips.map(s => [s.id, s]))
+  const now = new Date().toISOString()
+  const OPEN = ['pending', 'conflict']
+  for (const a of res.applied) {
+    const { error } = await supabase.from('drug_loan_slip').update({ status: 'applied', resolved_at: now, loan_ids: a.loan_ids })
+      .eq('id', a.id).in('status', OPEN)
+    if (error) throw error
+  }
+  // เขียนเฉพาะที่เปลี่ยน — ไม่งั้นทุกการนำเข้าเขียน audit ซ้ำของใบ conflict เดิม
+  const conflict = res.conflict.filter(c => byId.get(c.id)?.status !== 'conflict' || byId.get(c.id)?.note !== c.note)
+  for (const c of conflict) {
+    const { error } = await supabase.from('drug_loan_slip').update({ status: 'conflict', note: c.note })
+      .eq('id', c.id).in('status', OPEN)
+    if (error) throw error
+  }
+  // conflict ที่ทะเบียนถูกแก้จนยังไม่มีแถวของใบ → กลับเป็นรอลง Excel
+  for (const id of res.pending.filter(id => byId.get(id)?.status === 'conflict')) {
+    const { error } = await supabase.from('drug_loan_slip').update({ status: 'pending', note: null }).eq('id', id).eq('status', 'conflict')
+    if (error) throw error
+  }
+  res.conflict = conflict
+  if (res.applied.length || res.conflict.length) {
+    await insertAuditLog({
+      action: 'reconcile_loan_slip', table_name: 'drug_loan_slip',
+      user_name: resolveUserName(auth), department: auth.department,
+      record_count: res.applied.length + res.conflict.length,
+      details: { applied: res.applied.map(a => a.id), conflict: res.conflict },
+    })
+  }
+  return res
 }
 
 // --- Audit Log ---
@@ -1745,6 +1907,8 @@ export async function fetchNotifications(scope = null) {
     'return_drug_loan',
     'import_drug_loan',
     'delete_drug_loan',
+    'create_loan_slip',
+    'cancel_loan_slip',
     'delete_dispense',
     'update_dispense',
     'import_dispense',

@@ -194,6 +194,9 @@ const ACTION_LABELS = {
   update_drug_loan:             { label: 'แก้ไขรายการยืม-คืน',       color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
   delete_drug_loan:             { label: 'ลบรายการยืม-คืน',          color: 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300'        },
   import_drug_loan:             { label: 'นำเข้าไฟล์ยืม-คืนยา',      color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
+  create_loan_slip:             { label: 'ออกใบแจ้งยืม/รับคืน',      color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
+  cancel_loan_slip:             { label: 'ยกเลิกใบแจ้งยืม/รับคืน',   color: 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300'        },
+  reconcile_loan_slip:          { label: 'ปิดใบแจ้งยืม/รับคืน (ตาม Excel)', color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'},
   seed_swap_policy:             { label: 'อัปเดตนโยบายคืนยา',        color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'   },
   export_excel:                 { label: 'ส่งออก Excel',             color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
   submit_requisition:           { label: 'ส่งใบเบิกยา',             color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'        },
@@ -347,6 +350,22 @@ function formatDetails(action, details, recordCount) {
         d.qty != null && `จำนวน ${d.qty}`,
         d.loan_date && `วันที่ยืม ${d.loan_date}`,
         d.return_date && `วันที่คืน ${d.return_date}`,
+      ].filter(Boolean).join(' · ') || '-';
+
+    case 'create_loan_slip':
+    case 'cancel_loan_slip':
+      return [
+        d.kind_label && `${d.kind_label}${d.ln ? ` ${d.ln}` : ''}`,
+        d.direction_label && `ทิศทาง: ${d.direction_label}`,
+        d.counterparty && `คู่สัญญา: ${d.counterparty}`,
+        d.drug_name && `ยา: ${d.drug_name}${d.item_count > 1 ? ` (+${d.item_count - 1})` : ''}`,
+        d.reason && `เหตุผล: ${d.reason}`,
+      ].filter(Boolean).join(' · ') || '-';
+
+    case 'reconcile_loan_slip':
+      return [
+        d.applied?.length && `ลงทะเบียนแล้ว ${d.applied.length} ใบ`,
+        d.conflict?.length && `ไม่ตรง ${d.conflict.length} ใบ`,
       ].filter(Boolean).join(' · ') || '-';
 
     case 'import_drug_loan':
@@ -560,7 +579,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
     { label: 'รับยา',      keys: ['import_receive', 'scan_invoice', 'map_drug_alias', 'update_receive', 'delete_receive'] },
     { label: 'จ่ายยา',     keys: ['import_dispense', 'update_dispense', 'delete_dispense'] },
     { label: 'คืนยา',      keys: ['insert_return', 'confirm_return', 'update_return', 'delete_return', 'flag_swap_return', 'swap_return_action', 'seed_swap_policy'] },
-    { label: 'ยืม-คืนยา',  keys: ['insert_drug_loan', 'return_drug_loan', 'update_drug_loan', 'delete_drug_loan', 'import_drug_loan'] },
+    { label: 'ยืม-คืนยา',  keys: ['insert_drug_loan', 'return_drug_loan', 'update_drug_loan', 'delete_drug_loan', 'import_drug_loan', 'create_loan_slip', 'cancel_loan_slip', 'reconcile_loan_slip'] },
     { label: 'คลัง/Inventory', keys: ['import_inventory', 'move_location', 'reconcile_location_move', 'create_stock_count', 'create_annual_count', 'close_annual_count', 'add_annual_count_lot', 'add_unknown_count_item', 'update_stock_count', 'clear_stock_count_item', 'refresh_annual_count_qty', 'followup_stock_count', 'delete_stock_count', 'seed_ledger', 'close_ledger_period', 'reopen_ledger_period', 'add_ledger_adjustment', 'create_temperature_log', 'update_temperature_log', 'delete_temperature_log', 'import_temperature_log'] },
     { label: 'ส่งบัญชี (AP)', keys: ['ap_acknowledge', 'ap_unacknowledge', 'ap_mark_inspected', 'ap_uninspect', 'ap_send_batch', 'ap_unsend_batch', 'ap_mark_posted', 'ap_unpost', 'ap_reset_batch', 'print_ap_batch', 'print_ack_batch', 'export_ap_batch'] },
     { label: 'วิเคราะห์สั่งซื้อ', keys: ['analysis_run', 'analysis_view', 'delete_analysis_run', 'update_reorder_config', 'import_reorder_config', 'mark_ordered', 'unmark_ordered', 'print_po', 'reconcile_excel'] },

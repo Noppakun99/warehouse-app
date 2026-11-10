@@ -93,6 +93,13 @@ const total = plan.inserts.length + plan.updates.length + deleteIds.length
 if (total === 0) {
   log('')
   log('  ✓ ข้อมูลตรงกันอยู่แล้ว ไม่มีอะไรต้องเปลี่ยน')
+  // ทะเบียนอาจลงไว้ก่อนออกใบแจ้งในแอป → ไม่มีอะไรต้องนำเข้า แต่ใบยังต้องปิด (ปกติ reconcile อยู่ท้าย importDrugLoans)
+  if (args.commit) {
+    try {
+      const r = await db.reconcileLoanSlips({ name: `${args.user} (CLI)`, department: 'คลังยา' })
+      if (r.applied.length || r.conflict.length) log(`  ✓ ใบแจ้งยืม/รับคืน: ปิด ${r.applied.length} · ไม่ตรงทะเบียน ${r.conflict.length}`)
+    } catch (e) { log('  ⚠ เทียบใบแจ้งยืม/รับคืนไม่สำเร็จ — ' + e.message) }
+  }
   log('')
   process.exit(0)
 }
@@ -116,10 +123,15 @@ log(`  ✓ สำรองแล้ว ${fmt(bk.rows)} แถว → backup/${pa
 log('')
 log(`  กำลังเขียน (เพิ่ม ${fmt(plan.inserts.length)} · แก้ ${fmt(plan.updates.length)} · ลบ ${fmt(deleteIds.length)})…`)
 try {
-  await db.importDrugLoans(
+  const res = await db.importDrugLoans(
     { inserts: plan.inserts, updates: plan.updates, deleteIds, fileName: `${path.basename(FILE)} / ${SHEET}` },
     { name: `${args.user} (CLI)`, department: 'คลังยา' },
   )
+  const sl = res?.slips
+  if (sl && (sl.applied.length || sl.conflict.length)) {
+    log(`  ✓ ใบแจ้งยืม/รับคืน: ปิด ${sl.applied.length} · ไม่ตรงทะเบียน ${sl.conflict.length}`)
+    sl.conflict.forEach(c => log(`     ⚠ ใบ #${c.id}: ${c.note}`))
+  }
 } catch (e) {
   log('')
   log('  ✗ เขียนไม่สำเร็จ — ' + e.message)

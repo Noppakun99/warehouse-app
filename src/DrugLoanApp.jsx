@@ -6,10 +6,12 @@ import {
 import BackButton from './BackButton';
 import { exportToExcel } from './lib/exportExcel';
 import {
-  fetchDrugLoans, insertDrugLoan, updateDrugLoan, deleteDrugLoan, importDrugLoans,
+  fetchDrugLoans, insertDrugLoan, updateDrugLoan, deleteDrugLoan, importDrugLoans, fetchOpenLoanSlips,
   LOAN_DIRECTION, loanOverdueDays,
 } from './lib/db';
 import { parseLoanCsv, diffLoanImport } from './lib/loanImport';
+import { loanGroupKey, openReturnByLoanId } from './lib/loanSlip';
+import { LoanOutSlipModal, LoanReturnSlipModal, OpenSlipsPanel } from './DrugLoanSlipModal';
 
 // เกณฑ์เตือนของค้างคืน (วัน) — >90 แดง, 30-90 ส้ม, <30 ปกติ
 const OVERDUE_RED = 90;
@@ -66,13 +68,24 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
   const [importOpen, setImportOpen] = useState(false);
   const [editRow, setEditRow] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [slips, setSlips] = useState([]);              // ใบแจ้งยืม/รับคืนที่ยังไม่ลง Excel (drug_loan_slip)
+  const [outOpen, setOutOpen] = useState(false);
+  const [returnRows, setReturnRows] = useState(null);  // แถวค้างคืนของใบยืมเดียวกัน → ฟอร์มใบแจ้งรับคืน
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
-    try { setRows(await fetchDrugLoans()); }
+    try {
+      const [loans, open] = await Promise.all([
+        fetchDrugLoans(),
+        // โหลดใบไม่ได้ (ตารางยังไม่มี/เน็ต) = แสดงรายการยืมตามเดิม ไม่ให้ทั้งหน้าล้ม
+        fetchOpenLoanSlips().catch(e => { console.warn('drug_loan_slip:', e?.message); return []; }),
+      ]);
+      setRows(loans); setSlips(open);
+    }
     catch (e) { setErr(e?.message || 'โหลดข้อมูลไม่สำเร็จ'); }
     finally { setLoading(false); }
   }, []);
+  const openReturn = useMemo(() => openReturnByLoanId(slips), [slips]);
   useEffect(() => { load(); }, [load]);
 
   const outstanding = useMemo(() => rows.filter(r => !r.return_date), [rows]);
@@ -185,15 +198,11 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
-  const markReturned = async (r) => {
-    // local parts ไม่ใช่ toISOString() — บน UTC+7 ช่วงเที่ยงคืน-07:00 น. toISOString ให้วันเมื่อวาน
-    // (กับดักเดียวกับ deadline คืนบริษัทใน db.js)
-    const n = new Date();
-    const today = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
-    try {
-      await updateDrugLoan(r.id, { return_date: today }, auth);
-      await load();
-    } catch (e) { setErr(e?.message || 'บันทึกรับคืนไม่สำเร็จ'); }
+  // ปุ่มรับคืน/คืนยา = ออกใบแจ้งรับคืน (ไม่เขียน return_date ตรง — import จาก Excel ทับ/Excel ไม่รู้ · เหตุการณ์ 10/11/2569)
+  // ฟอร์มรวมทุกรายการค้างคืนของใบยืมเดียวกันที่ยังไม่มีใบแจ้งค้าง
+  const startReturn = (r) => {
+    const key = loanGroupKey(r);
+    setReturnRows(outstanding.filter(x => loanGroupKey(x) === key && !openReturn.has(Number(x.id))));
   };
 
   const handleDelete = async (r) => {
@@ -252,9 +261,9 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
               </button>
             )}
             {canEdit && (
-              <button onClick={() => { setEditRow(null); setFormOpen(true); }}
+              <button onClick={() => setOutOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-sm font-medium">
-                <Plus size={15} /> บันทึกการยืม
+                <Plus size={15} /> ใบแจ้งยืม
               </button>
             )}
           </div>
@@ -267,6 +276,8 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
             <AlertTriangle size={16} /> {err}
           </div>
         )}
+
+        <OpenSlipsPanel slips={slips} auth={auth} canEdit={canEdit} onChanged={load} />
 
         {/* สรุปของค้างคืน แยก "เราค้างเขา" / "เขาค้างเรา" รายโรงพยาบาล
             ตอบคำถาม "รพ.ปทุมธานี เรายังไม่ได้คืนกี่รายการ" ได้ในหน้าเดียว คลิกเพื่อกรองต่อ */}
@@ -364,12 +375,19 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
                   <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate min-w-0">{r.drug_name}</span>
                   {r.drug_code && <span className="text-[11px] text-slate-400 dark:text-slate-500 shrink-0">[{r.drug_code}]</span>}
                   {overdueBadge(r)}
+                  {!r.return_date && openReturn.has(Number(r.id)) && (
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${openReturn.get(Number(r.id)).status === 'conflict'
+                      ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60'
+                      : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-900/60'}`}>
+                      {openReturn.get(Number(r.id)).status === 'conflict' ? 'ใบแจ้งคืนไม่ตรงทะเบียน' : 'แจ้งคืนแล้ว รอลง Excel'}
+                    </span>
+                  )}
                   {canEdit && (
                     <span className="ml-auto flex items-center gap-1.5 shrink-0">
-                      {!r.return_date && (
-                        <button onClick={() => markReturned(r)}
+                      {!r.return_date && !openReturn.has(Number(r.id)) && (
+                        <button onClick={() => startReturn(r)}
                           className="flex items-center gap-1 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-md">
-                          <CheckCircle2 size={12} /> บันทึกรับคืน
+                          <CheckCircle2 size={12} /> {r.direction === 'lend' ? 'รับคืน' : 'คืนยา'}
                         </button>
                       )}
                       <button onClick={() => { setEditRow(r); setFormOpen(true); }} title="แก้ไข"
@@ -405,6 +423,14 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
           onSaved={async () => { setFormOpen(false); setEditRow(null); await load(); }}
           onError={setErr}
         />
+      )}
+
+      {outOpen && (
+        <LoanOutSlipModal auth={auth} onClose={() => setOutOpen(false)} onSaved={load} />
+      )}
+
+      {returnRows && (
+        <LoanReturnSlipModal auth={auth} groupRows={returnRows} onClose={() => setReturnRows(null)} onSaved={load} />
       )}
 
       {importOpen && (
