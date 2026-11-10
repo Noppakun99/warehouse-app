@@ -182,6 +182,8 @@ def main():
     note = ' (ยังไม่ได้ตรวจรับ)' if pending else ''
     # ช่องรับบิลพิมพ์วันที่/เวลาให้เลย (user สั่ง 26/10/2569) · --reissue ไม่รู้เวลาส่งเดิม → เว้นเวลาว่าง
     ack_time = arg('--time', '' if reissue else f'{datetime.datetime.now():%H.%M}')
+    remark = arg('--note', '').strip()   # แจ้งจัดซื้อในใบ เช่น ยอดบิลไม่ตรง PO — ลงช่องหมายเหตุทะเบียนด้วย
+    remark_html = f'<div class="remark"><b>หมายเหตุ</b> {html.escape(remark)}</div>' if remark else ''
     page = f'''<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
 <title>ใบส่งบิลจัดซื้อ {doc_no}</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
@@ -204,6 +206,7 @@ tr {{ page-break-inside: avoid; }}
 tr.first td {{ border-top: 2px solid #000; }}
 tfoot td {{ font-weight: 700; border-top: 2px solid #000; }}
 .words {{ margin-top: 6px; }}
+.remark {{ margin-top: 10px; padding: 6px 8px; border: 1px solid #000; line-height: 1.6; }}
 .ack {{ margin-top: 18px; line-height: 1.8; }}
 .sig {{ display: flex; gap: 24px; margin-top: 22px; page-break-inside: avoid; }}
 .sig > div {{ flex: 1; border: 1px solid #000; padding: 10px 14px; }}
@@ -227,6 +230,7 @@ tfoot td {{ font-weight: 700; border-top: 2px solid #000; }}
 <tfoot><tr><td colspan="7" class="r">รวมทั้งสิ้น {len(items)} บิล {nrows} รายการ</td><td colspan="2" class="r">{money(total)}</td></tr></tfoot>
 </table>
 <div class="words">({bahttext(total)})</div>
+{remark_html}
 <div class="ack">ข้าพเจ้าได้รับบิลตามรายการข้างต้น จำนวน <span class="fl w"></span> ฉบับ
 ไว้แล้ว เมื่อวันที่ <span class="fl" style="display:inline-block;width:120px;flex:none">{th_date(today)}</span>
 เวลา <span class="fl" style="display:inline-block;width:70px;flex:none">{ack_time}</span> น.</div>
@@ -286,7 +290,7 @@ tfoot td {{ font-weight: 700; border-top: 2px solid #000; }}
     new_rows = [{'เลขที่ใบ': doc_no, 'วันที่ส่ง': short(today), 'วันที่รับ': short(rd), 'เลขที่บิล': bill,
                  'บริษัท': sup, 'เลขที่PO': ', '.join(sorted({x['po'] for x in b['rows']})),
                  'จำนวนรายการ': len(b['rows']), 'มูลค่า(บาท)': f'{sum(x["val"] for x in b["rows"]):.2f}',
-                 'ไฟล์ใบส่ง': fname, 'จัดซื้อเซ็นรับ': '', 'วันที่เซ็นรับ': '', 'หมายเหตุ': ''}
+                 'ไฟล์ใบส่ง': fname, 'จัดซื้อเซ็นรับ': '', 'วันที่เซ็นรับ': '', 'หมายเหตุ': remark}
                 for (bill, sup, rd), b in items]
     if reissue:
         at = next(i for i, r in enumerate(reg_rows) if r['เลขที่ใบ'] == reissue)

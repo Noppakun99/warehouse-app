@@ -6,6 +6,7 @@
 #            · บิลซื้อลง "ยามาส่ง" ในระบบติดตามการสั่งซื้อของจัดซื้อแล้ว (อ่านระบบผ่านเน็ต — scripts/po_match.py)
 #            · ใบเบิกศูนย์/รพ.สต. มีชีทในไฟล์สรุปเบิกยา · นัดเตือน (_นัดเตือน.csv)
 #            · รายงานแจ้งซื้อยารอบล่าสุดมีสำเนาส่งหัวหน้า · ใบแจ้งย้ายที่เก็บ (แผนผัง) ลง Excel แล้ว
+#            · วิเคราะห์สั่งซื้อ!P2 ตรงสำเนางวดล่าสุด + ชีทเบิก AA:AC แถวงวดปิดว่าง (ขั้นมือตอนขึ้นเดือน)
 import csv, datetime, glob, os, re, sys, warnings
 
 import openpyxl
@@ -203,6 +204,32 @@ lost = [x for x in cur if (x['code'], x['lot'], x['bill']) not in master]
 for x in lost:
     bad(f'รับยา!{x["row"]} {x["code"]} {x["name"]} lot {x["lot"]} บิล {x["bill"]} ({x["status"]}) — ไม่มีแถว Master')
 ok(f'{len(cur) - len(lost)}/{len(cur)} แถวมีคู่ใน Master')
+
+# 6b) แผนลดความหนักไฟล์ยอดคลัง (memory excel-reorg-lighten-plan) — ของที่ต้องทำมือตอนขึ้นเดือน
+#     วิเคราะห์สั่งซื้อ!P2 เป็นวันที่พิมพ์ค่า (เลิก TODAY) = วันที่ 1 ของเดือนในชีทสำเนางวดล่าสุด Master_<ด.>.<ปป>
+#     ชีทเบิก AA:AC แถวงวดที่ปิดแล้ว (วันที่เบิก < MASTER_SINCE) ต้องว่าง
+TH_MON = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
+head('ไฟล์ยอดคลัง: วิเคราะห์สั่งซื้อ!P2 ตรงสำเนางวดล่าสุด · ชีทเบิก AA:AC แถวงวดปิดว่าง')
+snaps = []
+for sn in ws.sheetnames:
+    m = re.match(r'^Master_(.+\.)(\d{2})$', sn)
+    if m and m.group(1) in TH_MON:
+        snaps.append(datetime.datetime(2500 + int(m.group(2)) - 543, TH_MON.index(m.group(1)) + 1, 1))
+p2 = ws['วิเคราะห์สั่งซื้อ']['P2'].value
+if not snaps:
+    bad('ไม่พบชีทสำเนางวด Master_<ด.>.<ปป>')
+elif not isinstance(p2, datetime.datetime) or p2 != max(snaps):
+    bad(f'P2 = {p2} แต่สำเนางวดล่าสุด = {be(max(snaps))} → แก้ P2 เป็นวันที่ 1 ของเดือนนั้น (ขึ้นเดือนแล้วลืมแก้ = เรท/สั่งซื้อใช้ 12 เดือนเก่า)')
+else:
+    ok(f'P2 = {be(p2)} ตรงสำเนางวดล่าสุด')
+left = 0
+for r in ws['เบิก '].iter_rows(min_row=7, min_col=2, max_col=29, values_only=True):
+    if isinstance(r[0], datetime.datetime) and r[0] < MASTER_SINCE and any(v not in (None, '') for v in r[25:28]):
+        left += 1
+if left:
+    bad(f'ชีทเบิก AA:AC ยังมีค่า {left} แถวในงวดที่ปิดแล้ว (ก่อน {be(MASTER_SINCE)}) → ล้างให้ว่าง (สูตรหนัก ไม่มีใครใช้)')
+else:
+    ok('ชีทเบิก AA:AC แถวงวดที่ปิดแล้วว่างครบ')
 
 # 7) บิลซื้อที่ยังไม่อยู่ในทะเบียนส่งบิลจัดซื้อ (key = เลขบิล + วันรับ ตามสคริปต์ bill_handover)
 head(f'บิลซื้อ (วันรับตั้งแต่ {be(HANDOVER_SINCE)}) ↔ _ทะเบียนส่งบิลจัดซื้อ.csv')
