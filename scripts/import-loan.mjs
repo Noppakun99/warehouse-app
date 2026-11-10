@@ -89,6 +89,43 @@ if (deleteIds.length) {
   plan.missing.slice(0, 5).forEach(r => log(`     id ${r.id} | ${r.drug_name} | ${r.loan_date}`))
 }
 
+// ── สำรอง แล้วเขียน ──────────────────────────────────────────────
+async function commitPlan() {
+  log('')
+  log('  กำลังสำรองข้อมูลเดิม…')
+  let bk
+  try { bk = await backupTable(supabase, 'drug_loan') }
+  catch (e) { die('สำรองข้อมูลไม่สำเร็จ — ' + e.message + '\n  ไม่เขียนทับของเดิม') }
+  log(`  ✓ สำรองแล้ว ${fmt(bk.rows)} แถว → backup/${path.basename(bk.file)} (${bk.mb} MB)`)
+
+  log('')
+  log(`  กำลังเขียน (เพิ่ม ${fmt(plan.inserts.length)} · แก้ ${fmt(plan.updates.length)} · ลบ ${fmt(deleteIds.length)})…`)
+  try {
+    const res = await db.importDrugLoans(
+      { inserts: plan.inserts, updates: plan.updates, deleteIds, fileName: `${path.basename(FILE)} / ${SHEET}` },
+      { name: `${args.user} (CLI)`, department: 'คลังยา' },
+    )
+    const sl = res?.slips
+    if (sl && (sl.applied.length || sl.conflict.length)) {
+      log(`  ✓ ใบแจ้งยืม/รับคืน: ปิด ${sl.applied.length} · ไม่ตรงทะเบียน ${sl.conflict.length}`)
+      sl.conflict.forEach(c => log(`     ⚠ ใบ #${c.id}: ${c.note}`))
+    }
+  } catch (e) {
+    log('')
+    log('  ✗ เขียนไม่สำเร็จ — ' + e.message)
+    log(`  กู้คืนด้วย:  node scripts/restore.mjs backup/${path.basename(bk.file)} --commit`)
+    process.exitCode = 1
+    return
+  }
+
+  const after = await db.fetchDrugLoans()
+  log('')
+  log(`  ✓ เสร็จ — drug_loan มี ${fmt(after.length)} แถว`)
+  log(`  สำรองเดิมเก็บไว้ที่ backup/${path.basename(bk.file)}`)
+  log('')
+}
+
+// ห้าม process.exit หลัง query supabase — ปิดขณะ fetch ยังค้าง Node บน Windows ล่ม (libuv assertion · exit 127) ให้จบเอง
 const total = plan.inserts.length + plan.updates.length + deleteIds.length
 if (total === 0) {
   log('')
@@ -101,47 +138,12 @@ if (total === 0) {
     } catch (e) { log('  ⚠ เทียบใบแจ้งยืม/รับคืนไม่สำเร็จ — ' + e.message) }
   }
   log('')
-  process.exit(0)
-}
-
-if (!args.commit) {
+} else if (!args.commit) {
   log('')
   log('  ── ยังไม่ได้เขียนอะไรลงฐานข้อมูล ──')
   log('  ถ้าถูกต้องแล้ว สั่ง:  node scripts/import-loan.mjs --commit')
   log('')
-  process.exit(0)
+} else {
+  await commitPlan()
 }
-
-// ── สำรอง แล้วเขียน ──────────────────────────────────────────────
-log('')
-log('  กำลังสำรองข้อมูลเดิม…')
-let bk
-try { bk = await backupTable(supabase, 'drug_loan') }
-catch (e) { die('สำรองข้อมูลไม่สำเร็จ — ' + e.message + '\n  ไม่เขียนทับของเดิม') }
-log(`  ✓ สำรองแล้ว ${fmt(bk.rows)} แถว → backup/${path.basename(bk.file)} (${bk.mb} MB)`)
-
-log('')
-log(`  กำลังเขียน (เพิ่ม ${fmt(plan.inserts.length)} · แก้ ${fmt(plan.updates.length)} · ลบ ${fmt(deleteIds.length)})…`)
-try {
-  const res = await db.importDrugLoans(
-    { inserts: plan.inserts, updates: plan.updates, deleteIds, fileName: `${path.basename(FILE)} / ${SHEET}` },
-    { name: `${args.user} (CLI)`, department: 'คลังยา' },
-  )
-  const sl = res?.slips
-  if (sl && (sl.applied.length || sl.conflict.length)) {
-    log(`  ✓ ใบแจ้งยืม/รับคืน: ปิด ${sl.applied.length} · ไม่ตรงทะเบียน ${sl.conflict.length}`)
-    sl.conflict.forEach(c => log(`     ⚠ ใบ #${c.id}: ${c.note}`))
-  }
-} catch (e) {
-  log('')
-  log('  ✗ เขียนไม่สำเร็จ — ' + e.message)
-  log(`  กู้คืนด้วย:  node scripts/restore.mjs backup/${path.basename(bk.file)} --commit`)
-  process.exit(1)
-}
-
-const after = await db.fetchDrugLoans()
-log('')
-log(`  ✓ เสร็จ — drug_loan มี ${fmt(after.length)} แถว`)
-log(`  สำรองเดิมเก็บไว้ที่ backup/${path.basename(bk.file)}`)
-log('')
 void ROOT
