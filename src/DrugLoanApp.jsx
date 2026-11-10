@@ -241,7 +241,7 @@ export default function DrugLoanApp({ auth = {}, onRefresh, onGoBack, canGoBack 
               <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">บันทึกการยืม-คืน · ติดตามของค้างคืน (ไม่หักสต็อก)</p>
             </button>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
             <button onClick={load} title="โหลดใหม่"
               className="p-2 rounded-xl border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300">
               <RefreshCcw size={15} className={loading ? 'animate-spin' : ''} />
