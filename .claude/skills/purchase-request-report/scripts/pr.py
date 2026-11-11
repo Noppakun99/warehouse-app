@@ -77,6 +77,7 @@ PO_ALIAS = {
     '1520002': ('_alc450', 'Ethylalcohol 70% 450ml'),   # PO 028.05/2570 (29/10/2569)
     '1590012': ('Enoxa0.4', 'Enoxaparin 40mg/0.4ml'),   # PO 127.05/2570 — ภิญโญฟาร์มาซีเจ้าเดิม (05/11/2569)
     '1460159': ('Ferrous fumarate 45 mg-0.6 mL', 'FerrousFumarate (Fe15mg/0.6ml) ,15ml'),   # PO 092 = บิล 1612233140 ของรหัสนี้ (05/11/2569)
+    '1460055': ('AmiodaroneINJ', 'Amiodarone 150mg/3ml'),   # PO 147.05/2570 ภิญโญฟาร์มาซี — user ยืนยัน 11/11/2569
 }
 
 
