@@ -11,7 +11,7 @@
 import { openPrintView } from './openPrintView';
 
 const HOSPITAL_NAME = 'โรงพยาบาลประชาธิปัตย์';
-const REVISION = '16/10/2569';
+const REVISION = '11/11/2569';
 
 // items: [HosxpCode, รายการ, หน่วยนับ, ชนิด?] — ลำดับ "ที่" = ตำแหน่งในลิสต์ · ใบที่มี ชนิด แสดงคอลัมน์ชนิด
 const FORMS = {
@@ -55,7 +55,7 @@ const FORMS = {
     blank: 5,
     items: [
       ['1470506', 'ChlorhexidineGluconate 0.12g/100ml ,360ml ,C20', 'bott', 'Apply'],
-      ['1680050', 'ChlorhexidineGluconate 0.12g/100ml ,250ml ,C24 ,Mybacin', 'bott', 'Apply'],
+      ['89', 'ChlorhexidineGluconate 0.12g/100ml ,250ml', 'bott', 'Apply'],
       ['1520002', 'Ethylalcohol70% ,450ml', 'bott', 'Apply'],
       ['1000151', 'Hydrogenperoxide', '450ml', 'Apply'],
       ['1501141', 'Povidone-iodine 450ml', '450ml', 'Apply'],
