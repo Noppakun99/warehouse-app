@@ -128,9 +128,10 @@ export default function AppRoot() {
   }, [commitStack]);
 
   // บริษัทที่เลือกในหน้านโยบายคืนบริษัท — เก็บที่นี่เพราะหน้า remount ตอนกดย้อนจากการ์ดคลัง lot
-  const [policyCompany, setPolicyCompany] = useState(null);
+  // หน้านโยบายคืนบริษัท: { mode: 'drug'|'lot'|'company', value, company } — อยู่ที่นี่ให้กดย้อนจากบัตรยาแล้วกลับที่เดิม
+  const [policySelection, setPolicySelection] = useState(null);
   const openCompanyPolicy = (name) => {
-    setPolicyCompany(name);
+    setPolicySelection({ mode: 'company', value: name });
     setPage('return-policy');
   };
 
@@ -288,7 +289,7 @@ export default function AppRoot() {
           initialDrug={stockCardTarget} onInitialDrugUsed={() => setStockCardTarget(null)} />;
         break;
       case 'return-policy':
-        content = <CompanyPolicyApp key={subKey} company={policyCompany} onCompanyChange={setPolicyCompany} onOpenDrug={openDrug} onRefresh={refreshPage} onGoBack={goBack} canGoBack={canGoBack} />;
+        content = <CompanyPolicyApp key={subKey} selection={policySelection} onSelectionChange={setPolicySelection} onOpenDrug={openDrug} onRefresh={refreshPage} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'temperature':
         content = <TemperatureLogApp key={subKey} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
@@ -1629,6 +1630,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth, onOpenDrug }) {
   const BADGE_CLS = {
     red: 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60',
     amber: 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300',
+    orange: 'bg-orange-100 dark:bg-orange-950/60 text-orange-800 dark:text-orange-300 border-orange-200 dark:border-orange-900/60',
     emerald: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60',
     slate: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700',
   };
@@ -1951,9 +1953,9 @@ function ExpiryAlertSection({ expiring = [], onClose, auth, onOpenDrug }) {
                     <span className="flex items-center gap-1">
                       <ChevronDown size={13} className={`text-slate-400 dark:text-slate-500 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                       {onOpenDrug && r.code && r.code !== '-' ? (
-                        <button type="button" title="เปิดบัตรยา" onClick={(e) => { e.stopPropagation(); onOpenDrug(r.code); }}
+                        <button type="button" title={`${r.name || '-'} — เปิดบัตรยา`} onClick={(e) => { e.stopPropagation(); onOpenDrug(r.code); }}
                           className="truncate text-left text-sky-700 dark:text-sky-300 hover:underline">{r.name || '-'}</button>
-                      ) : <span className="truncate">{r.name || '-'}</span>}
+                      ) : <span className="truncate" title={r.name || undefined}>{r.name || '-'}</span>}
                     </span>
                     {r.code && r.code !== '-' && (
                       <span className="text-slate-400 dark:text-slate-500 font-normal pl-[18px] block">{r.code}</span>

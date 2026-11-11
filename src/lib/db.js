@@ -3055,7 +3055,7 @@ export async function fetchCompanyPolicyData() {
   const receiveRows = []
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase.from('receive_logs')
-      .select('drug_code, drug_name, lot, bill_number, supplier_current, drug_swap_policy, swap_tier_detail, swap_condition_am, receive_date')
+      .select('drug_code, drug_name, lot, exp, bill_number, supplier_current, drug_swap_policy, swap_tier_detail, swap_condition_am, receive_date')
       .order('id').range(from, from + 999)
     if (error) throw error
     receiveRows.push(...(data || []))

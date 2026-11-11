@@ -169,6 +169,7 @@ const expLabel = (raw) => {
 const CHIP = {
   red:     'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border-red-200 dark:border-red-900',
   amber:   'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900',
+  orange:  'bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-900',
   emerald: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900',
   slate:   'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700',
 };
@@ -246,9 +247,9 @@ function ReturnPolicyRow({ l }) {
         </p>
         {label && <span className={`shrink-0 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${CHIP[label.tone]}`}>{label.text}</span>}
       </div>
-      {(rp?.deadline || rp?.note) && (
+      {(label?.dateLabel || rp?.note) && (
         <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
-          {rp.deadline && <>ต้องคืนภายใน <b className="font-semibold tabular-nums">{fmtThaiDate(rp.deadline)}</b>{rp.note ? ' · ' : ''}</>}{rp.note}
+          {label?.dateLabel && <>{label.dateLabel} <b className="font-semibold tabular-nums">{fmtThaiDate(label.date)}</b>{rp.note ? ' · ' : ''}</>}{rp.note}
         </p>
       )}
       {rp?.policyText ? (

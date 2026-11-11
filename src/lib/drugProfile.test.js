@@ -9,6 +9,7 @@ import {
   ssAggregate, isBelowSafetyStock, buildSearchIndex, searchDrugs, buildDrugProfile,
   waitDaysSince, lotBills, usageRate, normDept, dispenseHistory, HISTORY_LIMIT,
   buildLotReturnPolicies, latestPolicyByCompany, searchCompanies, buildCompanyPolicyIndex, groupCompanyLots,
+  returnPolicyLabel, searchPolicyDrugs, drugPolicyView, searchPolicyLots, policyNextAction, policyCategory,
 } from './drugProfile.js'
 
 let pass = 0, fail = 0
@@ -370,6 +371,51 @@ section('นโยบายคืนบริษัทราย lot (buildLotRet
   assertDeep([phyto.company, phyto.policyText, phyto.status], ['แอตแลนติค', null, 'no_policy'], 'lot แอตแลนติคไม่ได้นโยบายภิญโญ · ไม่มีในชีท = ไม่มีนโยบาย')
 }
 
+section('ป้ายสถานะคืนบริษัท (returnPolicyLabel) — แก้ป้ายอย่างเดียว status เดิมไม่เปลี่ยน')
+{
+  // ข้อมูลจริง 10/11/2569 (receive_logs) · today = 10/11/2026
+  const T = new Date(2026, 10, 10)
+  const AFTER = 'รับเปลี่ยนเมื่อหมดอายุ ตามจำนวนจริง (รายการยาที่ระบุไว้ตามหนังสือ)'
+  const TIER = 'อายุ > 2 ปี → คืน 100%\r\nอายุ 6 เดือน - 2 ปี → คืน 50%\r\nอายุ < 6 เดือน → คืน 25%'
+  const row = (code, lot, tier, receive_date = '2026-01-01') => ({ drug_code: code, lot, supplier_current: 'บ.ทดสอบ', drug_swap_policy: tier, swap_tier_detail: tier, receive_date, bill_number: `B-${lot}` })
+  const recv = [
+    row('1460152', 'AC13011A', AFTER),                     // Enoxaparin exp 17/11/2026 (ยังไม่หมดอายุ)
+    row('1460304', 'E10923010', AFTER, '2024-04-30'),      // Norethisterone exp 31/08/2026 (หมดอายุแล้ว)
+    row('1000270', '24082001', TIER, '2023-08-08'),        // Salbutamol exp 29/01/2027 (อายุเหลือ < 6 เดือน)
+    row('N3', 'PRE', 'คืนได้หลังหมดอายุไม่เกิน 3 เดือน'),
+    row('N3', 'IN', 'คืนได้หลังหมดอายุไม่เกิน 3 เดือน'),
+    row('N1', 'LATE', 'คืนได้หลังหมดอายุไม่เกิน 1 เดือน'),
+    row('T1', 'EXP', TIER),
+    row('A680191', 'L1', 'รับเปลี่ยนยาก่อนหมดอายุ 6 เดือน'),
+  ]
+  const lots = [
+    { code: '1460152', lot: 'AC13011A', expDate: new Date(2026, 10, 17) },
+    { code: '1460304', lot: 'E10923010', expDate: new Date(2026, 7, 31) },
+    { code: '1000270', lot: '24082001', expDate: new Date(2027, 0, 29) },
+    { code: 'N3', lot: 'PRE', expDate: new Date(2026, 11, 1) },
+    { code: 'N3', lot: 'IN', expDate: new Date(2026, 9, 1) },
+    { code: 'N1', lot: 'LATE', expDate: new Date(2026, 7, 1) },
+    { code: 'T1', lot: 'EXP', expDate: new Date(2026, 8, 1) },
+    { code: 'A680191', lot: 'L1', expDate: new Date(2027, 5, 5) },
+  ]
+  const rps = buildLotReturnPolicies({ lots, receiveRows: recv, companyPolicies: {}, today: T })
+  const iso = (d) => (d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : null)
+  const lab = rps.map(rp => { const l = returnPolicyLabel(rp); return [l.tone, l.text, l.dateLabel, iso(l.date)] })
+  const [enox, noreth, salb, pre, inWin, late, tierExp, before] = lab
+
+  assertEq(rps[0].status, 'due', 'status เดิมของ Enoxaparin คงเดิม (popup/บอทไม่กระทบ)')
+  assertDeep(enox, ['emerald', 'คืนได้หลังหมดอายุ', 'คืนได้ตั้งแต่', '2026-11-17'], 'Enoxaparin AC13011A: หลังหมดอายุไม่มีกำหนด ยังไม่หมดอายุ → คืนได้หลังหมดอายุ · คืนได้ตั้งแต่ exp (เดิมขึ้น "ต้องคืนใน 7 วัน")')
+  assertDeep(noreth, ['emerald', 'คืนได้แล้ว', null, null], 'Norethisterone E10923010: หมดอายุแล้ว ไม่มีกำหนด → คืนได้แล้ว (เดิมขึ้น "พ้นกำหนดคืน")')
+  assertEq(rps[2].status, 'overdue', 'status เดิมของ Salbutamol = overdue (ตก tier 100%)')
+  assertDeep(salb, ['orange', 'คืนได้ 25%', null, null], 'Salbutamol 24082001: พ้น tier 100% แต่ยังคืนได้ 25% → ป้ายส้ม (เดิมขึ้น "พ้นกำหนดคืน")')
+  assertDeep(pre, ['emerald', 'คืนได้หลังหมดอายุ', 'คืนได้ตั้งแต่', '2026-12-01'], 'หลังหมดอายุมีกำหนด 3 เดือน · ยังไม่หมดอายุ → คืนได้หลังหมดอายุ · คืนได้ตั้งแต่ exp')
+  assertDeep(inWin, ['amber', 'คืนได้ภายใน 52 วัน', 'คืนภายใน', '2027-01-01'], 'หมดอายุแล้ว ยังอยู่ใน 3 เดือน → คืนได้ภายใน N วัน · คืนภายใน exp+3 เดือน')
+  assertDeep(late, ['red', 'พ้นกำหนดคืน', 'คืนภายใน', '2026-09-01'], 'หลังหมดอายุเกิน 1 เดือนแล้ว → พ้นกำหนดคืน')
+  assertDeep(tierExp, ['red', 'พ้นกำหนดคืน', null, null], 'age_tier หมดอายุแล้ว (ไม่มี %) → พ้นกำหนดคืน ไม่โชว์วันตก tier')
+  assertDeep(before, ['amber', 'ต้องคืนใน 25 วัน', 'คืนภายใน', '2026-12-05'], 'ก่อนหมดอายุ 6 เดือน (ป้ายเดิม) ไม่เปลี่ยน')
+  assertDeep(returnPolicyLabel({ status: 'no_policy' }), { tone: 'slate', text: 'ไม่มีนโยบายคืน', dateLabel: null, date: null }, 'ไม่มีนโยบาย = ไม่มีบรรทัดวันที่')
+}
+
 // ── หน้านโยบายคืนบริษัท ──
 {
   const names = ['บริษัท แอตแลนติค ฟาร์มาซูติคอล จำกัด', 'บริษัท แอตแลนต้า เมดดิคแคร์ จำกัด', 'บริษัท วิทยาศรม จํากัด', 'ห้างหุ้นส่วนจำกัด ภิญโญฟาร์มาซี', 'บริษัท แม็คโครฟาร์แลป จำกัด', 'องค์การเภสัชกรรม', 'บริษัท ยูเมด้า จำกัด']
@@ -409,7 +455,9 @@ section('นโยบายคืนบริษัทราย lot (buildLotRet
   assertEq(ix.unresolvedLots, 2, 'lot กำกวมหลายบริษัท + ไม่มีบิล = ระบุบริษัทไม่ได้ ไม่ปนในบริษัทไหน')
   const g = groupCompanyLots(ix.lines, 'บ.ก')
   assertDeep(g.map(x => x.lots.map(l => l.code)), [['B'], ['A'], ['C']], 'เส้นตายใกล้สุดก่อน · กลุ่มไม่มีนโยบายไว้ท้าย')
-  assertEq(g[2].text, null, 'กลุ่มท้าย = ไม่มีข้อความนโยบาย')
+  assertDeep(g.map(x => x.title), ['เปลี่ยนคืนได้ตามเงื่อนไข — ต้องคืนก่อนหมดอายุ 3 เดือน', 'เปลี่ยนคืนได้ตามเงื่อนไข — ต้องคืนก่อนหมดอายุ 6 เดือน', 'ไม่มีข้อมูลนโยบายคืน'], 'หัวกลุ่มเป็นภาษาคน ไม่ใช่ข้อความดิบในบิล')
+  assertEq(g[2].key, 'none', 'กลุ่มท้าย = ไม่มีข้อมูลนโยบาย')
+  assertDeep(g[1].texts.map(t => t.text), ['รับคืนก่อนหมดอายุ 6 เดือน'], 'ข้อความดิบในบิลเก็บไว้ใน texts')
   assertDeep(groupCompanyLots(ix.lines, 'บ.ค'), [], 'บริษัทไม่มี lot คงเหลือ = ไม่มีกลุ่ม')
   assertEq(ix.latestPolicyByName['บ.ก'], 'รับคืนก่อนหมดอายุ 6 เดือน', 'ข้อความบิลล่าสุดของบริษัท ไว้แสดงตอนไม่มี lot คงเหลือ')
 
@@ -425,9 +473,88 @@ section('นโยบายคืนบริษัทราย lot (buildLotRet
     companyPolicies: {}, today: TODAY,
   })
   const bg = groupCompanyLots(borrowed.lines, 'บ.ง')
-  assertDeep(bg.map(x => [x.source, x.lots[0].code]), [['lot', 'P'], ['company_bill', 'Q']], 'ข้อความเดียวกันแต่ยืมจากบิลอื่น = แยกกลุ่ม')
-  assertEq(bg[1].sourceNote.includes('B8'), true, 'กลุ่มที่ยืมบอกบิลต้นทาง')
-  assertEq(bg[0].sourceNote, null, 'ข้อความจากบิลของ lot เอง ไม่ต้องมีป้ายที่มา')
+  assertEq(bg.length, 1, 'หมวดเดียวกัน = กลุ่มเดียว แม้ข้อความมาจากคนละบิล')
+  assertDeep(bg[0].texts.map(t => [t.source, t.lots]), [['lot', 1], ['company_bill', 1]], 'ข้อความเดียวกันแต่ยืมจากบิลอื่น = แยกรายการใน texts')
+  assertEq(bg[0].texts[1].sourceNote.includes('B8'), true, 'ข้อความที่ยืมบอกบิลต้นทาง')
+  assertEq(bg[0].texts[0].sourceNote, null, 'ข้อความจากบิลของ lot เอง ไม่ต้องมีป้ายที่มา')
+
+  // ── หมวดภาษาคน (policyCategory) + รวมกลุ่มตามความหมาย (user ขอ 11/11/2569) ──
+  const title = (rp) => policyCategory(rp).title
+  assertEq(title({ status: 'ok', shape: 'after_exp', afterExpMonths: null }), 'เปลี่ยนคืนได้หลังหมดอายุแล้ว', 'after_exp ไม่จำกัดเดือน')
+  assertEq(title({ status: 'ok', shape: 'after_exp', afterExpMonths: 3 }), 'เปลี่ยนคืนได้หลังหมดอายุ ภายใน 3 เดือน', 'after_exp มีเดือน')
+  assertEq(title({ status: 'ok', shape: 'before_exp', returnMonths: 12 }), 'เปลี่ยนคืนได้ตามเงื่อนไข — ต้องคืนก่อนหมดอายุ 1 ปี', '12 เดือน = 1 ปี')
+  assertEq(title({ status: 'due', method: 'v1', returnMonths: 6 }), 'เปลี่ยนคืนได้ตามเงื่อนไข — ต้องคืนก่อนหมดอายุ 6 เดือน', 'ตารางนโยบาย (v1) = ก่อนหมดอายุ')
+  assertEq(title({ status: 'overdue', shape: 'age_tier', percent: 25 }), 'เปลี่ยนคืนได้ตามเงื่อนไข — ได้คืนเป็น % ตามอายุยาที่เหลือ', 'tier % ตามอายุ')
+  assertEq(title({ status: 'ok', shape: 'receive_threshold', returnMonths: 12 }), 'เปลี่ยนคืนได้ตามเงื่อนไข — เฉพาะ lot ที่ส่งมาอายุสั้นกว่า 1 ปี', 'threshold อายุตอนรับ')
+  assertEq(title({ status: 'no_return', shape: 'binary' }), 'เปลี่ยนคืนไม่ได้ — ใช้ให้หมด หมดอายุแล้วรอทำลาย', 'ไม่รับคืน')
+  assertEq(policyCategory({ status: 'review' }).key, 'review', 'กำกวม = อื่นๆ')
+  assertEq(policyCategory({ status: 'no_company', ambiguous: true }).key, 'review', 'หลายบริษัท = อื่นๆ ไม่ใช่ไม่มีข้อมูล')
+  assertEq(policyCategory({ status: 'no_policy', policyText: 'สติกเกอร์ยามาส่ง' }).key, 'none', 'ข้อความบิลที่ไม่ใช่นโยบาย = ไม่มีข้อมูล')
+
+  const ae = (code, text) => ({ drug_code: code, lot: `${code}1`, supplier_current: 'บ.จ', drug_swap_policy: text, swap_tier_detail: 'รับเปลี่ยนเมื่อหมดอายุ', receive_date: '2026-01-01', bill_number: code })
+  const merged = buildCompanyPolicyIndex({
+    inventoryRows: [
+      { code: 'G1', name: 'ยา G1', lot: 'G11', qty: 1, unit: 'ขวด', exp: '01/01/2028' },
+      { code: 'G2', name: 'ยา G2', lot: 'G21', qty: 1, unit: 'ขวด', exp: '01/01/2028' },
+      { code: 'G3', name: 'ยา G3', lot: 'G31', qty: 1, unit: 'ขวด', exp: '01/12/2026' },
+    ],
+    receiveRows: [
+      ae('G1', 'เงื่อนไขเดียวกันทุกรายการ | เปลี่ยนคืนได้ หลังจากหมดอายุไปแล้ว'),
+      ae('G2', 'เปลี่ยนคืนได้หลังจากหมดอายุไปแล้ว'),
+      { drug_code: 'G3', lot: 'G31', supplier_current: 'บ.จ', drug_swap_policy: 'คืนก่อนหมดอายุ 6 เดือน', swap_tier_detail: 'รับเปลี่ยนยาก่อนหมดอายุ 6 เดือน', receive_date: '2026-01-01', bill_number: 'G3' },
+    ],
+    companyPolicies: {}, today: TODAY,
+  })
+  const mg = groupCompanyLots(merged.lines, 'บ.จ')
+  assertDeep(mg.map(x => [x.key, x.lots.length, x.texts.length]), [['before_exp|6', 1, 1], ['after_exp', 2, 2]], 'ข้อความต่างกันแต่หมายถึงคืนได้หลังหมดอายุ = กลุ่มเดียว · กลุ่มที่ต้องทำก่อนขึ้นก่อน (after_exp ไม่ดันขึ้นบนเพราะ deadline = วันเริ่มคืน)')
+
+  // ── ค้นตามยา / lot ──
+  const gpo = 'องค์การเภสัชกรรม'
+  const coNames = [gpo, 'มูลนิธิโรงพยาบาลเจ้าพระยาอภัยภูเบศร', 'บริษัท ดีเคเอสเอช (ประเทศไทย) จำกัด', 'บริษัท แอล.บี.เอส. แลบบอเรตอรี่ จำกัด', 'ห้างหุ้นส่วนจำกัด แอล.บี.เอส. แลบบอเรตอรี่.']
+  assertEq(searchCompanies(coNames, 'อภ')[0], gpo, 'อภ = องค์การเภสัชกรรม ขึ้นก่อนอภัยภูเบศร')
+  assertEq(searchCompanies(coNames, 'GPO')[0], gpo, 'GPO = องค์การเภสัชกรรม')
+  assertDeep(searchCompanies(coNames, 'lbs').length, 2, 'LBS = แอล.บี.เอส. ทั้งบริษัทและห้างหุ้นส่วน')
+  assertEq(searchCompanies(coNames, 'dksh')[0], coNames[2], 'DKSH = ดีเคเอสเอช')
+
+  const rx = buildCompanyPolicyIndex({
+    inventoryRows: [
+      { code: 'T', name: 'TranexamicAcid 250mg/5ml', lot: 'TX2001', qty: 50, unit: 'amp', exp: '31/10/2027' },
+      { code: 'T', name: 'TranexamicAcid 250mg/5ml', lot: 'TX9001', qty: 5, unit: 'amp', exp: '31/10/2027' },
+    ],
+    receiveRows: [
+      { drug_code: 'T', drug_name: 'Tranexamic', lot: 'TX1001', exp: '28/02/2026', supplier_current: 'บ.ก', drug_swap_policy: 'คืนก่อนหมดอายุ 3 เดือน', receive_date: '2025-05-01', bill_number: 'X1' },
+      { drug_code: 'T', drug_name: 'Tranexamic', lot: 'TX2001', exp: '31/10/2027', supplier_current: 'บ.ข', drug_swap_policy: null, receive_date: '2026-11-09', bill_number: 'X2' },
+      { drug_code: 'T', drug_name: 'Tranexamic', lot: 'TX3001', exp: '30/06/2027', supplier_current: 'บ.ก', drug_swap_policy: null, receive_date: '2026-03-01', bill_number: 'X3' },
+      { drug_code: 'T', drug_name: 'Tranexamic', lot: 'TX3001', exp: '30/06/2027', supplier_current: 'บ.ก', receive_date: '2026-01-01', bill_number: 'X0' },
+    ],
+    companyPolicies: {}, today: TODAY,
+  })
+  assertDeep(rx.pastLines.map(l => [l.lot, l.billNumber, l.outOfStock]), [['TX3001', 'X3', true], ['TX1001', 'X1', true]], 'lot ในบิลที่คลังไม่มีแล้ว = 1 แถวต่อ lot (บิลล่าสุด) · lot ที่ยังมีของไม่ซ้ำ')
+  assertEq(rx.lines.length, 2, 'lot คลังไม่มีแล้วไม่ปนในรายการคงเหลือ (หน้าบริษัทไม่เปลี่ยน)')
+  assertDeep(searchPolicyDrugs(rx.drugs, 'gemotran').map(d => d.code), ['T'], 'พิมพ์ชื่อการค้า Gemotran เจอ Tranexamic')
+  assertDeep(searchPolicyDrugs(rx.drugs, 'tran').map(d => d.companies.length), [2], 'ยานี้เคยซื้อ 2 บริษัท')
+  const v = drugPolicyView(rx, 'T')
+  assertDeep(v.companies.map(c => [c.name, c.stockLots.length, c.pastLots.length]), [['บ.ข', 1, 0], ['บ.ก', 0, 2]], 'บริษัทที่มีของก่อน · แยก lot คงเหลือ/คลังไม่มีแล้ว')
+  assertEq(v.companies[1].policyText, 'คืนก่อนหมดอายุ 3 เดือน', 'นโยบายจากบิลยานี้ของบริษัทนี้')
+  assertEq(v.companies[0].policyText, null, 'ไม่มีข้อความนโยบาย = null (UI แจ้งไม่มีข้อมูล)')
+  assertDeep(v.unresolved.map(l => l.lot), ['TX9001'], 'lot ในคลังที่ไม่มีบิล แยกเป็นระบุบริษัทไม่ได้')
+  assertEq(drugPolicyView(rx, 'NOPE'), null, 'รหัสที่ไม่มีข้อมูล = null')
+  assertDeep(searchPolicyLots(rx, 'tx3001').map(l => l.lot), ['TX3001'], 'ค้น lot เจอ lot ที่คลังไม่มีแล้ว')
+  assertDeep(searchPolicyLots(rx, 'tx'), [], 'lot ต้องพิมพ์ ≥ 3 ตัว')
+
+  assertEq(policyNextAction(rx.pastLines[0]).kind, 'ward', 'คลังไม่มีแล้ว → ห้องยาแจ้งหัวหน้า')
+  assertEq(policyNextAction(rx.lines[0]).kind, 'none', 'ไม่มีนโยบาย → ไม่มีข้อมูล')
+  const act = (returnPolicy) => policyNextAction({ returnPolicy })?.kind
+  assertEq(act({ status: 'overdue', deadline: new Date(2026, 0, 1) }), 'dispose', 'พ้นกำหนดคืน → จำหน่าย')
+  assertEq(act({ status: 'no_return' }), 'dispose', 'บริษัทไม่รับคืน → จำหน่าย')
+  assertEq(act({ status: 'due', deadline: new Date(2027, 0, 1), daysToDeadline: 20 }), 'return', 'ใกล้กำหนด → ใบส่งคืน VX')
+  assertEq(act({ status: 'ok', deadline: new Date(2028, 0, 1), daysToDeadline: 400 }), 'wait', 'ยังไม่ถึงกำหนด → ยังไม่ต้องทำ')
+  assertEq(act({ status: 'overdue', shape: 'age_tier', percent: 25 }), 'return', 'tier ยังคืนได้บางส่วน → VX ไม่ใช่จำหน่าย')
+  assertEq(act({ status: 'ok', shape: 'after_exp', expDate: new Date(2027, 0, 1), expired: false, deadline: new Date(2027, 0, 1) }), 'wait', 'คืนได้หลังหมดอายุ → รอ')
+  assertEq(act({ status: 'review' }), 'check', 'เงื่อนไขกำกวม → เช็กเอกสาร')
+  const expiredAfter = policyNextAction({ returnPolicy: { status: 'ok', shape: 'after_exp', afterExpMonths: null, expDate: new Date(2026, 0, 1), expired: true } })
+  assertDeep([expiredAfter.kind, expiredAfter.text.startsWith('หมดอายุแล้ว')], ['return', true], 'คืนได้หลังหมดอายุ + หมดอายุแล้ว → ทำ VX (ไม่ใช่ "ถ้าใช้ไม่ทัน")')
+  assertEq(act({ status: 'no_company', ambiguous: true }), 'check', 'lot หลายบริษัท → เช็กบิล ไม่ใช่ "ไม่มีข้อมูล"')
 }
 
 console.log(`\n${pass} ผ่าน · ${fail} ตก`)
