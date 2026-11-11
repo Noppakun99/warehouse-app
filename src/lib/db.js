@@ -3052,20 +3052,27 @@ export async function fetchDrugProfile(drugCode, { department = null } = {}) {
 // หน้านโยบายคืนบริษัท: ทุกอย่างที่ buildCompanyPolicyIndex ต้องใช้ · paginate ตาม Rule #2
 export async function fetchCompanyPolicyData() {
   if (!supabase) return { inventoryRows: [], receiveRows: [], companyPolicies: {} }
-  const receiveRows = []
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from('receive_logs')
-      .select('drug_code, drug_name, lot, exp, bill_number, supplier_current, drug_swap_policy, swap_tier_detail, swap_condition_am, receive_date')
-      .order('id').range(from, from + 999)
-    if (error) throw error
-    receiveRows.push(...(data || []))
-    if (!data || data.length < 1000) break
-  }
-  const [inventoryRows, companyPolicies] = await Promise.all([
+  const [receiveRows, inventoryRows, companyPolicies] = await Promise.all([
+    fetchPolicyReceiveRows(),
     fetchAllInventoryRows('code, name, lot, qty, unit, exp, location, receive_status'),
     fetchSwapPolicies(),
   ])
   return { inventoryRows, receiveRows, companyPolicies }
+}
+
+// นับแถวก่อนแล้วยิงทุกหน้าพร้อมกัน (เดิมทีละหน้า ~7 วิผ่าน hotspot)
+// หน้าสุดท้ายเต็ม = มีแถวเพิ่มหลังนับ → ไล่ต่อทีละหน้าจนหมด กันแถวหาย
+async function fetchPolicyReceiveRows() {
+  const PAGE = 1000
+  const page = (from) => supabase.from('receive_logs')
+    .select('drug_code, drug_name, lot, exp, bill_number, supplier_current, drug_swap_policy, swap_tier_detail, swap_condition_am, receive_date')
+    .order('id').range(from, from + PAGE - 1)
+    .then(({ data, error }) => { if (error) throw error; return data || [] })
+  const { count, error } = await supabase.from('receive_logs').select('id', { count: 'exact', head: true })
+  if (error) throw error
+  const pages = await Promise.all(Array.from({ length: Math.max(1, Math.ceil((count || 0) / PAGE)) }, (_, i) => page(i * PAGE)))
+  for (let from = pages.length * PAGE; pages[pages.length - 1].length === PAGE; from += PAGE) pages.push(await page(from))
+  return pages.flat()
 }
 
 // ชื่อบริษัททั้งหมดที่เคยรับยา (ไม่ซ้ำ) สำหรับช่องค้นหา
