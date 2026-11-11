@@ -734,7 +734,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         <button
           onClick={() => handleLocationClick(id)}
           aria-label={`ตำแหน่ง ${id} — ${isEmpty ? 'ว่าง' : `${itemCount} รายการ`}`}
-          className={`flex flex-col items-start justify-center min-w-16 h-11 px-2 rounded-lg border text-left transition-all duration-150 ${tone}
+          className={`flex flex-col items-start justify-center min-w-16 h-11 px-2 rounded-lg border text-left transition duration-150 ${tone}
             ${highlighted ? 'ring-4 ring-yellow-400 bg-yellow-100 dark:bg-yellow-900/50 border-yellow-500 scale-105 z-10 shadow-lg' : 'active:scale-95'}`}
         >
           <span className="text-[11px] font-bold leading-tight tracking-tight whitespace-nowrap">{id}</span>
@@ -868,7 +868,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
     }
 
     return (
-      <div key={uniqueItemId} className={`bg-white dark:bg-slate-900 border ${isPendingStatus ? 'border-sky-300 dark:border-sky-800/60 bg-sky-50 dark:bg-sky-950/40 border-dashed shadow-sky-100' : 'border-slate-200 dark:border-slate-700 shadow-indigo-200/50'} shadow-lg hover:shadow-xl hover:shadow-indigo-200/60 rounded-2xl p-5 hover:border-indigo-300 transition-all`}>
+      <div key={uniqueItemId} className={`bg-white dark:bg-slate-900 border ${isPendingStatus ? 'border-sky-300 dark:border-sky-800/60 bg-sky-50 dark:bg-sky-950/40 border-dashed shadow-sky-100' : 'border-slate-200 dark:border-slate-700 shadow-indigo-200/50'} shadow-lg hover:shadow-xl hover:shadow-indigo-200/60 rounded-2xl p-5 hover:border-indigo-300 transition`}>
         <div className="flex flex-col sm:flex-row items-start gap-5">
           <div className={`p-3 rounded-xl shrink-0 shadow-inner mt-1 ${isPendingStatus ? 'bg-sky-100 dark:bg-sky-950/60 text-sky-600' : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400'}`}>
             {isPendingStatus ? <Package size={32} /> : <Pill size={32} />}
@@ -1249,26 +1249,26 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex gap-1.5 overflow-x-auto sm:flex-wrap flex-1 min-w-0 -mx-1 px-1 pb-0.5">
               <button onClick={() => setActiveZone(null)}
-                className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && !typeFilter && activeZoneKey === '__all__' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700'}`}>
+                className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-semibold transition ${!searchTerm && !typeFilter && activeZoneKey === '__all__' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700'}`}>
                 ทุกโซน
               </button>
               {zoneKeys.map(cab => (
                 <button key={cab} onClick={() => setActiveZone(cab)}
-                  className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && !typeFilter && activeZoneKey === cab ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700'}`}>
+                  className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-semibold transition ${!searchTerm && !typeFilter && activeZoneKey === cab ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700'}`}>
                   Log {cab}
                   <span className="ml-1.5 opacity-70">({summary[cab]?.names.size || 0})</span>
                 </button>
               ))}
               {Object.keys(filteredOtherZones).length > 0 && (
                 <button onClick={() => setActiveZone('__other__')}
-                  className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!searchTerm && !typeFilter && activeZoneKey === '__other__' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700'}`}>
+                  className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-semibold transition ${!searchTerm && !typeFilter && activeZoneKey === '__other__' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700'}`}>
                   พื้นที่อื่น
                   <span className="ml-1.5 opacity-70">({Object.keys(filteredOtherZones).length})</span>
                 </button>
               )}
             </div>
             <button onClick={() => setHideEmptySlots(v => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all shrink-0 ${hideEmptySlots ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-indigo-400 hover:text-indigo-600'}`}>
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition shrink-0 ${hideEmptySlots ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-indigo-400 hover:text-indigo-600'}`}>
               {hideEmptySlots ? <EyeOff size={13}/> : <Eye size={13}/>} ซ่อนช่องว่าง
             </button>
           </div>
@@ -1287,7 +1287,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
               {typeFilter && (
                 <>
                   <button onClick={() => setTypeFilter('')}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-rose-300 hover:text-rose-600 transition-all shrink-0">
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:border-rose-300 hover:text-rose-600 transition shrink-0">
                     <X size={12}/> ล้าง
                   </button>
                   <span className="text-[11px] text-slate-400 dark:text-slate-500 shrink-0">
@@ -1444,7 +1444,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                 </div>
                 <div className="p-6 bg-slate-50 dark:bg-slate-800 flex flex-wrap gap-4">
                   {Object.keys(filteredOtherZones).sort().map(zone => (
-                    <div key={zone} onClick={() => handleLocationClick(zone)} className={`cursor-pointer transition-all border border-emerald-300 dark:border-emerald-800/60 rounded-xl flex flex-col items-center justify-center p-6 min-w-[200px] bg-white dark:bg-slate-900 ${isMatch(zone) ? 'ring-4 ring-yellow-400 shadow-lg scale-105' : 'hover:shadow-md hover:scale-105'}`}>
+                    <div key={zone} onClick={() => handleLocationClick(zone)} className={`cursor-pointer transition border border-emerald-300 dark:border-emerald-800/60 rounded-xl flex flex-col items-center justify-center p-6 min-w-[200px] bg-white dark:bg-slate-900 ${isMatch(zone) ? 'ring-4 ring-yellow-400 shadow-lg scale-105' : 'hover:shadow-md hover:scale-105'}`}>
                       <div className="text-xl font-bold mb-3 text-emerald-800 dark:text-emerald-300 text-center">{zone}</div>
                       <div className="flex flex-col items-center gap-1.5 mt-1">
                         <span className="text-sm font-medium bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-4 py-1 rounded-full shadow-sm">{summary[zone]?.names.size || 0} รายการยา</span>
@@ -2550,7 +2550,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                 <div className="p-3 space-y-2">
                   {timeFiltered.map((r, i) => !isExpiryMode ? (
                     /* ── การ์ดรอตรวจรับ: detail-card ขาว + กล่องย่อยสี (ดู /ui-style-guide) ── */
-                    <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-3.5 shadow-sm hover:shadow-md hover:border-sky-300 transition-all">
+                    <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-3.5 shadow-sm hover:shadow-md hover:border-sky-300 transition">
                       <div className="flex items-start gap-3">
                         <div className="p-2 rounded-xl bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 shrink-0"><Package size={20} /></div>
                         <div className="min-w-0 flex-1">

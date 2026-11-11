@@ -1641,7 +1641,7 @@ function ReceiveImport({ onDone, auth = {} }) {
           </div>
 
           <button onClick={handleImport} disabled={loading}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
+            className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
             <UploadCloud size={18}/>
             {loading ? 'กำลังนำเข้า...' : `นำเข้า ${rawRows.filter(r=>r.some(c=>c.trim())).length.toLocaleString()} รายการ`}
           </button>
@@ -1649,7 +1649,7 @@ function ReceiveImport({ onDone, auth = {} }) {
       )}
 
       {status && (
-        <button onClick={onDone} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-3 font-semibold transition-all flex items-center justify-center gap-2">
+        <button onClick={onDone} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-3 font-semibold transition flex items-center justify-center gap-2">
           <ArrowLeft size={18}/> กลับไปหน้าประวัติรับยา
         </button>
       )}
@@ -2947,7 +2947,7 @@ function BarSection({ title, items, barColor, unit, shareMode = false, caption }
             </div>
             <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
               <div
-                className={`${shareMode ? shareBarColor(val, gpo) : barColor} h-2 rounded-full transition-all`}
+                className={`${shareMode ? shareBarColor(val, gpo) : barColor} h-2 rounded-full transition-[width]`}
                 style={{ width:`${shareMode ? val : (val/max)*100}%` }}
               />
             </div>
@@ -3757,7 +3757,7 @@ function ApWorkflow({ auth, onBack }) {
   // ---- UI ----
   const tabBtn = (key, label, count, icon) => (
     <button key={key} onClick={() => setSubTab(key)}
-      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab === key ? 'bg-emerald-600 text-white shadow' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 border border-slate-200 dark:border-slate-700'}`}>
+      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${subTab === key ? 'bg-emerald-600 text-white shadow' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 border border-slate-200 dark:border-slate-700'}`}>
       {icon}{label} <span className={`ml-1 px-1.5 py-0.5 rounded text-xs ${subTab === key ? 'bg-white/20' : 'bg-slate-100 dark:bg-slate-800'}`}>{count}</span>
     </button>
   );
@@ -4154,7 +4154,7 @@ function StagePipeline({
   onBulkUndo, undoableCount,
 }) {
   const toggleStage = (key) => setStageFilter(stageFilter === key ? 'all' : key);
-  const cardBase = 'flex flex-col min-w-[200px] flex-1 rounded-xl border-2 bg-white dark:bg-slate-900 transition-all overflow-hidden';
+  const cardBase = 'flex flex-col min-w-[200px] flex-1 rounded-xl border-2 bg-white dark:bg-slate-900 transition overflow-hidden';
   const arrow = <ArrowRight size={18} className="text-slate-300 dark:text-slate-500 shrink-0 self-center"/>;
 
   // หัวการ์ด (คลิกเพื่อกรอง) — แสดงเลขขั้น, สถานะ, จำนวนบิลในสถานะนั้น
@@ -4184,14 +4184,14 @@ function StagePipeline({
         <span className="text-xs text-slate-500 dark:text-slate-400">ลำดับงาน — คลิกการ์ดเพื่อกรองบิลตามสถานะ แล้วเลือกบิลเพื่อกดปุ่มในขั้นนั้น</span>
         <div className="flex items-center gap-2">
           <button onClick={() => setStageFilter('all')}
-            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${stageFilter === 'all' ? 'bg-slate-700 text-white shadow' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
+            className={`px-2.5 py-1 rounded-full text-xs font-medium transition ${stageFilter === 'all' ? 'bg-slate-700 text-white shadow' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
             ดูทั้งหมด ({stageCount.all || 0})
           </button>
           {onBulkUndo && (
             <button onClick={onBulkUndo}
               disabled={busy || undoableCount === 0}
               title={undoableCount === 0 ? 'เลือกบิลที่ ack แล้ว หรือ ตรวจรับแล้ว ก่อน' : ''}
-              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60 hover:bg-amber-50 dark:hover:bg-amber-950/50 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60 hover:bg-amber-50 dark:hover:bg-amber-950/50 disabled:opacity-40 disabled:cursor-not-allowed transition">
               <Undo2 size={12}/> ย้อนกลับ ({undoableCount})
             </button>
           )}
@@ -4205,11 +4205,11 @@ function StagePipeline({
           <div className="border-t border-slate-100 dark:border-slate-800 p-2 space-y-1.5">
             <button onClick={onExportAck} disabled={busy || !someUnackSelected}
               title={!someUnackSelected ? 'เลือกบิล "รอจัดซื้อรับเอกสาร" ก่อน' : 'พิมพ์ใบส่งมอบเอกสารให้เซ็น'}
-              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-slate-200 disabled:text-slate-400 transition shadow-sm">
               <Printer size={15}/> พิมพ์ใบส่งมอบเอกสาร ({selUnack})
             </button>
             <button onClick={() => onAcknowledge()} disabled={busy || !someUnackSelected}
-              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-sky-500 text-white hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-sky-500 text-white hover:bg-sky-600 disabled:bg-slate-200 disabled:text-slate-400 transition shadow-sm">
               <CheckCircle2 size={15}/> บันทึกจัดซื้อรับเอกสาร ({selUnack})
             </button>
           </div>
@@ -4223,7 +4223,7 @@ function StagePipeline({
           <div className="border-t border-slate-100 dark:border-slate-800 p-2 space-y-1.5">
             <button onClick={onMarkInspected} disabled={busy || !someAckedSelected}
               title={!someAckedSelected ? 'ต้องบันทึกจัดซื้อรับเอกสารก่อน (กรุณาเลือกบิลที่ "จัดซื้อรับเอกสารแล้ว")' : ''}
-              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-orange-500 text-white hover:bg-orange-600 disabled:bg-slate-200 disabled:text-slate-400 transition shadow-sm">
               <CheckCircle2 size={15}/> ยืนยันตรวจรับ ({selAcked})
             </button>
           </div>
@@ -4236,7 +4236,7 @@ function StagePipeline({
           {renderHead(3, 'รอนำส่งบัญชี', stageCount.inspected || 0, 'bg-orange-500', cfg.inspected)}
           <div className="border-t border-slate-100 dark:border-slate-800 p-2 space-y-1.5">
             <button onClick={onExportSend} disabled={busy || !someInspectedSelected}
-              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-sm">
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 transition shadow-sm">
               <Printer size={15}/> พิมพ์ใบนำส่ง & นำส่งบัญชี ({selInspected})
             </button>
           </div>
@@ -4326,7 +4326,7 @@ function SentTab({ bills, selected, toggleBill, toggleAll, accountant, setAccoun
           {allSelected ? 'ยกเลิกเลือกทั้งหมด' : 'เลือกทั้งหมด'} ({selected.size}/{bills.length})
         </button>
         <button onClick={() => onMarkPosted()} disabled={busy || selected.size === 0}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all">
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 transition">
           <CheckCircle2 size={15}/> ยืนยันตั้งหนี้ ({selected.size})
         </button>
       </div>

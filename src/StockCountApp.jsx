@@ -338,7 +338,7 @@ export default function StockCountApp({ onRefresh, auth, onGoBack, canGoBack }) 
               return (
                 <button key={t.key} onClick={() => setTab(t.key)}
                   aria-pressed={on}
-                  className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-semibold transition-all ${
+                  className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-semibold transition ${
                     on
                       ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-500/30 dark:shadow-emerald-900/50'
                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-white/70 dark:hover:bg-slate-700/60'
@@ -967,7 +967,7 @@ function CountTab({ auth }) {
                 <Printer size={16} /> พิมพ์ใบเดินนับ
               </button>
               <button onClick={handleSave} disabled={saving || !selectedCount}
-                className="flex items-center gap-1.5 px-5 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl text-sm font-semibold shadow-sm shadow-emerald-200 transition-all disabled:opacity-50 disabled:shadow-none">
+                className="flex items-center gap-1.5 px-5 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl text-sm font-semibold shadow-sm shadow-emerald-200 transition disabled:opacity-50 disabled:shadow-none">
                 <Save size={16} /> {saving ? 'กำลังบันทึก...' : `บันทึกรอบตรวจนับ${selectedCount ? ` (${selectedCount})` : ''}`}
               </button>
             </div>
@@ -1461,8 +1461,8 @@ function AnnualTab({ auth }) {
 
         {/* แถบความคืบหน้าแยกสี: ตรง / ไม่ตรง / ยังไม่นับ */}
         <div className="mt-3 h-3 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden flex">
-          <div className="h-full bg-emerald-500 transition-all" style={{ width: `${total ? (matched / total) * 100 : 0}%` }} title={`ตรง ${matched}`} />
-          <div className="h-full bg-amber-400 transition-all" style={{ width: `${total ? (mismatches / total) * 100 : 0}%` }} title={`ไม่ตรง ${mismatches}`} />
+          <div className="h-full bg-emerald-500 transition-[width]" style={{ width: `${total ? (matched / total) * 100 : 0}%` }} title={`ตรง ${matched}`} />
+          <div className="h-full bg-amber-400 transition-[width]" style={{ width: `${total ? (mismatches / total) * 100 : 0}%` }} title={`ไม่ตรง ${mismatches}`} />
         </div>
 
         {/* ตัวเลขหลัก 4 ช่อง */}
@@ -1595,7 +1595,7 @@ function AnnualTab({ auth }) {
         <div className="inline-flex gap-1 p-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 ml-auto">
           {[{ k: 'walk', t: '1 lot' }, { k: 'list', t: 'ตาราง' }].map(m => (
             <button key={m.k} onClick={() => setMode(m.k)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${
                 mode === m.k ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>
               {m.t}
             </button>

@@ -297,7 +297,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
       {/* ── Desktop sidebar (fixed) ──
           ปุ่มยุบ/กาง = ปุ่มกลมลอยคร่อมขอบขวา (แสดงตลอด ไม่ใช่ hover-only) — ต้องเป็นลูกตรงของ aside
           ไม่ใช่ลูกของ nav ที่ overflow-y-auto ไม่งั้นโดน clip */}
-      <aside className={`hidden lg:flex fixed inset-y-0 left-0 z-40 ${collapsed ? 'w-16' : 'w-60'} bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex-col transition-all duration-200`}>
+      <aside className={`hidden lg:flex fixed inset-y-0 left-0 z-40 ${collapsed ? 'w-16' : 'w-60'} bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex-col transition-[width] duration-200`}>
         {renderSidebar(collapsed)}
         <button
           onClick={toggleCollapsed}
@@ -320,7 +320,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
       )}
 
       {/* ── Content (sub-app เดิม พร้อม header ของตัวเอง) ── เว้นล่าง h-16 ให้แถบปุ่มล่างจอ (จอเล็ก) */}
-      <div className={`${collapsed ? 'lg:pl-16' : 'lg:pl-60'} ${showBottomNav ? 'pb-16 lg:pb-0' : ''} transition-all duration-200`}>
+      <div className={`${collapsed ? 'lg:pl-16' : 'lg:pl-60'} ${showBottomNav ? 'pb-16 lg:pb-0' : ''} transition-[padding] duration-200`}>
         {/* Top bar (แถบสีฟ้า) — ซ้าย: hamburger (mobile) · ขวา: user chip + กระดิ่ง.
             ไม่ sticky โดยเจตนา → เลื่อนหายไปกับหน้า ให้ header sticky ของ sub-app คุม top-0 เอง (กันชน) */}
         {auth && (
@@ -448,7 +448,7 @@ function AccountMenu({ displayName, role, auth, isStaff, onLogout }) {
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className={`w-9 h-9 rounded-full bg-gradient-to-br from-sky-500 to-blue-600 text-white flex items-center justify-center shrink-0 ring-2 transition-all hover:brightness-110 ${open ? 'ring-sky-300 dark:ring-sky-700' : 'ring-transparent'}`}
+        className={`w-9 h-9 rounded-full bg-gradient-to-br from-sky-500 to-blue-600 text-white flex items-center justify-center shrink-0 ring-2 transition hover:brightness-110 ${open ? 'ring-sky-300 dark:ring-sky-700' : 'ring-transparent'}`}
         title={`${displayName} · ${roleLabel}`}
         aria-label="บัญชีของฉัน"
       >

@@ -107,7 +107,7 @@ export default function DashboardV2Preview({ onExit }) {
   return (
     <div className="min-h-screen bg-slate-50 font-sans flex">
       {/* ───── Sidebar ───── */}
-      <aside className={`${collapsed ? 'w-16' : 'w-60'} shrink-0 bg-white border-r border-slate-200 flex flex-col transition-all duration-200 sticky top-0 h-screen`}>
+      <aside className={`${collapsed ? 'w-16' : 'w-60'} shrink-0 bg-white border-r border-slate-200 flex flex-col transition-[width] duration-200 sticky top-0 h-screen`}>
         {/* Brand */}
         <div className="flex items-center gap-2.5 px-4 h-16 border-b border-slate-100">
           <div className="p-1.5 rounded-lg bg-gradient-to-br from-sky-500 to-blue-600 text-white shrink-0"><Pill size={18} /></div>

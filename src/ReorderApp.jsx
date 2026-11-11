@@ -180,7 +180,7 @@ function StatusChip({ status, count, active, onClick }) {
   const Icon = meta.icon;
   return (
     <button onClick={onClick} title={meta.hint}
-      className={`group relative flex flex-col items-center justify-center px-3 py-2.5 rounded-xl border transition-all min-w-[96px]
+      className={`group relative flex flex-col items-center justify-center px-3 py-2.5 rounded-xl border transition min-w-[96px]
         ${active ? `${tone.chip} ring-2 ring-offset-1 ring-${meta.tone}-400 shadow-sm` : `${tone.chip} hover:shadow-sm`}`}>
       <div className="flex items-center gap-1.5">
         <Icon size={14} />

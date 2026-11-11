@@ -538,7 +538,7 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
         <div className="flex max-w-4xl mx-auto">
           {TABS.map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 py-3 text-xs font-semibold border-b-2 transition-all flex flex-col items-center gap-0.5 ${
+              className={`flex-1 py-3 text-xs font-semibold border-b-2 transition flex flex-col items-center gap-0.5 ${
                 activeTab === tab.id ? 'border-[#1E90FF] text-[#1E90FF]' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
               }`}>
               <tab.icon size={16} />
@@ -764,7 +764,7 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                         const dot = g === 'A' ? 'bg-red-500' : g === 'B' ? 'bg-amber-500' : 'bg-emerald-500';
                         return (
                           <button key={g} onClick={() => setAbcFilter(g)}
-                            className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${cls}`}>
+                            className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition ${cls}`}>
                             <span className={`w-5 h-5 rounded-full flex items-center justify-center font-black text-xs text-white ${dot}`}>{g}</span>
                             กลุ่ม {g}: {count}
                           </button>
@@ -971,11 +971,11 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                       </div>
                       <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-xl p-1 gap-1 shrink-0">
                         <button onClick={() => setForecastModel('linear')}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${forecastModel === 'linear' ? 'bg-white dark:bg-slate-900 text-[#1E90FF] shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${forecastModel === 'linear' ? 'bg-white dark:bg-slate-900 text-[#1E90FF] shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
                           Linear
                         </button>
                         <button onClick={() => setForecastModel('exponential')}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${forecastModel === 'exponential' ? 'bg-white dark:bg-slate-900 text-[#1E90FF] shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${forecastModel === 'exponential' ? 'bg-white dark:bg-slate-900 text-[#1E90FF] shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
                           Exp. Smoothing
                         </button>
                       </div>
@@ -1017,7 +1017,7 @@ export default function AnalyticsApp({ onRefresh, auth = {}, onGoBack, canGoBack
                       <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-xl p-1 gap-1 shrink-0">
                         {[1, 6, 12].map(p => (
                           <button key={p} onClick={() => setForecastPeriod(p)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${forecastPeriod === p ? 'bg-white dark:bg-slate-900 text-[#1E90FF] shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${forecastPeriod === p ? 'bg-white dark:bg-slate-900 text-[#1E90FF] shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
                             +{p} เดือน
                           </button>
                         ))}

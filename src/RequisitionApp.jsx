@@ -359,7 +359,7 @@ function HomeView({ onSelect, onBack }) {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-md">
         <button onClick={() => onSelect('requester')}
-          className="group bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 hover:border-blue-400 rounded-2xl p-8 text-center transition-all shadow-sm hover:shadow-md">
+          className="group bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 hover:border-blue-400 rounded-2xl p-8 text-center transition shadow-sm hover:shadow-md">
           <div className="w-14 h-14 bg-blue-100 dark:bg-blue-950/60 rounded-xl flex items-center justify-center mx-auto mb-3">
             <Package size={32} className="text-blue-600" />
           </div>
@@ -367,7 +367,7 @@ function HomeView({ onSelect, onBack }) {
           <div className="text-slate-500 dark:text-slate-400 text-sm mt-1">หน่วยงาน</div>
         </button>
         <button onClick={() => onSelect('staff')}
-          className="group bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 hover:border-emerald-400 rounded-2xl p-8 text-center transition-all shadow-sm hover:shadow-md">
+          className="group bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 hover:border-emerald-400 rounded-2xl p-8 text-center transition shadow-sm hover:shadow-md">
           <div className="w-14 h-14 bg-emerald-100 dark:bg-emerald-950/60 rounded-xl flex items-center justify-center mx-auto mb-3">
             <CheckCircle size={32} className="text-emerald-600" />
           </div>
@@ -460,7 +460,7 @@ function RequesterLogin({ onLogin, onBack }) {
               className="w-full" />
           </div>
           <button type="submit" disabled={!name.trim() || !dept}
-            className="w-full bg-[#1E90FF] hover:bg-[#1a7fe0] disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold text-sm transition-all mt-2">
+            className="w-full bg-[#1E90FF] hover:bg-[#1a7fe0] disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold text-sm transition mt-2">
             เข้าสู่ระบบเบิกยา →
           </button>
         </form>
@@ -1154,7 +1154,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
       {/* Floating Cart Button */}
       {cart.length > 0 && (
         <button onClick={onCart}
-          className="fixed bottom-6 right-5 z-40 bg-[#1E90FF] hover:bg-[#1a7fe0] text-white rounded-2xl shadow-2xl px-5 py-3.5 flex items-center gap-2.5 transition-all active:scale-95">
+          className="fixed bottom-6 right-5 z-40 bg-[#1E90FF] hover:bg-[#1a7fe0] text-white rounded-2xl shadow-2xl px-5 py-3.5 flex items-center gap-2.5 transition active:scale-95">
           <Package size={20} />
           <span className="font-bold text-base">ตะกร้ายา</span>
           <span className="bg-white dark:bg-slate-900 text-[#1E90FF] rounded-full w-6 h-6 flex items-center justify-center font-black text-sm">{cart.length}</span>
@@ -1425,7 +1425,7 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
       {cart.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
           <button onClick={submit} disabled={loading}
-            className="w-full bg-[#1E90FF] hover:bg-[#1a7fe0] disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3.5 font-semibold flex items-center justify-center gap-2 transition-all">
+            className="w-full bg-[#1E90FF] hover:bg-[#1a7fe0] disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3.5 font-semibold flex items-center justify-center gap-2 transition">
             <Send size={18} />{loading ? 'กำลังส่งใบเบิก...' : `ส่งใบเบิก (${cart.length} รายการ)`}
           </button>
         </div>
@@ -2753,7 +2753,7 @@ function StaffRoot({ onBack, alreadyAuthed = false, auth = {}, onProxyRequest })
           <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-1">เจ้าหน้าที่คลังยา</h2>
           <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">กดยืนยันเพื่อเข้าระบบ</p>
           <button onClick={() => setAuthed(true)}
-            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-3 font-semibold transition-all">
+            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl py-3 font-semibold transition">
             เข้าสู่ระบบ
           </button>
         </div>
@@ -3007,7 +3007,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
               setDateFilter(new Date().toISOString().slice(0, 10));
             }
           }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm whitespace-nowrap font-medium transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm whitespace-nowrap font-medium transition ${
               filter === tab.key ? 'bg-[#F0F8FF] text-[#1E90FF]' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}>
             {tab.label}
@@ -3481,11 +3481,11 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                     <div className="no-print mt-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 space-y-2.5">
                       <div className="flex gap-1.5">
                         <button onClick={() => updateItem(realIdx,'decision','approve')}
-                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-sm font-medium transition-all border ${item.decision==='approve'?'bg-emerald-600 text-white border-emerald-600':'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-sm font-medium transition border ${item.decision==='approve'?'bg-emerald-600 text-white border-emerald-600':'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
                           <Check size={14}/> อนุมัติ
                         </button>
                         <button onClick={() => updateItem(realIdx,'decision','reject')}
-                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-sm font-medium transition-all border ${item.decision==='reject'?'bg-red-500 text-white border-red-500':'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-sm font-medium transition border ${item.decision==='reject'?'bg-red-500 text-white border-red-500':'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
                           <X size={14}/> ไม่อนุมัติ
                         </button>
                       </div>
@@ -3542,11 +3542,11 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
           <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
             <div className="grid grid-cols-[1fr_auto] gap-2">
               <button onClick={() => save(null)} disabled={loading}
-                className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
+                className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
                 <CheckCircle size={18}/>{loading?'กำลังบันทึก...':'ยืนยันอนุมัติใบเบิก'}
               </button>
               <button onClick={() => save('rejected')} disabled={loading}
-                className="bg-white dark:bg-slate-900 hover:bg-red-50 dark:hover:bg-red-950/50 border border-red-300 dark:border-red-800/60 text-red-600 disabled:opacity-40 rounded-xl px-4 py-3 font-semibold flex items-center justify-center gap-2 transition-all">
+                className="bg-white dark:bg-slate-900 hover:bg-red-50 dark:hover:bg-red-950/50 border border-red-300 dark:border-red-800/60 text-red-600 disabled:opacity-40 rounded-xl px-4 py-3 font-semibold flex items-center justify-center gap-2 transition">
                 <XCircle size={18}/> ไม่อนุมัติทั้งใบ
               </button>
             </div>
@@ -3556,17 +3556,17 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
           <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 space-y-2">
             {!deleteConfirm ? (
               <button onClick={() => setDeleteConfirm(true)} disabled={loading}
-                className="w-full bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-950/70 border border-red-300 dark:border-red-800/60 text-red-600 rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
+                className="w-full bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-950/70 border border-red-300 dark:border-red-800/60 text-red-600 rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
                 <Trash2 size={18}/> ลบใบเบิกนี้ออกจากระบบ
               </button>
             ) : (
               <div className="flex gap-2">
                 <button onClick={() => setDeleteConfirm(false)} disabled={loading}
-                  className="flex-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
+                  className="flex-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
                   <X size={16}/> ยกเลิก
                 </button>
                 <button onClick={handleDelete} disabled={loading}
-                  className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
+                  className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
                   <Trash2 size={16}/> {loading ? 'กำลังลบ...' : 'ยืนยันลบ'}
                 </button>
               </div>
@@ -3579,7 +3579,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         {isApproved && (
           <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
             <button onClick={() => setPickingModal(true)} disabled={loading}
-              className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
+              className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
               <Package size={18}/> เริ่มจัดยา
             </button>
           </div>
@@ -3587,7 +3587,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         {isPicking && (
           <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
             <button onClick={() => setVerifyModal(true)} disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
+              className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
               <CheckCircle size={18}/> ตรวจนับยา (Double Check)
             </button>
           </div>
@@ -3595,7 +3595,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         {isReady && (
           <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 space-y-2">
             <button onClick={() => setDispatchModal(true)} disabled={loading}
-              className="w-full rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all bg-blue-600 hover:bg-blue-700 text-white disabled:bg-slate-200 disabled:text-slate-400">
+              className="w-full rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition bg-blue-600 hover:bg-blue-700 text-white disabled:bg-slate-200 disabled:text-slate-400">
               <Check size={18}/> จ่ายออก
             </button>
             {error && <p className="text-red-600 text-sm text-center">{error}</p>}

@@ -1763,7 +1763,7 @@ function DispenseSummaryModal({ onClose, initial = {} }) {
                       <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-xl p-1 gap-1 shrink-0">
                         {[1, 6, 12].map(p => (
                           <button key={p} onClick={() => setForecastPrd(p)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
                               forecastPrd === p ? 'bg-white dark:bg-slate-900 text-[#1E90FF] shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                             }`}>+{p} เดือน</button>
                         ))}
@@ -1849,7 +1849,7 @@ function BarSection({ title, items, barColor, unit, caption }) {
               <span className="font-bold text-slate-700 dark:text-slate-200 shrink-0">{Number(val).toLocaleString(undefined,{maximumFractionDigits:0})} {unit}</span>
             </div>
             <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
-              <div className={`${barColor} h-2 rounded-full transition-all`} style={{ width:`${(val/max)*100}%` }} />
+              <div className={`${barColor} h-2 rounded-full transition-[width]`} style={{ width:`${(val/max)*100}%` }} />
             </div>
           </div>
         ))}
