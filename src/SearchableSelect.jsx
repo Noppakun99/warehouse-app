@@ -75,7 +75,7 @@ export default function SearchableSelect({
           {emptyLabel !== null && (
             <div
               onMouseDown={() => select('')}
-              className={`px-3 py-2 text-sm cursor-pointer hover:bg-[#F0F8FF] ${!value ? 'text-[#1E90FF] font-semibold' : 'text-slate-500 dark:text-slate-400'}`}
+              className={`px-3 py-2 text-sm cursor-pointer hover:bg-[#F0F8FF] dark:hover:bg-slate-800 ${!value ? 'text-[#1E90FF] font-semibold' : 'text-slate-500 dark:text-slate-400'}`}
             >
               {emptyLabel}
             </div>
@@ -87,7 +87,7 @@ export default function SearchableSelect({
             <div
               key={o}
               onMouseDown={() => select(o)}
-              className={`px-3 py-2 text-sm cursor-pointer hover:bg-[#F0F8FF] ${value === o ? 'text-[#1E90FF] font-semibold bg-[#F0F8FF]' : 'text-slate-800 dark:text-slate-100'}`}
+              className={`px-3 py-2 text-sm cursor-pointer hover:bg-[#F0F8FF] dark:hover:bg-slate-800 ${value === o ? 'text-[#1E90FF] font-semibold bg-[#F0F8FF] dark:bg-sky-950/50' : 'text-slate-800 dark:text-slate-100'}`}
             >
               {o}
             </div>

@@ -2416,7 +2416,7 @@ function ReceiveView({ auth = {} }) {
             </div>
             {/* close */}
             <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800">
-              <button onClick={() => setMobileDetail(null)} className="w-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl py-2.5 text-sm font-medium transition-colors">ปิด</button>
+              <button onClick={() => setMobileDetail(null)} className="w-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl py-2.5 text-sm font-medium transition-colors">ปิด</button>
             </div>
           </div>
         </div>
@@ -4125,7 +4125,7 @@ function ToastPopup({ type = 'success', message, onClose }) {
       <div className={`flex items-start gap-3 px-4 py-3 rounded-xl shadow-2xl border-2 max-w-md min-w-[280px] ${isError ? 'bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-800/60 text-red-800 dark:text-red-300' : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300'}`}>
         <Icon size={20} className={`shrink-0 mt-0.5 ${isError ? 'text-red-600' : 'text-emerald-600'}`}/>
         <div className="flex-1 text-sm font-medium leading-relaxed whitespace-pre-line">{message}</div>
-        <button onClick={onClose} className={`shrink-0 -mr-1 -mt-1 p-1 rounded hover:bg-white/40 ${isError ? 'text-red-600' : 'text-emerald-600'}`}>
+        <button onClick={onClose} className={`shrink-0 -mr-1 -mt-1 p-1 rounded hover:bg-white/40 dark:hover:bg-white/10 ${isError ? 'text-red-600' : 'text-emerald-600'}`}>
           <X size={16}/>
         </button>
       </div>
@@ -4184,7 +4184,7 @@ function StagePipeline({
         <span className="text-xs text-slate-500 dark:text-slate-400">ลำดับงาน — คลิกการ์ดเพื่อกรองบิลตามสถานะ แล้วเลือกบิลเพื่อกดปุ่มในขั้นนั้น</span>
         <div className="flex items-center gap-2">
           <button onClick={() => setStageFilter('all')}
-            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${stageFilter === 'all' ? 'bg-slate-700 text-white shadow' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'}`}>
+            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${stageFilter === 'all' ? 'bg-slate-700 text-white shadow' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
             ดูทั้งหมด ({stageCount.all || 0})
           </button>
           {onBulkUndo && (
@@ -4322,7 +4322,7 @@ function SentTab({ bills, selected, toggleBill, toggleAll, accountant, setAccoun
             className="px-2 py-1 border border-slate-300 dark:border-slate-600 rounded text-sm w-52"/>
         </div>
         <button onClick={() => toggleAll(bills)} disabled={bills.length === 0}
-          className="px-3 py-1.5 rounded-lg text-sm bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 disabled:opacity-40">
+          className="px-3 py-1.5 rounded-lg text-sm bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 disabled:opacity-40">
           {allSelected ? 'ยกเลิกเลือกทั้งหมด' : 'เลือกทั้งหมด'} ({selected.size}/{bills.length})
         </button>
         <button onClick={() => onMarkPosted()} disabled={busy || selected.size === 0}
@@ -4448,7 +4448,7 @@ function HistoryTab({ batches, busy, search = '', onReExport, onUnpost, onResetB
                   <td className="p-2 text-center" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-center gap-1 flex-wrap">
                       <button onClick={() => onReExport(b)} disabled={busy}
-                        className="px-2 py-1 rounded text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 flex items-center gap-1 disabled:opacity-50">
+                        className="px-2 py-1 rounded text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center gap-1 disabled:opacity-50">
                         <Printer size={12}/> พิมพ์ซ้ำ
                       </button>
                       <button onClick={() => onResetBatch(b)} disabled={busy}

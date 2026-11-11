@@ -269,7 +269,7 @@ function MasterEditModal({ open, drug, onClose, onSave }) {
           </Field>
         </div>
         <div className="border-t border-slate-200 dark:border-slate-700 px-5 py-3 flex items-center justify-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-b-2xl">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-200 rounded-lg">ยกเลิก</button>
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg">ยกเลิก</button>
           <button onClick={submit} disabled={saving} className="px-4 py-2 text-sm bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-1.5">
             {saving ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>}
             บันทึก
@@ -393,7 +393,7 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
           )}
         </div>
         <div className="border-t border-slate-200 dark:border-slate-700 px-5 py-3 flex items-center justify-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-b-2xl">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-200 rounded-lg">ยกเลิก</button>
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg">ยกเลิก</button>
           <button onClick={apply} disabled={rows.length === 0 || parsing} className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-1.5">
             {parsing ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>}
             Import {rows.length > 0 && `(${rows.length})`}

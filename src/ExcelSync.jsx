@@ -398,7 +398,7 @@ function SlotCard({ slot, linked, source, onLink, onUseLinked, onPickOnce, onCle
           </button>
         )}
         {onLink && (
-          <button onClick={onLink} className="flex items-center gap-1.5 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 rounded-lg px-2.5 py-1.5">
+          <button onClick={onLink} className="flex items-center gap-1.5 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 rounded-lg px-2.5 py-1.5">
             <Link2 size={13} /> {linked.handle ? 'เชื่อมไฟล์อื่นแทน' : 'เชื่อมไฟล์ (แนะนำ)'}
           </button>
         )}

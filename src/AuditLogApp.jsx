@@ -729,7 +729,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-500 dark:text-slate-400">เลือก <span className="font-semibold text-slate-700 dark:text-slate-200">{selectedIds.size}</span> รายการ</span>
                 <button onClick={() => { setSelectedIds(new Set()); setBulkConfirm(false); }}
-                  className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-colors">
+                  className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
                   ยกเลิก
                 </button>
                 {bulkConfirm ? (
@@ -739,7 +739,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
                       {bulkDeleting ? 'กำลังลบ...' : `ยืนยันลบ ${selectedIds.size} รายการ`}
                     </button>
                     <button onClick={() => setBulkConfirm(false)}
-                      className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition-colors">
+                      className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
                       <X size={12}/>
                     </button>
                   </>

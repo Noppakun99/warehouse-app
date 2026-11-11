@@ -2761,7 +2761,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
             <div className="flex justify-end gap-3">
               <button 
                 onClick={() => setShowResetConfirm(false)} 
-                className="px-5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl font-medium transition-colors"
+                className="px-5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-medium transition-colors"
               >
                 ยกเลิก
               </button>

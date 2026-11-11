@@ -544,7 +544,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                 {card.summary.driftLots > 0 && (
                   <button
                     onClick={() => jumpToRow(r => r.isDriftPoint)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60 hover:bg-amber-200 transition-colors"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors"
                     title="ไปที่แถวแรกที่ยอดไม่ตรง"
                   >
                     <AlertTriangle size={13} /> ยอดไม่ตรงบันทึก {card.summary.driftLots} lot
@@ -553,7 +553,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                 {card.summary.rowErrRows > 0 && (
                   <button
                     onClick={() => jumpToRow(r => r.hasRowErr)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800/60 hover:bg-rose-200 transition-colors"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800/60 hover:bg-rose-200 dark:hover:bg-rose-900/60 transition-colors"
                     title="ไปที่แถวแรกที่กรอกผิด"
                   >
                     <AlertTriangle size={13} /> แถวกรอกผิด {card.summary.rowErrRows} แถว

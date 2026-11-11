@@ -503,11 +503,11 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
         <button onClick={() => exportToExcel(rows, TEMP_EXCEL_COLS, 'อุณหภูมิตู้เย็น',
             `temperature_${point}_${todayIso()}.xlsx`, auth)}
           disabled={!rows.length} title="Export Excel"
-          className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-900/60 disabled:opacity-40 rounded-lg px-2.5 sm:px-3 py-2 text-sm font-medium shrink-0">
+          className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-900/60 disabled:opacity-40 rounded-lg px-2.5 sm:px-3 py-2 text-sm font-medium shrink-0">
           <FileDown size={16} /> <span className="hidden sm:inline">Excel</span>
         </button>
         <button onClick={() => fileRef.current?.click()} disabled={saving}
-          className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 disabled:opacity-40 rounded-lg px-2.5 sm:px-3 py-2 text-sm font-medium shrink-0"
+          className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 disabled:opacity-40 rounded-lg px-2.5 sm:px-3 py-2 text-sm font-medium shrink-0"
           title="นำเข้า CSV จากเครื่องบันทึกอุณหภูมิ (data logger)">
           <Upload size={16} /> <span className="hidden sm:inline">นำเข้า CSV</span>
         </button>

@@ -991,7 +991,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
             <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 overflow-hidden">
               {filteredSuggestions.map(({ name, type }) => (
                 <button key={name} onMouseDown={e => { e.preventDefault(); setQ(name); setShowDropdown(false); }}
-                  className="w-full text-left px-4 py-3 text-base text-slate-700 dark:text-slate-200 hover:bg-[#F0F8FF] hover:text-[#1E90FF] transition-colors border-b border-slate-100 dark:border-slate-800 last:border-0">
+                  className="w-full text-left px-4 py-3 text-base text-slate-700 dark:text-slate-200 hover:bg-[#F0F8FF] dark:hover:bg-slate-800 hover:text-[#1E90FF] transition-colors border-b border-slate-100 dark:border-slate-800 last:border-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span>{name}</span>
                     {type && <DrugTypeBadge type={type} />}
@@ -1359,11 +1359,11 @@ function CartView({ info, cart, setCart, onBack, onSubmitted, auth = {} }) {
                 {/* จำนวนที่ขอเบิก */}
                 <div className="flex items-center gap-2 mt-3">
                   <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">ขอเบิก</span>
-                  <button onClick={() => updateQty(i, item.requestedQty-1)} className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-lg p-2 transition-colors"><Minus size={16} /></button>
+                  <button onClick={() => updateQty(i, item.requestedQty-1)} className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg p-2 transition-colors"><Minus size={16} /></button>
                   <input type="number" min="1" value={item.requestedQty} onChange={e => updateQty(i, e.target.value)}
                     className={`w-20 border rounded-lg px-2 py-2 text-slate-800 dark:text-slate-100 text-center text-base font-semibold focus:outline-none focus:ring-2 focus:ring-[#1E90FF] ${overStock ? 'border-red-400 bg-red-50 dark:bg-red-950/40' : 'border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800'}`} />
                   <button onClick={() => updateQty(i, item.requestedQty+1)} disabled={item.availableBase != null && item.requestedQty >= item.availableBase}
-                    className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 disabled:opacity-40 rounded-lg p-2 transition-colors"><Plus size={16} /></button>
+                    className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 rounded-lg p-2 transition-colors"><Plus size={16} /></button>
                   <span className="text-sm text-slate-500 dark:text-slate-400">{item.unit || ''}</span>
                 </div>
                 {overStock && (
@@ -2119,7 +2119,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                 <div className="flex items-center gap-2 shrink-0">
                   <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${cfg.badge}`}>{cfg.label}</span>
                   <button onClick={e => { e.stopPropagation(); printReq(req, window.open('', '_blank')); }}
-                    className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-[#1E90FF] hover:bg-[#F0F8FF] rounded-lg transition-colors" title="พิมพ์ใบเบิก">
+                    className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-[#1E90FF] hover:bg-[#F0F8FF] dark:hover:bg-slate-800 rounded-lg transition-colors" title="พิมพ์ใบเบิก">
                     <Printer size={15} />
                   </button>
                   <button onClick={e => { e.stopPropagation(); printCoverForm(req, window.open('', '_blank')); }}
@@ -3113,19 +3113,19 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
               <div className="flex items-center justify-between px-4 py-2 bg-slate-50 dark:bg-slate-800 border-t border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-1">
                   <button onClick={e => { e.stopPropagation(); printReq(req, window.open('', '_blank')); }}
-                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-[#1E90FF] transition-colors px-2 py-1 rounded-xl hover:bg-white">
+                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-[#1E90FF] transition-colors px-2 py-1 rounded-xl hover:bg-white dark:hover:bg-slate-800">
                     <Printer size={13}/> พิมพ์
                   </button>
                   <button onClick={e => { e.stopPropagation(); printLotControl(req, window.open('', '_blank')); }}
-                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-purple-600 transition-colors px-2 py-1 rounded-xl hover:bg-white">
+                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-purple-600 transition-colors px-2 py-1 rounded-xl hover:bg-white dark:hover:bg-slate-800">
                     <Printer size={13}/> ใบ lot คุม
                   </button>
                   <button onClick={e => { e.stopPropagation(); printCoverForm(req, window.open('', '_blank')); }}
-                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-indigo-600 transition-colors px-2 py-1 rounded-xl hover:bg-white">
+                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-indigo-600 transition-colors px-2 py-1 rounded-xl hover:bg-white dark:hover:bg-slate-800">
                     <FileText size={13}/> ใบปะหน้า
                   </button>
                   <button onClick={e => { e.stopPropagation(); exportReqExcel([req], auth); }}
-                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-emerald-600 transition-colors px-2 py-1 rounded-xl hover:bg-white">
+                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-emerald-600 transition-colors px-2 py-1 rounded-xl hover:bg-white dark:hover:bg-slate-800">
                     <FileDown size={13}/> Excel
                   </button>
                 </div>
@@ -3562,7 +3562,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
             ) : (
               <div className="flex gap-2">
                 <button onClick={() => setDeleteConfirm(false)} disabled={loading}
-                  className="flex-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
+                  className="flex-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-all">
                   <X size={16}/> ยกเลิก
                 </button>
                 <button onClick={handleDelete} disabled={loading}
