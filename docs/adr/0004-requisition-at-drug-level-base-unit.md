@@ -1,6 +1,6 @@
 # 0004. เบิกยาระดับ "ยา" ในหน่วยย่อยสุด — ระบบจัดสรร lot ให้เอง
 
-- **Status:** Accepted (ส่วน "ผู้เบิกไม่เห็น lot" ถูก refine โดย [ADR-0005](0005-lot-allocation-preview-and-pick-record.md) — ผู้เบิกเห็น lot allocation แบบ preview ตอนขอ)
+- **Status:** Accepted (ส่วน "ผู้เบิกไม่เห็น lot" ถูก refine โดย [ADR-0005](0005-lot-allocation-preview-and-pick-record.md) — ผู้เบิกเห็น lot allocation แบบ preview ตอนขอ · 12/11/2569 refine หน้าจอใบเบิกออนไลน์: ผู้เบิก**คีย์**เป็นหน่วย Master (กล่อง) แล้วแอปแปลงเป็นหน่วยย่อยสุดก่อนเก็บ — `requested_qty` ยังเป็นหน่วยย่อยสุดตามข้อ 2 · lot ต่าง packsize บังคับเลือก packsize แก้ข้อกังวล "10 กล่องกำกวม" ใน Alternatives — CONTEXT.md §หน่วยคีย์)
 - **Date:** 2026-06-21
 
 ## Context
