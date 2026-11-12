@@ -69,6 +69,10 @@ CEIL_LINE = (f'เพดานพื้นที่ ({len(CEILING)} รายก
 # กล่องเกณฑ์ย้ายจาก A1:X3 ไปชีทแยก (user สั่ง 12/11/2569 — หัวเขียวยาวเกิน) · migrate_criteria.ps1 สร้างชีทครั้งเดียว
 # A = หัวข้อ · B = วิธีคิด · แถวที่เปลี่ยนทุกรอบ: ถึงเกณฑ์พอแล้ว (B11) · เพดานพื้นที่ (A12 = ชื่อ+จำนวนรายการ · B12 = วิธีคิด)
 CRIT_SHEET = 'เกณฑ์การสั่งซื้อ'
+# ชีทพื้นที่เก็บยา (user สั่ง 12/11/2569) — ตาราง CEILING ให้หัวหน้าเห็นในไฟล์รายงาน · สร้าง/อัพเดตด้วย `pr.py space` + space_sheet.ps1
+# แก้ CEILING แล้วต้องรัน 2 ตัวนี้ซ้ำ — verify หยุดถ้าชีทไม่ตรง CEILING
+SPACE_SHEET = 'พื้นที่เก็บยา'
+SPACE_ROW0 = 4   # แถวข้อมูลแรก (หัวตารางแถว 3) · คอลัมน์ A ลำดับ · B รหัส · C รายการยา · D หน่วย · E ลัง · F หน่วยต่อลัง · G พื้นที่รวม
 CRIT_CELLS = {'B11': ENOUGH_LINE.split(' = ', 1)[1], 'A12': CEIL_LINE.split(': ', 1)[0], 'B12': CEIL_LINE.split(': ', 1)[1]}
 
 
@@ -874,6 +878,14 @@ def cmd_verify(a):
         for _, rep in (v if isinstance(v[0], list) else [v]):
             if rep and rep.strip() not in str(dst[sh][cell].value):
                 errs.append(f'หัว {k} ไม่มี "{rep.strip()[:60]}"')
+    if SPACE_SHEET not in dst.sheetnames:
+        errs.append(f'ไม่มีชีท {SPACE_SHEET} — รัน pr.py space + space_sheet.ps1 ก่อน')
+    else:
+        got = {str(r[1]).strip(): (r[4], r[5], r[6]) for r in dst[SPACE_SHEET].iter_rows(min_row=SPACE_ROW0, max_col=7, values_only=True) if r[1] not in (None, '')}
+        want = {c: (n, per, n * per) for c, (n, per) in CEILING.items()}
+        if got != want:
+            diff = sorted(set(got) ^ set(want)) or sorted(c for c in want if got[c] != want[c])
+            errs.append(f'ชีท {SPACE_SHEET} ไม่ตรง CEILING ({", ".join(diff[:8])}) — รัน pr.py space + space_sheet.ps1')
     a1 = str(dp['A1'].value)
     if 'เพดานพื้นที่ (' in a1 or 'เกณฑ์:' in a1:
         errs.append('หัว A1: ยังมีข้อความเกณฑ์ (ต้องอยู่ชีทเกณฑ์อย่างเดียว)')
@@ -1053,9 +1065,27 @@ def cmd_line(a):
                 ' · '.join(f"{p['เลขที่PO'][3:]} {p['label'][:40]}" for p in rest))
 
 
+def cmd_space(a):
+    """เขียน space.json (ตาราง CEILING + ชื่อ/หน่วยจากชีทวิเคราะห์) ให้ space_sheet.ps1 สร้างชีทพื้นที่เก็บยา"""
+    d = Data(a.workdir)
+    rows = []
+    for code, (n, per) in CEILING.items():
+        if code not in d.analysis:
+            raise SystemExit(f'{code}: ไม่มีในชีทวิเคราะห์ — หาชื่อ/หน่วยไม่ได้')
+        r = d.analysis[code]
+        rows.append(dict(code=code, name=str(r[d.ac['name']]).strip(), unit=str(r[d.ac['unit']]).strip(), cases=n, per=per, space=n * per))
+    rows.sort(key=lambda x: x['name'].lower())
+    path = os.path.join(a.workdir, 'space.json')
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(dict(sheet=SPACE_SHEET, row0=SPACE_ROW0, rows=rows), f, ensure_ascii=False, indent=1)
+    for x in rows:
+        out(f"  {x['code']:>8} {x['name'][:40]:40} {x['unit']:>10}  {x['cases']:>4} ลัง × {x['per']:>4} = {x['space']:>6}")
+    out(f'{len(rows)} รายการ → {path}')
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('cmd', choices=['check', 'plan', 'verify', 'line'])
+    ap.add_argument('cmd', choices=['check', 'plan', 'verify', 'line', 'space'])
     ap.add_argument('--workdir', default=os.path.join(tempfile.gettempdir(), 'purchase-request-report'))
     ap.add_argument('--date', help='วันที่แจ้ง YYYY-MM-DD (ค่าเริ่มต้น = วันนี้)')
     ap.add_argument('--note', action='append', help='เหตุผลเพิ่มจากผู้ใช้ รูปแบบ CODE=ข้อความ (ใช้ซ้ำได้)')
@@ -1066,7 +1096,7 @@ def main():
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
         sys.stderr.reconfigure(encoding='utf-8')   # SystemExit ภาษาไทยออก stderr
-    {'check': cmd_check, 'plan': cmd_plan, 'verify': cmd_verify, 'line': cmd_line}[a.cmd](a)
+    {'check': cmd_check, 'plan': cmd_plan, 'verify': cmd_verify, 'line': cmd_line, 'space': cmd_space}[a.cmd](a)
 
 
 if __name__ == '__main__':
