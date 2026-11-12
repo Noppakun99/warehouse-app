@@ -1,0 +1,14 @@
+{
+  "doc_no": "",
+  "day": "12", "month": "พฤศจิกายน", "year": "2569",
+  "hospital": "ประชาธิปัตย์", "province": "ปทุมธานี", "customer_code": "110000187",
+  "mode": "exchange",
+  "items": [
+    {"name": "Levofloxacin 500 mg Tablet", "qty": "1 x 100 เม็ด", "lot": "A680191",
+     "mfd": "11/11/2024", "exp": "11/11/2026", "value": "599.20"}
+  ],
+  "total": "599.20",
+  "reason": "ยาหมดอายุ อัตราการใช้ลดลง",
+  "swap_to": [{"name": "Levofloxacin 500 mg Tablet", "qty": "1 x 100 เม็ด"}],
+  "invoice": "3001039687"
+}
