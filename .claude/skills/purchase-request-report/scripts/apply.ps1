@@ -12,6 +12,7 @@ $cols = 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'T', 'ROP', 'WHY', 'CO
 # (14/10/2569 ย้าย Avg/วัน มาเป็น O · 22/10/2569 แทรก Q ROP · R เหตุผลที่แจ้ง · S คงอยู่ได้อีก · W มูลค่าสั่ง → รายงาน A–X)
 $PHYS = @{ O = 'P'; P = 'T'; Q = 'U'; R = 'V'; S = 'X'; T = 'O'; ROP = 'Q'; WHY = 'R'; COV = 'S'; VAL = 'W' }
 $LASTCOL = 'X'; $RED = 255   # RGB(255,0,0) — อักษรสีแดง = ด่วน (CONTEXT §ด่วน)
+$MINH = 24.95                # ความสูงแถวปกติของรายงาน — AutoFit แล้วต่ำกว่านี้ยกขึ้นมา
 function Phys([string]$k) { if ($PHYS.ContainsKey($k)) { $PHYS[$k] } else { $k } }
 
 function SetV($cell, $v) {
@@ -39,6 +40,7 @@ try {
   "C updated: $(@($plan.c_updates).Count)"
 
   if (-not ([string]$rp.Range("Q4").Text).Trim().StartsWith('จุดสั่งซื้อ')) { throw 'รายงานยังเป็นโครงเดิม 20 คอลัมน์ — รัน migrate_layout.ps1 ก่อน' }
+  if (-not (@($wb.Worksheets | ForEach-Object { $_.Name }) -contains 'เกณฑ์การสั่งซื้อ')) { throw 'ยังไม่มีชีทเกณฑ์การสั่งซื้อ — รัน migrate_criteria.ps1 ก่อน' }
   # 2) ย้ายรายการที่มาส่งแล้วไปต่อท้าย Sheet1 (Sheet1 = คอลัมน์ B–Y ตรงกับรายงาน A–X)
   $next = $s1.Cells($s1.Rows.Count, 6).End(-4162).Row + 1
   if ($next -ne [int]$plan.sheet1_last + 1) { throw "Sheet1 แถวสุดท้ายไม่ตรงกับตอนทำแผน" }
@@ -60,12 +62,6 @@ try {
   foreach ($x in $plan.refresh) {
     $r = $idx[$x.code]; if (-not $r) { throw "refresh: ไม่พบรหัส $($x.code)" }
     foreach ($k in $cols) { SetV $rp.Range("$(Phys $k)$r") $x.values.$k }
-    # เหตุผลยาว (ถึงเกณฑ์พอแล้ว + สาเหตุ) ความสูงแถวเดิมตัดข้อความ — ขยายอย่างเดียว ไม่ย่อแถวที่สูงอยู่แล้ว
-    if (([string]$x.values.WHY).Length -gt 50) {
-      $h = $rp.Rows($r).RowHeight
-      $null = $rp.Rows($r).AutoFit()
-      if ($rp.Rows($r).RowHeight -lt $h) { $rp.Rows($r).RowHeight = $h }
-    }
   }
   "refreshed: $(@($plan.refresh).Count)"
 
@@ -93,10 +89,17 @@ try {
   "urgent (red): $nr / $(@($plan.urgent).Count)"
   if ($nr -ne @($plan.urgent).Count) { throw 'จำนวนแถวสีแดงไม่ตรงแผน' }
 
-  # 5) หัวรายงาน
-  # ค่าเป็น [pattern, replacement] หรือหลายคู่ [[p, r], ...] แทนตามลำดับ (A1: วันที่ + บรรทัดเพดานพื้นที่)
+  # 4c) ความสูงแถวพอดีเนื้อหาทุกแถวทุกรอบ (user สั่ง 12/11/2569 — เดิมขยายอย่างเดียว แถวสูงโดด/แถวใหม่เตี้ย) · ต่ำสุด = แถวปกติ
+  $lastRow = 4 + $lo.ListRows.Count
+  $null = $rp.Range("A5:${LASTCOL}$lastRow").Rows.AutoFit()
+  for ($r = 5; $r -le $lastRow; $r++) { if ($rp.Rows($r).RowHeight -lt $MINH) { $rp.Rows($r).RowHeight = $MINH } }
+  "row height: autofit 5-$lastRow (ต่ำสุด $MINH)"
+
+  # 5) หัวรายงาน + ชีทเกณฑ์ (key 'ชีท!เซลล์')
+  # ค่าเป็น [pattern, replacement] หรือหลายคู่ [[p, r], ...] แทนตามลำดับ
   foreach ($p in $plan.headers.PSObject.Properties) {
-    $c = $rp.Range($p.Name); $t = [string]$c.Formula
+    if ($p.Name -like '*!*') { $sn, $addr = $p.Name -split '!', 2; $c = $wb.Worksheets.Item($sn).Range($addr) } else { $c = $rp.Range($p.Name) }
+    $t = [string]$c.Formula
     $pairs = New-Object System.Collections.ArrayList
     if ($p.Value[0] -is [array]) { foreach ($x in $p.Value) { [void]$pairs.Add($x) } } else { [void]$pairs.Add($p.Value) }
     foreach ($pr in $pairs) { $t = [regex]::Replace($t, [string]$pr[0], [string]$pr[1]) }

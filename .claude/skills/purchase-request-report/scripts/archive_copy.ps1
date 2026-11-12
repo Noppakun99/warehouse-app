@@ -10,6 +10,11 @@ try {
   $ws = $wb.Worksheets.Item('รายงานซื้อยา')
   $ws.Copy()
   $nb = $xl.ActiveWorkbook
+  # ชีทเกณฑ์ (ตั้งแต่ 12/11/2569) ไปด้วย — หัวหน้าดูวิธีคิดได้ในไฟล์เดียวกัน
+  if (@($wb.Worksheets | ForEach-Object { $_.Name }) -contains 'เกณฑ์การสั่งซื้อ') {
+    $wb.Worksheets.Item('เกณฑ์การสั่งซื้อ').Copy([Type]::Missing, $nb.Worksheets.Item(1))
+    $nb.Worksheets.Item(1).Activate()
+  }
   Say "new workbook sheets = $($nb.Worksheets.Count) name = $($nb.Worksheets.Item(1).Name)"
   $links = $nb.LinkSources(1)
   if ($links) { foreach ($l in $links) { Say "break link $l"; $nb.BreakLink($l, 1) } }

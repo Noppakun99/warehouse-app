@@ -66,6 +66,10 @@ ENOUGH_LINE = '"ถึงเกณฑ์พอแล้ว" = ยังไม่
 CEIL_LINE = (f'เพดานพื้นที่ ({len(CEILING)} รายการที่ห้องเก็บจำกัด เช่น น้ำเกลือ/ยาลังใหญ่): เพดาน = MIN(พื้นที่เก็บ, Avg/เดือน × 2) · '
              f'จุดสั่งซื้อ = Avg/วัน × (Lead Time + 7 + {CEIL_BUFFER} วันกันชน) · '
              'จำนวนแนะนำ = เพดาน − คงเหลือตอนของมาถึง ปัดลงเต็มลัง (ของมาถึงแล้วไม่เกินพื้นที่)')
+# กล่องเกณฑ์ย้ายจาก A1:X3 ไปชีทแยก (user สั่ง 12/11/2569 — หัวเขียวยาวเกิน) · migrate_criteria.ps1 สร้างชีทครั้งเดียว
+# A = หัวข้อ · B = วิธีคิด · แถวที่เปลี่ยนทุกรอบ: ถึงเกณฑ์พอแล้ว (B11) · เพดานพื้นที่ (A12 = ชื่อ+จำนวนรายการ · B12 = วิธีคิด)
+CRIT_SHEET = 'เกณฑ์การสั่งซื้อ'
+CRIT_CELLS = {'B11': ENOUGH_LINE.split(' = ', 1)[1], 'A12': CEIL_LINE.split(': ', 1)[0], 'B12': CEIL_LINE.split(': ', 1)[1]}
 
 
 # สถานะ PO ในไลน์ตามยา (user สั่ง 29/10/2569) — ระบบติดตามการสั่งซื้อของจัดซื้อไม่มีรายการยาแยกต่อ PO
@@ -722,9 +726,10 @@ def cmd_plan(a):
     win = [m for _, m in rate_window(d, cols)]
     allm = sorted(m for _, m in cols)
     mm = lambda t: f"{TH_MONTH[t[1] - 1]}{(t[0] + 543) % 100}"
-    # A1 หลายคู่ (แทนตามลำดับ): วันที่ · ลบบรรทัดเพดานเดิม · ต่อบรรทัดเพดานท้ายกล่องเกณฑ์ (รันซ้ำได้ผลเดิม)
+    # key 'ชีท!เซลล์' = ชีทเกณฑ์ (apply.ps1 แยกชื่อชีทเอง) · ค่าเกณฑ์แทนทั้งเซลล์ (รันซ้ำได้ผลเดิม)
     headers = {
-        'A1': [[r'UPDATE: วันที่ [\d/]+', f'UPDATE: วันที่ {dstr}'], [r'"ถึงเกณฑ์พอแล้ว" = [^\n]*', ENOUGH_LINE], [r'\n?เพดานพื้นที่ \([^\n]*', ''], [r'\z', '\n' + CEIL_LINE]],
+        'A1': [r'UPDATE: วันที่ [\d/]+', f'UPDATE: วันที่ {dstr}'],
+        **{f'{CRIT_SHEET}!{c}': [r'(?s)\A.*\z', t] for c, t in CRIT_CELLS.items()},
         f'{phys("O")}4': [r'คงเหลือ\s+[\d/]+', f'คงเหลือ  {dstr}'],
         f'{phys("P")}4': [r'\(.*\)', f'({mm(allm[0])} - {mm(allm[-1])})'],
         f'{phys("Q")}4': [r'\(.*\)', f'({TH_MONTH[win[0][1] - 1]} - {TH_MONTH[win[-1][1] - 1]} {(win[-1][0] + 543) % 100})'],
@@ -860,13 +865,18 @@ def cmd_verify(a):
                 errs.append(f'Sheet1 แถว {r} {m["code"]}: หมายเหตุไม่ตรง ({s1.cell(r, s_col).value!r})')
     if s1.cell(start + len(moved), 6).value not in (None, ''):
         errs.append('Sheet1: มีแถวเกินจากที่ย้าย (ซ้ำ?)')
+    if CRIT_SHEET not in dst.sheetnames:
+        errs.append(f'ไม่มีชีท {CRIT_SHEET} — รัน migrate_criteria.ps1 ก่อน')
     for k, v in plan['headers'].items():
+        sh, cell = k.split('!') if '!' in k else ('รายงานซื้อยา', k)
+        if sh not in dst.sheetnames:
+            continue
         for _, rep in (v if isinstance(v[0], list) else [v]):
-            if rep and rep.strip() not in str(dp[k].value):
+            if rep and rep.strip() not in str(dst[sh][cell].value):
                 errs.append(f'หัว {k} ไม่มี "{rep.strip()[:60]}"')
     a1 = str(dp['A1'].value)
-    if a1.count('เพดานพื้นที่ (') != 1:
-        errs.append(f'หัว A1: บรรทัดเพดานพื้นที่มี {a1.count("เพดานพื้นที่ (")} บรรทัด (ต้อง 1)')
+    if 'เพดานพื้นที่ (' in a1 or 'เกณฑ์:' in a1:
+        errs.append('หัว A1: ยังมีข้อความเกณฑ์ (ต้องอยู่ชีทเกณฑ์อย่างเดียว)')
     out(f'รายงาน: {len(drows)} แถว (คาด {len(exp_codes)}) | Sheet1 เพิ่ม {len(moved)} แถวที่ {start}–{start + len(moved) - 1} | ตาราง {tref}')
     if dpv['D5'].value is None and drows:
         out('หมายเหตุ: ค่าแคชของสูตร D ว่าง (ไฟล์ยังไม่ได้คำนวณ) — ปกติถ้า apply.ps1 เซฟผ่าน Excel จะมีค่า')
