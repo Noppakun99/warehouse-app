@@ -152,7 +152,9 @@ if (A.has('--plan')) {
   const { last } = readDispense(wb)
   const date = A.valueOf('--date') ? new Date(A.valueOf('--date') + 'T00:00:00') : new Date()
   let no = nextReceiptNo()
-  const out = { createdAt: new Date().toISOString(), file: A.file, expectLast: last, date: date.toISOString().slice(0, 10), reqs: [], rows: [] }
+  // วันที่ local (ห้าม toISOString — เที่ยงคืนเวลาไทย = วันก่อนหน้าใน UTC ชีทจะลงวันที่ถอย 1 วัน)
+  const isoLocal = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  const out = { createdAt: new Date().toISOString(), file: A.file, expectLast: last, date: isoLocal, reqs: [], rows: [] }
   let rowNo = last + 1
   for (const r of reqs) {
     const items = (r.requisition_items || []).slice().sort((a, b) => a.id - b.id)
