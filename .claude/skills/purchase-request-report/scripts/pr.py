@@ -55,17 +55,13 @@ SUPPORT_TWIN = {
 # เพดาน = min(พื้นที่, Avg/เดือน × 2) · จุดสั่ง = Avg/วัน × (LT + 7 รอบแจ้งซื้อ + CEIL_BUFFER)
 # จำนวนสั่ง = เพดาน − คงเหลือตอนของมาถึง (คงเหลือ − Avg/วัน × LT) ปัดลงเต็มลัง → ของมาถึงแล้วไม่เกินเพดาน
 CEIL_BUFFER = 15
-CEILING = {
-    '1530004': (150, 10), '1000216': (100, 20), '1560006': (20, 80), '1500009': (120, 10), '1460279': (30, 10),
-    '1501130': (30, 10), '1660020': (20, 10), '1460046': (20, 10), '1620029': (20, 10), '1501131': (10, 10),
-    '1590035': (4, 250), '1000184': (5, 40), '1610003': (10, 37), '1000039': (10, 20), '1680056': (30, 100),
-    '1600019': (30, 12), '1501106': (20, 27), '1620027': (4, 24), '1000122': (4, 24), '1540027': (20, 40),
-    '1000223': (30, 24), '1520002': (30, 16), '1460050': (30, 20), '1000188': (6, 100),
-}
+# 13/11/2569 ย้ายตาราง (ลัง, หน่วยต่อลัง) จากโค้ดไปชีท `ขนาดลัง` ใน ยอดคลังยา_69.xlsm (แหล่งเดียวกับใบเบิกออนไลน์ — CONTEXT §ลัง)
+# แถวที่มี "พื้นที่เก็บ (ลัง)" = รหัสที่ใช้เพดาน · load_ceiling() เติม CEILING/CEIL_LINE/CRIT_CELLS จาก stock.xlsm ก่อนรันทุกคำสั่ง
+# เพิ่ม/แก้พื้นที่ = แก้ชีท ขนาดลัง (excel-com) ไม่ใช่แก้ที่นี่
+CASE_SHEET = 'ขนาดลัง'
+CEILING = {}
 ENOUGH_LINE = '"ถึงเกณฑ์พอแล้ว" = ยังไม่ถึงจุดสั่งตอนนี้ ไม่ได้แปลว่าไม่ต้องซื้อเสมอไป สาเหตุระบุรายแถวในช่องเหตุผล เช่น เรทลด · เพดานพื้นที่ หัวหน้าพิจารณายกเลิกแจ้ง'
-CEIL_LINE = (f'เพดานพื้นที่ ({len(CEILING)} รายการที่ห้องเก็บจำกัด เช่น น้ำเกลือ/ยาลังใหญ่): เพดาน = MIN(พื้นที่เก็บ, Avg/เดือน × 2) · '
-             f'จุดสั่งซื้อ = Avg/วัน × (Lead Time + 7 + {CEIL_BUFFER} วันกันชน) · '
-             'จำนวนแนะนำ = เพดาน − คงเหลือตอนของมาถึง ปัดลงเต็มลัง และคงเหลือวันนี้ + จำนวนแนะนำ ต้องไม่เกินพื้นที่เก็บ')
+CEIL_LINE = CRIT_CELLS = None
 # กล่องเกณฑ์ย้ายจาก A1:X3 ไปชีทแยก (user สั่ง 12/11/2569 — หัวเขียวยาวเกิน) · migrate_criteria.ps1 สร้างชีทครั้งเดียว
 # A = หัวข้อ · B = วิธีคิด · แถวที่เปลี่ยนทุกรอบ: ถึงเกณฑ์พอแล้ว (B11) · เพดานพื้นที่ (A12 = ชื่อ+จำนวนรายการ · B12 = วิธีคิด)
 CRIT_SHEET = 'เกณฑ์การสั่งซื้อ'
@@ -73,7 +69,31 @@ CRIT_SHEET = 'เกณฑ์การสั่งซื้อ'
 # แก้ CEILING แล้วต้องรัน 2 ตัวนี้ซ้ำ — verify หยุดถ้าชีทไม่ตรง CEILING
 SPACE_SHEET = 'พื้นที่เก็บยา'
 SPACE_ROW0 = 4   # แถวข้อมูลแรก (หัวตารางแถว 3) · คอลัมน์ A ลำดับ · B รหัส · C รายการยา · D หน่วย · E ลัง · F หน่วยต่อลัง · G พื้นที่รวม
-CRIT_CELLS = {'B11': ENOUGH_LINE.split(' = ', 1)[1], 'A12': CEIL_LINE.split(': ', 1)[0], 'B12': CEIL_LINE.split(': ', 1)[1]}
+
+
+def load_ceiling(wd):
+    """CEILING จากชีท ขนาดลัง — รหัสเดียวหลายบริษัทต้องได้ (ลัง, หน่วยต่อลัง) เท่ากัน ไม่งั้นหยุด (เพดานคิดต่อรหัส)"""
+    global CEIL_LINE, CRIT_CELLS
+    path = os.path.join(wd, 'stock.xlsm')
+    if not os.path.exists(path):
+        raise SystemExit(f'ไม่พบ {path} — รัน snapshot.ps1 ก่อน')
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    if CASE_SHEET not in wb.sheetnames:
+        raise SystemExit(f'ไม่มีชีท {CASE_SHEET} ใน stock.xlsm')
+    rows = list(wb[CASE_SHEET].iter_rows(values_only=True))
+    wb.close()
+    h = [str(x).strip() if x is not None else '' for x in rows[0]]
+    ci, pi, si = h.index('รหัส'), h.index('จำนวนต่อลัง'), h.index('พื้นที่เก็บ (ลัง)')
+    for r in rows[1:]:
+        if r[ci] in (None, '') or r[si] in (None, ''):
+            continue
+        code, v = str(r[ci]).strip(), (int(r[si]), int(r[pi]))
+        if CEILING.setdefault(code, v) != v:
+            raise SystemExit(f'ชีท {CASE_SHEET}: รหัส {code} มีหลายแถว (ลัง, ต่อลัง) ไม่เท่ากัน {CEILING[code]} กับ {v}')
+    CEIL_LINE = (f'เพดานพื้นที่ ({len(CEILING)} รายการที่ห้องเก็บจำกัด เช่น น้ำเกลือ/ยาลังใหญ่): เพดาน = MIN(พื้นที่เก็บ, Avg/เดือน × 2) · '
+                 f'จุดสั่งซื้อ = Avg/วัน × (Lead Time + 7 + {CEIL_BUFFER} วันกันชน) · '
+                 'จำนวนแนะนำ = เพดาน − คงเหลือตอนของมาถึง ปัดลงเต็มลัง และคงเหลือวันนี้ + จำนวนแนะนำ ต้องไม่เกินพื้นที่เก็บ')
+    CRIT_CELLS = {'B11': ENOUGH_LINE.split(' = ', 1)[1], 'A12': CEIL_LINE.split(': ', 1)[0], 'B12': CEIL_LINE.split(': ', 1)[1]}
 
 
 # สถานะ PO ในไลน์ตามยา (user สั่ง 29/10/2569) — ระบบติดตามการสั่งซื้อของจัดซื้อไม่มีรายการยาแยกต่อ PO
@@ -1097,6 +1117,7 @@ def main():
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
         sys.stderr.reconfigure(encoding='utf-8')   # SystemExit ภาษาไทยออก stderr
+    load_ceiling(a.workdir)
     {'check': cmd_check, 'plan': cmd_plan, 'verify': cmd_verify, 'line': cmd_line, 'space': cmd_space}[a.cmd](a)
 
 
