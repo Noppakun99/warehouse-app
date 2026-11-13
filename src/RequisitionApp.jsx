@@ -656,9 +656,11 @@ const STAFF_NOTE_PRESETS = ['จ่ายlotเก่าให้หมด', '�
 // เปลี่ยนผู้รับผิดชอบ/ชื่อ รพ. → แก้ที่นี่จุดเดียว
 const COVER_FORM = {
   hospital:  'โรงพยาบาลประชาธิปัตย์',
-  dispenser: { name: 'นายนพคุณ อายุขุนทด', role: 'เจ้าหน้าที่คลังยาเวชภัณฑ์', position: 'เจ้าพนักงานเภสัชกรรมปฏิบัติงาน' },
+  dispenser: { name: 'นายนพคุณ ฉายขุนทด', role: 'เจ้าหน้าที่คลังยาเวชภัณฑ์', position: 'เจ้าพนักงานเภสัชกรรมปฏิบัติงาน' },
   approver:  { name: 'นางสาวสุขาวดี กิตติณิชกุล', role: 'หัวหน้าหน่วยพัสดุยา', position: 'เภสัชกรปฏิบัติการ' },
-  requesterHead: { position: 'เภสัชกรชำนาญการ', group: 'หัวหน้ากลุ่มงาน เภสัชกรรมและคุ้มครองผู้บริโภค' },
+  // ชื่อพิมพ์เฉพาะใบของหน่วยงานใน depts (user สั่ง 13/11/2569) · หน่วยงานอื่นยังไม่รู้ชื่อหัวหน้า → เว้นเส้นให้เขียนมือ
+  requesterHead: { name: 'นางสาวปภัสรา วรรณทอง', depts: ['ห้องยาG', 'ห้องยา1'],
+                   position: 'เภสัชกรชำนาญการ', group: 'หัวหน้ากลุ่มงาน เภสัชกรรมและคุ้มครองผู้บริโภค' },
 };
 
 // lot ใกล้หมดอายุ = exp ภายใน 16 เดือนนับจากวันนี้ (เกณฑ์เดียวกับหน้าแผนผังคลัง App.jsx)
@@ -1871,8 +1873,21 @@ async function printCoverForm(req, preopenedWin) {
     bodyRows = [...filled, ...blanks].join('');
   }
 
-  const dotted = (w = 140) => `<span class="dot" style="min-width:${w}px"></span>`;
-  const dateLine = `วันที่ ${dotted(40)} / ${dotted(40)} / ${dotted(60)}`;
+  // ช่องกรอกแบบฟอร์มกระดาษ: ค่าวางบนเส้นจุด (เดิม height:1em ทำเส้นวิ่งทับกลางตัวหนังสือ) · ไม่ใส่ width = ยืดเต็มบรรทัด
+  // flex-basis auto (ไม่ใช่ 0) — ชื่อหน่วยงานยาว (ศบส.4 …) ดันข้อความท้ายขึ้นบรรทัดใหม่แทนการล้นทับ
+  // ช่องว่างต้องมี &nbsp; ไม่งั้น flex หา baseline ไม่ได้ เส้นจะลอยไม่ตรงช่องที่มีค่า
+  const fill = (val = '', style = '') => `<span class="f"${style ? ` style="${style}"` : ''}>${val ? escHtml(val) : '&nbsp;'}</span>`;
+  const row = (cls, parts) => `<div class="ln${cls}">${parts.map(p => p.startsWith('<span class="f"') ? p : `<span>${p}</span>`).join('')}</div>`;
+  const line = (...parts) => row('', parts);
+  const lineRight = (...parts) => row(' right', parts);
+  const dateLine = line('วันที่', fill('', 'min-width:24px'), '/', fill('', 'min-width:24px'), '/', fill('', 'min-width:24px'));
+  // บล็อกลายเซ็น = grid [ป้าย | เส้นเซ็น | บทบาท] — ชื่อ/ตำแหน่งอยู่คอลัมน์กลาง จึงกึ่งกลางใต้เส้นเซ็นพอดี
+  // ข้อความยาวกว่าเส้น (ที่ความกว้าง A4) → safe center ชิดต้นเส้นแล้วล้นไปทางขวา แทนล้นออกนอกคอลัมน์ทางซ้าย
+  const nm = (text) => `<span class="nm">${escHtml(text)}</span>`;
+  const blankName = '<span class="pl">(</span><span class="f">&nbsp;</span><span class="pr">)</span>';
+  const sig = (label, role, rows) => `<div class="sig"><span>${label}</span>${fill()}<span>${role}</span>${rows.join('')}</div>`;
+  const head = COVER_FORM.requesterHead;
+  const headName = head.depts.includes(String(req.department || '').replace(/\s+/g, '')) ? head.name : '';
 
   const html = `<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
     <title>ใบเบิกเวชภัณฑ์ยา ${req.req_number}</title>
@@ -1880,10 +1895,21 @@ async function printCoverForm(req, preopenedWin) {
       @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
       @page { size: A4 portrait; margin: 14mm 14mm 10mm; }
       body { font-family: 'Sarabun', sans-serif; font-size: 14.5px; color: #111; margin: 16px; line-height: 1.7; }
-      .num { text-align: right; font-size: 14px; }
       h2 { text-align: center; font-size: 19px; margin: 2px 0 4px; text-decoration: underline; text-underline-offset: 5px; }
       .hosp { text-align: right; line-height: 1.6; margin-bottom: 6px; }
-      .dot { display: inline-block; border-bottom: 1px dotted #333; height: 1em; vertical-align: baseline; }
+      .ln { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; margin: 0 0 6px; }
+      .ln > span { white-space: nowrap; }
+      .ln.right { justify-content: flex-end; }
+      body > .ln { margin-bottom: 12px; }
+      .f { border-bottom: 1px dotted #333; text-align: center; line-height: 1.35; padding: 0 4px; }
+      .ln .f { flex: 1 1 auto; min-width: 40px; }
+      .sig { display: grid; grid-template-columns: auto minmax(40px, 1fr) auto; column-gap: 6px; row-gap: 6px; align-items: baseline; margin: 0 0 6px; }
+      .sig > span { white-space: nowrap; }
+      .sig .nm { grid-column: 2; display: flex; justify-content: center; justify-content: safe center; }
+      .sig .pl { justify-self: end; } .sig .pr { justify-self: start; }
+      @media (max-width: 600px) { .cols { flex-direction: column; } }
+      /* บนจอ: จำกัดกว้างเท่าพื้นที่พิมพ์ A4 แนวตั้ง (210 − 14×2 มม.) — ไม่งั้นหน้าต่างกว้างยืดฟอร์มจนดูเป็นแนวนอน ไม่ตรงกระดาษ */
+      @media screen { body { max-width: 182mm; margin: 16px auto; padding: 0 16px; } }
       table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; }
       th, td { border: 1px solid #333; padding: 4px 6px; font-size: 13.5px; }
       th { font-weight: 600; text-align: center; }
@@ -1895,14 +1921,13 @@ async function printCoverForm(req, preopenedWin) {
       .indent { margin-left: 16px; }
       .sig-center { text-align: center; }
     </style></head><body>
-    <p class="num">เลขที่เบิก <span class="dot" style="min-width:120px;text-align:center;font-weight:600">&nbsp;${escHtml(req.req_number)}&nbsp;</span></p>
+    ${lineRight('เลขที่เบิก', fill(req.req_number, 'flex:none;width:180px;font-weight:600'))}
     <h2>ใบเบิกเวชภัณฑ์ยา</h2>
-    <div class="hosp"><strong>${COVER_FORM.hospital}</strong><br>วันที่ <span class="dot" style="min-width:110px;text-align:center">&nbsp;${thaiDate}&nbsp;</span></div>
+    <div class="hosp"><strong>${COVER_FORM.hospital}</strong></div>
+    ${lineRight('วันที่', fill(thaiDate, 'flex:none;width:150px'))}
     <p>เรียน ผู้อำนวยการ${COVER_FORM.hospital}</p>
-    <p>ข้าพเจ้า <span class="dot" style="min-width:200px;text-align:center">&nbsp;${escHtml(req.requester_name || '')}&nbsp;</span>
-       ตำแหน่ง ${dotted(220)}</p>
-    <p>หน่วยงานผู้เบิก(ฝ่าย) <span class="dot" style="min-width:240px;text-align:center">&nbsp;${escHtml(req.department || '')}&nbsp;</span>
-       มีความประสงค์จะขอเบิกวัสดุเพื่อใช้ในรายการต่อไปนี้</p>
+    ${line('ข้าพเจ้า', fill(headName || req.requester_name || ''), 'ตำแหน่ง', fill())}
+    ${line('หน่วยงานผู้เบิก(ฝ่าย)', fill(req.department || ''), 'มีความประสงค์จะขอเบิกวัสดุเพื่อใช้ในรายการต่อไปนี้')}
     <table>
       <thead><tr>
         <th style="width:52px">ลำดับที่</th><th>รายการ</th><th style="width:70px">หน่วยนับ</th>
@@ -1916,40 +1941,45 @@ async function printCoverForm(req, preopenedWin) {
         <div class="blk">
           <p><strong>เรียน หัวหน้ากลุ่มงาน / หน่วยงาน</strong></p>
           <p class="indent">- เพื่อเห็นชอบให้เบิกวัสดุเพื่อใช้ในงานราชการ</p>
-          <p>ในหน่วยงาน <span class="dot" style="min-width:220px;text-align:center">&nbsp;${escHtml(req.department || '')}&nbsp;</span></p>
-          <p>ลงชื่อ ${dotted(200)} (ผู้เขียนคำขอ)</p>
-          <p>ตำแหน่ง ${dotted(230)}</p>
-          <p>${dateLine}</p>
+          ${line('ในหน่วยงาน', fill(req.department || ''))}
+          ${line('ลงชื่อ', fill(), '(ผู้เขียนคำขอ)')}
+          ${line('ตำแหน่ง', fill())}
+          ${dateLine}
         </div>
         <div class="blk">
-          <p>(ลงชื่อ)${dotted(200)} (ผู้รับยา)</p>
-          <p>ตำแหน่ง ${dotted(230)}</p>
-          <p>${dateLine}</p>
+          ${line('(ลงชื่อ)', fill(), '(ผู้รับยา)')}
+          ${line('ตำแหน่ง', fill())}
+          ${dateLine}
         </div>
         <div class="blk">
-          <p>(ลงชื่อ)${dotted(200)} (ผู้เบิก)</p>
-          <p>(${dotted(220)})</p>
-          <p>ตำแหน่ง ${COVER_FORM.requesterHead.position}</p>
-          <p>${COVER_FORM.requesterHead.group}</p>
-          <p>${dateLine}</p>
+          ${sig('(ลงชื่อ)', '(ผู้เบิก)', [
+            headName ? nm(`(${headName})`) : blankName,
+            nm(`ตำแหน่ง ${head.position}`),
+            nm(head.group),
+          ])}
+          ${dateLine}
         </div>
       </div>
       <div class="col">
         <div class="blk">
           <p><strong>เรียน ${COVER_FORM.approver.role}</strong></p>
           <p class="indent">- เพื่ออนุมัติเบิกจ่ายวัสดุตามคำขอข้างต้น</p>
-          <p>(ลงชื่อ)${dotted(180)} (ผู้จ่ายยาและลงทะเบียน)</p>
-          <p>(${COVER_FORM.dispenser.name}) ${COVER_FORM.dispenser.role}</p>
-          <p>ตำแหน่ง ${COVER_FORM.dispenser.position}</p>
-          <p>${dateLine}</p>
+          ${sig('(ลงชื่อ)', '(ผู้จ่ายยาและลงทะเบียน)', [
+            nm(`(${COVER_FORM.dispenser.name})`),
+            nm(COVER_FORM.dispenser.role),
+            nm(`ตำแหน่ง ${COVER_FORM.dispenser.position}`),
+          ])}
+          ${dateLine}
           <p class="indent">- อนุมัติ</p>
           <p class="indent">- รับทราบการเบิกจ่าย</p>
         </div>
         <div class="blk">
-          <p>(ลงชื่อ)${dotted(180)} (ผู้อนุมัติเบิกจ่าย)</p>
-          <p>(${COVER_FORM.approver.name}) ${COVER_FORM.approver.role}</p>
-          <p>ตำแหน่ง ${COVER_FORM.approver.position}</p>
-          <p>${dateLine}</p>
+          ${sig('(ลงชื่อ)', '(ผู้อนุมัติเบิกจ่าย)', [
+            nm(`(${COVER_FORM.approver.name})`),
+            nm(COVER_FORM.approver.role),
+            nm(`ตำแหน่ง ${COVER_FORM.approver.position}`),
+          ])}
+          ${dateLine}
         </div>
       </div>
     </div>
