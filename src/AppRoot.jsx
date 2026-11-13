@@ -26,7 +26,7 @@ import { pickPopupRows, readSeen, writeSeen, popupStorageKey } from './lib/popup
 import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import { resolveCycles } from '../supabase/functions/_shared/announceSchedule.js';
 import { InstallAppCard } from './InstallApp';
-import { DashboardInfoLines, DrugSearchLauncher, WorkQueuePanel, QueueDetailModal, FormularyModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner, OnboardingCard, CartReminderCard } from './DashboardPanels';
+import { DashboardInfoLines, DrugSearchLauncher, WorkQueuePanel, QueueDetailModal, FormularyModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner, OnboardingCard, CartReminderCard, RequisitionLauncher } from './DashboardPanels';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
@@ -891,6 +891,7 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
           </>
         ) : (
           <>
+            <RequisitionLauncher onOpen={() => onNavigate('requisition')} />
             <SwapBanner count={swapOpenCount} onOpen={() => setSwapPopupRows(swapDue)} />
             <CartReminderCard auth={auth} onContinue={() => onNavigate('requisition-cart')} />
             <OnboardingCard userId={auth.id} onNavigate={onNavigate} />

@@ -9,7 +9,7 @@ import {
   AlertTriangle, Undo2, PackageX, ClipboardCheck, CalendarClock, ArrowLeftRight, MessageSquareWarning,
   ListChecks, ChevronRight, CircleCheck, X, ArrowRight, Boxes, ShoppingCart, Activity,
   TrendingUp, TrendingDown, ChevronDown, CalendarDays, Database, Hourglass, Search, RotateCcw, Lightbulb, Copy, Check,
-  BookOpenCheck, Pencil, Trash2, Plus,
+  BookOpenCheck, Pencil, Trash2, Plus, Package,
 } from 'lucide-react';
 import { SWAP_ACTION_STATUS, insertFormularyChange, updateFormularyChange, deleteFormularyChange, fetchCartDraft, deleteCartDraft } from './lib/db';
 import { reqTypeLabel, clearLocalCart } from './lib/reqType';
@@ -72,6 +72,23 @@ export function DrugSearchLauncher() {
       <Search size={20} className="text-sky-500 shrink-0" />
       <span className="flex-1 min-w-0 truncate text-sm sm:text-base text-slate-400 dark:text-slate-500">ค้นหายา — ชื่อ, รหัส หรือ lot</span>
       <kbd className="hidden sm:inline text-[11px] font-sans font-semibold px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 shrink-0">Ctrl K</kbd>
+    </button>
+  );
+}
+
+// ── ปุ่มเบิกยาออนไลน์บนหน้าหลักของผู้เบิก (user ขอ 13/11/2569 — เดิมต้องหาในเมนู) ──────
+// แสดงตลอด ไม่รวมในการ์ดแนะนำเพราะการ์ดนั้นปิดถาวรได้ · ไอคอน Package ตรงกับเมนู sidebar (navConfig)
+// พื้นฟ้าอ่อนโทนเดียวกับการ์ด "เริ่มต้นใช้งาน" (user สั่ง 13/11/2569 — แบบไล่สีเข้มเด่นเกินการ์ดอื่น)
+export function RequisitionLauncher({ onOpen }) {
+  return (
+    <button type="button" onClick={onOpen}
+      className="mt-4 w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/30 dark:hover:bg-sky-950/50 border border-sky-200 dark:border-sky-900/60 shadow-sm transition-colors">
+      <span className="p-2 rounded-xl bg-sky-500 text-white shrink-0"><Package size={22} /></span>
+      <span className="flex-1 min-w-0">
+        <span className="block font-bold text-base text-slate-800 dark:text-slate-100">เบิกยาออนไลน์</span>
+        <span className="block text-xs sm:text-sm text-slate-500 dark:text-slate-400">สร้างใบเบิก ยา · น้ำเกลือ · ถุง/ขวด/ตลับ ส่งให้คลังยา</span>
+      </span>
+      <ChevronRight size={20} className="shrink-0 text-sky-500 dark:text-sky-400" />
     </button>
   );
 }
