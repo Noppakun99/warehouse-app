@@ -71,6 +71,7 @@ npm run test:workqueue     # Golden tests สำหรับ src/lib/workQueue.j
 npm run test:formulary     # Golden tests สำหรับ src/lib/formularyChange.js — ยาเข้าใหม่ (รหัสใหม่ · ตัดของยกยอดที่เบิกก่อนรับ · มติรอของ) · ยาตัดออก (มติที่ Master ยังไม่ตั้งธง) · ทะเบียนมติ PTC + ข้อความไลน์ (34 assertions)
 npm run test:popupseen     # Golden tests สำหรับ src/lib/popupSeen.js — popup เฉพาะ lot ที่คนนั้นยังไม่เคยเห็น วันละครั้ง (16 assertions)
 npm run test:reservecheck  # Golden tests สำหรับ src/lib/reservationCheck.js — ตรวจยอดจองซ้ำหลังส่งใบเบิก + จำลองทุกลำดับ 2 ใบพร้อมกันต้องไม่จองเกิน (17 assertions, ADR-0028)
+npm run test:reservation   # Golden tests สำหรับ src/lib/reservation.js — กฎเลิกหักยอดจอง (ลงชีท + นำเข้าหลังลงชีท) + หักราย lot หน้าค้นหา/หน้าจัดยา (28 assertions, CONTEXT §ตัดยอดชั่วคราว)
 npm run test:installenv    # Golden tests สำหรับ src/lib/installEnv.js — ปุ่มติดตั้งแอป (PWA) แสดงแบบไหนต่อเครื่อง: Android prompt / iPhone / LINE in-app / ติดตั้งแล้ว-คอม = ไม่แสดง (14 assertions)
 npm run test:drugprofile   # Golden tests สำหรับ src/lib/drugProfile.js — บัตรยา + ค้นหายา: ยอดรวม = โมดอลรายการยาในคลัง, ต่ำกว่า SS = Dashboard, บรรทัด lot+exp, บิลของ lot, เรท/คงอยู่ได้อีก = สูตรหน้าวิเคราะห์สั่งซื้อ, ประวัติเบิกหน่วยงานตัวเอง, โน้ตอธิบายหน่วย, นโยบายคืนราย lot + ค้นหา/จัดกลุ่มตามบริษัท (149 assertions)
 npm run test:locationmove  # Golden tests สำหรับ src/lib/locationMove.js — ใบแจ้งย้ายที่เก็บ: กอง code+lot+ที่เก็บ · MainLog · overlay · ย้ายต่อ/ย้ายกลับ · reconcile (30 assertions)
