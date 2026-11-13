@@ -9,7 +9,7 @@
 // ⚠️ ส่วนต่างต้องคำนวณจาก "แถวหน้าตาเดียวกับที่จะเขียนลง DB จริง" (flattenInventory / backfillDrugUnit)
 //    ไม่งั้นไฟล์ที่ไม่ได้แก้อะไรจะโชว์ว่ามีของเปลี่ยน — db.js จึงเรียก 2 ฟังก์ชันนี้ด้วย
 
-import { parseMasterGrid, MASTER_SHEET_NAME } from './masterSheet.js'
+import { parseMasterGrid, MASTER_SHEET_NAME, CASE_SHEET_NAME } from './masterSheet.js'
 import { parseDispenseGrid, DISPENSE_SHEET_NAME } from './dispenseSheet.js'
 import { parseReceiveGrid, RECEIVE_SHEET_NAME } from './receiveSheet.js'
 import { parseLoanGrid, diffLoanImport } from './loanImport.js'
@@ -37,6 +37,7 @@ export function flattenInventory(inventoryObj = {}) {
         item_type: item.itemType || null,
         receive_status: item.receiveStatus || 'ไม่มีการดำเนินการ',
         safety_stock: item.safetyStock != null ? item.safetyStock : null,
+        case_size: item.caseSize ?? null,
       })
     })
   })
@@ -68,7 +69,7 @@ export const INVENTORY_SPEC = {
     ['location', 'ที่เก็บ'], ['code', 'รหัสยา'], ['name', 'ชื่อยา'], ['type', 'ชนิด'], ['unit', 'หน่วย'],
     ['lot', 'Lot'], ['exp', 'วันหมดอายุ'], ['qty', 'คงเหลือ', 'num'], ['invoice', 'เลขที่บิล'],
     ['main_log', 'MainLog'], ['item_type', 'ชนิดรายการ'], ['receive_status', 'สถานะตรวจรับ'],
-    ['safety_stock', 'Safety Stock', 'num'],
+    ['safety_stock', 'Safety Stock', 'num'], ['case_size', 'ขนาดลัง', 'num'],
   ],
   // แถวเดียวกันที่ "ค่าเปลี่ยน" — จับคู่ด้วยตัวตนของกองยา
   pairKey: ['location', 'code', 'lot', 'exp', 'invoice'],
@@ -238,16 +239,19 @@ export function checkAppOnlyDispense(appOnlyCount = 0) {
 
 // ── อ่านไฟล์ ─────────────────────────────────────────────────────────
 
-/** workbook → grid ของ 2 ชีท (ค่าดิบ — วันที่เป็น serial ห้ามใช้ค่าที่แสดง)
+/** workbook → grid ของ Master + เบิก (+ ขนาดลัง ถ้ามี) (ค่าดิบ — วันที่เป็น serial ห้ามใช้ค่าที่แสดง)
+ *  ชีทขนาดลังไม่บังคับ: ไม่มี = caseGrid null → ทุก lot ขนาดลัง null (ไฟล์สำเนาเก่ายังนำเข้าได้)
  *  @param data ArrayBuffer / Uint8Array ของไฟล์ */
 export function readWorkbookGrids(XLSX, data) {
-  const wb = XLSX.read(data, { type: 'array', sheets: [MASTER_SHEET_NAME, DISPENSE_SHEET_NAME], cellDates: false })
+  const wb = XLSX.read(data, { type: 'array', sheets: [MASTER_SHEET_NAME, DISPENSE_SHEET_NAME, CASE_SHEET_NAME], cellDates: false })
+  const toGrid = (ws) => XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true, blankrows: true })
   const grid = (name) => {
     const ws = wb.Sheets[name]
     if (!ws) throw new Error(`ไม่พบชีท "${name}" ในไฟล์` + (name.endsWith(' ') ? ' (ชื่อชีทมีเว้นวรรคต่อท้าย)' : ''))
-    return XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true, blankrows: true })
+    return toGrid(ws)
   }
-  return { masterGrid: grid(MASTER_SHEET_NAME), dispenseGrid: grid(DISPENSE_SHEET_NAME) }
+  const caseWs = wb.Sheets[CASE_SHEET_NAME]
+  return { masterGrid: grid(MASTER_SHEET_NAME), dispenseGrid: grid(DISPENSE_SHEET_NAME), caseGrid: caseWs ? toGrid(caseWs) : null }
 }
 
 // ── รวมเป็นแผน ─────────────────────────────────────────────────────
@@ -266,7 +270,7 @@ const tag = (list, overridable = true) => list.map(x => ({ overridable, ...x }))
  * @returns แผน — ok=false แปลว่ามี blocker; canOverride=true แปลว่าทุก blocker ข้ามได้ด้วยการติ๊กยืนยัน
  */
 export function buildSyncPlan(p) {
-  const master = parseMasterGrid(p.masterGrid, serialToThai)
+  const master = parseMasterGrid(p.masterGrid, serialToThai, p.caseGrid ?? null)
   const inventoryRows = flattenInventory(master.inventory)
   const dispense = parseDispenseGrid(p.dispenseGrid, p.today)
   const dispenseRows = backfillDrugUnit(dispense.rows)

@@ -55,6 +55,18 @@ log('')
 log(`  ไม่มี lot ${fmt(noLot)} · ไม่มี exp ${fmt(noExp)} · คงเหลือ 0 ${fmt(zeroQty)}`)
 log(`  รหัสยาไม่ซ้ำ ${fmt(new Set(items.map(i => i.code)).size)}   (เดิม ${fmt(prev.codes)})`)
 
+// ชีทขนาดลัง (คีย์ รหัส|บริษัท|หน่วยซื้อ) — แถวที่ไม่ตรง lot ไหน = สะกดบริษัท/หน่วยไม่ตรง Master หรือของหมดแล้ว
+const cs = out.caseSize
+log('')
+if (!cs.rows) log('  ขนาดลัง: ไม่พบชีทขนาดลัง (หรือว่าง) — ทุก lot ไม่รู้ขนาดลัง')
+else {
+  log(`  ขนาดลัง: ชีท ${fmt(cs.rows)} คีย์ · ${fmt(cs.lots)} lot ได้ขนาดลัง`)
+  if (cs.unmatched.length) {
+    log(`  ⚠ ${fmt(cs.unmatched.length)} คีย์ในชีทขนาดลังไม่ตรง lot ไหนใน Master (ตรวจบริษัท/หน่วยซื้อ):`)
+    cs.unmatched.forEach(k => log(`     ${k}`))
+  }
+}
+
 log('')
 log('  5 ที่เก็บแรก:')
 Object.entries(out.inventory).slice(0, 5).forEach(([loc, arr]) => log(`     ${loc} — ${fmt(arr.length)} รายการ`))

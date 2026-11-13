@@ -45,7 +45,8 @@ const flat = flattenInventory({
   'E-10': [{ name: 'Aspirin' }],
 })
 eq(flat.length, 2, '2 ที่เก็บ → 2 แถว')
-eq(flat[0], { location: 'C-4-4', code: '1540029', name: 'Adenosine', type: '-', unit: '-', lot: '2F24005', exp: '-', qty: '10', invoice: 'IV1', main_log: 'C', item_type: 'ยกยอด', receive_status: 'ตรวจรับแล้ว', safety_stock: 13 }, 'map ฟิลด์ครบ + ค่าว่างเป็น -')
+eq(flat[0], { location: 'C-4-4', code: '1540029', name: 'Adenosine', type: '-', unit: '-', lot: '2F24005', exp: '-', qty: '10', invoice: 'IV1', main_log: 'C', item_type: 'ยกยอด', receive_status: 'ตรวจรับแล้ว', safety_stock: 13, case_size: null }, 'map ฟิลด์ครบ + ค่าว่างเป็น -')
+eq(flattenInventory({ X: [{ name: 'D5S', caseSize: 10 }] })[0].case_size, 10, 'caseSize → case_size')
 eq([flat[1].code, flat[1].qty, flat[1].receive_status, flat[1].safety_stock, flat[1].main_log], ['-', '0', 'ไม่มีการดำเนินการ', null, null], 'ค่า default')
 eq('updated_at' in flat[0], false, 'ไม่ใส่ updated_at (db.js เติมเอง — ไม่งั้นส่วนต่างไม่มีวันเป็น 0)')
 
@@ -150,6 +151,7 @@ const buf = mkBook({ Master: [MH, mRow('2F24005', 0), mRow('2F25005', 0, 'ตร
 const grids = readWorkbookGrids(XLSX, buf)
 eq([grids.masterGrid.length, grids.dispenseGrid.length], [3, 8], 'อ่านเฉพาะ 2 ชีท ค่าดิบ')
 eq(grids.dispenseGrid[6][1], 46293.6, 'วันที่ยังเป็น serial ดิบ')
+eq(grids.caseGrid, null, 'ไม่มีชีทขนาดลัง → caseGrid null ไม่ throw')
 let threw = null
 try { readWorkbookGrids(XLSX, mkBook({ Master: [MH], 'เบิก': [DH] })) } catch (e) { threw = e.message }
 eq(threw?.includes('เว้นวรรคต่อท้าย'), true, 'ชีท "เบิก" ไม่มีวรรคท้าย → บอกสาเหตุ')
@@ -185,6 +187,19 @@ eq(plan.blockers.map(b => [b.code, b.sheet]), [['stale_file', 'เบิก']], 
 
 plan = buildSyncPlan({ ...base, prevInventory: Array.from({ length: 10 }, (_, i) => inv({ lot: `L${i}` })) })
 eq(plan.blockers.map(b => [b.code, b.sheet]), [['shrink', 'Master']], 'Master หด 80% → บล็อก')
+
+// ชีทขนาดลัง: คีย์ รหัส+บริษัท+หน่วยซื้อ → case_size ในแถว + ส่วนต่างรายช่อง "ขนาดลัง"
+const MHS = [...MH, 'บริษัท']
+const CH = ['รหัส', 'ชื่อยา', 'บริษัท', 'หน่วยซื้อ', 'จำนวนต่อลัง']
+const caseBuf = mkBook({
+  Master: [MHS, [...mRow('2F24005', 10), 'GHP'], [...mRow('2F25005', 10, 'ตรวจรับแล้ว', 'IV6926464'), 'VNV']],
+  'เบิก ': dispGrid, 'ขนาดลัง': [CH, ['1540029', 'Adenosine', 'GHP', 'amp', 50]],
+})
+const caseGrids = readWorkbookGrids(XLSX, caseBuf)
+eq(caseGrids.caseGrid?.length, 2, 'มีชีทขนาดลัง → อ่านมาด้วย')
+plan = buildSyncPlan({ ...base, ...caseGrids })
+eq(plan.inventory.rows.map(r => r.case_size), [50, null], 'บริษัทตรง = 50 · คนละบริษัท = null')
+eq(plan.inventory.changedFields.map(f => f.label), ['ขนาดลัง'], 'DB ยังไม่มีขนาดลัง → ส่วนต่างบอกช่อง ขนาดลัง')
 
 // ไฟล์ที่ไม่ได้แก้อะไร → ไม่มีส่วนต่าง (ต้องเป็นจริงไม่งั้นทุกรอบจะโชว์ว่าเปลี่ยน)
 const same = buildSyncPlan(base)

@@ -4,7 +4,7 @@
 
 import {
   mapMasterColumns, normalizeLot, normalizeCode, toThaiDate,
-  rowToInventoryItem, parseMasterGrid,
+  rowToInventoryItem, parseMasterGrid, parseCaseSizeGrid,
 } from './masterSheet.js'
 
 let pass = 0, fail = 0
@@ -103,6 +103,31 @@ try { parseMasterGrid([['a', 'b'], ['1', '2']], s2t) } catch (e) { threw = e.mes
 eq(threw?.includes('ไม่พบคอลัมน์ที่เก็บ'), true, 'ไม่มี DetailedLog → throw')
 try { parseMasterGrid([H], s2t) } catch (e) { threw = e.message }
 eq(threw?.includes('ไม่มีข้อมูล'), true, 'มีแต่หัวตาราง → throw')
+
+section('parseCaseSizeGrid + ขนาดลังใน parseMasterGrid (คีย์ รหัส|บริษัท|หน่วยซื้อ — 13/11/2569)')
+const CH = ['รหัส', 'ชื่อยา', 'บริษัท', 'หน่วยซื้อ', 'จำนวนต่อลัง', 'พื้นที่เก็บ (ลัง)', 'ที่มา']
+const cm = parseCaseSizeGrid([CH, ['1590035', 'Manidipine', 'ไบโอ  ฟาร์ม', '100เม็ด', 60], ['1590035', 'x', 'อื่น', '100เม็ด', 0], [], ['', 'x', 'y', 'z', 5]])
+eq([...cm.entries()], [['1590035|ไบโอ ฟาร์ม|100เม็ด', 60]], 'ช่องว่างซ้อนยุบเหลือ 1 · ข้ามจำนวน 0/รหัสว่าง/แถวว่าง')
+eq(parseCaseSizeGrid(null).size, 0, 'ไม่มีชีท → Map ว่าง')
+threw = null
+try { parseCaseSizeGrid([['รหัส', 'บริษัท', 'จำนวนต่อลัง'], ['1', 'a', 5]]) } catch (e) { threw = e.message }
+eq(threw?.includes('หัวตารางต้องมี'), true, 'หัวไม่ครบ (ไม่มีหน่วยซื้อ) → throw')
+threw = null
+try { parseCaseSizeGrid([CH, ['1', '', 'a', 'กล่อง', 5], ['1', '', 'a', 'กล่อง', 6]]) } catch (e) { threw = e.message }
+eq(threw?.includes('จำนวนต่อลังไม่เท่ากัน'), true, 'คีย์ซ้ำค่าต่าง → throw')
+eq(parseCaseSizeGrid([CH, ['1', '', 'a', 'กล่อง', 5], ['1', '', 'a', 'กล่อง', 5]]).size, 1, 'คีย์ซ้ำค่าเท่ากัน = ผ่าน')
+
+const sRow = [...row]; sRow[16] = 'ไบโอ ฟาร์ม'
+const otherCo = [...row]; otherCo[16] = 'อื่น'
+const otherUnit = [...sRow]; otherUnit[8] = '500เม็ด'
+const caseGrid = [CH, ['1590035', 'Manidipine', 'ไบโอ ฟาร์ม', '100เม็ด', 60], ['9999999', 'หมดแล้ว', 'X', 'กล่อง', 10]]
+const oc = parseMasterGrid([H, sRow, otherCo, otherUnit], s2t, caseGrid)
+eq(oc.inventory['E-1-1 ,E-1-2 ,E-1-3'].map(i => i.caseSize), [60, null, null], 'ตรงครบ 3 ช่อง = 60 · คนละบริษัท / บริษัทเปลี่ยนแพ็ค = null')
+eq([oc.caseSize.rows, oc.caseSize.lots, oc.caseSize.unmatched], [2, 1, ['9999999|X|กล่อง']], 'นับ lot ที่ได้ + คีย์ในชีทที่ไม่ตรง lot ไหน')
+eq(parseMasterGrid([H, sRow], s2t).inventory['E-1-1 ,E-1-2 ,E-1-3'][0].caseSize, null, 'ไม่ส่งชีทขนาดลัง → null')
+threw = null
+try { parseMasterGrid([H.filter(x => x !== 'บริษัท'), row], s2t, caseGrid) } catch (e) { threw = e.message }
+eq(threw?.includes('ไม่พบคอลัมน์บริษัท'), true, 'มีชีทขนาดลังแต่ Master ไม่มีคอลัมน์บริษัท → throw')
 
 console.log(`\nผ่าน ${pass} / ${pass + fail}`)
 if (fail > 0) throw new Error(`golden test ไม่ผ่าน ${fail} ข้อ`)

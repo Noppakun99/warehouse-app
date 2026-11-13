@@ -10,6 +10,8 @@
 //   3. วันที่เป็น serial ต้องอ่านค่าดิบ ห้ามใช้ค่าที่แสดง (รูปแบบปนกัน US/ไทย)
 
 export const MASTER_SHEET_NAME = 'Master'
+// ชีทขนาดลัง (13/11/2569 — CONTEXT §ลัง): 1 แถว = รหัส + บริษัท + หน่วยซื้อ → จำนวนต่อลัง · แหล่งเดียวกับเพดานพื้นที่ใน pr.py
+export const CASE_SHEET_NAME = 'ขนาดลัง'
 
 const txt = (v) => String(v ?? '').trim()
 
@@ -47,7 +49,29 @@ export function mapMasterColumns(header) {
     safetyStock: findCol(h, (s) => s.toLowerCase().includes('safety')),
     status: findCol(h, (s) => s.includes('สถานะตรวจรับ')),
     result: findCol(h, (s) => s.includes('ผลการพิจารณา')),
+    supplier: findCol(h, (s) => s === 'บริษัท'),
   }
+}
+
+const caseKey = (code, supplier, unit) => [code, supplier, unit].map((x) => txt(x).replace(/\s+/g, ' ')).join('|')
+
+/** ชีทขนาดลัง → Map(`รหัส|บริษัท|หน่วยซื้อ` → จำนวนต่อลัง) · ไม่มีชีท = Map ว่าง (ทุก lot "ไม่รู้ขนาดลัง")
+ *  คีย์รวมหน่วยด้วย (user เลือก 13/11/2569) — บริษัทเปลี่ยนขนาดแพ็ค = ไม่รู้ขนาดลังจนกว่าจะเพิ่มแถว ไม่ใช้ตัวเลขเดิมแบบเงียบ */
+export function parseCaseSizeGrid(grid) {
+  const map = new Map()
+  if (!Array.isArray(grid) || grid.length < 2) return map
+  const h = (grid[0] || []).map(txt)
+  const [ci, si, ui, pi] = ['รหัส', 'บริษัท', 'หน่วยซื้อ', 'จำนวนต่อลัง'].map((n) => h.indexOf(n))
+  if ([ci, si, ui, pi].some((i) => i < 0)) throw new Error(`ชีท${CASE_SHEET_NAME}: หัวตารางต้องมี รหัส · บริษัท · หน่วยซื้อ · จำนวนต่อลัง`)
+  for (const r of grid.slice(1)) {
+    const code = normalizeCode(r?.[ci])
+    const per = Number(r?.[pi])
+    if (code === '-' || !(per > 0)) continue
+    const k = caseKey(code, r[si], r[ui])
+    if (map.has(k) && map.get(k) !== per) throw new Error(`ชีท${CASE_SHEET_NAME}: ${k} มีหลายแถวแต่จำนวนต่อลังไม่เท่ากัน`)
+    map.set(k, per)
+  }
+  return map
 }
 
 /** lot — เก็บตามที่พิมพ์มาเสมอ ห้ามแปลงเป็นตัวเลข (ดูหัวไฟล์ ข้อ 1) */
@@ -84,7 +108,7 @@ const numText = (v) => {
 }
 
 /** 1 แถว → { location, item } | null ถ้าข้าม (ไม่มีที่เก็บ หรือไม่มีทั้งชื่อและรหัส) */
-export function rowToInventoryItem(row, C, serialToThai) {
+export function rowToInventoryItem(row, C, serialToThai, caseSizes = null) {
   const at = (k) => (C[k] >= 0 ? row[C[k]] : undefined)
   const location = txt(at('location'))
   const name = txt(at('name'))
@@ -92,13 +116,14 @@ export function rowToInventoryItem(row, C, serialToThai) {
   if (!location) return null
   if (!name && (!code || code === '-')) return null
   const qtyReceived = at('qtyReceived')
+  const unit = txt(at('unit')) || '-'
   return {
     location,
     item: {
       code,
       name: name || '-',
       type: txt(at('type')) || '-',
-      unit: txt(at('unit')) || '-',
+      unit,
       lot: normalizeLot(at('lot')),
       exp: toThaiDate(at('exp'), serialToThai),
       qty: numText(at('qty')),
@@ -108,38 +133,47 @@ export function rowToInventoryItem(row, C, serialToThai) {
       itemType: txt(at('itemType')) || null,
       safetyStock: parseFloat(numText(at('safetyStock'))) || 0,
       receiveStatus: [txt(at('status')), txt(at('result'))].filter(Boolean).join('|') || 'ไม่มีการดำเนินการ',
+      caseSize: caseSizes?.get(caseKey(code, at('supplier'), unit)) ?? null,
     },
   }
 }
 
-/** ทั้งชีท → { inventory, rows, skipped, locations } — inventory = object ที่ saveInventory รับ */
-export function parseMasterGrid(grid, serialToThai) {
+/** ทั้งชีท → { inventory, rows, skipped, locations, caseSize } — inventory = object ที่ saveInventory รับ
+ *  caseGrid = ชีทขนาดลัง (null = ไม่มี) · caseSize.unmatched = แถวในชีทขนาดลังที่ไม่ตรง lot ไหนเลย (สะกดบริษัท/หน่วยผิด หรือของหมดแล้ว) */
+export function parseMasterGrid(grid, serialToThai, caseGrid = null) {
   if (!Array.isArray(grid) || grid.length < 2) throw new Error('ชีทไม่มีข้อมูล')
   const C = mapMasterColumns(grid[0])
   if (C.location < 0) throw new Error('ไม่พบคอลัมน์ที่เก็บ (DetailedLog)')
   if (C.name < 0 && C.code < 0) throw new Error('ไม่พบคอลัมน์ชื่อยา/รหัสยา')
   if (C.qty < 0) throw new Error('ไม่พบคอลัมน์คงเหลือ')
+  const caseSizes = parseCaseSizeGrid(caseGrid)
+  if (caseSizes.size && C.supplier < 0) throw new Error('ไม่พบคอลัมน์บริษัท — จับคู่ขนาดลังไม่ได้')
 
   const inventory = {}
   let rows = 0
   let skipped = 0
+  let lotsWithCase = 0
+  const usedCase = new Set()
   for (let i = 1; i < grid.length; i++) {
     const raw = grid[i]
     if (!raw || !raw.some((c) => txt(c) !== '')) { skipped++; continue }
-    const res = rowToInventoryItem(raw, C, serialToThai)
+    const res = rowToInventoryItem(raw, C, serialToThai, caseSizes)
     if (!res) { skipped++; continue }
     if (!inventory[res.location]) inventory[res.location] = []
     inventory[res.location].push(res.item)
     rows++
+    if (res.item.caseSize != null) { lotsWithCase++; usedCase.add(caseKey(res.item.code, raw[C.supplier], res.item.unit)) }
   }
-  return { inventory, rows, skipped, locations: Object.keys(inventory).length, columns: C }
+  const caseSize = { rows: caseSizes.size, lots: lotsWithCase, unmatched: [...caseSizes.keys()].filter((k) => !usedCase.has(k)) }
+  return { inventory, rows, skipped, locations: Object.keys(inventory).length, columns: C, caseSize }
 }
 
 export function readMasterWorkbook(XLSX, filePath, serialToThai, sheetName = MASTER_SHEET_NAME) {
-  const wb = XLSX.readFile(filePath, { sheets: [sheetName], cellDates: false })
+  const wb = XLSX.readFile(filePath, { sheets: [sheetName, CASE_SHEET_NAME], cellDates: false })
   const ws = wb.Sheets[sheetName]
   if (!ws) throw new Error(`ไม่พบชีท "${sheetName}" ในไฟล์`)
   // raw:true — วันที่เป็น serial ต้องอ่านค่าดิบ (ดูหัวไฟล์ ข้อ 3)
-  const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true, blankrows: true })
-  return parseMasterGrid(grid, serialToThai)
+  const toGrid = (w) => XLSX.utils.sheet_to_json(w, { header: 1, defval: '', raw: true, blankrows: true })
+  const caseWs = wb.Sheets[CASE_SHEET_NAME]
+  return parseMasterGrid(toGrid(ws), serialToThai, caseWs ? toGrid(caseWs) : null)
 }
