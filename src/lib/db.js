@@ -1839,11 +1839,12 @@ export async function updateRequesterRequisition(id, { note, items }, auth = {},
 // เลขใบสุ่มฝั่งแอป (makeReqNumber) · ชน unique (23505) ทั้งธุรกรรม rollback แล้วลองเลขใหม่
 // ไม่เขียน audit — ผู้เรียกเขียนหลังตรวจยอดจองซ้ำผ่านแล้ว (กระดิ่งไม่มีใบที่ถูกถอน)
 // migration: requisition_submit_rpc_migration.sql
-export async function submitRequisition({ department, requester_name }, items, makeReqNumber) {
+// req_type = ประเภทใบ saline/supply/drug (src/lib/reqType.js) · ไม่ส่ง = NULL (requisition_req_type_migration.sql)
+export async function submitRequisition({ department, requester_name, req_type = null }, items, makeReqNumber) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
   for (let attempt = 0; ; attempt++) {
     const { data, error } = await supabase.rpc('submit_requisition', {
-      p_header: { req_number: makeReqNumber(), department, requester_name },
+      p_header: { req_number: makeReqNumber(), department, requester_name, req_type },
       p_items: items,
     })
     if (!error) return data

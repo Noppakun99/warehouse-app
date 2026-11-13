@@ -34,6 +34,7 @@
     "test:popupseen": "node src/lib/popupSeen.test.js",
     "test:reservecheck": "node src/lib/reservationCheck.test.js",
     "test:reservation": "node src/lib/reservation.test.js",
+    "test:reqtype": "node src/lib/reqType.test.js",
     "test:installenv": "node src/lib/installEnv.test.js",
     "test:drugprofile": "node src/lib/drugProfile.test.js",
     "import:receive": "node scripts/import-receive.mjs",
