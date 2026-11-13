@@ -120,6 +120,7 @@ Single-page React (ไม่มี React Router) — ทุก Supabase query �
 | ยืม-คืนมีมูลค่า | [handoff](docs/handoff-2026-10-04-loan-valuation.md) · [design](docs/design-loan-valuation.md) | แก้มูลค่ายืม-คืนใน Master / ขึ้นเดือน |
 | ของส่งต่อผู้ดูแลไม่นับค้างคืน | [ADR-0025](docs/adr/0025-pass-through-loan-closed-on-handover.md) · [CONTEXT.md §ของค้างคืน](CONTEXT.md) | แก้ `DrugLoanApp` |
 | ออกแบบ Dashboard ใหม่ | [handoff](docs/handoff-2026-10-10-dashboard.md) · [scripts](docs/handoff-2026-10-10-dashboard-scripts/) | grill ต่อ / แก้กฎตัดแถวของเรท |
+| ส่งต่อ 13/11 ใบพิมพ์ใบเบิก + ตะกร้าค้าง | [handoff](docs/handoff-2026-11-13-req-print-cart.md) | **เริ่มงานต่อจากเครื่องอื่น** |
 | Navigation + Sub-apps | [navigation-shell.md](docs/architecture/navigation-shell.md) · [sub-apps.md](docs/architecture/sub-apps.md) | แก้เมนู/แถบล่างจอ · แก้ sub-app หรือฟอร์มพิมพ์ |
 | Roadmap | [docs/roadmap.md](docs/roadmap.md) | วางแผน feature ใหม่ |
 | Testing | [docs/testing.md](docs/testing.md) | รัน/แก้ test |
