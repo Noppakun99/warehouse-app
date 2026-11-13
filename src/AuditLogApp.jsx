@@ -199,6 +199,8 @@ const ACTION_LABELS = {
   reconcile_loan_slip:          { label: 'ปิดใบแจ้งยืม/รับคืน (ตาม Excel)', color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'},
   seed_swap_policy:             { label: 'อัปเดตนโยบายคืนยา',        color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'   },
   export_excel:                 { label: 'ส่งออก Excel',             color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
+  export_pdf:                   { label: 'ส่งใบเบิกเป็น PDF',        color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
+  clear_req_cart:               { label: 'ล้างตะกร้าเบิก',           color: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'},
   submit_requisition:           { label: 'ส่งใบเบิกยา',             color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'        },
   requisition_conflict_withdrawn: { label: 'ใบเบิกชนกัน (ถอนอัตโนมัติ)', color: 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300' },
   requester_edit_requisition:   { label: 'แก้ไขใบเบิก',             color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'    },
@@ -380,7 +382,11 @@ function formatDetails(action, details, recordCount) {
       ].filter(Boolean).join(' · ') || '-';
 
     case 'export_excel':
+    case 'export_pdf':
       return d.file ? `ไฟล์: ${d.file}` : '-';
+
+    case 'clear_req_cart':
+      return recordCount != null ? `${recordCount.toLocaleString()} รายการในตะกร้า` : '-';
 
     case 'import_receive':
     case 'import_inventory':
@@ -576,7 +582,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
 
   // dropdown กรอง action — จัดกลุ่มตาม workflow, label มาจาก ACTION_LABELS (single source ไม่ duplicate)
   const ACTION_GROUPS = [
-    { label: 'ใบเบิกยา',   keys: ['submit_requisition', 'requisition_conflict_withdrawn', 'requester_edit_requisition', 'requester_delete_requisition', 'update_requisition', 'delete_requisition', 'sheet_enter_requisition', 'picking_requisition', 'verify_requisition', 'dispense_requisition', 'received_requisition'] },
+    { label: 'ใบเบิกยา',   keys: ['submit_requisition', 'requisition_conflict_withdrawn', 'requester_edit_requisition', 'requester_delete_requisition', 'update_requisition', 'delete_requisition', 'sheet_enter_requisition', 'picking_requisition', 'verify_requisition', 'dispense_requisition', 'received_requisition', 'clear_req_cart'] },
     { label: 'รับยา',      keys: ['import_receive', 'scan_invoice', 'map_drug_alias', 'update_receive', 'delete_receive'] },
     { label: 'จ่ายยา',     keys: ['import_dispense', 'update_dispense', 'delete_dispense'] },
     { label: 'คืนยา',      keys: ['insert_return', 'confirm_return', 'update_return', 'delete_return', 'flag_swap_return', 'swap_return_action', 'seed_swap_policy'] },
@@ -585,7 +591,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
     { label: 'ส่งบัญชี (AP)', keys: ['ap_acknowledge', 'ap_unacknowledge', 'ap_mark_inspected', 'ap_uninspect', 'ap_send_batch', 'ap_unsend_batch', 'ap_mark_posted', 'ap_unpost', 'ap_reset_batch', 'print_ap_batch', 'print_ack_batch', 'export_ap_batch'] },
     { label: 'วิเคราะห์สั่งซื้อ', keys: ['analysis_run', 'analysis_view', 'delete_analysis_run', 'update_reorder_config', 'import_reorder_config', 'mark_ordered', 'unmark_ordered', 'print_po', 'reconcile_excel'] },
     { label: 'บัญชียา (PTC)', keys: ['add_formulary_change', 'update_formulary_change', 'delete_formulary_change'] },
-    { label: 'อื่นๆ',      keys: ['export_excel', 'login'] },
+    { label: 'อื่นๆ',      keys: ['export_excel', 'export_pdf', 'login'] },
   ];
 
   return (

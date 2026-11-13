@@ -6,17 +6,19 @@ import {
   CheckCircle, XCircle, Package, FileText,
   Printer, RefreshCcw, ChevronRight, ChevronDown, ChevronUp, Bell,
   Check, X, AlertCircle, Clock, FileDown,
-  SlidersHorizontal, MapPin,
+  SlidersHorizontal, MapPin, Share2, Loader2,
 } from 'lucide-react';
-import { exportToExcel } from './lib/exportExcel';
 import { parseUnit } from './lib/unitParser';
 import { allocateFefo, sortLotsForDispense, lotOrderNote, isSupportedLot } from './lib/lotAllocation';
 import { findOverReserved, availableForOwn, increasedCodes } from './lib/reservationCheck';
 import { RESERVING_STATUSES, summarizeHolds, applyHolds } from './lib/reservation';
-import { REQ_TYPES, reqTypeLabel, reqTypeOfRows, entryUnitOf } from './lib/reqType';
+import { REQ_TYPES, reqTypeLabel, reqTypeOfRows, entryUnitOf, CART_KEY, CART_TYPE_KEY } from './lib/reqType';
 import { awaitsSheetEntry } from './lib/onlineReqPlan';
+import { rankDrugs, matchDrugQuery } from './lib/drugSearchText';
+import { SORT_BY_LOG, SORT_BY_REQ, sortRowsByLog, sheetTitle, fmtDateCE, buildSheetHtml, toPackQty, fmtPackNote } from './lib/reqSheetFormat';
+import { buildSheetXlsxBlob, htmlToPdfBlob, shareOrDownload, safeFileName } from './lib/reqSheetExport';
 import ConfirmModal from './ConfirmModal';
-import { deleteRequesterRequisition, updateRequesterRequisition, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows } from './lib/db';
+import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, updateRequesterRequisition, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 
 // ============================================================
@@ -125,29 +127,6 @@ const exportCSV = (reqs, filename) => {
   a.click();
 };
 
-const REQUISITION_EXCEL_COLS = [
-  { header: 'วันที่เบิก',        value: (r) => {
-    const d = new Date(r.created_at);
-    const pad = n => String(n).padStart(2,'0');
-    return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()+543}`;
-  }},
-  { header: 'MainLog',            value: (r) => r._item?._main_log || '' },
-  { header: 'DetailedLog',        value: (r) => r._item?._detail_log || '' },
-  { header: 'รหัส',              value: (r) => r._item?.drug_code || '' },
-  { header: 'ชนิด',              value: (r) => r._item?.drug_type || '' },
-  { header: 'รายการยา',          value: (r) => r._item?.drug_name || '' },
-  { header: 'หน่วย',             value: (r) => r._item?.drug_unit || '' },
-  { header: 'ราคา/หน่วย',       value: (r) => r._alloc?.price_per_unit ?? r._item?.price_per_unit ?? '' },
-  { header: 'Lot Number',         value: (r) => r._alloc?.lot ?? r._item?.picked_lot ?? r._item?.lot ?? '' },
-  { header: 'Exp',                value: (r) => r._alloc?.exp ?? r._item?.picked_exp ?? r._item?.exp ?? '' },
-  { header: 'ชนิดรายการ',        value: (r) => r._item?._item_type_ref || '' },
-  { header: 'คงเหลือก่อนเบิก',  value: (r) => r._before ?? '' },
-  { header: 'ปริมาณ (ออก)',      value: (r) => r._out ?? '' },
-  { header: 'คงเหลือหลังจ่าย',  value: (r) => r._after ?? '' },
-  { header: 'หน่วยงานที่เบิก',  value: (r) => r.department || '' },
-  { header: 'หมายเหตุ',          value: (r) => [r._item?.item_note, r._item?.staff_note, r._over_note].filter(Boolean).join(' ') || r.note || '' },
-];
-
 // คำนวณ allocation ต่อ item.id สำหรับ print/Excel:
 //   จัดแล้ว → ใช้ picked_allocation (lot จริงที่จ่าย)
 //   ยังไม่จัด → คำนวณ FEFO สดจาก inventory (preview ว่าจะได้ lot ไหน) + เติมราคาราย lot จาก receive_logs
@@ -156,6 +135,7 @@ async function computeReqAllocations(reqs) {
   const allItems = reqs.flatMap(r => r.requisition_items || []);
   const codes = [...new Set(allItems.map(i => i.drug_code).filter(Boolean))];
   const logMap = {}, priceMap = {}, fefoByCode = {};
+  const unitByCode = {};                 // หน่วยซื้อของรหัส (inventory.unit) — สำรองให้แถวที่ไม่มี lot
   // สำหรับหมายเหตุอัตโนมัติในใบ lot คุม (ดู CONTEXT.md §ใบ lot คุม)
   const pendingCodes = new Set();        // รหัสที่มีบิลรอตรวจรับ (จาก receive_logs — แหล่งเดียวกับ flow ค้นยาตอนเบิก)
   const discontinuedCodes = new Set();   // รหัสที่ตัดออกจากบัญชี (inventory.receive_status — precedent เดียวกับ Dashboard)
@@ -180,7 +160,8 @@ async function computeReqAllocations(reqs) {
     (inv || []).forEach(r => {
       const code = String(r.code||'').trim();
       const key = `${code}|${String(r.lot||'').trim()}`;
-      if (!logMap[key]) logMap[key] = { main_log: r.main_log || '', detail_log: r.location || '', item_type: r.item_type || '' };
+      if (!logMap[key]) logMap[key] = { main_log: r.main_log || '', detail_log: r.location || '', item_type: r.item_type || '', unit: r.unit || '' };
+      if (!unitByCode[code] && r.unit) unitByCode[code] = r.unit;
       if (String(r.receive_status || '').includes('ตัดออก')) discontinuedCodes.add(code);
       const { packSize, baseUnit } = parseUnit(r.unit);
       const packs = parseFloat(r.qty) || 0;
@@ -193,7 +174,8 @@ async function computeReqAllocations(reqs) {
       const key = `${code}|${String(r.lot||'').trim()}`;
       if (priceMap[key] == null && r.price_per_unit != null) priceMap[key] = r.price_per_unit;
       if (String(r.receive_status || '').includes('รอ')) pendingCodes.add(code);
-      if (r.supplier_changed) supplierChangedLots.add(key);
+      // ค่าว่างใน DB = '-' (3,005 แถว) — เช็คแค่ truthy เคยขึ้น "เปลี่ยนบริษัท" เกือบทุกแถว (แก้ 13/11/2569)
+      if (r.supplier_changed && r.supplier_changed !== '-') supplierChangedLots.add(key);
     });
   }
   const withPrice = (code, a) => {
@@ -225,47 +207,7 @@ async function computeReqAllocations(reqs) {
       }
     }
   });
-  return { allocByItem, priceMap, logMap, onHandByCode, onHandByLot, pendingCodes, discontinuedCodes, supplierChangedLots, fefoByCode };
-}
-
-// แปลง list ของ requisitions → flat rows สำหรับ Excel
-// 1 item → หลาย row ถ้าจ่ายข้าม lot (picked_allocation); ไม่มี allocation → 1 row
-const flattenReqs = (reqs, allocByItem = {}) =>
-  reqs.flatMap(req =>
-    (req.requisition_items?.length ? req.requisition_items : [{}]).flatMap(item => {
-      const alloc = allocByItem[item.id] || (Array.isArray(item.picked_allocation) ? item.picked_allocation : null);
-      // _ai = ลำดับ lot ในรายการ (หมายเหตุระดับรายการใส่เฉพาะแถวแรก), _outTotal = ยอดจ่ายรวมทุก lot ของรายการ
-      if (alloc && alloc.length) {
-        const outTotal = alloc.reduce((s, a) => s + (Number(a.base) || 0), 0);
-        return alloc.map((a, ai) => ({ ...req, _item: item, _alloc: a, _ai: ai, _outTotal: outTotal }));
-      }
-      return [{ ...req, _item: item, _alloc: null }];
-    })
-  );
-
-// Export Excel — เติม lot/exp/ราคา/main_log ตามที่จ่าย (จัดแล้ว) หรือ FEFO สด (ยังไม่จัด)
-// คงเหลือก่อนเบิก/หลังจ่าย + ปริมาณออก ใช้ logic เดียวกับใบ lot คุม (lotBeforeAfter) — เลขต้องตรงกัน (Rule #6)
-async function exportReqExcel(reqs, auth) {
-  const { allocByItem, logMap, onHandByLot } = await computeReqAllocations(reqs);
-  const lastImportAt = await fetchLastInventoryImportAt();
-  const flat = flattenReqs(reqs, allocByItem);
-  const lotOf = (r) => String(r._alloc?.lot || r._item?.picked_lot || r._item?.lot || '').trim();
-  const enriched = flat.map(r => {
-    const key = `${String(r._item?.drug_code||'').trim()}|${lotOf(r)}`;
-    const ref = logMap[key] || {};
-    // ไม่มี allocation และไม่มี lot ที่จัด = จ่าย 0 (ห้ามใช้ยอดที่ขอเป็นยอดออก)
-    const out = r._alloc?.base ?? (lotOf(r) ? (r._item?.picked_qty ?? r._item?.approved_qty ?? r._item?.requested_qty ?? 0) : 0);
-    const { before, after } = lotBeforeAfter(r, r._item?.drug_code, lotOf(r), out, r._alloc?.onhand ?? null, onHandByLot, lastImportAt);
-    // หมายเหตุจ่ายเกิน (จ่ายเต็มกล่อง) — เลขต้องตรงกับใบพิมพ์ (Rule #6); ใส่เฉพาะแถว lot แรกของรายการ
-    const want = Number(r._item?.approved_qty ?? r._item?.requested_qty) || 0;
-    const overNote = (r._ai == null || r._ai === 0) && r._outTotal != null && want > 0 && r._outTotal > want
-      ? `ขอ ${want.toLocaleString()} จ่าย ${r._outTotal.toLocaleString()} — จ่ายเต็มกล่อง` : '';
-    return { ...r, _out: out, _before: before, _after: after, _over_note: overNote, _item: { ...r._item, _main_log: ref.main_log || '', _detail_log: ref.detail_log || '', _item_type_ref: ref.item_type || r._item?.item_type || '' } };
-  });
-  const d = new Date();
-  const date = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
-  const filename = reqs.length === 1 ? `${reqs[0].req_number}.xlsx` : `ใบเบิกยา_${date}.xlsx`;
-  exportToExcel(enriched, REQUISITION_EXCEL_COLS, 'ใบเบิกยา', filename, auth);
+  return { allocByItem, priceMap, logMap, unitByCode, onHandByCode, onHandByLot, pendingCodes, discontinuedCodes, supplierChangedLots, fefoByCode };
 }
 
 const genReqNumber = () => {
@@ -386,8 +328,37 @@ function HomeView({ onSelect, onBack }) {
 // ============================================================
 // Requester Root
 // ============================================================
-const CART_KEY = 'req_cart_draft';
-const CART_TYPE_KEY = 'req_cart_type'; // ประเภทใบของตะกร้า (1 ใบมีประเภทเดียว — CONTEXT §ใบเบิกออนไลน์)
+
+// ตะกร้าใน DB (requisition_cart_draft) ไม่เก็บคงเหลือ/lot preview — ค่าตอนใส่ตะกร้าเก่าได้หลายวัน
+const cartItemForDb = (item) => Object.fromEntries(Object.entries(item).filter(([k]) => k !== 'fefoLots' && k !== 'availableBase'));
+
+// โหลดตะกร้าจาก DB แล้วคำนวณคงเหลือ + lot preview ใหม่ ด้วยกฎเดียวกับ DrugSearch:
+// ไม่นับ lot หมดอายุ / รอตรวจรับ (key code|lot) · หักยอดจอง · ลำดับจ่ายยาสนับสนุนก่อน
+async function refreshCartStock(items) {
+  const codes = [...new Set(items.map(i => i.code).filter(Boolean))];
+  if (!supabase || !codes.length) return items;
+  const [{ data: inv }, { data: rl }, holds] = await Promise.all([
+    supabase.from('inventory').select('code, lot, exp, qty, unit, location, item_type').in('code', codes),
+    supabase.from('receive_logs').select('drug_code, lot, receive_status').in('drug_code', codes),
+    fetchReservationHolds(codes),
+  ]);
+  const pending = new Set((rl || []).filter(r => r.lot && String(r.receive_status || '').includes('รอ')).map(r => `${codeKey(r.drug_code)}|${r.lot}`));
+  const lotsByCode = {};
+  (inv || []).forEach(row => {
+    const k = codeKey(row.code);
+    const packs = parseFloat(row.qty) || 0;
+    if (packs <= 0 || pending.has(`${k}|${row.lot}`) || !lotNotExpired(row)) return;
+    const { packSize, baseUnit } = parseUnit(row.unit);
+    (lotsByCode[k] = lotsByCode[k] || []).push({ lot: row.lot, exp: row.exp, unit: row.unit, itemType: row.item_type || '', packSize: packSize || 1, packs, base: packs * (packSize || 1), baseUnit, location: row.location || '', supplier: '' });
+  });
+  return items.map(item => {
+    const k = codeKey(item.code);
+    const lots = sortLotsForDispense(mergeSameLotEntries(lotsByCode[k] || []), parseExp);
+    const hold = holds[k];
+    const total = lots.reduce((s, l) => s + l.base, 0);
+    return { ...item, availableBase: Math.max(0, total - (hold?.total || 0)), fefoLots: applyHolds(lots, hold).lots };
+  });
+}
 
 function RequesterRoot({ onBack, prefilledUser, initialStep = null, auth = {} }) {
   const [step, setStep] = useState(initialStep || (prefilledUser ? 'search' : 'login'));
@@ -402,6 +373,34 @@ function RequesterRoot({ onBack, prefilledUser, initialStep = null, auth = {} })
     try { return sessionStorage.getItem(CART_TYPE_KEY) || null; } catch { return null; }
   });
 
+  // ตะกร้าค้างข้ามเครื่อง (requisition_cart_draft) — เฉพาะผู้เบิกที่ login เอง · คลังเบิกแทน (prefilledUser = null) ไม่บันทึก
+  const draftUserId = prefilledUser && auth?.id ? auth.id : null;
+  const [draftReady, setDraftReady] = useState(!draftUserId); // ห้ามบันทึกก่อนโหลดเสร็จ — ตะกร้าว่างตอนเปิดจะลบของใน DB
+  const pendingSaveRef = useRef(null); // { timer, run } บันทึกที่หน่วงไว้ — ออกจากหน้าก่อนครบเวลาต้องบันทึกทันที
+
+  useEffect(() => {
+    if (!draftUserId) return;
+    let alive = true;
+    (async () => {
+      try {
+        // sessionStorage มีของ = ตะกร้าในเครื่องนี้ใหม่กว่า ใช้ต่อ (จะบันทึกทับ DB เอง)
+        const hasLocal = (() => { try { return JSON.parse(sessionStorage.getItem(CART_KEY) || '[]').length > 0; } catch { return false; } })();
+        if (!hasLocal) {
+          const draft = await fetchCartDraft(draftUserId);
+          if (draft && alive) {
+            const items = await refreshCartStock(draft.items);
+            if (alive) { setCart(items); setReqType(draft.req_type || null); }
+          }
+        }
+      } catch (e) {
+        console.warn('โหลดตะกร้าค้างไม่สำเร็จ', e);
+      } finally {
+        if (alive) setDraftReady(true);
+      }
+    })();
+    return () => { alive = false; };
+  }, [draftUserId]);
+
   // sync cart → sessionStorage ทุกครั้งที่ cart เปลี่ยน
   useEffect(() => {
     try { sessionStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch {}
@@ -410,12 +409,28 @@ function RequesterRoot({ onBack, prefilledUser, initialStep = null, auth = {} })
     try { if (reqType) sessionStorage.setItem(CART_TYPE_KEY, reqType); else sessionStorage.removeItem(CART_TYPE_KEY); } catch { /* storage ถูกปิด — ไม่จำประเภทข้ามรีเฟรช */ }
   }, [reqType]);
 
+  // cart → DB หน่วง 1 วิ (กดเพิ่ม/แก้จำนวนติดกันบันทึกครั้งเดียว)
+  useEffect(() => {
+    if (!draftUserId || !draftReady) return;
+    const run = () => { pendingSaveRef.current = null; saveCartDraft(draftUserId, { department: info?.department, requester_name: info?.name, req_type: reqType, items: cart.map(cartItemForDb) }); };
+    const timer = setTimeout(run, 1000);
+    pendingSaveRef.current = { timer, run };
+    return () => clearTimeout(timer);
+  }, [cart, reqType, draftUserId, draftReady, info]);
+  // ออกจากหน้าเบิกก่อนครบ 1 วิ → บันทึกทันที (ไม่งั้นรายการล่าสุดไม่ถึง DB)
+  useEffect(() => () => { const p = pendingSaveRef.current; if (p) { clearTimeout(p.timer); p.run(); } }, []);
+
   const clearCart = () => {
     setCart([]);
     setReqType(null);
     try { sessionStorage.removeItem(CART_KEY); } catch {}
+    // ส่งใบแล้ว — ลบทันที ไม่รอรอบหน่วง (การ์ดตะกร้าค้างต้องหายเมื่อกลับหน้าหลัก)
+    if (draftUserId) { const p = pendingSaveRef.current; if (p) { clearTimeout(p.timer); pendingSaveRef.current = null; } deleteCartDraft(draftUserId); }
   };
 
+  if (!draftReady && (step === 'cart' || step === 'search')) {
+    return <div className="min-h-screen flex items-center justify-center text-slate-500 dark:text-slate-400 gap-2"><Loader2 size={18} className="animate-spin" /> กำลังโหลดตะกร้า…</div>;
+  }
   if (step === 'login')   return <RequesterLogin onLogin={v => { setInfo(v); setStep('search'); }} onBack={onBack} />;
   if (step === 'search' && !reqType) return <ReqTypePicker info={info} onPick={setReqType} onHistory={() => setStep('history')} onBack={onBack} />;
   if (step === 'search')  return <DrugSearch info={info} reqType={reqType} onChangeType={() => setReqType(null)} cart={cart} setCart={setCart} onCart={() => setStep('cart')} onHistory={() => setStep('history')} onBack={onBack} />;
@@ -805,6 +820,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
 
       setDrugNames(uniqueNames.map(name => ({
         name,
+        code: nameCodeMap[name] || '',
         // priority: inventory.type → drug_details → (ไม่มี)
         type: nameTypeFromInv[name] || codeTypeMap[nameCodeMap[name]] || '',
         reqType: reqTypeOfRows(nameRows[name]),
@@ -837,8 +853,9 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
     return () => supabase.removeChannel(ch);
   }, [info?.department, info?.name]);
 
+  // ไม่สนช่องว่าง/จุด/ขีด + แยกคำ + คำเรียกอื่น (lib/drugSearchText.js — ชื่อในใบเบิกจริง ≠ ชื่อ Master)
   const filteredSuggestions = q.trim()
-    ? drugNames.filter(n => n.reqType === reqType && n.name.toLowerCase().includes(q.toLowerCase())).slice(0, 10)
+    ? rankDrugs(drugNames.filter(n => n.reqType === reqType), q, 10)
     : [];
 
   // ผลค้นหาเก่าที่ตอบกลับช้ากว่าคำค้นใหม่ต้องทิ้ง — ไม่งั้นการ์ดยาตัวก่อนค้าง คีย์เร็วแล้วจำนวนเข้ายาผิดตัว
@@ -848,11 +865,28 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
     if (!term.trim()) { setRawResults([]); setLoading(false); return; }
     setLoading(true);
     if (supabase) {
-      // Separate queries to avoid comma in term breaking PostgREST or() syntax
-      const [{ data: byName }, { data: byCode }] = await Promise.all([
-        supabase.from('inventory').select('id, code, name, unit, qty, lot, exp, location, invoice, item_type, main_log').ilike('name', `%${term}%`).order('name').limit(300),
-        supabase.from('inventory').select('id, code, name, unit, qty, lot, exp, location, invoice, item_type, main_log').ilike('code', `%${term}%`).order('name').limit(300),
-      ]);
+      const INV_COLS = 'id, code, name, unit, qty, lot, exp, location, invoice, item_type, main_log';
+      // รายชื่อยาโหลดแล้ว → หาชื่อที่ตรงด้วย rankDrugs แล้วดึงแถวตามชื่อจริง (ilike ตัดช่องว่าง/แยกคำ/คำเรียกอื่นไม่ได้)
+      // ยังโหลดไม่เสร็จ → ilike ชื่อ/รหัสแบบเดิม
+      const nameRank = drugNames.length ? rankDrugs(drugNames.filter(n => n.reqType === reqType), term, 30).map(n => n.name) : null;
+      let byName = [], byCode = [];
+      if (nameRank) {
+        const chunks = [];
+        for (let i = 0; i < nameRank.length; i += 15) chunks.push(nameRank.slice(i, i + 15));
+        const res = await Promise.all(chunks.map(c => supabase.from('inventory').select(INV_COLS).in('name', c).limit(1000)));
+        res.forEach(({ data }) => byName.push(...(data || [])));
+        const pos = new Map(nameRank.map((n, i) => [n, i]));
+        byName.sort((a, b) => (pos.get(a.name) ?? 999) - (pos.get(b.name) ?? 999));
+      } else {
+        // ilike ด้วยคำแรก แล้วกรองทุกคำด้วยกฎเดียวกัน ("amlodipine 10 mg" ilike ทั้งก้อนไม่เจอ)
+        // Separate queries to avoid comma in term breaking PostgREST or() syntax
+        const first = term.trim().split(/\s+/)[0];
+        [{ data: byName }, { data: byCode }] = await Promise.all([
+          supabase.from('inventory').select(INV_COLS).ilike('name', `%${first}%`).order('name').limit(300),
+          supabase.from('inventory').select(INV_COLS).ilike('code', `%${term}%`).order('name').limit(300),
+        ]);
+        byName = (byName || []).filter(r => matchDrugQuery(r.name, r.code, term) >= 0);
+      }
       // dedupe ด้วย row id เท่านั้น (แถวเดิมโผล่ทั้ง byName+byCode) — ห้าม key ด้วย code|name|lot
       // เพราะ inventory มีแถวซ้ำ lot เดียวกันหลายแถวจริง (qty แยกกัน) จะกลืนคงเหลือหาย
       const seen = new Set();
@@ -937,7 +971,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
       setReservedMap(reservedQtyMap); // initial snapshot; realtime will update this
     }
     if (seq === searchSeqRef.current) setLoading(false);
-  }, [reqType]);
+  }, [reqType, drugNames]);
 
   useEffect(() => {
     const t = setTimeout(() => search(q), 350);
@@ -1530,152 +1564,78 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
   );
 }
 
-// ---- Print helper ----
-// async: คำนวณ allocation (จัดแล้ว=picked / ยังไม่จัด=FEFO สด) ก่อนสร้าง HTML เพื่อโชว์ lot/exp/ราคา
-// preopenedWin = หน้าต่างเปล่าที่เปิดไว้ตั้งแต่ตอนคลิก (กัน popup blocker บน mobile — ต้องเปิดใน user gesture ก่อน await)
-async function printReq(req, preopenedWin) {
-  const { allocByItem, onHandByLot, logMap } = await computeReqAllocations([req]);
-  const lastImportAt = await fetchLastInventoryImportAt();
-  const d = new Date(req.created_at);
-  const dateStr = d.toLocaleString('th-TH', { dateStyle: 'long', timeStyle: 'short' });
-  const allItems = req.requisition_items || [];
-  const items = req.status === 'partial'
-    ? allItems.filter(item => item.approved_qty != null && item.approved_qty > 0)
-    : allItems;
-  // คงเหลือหลังจ่ายราย lot — ใช้ lotBeforeAfter ตัวเดียวกับใบ lot คุม/Excel (snapshot → live±out ตามรอบ import)
-  // ห้ามคำนวณ live−out ตรงๆ: ใบที่จ่ายแล้ว+import ใหม่แล้วจะหักซ้ำสองรอบ และเลขจะไม่ตรงเอกสารอื่น (Rule #6)
-  const remainLot = (code, lot, out, snap = null) => {
-    const key = `${String(code || '').trim()}|${String(lot || '').trim()}`;
-    if (snap == null && onHandByLot[key] == null) return '-';
-    return lotBeforeAfter(req, code, lot, out, snap, onHandByLot, lastImportAt).after.toLocaleString();
-  };
-  // exp + ระยะถึงหมดอายุ (อีกกี่ปี/เดือน/วัน)
-  const expCell = (raw) => {
-    if (!raw) return '-';
-    const cd = expCountdown(raw);
-    return `${fmtExp(raw)}${cd ? `<br><span style="font-size:12px;color:#b45309">${cd}</span>` : ''}`;
-  };
-  // หมายเหตุรายการ + จำนวนที่จ่ายเกินจากขอเบิก (จ่ายเต็มกล่อง)
-  const noteCell = (item, alloc) => {
-    const want = Number(item.approved_qty ?? item.requested_qty) || 0;
-    const out = (alloc && alloc.length) ? alloc.reduce((s, a) => s + (Number(a.base) || 0), 0) : 0;
-    const over = out - want;
-    const u = escHtml(item.drug_unit || '');
-    const overTxt = over > 0
-      ? `<span style="color:#b45309">ขอ ${want.toLocaleString()} จ่าย ${out.toLocaleString()} ${u} — เนื่องจากจ่ายเต็มกล่อง (ไม่แกะกล่อง เกิน ${over.toLocaleString()})</span>`
-      : '';
-    const note = escHtml(item.item_note || '');
-    return [note, overTxt].filter(Boolean).join('<br>');
-  };
-  // 1 รายการ → หลายแถวตาม lot ที่จะจ่าย; ไม่มี allocation → แถวเดียว (ค่าที่ขอ)
-  const rows = items.map((item, i) => {
-    const alloc = allocByItem[item.id] || (Array.isArray(item.picked_allocation) ? item.picked_allocation : null);
-    const note = noteCell(item, alloc);
-    if (alloc && alloc.length) {
-      return alloc.map((a, ai) => `
-    <tr>
-      <td style="text-align:center">${i + 1}</td>
-      <td style="text-align:center">${escHtml(item.drug_code || '-')}</td>
-      <td style="text-align:center">${escHtml(item.drug_type || '-')}</td>
-      <td>${escHtml(item.drug_name || '-')}</td>
-      <td style="text-align:center">${escHtml(item.drug_unit || '-')}</td>
-      <td style="text-align:center">${Number(a.base).toLocaleString()}</td>
-      <td style="text-align:center">${escHtml(a.lot || '-')}</td>
-      <td style="text-align:center">${a.location && a.location !== '-' ? escHtml(a.location) : '-'}</td>
-      <td style="text-align:center">${expCell(a.exp)}</td>
-      <td style="text-align:center">${remainLot(item.drug_code, a.lot, a.base, a.onhand ?? null)}</td>
-      <td>${ai === 0 ? note : ''}</td>
-    </tr>`).join('');
-    }
-    const outQty = item.picked_qty ?? item.approved_qty ?? item.requested_qty;
-    const lot = item.picked_lot || item.lot || '';
-    const exp = item.picked_exp || item.exp || '';
-    const loc = logMap[`${String(item.drug_code||'').trim()}|${String(lot||'').trim()}`]?.detail_log;
-    return `
-    <tr>
-      <td style="text-align:center">${i + 1}</td>
-      <td style="text-align:center">${escHtml(item.drug_code || '-')}</td>
-      <td style="text-align:center">${escHtml(item.drug_type || '-')}</td>
-      <td>${escHtml(item.drug_name || '-')}</td>
-      <td style="text-align:center">${escHtml(item.drug_unit || '-')}</td>
-      <td style="text-align:center">${Number(outQty).toLocaleString()}</td>
-      <td style="text-align:center">${escHtml(lot || '-')}</td>
-      <td style="text-align:center">${loc && loc !== '-' ? escHtml(loc) : '-'}</td>
-      <td style="text-align:center">${exp ? expCell(exp) : '-'}</td>
-      <td style="text-align:center">${remainLot(item.drug_code, lot, outQty)}</td>
-      <td>${note}</td>
-    </tr>`;
-  }).join('');
+// ---- ใบเบิกรูปแบบชีทเบิก (ใบพิมพ์ / PDF แชร์ / Excel) ----
+// ล้อ PDF ที่คลังทำจาก Excel (scripts/dispense-pdf.ps1) — lib/reqSheetFormat.js · แถว+หมายเหตุชุดเดียวกับใบ lot คุม (buildLotRowObjs)
+// sort: SORT_BY_REQ = ตามลำดับในใบ (ฉบับห้องยา/หน่วยงาน) · SORT_BY_LOG = ตามที่เก็บ (ฉบับคลังเดินจัดยา)
+async function buildReqSheetRows(reqs, sort = SORT_BY_REQ) {
+  const ctx = await computeReqAllocations(reqs);
+  ctx.lastImportAt = await fetchLastInventoryImportAt();
+  return reqs.flatMap(req => {
+    const created = new Date(req.created_at);
+    const rows = buildLotRowObjs(req, ctx).map(r => {
+      const expObj = r.exp ? parseExp(r.exp) : null;
+      return {
+        date: fmtDateCE(created), dateObj: isNaN(created) ? null : created,
+        mainLog: r.mainLog, detailLog: r.detailLog, code: r.code, drugType: r.drugType, name: r.name, unit: r.unit,
+        price: r.price, lot: r.lot, exp: r.exp ? fmtExp(r.exp) : '', expObj, nearExp: !!(r.exp && isNearExpiry(r.exp)),
+        itemType: r.itemType, before: r.before, out: r.out, after: r.after, dept: req.department || '', note: r.note,
+      };
+    });
+    return sort === SORT_BY_LOG ? sortRowsByLog(rows) : rows;
+  });
+}
 
-  const sigBlock = `
-    <div class="sig-block">
-      <p>(ลงชื่อ)...........................................(ผู้เบิก)</p>
-      <p>(...........................................)</p>
-      <p>ตำแหน่ง เภสัชกรชำนาญการ</p>
-      <p>วันที่........./........./................</p>
-    </div>`;
+const reqSheetTitle = (req) => sheetTitle(req.department, req.req_type ? reqTypeLabel(req.req_type) : '');
+const reqSheetNo = (req) => req.receipt_no || req.req_number || '';
+const reqFileBase = (req, sort) => safeFileName(`${reqSheetTitle(req)}${sort === SORT_BY_LOG ? ' (ตามที่เก็บ)' : ''}_${reqSheetNo(req)}`);
 
-  const html = `<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
-    <title>ใบเบิกยา ${req.req_number}</title>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
-      body { font-family: 'Sarabun', sans-serif; font-size: 16px; margin: 20px; color: #1e293b; }
-      h2 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
-      .meta { color: #374151; font-size: 14px; margin-bottom: 16px; line-height: 1.8; }
-      table { width: 100%; border-collapse: collapse; margin-top: 12px; margin-bottom: 24px; }
-      th { background: transparent; color: #000; padding: 8px 10px; font-size: 15px; font-weight: 700; text-align: left; border-bottom: 2px solid #000; }
-      td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; font-size: 15px; vertical-align: top; }
-      tr:nth-child(even) td { background: #f8fafc; }
-      .badge { display:inline-block; padding: 2px 10px; border-radius: 999px; font-size:13px; font-weight:600;
-               background:#fef3c7; color:#92400e; border:1px solid #fde68a; }
-      /* ลายเซ็น = flow ปกติใต้ตาราง ไม่ทับแถวเบิก (เดิม position:fixed ลอยทับ) */
-      .sig-block {
-        margin-top: 48px;
-        margin-right: 16px;
-        font-size: 15px;
-        line-height: 2;
-        text-align: center;
-        float: right;
-        width: 320px;
-        page-break-inside: avoid;
-      }
-      .sig-block p { margin: 0; }
-      @media print { body { margin: 10mm 12mm; } }
-    </style></head><body>
-    <h2>ใบเบิกยา : ${escHtml(req.department)}</h2>
-    <div class="meta">
-      เลขที่: <strong>${escHtml(req.req_number)}</strong> &nbsp;|&nbsp;
-      หน่วยงาน: <strong>${escHtml(req.department)}</strong> &nbsp;|&nbsp;
-      ผู้เบิก: <strong>${escHtml(req.requester_name || '-')}</strong> &nbsp;|&nbsp;
-      วันที่: <strong>${dateStr}</strong>
-    </div>
-    <table>
-      <thead><tr>
-        <th style="width:48px;text-align:center">ลำดับที่</th>
-        <th style="width:90px;text-align:center">รหัส</th>
-        <th style="width:80px;text-align:center">ชนิด</th>
-        <th>รายการ</th>
-        <th style="width:80px;text-align:center">หน่วยนับ</th>
-        <th style="width:100px;text-align:center">จำนวนที่เบิก</th>
-        <th style="width:90px;text-align:center">Lot</th>
-        <th style="width:90px;text-align:center">ที่เก็บ</th>
-        <th style="width:90px;text-align:center">Exp</th>
-        <th style="width:110px;text-align:center">คงเหลือหลังจ่าย</th>
-        <th style="width:120px">หมายเหตุ</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    ${req.note ? `<p style="margin-top:12px;color:#64748b;font-size:14px">หมายเหตุ: ${escHtml(req.note)}</p>` : ''}
-    ${sigBlock}
-    <div style="clear:both"></div>
-    <script>window.onload=()=>{window.print();}</script>
-    </body></html>`;
-
+// พิมพ์ — preopenedWin = หน้าต่างที่เปิดตอนคลิก (กัน popup blocker); ไม่มี/โดนบล็อก → openPrintUrl มี <a> fallback สำหรับ LINE WebView
+async function printReq(req, preopenedWin, sort = SORT_BY_REQ) {
+  const rows = await buildReqSheetRows([req], sort);
+  const html = buildSheetHtml(rows, {
+    title: reqSheetTitle(req), centerNo: reqSheetNo(req), autoPrint: true,
+    // ลิงก์ blob: ของหน้านี้เปิดได้เฉพาะเครื่องที่สร้าง — ผู้ใช้เคยแชร์ลิงก์เข้า LINE แล้วผู้รับเปิดไม่ได้ (13/11/2569)
+    footerNote: 'ลิงก์ของหน้านี้เปิดได้เฉพาะเครื่องนี้ — จะส่งให้คนอื่นพิมพ์ ใช้ปุ่ม "ส่งเป็น PDF" ในแอป',
+  });
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
-  // preopenedWin = หน้าต่างที่เปิดตอนคลิก (กัน popup blocker); ไม่มี/โดนบล็อก → openPrintUrl มี <a> fallback สำหรับ LINE WebView
   openPrintUrl(url, preopenedWin);
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+// ส่งเป็น PDF — มือถือเปิด share sheet (LINE ได้ไฟล์ PDF) · คอมดาวน์โหลดไฟล์
+async function shareReqPdf(req, sort, auth) {
+  const rows = await buildReqSheetRows([req], sort);
+  const html = buildSheetHtml(rows, { title: reqSheetTitle(req), centerNo: reqSheetNo(req) });
+  const blob = await htmlToPdfBlob(html);
+  const fileName = `${reqFileBase(req, sort)}.pdf`;
+  const result = await shareOrDownload(blob, fileName, reqSheetTitle(req));
+  if (result !== 'cancelled') {
+    await insertAuditLog({
+      action: 'export_pdf', table_name: 'requisitions', record_id: req.id,
+      user_name: resolveAuditUserName(auth), department: auth?.department,
+      details: { req_number: req.req_number, receipt_no: req.receipt_no || null, file: fileName, via: result, sort, req_department: req.department },
+    });
+  }
+}
+
+// Export Excel — คอลัมน์/รูปแบบ/ตั้งหน้าเหมือนชีทเบิก (เปิดแล้วสั่งพิมพ์ได้ทันที) · หลายใบ = เรียงทีละใบ
+async function exportReqExcel(reqs, auth, sort = SORT_BY_REQ) {
+  if (!reqs.length) return;
+  const rows = await buildReqSheetRows(reqs, sort);
+  const one = reqs.length === 1 ? reqs[0] : null;
+  const d = new Date();
+  const date = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+  const fileName = one ? `${reqFileBase(one, sort)}.xlsx` : `ใบเบิกยา_${date}.xlsx`;
+  const blob = await buildSheetXlsxBlob(rows, { title: one ? reqSheetTitle(one) : 'ใบเบิกยา', centerNo: one ? reqSheetNo(one) : '' });
+  const result = await shareOrDownload(blob, fileName, 'ใบเบิกยา');
+  if (result !== 'cancelled') {
+    await insertAuditLog({
+      action: 'export_excel', table_name: 'ใบเบิกยา',
+      user_name: resolveAuditUserName(auth), department: auth?.department,
+      record_count: rows.length, details: { file: fileName },
+    });
+  }
 }
 
 // จ่ายออกแล้ว + มี import inventory CSV รอบใหม่หลังจ่าย → qty สดสะท้อน "หลังจ่าย" แล้ว
@@ -1702,14 +1662,10 @@ const lotBeforeAfter = (req, code, lot, out, snap, onHandByLot, lastImportAt) =>
 // ใบ lot คุม (Lot Control Sheet) — เอกสารคุมคลังแนวนอน 16 คอลัมน์ตามแบบรายงาน HosXP
 // รายรหัส×lot เรียงตามเส้นทางเดินหยิบ (MainLog → DetailedLog) — ดู CONTEXT.md §ใบ lot คุม
 // ============================================================
-async function printLotControl(req, preopenedWin) {
-  const { allocByItem, onHandByLot, onHandByCode, logMap, pendingCodes, discontinuedCodes, supplierChangedLots, fefoByCode } =
-    await computeReqAllocations([req]);
-  const lastImportAt = await fetchLastInventoryImportAt();
-  const pad = n => String(n).padStart(2, '0');
-  const fmtDateCE = (iso) => { const d = new Date(iso); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`; };
-  const now = new Date();
-  const isPicked = !['pending', 'approved', 'partial', 'rejected'].includes(req.status);
+// แถวราย lot ของใบ (คงเหลือก่อน/หลัง + หมายเหตุอัตโนมัติ) — ใช้ร่วม ใบ lot คุม / ใบพิมพ์แบบชีทเบิก / PDF / Excel
+// เลขทุกเอกสารต้องตรงกัน (Rule #6) · ctx = ผล computeReqAllocations + lastImportAt · คืนตามลำดับในใบ (ยังไม่เรียง)
+function buildLotRowObjs(req, ctx) {
+  const { allocByItem, onHandByLot, onHandByCode, logMap, unitByCode = {}, pendingCodes, discontinuedCodes, supplierChangedLots, fefoByCode, lastImportAt } = ctx;
   const allItems = req.requisition_items || [];
   const items = req.status === 'partial'
     ? allItems.filter(item => item.approved_qty != null && item.approved_qty > 0)
@@ -1731,6 +1687,13 @@ async function printLotControl(req, preopenedWin) {
     }
     const want = Number(item.approved_qty ?? item.requested_qty) || 0;
     const out = entries.reduce((s, e) => s + e.out, 0);
+    // หน่วยซื้อของแต่ละ lot (inventory.unit) — หมายเหตุ "เบิก X จ่าย Y" ใช้หน่วยซื้อเดียวกับคอลัมน์ปริมาณ
+    // lot ในรายการเดียวกันคนละขนาดแพ็ค = แปลงไม่ได้ → คงหน่วยย่อย
+    const packUnitOf = (lot) => (logMap[`${code}|${String(lot || '').trim()}`] || {}).unit || unitByCode[code] || '';
+    const packSizes = [...new Set(entries.map(e => parseUnit(packUnitOf(e.lot)).packSize || 1))];
+    const notePs = packSizes.length === 1 ? packSizes[0] : 1;
+    const noteBaseUnit = parseUnit(packUnitOf(entries[0].lot)).baseUnit || '';
+    const nq = (v) => (notePs > 1 ? fmtPackNote(v, notePs, noteBaseUnit) : v.toLocaleString());
     // หมายเหตุระดับรายการ: เหตุผลจ่ายไม่ครบ / จ่ายเกินเต็มกล่อง / โน้ตผู้เบิก / โน้ตคลัง
     const itemNotes = [];
     if (item.item_note) itemNotes.push(item.item_note);
@@ -1745,12 +1708,12 @@ async function printLotControl(req, preopenedWin) {
       // ไม่ผูกกับ snapshot ที่คอลัมน์คงเหลือหลังจ่ายใช้ (นั่นคือยอด ณ ตอนจัด) จึงอาจต่างจากคอลัมน์นั้นในใบเก่า
       const liveTotal = onHandByCode[code] ?? 0;
       const remainAfter = qtyIsPostDispense(req, lastImportAt) ? liveTotal : liveTotal - out;
-      const wo = `เบิก ${want.toLocaleString()} จ่าย ${out.toLocaleString()}`;
+      const wo = `เบิก ${nq(want)} จ่าย ${nq(out)}`;
       if (discontinuedCodes.has(code))    itemNotes.push(`${wo} ยาตัดออกจากบัญชี`);
       else if (pendingCodes.has(code))    itemNotes.push(`${wo} รอตรวจรับ`);
       else if (remainAfter <= 0)          itemNotes.push(`${wo} ยาหมดรอของส่ง`);
     } else if (out > want) {
-      itemNotes.push(`ขอ ${want.toLocaleString()} จ่าย ${out.toLocaleString()} — จ่ายเต็มกล่อง`);
+      itemNotes.push(`ขอ ${nq(want)} จ่าย ${nq(out)} — จ่ายเต็มกล่อง`);
     }
     entries.forEach((e, ei) => {
       const key = `${code}|${String(e.lot || '').trim()}`;
@@ -1764,14 +1727,30 @@ async function printLotControl(req, preopenedWin) {
       }
       if (supplierChangedLots.has(key)) notes.push('เปลี่ยนบริษัท');
       if (ei === 0) notes.push(...itemNotes);
+      // หน่วย/ปริมาณ = หน่วยซื้อของ lot (inventory.unit เช่น 1000เม็ด × 6) คู่กับราคาต่อหน่วยซื้อ — แบบชีทเบิก (user สั่ง 13/11/2569)
+      // ไม่มีหน่วยใน inventory → หน่วยในใบ + หน่วยย่อยเดิม
+      const packUnit = ref.unit || unitByCode[code] || '';
+      const ps = parseUnit(packUnit).packSize || 1;
       rowObjs.push({
         mainLog: ref.main_log || '', detailLog: ref.detail_log || '',
         code: code || '-', drugType: item.drug_type || '-', name: item.drug_name || '-',
-        unit: item.drug_unit || '-', price: e.price, lot: e.lot || '-', exp: e.exp,
-        itemType: ref.item_type || '-', before, out: e.out, after, note: notes.join(' '),
+        unit: packUnit || item.drug_unit || '-', price: e.price, lot: e.lot || '-', exp: e.exp,
+        itemType: ref.item_type || '-', before: toPackQty(before, ps), out: toPackQty(e.out, ps), after: toPackQty(after, ps),
+        note: notes.join(' '),
       });
     });
   });
+  return rowObjs;
+}
+
+async function printLotControl(req, preopenedWin) {
+  const ctx = await computeReqAllocations([req]);
+  ctx.lastImportAt = await fetchLastInventoryImportAt();
+  const pad = n => String(n).padStart(2, '0');
+  const fmtDateCE = (iso) => { const d = new Date(iso); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`; };
+  const now = new Date();
+  const isPicked = !['pending', 'approved', 'partial', 'rejected'].includes(req.status);
+  const rowObjs = buildLotRowObjs(req, ctx);
   // เรียงตามเส้นทางเดินหยิบ — ไม่มีที่เก็บไปท้ายสุด
   const sk = v => (v && String(v).trim()) ? String(v).trim() : '￿';
   rowObjs.sort((a, b) => sk(a.mainLog).localeCompare(sk(b.mainLog), 'en') || sk(a.detailLog).localeCompare(sk(b.detailLog), 'en'));
@@ -1989,6 +1968,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
   const [loading, setLoading]     = useState(true);
   const [expanded, setExpanded]   = useState(null);
   const [confirmModal, setConfirmModal] = useState(null); // { type:'delete'|'edit', req }
+  const [outReq, setOutReq]             = useState(null); // ReqOutputModal
   const [editDraft, setEditDraft]       = useState(null); // { note, items:[{id,requested_qty,note,...}] }
   const [editError, setEditError]       = useState(''); // error validate คงเหลือตอนแก้ใบเบิก
   const [saving, setSaving]             = useState(false);
@@ -2214,7 +2194,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${cfg.badge}`}>{cfg.label}</span>
-                  <button onClick={e => { e.stopPropagation(); printReq(req, window.open('', '_blank')); }}
+                  <button onClick={e => { e.stopPropagation(); setOutReq(req); }}
                     className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-[#1E90FF] hover:bg-[#F0F8FF] dark:hover:bg-slate-800 rounded-lg transition-colors" title="พิมพ์ใบเบิก">
                     <Printer size={15} />
                   </button>
@@ -2403,6 +2383,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
           </div>
         </div>
       )}
+      {outReq && <ReqOutputModal req={outReq} auth={auth} defaultSort={SORT_BY_REQ} onClose={() => setOutReq(null)} />}
     </div>
   );
 }
@@ -2448,6 +2429,82 @@ function DispatchConfirmModal({ req, onConfirm, onClose, loading = false }) {
           <button onClick={onConfirm} disabled={loading}
             className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-2.5 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
             <Check size={15} /> {loading ? 'กำลังจ่ายออก...' : 'ยืนยันจ่ายออก'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// ReqOutputModal — พิมพ์ / ส่งเป็น PDF / ดาวน์โหลด Excel ใบเบิกรูปแบบชีทเบิก + เลือกการเรียงแถว
+// (PDF คลังมี 2 ฉบับ: เรียงตามที่เก็บให้คลังเดินจัดยา · เรียงตามใบให้ห้องยา/หน่วยงานเช็ค — user เลือก 13/11/2569)
+// ============================================================
+const SORT_OPTIONS = [
+  { key: SORT_BY_REQ, label: 'เรียงตามใบ', hint: 'ห้องยา/หน่วยงานเช็คของ' },
+  { key: SORT_BY_LOG, label: 'เรียงตามที่เก็บ', hint: 'คลังเดินจัดยาตามชั้น A→E' },
+];
+
+function ReqOutputModal({ req, auth, defaultSort = SORT_BY_REQ, onClose }) {
+  const [sort, setSort] = useState(defaultSort);
+  const [busy, setBusy] = useState(null); // 'pdf' | 'excel'
+  const [error, setError] = useState('');
+  const run = async (kind, fn) => {
+    setBusy(kind); setError('');
+    try { await fn(); onClose(); }
+    catch (e) { console.error(kind, e); setError(kind === 'pdf' ? 'สร้าง PDF ไม่สำเร็จ ลองใหม่อีกครั้ง' : 'สร้างไฟล์ Excel ไม่สำเร็จ ลองใหม่อีกครั้ง'); }
+    finally { setBusy(null); }
+  };
+  // หน้าต่างพิมพ์ต้องเปิดในจังหวะคลิก (ก่อน await) ไม่งั้นมือถือบล็อก popup
+  const doPrint = () => { const w = window.open('', '_blank'); printReq(req, w, sort); onClose(); };
+  const btn = 'flex-1 min-w-0 rounded-xl py-2.5 font-semibold text-sm transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50';
+  return (
+    <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4" onClick={e => { e.stopPropagation(); if (!busy) onClose(); }}>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center gap-3">
+          <div className="w-9 h-9 bg-blue-100 dark:bg-blue-950/60 rounded-xl flex items-center justify-center shrink-0">
+            <Printer size={18} className="text-blue-600" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-bold text-slate-800 dark:text-slate-100 text-sm">พิมพ์ / ส่งใบเบิก</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{req.department} · <span className="font-mono">{req.receipt_no || req.req_number}</span></p>
+          </div>
+          <button onClick={onClose} disabled={!!busy} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50" aria-label="ปิด">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="p-5 space-y-3">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">การเรียงแถว</p>
+          <div className="grid grid-cols-2 gap-2">
+            {SORT_OPTIONS.map(o => (
+              <button key={o.key} type="button" onClick={() => setSort(o.key)} disabled={!!busy}
+                className={`text-left rounded-xl border px-3 py-2.5 transition-colors ${sort === o.key
+                  ? 'border-[#1E90FF] bg-blue-50 dark:bg-blue-950/40 ring-1 ring-[#1E90FF]'
+                  : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'}`}>
+                <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">{o.label}</span>
+                <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">{o.hint}</span>
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400">รูปแบบเดียวกับใบที่คลังพิมพ์จากชีทเบิก · "ส่งเป็น PDF" ได้ไฟล์ส่งเข้า LINE ให้คนอื่นเปิดพิมพ์ได้</p>
+          {error && (
+            <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2">
+              <AlertCircle size={15} className="text-red-500 shrink-0 mt-0.5" />
+              <p className="text-xs text-red-700 dark:text-red-300">{error}</p>
+            </div>
+          )}
+        </div>
+        <div className="px-5 pb-5 flex flex-wrap gap-2">
+          <button onClick={doPrint} disabled={!!busy} className={`${btn} bg-[#1E90FF] hover:bg-blue-600 text-white`}>
+            <Printer size={15} /> พิมพ์
+          </button>
+          <button onClick={() => run('pdf', () => shareReqPdf(req, sort, auth))} disabled={!!busy}
+            className={`${btn} bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200`}>
+            {busy === 'pdf' ? <Loader2 size={15} className="animate-spin" /> : <Share2 size={15} />} {busy === 'pdf' ? 'กำลังสร้าง…' : 'ส่งเป็น PDF'}
+          </button>
+          <button onClick={() => run('excel', () => exportReqExcel([req], auth, sort))} disabled={!!busy}
+            className={`${btn} bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-emerald-700 dark:text-emerald-300`}>
+            {busy === 'excel' ? <Loader2 size={15} className="animate-spin" /> : <FileDown size={15} />} Excel
           </button>
         </div>
       </div>
@@ -2900,6 +2957,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
   const [list, setList]         = useState([]);
   const [loading, setLoading]   = useState(true);
   const [deleteId, setDeleteId] = useState(null);
+  const [outReq, setOutReq]     = useState(null); // ReqOutputModal
   const [selected, setSelected] = useState(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [searchName, setSearchName] = useState('');
@@ -3245,7 +3303,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
               {/* Card footer — action buttons */}
               <div className="flex items-center justify-between px-4 py-2 bg-slate-50 dark:bg-slate-800 border-t border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-1">
-                  <button onClick={e => { e.stopPropagation(); printReq(req, window.open('', '_blank')); }}
+                  <button onClick={e => { e.stopPropagation(); setOutReq(req); }}
                     className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-[#1E90FF] transition-colors px-2 py-1 rounded-xl hover:bg-white dark:hover:bg-slate-800">
                     <Printer size={13}/> พิมพ์
                   </button>
@@ -3321,6 +3379,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
           onConfirm={confirmDispatch}
           onClose={() => setDispatchModal(null)} />
       )}
+      {outReq && <ReqOutputModal req={outReq} auth={auth} defaultSort={SORT_BY_LOG} onClose={() => setOutReq(null)} />}
     </div>
   );
 }
@@ -3328,6 +3387,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
 // ---- Requisition Detail ----
 function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
   const [currentReq, setCurrentReq] = useState(req);
+  const [outReq, setOutReq] = useState(null); // ReqOutputModal
   const isPending    = currentReq.status==='pending';
   const isApproved   = currentReq.status==='approved'||currentReq.status==='partial';
   const isPicking    = currentReq.status==='picking';
@@ -3478,7 +3538,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-semibold transition-colors shadow-sm no-print">
               <FileDown size={16}/> Excel
             </button>
-            <button onClick={() => printReq(currentReq, window.open('', '_blank'))}
+            <button onClick={() => setOutReq(currentReq)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-[#1E90FF] text-sm font-semibold transition-colors shadow-sm no-print">
               <Printer size={16}/> พิมพ์
             </button>
@@ -3776,6 +3836,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         confirmText="จัดจ่ายเอง"
         onConfirm={() => { setSelfDispenseOpen(false); save(null, { beforeSheet: true }); }}
         onClose={() => setSelfDispenseOpen(false)} />
+      {outReq && <ReqOutputModal req={outReq} auth={auth} defaultSort={SORT_BY_LOG} onClose={() => setOutReq(null)} />}
     </>
   );
 }

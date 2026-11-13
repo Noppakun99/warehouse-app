@@ -53,6 +53,8 @@ const NOTIF_LABELS = {
   ap_send_batch:                { label: 'ส่งบัญชี',             color: 'text-orange-600', dot: 'bg-orange-400'},
   ap_mark_posted:               { label: 'ตั้งหนี้แล้ว',          color: 'text-violet-600', dot: 'bg-violet-400'},
   export_excel:                 { label: 'Export Excel',         color: 'text-emerald-600', dot: 'bg-emerald-400' },
+  export_pdf:                   { label: 'ส่งใบเบิกเป็น PDF',     color: 'text-emerald-600', dot: 'bg-emerald-400' },
+  clear_req_cart:               { label: 'ล้างตะกร้าเบิก',        color: 'text-slate-600',   dot: 'bg-slate-400' },
   // ── Reorder Analysis ──
   analysis_run:                 { label: 'บันทึก Snapshot สั่งซื้อ', color: 'text-orange-600', dot: 'bg-orange-400' },
   update_reorder_config:        { label: 'แก้ Master ยา',         color: 'text-violet-600',  dot: 'bg-violet-400' },
@@ -169,6 +171,10 @@ function notifMessage(n) {
       return `${who} ตั้งหนี้แล้ว${d.batch_id ? ` ${d.batch_id}` : ''}${d.accountant_name ? ` (${d.accountant_name})` : ''}`;
     case 'export_excel':
       return `${who} Export Excel · ${n.department}`;
+    case 'export_pdf':
+      return `${who} ส่งใบเบิกเป็น PDF${reqRef ? ` ${reqRef}` : ''} · ${n.department}`;
+    case 'clear_req_cart':
+      return `${who} ล้างตะกร้าเบิกที่ค้าง${n.record_count ? ` ${n.record_count} รายการ` : ''} · ${n.department}`;
     case 'requester_edit_requisition':
     case 'update_requisition':
       return `${who} แก้ไขใบเบิก${reqRef ? ` ${reqRef}` : ''} · ${n.department}`;

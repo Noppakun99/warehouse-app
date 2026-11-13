@@ -26,7 +26,7 @@ import { pickPopupRows, readSeen, writeSeen, popupStorageKey } from './lib/popup
 import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import { resolveCycles } from '../supabase/functions/_shared/announceSchedule.js';
 import { InstallAppCard } from './InstallApp';
-import { DashboardInfoLines, DrugSearchLauncher, WorkQueuePanel, QueueDetailModal, FormularyModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner, OnboardingCard } from './DashboardPanels';
+import { DashboardInfoLines, DrugSearchLauncher, WorkQueuePanel, QueueDetailModal, FormularyModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner, OnboardingCard, CartReminderCard } from './DashboardPanels';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
@@ -220,6 +220,7 @@ export default function AppRoot() {
         break;
       case 'requisition':
       case 'requisition-history':
+      case 'requisition-cart':
         content = (
           <RequisitionApp
             key={subKey}
@@ -227,7 +228,7 @@ export default function AppRoot() {
             onRefresh={refreshPage}
             prefilledUser={{ name: (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username, department: auth.department }}
             startAsStaff={auth.role === 'staff' || auth.role === 'admin'}
-            initialStep={page === 'requisition-history' ? 'history' : null}
+            initialStep={page === 'requisition-history' ? 'history' : page === 'requisition-cart' ? 'cart' : null}
             auth={auth}
             onGoBack={goBack}
             canGoBack={canGoBack}
@@ -891,6 +892,7 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
         ) : (
           <>
             <SwapBanner count={swapOpenCount} onOpen={() => setSwapPopupRows(swapDue)} />
+            <CartReminderCard auth={auth} onContinue={() => onNavigate('requisition-cart')} />
             <OnboardingCard userId={auth.id} onNavigate={onNavigate} />
             <Collapsible className="mt-5" title="ภาพรวมคลัง" open={overviewOpen} onToggle={() => setOverviewOpen(o => !o)}>
               {overview}

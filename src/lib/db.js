@@ -1861,6 +1861,42 @@ export async function withdrawRequisition(id) {
   return data === true
 }
 
+// --- ตะกร้าค้าง (requisition_cart_draft — req_cart_draft_migration.sql) ---
+// 1 ผู้ใช้ = 1 แถว · เฉพาะผู้เบิกที่ login เอง (คลังเบิกแทนไม่บันทึก) · การ์ดเตือนบน Dashboard อ่านจากที่นี่
+// ตารางยังไม่สร้าง/เน็ตสะดุด → fetch คืน null ไม่ throw (ตะกร้ายังทำงานด้วย sessionStorage ตามเดิม)
+export async function fetchCartDraft(userId) {
+  if (!supabase || !userId) return null
+  const { data, error } = await supabase.from('requisition_cart_draft').select('*').eq('user_id', userId).maybeSingle()
+  if (error) { console.warn('fetchCartDraft:', error.message); return null }
+  return data && Array.isArray(data.items) && data.items.length ? data : null
+}
+
+// items ว่าง = ลบแถว (ไม่ audit) · ไม่เขียน audit ตอนบันทึก — บันทึกทุกครั้งที่ตะกร้าเปลี่ยน
+export async function saveCartDraft(userId, { department, requester_name, req_type, items }) {
+  if (!supabase || !userId) return
+  if (!items?.length) return deleteCartDraft(userId)
+  const { error } = await supabase.from('requisition_cart_draft').upsert({
+    user_id: userId, department: department || null, requester_name: requester_name || null,
+    req_type: req_type || null, items, updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_id' })
+  if (error) console.warn('saveCartDraft:', error.message)
+}
+
+// audit = { auth, itemCount } → ผู้ใช้กด "ล้างตะกร้า" (audit clear_req_cart) · ไม่ส่ง = ลบเงียบหลังส่งใบ/ตะกร้าว่าง
+export async function deleteCartDraft(userId, audit = null) {
+  if (!supabase || !userId) return
+  const { error } = await supabase.from('requisition_cart_draft').delete().eq('user_id', userId)
+  if (error) { console.warn('deleteCartDraft:', error.message); if (audit) throw error; return }
+  if (audit) {
+    await insertAuditLog({
+      action: 'clear_req_cart', table_name: 'requisition_cart_draft',
+      user_name: resolveAuditUserName(audit.auth), department: audit.auth?.department,
+      record_count: audit.itemCount ?? null,
+      details: { req_department: audit.auth?.department || null },
+    })
+  }
+}
+
 export async function fetchAuditLogs({ dateFrom, dateTo, action, userName } = {}) {
   if (!supabase) return []
   let q = supabase
@@ -1924,6 +1960,8 @@ export async function fetchNotifications(scope = null) {
     'ap_send_batch',
     'ap_mark_posted',
     'export_excel',
+    'export_pdf',
+    'clear_req_cart',
     // ── Reorder Analysis ──
     'analysis_run',
     'update_reorder_config',

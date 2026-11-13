@@ -14,6 +14,14 @@ export const REQ_TYPES = [
 
 export const reqTypeLabel = (key) => REQ_TYPES.find(t => t.key === key)?.label || '';
 
+// ตะกร้าในเครื่อง (sessionStorage) — ใช้ร่วม RequisitionApp + การ์ดตะกร้าค้างบนหน้าหลัก (CartReminderCard)
+export const CART_KEY = 'req_cart_draft';
+export const CART_TYPE_KEY = 'req_cart_type'; // ประเภทใบของตะกร้า (1 ใบมีประเภทเดียว — CONTEXT §ใบเบิกออนไลน์)
+// ล้างตะกร้าจากการ์ดต้องล้างในเครื่องด้วย — ไม่งั้นเปิดหน้าเบิกแล้วตะกร้าฟื้นจาก sessionStorage และบันทึกกลับลง DB (พบ 13/11/2569)
+export function clearLocalCart() {
+  try { sessionStorage.removeItem(CART_KEY); sessionStorage.removeItem(CART_TYPE_KEY); } catch { /* storage ถูกปิด */ }
+}
+
 export function reqTypeOfMainLog(mainLog) {
   const s = String(mainLog || '').replace(/\s+/g, '');
   if (s === 'คลังน้ำเกลือ') return 'saline';

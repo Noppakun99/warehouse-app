@@ -11,7 +11,8 @@ import {
   TrendingUp, TrendingDown, ChevronDown, CalendarDays, Database, Hourglass, Search, RotateCcw, Lightbulb, Copy, Check,
   BookOpenCheck, Pencil, Trash2, Plus,
 } from 'lucide-react';
-import { SWAP_ACTION_STATUS, insertFormularyChange, updateFormularyChange, deleteFormularyChange } from './lib/db';
+import { SWAP_ACTION_STATUS, insertFormularyChange, updateFormularyChange, deleteFormularyChange, fetchCartDraft, deleteCartDraft } from './lib/db';
+import { reqTypeLabel, clearLocalCart } from './lib/reqType';
 import { openDrugSearch } from './lib/drugSearchEvent';
 import { isSwapRed, fmtYmdBE } from './lib/workQueue';
 import { parseExpDate } from './lib/drugProfile';
@@ -954,6 +955,86 @@ export function OnboardingCard({ userId, onNavigate }) {
           );
         })}
       </ol>
+    </section>
+  );
+}
+
+// ── การ์ดตะกร้าเบิกที่ยังไม่ส่ง (requester — requisition_cart_draft · เห็นเฉพาะเจ้าของตะกร้า) ──────
+// ผู้เบิกใส่ยาแล้วปิดแอป/เปลี่ยนเครื่อง → เตือนบนหน้าหลัก · "เบิกต่อ" เปิดหน้าตะกร้า · "ล้างตะกร้า" ลบ + audit clear_req_cart
+const fmtDraftAt = (iso) => {
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear() + 543} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+export function CartReminderCard({ auth, onContinue }) {
+  const [draft, setDraft] = useState(null);
+  const [confirm, setConfirm] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [error, setError] = useState('');
+  const userId = auth?.id;
+  useEffect(() => {
+    let alive = true;
+    if (userId) fetchCartDraft(userId).then(d => { if (alive) setDraft(d); });
+    return () => { alive = false; };
+  }, [userId]);
+  if (!draft) return null;
+
+  const items = draft.items || [];
+  const typeLabel = reqTypeLabel(draft.req_type);
+  const preview = items.slice(0, 3).map(i => i.name).filter(Boolean);
+  const clear = async () => {
+    setClearing(true); setError('');
+    try {
+      await deleteCartDraft(userId, { auth, itemCount: items.length });
+      clearLocalCart();
+      setDraft(null);
+    } catch {
+      setError('ล้างตะกร้าไม่สำเร็จ ลองใหม่อีกครั้ง');
+    } finally {
+      setClearing(false); setConfirm(false);
+    }
+  };
+  return (
+    <section className="mt-4 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-900/60 rounded-2xl shadow-sm p-4">
+      <div className="flex items-start gap-3">
+        <span className="p-2 rounded-xl bg-blue-100 dark:bg-blue-950/60 text-[#1E90FF] shrink-0"><ShoppingCart size={18} /></span>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-bold text-slate-800 dark:text-slate-100">มีตะกร้าเบิกที่ยังไม่ได้ส่ง</h3>
+          <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5">
+            {typeLabel ? `ใบเบิก${typeLabel} · ` : ''}<b className="tabular-nums">{fmtNum(items.length)}</b> รายการ
+          </p>
+          {preview.length > 0 && (
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+              {preview.join(' · ')}{items.length > preview.length ? ` และอีก ${fmtNum(items.length - preview.length)} รายการ` : ''}
+            </p>
+          )}
+          {draft.updated_at && <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">แก้ไขล่าสุด {fmtDraftAt(draft.updated_at)}</p>}
+          {error && <p className="text-xs text-red-600 dark:text-red-400 mt-1">{error}</p>}
+        </div>
+      </div>
+      <div className="mt-3 flex gap-2">
+        <button type="button" onClick={onContinue}
+          className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-semibold bg-[#1E90FF] hover:bg-blue-600 text-white transition-colors">
+          <ShoppingCart size={15} /> เบิกต่อ
+        </button>
+        <button type="button" onClick={() => setConfirm(true)} disabled={clearing}
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50">
+          <Trash2 size={15} /> ล้างตะกร้า
+        </button>
+      </div>
+      <ConfirmModal
+        open={confirm}
+        title="ล้างตะกร้าเบิก?"
+        message={`รายการในตะกร้า ${fmtNum(items.length)} รายการจะถูกลบ และยังไม่ได้ส่งเป็นใบเบิก`}
+        confirmText="ล้างตะกร้า"
+        cancelText="ยกเลิก"
+        tone="danger"
+        loading={clearing}
+        onConfirm={clear}
+        onClose={() => !clearing && setConfirm(false)}
+      />
     </section>
   );
 }
