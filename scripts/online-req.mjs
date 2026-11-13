@@ -6,6 +6,9 @@
 //   node scripts/online-req.mjs --writeback --plan <plan.json> [--commit]
 //        → หลังลงชีทแล้ว: receipt_no · sheet_entered_at · status approved · picked_allocation · audit
 //          ต้องรัน **ก่อน** import:master (กฎเลิกหักยอดจอง src/lib/reservation.js)
+//   node scripts/online-req.mjs --mark-entered --req <เลขใบ> --receipt บย.70/xxxx [--commit]
+//        → ใบที่ลงชีทด้วยมือ (นอก pilot): ตั้ง receipt_no + sheet_entered_at เท่านั้น ไม่แตะสถานะ/lot
+//          ไม่ตั้ง = ใบหักยอดจองค้างตลอดไป · รัน **ก่อน** import:master เหมือน --writeback
 //   node scripts/online-req.mjs --backtest --file <สำเนา xlsm> --rows 9068-9077,9079-9145
 //        → ทดสอบย้อนหลัง: เอารายการของแถวเบิกที่ลงมือไว้ วางแผนใหม่ด้วยยอดคงคลังย้อนกลับ แล้วเทียบ lot
 import XLSX from 'xlsx'
@@ -188,13 +191,39 @@ if (A.has('--writeback')) {
     const { error } = await supabase.from('requisitions')
       .update({ receipt_no: r.receipt, sheet_entered_at: now, status: 'approved', updated_at: now }).eq('id', r.id)
     if (error) die(error.message)
-    await supabase.from('audit_logs').insert({ action: 'sheet_enter_requisition', table_name: 'requisitions', user_name: A.user,
+    const { error: ea } = await supabase.from('audit_logs').insert({ action: 'sheet_enter_requisition', table_name: 'requisitions', user_name: A.user,
       department: 'คลังยา', record_count: r.items.length,
       details: { requisition_id: r.id, req_number: r.req_number, req_department: r.department, receipt_no: r.receipt, sheet_rows: r.sheetRows } })
-    log('  ✓ เขียนกลับแล้ว')
+    if (ea) log(`  ⚠ เขียนกลับแล้ว แต่บันทึก audit ไม่สำเร็จ (${ea.message}) — กระดิ่ง/ประวัติจะไม่มีรายการนี้`)
+    else log('  ✓ เขียนกลับแล้ว')
   }
   if (!A.commit) log('\n(dry-run — ใส่ --commit เพื่อเขียนจริง)')
   process.exit(0)
 }
 
-log('ใช้: --plan | --writeback | --backtest (ดูหัวไฟล์)')
+// ── --mark-entered ──
+if (A.has('--mark-entered')) {
+  const reqNo = A.valueOf('--req'), receipt = A.valueOf('--receipt')
+  if (!reqNo || !/^บย\.70\/\d{4}$/.test(receipt || '')) die('--mark-entered ต้องมี --req <เลขใบ> และ --receipt บย.70/xxxx')
+  const { data: r, error: e0 } = await supabase.from('requisitions').select('id, req_number, department, status, receipt_no, sheet_entered_at, requisition_items(id)')
+    .eq('req_number', reqNo).maybeSingle()
+  if (e0) die(e0.message)
+  if (!r) die(`ไม่พบใบ ${reqNo}`)
+  if (r.sheet_entered_at) die(`${reqNo} ลงชีทแล้ว ${r.receipt_no || ''} (${r.sheet_entered_at}) — ไม่เขียนทับ`)
+  if (['rejected', 'cancelled'].includes(r.status)) die(`${reqNo} สถานะ ${r.status} — ไม่ต้องตั้ง (ไม่หักยอดจองอยู่แล้ว)`)
+  const { data: dup } = await supabase.from('requisitions').select('req_number').eq('receipt_no', receipt).maybeSingle()
+  if (dup) die(`${receipt} ถูกใช้กับใบ ${dup.req_number} แล้ว`)
+  log(`${reqNo} · ${r.department} · สถานะ ${r.status} → ${receipt}`)
+  if (!A.commit) { log('\n(dry-run — ใส่ --commit เพื่อเขียนจริง)'); process.exit(0) }
+  const now = new Date().toISOString()
+  const { error } = await supabase.from('requisitions').update({ receipt_no: receipt, sheet_entered_at: now, updated_at: now })
+    .eq('id', r.id).is('sheet_entered_at', null)
+  if (error) die(error.message)
+  const { error: ea } = await supabase.from('audit_logs').insert({ action: 'sheet_enter_requisition', table_name: 'requisitions', user_name: A.user,
+    department: 'คลังยา', record_count: r.requisition_items?.length || 0,
+    details: { requisition_id: r.id, req_number: r.req_number, req_department: r.department, receipt_no: receipt, manual: true } })
+  log(ea ? `  ⚠ ตั้งแล้ว แต่บันทึก audit ไม่สำเร็จ (${ea.message})` : '  ✓ ตั้งแล้ว — รัน import:master ต่อเพื่อเลิกหักยอดจอง')
+  process.exit(0)
+}
+
+log('ใช้: --plan | --writeback | --mark-entered | --backtest (ดูหัวไฟล์)')

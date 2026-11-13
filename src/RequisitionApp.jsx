@@ -704,6 +704,9 @@ const remainLotPacks = (on, pickedPacks) => {
   return { remainPacks, label: fmt(remainPacks), before: fmt(before), out: fmt(out) };
 };
 
+// หน่วยคีย์บนจอ: หน่วยซื้อที่มีขนาด (1000เม็ด/450ml) อ่านเป็น "5 × 1000เม็ด" — Master ไม่บอกชื่อภาชนะ (กล่อง/ขวด/กระป๋อง)
+const entryText = (label, pack) => (pack > 1 ? `× ${label}` : label);
+
 // สรุปกล่องคงเหลือ แยกตาม packsize เช่น "105 กล่อง × 1000เม็ด" หรือ "5 × 1000เม็ด + 2 × 500เม็ด"
 const packSummary = (fefoLots) => {
   if (!fefoLots || !fefoLots.length) return '';
@@ -752,12 +755,11 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
       // หักยอดจองออกจาก fefoLots — lot ที่ใบอื่นหยิบแล้วหักตรง lot ส่วนที่ยังไม่จัดหักตามลำดับจ่าย
       // เพื่อให้ allocation preview ในตะกร้าตรงกับ availableBase (ไม่ preview ของที่ถูกจอง)
       const { lots: availLots } = applyHolds(fefoUnique, hold);
-      // หน่วยคีย์: ใบน้ำเกลือ/ถุง คีย์เป็นหน่วยตาม Master (เช่น SWI 1000ml = ขวด) · ใบยาคงคีย์หน่วยย่อยเหมือนเดิม (เฟส 2)
-      const entry = reqType === 'drug'
-        ? { packSize: 1, label: baseUnit, hint: null }
-        : entryUnitOf({ unit: drug.unit, baseUnit, packSizes });
+      // หน่วยคีย์ = หน่วยซื้อตาม Master ทุกประเภทใบ (CONTEXT §หน่วยคีย์ · ใบยาเปลี่ยน 13/11/2569 — คลังจ่ายเต็มกล่อง
+      // คีย์หน่วยย่อยแล้ว "ขอ 1 เม็ด ได้ 1000") · lot ต่างขนาดแพ็ค = คีย์หน่วยย่อย (entryUnitOf)
+      const entry = entryUnitOf({ unit: drug.unit, baseUnit, packSizes });
       return { ...drug, totalBaseRaw, baseUnit, reservedBase, availableBase, pendingBase, entry, fefoLots: availLots };
-    }), [rawResults, reservedMap, reqType]);
+    }), [rawResults, reservedMap]);
   const [qtyMap, setQtyMap]    = useState({});   // key = code+name+lot
   const [warnMap, setWarnMap]  = useState({});   // key = lotKey → warning msg
   const [expandedMap, setExpandedMap] = useState({}); // drugKey → กางรายละเอียด lot ไหม
@@ -983,7 +985,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
       return [...prev, { code: drug.code, name: drug.name, unit: drug.baseUnit, lot: null, drugType: drug.type || '', availableBase: drug.availableBase, fefoLots: drug.fefoLots || [], requestedQty: safeQty, entryPack: pack, entryLabel: drug.entry?.label || drug.baseUnit, entryHint: drug.entry?.hint || null, note: '', addedAt: new Date().toISOString() }];
     });
     setQtyMap(p => ({ ...p, [drugKey]: 1 }));
-    setToast({ name: drug.name, type: drug.type || '', qty: safeQty / pack, unit: drug.entry?.label || drug.baseUnit });
+    setToast({ name: drug.name, type: drug.type || '', qty: safeQty / pack, unit: entryText(drug.entry?.label || drug.baseUnit, pack) });
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -1133,7 +1135,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
                   </div>
                   <div className="flex items-center gap-3 mt-1 flex-wrap">
                     <span className="text-sm text-slate-400 dark:text-slate-500">รหัส: {drug.code}</span>
-                    {inCart && <span className="text-sm text-[#1E90FF] font-bold bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-full">ในตะกร้า: {(inCart.requestedQty / (inCart.entryPack || 1)).toLocaleString()} {inCart.entryLabel || inCart.unit || ''}</span>}
+                    {inCart && <span className="text-sm text-[#1E90FF] font-bold bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-full">ในตะกร้า: {(inCart.requestedQty / (inCart.entryPack || 1)).toLocaleString()} {entryText(inCart.entryLabel || inCart.unit || '', inCart.entryPack || 1)}</span>}
                   </div>
 
                   {/* คงเหลือรวมระดับยา — base unit เด่น + สรุปกล่องแยก packsize */}
@@ -1216,7 +1218,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
                         }}
                         className={`w-24 bg-white dark:bg-slate-900 border rounded-lg px-2 py-2 text-slate-800 dark:text-slate-100 text-center text-base font-semibold focus:outline-none focus:ring-2 focus:ring-[#1E90FF] ${warnMap[drugKey] ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/40' : 'border-slate-300 dark:border-slate-600'}`} />
                       <span className="text-sm text-slate-500 dark:text-slate-400">
-                        {drug.entry?.label || drug.baseUnit}
+                        {entryText(drug.entry?.label || drug.baseUnit, pack)}
                         {pack > 1 && <span className="text-xs text-slate-400 dark:text-slate-500"> (= {(keyed * pack).toLocaleString()} {drug.baseUnit})</span>}
                       </span>
                       <button onClick={() => addToCart(drug, qtyMap[drugKey] ?? 1)}
@@ -1449,7 +1451,7 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
                     <button onClick={() => updateQty(i, keyed + 1)}
                       className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg p-2 transition-colors"><Plus size={16} /></button>
                     <span className="text-sm text-slate-500 dark:text-slate-400">
-                      {item.entryLabel || item.unit || ''}
+                      {entryText(item.entryLabel || item.unit || '', pack)}
                       {pack > 1 && <span className="text-xs text-slate-400 dark:text-slate-500"> (= {item.requestedQty.toLocaleString()} {item.unit || ''})</span>}
                     </span>
                     {item.entryHint && <p className="w-full text-xs text-blue-700 dark:text-blue-300 font-medium">{item.entryHint}</p>}
