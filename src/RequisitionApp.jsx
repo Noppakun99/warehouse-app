@@ -12,6 +12,7 @@ import { exportToExcel } from './lib/exportExcel';
 import { parseUnit } from './lib/unitParser';
 import { allocateFefo, sortLotsForDispense, lotOrderNote, isSupportedLot } from './lib/lotAllocation';
 import { findOverReserved, availableForOwn, increasedCodes } from './lib/reservationCheck';
+import { RESERVING_STATUSES, summarizeHolds, applyHolds } from './lib/reservation';
 import { deleteRequesterRequisition, updateRequesterRequisition, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 
@@ -530,41 +531,36 @@ async function fetchInvBaseByCode(codes) {
   return map;
 }
 
-// ยอดจองต่อรหัส (หน่วยย่อยสุด) — นับทุกใบที่ของ "ยังไม่ถูกตัดออกจาก inventory จริง":
-//   pending/approved → ตามที่อนุมัติ/ขอ · picking/ready → ตามที่จัดจริง
-//   dispensed/received → ตามที่จัด จนกว่า import inventory รอบใหม่จะสะท้อนการตัดสต็อก (concept เดียวกับ qtyIsPostDispense)
-// (แอปไม่หัก qty เอง — ตัดจริงใน HosXP แล้ว re-import; เดิมนับแค่ pending/approved → ใบที่เริ่มจัดปล่อยจองคืนทั้งที่ของยังไม่ตัด = ช่องเบิกเกิน)
-// excludeReqId = ไม่นับใบตัวเอง (ตอน requester แก้ใบเดิม — ไม่งั้นยอดเก่าของตัวเองบล็อกการแก้)
-async function fetchReservedBase(codes, { excludeReqId = null } = {}) {
+// ยอดจอง = ตัดยอดชั่วคราว (CONTEXT §ตัดยอดชั่วคราว) — แอปไม่หัก inventory เอง ตัดจริงที่ชีทเบิกแล้วนำเข้า
+// ใบหักยอดจนกว่าลงชีทแล้ว (sheet_entered_at) + มีการนำเข้าหลังลงชีท — กฎอยู่ใน lib/reservation.js
+// คืน { [codeKey]: { total, byLot, unassigned } } (หน่วยย่อยสุด)
+// excludeReqId = ไม่นับใบตัวเอง (ตอน requester แก้ใบเดิม / staff จัดใบนี้)
+async function fetchReservationHolds(codes, { excludeReqId = null } = {}) {
   if (!supabase || !codes.length) return {};
   const lastImportAt = await fetchLastInventoryImportAt();
-  const { data } = await supabase
-    .from('requisition_items')
-    .select('drug_code, requisition_id, requested_qty, approved_qty, picked_qty, picked_allocation, requisitions!inner(status, dispensed_at, updated_at)')
-    .in('drug_code', codes)
-    .in('requisitions.status', ['pending', 'approved', 'picking', 'ready', 'dispensed', 'received']);
-  const map = {};
-  (data || []).forEach(item => {
-    if (!item.drug_code) return;
-    if (excludeReqId != null && item.requisition_id === excludeReqId) return;
-    const st = item.requisitions?.status;
-    let qty = 0;
-    if (st === 'pending' || st === 'approved') {
-      qty = Number(item.approved_qty ?? item.requested_qty) || 0;
-    } else {
-      if (st === 'dispensed' || st === 'received') {
-        const dispensedAt = item.requisitions?.dispensed_at || item.requisitions?.updated_at;
-        if (dispensedAt && lastImportAt && new Date(lastImportAt) > new Date(dispensedAt)) return; // ตัดสต็อกแล้ว
-      }
-      qty = Array.isArray(item.picked_allocation) && item.picked_allocation.length
-        ? item.picked_allocation.reduce((s, a) => s + (Number(a.base) || 0), 0)
-        : Number(item.picked_qty ?? item.approved_qty ?? item.requested_qty) || 0;
-    }
-    if (qty <= 0) return;
-    const k = codeKey(item.drug_code);
-    map[k] = (map[k] || 0) + qty;
-  });
-  return map;
+  const rows = [];
+  // กรองใบที่เลิกหักแล้วฝั่ง DB — ใบจ่ายแล้วสะสมทุกวัน ถ้าดึงมากรองในเบราว์เซอร์จะชนเพดาน 1000 แถว (Rule #2)
+  for (let from = 0; ; from += 1000) {
+    let q = supabase
+      .from('requisition_items')
+      .select('id, drug_code, requisition_id, requested_qty, approved_qty, picked_qty, picked_allocation, requisitions!inner(status, sheet_entered_at)')
+      .in('drug_code', codes)
+      .in('requisitions.status', RESERVING_STATUSES)
+      .order('id')
+      .range(from, from + 999);
+    if (lastImportAt) q = q.or(`sheet_entered_at.is.null,sheet_entered_at.gt."${lastImportAt}"`, { referencedTable: 'requisitions' });
+    const { data, error } = await q;
+    if (error) { console.error('fetchReservationHolds', error); break; }
+    (data || []).forEach(r => rows.push({ ...r, status: r.requisitions?.status, sheet_entered_at: r.requisitions?.sheet_entered_at }));
+    if (!data || data.length < 1000) break;
+  }
+  return summarizeHolds(rows, { keyOf: codeKey, lastImportAt, excludeReqId });
+}
+
+// ยอดจองรวมต่อรหัส (หน่วยย่อยสุด) — ใช้ re-validate ตอนส่ง/แก้ใบเบิก
+async function fetchReservedBase(codes, opts) {
+  const holds = await fetchReservationHolds(codes, opts);
+  return Object.fromEntries(Object.entries(holds).map(([k, h]) => [k, h.total]));
 }
 
 // เปิดหน้าปริ้นจาก Blob URL — LINE/FB in-app WebView บล็อก window.open → คืน null → นำทางผ่าน <a> click แทน (Rule #4)
@@ -672,7 +668,7 @@ const packSummary = (fefoLots) => {
 function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
   const [q, setQ]              = useState('');
   const [rawResults, setRawResults] = useState([]);   // inventory data (no reservation)
-  const [reservedMap, setReservedMap] = useState({}); // drug_code → total reserved qty (หน่วยย่อยสุด, realtime)
+  const [reservedMap, setReservedMap] = useState({}); // codeKey → { total, byLot, unassigned } ยอดจอง (หน่วยย่อยสุด, realtime)
   const [loading, setLoading]  = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
 
@@ -697,19 +693,12 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
       const fefoUnique = sortLotsForDispense(mergeSameLotEntries(fefoLots), parseExp);
       // baseUnit = หน่วยย่อยที่พบบ่อยสุด (ปกติยาตัวเดียวกันหน่วยเดียว)
       const baseUnit = Object.keys(baseUnitCount).sort((a, b) => baseUnitCount[b] - baseUnitCount[a])[0] || (drug.unit || '');
-      const reservedBase = reservedMap[codeKey(drug.code)] || 0;
+      const hold = reservedMap[codeKey(drug.code)];
+      const reservedBase = hold?.total || 0;
       const availableBase = Math.max(0, totalBaseRaw - reservedBase);
-      // หัก reservation ออกจาก fefoLots ตามลำดับ FEFO (ของที่จองไปแล้ว = lot ใกล้หมดอายุก่อน)
+      // หักยอดจองออกจาก fefoLots — lot ที่ใบอื่นหยิบแล้วหักตรง lot ส่วนที่ยังไม่จัดหักตามลำดับจ่าย
       // เพื่อให้ allocation preview ในตะกร้าตรงกับ availableBase (ไม่ preview ของที่ถูกจอง)
-      let toReserve = reservedBase;
-      const availLots = [];
-      for (const l of fefoUnique) {
-        if (toReserve <= 0) { availLots.push(l); continue; }
-        if (toReserve >= l.base) { toReserve -= l.base; continue; } // lot นี้ถูกจองหมด
-        const leftBase = l.base - toReserve;
-        availLots.push({ ...l, base: leftBase, packs: l.packSize ? leftBase / l.packSize : leftBase });
-        toReserve = 0;
-      }
+      const { lots: availLots } = applyHolds(fefoUnique, hold);
       return { ...drug, totalBaseRaw, baseUnit, reservedBase, availableBase, fefoLots: availLots };
     }), [rawResults, reservedMap]);
   const [qtyMap, setQtyMap]    = useState({});   // key = code+name+lot
@@ -823,8 +812,8 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
 
       // หัก qty ที่มี requisition pending/approved อยู่ (reserved) ออกจาก available — ต่อรหัสยา (B-base, ADR-0004)
       // requested_qty เป็นหน่วยย่อยสุดอยู่แล้ว จึงรวมต่อ code ได้ตรงๆ
-      // ยอดจองครบวงจร (pending→dispensed จนกว่า import) — ดู fetchReservedBase
-      const reservedQtyMap = await fetchReservedBase(uniqueCodes);
+      // ยอดจองครบวงจร (ส่งใบ → ลงชีทแล้วนำเข้า) — ดู fetchReservationHolds
+      const reservedQtyMap = await fetchReservationHolds(uniqueCodes);
       const supplierMap = {}; // "code|lot|invoice" → entry (exact), "code|lot" → fallback
       if (uniqueCodes.length > 0) {
         const CHUNK = 500;
@@ -891,7 +880,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
     if (allCodes.length === 0) return;
 
     const fetchReserved = async () => {
-      setReservedMap(await fetchReservedBase(allCodes));
+      setReservedMap(await fetchReservationHolds(allCodes));
     };
 
     const channel = supabase
@@ -1079,7 +1068,7 @@ function DrugSearch({ info, cart, setCart, onCart, onHistory, onBack }) {
                         <span className="font-extrabold text-emerald-600">{remaining.toLocaleString()}</span>
                         <span className="text-slate-500 dark:text-slate-400"> {drug.baseUnit}</span>
                         {drug.reservedBase > 0 && (
-                          <span className="ml-1.5 text-xs text-slate-400 dark:text-slate-500">(จองแล้ว {drug.reservedBase.toLocaleString()})</span>
+                          <span className="ml-1.5 text-xs text-slate-400 dark:text-slate-500">(หักใบรอลงชีท {drug.reservedBase.toLocaleString()})</span>
                         )}
                       </p>
                       {packSummary(drug.fefoLots) && (
@@ -2391,7 +2380,8 @@ function PickingModal({ req, auth, onClose, onDone }) {
   useEffect(() => {
     const codes = [...new Set(approvedItems.map(i => i.drug_code).filter(Boolean))];
     if (!codes.length) { setLoadingInv(false); return; }
-    fetchInventoryByCodes(codes).then(data => {
+    // ใบอื่นที่หยิบ lot ไปแล้วแต่ยังไม่ลงชีท+นำเข้า (ใบจ่ายก่อนลงชีท) — ของออกจากชั้นแล้วแต่ inventory ยังไม่ลด
+    Promise.all([fetchInventoryByCodes(codes), fetchReservationHolds(codes, { excludeReqId: req.id })]).then(([data, holds]) => {
       const map = {};
       data.forEach(row => {
         const code = String(row.code || '').trim();
@@ -2402,12 +2392,14 @@ function PickingModal({ req, auth, onClose, onDone }) {
       setItemStates(prev => prev.map(item => {
         const lots = map[String(item.drug_code || '').trim()] || [];
         // บวกรวมแถวซ้ำ lot เดียวกันก่อน — ห้ามปล่อยซ้ำเข้า allocation/onhand (บัคแถวซ้ำ 2026-07-18)
-        const fefoLots = sortLotsForDispense(mergeSameLotEntries(lots.map(l => {
+        const sortedLots = sortLotsForDispense(mergeSameLotEntries(lots.map(l => {
           const { packSize, baseUnit } = parseUnit(l.unit);
           const packs = parseFloat(l.qty) || 0;
           // unit = หน่วยเต็ม (แสดง packs × unit), baseUnit = หน่วยย่อยล้วน (เม็ด/amp/ขวด) สำหรับ label คงเหลือ
           return { lot: l.lot, exp: l.exp, unit: l.unit, location: l.location, itemType: l.item_type || '', baseUnit: baseUnit || l.unit, packSize: packSize || 1, packs, base: packs * (packSize || 1) };
         })), parseExp);
+        // หักราย lot เฉพาะที่ถูกหยิบไปจริง — ใบที่ยังไม่จัดไม่หัก (ของยังอยู่บนชั้น)
+        const { lots: fefoLots, held: heldBase } = applyHolds(sortedLots, holds[codeKey(item.drug_code)], { fefoRemainder: false });
         // lot หมดอายุห้ามจัด (FEFO จะหยิบ exp เก่าสุดก่อน = หมดอายุก่อน) — ให้ตรงกับฝั่งค้นหาผู้เบิก
         const alloc = allocateFefo(item.approved_qty, fefoLots.filter(lotNotExpired));
         const first = alloc.allocation[0];
@@ -2421,7 +2413,7 @@ function PickingModal({ req, auth, onClose, onDone }) {
           prev2.packs += l.packs;
           lotOnHand[k] = prev2;
         });
-        return { ...item, allocation: alloc.allocation, shortfallBase: alloc.shortfallBase, allocatedBase: alloc.allocatedBase, overBase: alloc.overBase, lotOnHand,
+        return { ...item, allocation: alloc.allocation, shortfallBase: alloc.shortfallBase, allocatedBase: alloc.allocatedBase, overBase: alloc.overBase, lotOnHand, heldBase,
           picked_lot: first?.lot || '', picked_exp: first?.exp || '', picked_qty: alloc.allocatedBase };
       }));
       setLoadingInv(false);
@@ -2493,6 +2485,11 @@ function PickingModal({ req, auth, onClose, onDone }) {
                       <p className="text-xs text-slate-500 dark:text-slate-400">
                         อนุมัติ <span className="font-bold text-emerald-600">{Number(item.approved_qty).toLocaleString()}</span> {item.drug_unit || ''}
                       </p>
+                      {item.heldBase > 0 && (
+                        <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                          คงเหลือ lot หักใบรอลงชีท {Number(item.heldBase).toLocaleString()} {item.drug_unit || ''} (ใบอื่นหยิบไปแล้ว ยังไม่ลงชีท)
+                        </p>
+                      )}
                     </div>
                     {alloc.length > 0 ? (
                       <div>
