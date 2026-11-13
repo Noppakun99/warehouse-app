@@ -124,6 +124,7 @@ Single-page React (ไม่มี React Router) — ทุก Supabase query �
 | Roadmap | [docs/roadmap.md](docs/roadmap.md) | วางแผน feature ใหม่ |
 | Testing | [docs/testing.md](docs/testing.md) | รัน/แก้ test |
 | Deployment | [docs/deployment.md](docs/deployment.md) | ขึ้นเว็บจริง / deploy ไม่ผ่าน |
+| ใบเบิกออนไลน์ → ชีทเบิก | [docs/features/online-requisition.md](docs/features/online-requisition.md) | ลงใบเบิกออนไลน์ห้องยาG / แก้ `online-req.mjs` · `onlineReqPlan.js` |
 | บอทประกาศรอบเบิก-รับ | [docs/features/requisition-announce.md](docs/features/requisition-announce.md) | แก้บอท / ปฏิทินวันหยุด |
 | Expiry Alert Edge Function | [docs/expiry-alert-edge-function.md](docs/expiry-alert-edge-function.md) | แก้/deploy expiry alert |
 | Apps Script expiry (backup) | [docs/apps-script-expiry-alert.md](docs/apps-script-expiry-alert.md) | reference สคริปต์เดิม |
