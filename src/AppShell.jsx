@@ -93,12 +93,15 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
   // sync class 'dark' ที่ <html> — Tailwind darkMode:'class' อ่านจากตรงนี้
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
+    // ของ native (scrollbar · ปฏิทิน · ช่องกรอกที่ไม่ได้ใส่ bg) ตามธีม — class dark อย่างเดียวไม่ถึง (scrollbar ขาวในโมดอลจัดยา 13/11/2569)
+    document.documentElement.style.colorScheme = dark ? 'dark' : '';
     // แถบสถานะมือถือ/แอปที่ติดตั้ง = สี top bar (bg-white / dark:bg-slate-900)
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0f172a' : '#ffffff');
     try { localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light'); } catch { /* localStorage ปิด — ธีมไม่ถูกจำ แต่ยังสลับได้ */ }
     // ออกจากระบบ (AppShell unmount) → หน้า login สว่างเสมอ ไม่ค้าง class จาก session ก่อน · ธีมที่จำไว้ยังอยู่ login ใหม่กลับมาเอง
     return () => {
       document.documentElement.classList.remove('dark');
+      document.documentElement.style.colorScheme = '';
       document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#ffffff');
     };
   }, [dark]);

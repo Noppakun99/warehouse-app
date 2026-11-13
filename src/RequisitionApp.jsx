@@ -332,7 +332,7 @@ export default function RequisitionApp({ onBack, onRefresh, prefilledUser = null
 
   return (
     <RefreshCtx.Provider value={onRefresh}>
-      <div className="min-h-screen text-slate-800 dark:text-slate-100 font-sans" style={{background:'#F0F8FF'}}>
+      <div className="min-h-screen bg-[#F0F8FF] dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans">
         {view === 'home'      && <HomeView      onSelect={setView} onBack={onBack} />}
         {view === 'requester' && <RequesterRoot onBack={() => prefilledUser ? onBack() : setView('home')} prefilledUser={prefilledUser} initialStep={initialStep} auth={auth} />}
         {view === 'staff' && (
@@ -503,7 +503,7 @@ function RequesterLogin({ onLogin, onBack }) {
           <div>
             <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">ชื่อ-สกุล ผู้เบิก</label>
             <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="กรอกชื่อ-สกุล" required
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF] focus:border-transparent" />
+              className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF] focus:border-transparent" />
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">หน่วยงาน</label>
@@ -2378,7 +2378,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                     <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">หมายเหตุ</label>
                     <input type="text" value={editDraft?.note||''} onChange={e => setEditDraft(d => ({ ...d, note: e.target.value }))}
                       placeholder="หมายเหตุ (ถ้ามี)"
-                      className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   {editError && (
                     <p className="text-xs text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2 flex items-start gap-1.5">
@@ -2594,7 +2594,7 @@ function PickingModal({ req, auth, onClose, onDone }) {
             <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">ชื่อผู้จัดยา</label>
             <input type="text" value={pickerName} onChange={e => setPickerName(e.target.value)}
               placeholder="กรอกชื่อผู้จัดยา"
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-400" />
+              className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-400" />
           </div>
 
           {loadingInv ? (
@@ -2778,7 +2778,7 @@ function VerifyModal({ req, auth, onClose, onDone }) {
             <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">ชื่อผู้ตรวจนับ</label>
             <input type="text" value={verifierName} onChange={e => setVerifierName(e.target.value)}
               placeholder="กรอกชื่อผู้ตรวจนับ"
-              className="w-full border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
             {isSamePicker && (
               <div className="flex items-start gap-2 bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900/60 rounded-xl px-3 py-2 mt-2">
                 <AlertCircle size={14} className="text-orange-500 shrink-0 mt-0.5" />
@@ -3062,7 +3062,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
           </div>
           {/* Filter toggle — mobile only */}
           <button onClick={() => setShowFilters(f => !f)}
-            className={`sm:hidden flex items-center justify-center w-9 h-9 rounded-xl border transition-colors shrink-0 ${showFilters || searchDept || !dateFilter ? 'bg-[#F0F8FF] border-[#1E90FF] text-[#1E90FF]' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:border-slate-400'}`}>
+            className={`sm:hidden flex items-center justify-center w-9 h-9 rounded-xl border transition-colors shrink-0 ${showFilters || searchDept || !dateFilter ? 'bg-[#F0F8FF] dark:bg-blue-950/40 border-[#1E90FF] dark:border-blue-700 text-[#1E90FF] dark:text-blue-300' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:border-slate-400'}`}>
             <SlidersHorizontal size={16}/>
           </button>
           {/* Desktop: always visible */}
@@ -3076,7 +3076,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
                 className="absolute inset-0 opacity-0 w-full cursor-pointer text-base" />
             </div>
             <button onClick={() => setDateFilter('')}
-              className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] text-[#1E90FF] border-[#1E90FF]' : 'text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+              className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] dark:bg-blue-950/40 text-[#1E90FF] dark:text-blue-300 border-[#1E90FF] dark:border-blue-700' : 'text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
               ทั้งหมด
             </button>
             <div className="relative min-w-[160px]">
@@ -3106,7 +3106,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
                   className="absolute inset-0 opacity-0 w-full cursor-pointer text-base" />
               </div>
               <button onClick={() => setDateFilter('')}
-                className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] text-[#1E90FF] border-[#1E90FF]' : 'text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+                className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] dark:bg-blue-950/40 text-[#1E90FF] dark:text-blue-300 border-[#1E90FF] dark:border-blue-700' : 'text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
                 ทั้งหมด
               </button>
             </div>
@@ -3139,7 +3139,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
             }
           }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm whitespace-nowrap font-medium transition ${
-              filter === tab.key ? 'bg-[#F0F8FF] text-[#1E90FF]' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+              filter === tab.key ? 'bg-[#F0F8FF] dark:bg-blue-950/40 text-[#1E90FF] dark:text-blue-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}>
             {tab.label}
             {tab.key === 'pending'  && pendingCount  > 0 && (
@@ -3506,6 +3506,13 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         </div>
 
         <div className="flex-1 p-4 space-y-3 pb-40">
+          {/* อยู่ในเนื้อหา ไม่ใช่แถบล่าง — แถบล่าง fixed left-0 ถูก sidebar (lg:pl-60) บังต้นข้อความ */}
+          {isPending && awaitsSheet && (
+            <p className="no-print flex items-start gap-2 text-sm text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-3 py-2">
+              <AlertCircle size={16} className="shrink-0 mt-0.5"/>
+              <span>รอคลังลงชีทเบิก — เมื่อลงแล้วใบจะขึ้น "ลงชีทแล้ว บย." และพร้อมจัดยาตาม lot ในชีท</span>
+            </p>
+          )}
           {/* Search bar — แสดงเมื่อมีรายการ > 3 */}
           {items.length > 3 && (
             <div className="no-print">
@@ -3676,12 +3683,6 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
 
         {isPending && (
           <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 space-y-2">
-            {awaitsSheet && (
-              <p className="flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-3 py-2">
-                <AlertCircle size={14} className="shrink-0 mt-0.5"/>
-                <span>รอคลังลงชีทเบิก — เมื่อลงแล้วใบจะขึ้น "ลงชีทแล้ว บย." และพร้อมจัดยาตาม lot ในชีท</span>
-              </p>
-            )}
             <div className="grid grid-cols-[1fr_auto] gap-2">
               {awaitsSheet ? (
                 <button onClick={() => setSelfDispenseOpen(true)} disabled={loading}
