@@ -205,7 +205,8 @@ const ACTION_LABELS = {
   requester_delete_requisition: { label: 'ลบใบเบิก',                color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'        },
   delete_requisition:           { label: 'ลบใบเบิก (staff)',         color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'        },
   update_requisition:           { label: 'แก้ไขใบเบิก (staff)',      color: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'    },
-  picking_requisition:          { label: 'จัดยา (Picking)',          color: 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'     },
+  sheet_enter_requisition:      { label: 'ลงชีทเบิก (ใบออนไลน์)',  color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300' },
+  picking_requisition:          { label: 'จัดยา (Picking)',         color: 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'     },
   verify_requisition:           { label: 'ตรวจสอบใบเบิก',           color: 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300' },
   dispense_requisition:         { label: 'จ่ายยา',                   color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
   received_requisition:         { label: 'รับยาที่หน่วยงาน',         color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300'     },
@@ -575,7 +576,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
 
   // dropdown กรอง action — จัดกลุ่มตาม workflow, label มาจาก ACTION_LABELS (single source ไม่ duplicate)
   const ACTION_GROUPS = [
-    { label: 'ใบเบิกยา',   keys: ['submit_requisition', 'requisition_conflict_withdrawn', 'requester_edit_requisition', 'requester_delete_requisition', 'update_requisition', 'delete_requisition', 'picking_requisition', 'verify_requisition', 'dispense_requisition', 'received_requisition'] },
+    { label: 'ใบเบิกยา',   keys: ['submit_requisition', 'requisition_conflict_withdrawn', 'requester_edit_requisition', 'requester_delete_requisition', 'update_requisition', 'delete_requisition', 'sheet_enter_requisition', 'picking_requisition', 'verify_requisition', 'dispense_requisition', 'received_requisition'] },
     { label: 'รับยา',      keys: ['import_receive', 'scan_invoice', 'map_drug_alias', 'update_receive', 'delete_receive'] },
     { label: 'จ่ายยา',     keys: ['import_dispense', 'update_dispense', 'delete_dispense'] },
     { label: 'คืนยา',      keys: ['insert_return', 'confirm_return', 'update_return', 'delete_return', 'flag_swap_return', 'swap_return_action', 'seed_swap_policy'] },

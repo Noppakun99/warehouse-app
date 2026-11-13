@@ -1894,6 +1894,7 @@ export async function fetchNotifications(scope = null) {
     'requester_delete_requisition',
     'delete_requisition',
     'update_requisition',
+    'sheet_enter_requisition',
     'picking_requisition',
     'verify_requisition',
     'dispense_requisition',

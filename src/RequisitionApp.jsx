@@ -2460,6 +2460,7 @@ function PickingModal({ req, auth, onClose, onDone }) {
   const [loadingInv, setLoadingInv]     = useState(true);
   const [saving, setSaving]             = useState(false);
   const [error, setError]               = useState('');
+  const sheetMode = !!req.sheet_entered_at;
 
   const approvedItems = useMemo(() =>
     (req.requisition_items || []).filter(item => (item.approved_qty ?? item.requested_qty) > 0),
@@ -2481,6 +2482,27 @@ function PickingModal({ req, auth, onClose, onDone }) {
   );
 
   useEffect(() => {
+    // ใบที่ลงชีทเบิกแล้ว (scripts/online-req.mjs) = lot ตัดในชีทไปแล้ว → จัดตาม lot ในชีท ห้ามคำนวณ FEFO ใหม่
+    // (หลังนำเข้า inventory ลดไปแล้ว คำนวณใหม่ = ได้ lot/คงเหลือหลังหัก ผิดทั้งคู่)
+    if (sheetMode) {
+      setItemStates(prev => prev.map(item => {
+        const src = approvedItems.find(i => i.id === item.id);
+        const alloc = (Array.isArray(src?.picked_allocation) ? src.picked_allocation : [])
+          .map(a => ({ ...a, packSize: a.packSize || (a.packs ? a.base / a.packs : 1), unit: a.unit || '' }));
+        const lotOnHand = {};
+        alloc.forEach(a => {
+          if (a.onhand == null) return;
+          lotOnHand[String(a.lot || '').trim()] = { packs: a.onhand / a.packSize, packSize: a.packSize, unit: a.baseUnit || '' };
+        });
+        const allocatedBase = alloc.reduce((s, a) => s + (Number(a.base) || 0), 0);
+        const want = Number(item.approved_qty) || 0;
+        return { ...item, allocation: alloc, lotOnHand, heldBase: 0, allocatedBase,
+          shortfallBase: Math.max(0, want - allocatedBase), overBase: Math.max(0, allocatedBase - want),
+          picked_lot: alloc[0]?.lot || '', picked_exp: alloc[0]?.exp || '', picked_qty: allocatedBase };
+      }));
+      setLoadingInv(false);
+      return;
+    }
     const codes = [...new Set(approvedItems.map(i => i.drug_code).filter(Boolean))];
     if (!codes.length) { setLoadingInv(false); return; }
     // ใบอื่นที่หยิบ lot ไปแล้วแต่ยังไม่ลงชีท+นำเข้า (ใบจ่ายก่อนลงชีท) — ของออกจากชั้นแล้วแต่ inventory ยังไม่ลด
@@ -2532,7 +2554,8 @@ function PickingModal({ req, auth, onClose, onDone }) {
         picked_lot: it.picked_lot || null,
         picked_exp: it.picked_exp || null,
         picked_qty: parseInt(it.picked_qty) || 0,
-        picked_allocation: (it.allocation && it.allocation.length)
+        picked_allocation: sheetMode ? (it.allocation?.length ? it.allocation : null)
+          : (it.allocation && it.allocation.length)
           // onhand = คงเหลือ lot นั้น (หน่วยย่อยสุด) snapshot ณ ตอนจัด — ใบ lot คุมใช้เป็น "คงเหลือก่อนเบิก" ที่พิมพ์ซ้ำเมื่อไหร่ก็ตรง
           ? it.allocation.map(a => {
               const oh = it.lotOnHand?.[String(a.lot || '').trim()];
@@ -2596,7 +2619,7 @@ function PickingModal({ req, auth, onClose, onDone }) {
                     </div>
                     {alloc.length > 0 ? (
                       <div>
-                        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">จ่ายจาก Lot (FEFO — ใกล้หมดอายุก่อน)</label>
+                        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">{sheetMode ? `จ่ายจาก Lot ตามชีทเบิก${req.receipt_no ? ` (${req.receipt_no})` : ''}` : 'จ่ายจาก Lot (FEFO — ใกล้หมดอายุก่อน)'}</label>
                         <div className="space-y-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5">
                           {alloc.map((a, ai) => {
                             const remain = remainLotPacks(item.lotOnHand?.[String(a.lot || '').trim()], a.packs);
@@ -2783,7 +2806,11 @@ function VerifyModal({ req, auth, onClose, onDone }) {
                 <div className="mt-1 space-y-1">
                   {allocs.map((a, ai) => {
                     const key = `${String(item.drug_code || '').trim()}|${String(a.lot || '').trim()}`;
-                    const on = onHandLotMap ? onHandLotMap[key] : null;
+                    // ใบลงชีทแล้ว: คงเหลือสดหลังนำเข้าหักใบนี้ไปแล้ว → ใช้ snapshot ก่อนจ่ายที่สคริปต์ลงชีทเก็บไว้
+                    const ps = a.packSize || (a.packs ? a.base / a.packs : 1);
+                    const on = req.sheet_entered_at && a.onhand != null
+                      ? { packs: a.onhand / ps, packSize: ps, unit: a.baseUnit || '' }
+                      : (onHandLotMap ? onHandLotMap[key] : null);
                     const remain = remainLotPacks(on, a.packs);
                     return (
                       <div key={ai} className="text-xs text-slate-500 dark:text-slate-400">
@@ -3198,6 +3225,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
                       <p className="text-sm text-slate-500 dark:text-slate-400">ผู้เบิก: <span className="font-medium text-slate-700 dark:text-slate-200">{req.requester_name}</span></p>
                       <span className="text-slate-300 dark:text-slate-500 text-xs">·</span>
                       <p className="font-mono text-xs text-slate-400 dark:text-slate-500">{req.req_number}{req.req_type && <span className="font-sans font-semibold text-blue-600 dark:text-blue-300"> · ใบเบิก{reqTypeLabel(req.req_type)}</span>}</p>
+                      {req.receipt_no && <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded px-1.5 py-0.5">ลงชีทแล้ว {req.receipt_no}</span>}
                     </div>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 bg-slate-50 dark:bg-slate-800 rounded-xl px-2.5 py-1 truncate">
                       {drugPreview(req.requisition_items)}

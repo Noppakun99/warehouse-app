@@ -20,7 +20,8 @@ const NOTIF_LABELS = {
   requester_delete_requisition: { label: 'ลบใบเบิก',             color: 'text-red-600',    dot: 'bg-red-400'   },
   delete_requisition:           { label: 'ลบใบเบิก',             color: 'text-red-600',    dot: 'bg-red-400'   },
   update_requisition:           { label: 'แก้ไขใบเบิก',          color: 'text-amber-600',  dot: 'bg-amber-400' },
-  picking_requisition:          { label: 'จัดยา',                color: 'text-blue-600',   dot: 'bg-blue-400'  },
+  sheet_enter_requisition:      { label: 'ลงชีทเบิก',            color: 'text-emerald-600', dot: 'bg-emerald-400' },
+  picking_requisition:          { label: 'จัดยา',               color: 'text-blue-600',   dot: 'bg-blue-400'  },
   verify_requisition:           { label: 'ตรวจสอบใบเบิก',       color: 'text-indigo-600', dot: 'bg-indigo-400'},
   dispense_requisition:         { label: 'จ่ายยา',                color: 'text-emerald-600',dot: 'bg-emerald-400'},
   received_requisition:         { label: 'หน่วยงานรับยา',        color: 'text-teal-600',   dot: 'bg-teal-400'  },
@@ -91,6 +92,8 @@ function notifMessage(n) {
       const drugs = [...new Set((d.conflicts || []).map(c => c.drug_name).filter(Boolean))].join(', ');
       return `${n.department} ${d.kind === 'edit' ? 'แก้ไขใบเบิก' : 'ส่งใบเบิก'}ไม่สำเร็จ — หน่วยงานอื่นเบิกพร้อมกันจนยาไม่พอ${drugs ? ` (${drugs})` : ''}`;
     }
+    case 'sheet_enter_requisition':
+      return `${who} ลงชีทเบิกใบเบิก${reqRef ? ` ${reqRef}` : ''}${d.receipt_no ? ` เลขรับ ${d.receipt_no}` : ''} · รอจัดยา`;
     case 'picking_requisition':
       return `${who} จัดยาใบเบิก${reqRef ? ` ${reqRef}` : ''}${d.picker_name ? ` (${d.picker_name})` : ''}`;
     case 'verify_requisition':
