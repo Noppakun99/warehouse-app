@@ -76,6 +76,15 @@ try {
   if ($lastNew -gt 11999) { throw "เกินช่วงสูตร T (แถว 7–11999)" }
 
   $fA = $ws.Range("F1:F$mLast").Value2; $kA = $ws.Range("K1:K$mLast").Value2; $mA = $ws.Range("M1:M$mLast").Value2; $jA = $ws.Range("J1:J$mLast").Value2
+  # คีย์สูตร T (SUMIFS ชีทเบิก) = รหัส|lot|ราคา|ชนิดรายการ — 2 แถว Master คีย์เดียวกัน แถวเบิก 1 แถวลด U ทั้งคู่ (13/11/2569 บิล IV6960441)
+  $tKeyRows = @{}
+  for ($i = 2; $i -le $mLast; $i++) {
+    if ("$($fA[$i,1])".Trim() -eq '') { continue }
+    $tk = "$($fA[$i,1])|$($kA[$i,1])|$([double]$jA[$i,1])|$("$($mA[$i,1])".Trim())"
+    if (-not $tKeyRows.ContainsKey($tk)) { $tKeyRows[$tk] = New-Object System.Collections.Generic.List[int] }
+    $tKeyRows[$tk].Add($i)
+  }
+  $tBefore = $ws.Range("T1:T$mLast").Value2
   $base = @{}   # แถว Master → @{ u0; t0; sumQ }
   $its = @()
   $r = $r0
@@ -86,6 +95,8 @@ try {
     $key = "$($fA[$m,1])|$($kA[$m,1])|$("$($mA[$m,1])".Trim())"
     if ($key -ne $p.key) { throw "Master แถว $m คีย์ [$key] ไม่ตรงแผน [$($p.key)] — Master ขยับ ทำแผนใหม่" }
     if ([double]$jA[$m,1] -ne [double]$p.price) { throw "Master แถว $m ราคา $($jA[$m,1]) ไม่ตรงแผน $($p.price)" }
+    $twins = $tKeyRows["$($fA[$m,1])|$($kA[$m,1])|$([double]$jA[$m,1])|$("$($mA[$m,1])".Trim())"]
+    if ($twins.Count -gt 1) { throw "Master แถว $($twins -join '/') คีย์ T ซ้ำกัน (รหัส+lot+ราคา+ชนิดรายการ) — เบิกแล้วยอดลดทุกแถว · แก้ชนิดรายการแถวบิลใหม่เป็น ซื้อยา(2) ก่อน แล้วทำแผนใหม่" }
     $q = [double]$p.q
     $zero = ($q -eq 0)
     if (-not $zero -and "$($ws.Range("C$m").Value2)" -match 'รอตรวจรับ') { throw "Master แถว $m รอตรวจรับ — จ่ายไม่ได้" }
@@ -145,6 +156,12 @@ try {
     $b = $base[$m]
     $tA = [double]$ws.Range("T$m").Value2; $uA = [double]$ws.Range("U$m").Value2
     if ($tA -ne $b.t0 + $b.sumQ -or $uA -ne $b.u0 - $b.sumQ) { $fail += "Master แถว $m T $($b.t0)->$tA U $($b.u0)->$uA ไม่ลดตาม Σq $($b.sumQ)" }
+  }
+  # แถวนอกแผนต้องไม่มี T เปลี่ยน (กันกรณีที่ด่านคีย์ซ้ำข้างบนไม่เห็น)
+  $tAfter = $ws.Range("T1:T$mLast").Value2
+  for ($i = 2; $i -le $mLast; $i++) {
+    if ($base.ContainsKey($i)) { continue }
+    if ("$($tBefore[$i,1])" -ne "$($tAfter[$i,1])") { $fail += "Master แถว $i อยู่นอกแผนแต่ T เปลี่ยน $($tBefore[$i,1])->$($tAfter[$i,1]) (คีย์ T ซ้ำกับแถวในแผน?)" }
   }
   for ($rx = $r0; $rx -le $lastNew; $rx++) {
     $bvv = $wsB.Range("B${rx}:AD$rx").Value2
