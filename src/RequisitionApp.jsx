@@ -14,6 +14,8 @@ import { allocateFefo, sortLotsForDispense, lotOrderNote, isSupportedLot } from 
 import { findOverReserved, availableForOwn, increasedCodes } from './lib/reservationCheck';
 import { RESERVING_STATUSES, summarizeHolds, applyHolds } from './lib/reservation';
 import { REQ_TYPES, reqTypeLabel, reqTypeOfRows, entryUnitOf } from './lib/reqType';
+import { awaitsSheetEntry } from './lib/onlineReqPlan';
+import ConfirmModal from './ConfirmModal';
 import { deleteRequesterRequisition, updateRequesterRequisition, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 
@@ -2953,7 +2955,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
     setBulkLoading(true);
     for (const id of selected) {
       const req = list.find(r => r.id === id);
-      if (!req || req.status !== 'pending') continue;
+      if (!req || req.status !== 'pending' || awaitsSheetEntry(req)) continue;
       for (const item of req.requisition_items || []) {
         await supabase.from('requisition_items').update({ approved_qty: item.requested_qty }).eq('id', item.id);
       }
@@ -2967,7 +2969,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
 
   const approveOne = async (req, e) => {
     e.stopPropagation();
-    if (!supabase || req.status !== 'pending') return;
+    if (!supabase || req.status !== 'pending' || awaitsSheetEntry(req)) return;
     for (const item of req.requisition_items || []) {
       await supabase.from('requisition_items').update({ approved_qty: item.requested_qty }).eq('id', item.id);
     }
@@ -3165,7 +3167,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
           {selected.size > 0 && (
             <>
               <span className="text-xs text-slate-400 dark:text-slate-500">({selected.size} รายการ)</span>
-              {[...selected].some(id => list.find(r => r.id === id)?.status === 'pending') && (
+              {[...selected].some(id => { const r = list.find(x => x.id === id); return r?.status === 'pending' && !awaitsSheetEntry(r); }) && (
                 <button onClick={bulkApprove} disabled={bulkLoading}
                   className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
                   <Check size={13}/> อนุมัติที่เลือก
@@ -3228,6 +3230,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
                       <span className="text-slate-300 dark:text-slate-500 text-xs">·</span>
                       <p className="font-mono text-xs text-slate-400 dark:text-slate-500">{req.req_number}{req.req_type && <span className="font-sans font-semibold text-blue-600 dark:text-blue-300"> · ใบเบิก{reqTypeLabel(req.req_type)}</span>}</p>
                       {req.receipt_no && <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded px-1.5 py-0.5">ลงชีทแล้ว {req.receipt_no}</span>}
+                      {awaitsSheetEntry(req) && <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded px-1.5 py-0.5">รอลงชีทเบิก</span>}
                     </div>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 bg-slate-50 dark:bg-slate-800 rounded-xl px-2.5 py-1 truncate">
                       {drugPreview(req.requisition_items)}
@@ -3268,7 +3271,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
                       <Trash2 size={12}/> {confirming ? 'ยืนยัน?' : 'ลบ'}
                     </button>
                   )}
-                  {isPending && (
+                  {isPending && !awaitsSheetEntry(req) && (
                     <button onClick={e => approveOne(req, e)}
                       className="flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors">
                       <Check size={12}/> อนุมัติด่วน
@@ -3330,6 +3333,9 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
   const isPicking    = currentReq.status==='picking';
   const isReady      = currentReq.status==='ready';
   const isRejected   = currentReq.status==='rejected';
+  // ใบ pilot ที่รอสคริปต์ลงชีท — อนุมัติตรงไม่ได้ ต้องเลือก "จัดจ่ายเอง (ก่อนลงชีท)" แล้วยืนยัน
+  const awaitsSheet  = awaitsSheetEntry(currentReq);
+  const [selfDispenseOpen, setSelfDispenseOpen] = useState(false);
 
   // workflow action ในหน้ารายละเอียด (จัดยา/ตรวจนับ/จ่ายออก) — reuse modal เดิม ไม่ทำ logic ซ้ำ
   const [pickingModal, setPickingModal] = useState(false);
@@ -3426,7 +3432,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
     } catch(e) { setError(e.message); setLoading(false); }
   };
 
-  const save = async (forceStatus) => {
+  const save = async (forceStatus, { beforeSheet = false } = {}) => {
     setLoading(true); setError('');
     try {
       if (supabase) {
@@ -3455,7 +3461,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         const baseNote = (staffNote || requesterNote || '').split('\n').filter(l => !l.startsWith(MARK_OVER)).join('\n').trim();
         const finalNote = [baseNote, ...overLines].filter(Boolean).join('\n') || null;
         await supabase.from('requisitions').update({ status, note:finalNote, updated_at:new Date().toISOString() }).eq('id',req.id);
-        insertAuditLog({ action: 'update_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { req_number: req.req_number, requisition_id: req.id, status } });
+        insertAuditLog({ action: 'update_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { req_number: req.req_number, requisition_id: req.id, status, ...(beforeSheet ? { action_detail: 'approve_before_sheet' } : {}) } });
       }
       onDone();
     } catch(e) { setError(e.message); } finally { setLoading(false); }
@@ -3669,12 +3675,25 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         </div>
 
         {isPending && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
+          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 space-y-2">
+            {awaitsSheet && (
+              <p className="flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-3 py-2">
+                <AlertCircle size={14} className="shrink-0 mt-0.5"/>
+                <span>รอคลังลงชีทเบิก — เมื่อลงแล้วใบจะขึ้น "ลงชีทแล้ว บย." และพร้อมจัดยาตาม lot ในชีท</span>
+              </p>
+            )}
             <div className="grid grid-cols-[1fr_auto] gap-2">
-              <button onClick={() => save(null)} disabled={loading}
-                className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
-                <CheckCircle size={18}/>{loading?'กำลังบันทึก...':'ยืนยันอนุมัติใบเบิก'}
-              </button>
+              {awaitsSheet ? (
+                <button onClick={() => setSelfDispenseOpen(true)} disabled={loading}
+                  className="bg-amber-500 hover:bg-amber-600 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
+                  <Package size={18}/>{loading?'กำลังบันทึก...':'จัดจ่ายเอง (ก่อนลงชีท)'}
+                </button>
+              ) : (
+                <button onClick={() => save(null)} disabled={loading}
+                  className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
+                  <CheckCircle size={18}/>{loading?'กำลังบันทึก...':'ยืนยันอนุมัติใบเบิก'}
+                </button>
+              )}
               <button onClick={() => save('rejected')} disabled={loading}
                 className="bg-white dark:bg-slate-900 hover:bg-red-50 dark:hover:bg-red-950/50 border border-red-300 dark:border-red-800/60 text-red-600 disabled:opacity-40 rounded-xl px-4 py-3 font-semibold flex items-center justify-center gap-2 transition">
                 <XCircle size={18}/> ไม่อนุมัติทั้งใบ
@@ -3748,6 +3767,14 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
           onConfirm={confirmDispatch}
           onClose={() => setDispatchModal(false)} />
       )}
+      <ConfirmModal open={selfDispenseOpen} loading={loading}
+        title="จัดจ่ายเองก่อนลงชีท"
+        message={`ใบนี้ยังไม่ได้ลงชีทเบิก (ยังไม่มีเลข บย.) — ปกติรอคลังลงชีทก่อน แล้วจัดยาตาม lot ในชีท`}
+        detail={drugPreview(currentReq.requisition_items)}
+        warning="จัดจ่ายเองแล้ว คลังต้องลงชีทเบิกตามหลังตามจำนวนและ lot ที่จ่ายจริง (วันที่เบิก = วันที่จ่าย) · ระหว่างนี้คงเหลือในแอปหักใบนี้ไว้ชั่วคราว"
+        confirmText="จัดจ่ายเอง"
+        onConfirm={() => { setSelfDispenseOpen(false); save(null, { beforeSheet: true }); }}
+        onClose={() => setSelfDispenseOpen(false)} />
     </>
   );
 }

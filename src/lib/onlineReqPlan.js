@@ -17,8 +17,14 @@ const num = (v) => Number(v) || 0
 // หน่วยงานบัญชีผู้ใช้ ("ห้องยา G") → ชื่อในชีทเบิก ("ห้องยาG") — กฎเดียวกับ normDept
 export const sheetDept = (d) => txt(d).replace(/\s*\(.*?\)\s*/g, '').replace(/\s+/g, '')
 
-// วันที่พ.ศ. วว/ดด/ปปปป
-export const fmtThai = (d) => d ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear() + 543}` : ''
+// หน่วยงาน pilot ที่ลงชีทด้วยสคริปต์ — ใบ pending ที่ยังไม่ลงชีทเป็นของคิวสคริปต์ (--plan ดึงเฉพาะ pending)
+// แอปจึงซ่อนอนุมัติด่วน/อนุมัติหลายใบ เหลือ "จัดจ่ายเอง (ก่อนลงชีท)" ที่ต้องยืนยัน — CONTEXT §ใบจ่ายก่อนลงชีท
+export const PILOT_DEPT = 'ห้องยาG'
+export const awaitsSheetEntry = (req) =>
+  !!req && req.status === 'pending' && !req.sheet_entered_at && sheetDept(req.department) === PILOT_DEPT
+
+// exp ในหมายเหตุชีทเบิก = ค.ศ. วว/ดด/ปปปป ตามแถวที่ลงมือ (user เลือก 13/11/2569)
+export const fmtExp = (d) => d ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}` : ''
 
 const addMonths = (today, n) => {
   const t = new Date(today); t.setHours(0, 0, 0, 0)
@@ -71,7 +77,7 @@ export function planRequisition(req, master, { today = new Date() } = {}) {
     const ordered = sortLotsForDispense(lots, (e) => lots.find(l => l.exp === e)?.src.expDate || null, t0)
     const alloc = allocateFefo(want, ordered)
     const orderNote = lotOrderNote(alloc.allocation, ordered, (e) => ordered.find(l => l.exp === e)?.src.expDate || null,
-      (e) => fmtThai(ordered.find(l => l.exp === e)?.src.expDate || null) || e)
+      (e) => fmtExp(ordered.find(l => l.exp === e)?.src.expDate || null) || e)
 
     // allocateFefo ไม่คืนแถว — จับคู่กลับตามลำดับ (lot+exp ซ้ำได้หลายแถว → เดินตามลำดับ ordered)
     const taken = []
@@ -102,7 +108,7 @@ export function planRequisition(req, master, { today = new Date() } = {}) {
         const others = [...new Set(avail.filter(x => txt(x.lot) !== l.lot).map(x => txt(x.lot)))]
         notes.push(`lot ${l.lot} หมด · คงคลังรวม ${codeTotalAfter}${others.length ? ` (lot ${others.join(', ')})` : ''}`)
       }
-      if (m.expDate && m.expDate < expSoon) notes.push(`exp ${fmtThai(m.expDate)} ใกล้หมดอายุ`)
+      if (m.expDate && m.expDate < expSoon) notes.push(`exp ${fmtExp(m.expDate)} ใกล้หมดอายุ`)
       return { masterRow: m.row, key: `${code}|${txt(m.lot)}|${txt(m.itemType)}`, price: num(m.price), u: num(m.u), q: packs, base,
         no: null, dept, notes, w: null, x: null, lot: l.lot, exp: m.exp, unit: m.unit, packSize: l.packSize, baseUnit: l.baseUnit,
         location: m.location, itemType: txt(m.itemType) }

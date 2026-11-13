@@ -16,13 +16,12 @@ import fs from 'fs'
 import { loadEnv, log, die, parseArgs, serialToThai } from './_shared.mjs'
 
 loadEnv()
-const { planRequisition, sheetDept, PLACEHOLDER } = await import('../src/lib/onlineReqPlan.js')
+const { planRequisition, sheetDept, PLACEHOLDER, PILOT_DEPT } = await import('../src/lib/onlineReqPlan.js')
 const { normalizeCode, normalizeLot, toThaiDate } = await import('../src/lib/masterSheet.js')
 const { parseUnit } = await import('../src/lib/unitParser.js')
 
 const A = parseArgs()
 const REGISTER = 'C:/Users/PRH0000484/Desktop/รวมเบิกยา/_ทะเบียนใบเบิก.csv'
-const PILOT_DEPT = 'ห้องยาG'
 const txt = (v) => String(v ?? '').trim()
 const num = (v) => Number(v) || 0
 const serialToDate = (n) => {
@@ -139,7 +138,8 @@ const { supabase } = await import('../src/lib/supabase.js')
 if (!supabase) die('ไม่พบค่า Supabase ใน .env.local')
 
 // ── --plan ──
-if (A.has('--plan')) {
+// --writeback ก็ส่ง --plan <ไฟล์แผน> — ต้องกันไม่ให้ตกเข้าสาขานี้
+if (A.has('--plan') && !A.has('--writeback')) {
   if (!A.file || !A.valueOf('--out')) die('--plan ต้องมี --file <สำเนา xlsm> และ --out <plan.json>')
   const { data, error } = await supabase.from('requisitions').select('*, requisition_items(*)')
     .eq('status', 'pending').is('sheet_entered_at', null).order('created_at')
@@ -164,7 +164,7 @@ if (A.has('--plan')) {
     for (const l of plan.lines) { l.no = receipt; l.sheetRow = rowNo; sheetRows.push(rowNo++); out.rows.push(l) }
     const cut = {}; for (const l of plan.lines) cut[l.masterRow] = (cut[l.masterRow] || 0) + l.q
     pool = pool.map(m => cut[m.row] ? { ...m, u: m.u - cut[m.row] } : m)
-    out.reqs.push({ id: r.id, req_number: r.req_number, department: r.department, req_type: r.req_type, receipt, sheetRows, items: plan.items, flags: plan.flags })
+    out.reqs.push({ id: r.id, req_number: r.req_number, department: r.department, req_type: r.req_type, updated_at: r.updated_at, receipt, sheetRows, items: plan.items, flags: plan.flags })
     printPlan(`${r.req_number} (${r.req_type || '-'}) → ${receipt}`, plan)
   }
   fs.writeFileSync(A.valueOf('--out'), JSON.stringify(out, null, 1), 'utf8')
@@ -177,12 +177,21 @@ if (A.has('--plan')) {
 if (A.has('--writeback')) {
   const plan = JSON.parse(fs.readFileSync(A.valueOf('--plan'), 'utf8'))
   const now = new Date().toISOString()
+  // ตรวจทุกใบก่อนเขียนใบแรก (dry-run ก็ตรวจ — รันก่อนเขียน Excel เป็นด่านได้):
+  // ผู้เบิกแก้จำนวน/ถอน/ลบใบ หรือเจ้าหน้าที่กดจัดจ่ายเองหลังทำแผน → แผนเก่าไม่ตรงใบแล้ว
+  const bad = []
+  for (const r of plan.reqs) {
+    const rows = `แถวเบิก ${r.sheetRows[0]}–${r.sheetRows[r.sheetRows.length - 1]}`
+    const { data: cur, error: e0 } = await supabase.from('requisitions').select('status, sheet_entered_at, updated_at').eq('id', r.id).maybeSingle()
+    if (e0) die(e0.message)
+    if (!cur) bad.push(`${r.req_number} ถูกลบ/ถอนแล้ว (${rows})`)
+    else if (cur.status !== 'pending' || cur.sheet_entered_at) bad.push(`${r.req_number} สถานะ ${cur.status} / ลงชีทแล้ว ${cur.sheet_entered_at || '-'} (${rows})`)
+    else if (r.updated_at && cur.updated_at !== r.updated_at) bad.push(`${r.req_number} ถูกแก้หลังทำแผน ${r.updated_at} → ${cur.updated_at} (${rows})`)
+  }
+  if (bad.length) die(`ใบไม่ตรงแผนแล้ว — ไม่เขียนกลับใบไหนเลย:\n  - ${bad.join('\n  - ')}\nถ้าเขียนชีทไปแล้ว ต้องแก้/ลบแถวชีทของใบนั้นก่อน แล้วรัน --plan ใหม่`)
   for (const r of plan.reqs) {
     log(`${r.req_number} → ${r.receipt} · ${r.items.length} รายการ · แถวเบิก ${r.sheetRows[0]}–${r.sheetRows[r.sheetRows.length - 1]}`)
     if (!A.commit) continue
-    const { data: cur, error: e0 } = await supabase.from('requisitions').select('status, sheet_entered_at').eq('id', r.id).single()
-    if (e0) die(e0.message)
-    if (cur.status !== 'pending' || cur.sheet_entered_at) die(`${r.req_number} สถานะ ${cur.status} / ลงชีทแล้ว ${cur.sheet_entered_at} — ไม่เขียนทับ`)
     for (const it of r.items) {
       const { error } = await supabase.from('requisition_items').update({
         approved_qty: it.approved, picked_qty: it.picked, picked_allocation: it.allocation.length ? it.allocation : null,
@@ -191,7 +200,7 @@ if (A.has('--writeback')) {
       if (error) die(`item ${it.itemId}: ${error.message}`)
     }
     const { error } = await supabase.from('requisitions')
-      .update({ receipt_no: r.receipt, sheet_entered_at: now, status: 'approved', updated_at: now }).eq('id', r.id)
+      .update({ receipt_no: r.receipt, sheet_entered_at: now, status: 'approved', updated_at: now }).eq('id', r.id).eq('status', 'pending').is('sheet_entered_at', null)
     if (error) die(error.message)
     const { error: ea } = await supabase.from('audit_logs').insert({ action: 'sheet_enter_requisition', table_name: 'requisitions', user_name: A.user,
       department: 'คลังยา', record_count: r.items.length,

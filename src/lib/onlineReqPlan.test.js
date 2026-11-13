@@ -44,7 +44,7 @@ console.log('=== ลำดับ lot ===');
     M({ lot: 'SOON', expDate: d(2027, 3, 1), exp: '01/03/2027', u: 10 }),
   ], { today });
   eq('ยาซื้อ exp ≤6 เดือน ก่อนสนับสนุน', short(p), ['SOON/ยกยอด×1']);
-  eq('exp <7 เดือน ขึ้นหมายเหตุ', p.lines[0].note.includes('exp 01/03/2570 ใกล้หมดอายุ'), true);
+  eq('exp <7 เดือน ขึ้นหมายเหตุ', p.lines[0].note.includes('exp 01/03/2027 ใกล้หมดอายุ'), true);
 }
 {
   const p = planRequisition(req([{ requested_qty: 100 }]), [
