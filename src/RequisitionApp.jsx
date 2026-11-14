@@ -6,7 +6,7 @@ import {
   CheckCircle, XCircle, Package, FileText,
   Printer, RefreshCcw, ChevronRight, ChevronDown, ChevronUp, Bell,
   Check, X, AlertCircle, Clock, FileDown,
-  SlidersHorizontal, MapPin, Share2, Loader2, ClipboardList,
+  SlidersHorizontal, MapPin, Share2, Loader2, ClipboardList, CheckSquare,
 } from 'lucide-react';
 import { parseUnit } from './lib/unitParser';
 import { allocateFefo, sortLotsForDispense, lotOrderNote, isSupportedLot } from './lib/lotAllocation';
@@ -3120,7 +3120,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
   };
 
   const toggleAll = () => {
-    if (selected.size === filtered.length) {
+    if (visibleSelected.length === filtered.length) {
       setSelected(new Set());
     } else {
       setSelected(new Set(filtered.map(r => r.id)));
@@ -3128,24 +3128,24 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
   };
 
   const bulkDelete = async () => {
-    if (!selected.size) return;
+    if (!visibleSelected.length) return;
     setBulkLoading(true);
-    const ids = [...selected];
+    const ids = visibleSelected;
     for (const id of ids) {
       const req = list.find(r => r.id === id);
       await supabase.from('requisition_items').delete().eq('requisition_id', id);
       await supabase.from('requisitions').delete().eq('id', id);
       insertAuditLog({ action: 'delete_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { req_number: req?.req_number, requisition_id: id } });
     }
-    setList(prev => prev.filter(r => !selected.has(r.id)));
+    setList(prev => prev.filter(r => !ids.includes(r.id)));
     setSelected(new Set());
     setBulkLoading(false);
   };
 
   const bulkApprove = async () => {
-    if (!selected.size) return;
+    if (!visibleSelected.length) return;
     setBulkLoading(true);
-    for (const id of selected) {
+    for (const id of visibleSelected) {
       const req = list.find(r => r.id === id);
       if (!req || req.status !== 'pending' || awaitsSheetEntry(req)) continue;
       for (const item of req.requisition_items || []) {
@@ -3213,6 +3213,8 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
     const deptMatch = !searchDept || r.department === searchDept;
     return statusMatch && dateMatch && nameMatch && deptMatch;
   });
+  // ติ๊กไว้แล้วเปลี่ยนแท็บ/ตัวกรอง → ใบที่ติ๊กค้างแต่มองไม่เห็นต้องไม่ถูกนับ/อนุมัติ/ลบ
+  const visibleSelected = filtered.filter(r => selected.has(r.id)).map(r => r.id);
 
   const tabs = [
     { key:'pending',  label:'รอดำเนินการ'   },
@@ -3347,19 +3349,16 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
         ))}
       </div>
 
-      {/* Bulk action toolbar */}
-      {filtered.length > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
-          <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-slate-600 dark:text-slate-300" onClick={toggleAll}>
-            <input type="checkbox" readOnly checked={selected.size > 0 && selected.size === filtered.length}
-              ref={el => { if (el) el.indeterminate = selected.size > 0 && selected.size < filtered.length; }}
-              className="w-4 h-4 accent-[#1E90FF] cursor-pointer" />
-            เลือกทั้งหมด
-          </label>
-          {selected.size > 0 && (
-            <>
-              <span className="text-xs text-slate-400 dark:text-slate-500">({selected.size} รายการ)</span>
-              {[...selected].some(id => { const r = list.find(x => x.id === id); return r?.status === 'pending' && !awaitsSheetEntry(r); }) && (
+      {/* Bulk action toolbar — แสดงเมื่อติ๊กใบใดใบหนึ่งแล้ว ("เลือกทั้งหมด" อยู่ในแถบนี้ ไม่โชว์ค้างบนรายการ — user สั่ง 14/11/2569) */}
+      {visibleSelected.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
+          <>
+              <span className="text-xs text-slate-400 dark:text-slate-500">({visibleSelected.length} รายการ)</span>
+              <button onClick={toggleAll} disabled={bulkLoading}
+                className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-[#1E90FF] hover:text-[#1E90FF] text-slate-700 dark:text-slate-200 text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
+                <CheckSquare size={13}/> {visibleSelected.length === filtered.length ? 'ยกเลิกที่เลือกทั้งหมด' : `เลือกทั้งหมด (${filtered.length})`}
+              </button>
+              {visibleSelected.some(id => { const r = list.find(x => x.id === id); return r?.status === 'pending' && !awaitsSheetEntry(r); }) && (
                 <button onClick={bulkApprove} disabled={bulkLoading}
                   className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
                   <Check size={13}/> อนุมัติที่เลือก
@@ -3369,8 +3368,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
                 className="flex items-center gap-1.5 bg-red-500 hover:bg-red-600 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
                 <Trash2 size={13}/> ลบที่เลือก
               </button>
-            </>
-          )}
+          </>
         </div>
       )}
 

@@ -108,8 +108,8 @@ test.describe('Staff Flow (ระบบเบิกยา — มุมมอง
     await page.waitForSelector('text=รอดำเนินการ', { timeout: 8_000 });
 
     // ปุ่ม bulk render เฉพาะตอน selected.size > 0 — ต้องเลือก checkbox ก่อน
-    // index 0 = "เลือกทั้งหมด", index 1 = item แรก
-    const firstItemCheckbox = page.locator('input[type="checkbox"]').nth(1);
+    // ช่อง "เลือกทั้งหมด" ซ่อนอยู่ (14/11/2569) → checkbox ตัวแรก = ใบแรก
+    const firstItemCheckbox = page.locator('input[type="checkbox"]').first();
     const hasItem = await firstItemCheckbox.isVisible().catch(() => false);
     if (!hasItem) { test.skip(); return; }
 
