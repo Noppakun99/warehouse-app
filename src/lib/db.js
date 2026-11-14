@@ -600,6 +600,7 @@ export async function fetchDashboardAlerts() {
         qty:            row.qty,
         unit:           row.unit,
         receive_status: row.receive_status,
+        invoice:        row.invoice,      // การ์ดรอตรวจรับบน Dashboard (PendingLotCard)
         receive_date:   recvIso,
         waitDays,
       })

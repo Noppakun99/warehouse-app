@@ -1,11 +1,13 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { fetchInventory, fetchDrugDetails, fetchUploadMeta, normalizeLotSearch, fetchConsistencyReport, fetchSwapPolicies, flagSwapReturn } from './lib/db';
+import { fetchInventory, fetchDrugDetails, fetchUploadMeta, normalizeLotSearch, fetchConsistencyReport, fetchSwapPolicies, flagSwapReturn, fetchDrugReorderConfig } from './lib/db';
+import { isBelowSafetyStock } from './lib/drugProfile';
 import { computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './lib/swapPolicy';
 import { normExpDate } from './lib/receiveMatch';
 import BackButton from './BackButton';
 import { openExcelSync } from './lib/excelSyncEvent';
 import { exportToExcel } from './lib/exportExcel';
 import { printTrackingList } from './lib/trackingPrint';
+import { printLocationMap } from './lib/mapPrint';
 import DrugSearchBar, { DrugTypeBadge } from './DrugSearchBar';
 import {
   Search, Package, MapPin, X, UploadCloud, FileSpreadsheet,
@@ -14,6 +16,7 @@ import {
   ShieldCheck, Link2, Filter, Printer, Settings2, ArrowUpDown, MoveRight,
 } from 'lucide-react';
 import LocationMoveModal from './LocationMoveModal';
+import PendingLotCard from './PendingLotCard';
 
 // คอลัมน์ตาม CSV master ต้นทาง (ยอดคลังยา_master_69.csv) เฉพาะ field ที่ inventory เก็บจริง
 // ไม่รวมคอลมูลค่ารายเดือน/aggregate ของ master ที่คำนวณสดใน Excel (ไม่มีใน DB)
@@ -42,6 +45,9 @@ const initialInventory = {};
 const initialDrugDetails = {};
 
 
+
+// รหัสช่องบนผัง "โซน-ชั้น-ช่อง" (A-1-2) หรือ "โซน-ชั้น" (A-4) — ไม่ตรง = พื้นที่อื่น (คลังน้ำเกลือ ฯลฯ)
+const SLOT_RE = /^([A-Za-zก-ฮ0-9]+)-(\d+)(?:-(\d+))?$/;
 
 // --- Helper Functions สำหรับจัดการวันที่ ---
 const parseDateString = (dateInput) => {
@@ -165,6 +171,10 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   const [hideEmptySlots,  setHideEmptySlots]  = useState(false);
   const [typeFilter,      setTypeFilter]      = useState('');     // '' = ทุกชนิด (กรองชนิดยา เช่น Herb)
   const [showManageMenu,  setShowManageMenu]  = useState(false);
+  const [mapPrintOpen,    setMapPrintOpen]    = useState(false);  // โมดอลเลือกโซนพิมพ์แผนผัง
+  const [mapPrintSel,     setMapPrintSel]     = useState([]);     // key โซนที่ติ๊ก ('A'… · '__other__')
+  const [mapPrintHideEmpty, setMapPrintHideEmpty] = useState(false);
+  const [reorderExclude, setReorderExclude] = useState(null);   // Map code→exclude_status ('error' = โหลดไม่ได้) — ป้าย "ใกล้หมดคลัง" บนกระดาษ
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [moveItem, setMoveItem] = useState(null);   // การ์ด lot ที่กด "ย้ายที่เก็บ" (staff/admin)
   const [expandedDetailsId, setExpandedDetailsId] = useState(null);
@@ -306,6 +316,25 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
     return pending;
   }, [inventory, drugDetails]);
 
+  // ที่เก็บหลายช่องในค่าเดียว ("A-1-1 ,A-1-2 ,A-1-5") → ช่อง → [ค่าที่เก็บเต็ม] ให้ยาโผล่ทุกช่องที่ระบุ
+  // (เดิมไม่ตรง regex ตกไป "พื้นที่อื่น" ทั้งก้อน ไม่โผล่ในผังโซน — แก้ 14/11/2569)
+  const slotLinks = useMemo(() => {
+    const links = {};
+    Object.keys(inventory).forEach(loc => {
+      if (!loc.includes(',')) return;
+      loc.split(',').map(p => p.trim()).filter(p => SLOT_RE.test(p))
+        .forEach(p => { (links[p] = links[p] || []).push(loc); });
+    });
+    return links;
+  }, [inventory]);
+  // ยาในช่อง = ของช่องเอง + ของที่เก็บหลายช่องที่มีช่องนี้ · แนบ _loc = ที่เก็บจริง (ใบย้ายที่เก็บต้องใช้ค่าเต็ม ไม่ใช่ช่องที่กด)
+  const itemsAt = useCallback((id) => {
+    const own = inventory[id] || [];
+    const extra = slotLinks[id];
+    if (!extra) return own;
+    return [...own, ...extra.flatMap(loc => (inventory[loc] || []).map(it => ({ ...it, _loc: loc })))];
+  }, [inventory, slotLinks]);
+
   // คำนวณโครงสร้างตู้ และหาจำนวน Unique Item / Unique Lot
   const { layout, otherZones, summary, overallStats } = useMemo(() => {
     const lay = {};
@@ -318,20 +347,20 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
     Object.entries(inventory).forEach(([loc, items]) => {
       if (!items || items.length === 0) return;
 
-      const match = loc.match(/^([A-Za-zก-ฮ0-9]+)-(\d+)(?:-(\d+))?$/);
-      const cab = match ? match[1] : loc;
-
-      if (!sum[cab]) sum[cab] = { names: new Set(), lots: new Set(), total: 0, value: 0 };
-
-      if (match) {
-        const lev = match[2];
-        const bin = match[3] || 'main';
-        if (!lay[cab]) lay[cab] = {};
-        if (!lay[cab][lev]) lay[cab][lev] = [];
-        lay[cab][lev].push({ id: loc, bin });
-      } else {
-        other[loc] = items;
-      }
+      // ค่าเดียวอาจมีหลายช่องคั่นจุลภาค — ทุกส่วนเป็นรหัสช่อง = วางทุกช่อง · มีส่วนที่ไม่ใช่ช่อง = คงไว้ในพื้นที่อื่นด้วย
+      const parts = loc.split(',').map(p => p.trim()).filter(Boolean);
+      const slotParts = parts.map(p => ({ p, m: p.match(SLOT_RE) })).filter(x => x.m);
+      const allSlots = slotParts.length > 0 && slotParts.length === parts.length;
+      slotParts.forEach(({ p, m }) => {
+        const [, c, lev, b] = m;
+        if (!lay[c]) lay[c] = {};
+        if (!lay[c][lev]) lay[c][lev] = [];
+        if (!lay[c][lev].some(sl => sl.id === p)) lay[c][lev].push({ id: p, bin: b || 'main' });
+      });
+      if (!allSlots) other[loc] = items;
+      // นับสรุปเข้าทุกโซนที่ช่องอยู่ (ชุด names/lots กันซ้ำในโซนเอง) · มูลค่าเข้าโซนแรกโซนเดียว ไม่ให้ผลรวมโซนเกินจริง
+      const cabs = allSlots ? [...new Set(slotParts.map(x => x.m[1]))] : [loc];
+      cabs.forEach(c => { if (!sum[c]) sum[c] = { names: new Set(), lots: new Set(), total: 0, value: 0 }; });
 
       items.forEach(item => {
         const qty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
@@ -354,10 +383,12 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         }
         const value = qty * price;
 
-        sum[cab].names.add(codeKey);
-        sum[cab].lots.add(lotKey);
-        sum[cab].total += 1;
-        sum[cab].value += value;
+        cabs.forEach((c, i) => {
+          sum[c].names.add(codeKey);
+          sum[c].lots.add(lotKey);
+          sum[c].total += 1;
+          if (i === 0) sum[c].value += value;
+        });
 
         allNames.add(codeKey);
         allLots.add(lotKey);
@@ -388,7 +419,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
       Object.values(layout[cab]).forEach(slots => {
         slots.forEach(slot => {
           total += 1;
-          const hasStock = (inventory[slot.id] || []).some(item =>
+          const hasStock = itemsAt(slot.id).some(item =>
             (parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0) > 0
           );
           if (hasStock) used += 1;
@@ -397,7 +428,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
       const pct = total > 0 ? Math.round((used / total) * 100) : 0;
       return { cab, total, used, empty: total - used, pct };
     });
-  }, [layout, inventory]);
+  }, [layout, itemsAt]);
 
   // --- ข้อมูลสำหรับสร้างกราฟ ---
   const { typeStats, maxTypeCount } = useMemo(() => {
@@ -574,8 +605,8 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
     const term = searchTerm.toLowerCase();
     if (locationId.toLowerCase().includes(term)) return true;
     
-    const items = inventory[locationId];
-    if (items) {
+    const items = itemsAt(locationId);
+    if (items.length) {
       return items.some(item => 
         item.name.toLowerCase().includes(term) || 
         (item.code && item.code.toLowerCase().includes(term)) ||
@@ -584,7 +615,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
       );
     }
     return false;
-  }, [searchTerm, inventory]);
+  }, [searchTerm, itemsAt]);
 
   // ชนิดยาที่มีจริงในคลัง + จำนวนรายการ — derive จาก inventory ไม่ hardcode
   // (import ชนิดใหม่เข้ามาแล้วขึ้นใน dropdown เอง ไม่ต้องแก้โค้ด)
@@ -606,7 +637,10 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
     const t = typeFilter.trim().toLowerCase();
     const ids = new Set();
     Object.entries(inventory).forEach(([locId, items]) => {
-      if ((items || []).some(it => (it.type || '').trim().toLowerCase() === t)) ids.add(locId);
+      if ((items || []).some(it => (it.type || '').trim().toLowerCase() === t)) {
+        ids.add(locId);
+        if (locId.includes(',')) locId.split(',').forEach(p => ids.add(p.trim()));   // ที่เก็บหลายช่อง → ทุกช่อง
+      }
     });
     return ids;
   }, [inventory, typeFilter]);
@@ -662,8 +696,92 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
     return '__all__';
   }, [activeZone, zoneKeys]);
 
+  // พิมพ์แผนผัง — ใช้ layout เต็ม (ไม่ขึ้นกับคำค้น/ชนิดยาบนจอ) เพราะกระดาษเอาไว้ติดชั้นทั้งโซน
+  const mapPrintOptions = useMemo(() => [
+    ...Object.keys(layout).sort().map(cab => ({ key: cab, label: `Log ${cab}`, countLabel: `${summary[cab]?.names.size || 0} ยา` })),
+    ...(Object.keys(otherZones).length > 0 ? [{ key: '__other__', label: 'พื้นที่อื่น', countLabel: `${Object.keys(otherZones).length} พื้นที่` }] : []),
+  ], [layout, otherZones, summary]);
+
+  const openMapPrint = () => {
+    const keys = mapPrintOptions.map(o => o.key);
+    setMapPrintSel(activeZoneKey === '__all__' || !keys.includes(activeZoneKey) ? keys : [activeZoneKey]);
+    setMapPrintHideEmpty(hideEmptySlots);
+    setMapPrintOpen(true);
+    if (reorderExclude === null || reorderExclude === 'error') {
+      fetchDrugReorderConfig()
+        .then(cfg => setReorderExclude(new Map((cfg || []).filter(c => c.exclude_status).map(c => [String(c.code).trim().toLowerCase(), c.exclude_status]))))
+        .catch(() => setReorderExclude('error'));
+    }
+  };
+
+  // รหัสที่ "ใกล้หมดคลัง" = ต่ำกว่า Safety Stock — กฎเดียวกับ Dashboard (fetchDashboardAlerts.lowStock · Rule #13):
+  // รวม qty ทุก lot ทุกที่เก็บต่อรหัส · SS = ค่ามากสุดของแถว · ตัดยาตัดออก/สั่งเมื่อขอ ด้วย isBelowSafetyStock ตัวเดียวกัน
+  const lowStockCodes = useMemo(() => {
+    if (!(reorderExclude instanceof Map)) return null;
+    const byCode = new Map();
+    Object.values(inventory).flat().forEach(row => {
+      const ck = String(row.code || '').trim().toLowerCase();
+      if (!ck) return;
+      const cur = byCode.get(ck) || { qty: 0, ss: 0, discontinued: false };
+      cur.qty += parseFloat(String(row.qty ?? '').replace(/,/g, '')) || 0;
+      if ((row.safetyStock || 0) > cur.ss) cur.ss = row.safetyStock;
+      if (String(row.receiveStatus || '').includes('ตัดออก')) cur.discontinued = true;
+      byCode.set(ck, cur);
+    });
+    const out = new Set();
+    byCode.forEach((c, ck) => { if (isBelowSafetyStock(c, reorderExclude.get(ck))) out.add(ck); });
+    return out;
+  }, [inventory, reorderExclude]);
+
+  // ยาในช่อง 1 ชื่อต่อ 1 รหัส (รวมหลาย lot) — อายุ = lot ที่แย่สุด · เกณฑ์ 16 เดือนชุดเดียวกับสีช่องบนผัง (Slot)
+  const slotDrugsForPrint = (id) => {
+    const byKey = new Map();
+    itemsAt(id).forEach(item => {
+      if ((parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0) <= 0) return;
+      const name = String(item.name || '').trim() || '-';
+      const code = item.code && item.code !== '-' ? item.code.trim().toLowerCase() : '';
+      const key = code || name.toLowerCase();
+      const cur = byKey.get(key) || { name, expiry: null, pending: false, discontinued: false, lowStock: !!(code && lowStockCodes?.has(code)) };
+      const d = parseDateString(item.exp);
+      if (d) {
+        const x = new Date(d); x.setHours(0, 0, 0, 0);
+        if (x < todayForDisplay) cur.expiry = 'expired';
+        else if (x <= targetDateForDisplay && cur.expiry !== 'expired') cur.expiry = 'near';
+      }
+      const rs = String(item.receiveStatus || '');
+      if (rs.includes('รอตรวจรับ')) cur.pending = true;
+      if (rs.includes('ตัดออก')) cur.discontinued = true;
+      byKey.set(key, cur);
+    });
+    return [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  };
+
+  const handleMapPrint = () => {
+    const keep = s => !mapPrintHideEmpty || s.drugs.length > 0;
+    const zones = mapPrintOptions.filter(o => mapPrintSel.includes(o.key)).map(o => {
+      if (o.key === '__other__') {
+        const slots = Object.keys(otherZones).sort().map(id => ({ id, drugs: slotDrugsForPrint(id) })).filter(keep);
+        return { title: 'พื้นที่อื่น', note: 'จัดเก็บแบบเหมาโซน', levels: slots.length ? [{ label: '', slots }] : [] };
+      }
+      // ชั้น 1 = ล่างสุดของตู้จริง (user ยืนยัน 14/11/2569) → กระดาษเรียงชั้นบนลงล่างเหมือนยืนมองหน้าตู้
+      const levels = Object.keys(layout[o.key]).sort((a, b) => Number(b) - Number(a)).map(lv => ({
+        label: `ชั้น ${lv}`,
+        slots: layout[o.key][lv].map(s => ({ id: s.id, drugs: slotDrugsForPrint(s.id) })).filter(keep),
+      })).filter(l => l.slots.length > 0);
+      const use = sectionUsage.find(u => u.cab === o.key);
+      return { title: o.label, note: `${summary[o.key]?.lots.size || 0} lot${use ? ` · ใช้ ${use.used}/${use.total} ช่อง` : ''}`, levels };
+    });
+    printLocationMap(zones, {
+      updatedAt: logUpdateDate ? formatDateTime(logUpdateDate) : '',
+      printedBy: auth?.name || auth?.username || '',
+      hideEmpty: mapPrintHideEmpty,
+      lowStockReady: lowStockCodes != null,
+    });
+    setMapPrintOpen(false);
+  };
+
   const handleLocationClick = (locationId) => {
-    const allItems = inventory[locationId] || [];
+    const allItems = itemsAt(locationId);
     const filtered = allItems.filter(item => {
       const qty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
       return qty > 0;
@@ -690,7 +808,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
 
   const Slot = ({ id }) => {
     // ซ่อน qty=0 จากแผนผัง — ข้อมูลยังอยู่ใน inventory state เพื่อคำนวณ low-stock alert
-    const visibleItems = (inventory[id] || []).filter(item => {
+    const visibleItems = itemsAt(id).filter(item => {
       const qty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
       return qty > 0;
     });
@@ -733,6 +851,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
       <div className="relative group/slot">
         <button
           onClick={() => handleLocationClick(id)}
+          data-slot-hit={highlighted ? 'true' : undefined}
           aria-label={`ตำแหน่ง ${id} — ${isEmpty ? 'ว่าง' : `${itemCount} รายการ`}`}
           className={`flex flex-col items-start justify-center min-w-16 h-11 px-2 rounded-lg border text-left transition duration-150 ${tone}
             ${highlighted ? 'ring-4 ring-yellow-400 bg-yellow-100 dark:bg-yellow-900/50 border-yellow-500 scale-105 z-10 shadow-lg' : 'active:scale-95'}`}
@@ -917,7 +1036,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
             <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3">
               <div className="min-w-0">
                 <dt className={factLabel}><MapPin size={12} /> ตำแหน่ง</dt>
-                <dd className={factValue}>{locationId || item.location || '-'}</dd>
+                <dd className={factValue}>{item._loc || locationId || item.location || '-'}</dd>
               </div>
               <div className="min-w-0">
                 <dt className={factLabel}>Lot</dt>
@@ -961,7 +1080,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2 ml-auto">
                 {isStaff && locationId && (
-                  <button onClick={() => setMoveItem({ ...item, location: locationId })}
+                  <button onClick={() => setMoveItem({ ...item, location: item._loc || locationId })}
                     className={`${smallBtn} bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600 hover:border-indigo-300 hover:text-indigo-700 dark:hover:text-indigo-300`}>
                     <MoveRight size={14} /> ย้ายที่เก็บ
                   </button>
@@ -1121,6 +1240,11 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                   disabled={exportLoading || Object.keys(inventory).length === 0}
                   className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:text-emerald-700 transition-colors disabled:opacity-40">
                   <FileDown size={15}/> {exportLoading ? 'กำลังส่งออก...' : 'Export Excel'}
+                </button>
+                <button onClick={() => { openMapPrint(); setShowManageMenu(false); }}
+                  disabled={mapPrintOptions.length === 0}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-700 transition-colors disabled:opacity-40">
+                  <Printer size={15}/> พิมพ์แผนผัง
                 </button>
                 {isStaff && <>
                   <div className="border-t border-slate-100 dark:border-slate-800 my-1"/>
@@ -1337,7 +1461,13 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                 <h2 className="text-sm font-bold flex items-center gap-2">
                   <Search size={16}/> ผลการค้นหา: พบ {searchResults.length} Lot
                 </h2>
-                <div className="flex items-center gap-2 text-xs">
+                <div className="flex items-center gap-2 text-xs flex-wrap">
+                  {/* ผลค้นหาอยู่เหนือผัง (สูงได้ 600px) — กดแล้วเลื่อนลงไปช่องแรกที่ไฮไลต์ ไม่ต้องไล่หาเอง */}
+                  <button type="button"
+                    onClick={() => document.querySelector('[data-slot-hit="true"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                    className="inline-flex items-center gap-1 bg-white text-indigo-700 hover:bg-indigo-50 rounded-full px-2.5 py-1 font-semibold transition-colors">
+                    <MapPin size={12}/> ไปที่ช่องบนผัง
+                  </button>
                   <span className="bg-white/20 rounded-full px-2.5 py-1 font-semibold">{uniqueDrugs} ชนิดยา</span>
                   <span className="bg-white/20 rounded-full px-2.5 py-1 font-semibold">รวม {totalQty.toLocaleString()} หน่วย</span>
                 </div>
@@ -1413,7 +1543,8 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                 <div className={`grid grid-cols-1 gap-4 ${cabs.length > 1 ? 'xl:grid-cols-2' : ''}`}>
                   {cabs.map(cabinet => {
                     const use = sectionUsage.find(u => u.cab === cabinet);
-                    const levels = Object.keys(filteredLayout[cabinet]).sort((a, b) => Number(a) - Number(b));
+                    // ชั้น 1 = ล่างสุดของตู้จริง (user ยืนยัน 14/11/2569) → เรียงบนลงล่างเหมือนยืนมองหน้าตู้
+                    const levels = Object.keys(filteredLayout[cabinet]).sort((a, b) => Number(b) - Number(a));
                     return (
                       <div key={cabinet} className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
                         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 dark:border-slate-800">
@@ -1428,7 +1559,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                             const allSlots = filteredLayout[cabinet][level];
                             const displaySlots = hideEmptySlots
                               ? allSlots.filter(slot =>
-                                  (inventory[slot.id] || []).some(item =>
+                                  itemsAt(slot.id).some(item =>
                                     parseFloat(String(item.qty || '0').replace(/,/g, '')) > 0
                                   )
                                 )
@@ -1460,7 +1591,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                 </div>
                 <div className="p-6 bg-slate-50 dark:bg-slate-800 flex flex-wrap gap-4">
                   {Object.keys(filteredOtherZones).sort().map(zone => (
-                    <div key={zone} onClick={() => handleLocationClick(zone)} className={`cursor-pointer transition border border-emerald-300 dark:border-emerald-800/60 rounded-xl flex flex-col items-center justify-center p-6 min-w-[200px] bg-white dark:bg-slate-900 ${isMatch(zone) ? 'ring-4 ring-yellow-400 shadow-lg scale-105' : 'hover:shadow-md hover:scale-105'}`}>
+                    <div key={zone} onClick={() => handleLocationClick(zone)} data-slot-hit={isMatch(zone) ? 'true' : undefined} className={`cursor-pointer transition border border-emerald-300 dark:border-emerald-800/60 rounded-xl flex flex-col items-center justify-center p-6 min-w-[200px] bg-white dark:bg-slate-900 ${isMatch(zone) ? 'ring-4 ring-yellow-400 shadow-lg scale-105' : 'hover:shadow-md hover:scale-105'}`}>
                       <div className="text-xl font-bold mb-3 text-emerald-800 dark:text-emerald-300 text-center">{zone}</div>
                       <div className="flex flex-col items-center gap-1.5 mt-1">
                         <span className="text-sm font-medium bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-4 py-1 rounded-full shadow-sm">{summary[zone]?.names.size || 0} รายการยา</span>
@@ -1476,6 +1607,70 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
 
 
       </div>
+
+      {/* เลือกโซนพิมพ์แผนผัง (ติ๊กได้หลายโซน · 1 โซน = 1 หน้า A4 แนวนอน) */}
+      {mapPrintOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => setMapPrintOpen(false)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="map-print-title" onClick={e => e.stopPropagation()}
+            className="bg-white dark:bg-slate-900 w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90dvh] flex flex-col">
+            <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100 dark:border-slate-800">
+              <Printer size={18} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
+              <h2 id="map-print-title" className="text-base font-bold text-slate-800 dark:text-slate-100">พิมพ์แผนผัง</h2>
+              <button onClick={() => setMapPrintOpen(false)} aria-label="ปิด"
+                className="ml-auto p-2 -mr-2 rounded-xl text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-4 overflow-y-auto">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">เลือกโซน</p>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">{mapPrintSel.length}/{mapPrintOptions.length}</span>
+                  <button onClick={() => setMapPrintSel(mapPrintOptions.map(o => o.key))}
+                    className="ml-auto text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline underline-offset-2 px-1 py-1">เลือกทั้งหมด</button>
+                  <button onClick={() => setMapPrintSel([])}
+                    className="text-xs font-semibold text-slate-500 dark:text-slate-400 hover:underline underline-offset-2 px-1 py-1">ล้าง</button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {mapPrintOptions.map(o => {
+                    const on = mapPrintSel.includes(o.key);
+                    return (
+                      <label key={o.key}
+                        className={`flex items-center gap-2 min-h-11 px-3 py-2 rounded-xl border cursor-pointer transition-colors ${on ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 dark:border-indigo-700' : 'border-slate-200 dark:border-slate-700 hover:border-indigo-300'}`}>
+                        <input type="checkbox" checked={on} className="accent-indigo-600 w-4 h-4 shrink-0"
+                          onChange={() => setMapPrintSel(sel => on ? sel.filter(k => k !== o.key) : [...sel, o.key])} />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">{o.label}</span>
+                          <span className="block text-xs text-slate-500 dark:text-slate-400 tabular-nums">{o.countLabel}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200 cursor-pointer min-h-11">
+                <input type="checkbox" checked={mapPrintHideEmpty} onChange={e => setMapPrintHideEmpty(e.target.checked)} className="accent-indigo-600 w-4 h-4" />
+                ไม่พิมพ์ช่องว่าง
+              </label>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                1 โซนต่อ 1 หน้า (A4 แนวนอน) เรียงชั้นบนลงล่างเหมือนหน้าตู้ · ในช่องแสดงชื่อยาที่คงเหลือ พร้อมป้าย หมดอายุแล้ว / ใกล้หมดอายุ / รอตรวจรับ / ใกล้หมดคลัง / ตัดออกจากบัญชี · พิมพ์ทั้งโซนเสมอ ไม่ขึ้นกับคำค้นหรือตัวกรองชนิดยาบนจอ
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100 dark:border-slate-800">
+              <button onClick={() => setMapPrintOpen(false)}
+                className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2.5 px-5 font-medium text-sm transition-colors">
+                ยกเลิก
+              </button>
+              <button onClick={handleMapPrint} disabled={mapPrintSel.length === 0 || reorderExclude === null}
+                className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-2.5 px-5 font-semibold text-sm transition-colors shadow-sm disabled:opacity-50">
+                {reorderExclude === null
+                  ? <><RefreshCcw size={16} className="animate-spin" /> กำลังเตรียม…</>
+                  : <><Printer size={16} /> พิมพ์ {mapPrintSel.length > 0 ? `${mapPrintSel.length} โซน` : ''}</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Consistency Check Modal */}
       {consistency && (() => {
@@ -1616,7 +1811,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           Object.values(levels).forEach(slots => {
             slots.forEach(slot => {
               totalSlots++;
-              const items = inventory[slot.id] || [];
+              const items = itemsAt(slot.id);
               const hasStock = items.some(it => (parseFloat(String(it.qty || '0').replace(/,/g, '')) || 0) > 0);
               if (hasStock) usedSlots++;
             });
@@ -2562,62 +2757,16 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
             <div className="overflow-auto bg-slate-50 dark:bg-slate-800 flex-1">
               {timeFiltered.length === 0 ? (
                 <p className="text-center text-slate-400 dark:text-slate-500 py-10 text-sm">ไม่พบรายการ</p>
+              ) : !isExpiryMode ? (
+                /* รอตรวจรับ = การ์ดทุกขนาดจอ (เดิมตารางกว้าง 11 คอลัมน์ต้องเลื่อนแนวนอน — user สั่ง 14/11/2569) · การ์ดใช้ร่วมกับ Dashboard */
+                <div className="p-3 sm:p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {timeFiltered.map((r, i) => (
+                    <PendingLotCard key={`${r.location}|${r.code}|${r.lot}|${i}`} r={{ ...r, invoice: normalizeNumericText(r.invoice) }} />
+                  ))}
+                </div>
               ) : isMobileExpiry ? (
                 <div className="p-3 space-y-2">
-                  {timeFiltered.map((r, i) => !isExpiryMode ? (
-                    /* ── การ์ดรอตรวจรับ: detail-card ขาว + กล่องย่อยสี (ดู /ui-style-guide) ── */
-                    <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-3.5 shadow-sm hover:shadow-md hover:border-sky-300 transition">
-                      <div className="flex items-start gap-3">
-                        <div className="p-2 rounded-xl bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 shrink-0"><Package size={20} /></div>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-bold text-slate-800 dark:text-slate-100 text-sm leading-tight">{r.name || '-'}</p>
-                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                            {r.code && r.code !== '-' && <span className="text-[11px] text-slate-400 dark:text-slate-500 font-mono">{r.code}</span>}
-                            {r.type && <DrugTypeBadge type={r.type} />}
-                          </div>
-                        </div>
-                        {(() => { const b = waitBadge(r.waitDays); return (
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${b.cls}`}>
-                            <Clock size={10} />{b.text}
-                          </span>
-                        ); })()}
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 mt-3">
-                        <div className="bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-2 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
-                          <div className="text-[10px] text-indigo-500 uppercase font-bold tracking-wider mb-0.5 flex items-center gap-1"><MapPin size={10} />ตำแหน่ง</div>
-                          <div className="text-sm font-black text-indigo-700 dark:text-indigo-300">{r.location || '-'}</div>
-                        </div>
-                        <div className="bg-sky-50 dark:bg-sky-950/40 px-2.5 py-2 rounded-xl border border-sky-100 dark:border-sky-900/50">
-                          <div className="text-[10px] text-sky-600 dark:text-sky-400 uppercase font-bold tracking-wider mb-0.5">คงเหลือ</div>
-                          <div className="text-sm font-black text-sky-700 dark:text-sky-300 tabular-nums">{fmtQty(r)}</div>
-                        </div>
-                        <div className="bg-slate-50 dark:bg-slate-800 px-2.5 py-2 rounded-xl border border-slate-100 dark:border-slate-800 min-w-0">
-                          <div className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider mb-0.5">Lot</div>
-                          <div className="text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 truncate">{r.lot || '-'}</div>
-                        </div>
-                        <div className="bg-slate-50 dark:bg-slate-800 px-2.5 py-2 rounded-xl border border-slate-100 dark:border-slate-800">
-                          <div className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider mb-0.5">Exp</div>
-                          <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">{r.exp || '-'}</div>
-                        </div>
-                      </div>
-                      <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
-                        <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
-                          <span className="inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-semibold px-2 py-0.5 rounded-full border border-indigo-100 dark:border-indigo-900/50">
-                            <FileText size={10} />บิล {normalizeNumericText(r.invoice) || '-'}
-                          </span>
-                          {r.po && r.po !== '-' && (
-                            <span className="inline-flex items-center bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 font-semibold px-2 py-0.5 rounded-full border border-violet-100 dark:border-violet-900/50">PO {r.po}</span>
-                          )}
-                          {statusChips(r.receiveStatus).map((s, j) => (
-                            <span key={j} className={`inline-flex items-center px-2 py-0.5 rounded-full font-semibold border ${statusChipCls(s)}`}>{s}</span>
-                          ))}
-                        </div>
-                        {r.supplier && (
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400"><span className="font-bold text-teal-600 dark:text-teal-400">บริษัท</span> {r.supplier}</p>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
+                  {timeFiltered.map((r, i) => (
                     <div key={i} className={`border rounded-xl p-3 ${rowColor(r.daysLeft)}`}>
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <div className="min-w-0 flex-1">

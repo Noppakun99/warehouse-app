@@ -750,16 +750,29 @@ const TOP5_OPEN_KEY = 'dashboard_top5_open';
 
 // ── คอลัมน์ภาพรวม: 3 ตัวเลข + ยาต้องสั่งซื้อ 5 อันดับ ─────────────────────
 // purchase = summarizePurchaseStatus | null (ยังโหลด/ล้ม → การ์ดแจ้งซื้อแสดง – และไม่มีป้ายใน Top 5)
-export function OverviewPanel({ alerts, purchase = null, wide = false, canReorder = false, onOpenStock, onOpenExpiry, onOpenLowStock, onOpenReorder, onOpenPurchase }) {
+export function OverviewPanel({ alerts, purchase = null, wide = false, loaded = true, onOpenStock, onOpenExpiry, onOpenPending, onOpenLowStock, onOpenPurchase }) {
   // drugCount คำนวณใน fetchDashboardAlerts ด้วยกฎเดียวกับ fetchStockSummary (โมดอลที่การ์ดนี้เปิด) — Rule #6
   const drugCount = alerts?.drugCount ?? null;
   const expiring = alerts?.expiring || [];
   const lowStock = alerts?.lowStock || [];
+  const pending = alerts?.pendingReceive || [];
+  const expiredLots = expiring.filter(r => r.daysLeft != null && r.daysLeft < 0).length;
+  const pendingMaxWait = pending.reduce((m, r) => (r.waitDays != null && r.waitDays > m ? r.waitDays : m), -1);
+  const purchaseMaxWait = purchase?.waiting?.[0]?.waitDays ?? null;
+  // การ์ดตัวเลข 4 ใบ: ตัวเลข + หน่วย + บรรทัดบอกเรื่องที่ต้องรู้ต่อ (เดิมมีแต่ตัวเลข ต้องเปิดโมดอลถึงรู้ว่าด่วนไหม)
+  // "ต่ำกว่า Safety Stock" ถูกแทนด้วย "รอตรวจรับ" (user สั่ง 14/11/2569) — ยาต่ำกว่า SS ยังดูได้จาก "ยาต้องสั่งซื้อ 5 อันดับแรก" ด้านล่าง
   const tiles = [
-    { key: 'stock', label: 'รายการยาในคลัง', value: drugCount, icon: Boxes, tone: 'text-sky-700 dark:text-sky-300', chip: 'bg-sky-100 dark:bg-sky-950/60 text-sky-600', onClick: onOpenStock },
-    { key: 'expiry', label: 'ใกล้หมดอายุใน 16 เดือน', value: expiring.length, icon: CalendarClock, tone: 'text-orange-700 dark:text-orange-300', chip: 'bg-orange-100 dark:bg-orange-950/60 text-orange-600', onClick: expiring.length ? onOpenExpiry : undefined },
-    { key: 'low', label: 'ต่ำกว่า Safety Stock', value: lowStock.length, icon: ShoppingCart, tone: 'text-amber-700 dark:text-amber-300', chip: 'bg-amber-100 dark:bg-amber-950/60 text-amber-600', onClick: lowStock.length ? onOpenLowStock : undefined },
-    { key: 'purchase', label: 'แจ้งซื้อแล้ว รอของ', value: purchase ? purchase.waiting.length : null, icon: ShoppingBag, tone: 'text-blue-700 dark:text-blue-300', chip: 'bg-blue-100 dark:bg-blue-950/60 text-blue-600', onClick: purchase?.waiting.length ? onOpenPurchase : undefined },
+    { key: 'stock', label: 'รายการยาในคลัง', value: drugCount, unit: 'รายการ', icon: Boxes, accent: 'bg-sky-500', tone: 'text-sky-700 dark:text-sky-300', chip: 'bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400',
+      sub: 'คงเหลือมากกว่า 0 · ไม่นับยาตัดออก', onClick: onOpenStock },
+    { key: 'expiry', label: 'ใกล้หมดอายุใน 16 เดือน', value: loaded ? expiring.length : null, unit: 'lot', icon: CalendarClock, accent: 'bg-orange-500', tone: 'text-orange-700 dark:text-orange-300', chip: 'bg-orange-100 dark:bg-orange-950/60 text-orange-600 dark:text-orange-400',
+      sub: !loaded ? '' : expiredLots > 0 ? `หมดอายุแล้ว ${fmtNum(expiredLots)} lot` : 'ยังไม่มี lot หมดอายุ', subTone: expiredLots > 0 ? 'text-rose-600 dark:text-rose-400 font-semibold' : '',
+      onClick: expiring.length ? onOpenExpiry : undefined },
+    { key: 'pending', label: 'รอตรวจรับ', value: loaded ? pending.length : null, unit: 'lot', icon: Hourglass, accent: 'bg-amber-500', tone: 'text-amber-700 dark:text-amber-300', chip: 'bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400',
+      sub: !loaded || pending.length === 0 ? (loaded ? 'ไม่มีของค้างตรวจรับ' : '') : pendingMaxWait >= 0 ? `รอนานสุด ${fmtNum(pendingMaxWait)} วัน` : 'ไม่ทราบวันรับ',
+      subTone: pendingMaxWait > 7 ? 'text-rose-600 dark:text-rose-400 font-semibold' : '',
+      onClick: pending.length ? onOpenPending : undefined },
+    { key: 'purchase', label: 'แจ้งซื้อแล้ว รอของ', value: purchase ? purchase.waiting.length : null, unit: 'รายการ', icon: ShoppingBag, accent: 'bg-blue-500', tone: 'text-blue-700 dark:text-blue-300', chip: 'bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400',
+      sub: purchaseMaxWait != null ? `รอนานสุด ${fmtNum(purchaseMaxWait)} วัน` : '', onClick: purchase?.waiting.length ? onOpenPurchase : undefined },
   ];
   const top5 = lowStock.slice(0, 5);
   // พับไว้เป็นค่าเริ่มต้น ให้กราฟด้านล่างอยู่ในจอ — จำการกาง/พับไว้ที่เครื่อง (localStorage อาจถูกปิดใน WebView)
@@ -778,17 +791,22 @@ export function OverviewPanel({ alerts, purchase = null, wide = false, canReorde
           const Icon = t.icon;
           const body = (
             <>
-              <span className={`p-2 rounded-xl shrink-0 ${t.chip}`}><Icon size={16} /></span>
+              <span className={`absolute inset-y-0 left-0 w-1 ${t.accent}`} aria-hidden="true" />
+              <span className={`p-2.5 rounded-xl shrink-0 ${t.chip}`}><Icon size={18} /></span>
               <span className="flex-1 min-w-0">
-                <span className="block text-xs text-slate-500 dark:text-slate-400">{t.label}</span>
-                <span className={`block text-xl font-bold tabular-nums ${t.tone}`}>{t.value == null ? '–' : fmtNum(t.value)}</span>
+                <span className="block text-xs font-semibold text-slate-500 dark:text-slate-400">{t.label}</span>
+                <span className="flex items-baseline gap-1.5 mt-0.5">
+                  <span className={`text-2xl font-bold tabular-nums leading-none ${t.tone}`}>{t.value == null ? '–' : fmtNum(t.value)}</span>
+                  {t.value != null && <span className="text-xs text-slate-500 dark:text-slate-400">{t.unit}</span>}
+                </span>
+                {t.sub && <span className={`block text-[11px] mt-1 truncate ${t.subTone || 'text-slate-500 dark:text-slate-400'}`} title={t.sub}>{t.sub}</span>}
               </span>
               {t.onClick && <ChevronRight size={16} className="text-slate-300 dark:text-slate-600 shrink-0" />}
             </>
           );
-          const cls = 'w-full flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl px-3.5 py-3 shadow-sm text-left';
+          const cls = 'relative overflow-hidden w-full flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl pl-4 pr-3 py-3 shadow-sm text-left';
           return t.onClick
-            ? <button key={t.key} type="button" onClick={t.onClick} className={`${cls} hover:shadow-md transition-shadow`}>{body}</button>
+            ? <button key={t.key} type="button" onClick={t.onClick} className={`${cls} hover:shadow-md hover:border-slate-300 dark:hover:border-slate-600 transition-shadow`}>{body}</button>
             : <div key={t.key} className={cls}>{body}</div>;
         })}
       </div>
@@ -799,13 +817,15 @@ export function OverviewPanel({ alerts, purchase = null, wide = false, canReorde
             <button type="button" onClick={toggleTop} aria-expanded={topOpen}
               className="flex-1 min-w-0 flex items-center gap-1.5 text-left">
               <ChevronDown size={16} className={`text-slate-400 shrink-0 transition-transform ${topOpen ? '' : '-rotate-90'}`} />
-              <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">ยาต้องสั่งซื้อ 5 อันดับแรก</h3>
+              <span className="min-w-0">
+                <span className="block text-sm font-bold text-slate-700 dark:text-slate-200">ยาต้องสั่งซื้อ 5 อันดับแรก</span>
+                <span className="block text-[11px] text-slate-500 dark:text-slate-400">ต่ำกว่า Safety Stock ทั้งหมด <span className="font-bold text-amber-700 dark:text-amber-300 tabular-nums">{fmtNum(lowStock.length)}</span> รายการ</span>
+              </span>
             </button>
-            {canReorder && (
-              <button type="button" onClick={onOpenReorder} className="text-xs text-sky-600 dark:text-sky-300 hover:underline font-semibold inline-flex items-center gap-0.5">
-                ดูทั้งหมด <ArrowRight size={13} />
-              </button>
-            )}
+            {/* การ์ดตัวเลข "ต่ำกว่า Safety Stock" ถูกแทนด้วยรอตรวจรับ — ทางเข้ารายการเต็มย้ายมาที่นี่ (ทุก role เหมือนการ์ดเดิม) */}
+            <button type="button" onClick={onOpenLowStock} className="shrink-0 text-xs text-sky-600 dark:text-sky-300 hover:underline underline-offset-2 font-semibold inline-flex items-center gap-0.5 px-1 py-1">
+              ดูทั้งหมด <ArrowRight size={13} />
+            </button>
           </div>
           {topOpen && <ul className="divide-y divide-slate-50 dark:divide-slate-800">
             {top5.map((r, i) => {

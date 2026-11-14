@@ -57,7 +57,8 @@ test.describe('Permissions — requester', () => {
     await page.getByRole('button', { name: /ภาพรวมคลัง/ }).click();
     await expect(page.getByText('รายการยาในคลัง')).toBeVisible({ timeout: 8_000 });
     await expect(page.getByText('ใกล้หมดอายุใน 16 เดือน')).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText('ต่ำกว่า Safety Stock')).toBeVisible({ timeout: 5_000 });
+    // การ์ด "ต่ำกว่า Safety Stock" ถูกแทนด้วย "รอตรวจรับ" (14/11/2569)
+    await expect(page.getByText('รอตรวจรับ', { exact: true })).toBeVisible({ timeout: 5_000 });
     await expect(page.getByText('คิวงานวันนี้')).toHaveCount(0);
   });
 });
@@ -105,7 +106,8 @@ test.describe('Permissions — staff', () => {
     await expect(page.getByText('คิวงานวันนี้')).toBeVisible({ timeout: 8_000 });
     await expect(page.getByText('รายการยาในคลัง')).toBeVisible({ timeout: 8_000 });
     await expect(page.getByText('ใกล้หมดอายุใน 16 เดือน')).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText('ต่ำกว่า Safety Stock')).toBeVisible({ timeout: 5_000 });
+    // การ์ด "ต่ำกว่า Safety Stock" ถูกแทนด้วย "รอตรวจรับ" (14/11/2569)
+    await expect(page.getByText('รอตรวจรับ', { exact: true })).toBeVisible({ timeout: 5_000 });
   });
 
   // อ่านอย่างเดียว — เปิดโมดอล สลับแท็บ/ช่วงวัน คัดลอกลง clipboard

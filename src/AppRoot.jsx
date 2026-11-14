@@ -27,6 +27,7 @@ import { pickPopupRows, readSeen, writeSeen, popupStorageKey } from './lib/popup
 import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import { resolveCycles } from '../supabase/functions/_shared/announceSchedule.js';
 import { InstallAppCard } from './InstallApp';
+import { PendingReceiveModal } from './PendingLotCard';
 import { DashboardInfoLines, DrugSearchLauncher, WorkQueuePanel, QueueDetailModal, FormularyModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner, OnboardingCard, CartReminderCard, RequisitionLauncher, PurchaseQueueModal } from './DashboardPanels';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
@@ -707,7 +708,7 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
   const [swapLoaded, setSwapLoaded] = useState(false);
   const [extraLoaded, setExtraLoaded] = useState(false);
   const [charts, setCharts] = useState(null);
-  const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock' | 'stock'
+  const [alertModal, setAlertModal] = useState(null); // null | 'expiry' | 'lowStock' | 'stock' | 'pending'
   const [swapDue, setSwapDue] = useState([]);          // ยาต้องคืนบริษัทก่อนพ้นกำหนด
   const [swapPopupRows, setSwapPopupRows] = useState(null);       // null = ปิด · rows ที่แสดงในโมดอลคืนบริษัท
   const [expiredPopupRows, setExpiredPopupRows] = useState(null); // popup ยาหมดอายุค้างคลัง (เฉพาะ lot ใหม่)
@@ -876,11 +877,11 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
       purchase={purchase}
       onOpenPurchase={() => setQueueDetailKey('purchaseWaiting')}
       wide={!isStaff}
-      canReorder={isStaff}
+      loaded={alertsLoaded}
       onOpenStock={() => setAlertModal('stock')}
       onOpenExpiry={() => setAlertModal('expiry')}
+      onOpenPending={() => setAlertModal('pending')}
       onOpenLowStock={() => setAlertModal('lowStock')}
-      onOpenReorder={() => onNavigate('reorder-analysis')}
     />
   );
   const flowChart = (
@@ -939,6 +940,10 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
       {alertModal === 'lowStock' && (
         <LowStockAlertSection lowStock={alerts.lowStock} onClose={() => setAlertModal(null)}
           onOpenReorder={() => { setAlertModal(null); onNavigate('reorder-analysis'); }} />
+      )}
+      {alertModal === 'pending' && (
+        <PendingReceiveModal rows={alerts.pendingReceive} onClose={() => setAlertModal(null)} onOpenDrug={onOpenDrug}
+          onGoMap={() => { setAlertModal(null); onNavigate('inventory'); }} />
       )}
       {alertModal === 'stock' && (
         <StockSummaryModal onClose={() => setAlertModal(null)} auth={auth} />

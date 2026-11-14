@@ -13,8 +13,10 @@ import { test, expect, waitForAppShell } from './fixtures.js';
 async function gotoReorder(page) {
   await page.goto('/');
   await waitForAppShell(page);
-  // Dashboard → คลิกการ์ด "ต่ำกว่า Safety Stock" ในภาพรวม (เดิมชื่อ "Stock ต่ำกว่ากำหนด") → เปิด modal แจ้งเตือน
-  await page.getByRole('button', { name: /ต่ำกว่า Safety Stock/ }).first().click();
+  // Dashboard → หัวการ์ด "ยาต้องสั่งซื้อ 5 อันดับแรก" → "ดูทั้งหมด" → เปิด modal ต่ำกว่า Safety Stock
+  // (เดิมกดการ์ดตัวเลข "ต่ำกว่า Safety Stock" — การ์ดนั้นถูกแทนด้วย "รอตรวจรับ" 14/11/2569)
+  const top5Toggle = page.getByRole('button', { name: /ยาต้องสั่งซื้อ 5 อันดับแรก/ });
+  await top5Toggle.locator('xpath=..').getByRole('button', { name: /ดูทั้งหมด/ }).click();
   // ใน modal มีปุ่ม "เปิดระบบวิเคราะห์การสั่งซื้อ" (desktop) → คลิกเข้า ReorderApp
   await page.getByRole('button', { name: /เปิดระบบวิเคราะห์การสั่งซื้อ/ }).click();
   await page.waitForSelector('text=ระบบการสั่งซื้อยา', { timeout: 10_000 });
