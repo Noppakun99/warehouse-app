@@ -30,7 +30,8 @@ test.describe('Dashboard', () => {
     await page.goto('/');
     await dismissStartupPopup(page);
     await menu(page, 'เบิกยาออนไลน์').click();
-    await expect(page.getByText('ค้นหายาในคลัง')).toBeVisible({ timeout: 8_000 });
+    // ผู้เบิกเลือกประเภทใบเบิกก่อน แล้วจึงถึงหน้าค้นหายา
+    await expect(page.getByText('เลือกประเภทใบเบิก')).toBeVisible({ timeout: 8_000 });
   });
 
   test('คลิกเมนูคืนยาไปหน้าคืนยาได้', async ({ authenticatedPage: page }) => {
