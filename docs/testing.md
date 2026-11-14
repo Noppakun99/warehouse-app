@@ -56,7 +56,7 @@ npm run test:swappolicy # Golden tests สำหรับ src/lib/swapPolicy.js 
 npm run test:consistency # Golden tests สำหรับ src/lib/consistencyCheck.js — ตรวจความสอดคล้อง CSV→DB (40 assertions)
 npm run test:countmatch  # Golden tests สำหรับ src/lib/countMatch.js — ตรวจนับ: 3 สถานะต่อมิติ ครบ 4 มิติ (จำนวน/ที่เก็บ/exp/lot) + set equality ที่เก็บ/exp (49 assertions)
 npm run test:countpriority # Golden tests สำหรับ src/lib/countPriority.js — จัดอันดับ "ควรตรวจนับตัวไหนก่อน" 4 สัญญาณถ่วงน้ำหนัก (29 assertions)
-npm run test:stockcard   # Golden tests สำหรับ src/lib/stockCard.js — การ์ดคลัง lot: running balance ต่อ lot + drift detection (141 assertions)
+npm run test:stockcard   # Golden tests สำหรับ src/lib/stockCard.js — การ์ดคลัง lot: running balance ต่อ lot + drift detection (165 assertions)
 npm run test:vendorexchange # Golden tests สำหรับ src/lib/vendorExchange.js — รอบเปลี่ยน/คืนบริษัท: จับคู่ขาส่ง↔ขารับ หา "ของลอย" — จับคู่ 2 ชั้น: เลขที่รอบ VX ก่อน แล้ว fallback ไปเดา (50 assertions, ADR-0024)
 npm run test:announce # Golden tests สำหรับ supabase/functions/_shared/announceSchedule.js — ปฏิทินรอบเบิก-รับ + วันหยุด (116 assertions) ⚠️ test อยู่ที่ src/lib/announceSchedule.test.js แต่ source อยู่ใน supabase/functions/_shared/ (import ข้ามโฟลเดอร์)
 npm run test:loanimport # Golden tests สำหรับ src/lib/loanImport.js — นำเข้า CSV ยืม-คืนยา: derive ทิศทาง + diff กับของในระบบ (47 assertions)

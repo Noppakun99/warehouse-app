@@ -11,12 +11,16 @@ import FilterSheet, { FilterButton } from './FilterSheet'
 // selLot ยังไม่ได้เลือก → คอมเลือกให้ (defaultLot) · มือถือ = ชั้นรายการ lot (docs/features/stock-card.md ข้อ 2/7)
 const AUTO = Symbol('auto')
 
-// บรรทัดอธิบายใต้แถว (rowIssues) — ข้อมูลก่อนเริ่มใช้ระบบเป็นสีเทา ไม่ใช่เตือน
+// บรรทัดอธิบายใต้แถว (rowIssues) — ข้อมูลก่อนเริ่มใช้ระบบ / ไม่ตรงระหว่างทาง (คงเหลือตรง Master) เป็นสีเทา ไม่ใช่เตือน
 const ISSUE_STYLE = {
   drift: 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300',
   rowErr: 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300',
   migration: 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
+  settled: 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
 }
+const isInfoIssue = (type) => type === 'migration' || type === 'settled'
+// DriftModal อธิบายได้เฉพาะแถวเบิกที่ยอดไม่ตรง/กรอกผิด — ใบรับก่อนเริ่มระบบมีแค่บรรทัดอธิบาย ไม่มีรายละเอียดให้เปิด
+const hasDriftDetail = (r) => r.isDriftPoint || r.hasRowErr
 
 // วันที่ ISO/DD-MM-YYYY → DD/MM/YYYY (พ.ศ.) ตาม Rule #14
 const fmtThai = (raw) => {
@@ -99,16 +103,18 @@ function printStockCard(meta, sections, filterLabel) {
   </tr>${issues.map(it => `<tr class="iss ${it.type}"><td></td><td colspan="5">${esc(it.text)}</td></tr>`).join('')}`
   }
   const statsHtml = (l) => [
-    !l.hasReceipt && `ยอดตั้งต้นของ lot <b>${fmtNum(l.opening)}</b>`,
+    l.hasOpening && `ยอดตั้งต้นของ lot <b>${fmtNum(l.opening)}</b>`,
     `รับเข้ารวม <b>${fmtNum(l.totalIn)}</b>`,
     `เบิกออกรวม <b>${fmtNum(l.totalOut)}</b>`,
     `คงเหลือ <b class="${l.closing < 0 ? 'neg' : ''}">${fmtNum(l.closing)}</b>`,
   ].filter(Boolean).join(' · ')
   const issueSum = (l) => [
+    l.masterMismatch && `คงเหลือไม่ตรง Master (Master มี ${fmtNum(l.masterQty)})`,
     l.driftReal > 0 && `ยอดไม่ตรง ${l.driftReal} จุด`,
     l.rowErrCount > 0 && `แถวกรอกผิด ${l.rowErrCount} แถว`,
     l.negative && 'คงเหลือติดลบ',
     l.driftMigration > 0 && `ข้อมูลก่อนเริ่มใช้ระบบ ${l.driftMigration} จุด`,
+    l.driftSettled > 0 && `ไม่ตรงระหว่างทาง ${l.driftSettled} จุด (คงเหลือตรง Master)`,
   ].filter(Boolean).join(' · ')
   // ความกว้างคอลัมน์ตายตัว — ทุกช่วง lot ตรงกันทั้งหน้า (auto layout กว้างตามเนื้อหาของแต่ละตาราง)
   const head = '<colgroup><col style="width:82px"><col><col style="width:62px"><col style="width:96px"><col style="width:64px"><col style="width:30%"></colgroup><thead><tr><th>วันที่</th><th>รายการ</th><th class="n">รับเข้า</th><th class="n">เบิกออก</th><th class="n">คงเหลือ</th><th>หมายเหตุ</th></tr></thead>'
@@ -150,7 +156,7 @@ ${issueSum(l) ? `<div class="lot-iss">${esc(issueSum(l))}</div>` : ''}
   tr.iss td{border-top:none;font-size:10.5px;padding-top:0}
   tr.iss.drift td+td{color:#b45309}
   tr.iss.rowErr td+td{color:#be123c}
-  tr.iss.migration td+td{color:#64748b}
+  tr.iss.migration td+td,tr.iss.settled td+td{color:#64748b}
   .neg{color:#dc2626}
   .note{margin-top:10px;font-size:10px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:6px}
   @media print{@page{size:A4 portrait;margin:10mm} body{margin:0}}
@@ -201,10 +207,12 @@ function LotList({ lots, selected, onSelect, fill = false }) {
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
                   <span className="mr-1 tabular-nums">Exp {l.exp ? fmtThai(l.exp) : '-'}</span>
+                  {l.masterMismatch && <IssueChip tone="rose">ไม่ตรง Master</IssueChip>}
                   {l.driftReal > 0 && <IssueChip tone="amber">ยอดไม่ตรง {l.driftReal}</IssueChip>}
                   {l.rowErrCount > 0 && <IssueChip tone="rose">กรอกผิด {l.rowErrCount}</IssueChip>}
                   {l.negative && <IssueChip tone="rose">ติดลบ</IssueChip>}
                   {l.driftMigration > 0 && <IssueChip tone="slate">ข้อมูลก่อนเริ่มใช้ระบบ {l.driftMigration}</IssueChip>}
+                  {l.driftSettled > 0 && <IssueChip tone="slate">ไม่ตรงระหว่างทาง {l.driftSettled}</IssueChip>}
                 </div>
               </div>
             </button>
@@ -319,12 +327,12 @@ function RowSheet({ r, price, showLot, onClose, onDrift }) {
         </div>
         {issues.map((it, j) => (
           <div key={j} className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${ISSUE_STYLE[it.type]}`}>
-            {it.type === 'migration' ? <Info size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
+            {isInfoIssue(it.type) ? <Info size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
             <span className="flex-1 min-w-0">{it.text}</span>
           </div>
         ))}
         <RowDetail r={r} price={price} />
-        {issues.length > 0 && (
+        {issues.length > 0 && hasDriftDetail(r) && (
           <button type="button" onClick={() => onDrift(r)}
             className="w-full py-2.5 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-sm font-semibold">
             ดูรายละเอียดยอดของแถวนี้
@@ -410,23 +418,25 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
       const { byCode, meta: metaMap } = await fetchAllStockCardIssues()
       const found = []
       for (const [code, rows] of Object.entries(byCode)) {
-        const c = buildStockCard({ receiveRows: rows.receiveRows, dispenseRows: rows.dispenseRows })
-        const driftPoints = c.summary.driftRowsReal          // ไม่นับที่เกิดตอนย้ายข้อมูล Excel
+        const c = buildStockCard({ receiveRows: rows.receiveRows, dispenseRows: rows.dispenseRows, masterRows: rows.masterRows })
+        const driftPoints = c.summary.driftRowsReal          // ไม่นับที่เกิดตอนย้ายข้อมูล Excel / ที่คงเหลือตรง Master แล้ว
         const migrationPoints = c.summary.driftRowsMigration
         const rowErrs = c.summary.rowErrRows
-        if (driftPoints > 0 || rowErrs > 0 || migrationPoints > 0) {
+        const masterLots = c.summary.masterMismatchLots      // คงเหลือ lot ≠ Master = ตัวตรวจหลัก
+        if (driftPoints > 0 || rowErrs > 0 || migrationPoints > 0 || masterLots > 0) {
           found.push({
             code,
             name: metaMap[code]?.name || code,
             driftPoints,
             migrationPoints,
             rowErrs,
-            lots: c.lots.filter(l => l.driftCount > 0).map(l => l.lot),
+            masterLots,
+            lots: c.lots.filter(l => l.warn).map(l => l.lot),
           })
         }
       }
-      // เรียงตามความรุนแรง: กรอกผิดก่อน (ต้องแก้ที่ต้นทาง) แล้วค่อยยอดไม่ตรงจริง
-      found.sort((a, b) => (b.rowErrs - a.rowErrs) || (b.driftPoints - a.driftPoints))
+      // เรียงตามความรุนแรง: กรอกผิดก่อน (ต้องแก้ที่ต้นทาง) → คงเหลือไม่ตรง Master → ยอดไม่ตรงจริง
+      found.sort((a, b) => (b.rowErrs - a.rowErrs) || (b.masterLots - a.masterLots) || (b.driftPoints - a.driftPoints))
       setIssues(found); setShowIssues(true)
     } catch (e) { setError(e.message) }
     finally { setScanning(false) }
@@ -466,11 +476,11 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
 
   // แยกยาที่ "ต้องตรวจจริง" ออกจากยาที่ต่างเพราะย้ายข้อมูล Excel (52% ของ drift ทั้งระบบ)
   const visibleIssues = useMemo(
-    () => (issues || []).filter(it => showMigration || it.rowErrs > 0 || it.driftPoints > 0),
+    () => (issues || []).filter(it => showMigration || it.rowErrs > 0 || it.driftPoints > 0 || it.masterLots > 0),
     [issues, showMigration]
   )
   const migrationOnlyCount = useMemo(
-    () => (issues || []).filter(it => it.rowErrs === 0 && it.driftPoints === 0 && it.migrationPoints > 0).length,
+    () => (issues || []).filter(it => it.rowErrs === 0 && it.driftPoints === 0 && it.masterLots === 0 && it.migrationPoints > 0).length,
     [issues]
   )
 
@@ -480,6 +490,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
       receiveRows: data.receiveRows,
       dispenseRows: data.dispenseRows,
       pricePerUnit: data.meta?.pricePerUnit || 0,
+      masterRows: data.masterRows,
     })
   }, [data])
 
@@ -499,7 +510,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
   )
 
   // หัวของ lot ที่ดูอยู่ (หรือรวมทุก lot) — ยอดตั้งต้น + รับ − เบิก = คงเหลือ เสมอ
-  // (lot ที่มีประวัติรับเข้า opening = 0 · totalOut ไม่นับแถวไม่หักยอด — stockCard.js)
+  // (lot ประวัติครบ opening = 0 · ใบรับก่อนเริ่มระบบไม่นับใน totalIn · totalOut ไม่นับแถวไม่หักยอด — stockCard.js)
   const view = useMemo(() => {
     if (!card) return null
     const ls = lot ? card.lots.filter(l => l.lot === lot) : card.lots
@@ -507,15 +518,17 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
     return {
       info: lot ? ls[0] : null,
       lotCount: ls.length,
-      hasOpening: ls.some(l => !l.hasReceipt),
+      hasOpening: ls.some(l => l.hasOpening),
       opening: sum(l => l.opening),
       totalIn: sum(l => l.totalIn),
       totalOut: sum(l => l.totalOut),
       closing: sum(l => l.closing),
       driftReal: sum(l => l.driftReal),
       driftMigration: sum(l => l.driftMigration),
+      driftSettled: sum(l => l.driftSettled),
       rowErr: sum(l => l.rowErrCount),
       negative: ls.filter(l => l.negative).length,
+      masterMismatch: ls.filter(l => l.masterMismatch).length,
     }
   }, [card, lot])
 
@@ -743,6 +756,11 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                             กรอกผิด {it.rowErrs}
                           </span>
                         )}
+                        {it.masterLots > 0 && (
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800/60">
+                            ไม่ตรง Master {it.masterLots} lot
+                          </span>
+                        )}
                         {it.driftPoints > 0 && (
                           <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60">
                             ยอดไม่ตรง {it.driftPoints}
@@ -750,7 +768,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                         )}
                         {it.migrationPoints > 0 && (
                           <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
-                            ข้อมูลเก่า {it.migrationPoints}
+                            ข้อมูลก่อนเริ่มใช้ระบบ {it.migrationPoints}
                           </span>
                         )}
                       </div>
@@ -834,21 +852,31 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                   <div className={`mt-3 grid gap-2 ${view.hasOpening ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}>
                     {view.hasOpening && (
                       <LotStat label={view.info ? 'ยอดตั้งต้นของ lot' : 'ยอดตั้งต้นรวม'} value={view.opening}
-                        hint={view.info ? 'ไม่มีประวัติรับเข้าในระบบ' : 'เฉพาะ lot ที่ไม่มีประวัติรับเข้า'} />
+                        hint={view.info ? 'ประวัติก่อนเริ่มระบบไม่ครบ ไล่ย้อนจากชีทเบิก' : 'เฉพาะ lot ที่ประวัติไม่ครบ'} />
                     )}
                     <LotStat label="รับเข้ารวม" value={view.totalIn} tone="emerald" />
                     <LotStat label="เบิกออกรวม" value={view.totalOut} />
                     <LotStat label={view.info ? 'คงเหลือ' : 'คงเหลือรวม'} value={view.closing} tone={view.closing < 0 ? 'rose' : 'teal'} />
                   </div>
 
+                  {/* คงเหลือที่ไล่ได้ ≠ Master = ตัวตรวจหลัก (ของหาย/เกินจริง หรือ lot รับ-เบิกพิมพ์ไม่ตรงกัน) */}
+                  {view.masterMismatch > 0 && (
+                    <p className="mt-3 flex items-start gap-1.5 text-xs font-semibold text-rose-700 dark:text-rose-300">
+                      <AlertTriangle size={14} className="mt-px shrink-0" />
+                      {view.info
+                        ? `คงเหลือไม่ตรง Master: ไล่จากประวัติได้ ${fmtNum(view.info.closing)} แต่ Master มี ${fmtNum(view.info.masterQty)}`
+                        : `คงเหลือไม่ตรง Master ${view.masterMismatch} lot`}
+                    </p>
+                  )}
+
                   {/* บรรทัดสรุปจุดที่ยอดมีปัญหา — กดแล้วเลื่อนไปแถวแรกของเรื่องนั้น (ข้อตกลงข้อ 4) */}
-                  {(view.driftReal + view.rowErr + view.negative + view.driftMigration) > 0 && (
+                  {(view.driftReal + view.rowErr + view.negative + view.driftMigration + view.driftSettled) > 0 && (
                     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                       {(view.driftReal + view.rowErr + view.negative) > 0
                         ? <AlertTriangle size={14} className="text-amber-600 shrink-0" />
                         : <Info size={14} className="text-slate-400 shrink-0" />}
                       {view.driftReal > 0 && (
-                        <button type="button" onClick={() => jumpToRow(r => r.isDriftPoint && !r.fromMigration)}
+                        <button type="button" onClick={() => jumpToRow(r => r.isDriftPoint && !r.fromMigration && !r.settled)}
                           className="font-semibold text-amber-700 dark:text-amber-300 underline underline-offset-2 decoration-amber-300 hover:decoration-amber-600 transition-colors">
                           ยอดไม่ตรง {view.driftReal} จุด
                         </button>
@@ -866,6 +894,12 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                         <button type="button" onClick={() => jumpToRow(r => r.isDriftPoint && r.fromMigration)}
                           className="text-slate-500 dark:text-slate-400 underline underline-offset-2 decoration-slate-300 hover:decoration-slate-500 transition-colors">
                           ข้อมูลก่อนเริ่มใช้ระบบ {view.driftMigration} จุด
+                        </button>
+                      )}
+                      {view.driftSettled > 0 && (
+                        <button type="button" onClick={() => jumpToRow(r => r.settled)}
+                          className="text-slate-500 dark:text-slate-400 underline underline-offset-2 decoration-slate-300 hover:decoration-slate-500 transition-colors">
+                          ไม่ตรงระหว่างทาง {view.driftSettled} จุด (คงเหลือตรง Master)
                         </button>
                       )}
                     </div>
@@ -949,11 +983,11 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                                       <div className="space-y-1">
                                         {issues.map((it, j) => (
                                           <div key={j} className={`flex items-start gap-2 rounded-lg px-3 py-1.5 text-xs ${ISSUE_STYLE[it.type]}`}>
-                                            {it.type === 'migration'
+                                            {isInfoIssue(it.type)
                                               ? <Info size={13} className="mt-0.5 shrink-0" />
                                               : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
                                             <span className="flex-1 min-w-0">{it.text}</span>
-                                            {j === 0 && (
+                                            {j === 0 && hasDriftDetail(r) && (
                                               <button type="button" onClick={() => setDriftRow(r)}
                                                 className="shrink-0 font-semibold underline underline-offset-2 hover:opacity-80 transition-opacity">
                                                 ดูรายละเอียด
@@ -1028,9 +1062,9 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                             {issues.length > 0 && (
                               <div className="px-3 pb-2.5 space-y-1">
                                 {issues.map((it, j) => (
-                                  <button key={j} type="button" onClick={() => setDriftRow(r)}
+                                  <button key={j} type="button" onClick={() => setDriftRow(r)} disabled={!hasDriftDetail(r)}
                                     className={`w-full flex items-start gap-1.5 text-[11px] rounded-lg px-2 py-1.5 text-left ${ISSUE_STYLE[it.type]}`}>
-                                    {it.type === 'migration' ? <Info size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
+                                    {isInfoIssue(it.type) ? <Info size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
                                     <span className="min-w-0">{it.text}</span>
                                   </button>
                                 ))}
@@ -1077,9 +1111,11 @@ function DriftModal({ row, onClose }) {
   const recorded = row.qtyBefore             // ยอดก่อนเบิกที่ต้นทางบันทึก
   const diff = row.drift
   const more = diff > 0                      // บวก = ระบบคิดว่ามีมากกว่าที่บันทึก (ของหายไปโดยไม่มีแถว)
-  // แถวไม่หักยอด (บันทึกเท่านั้น/แก้ไขระบบ): หลังเบิกควร = ก่อนเบิก (stockCard.js rowErr)
+  // แถวไม่หักยอด (บันทึกเท่านั้น): หลังเบิกควร = ก่อนเบิก (stockCard.js rowErr)
   const expectAfter = row.noDeduct ? recorded : recorded - row.qtyOut
-  const title = row.hasDrift ? (row.fromMigration ? 'ข้อมูลก่อนเริ่มใช้ระบบ' : 'ยอดไม่ตรง') : 'แถวกรอกผิด'
+  const title = row.hasDrift
+    ? (row.fromMigration ? 'ข้อมูลก่อนเริ่มใช้ระบบ' : row.settled ? 'ไม่ตรงระหว่างทาง' : 'ยอดไม่ตรง')
+    : 'แถวกรอกผิด'
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={onClose}>
@@ -1211,6 +1247,12 @@ function DriftModal({ row, onClose }) {
               <p className="mt-1.5 text-slate-500 dark:text-slate-400">
                 แถวนี้เป็น<b>ข้อมูลก่อนเริ่มใช้ระบบ</b> ({displayRef(row.ref)}) — ประวัติการเบิกก่อน ต.ค.68
                 ไม่ได้นำเข้าระบบ ช่องว่างนี้จึงไม่ใช่ของหาย ไม่ต้องตามแก้
+              </p>
+            )}
+            {row.settled && (
+              <p className="mt-1.5 text-slate-500 dark:text-slate-400">
+                แต่<b>คงเหลือของ lot นี้ตอนนี้ตรงกับ Master</b> — ของไม่ได้หาย ช่องว่างนี้มักเกิดจาก lot เดียวแยกหลายแถวในชีท
+                (ชีทเบิกบันทึกคงเหลือก่อนเบิกของแถวนั้น ไม่ใช่ทั้ง lot) ไม่ต้องตามแก้
               </p>
             )}
             <p className="mt-1.5 text-slate-500 dark:text-slate-400">

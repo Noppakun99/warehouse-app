@@ -2,7 +2,7 @@
 // รัน: npm run test:stockcard   (standalone node ไม่มี framework ตาม convention repo)
 // fixture อ้างอิงข้อมูลจริงจาก DB + สูตร Excel §45.5/§46.2 (Context.csv)
 
-import { buildStockCard, filterStockCard, NO_DEDUCT, lotOf, dateSortKey, orderLots, defaultLot, sortRowsByDate, kindBadgeOf, rowTitle, displayRef, rowIssues } from './stockCard.js'
+import { buildStockCard, filterStockCard, NO_DEDUCT, lotOf, dateSortKey, orderLots, defaultLot, sortRowsByDate, kindBadgeOf, rowTitle, displayRef, rowIssues, SYSTEM_START } from './stockCard.js'
 
 let pass = 0, fail = 0
 function eq(actual, expected, label) {
@@ -44,7 +44,7 @@ section('Test 2: opening = 0 เมื่อ lot มีรับเข้า')
 section('Test 3: NO_DEDUCT ไม่หัก balance')
 {
   eq(NO_DEDUCT.has('บันทึกเท่านั้น'), true, 'บันทึกเท่านั้น อยู่ใน NO_DEDUCT')
-  eq(NO_DEDUCT.has('แก้ไขระบบ'), true, 'แก้ไขระบบ อยู่ใน NO_DEDUCT')
+  eq(NO_DEDUCT.has('แก้ไขระบบ'), false, 'แก้ไขระบบ หักปกติ (user สั่ง 14/11/2569 — ชีทหักจริง)')
   eq(NO_DEDUCT.has('คืนยา'), false, 'คืนยา หักปกติ (ยึด Excel)')
   eq(NO_DEDUCT.has('ยืมยา'), false, 'ยืมยา หักปกติ')
   const r = buildStockCard({
@@ -55,7 +55,7 @@ section('Test 3: NO_DEDUCT ไม่หัก balance')
       { dispense_date: '2026-01-07', lot: 'L2', item_type: 'ยกยอด', qty_out: 20, qty_before: 50 },
     ],
   })
-  eq(r.rows.map(x => x.balance), [50, 50, 50, 30], 'หักเฉพาะ ยกยอด → 50 − 20 = 30')
+  eq(r.rows.map(x => x.balance), [50, 50, 45, 25], 'บันทึกเท่านั้น ไม่หัก · แก้ไขระบบ หัก 5 · ยกยอด หัก 20 → 25')
   eq(r.rows[1].qtyOut, 10, 'qtyOut ยังเก็บไว้แสดง (Excel: E ยังโชว์ 10 แต่ F ไม่หัก)')
   eq(r.rows[1].noDeduct, true, 'flag noDeduct ให้ UI ทำ CF ได้')
 }
@@ -183,15 +183,16 @@ section('Test 12: summary + parse comma')
   eq(r.rows[1].balance, 1000, 'balance = 1200 − 200')
 }
 
-// ── Test 13: drift detection — เคสจริง Atorvastatin 40mg lot CH553 ──
-// รับ 5,000+100 แต่แถวเบิกแรกบันทึก qty_before=2,400 → หาย 2,700 โดยไม่มีแถวเบิก
-// = "Group B Data Gap" ที่คลังเจอเองใน Excel (Context.csv:1508) — Excel detect ไม่ได้ แอปทำได้
-section('Test 13: drift detection (Atorvastatin CH553 — data gap จริง)')
+// ── Test 13: drift detection — รับ 5,000+100 แต่แถวเบิกแรกบันทึก qty_before=2,400 ──
+// → หาย 2,700 โดยไม่มีแถวเบิก (Excel detect ไม่ได้ แอปทำได้)
+// เดิมเป็นเคสจริง CH553 (รับ 18/08/68) — 14/11/2569 พบว่าเป็นการเบิกก่อนเริ่มระบบ ไม่ใช่ของหาย
+// จึงย้ายวันรับมาหลัง SYSTEM_START เพื่อทดสอบกลไก drift · เคสจริงอยู่ Test 34
+section('Test 13: drift detection (รับหลังเริ่มระบบ แต่ก่อนเบิกขาด)')
 {
   const r = buildStockCard({
     receiveRows: [
-      { receive_date: '2025-08-18', lot: 'CH553', item_type: 'ซื้อยา', qty_received: 5000 },
-      { receive_date: '2025-08-18', lot: 'CH553', item_type: 'ซื้อยา', qty_received: 100 },
+      { receive_date: '2025-10-01', lot: 'CH553', item_type: 'ซื้อยา', qty_received: 5000 },
+      { receive_date: '2025-10-01', lot: 'CH553', item_type: 'ซื้อยา', qty_received: 100 },
     ],
     dispenseRows: [
       { dispense_date: '2025-10-06', lot: 'CH553', item_type: 'ยกยอด', qty_out: 400, qty_before: 2400 },
@@ -272,7 +273,7 @@ section('Test 17: balanceBefore แถวหักปกติ')
 section('Test 18: driftDelta — lot 194584 (ของหายจุดเดียว ไม่เตือนซ้ำ)')
 {
   const r = buildStockCard({
-    receiveRows: [{ receive_date: '2025-09-22', lot: '194584', item_type: 'ซื้อยา', qty_received: 100 }],
+    receiveRows: [{ receive_date: '2025-10-01', lot: '194584', item_type: 'ซื้อยา', qty_received: 100 }],
     dispenseRows: [
       { dispense_date: '2025-10-06', lot: '194584', item_type: 'ยกยอด', qty_out: 5, qty_before: 91 },
       { dispense_date: '2025-10-06', lot: '194584', item_type: 'ยกยอด', qty_out: 1, qty_before: 86 },
@@ -342,7 +343,7 @@ section('Test 21: rowErr — ก่อน − ออก ≠ หลัง (คน
 section('Test 22: แถวถูก แต่มี drift → flag แค่ drift')
 {
   const r = buildStockCard({
-    receiveRows: [{ receive_date: '2025-09-22', lot: '194584', item_type: 'ซื้อยา', qty_received: 100 }],
+    receiveRows: [{ receive_date: '2025-10-01', lot: '194584', item_type: 'ซื้อยา', qty_received: 100 }],
     dispenseRows: [
       { dispense_date: '2025-10-06', lot: '194584', item_type: 'ยกยอด', qty_out: 5, qty_before: 91, qty_after: 86 },
     ],
@@ -371,7 +372,7 @@ section('Test 23: qty_after null → rowErr = null')
 section('Test 24: fromMigration แยกออกจาก driftRowsReal')
 {
   const r = buildStockCard({
-    receiveRows: [{ receive_date: '2025-09-22', lot: 'M1', item_type: 'ซื้อยา', qty_received: 100 }],
+    receiveRows: [{ receive_date: '2025-10-01', lot: 'M1', item_type: 'ซื้อยา', qty_received: 100 }],
     dispenseRows: [
       { dispense_date: '2025-10-06', lot: 'M1', item_type: 'ยกยอด', qty_out: 5, qty_before: 91, note: 'นำเข้าจาก ต.ค.68 (unpivot)' },
     ],
@@ -431,7 +432,7 @@ section('Test 28: นับยอดไม่ตรงจริง vs ข้อ�
 {
   const r = buildStockCard({
     receiveRows: [
-      { receive_date: '2025-09-01', lot: 'M', qty_received: 100 },
+      { receive_date: '2025-10-01', lot: 'M', qty_received: 100 },
       { receive_date: '2026-01-01', lot: 'R', qty_received: 100 },
     ],
     dispenseRows: [
@@ -510,7 +511,7 @@ section('Test 33: rowIssues — ข้อความใต้แถว')
   eq(i2[1].text, 'แถวกรอกผิด: ชีทเบิกบันทึก ก่อนเบิก 4,640 − เบิก 100 = หลังเบิก 4,500 (ควรเป็น 4,540)', 'กรอกผิด')
   eq(rowIssues(r.rows[0]), [], 'แถวรับ ไม่มีปัญหา')
   const m = buildStockCard({
-    receiveRows: [{ receive_date: '2025-09-01', lot: 'M', qty_received: 100 }],
+    receiveRows: [{ receive_date: '2025-10-01', lot: 'M', qty_received: 100 }],
     dispenseRows: [{ dispense_date: '2025-10-01', lot: 'M', qty_out: 5, qty_before: 80, note: 'นำเข้าจาก ต.ค.68 (unpivot)' }],
   })
   eq(rowIssues(m.rows[1])[0].type, 'migration', 'ข้อมูลก่อนเริ่มใช้ระบบ แยก type')
@@ -546,6 +547,111 @@ section('Test 35: rowIssues — ยอดกลับมาตรง (drift → 
   eq(back.isDriftPoint, true, 'ยังนับเป็นจุดเปลี่ยน (ไม่แก้สูตร)')
   eq(rowIssues(back), [{ type: 'drift', text: 'ยอดกลับมาตรงกัน: ชีทเบิกบันทึกว่าก่อนเบิกเหลือ 44 ตรงกับที่ไล่จากประวัติ — ผลต่าง 12 ของแถวก่อนหน้าหายไประหว่างทาง' }], 'ข้อความยอดกลับมาตรง')
   eq(rowIssues(r.rows[2])[0].text.includes('เกินมา 12'), true, 'แถวก่อนหน้ายังเป็น เกินมา')
+}
+
+// ── กฎ 14/11/2569 (สแกนทั้งระบบ: คงเหลือ lot ไม่ตรง Master 1,017 → 124 lot) ──
+section('Test 36: ใบรับก่อนเริ่มระบบ — เคสจริง Atorvastatin CH553 (เบิก ส.ค.–ก.ย.68 ไม่มีในระบบ)')
+{
+  const r = buildStockCard({
+    receiveRows: [
+      { receive_date: '2025-08-18', lot: 'CH553', qty_received: 5000 },
+      { receive_date: '2025-08-18', lot: 'CH553', qty_received: 100 },
+    ],
+    dispenseRows: [
+      { dispense_date: '2025-10-06', lot: 'CH553', qty_out: 100, qty_before: 2500, qty_after: 2400, note: 'นำเข้าจาก ต.ค.68 (unpivot)' },
+      { dispense_date: '2025-11-10', lot: 'CH553', qty_out: 2400, qty_before: 2400, qty_after: 0 },
+    ],
+  })
+  const l = r.lots[0]
+  eq(SYSTEM_START, '2025-10-01', 'วันเริ่มระบบ = ต.ค.68')
+  eq([l.opening, l.hasOpening, l.totalIn, l.closing], [2500, true, 0, 0], 'ยอดตั้งต้น = ก่อนเบิกแถวแรก · ใบรับเก่าไม่บวกยอด · คงเหลือ 0')
+  eq(r.rows.filter(x => x.side === 'in').map(x => [x.preSystem, x.balance]), [[true, 2500], [true, 2500]], 'ใบรับเก่าแสดงเป็นประวัติ ยอดไม่ขยับ')
+  eq(r.summary.driftRows, 0, 'ไม่มีจุดไม่ตรงปลอม (เดิมขึ้น 2,600)')
+  eq(rowIssues(r.rows[0])[0].type, 'migration', 'ใบรับเก่ามีบรรทัดอธิบายสีเทา')
+  eq(l.opening + l.totalIn - l.totalOut, l.closing, 'ยอดตั้งต้น + รับ − เบิก = คงเหลือ')
+}
+
+section('Test 37: ไล่ย้อนยอดตั้งต้น — เริ่มด้วยการเบิก แล้วค่อยรับเพิ่ม (ถุงซิป S006)')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-21', lot: '-', qty_received: 50 }],
+    dispenseRows: [
+      { dispense_date: '2025-11-10', lot: '-', qty_out: 1, qty_before: 16, qty_after: 15 },
+      { dispense_date: '2026-03-10', lot: '-', qty_out: 2, qty_before: 65, qty_after: 63 },
+    ],
+  })
+  eq(r.lots[0].opening, 16, 'เดิมเริ่ม 0 เพราะมีใบรับ → ไม่ตรงปลอม −16')
+  eq(r.summary.driftRows, 0, 'ไม่มีจุดไม่ตรง')
+  eq(r.lots[0].closing, 63, 'คงเหลือ 16 − 1 + 50 − 2')
+  // แถวแรกที่มีตัวเลขอยู่หลังการรับ → ไล่ย้อน: 65 − รับ 50 + เบิกก่อนหน้า 1 = 16
+  const b = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-21', lot: '-', qty_received: 50 }],
+    dispenseRows: [
+      { dispense_date: '2025-11-10', lot: '-', qty_out: 1, qty_before: null },
+      { dispense_date: '2026-03-10', lot: '-', qty_out: 2, qty_before: 65 },
+    ],
+  })
+  eq(b.lots[0].opening, 16, 'ไล่ย้อนข้ามแถวที่ไม่มีตัวเลข')
+}
+
+section('Test 38: แถวเบิกออก 0 ไม่เทียบยอด ("เบิก 2 จ่าย 0 รอตรวจรับ")')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-05-12', lot: 'L', qty_received: 20 }],
+    dispenseRows: [
+      { dispense_date: '2026-05-25', lot: 'L', qty_out: 0, qty_before: 0, qty_after: 0 },
+      { dispense_date: '2026-06-02', lot: 'L', qty_out: 3, qty_before: 20, qty_after: 17 },
+    ],
+  })
+  eq(r.rows[1].drift, null, 'แถวจ่าย 0 เทียบไม่ได้')
+  eq(r.summary.driftRows, 0, 'เดิมขึ้น +20 แล้ว −20')
+}
+
+section('Test 39: เทียบ Master — คงเหลือตรง = จุดไม่ตรงระหว่างทางเป็นสีเทา')
+{
+  // lot เดียวแยก 2 แถวใน Master (ยกยอด 10 + ซื้อยา(2) 50) ชีทบันทึกก่อนเบิกต่อแถว
+  const input = {
+    receiveRows: [{ receive_date: '2026-07-13', lot: 'B', qty_received: 50 }],
+    dispenseRows: [
+      { dispense_date: '2025-10-06', lot: 'B', item_type: 'ยกยอด', qty_out: 0, qty_before: 10, qty_after: 10 },
+      { dispense_date: '2026-09-14', lot: 'B', item_type: 'ยกยอด', qty_out: 10, qty_before: 10, qty_after: 0 },
+      { dispense_date: '2026-09-14', lot: 'B', item_type: 'ซื้อยา(2)', qty_out: 50, qty_before: 50, qty_after: 0 },
+    ],
+  }
+  const noMaster = buildStockCard(input)
+  eq([noMaster.lots[0].driftReal, noMaster.lots[0].masterQty, noMaster.lots[0].masterMismatch], [2, null, false], 'ไม่ส่ง Master = พฤติกรรมเดิม')
+  const ok = buildStockCard({ ...input, masterRows: [] })
+  const l = ok.lots[0]
+  eq([l.closing, l.masterQty, l.masterMismatch, l.driftReal, l.driftSettled, l.warn], [0, 0, false, 0, 2, false], 'คงเหลือ 0 = Master (lot ไม่อยู่ใน Master แล้ว) → ไม่เตือน')
+  eq(rowIssues(ok.rows.find(x => x.settled && x.drift !== 0))[0].type, 'settled', 'บรรทัดอธิบายสีเทา')
+  eq(ok.summary.driftRowsReal, 0, 'สแกนทั้งระบบไม่นับ')
+  eq(ok.summary.driftRowsSettled, 2, 'นับแยก')
+}
+
+section('Test 40: เทียบ Master — คงเหลือไม่ตรง = เตือน (lot รับ/เบิกพิมพ์ต่างกัน)')
+{
+  // รับเป็น S685043 แต่เบิกเป็น S685040 → lot หนึ่งเหลือ 30 อีก lot ติดลบ 30 · Master ไม่มีทั้งคู่
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-02-01', lot: 'S685043', qty_received: 30 }],
+    dispenseRows: [{ dispense_date: '2026-02-05', lot: 'S685040', qty_out: 30, qty_before: 30, qty_after: 0 }],
+    masterRows: [{ lot: 'X1', qty: 5 }, { lot: ' X1 ', qty: '2' }],
+  })
+  const a = r.lots.find(l => l.lot === 'S685043'), b = r.lots.find(l => l.lot === 'S685040')
+  eq([a.closing, a.masterQty, a.masterMismatch, a.warn], [30, 0, true, true], 'ระบบเหลือ 30 แต่ Master 0')
+  eq([b.opening, b.closing, b.masterMismatch], [30, 0, false], 'lot ที่ไม่มีใบรับ ไล่ย้อนจากก่อนเบิก')
+  eq(r.summary.masterMismatchLots, 1, 'นับ lot ไม่ตรง Master')
+  const m = buildStockCard({ dispenseRows: [{ dispense_date: '2026-02-05', lot: 'X1', qty_out: 3, qty_before: 10 }], masterRows: [{ lot: 'X1', qty: 5 }, { lot: ' X1 ', qty: '2' }] })
+  eq([m.lots[0].masterQty, m.lots[0].masterMismatch], [7, false], 'Master หลายแถว lot เดียวกัน = บวกรวม (ตัดช่องว่าง)')
+}
+
+section('Test 41: มีแต่ใบรับก่อนเริ่มระบบ ไม่เคลื่อนไหวเลย → ยอดตั้งต้น = Master')
+{
+  const input = { receiveRows: [{ receive_date: '2025-01-14', lot: 'J670399', qty_received: 1500 }] }
+  eq(buildStockCard(input).lots[0].closing, 1500, 'ไม่ส่ง Master = นับรับเต็ม (เดิม)')
+  const gone = buildStockCard({ ...input, masterRows: [] }).lots[0]
+  eq([gone.opening, gone.totalIn, gone.closing, gone.hasOpening, gone.masterMismatch, gone.warn], [0, 0, 0, true, false, false], 'เบิกหมดก่อน ต.ค.68 → คงเหลือ 0 ตรง Master')
+  const kept = buildStockCard({ ...input, masterRows: [{ lot: 'J670399', qty: 40 }] }).lots[0]
+  eq([kept.opening, kept.closing, kept.masterMismatch], [40, 40, false], 'ยังเหลือใน Master → ใช้ยอด Master')
 }
 
 console.log('\n' + '─'.repeat(50))

@@ -62,21 +62,42 @@ test.describe('จอคอม', () => {
     await expect(page.locator('[data-scrollbox] tbody tr[tabindex] td:nth-child(2) .font-mono').first()).toBeVisible()
   })
 
-  test('บรรทัดสรุป "ยอดไม่ตรง N จุด" กดแล้วเลื่อนไปไฮไลต์แถว', async ({ page }) => {
+  // ยาที่ยอดไม่ตรงจริงเปลี่ยนตามข้อมูล (14/11/2569 แก้ตรรกะแล้ว Acetaminophen 500 ไม่มียอดไม่ตรงจริงแล้ว
+  // — เป็นการเบิกก่อนเริ่มระบบ) → หายาจากปุ่มสแกน แล้วเปิดดูทุก lot
+  async function openDriftDrug(page) {
+    test.setTimeout(120_000)
     await openStockcard(page)
-    await selectDrug(page)
+    await page.getByRole('button', { name: /ตรวจหายาที่ยอดไม่ตรง/ }).click()
+    await expect(page.getByText(/ต้องตรวจ \d+ รายการ|ไม่พบยาที่ต้องตรวจ/)).toBeVisible({ timeout: 60_000 })
+    const withDrift = page.locator('button:has(span:text-matches("^ยอดไม่ตรง \\\\d+$"))')
+    expect(await withDrift.count()).toBeGreaterThan(0)
+    await withDrift.first().click()
+    await expect(page.getByText('รหัส:')).toBeVisible({ timeout: 20_000 })
+    const all = lotList(page).getByRole('button', { name: 'ดูทุก lot เรียงตามวัน' })
+    if (await all.count()) await all.click()
+  }
+
+  test('บรรทัดสรุป "ยอดไม่ตรง N จุด" กดแล้วเลื่อนไปไฮไลต์แถว', async ({ page }) => {
+    await openDriftDrug(page)
     await page.getByRole('button', { name: /^ยอดไม่ตรง \d+ จุด$/ }).click()
     await expect(page.locator('tr.ring-2').first()).toBeVisible({ timeout: 3000 })
   })
 
+  test('lot ไม่ตรง Master → ป้ายในรายการ lot + บรรทัดสรุปในหัว', async ({ page }) => {
+    await openDriftDrug(page)
+    await expect(page.getByText(/^คงเหลือไม่ตรง Master \d+ lot$/)).toBeVisible()
+    const bad = lotList(page).locator('button:has(span:text-is("ไม่ตรง Master"))').first()
+    await bad.click()
+    await expect(page.getByText(/^คงเหลือไม่ตรง Master: ไล่จากประวัติได้ .+ แต่ Master มี /)).toBeVisible()
+  })
+
   test('บรรทัดอธิบายใต้แถว → ดูรายละเอียด เปิดโมดอล', async ({ page }) => {
-    await openStockcard(page)
-    await selectDrug(page)
+    await openDriftDrug(page)
     await expect(page.getByText(/^ยอดไม่ตรง: ชีทเบิกบันทึกว่าก่อนเบิกเหลือ/).first()).toBeVisible()
     await page.getByRole('button', { name: 'ดูรายละเอียด', exact: true }).first().click()
     await expect(page.getByText('แถวนี้ตามชีทเบิก')).toBeVisible()
     await expect(page.getByRole('cell', { name: /คงเหลือก่อนเบิก/ }).first()).toBeVisible()
-    await expect(page.getByRole('cell', { name: 'เบิกออก', exact: true })).toBeVisible()
+    await expect(page.getByRole('cell', { name: /^เบิกออก/ }).first()).toBeVisible()   // แถวไม่หักยอดมีคำต่อท้าย
     await expect(page.getByRole('cell', { name: 'คงเหลือหลังเบิก', exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'ปิด', exact: true }).click()
     await expect(page.getByText('แถวนี้ตามชีทเบิก')).toHaveCount(0)

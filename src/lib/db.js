@@ -2706,6 +2706,7 @@ export async function fetchStockCard(drugCode) {
         .from(table).select(select)
         .eq('drug_code', code)
         .order(dateCol, { ascending: true, nullsFirst: false })
+        .order('id', { ascending: true })   // วันเดียวกันเรียงตามแถวใน Excel — ยอดตั้งต้น/ยอดไม่ตรงพึ่งลำดับนี้
         .range(off, off + PAGE - 1)
       if (error) throw error
       if (!data || data.length === 0) break
@@ -2723,8 +2724,9 @@ export async function fetchStockCard(drugCode) {
 
   // meta: ชื่อ/หน่วย/ราคา — ราคาจาก inventory ก่อน (Master) แล้ว fallback แถวรับที่มีราคา > 0
   // (ห้ามใช้ราคาในแถวเบิก — แถว 'ยกยอด' มี price=0 ตาม Excel §45.5 I8)
+  // ทุกแถวของรหัสนี้ (ไม่ limit) — masterRows ใช้เทียบคงเหลือ lot กับ Master (แถวซ้ำ lot เดียวกันต้องบวกรวม)
   const { data: invRows } = await supabase
-    .from('inventory').select('code, name, unit').eq('code', code).limit(1)
+    .from('inventory').select('code, name, unit, lot, qty').eq('code', code)
   const inv = invRows?.[0] || null
   const priceRow = receiveRows.find(r => parseFloat(r.price_per_unit) > 0)
   const meta = {
@@ -2733,7 +2735,8 @@ export async function fetchStockCard(drugCode) {
     unit: inv?.unit || receiveRows[0]?.drug_unit || dispenseRows[0]?.drug_unit || '',
     pricePerUnit: priceRow ? parseFloat(priceRow.price_per_unit) : 0,
   }
-  return { receiveRows, dispenseRows, meta }
+  // invRows null = query ล้ม → ไม่เทียบ Master (ดีกว่าเทียบกับ [] แล้วขึ้นไม่ตรงทุก lot)
+  return { receiveRows, dispenseRows, meta, masterRows: invRows || null }
 }
 
 // สแกนทั้งระบบหายาที่มี "ยอดไม่ตรง" — ดึงทุกแถวครั้งเดียวแล้ว group ต่อรหัสยา
@@ -2750,6 +2753,7 @@ export async function fetchAllStockCardIssues() {
       const { data, error } = await supabase
         .from(table).select(select)
         .order(dateCol, { ascending: true, nullsFirst: false })
+        .order('id', { ascending: true })   // วันเดียวกันเรียงตามแถวใน Excel (เหมือน fetchStockCard)
         .range(off, off + PAGE - 1)
       if (error) throw error
       if (!data || data.length === 0) break
@@ -2760,16 +2764,17 @@ export async function fetchAllStockCardIssues() {
     return out
   }
 
-  const [recv, disp] = await Promise.all([
+  const [recv, disp, inv] = await Promise.all([
     pageAll('receive_logs', 'drug_code, drug_name, lot, exp, item_type, qty_received, supplier_current, bill_number, receive_date, price_per_unit, drug_unit', 'receive_date'),
     pageAll('dispense_logs', 'drug_code, drug_name, lot, exp, item_type, qty_out, qty_before, qty_after, department, note, dispense_date, price_per_unit, drug_unit', 'dispense_date'),
+    pageAll('inventory', 'id, code, lot, qty', 'code'),
   ])
 
   const byCode = {}
   const meta = {}
   const put = (code, key, row) => {
     if (!code) return
-    if (!byCode[code]) byCode[code] = { receiveRows: [], dispenseRows: [] }
+    if (!byCode[code]) byCode[code] = { receiveRows: [], dispenseRows: [], masterRows: [] }
     byCode[code][key].push(row)
   }
   for (const r of recv) {
@@ -2782,6 +2787,11 @@ export async function fetchAllStockCardIssues() {
     put(code, 'dispenseRows', d)
     if (code && !meta[code]) meta[code] = { code, name: d.drug_name || '', unit: d.drug_unit || '' }
     else if (code && meta[code] && !meta[code].name) meta[code].name = d.drug_name || ''
+  }
+  // แถว Master ของรหัสที่มีความเคลื่อนไหว — เทียบคงเหลือปลายทางของ lot (รหัสที่ไม่มี movement ไม่ต้องสแกน)
+  for (const i of inv) {
+    const code = String(i.code || '').trim()
+    if (byCode[code]) byCode[code].masterRows.push(i)
   }
   return { byCode, meta }
 }

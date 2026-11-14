@@ -8,8 +8,10 @@
 // ติดลบได้ = data gap ของต้นทาง ไม่ใช่บั๊ก (Excel พบ 37/2,118 lots = 1.7%)
 
 // ชนิดรายการที่ "ไม่หัก balance" — บันทึกเหตุการณ์เฉยๆ ไม่ใช่ของออกจริง (Excel §46.3 + §46.7)
-// บันทึกเท่านั้น = O=M ไม่ตัดยอด · แก้ไขระบบ = แถวปรับยอด ไม่ใช่ movement จริง
-export const NO_DEDUCT = new Set(['บันทึกเท่านั้น', 'แก้ไขระบบ'])
+// บันทึกเท่านั้น = O=M ไม่ตัดยอด
+// แก้ไขระบบ หักปกติ (user สั่ง 14/11/2569) — แถวเบิกที่ lot มาจากแถวปรับยอดใน Master เป็นของออกจริง
+// ชีทหักจริง 11/11 แถว + SUMIFS ปริมาณออกของ Master นับแถวนี้ด้วย
+export const NO_DEDUCT = new Set(['บันทึกเท่านั้น'])
 
 // note ของแถวที่ย้ายมาจาก Excel ตอนเริ่มใช้ระบบ (เช่น "นำเข้าจาก ต.ค.68 (unpivot)")
 // drift ของแถวกลุ่มนี้ = ประวัติก่อนหน้าไม่ได้ถูกนำเข้า ไม่ใช่ของหายจริง
@@ -80,21 +82,26 @@ function toMovements(receiveRows = [], dispenseRows = []) {
   return mv
 }
 
+// วันเริ่มใช้ระบบ — ชีทเบิกนำเข้าตั้งแต่ ต.ค.68 การเบิกก่อนวันนี้ไม่มีในระบบ
+// ใบรับก่อนวันนี้จึงบวกเข้าคงเหลือตรงๆ ไม่ได้ (ของส่วนหนึ่งถูกเบิกไปก่อนเริ่มระบบแล้ว)
+// สแกน 14/11/2569: นับใบรับเก่าเต็มจำนวน → คงเหลือ lot ไม่ตรง Master 1,017 lot · ตัดออกแล้วเหลือ 124
+export const SYSTEM_START = '2025-10-01'
+
 /**
- * buildStockCard({ receiveRows, dispenseRows, pricePerUnit })
+ * buildStockCard({ receiveRows, dispenseRows, pricePerUnit, masterRows })
  *   → { rows, lots, summary }
  *
  * rows  = movement เรียง lot ASC → date ASC (ตาม Excel §46.2) พร้อม balance สะสมต่อ lot
- * lots  = [{ lot, opening, closing, hasReceipt, negative }]
- * summary = { totalIn, totalOut, lotCount, negativeLots }
+ * lots  = [{ lot, opening, closing, hasReceipt, hasOpening, negative, masterQty, masterMismatch, ... }]
+ * summary = { totalIn, totalOut, lotCount, negativeLots, masterMismatchLots, ... }
  *
  * pricePerUnit = ราคาจาก Master (ไม่ใช้ราคาในแถวเบิก — แถว 'ยกยอด' มี price=0 ตาม Excel §45.5 I8)
+ * masterRows   = แถว inventory ของรหัสนี้ [{ lot, qty }] (ไม่ส่ง = ไม่เทียบกับ Master)
  */
-export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUnit = 0 } = {}) {
+export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUnit = 0, masterRows = null } = {}) {
   const price = toNum(pricePerUnit)
   const mv = toMovements(receiveRows, dispenseRows)
 
-  // lot ที่มีประวัติรับเข้า → opening = 0 (ของเข้ามาเพิ่ม balance เอง)
   const hasReceipt = new Set(mv.filter(m => m.side === 'in').map(m => m.lot))
 
   // sort: lot ASC → date ASC → ขาเข้าก่อนขาออกในวันเดียวกัน (รับเข้าแล้วค่อยเบิก)
@@ -104,26 +111,56 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
     (a.side === b.side ? 0 : a.side === 'in' ? -1 : 1)
   )
 
+  // ── ยอดตั้งต้นต่อ lot ──
+  // ประวัติครบ (ไม่มีใบรับก่อนเริ่มระบบ + เริ่มด้วยการรับเข้า) → เริ่มจาก 0
+  // ไม่ครบ → ไล่ย้อนจาก "ก่อนเบิก" ของแถวเบิกแรกที่มีตัวเลข: ก่อนเบิก − รับก่อนหน้า + เบิกก่อนหน้า
+  // ใบรับก่อนเริ่มระบบของ lot ที่ไล่ย้อน = แสดงเป็นประวัติแต่ไม่บวกยอด (นับอยู่ในยอดตั้งต้นแล้ว)
+  // ไม่มีแถวเบิกที่มีตัวเลขเลย → ไล่ย้อนไม่ได้ ใช้ 0 และนับใบรับทุกใบ (เหมือนเดิม)
+  const startKey = dateSortKey(SYSTEM_START)
+  const isPre = (m) => m.side === 'in' && dateSortKey(m.date) > 0 && dateSortKey(m.date) < startKey
+  const byLot = {}
+  for (const m of mv) (byLot[m.lot] ||= []).push(m)
+  const masterByLot = masterRows ? {} : null
+  if (masterRows) for (const r of masterRows) masterByLot[lotOf(r.lot)] = (masterByLot[lotOf(r.lot)] || 0) + toNum(r.qty)
   const openingByLot = {}
+  const backSolved = new Set()
+  for (const [lot, ms] of Object.entries(byLot)) {
+    // มีแต่ใบรับก่อนเริ่มระบบ ไม่มีความเคลื่อนไหวหลังจากนั้นเลย → ยอดที่เหลือ ณ วันเริ่มระบบ = ยอดใน Master ตอนนี้
+    // (สแกน 14/11/2569 ~650 lot: ส่วนใหญ่เบิกหมดก่อน ต.ค.68 แต่เดิมนับรับเต็ม → โชว์ว่ามีของ)
+    if (masterByLot && ms.every(isPre)) {
+      openingByLot[lot] = masterByLot[lot] || 0
+      backSolved.add(lot)
+      continue
+    }
+    const fullHistory = !ms.some(isPre) && ms[0].side === 'in'
+    const anchor = ms.findIndex(m => m.side === 'out' && m._qtyBefore != null)
+    if (fullHistory || anchor < 0) { openingByLot[lot] = 0; continue }
+    let opening = ms[anchor]._qtyBefore
+    for (const m of ms.slice(0, anchor)) {
+      if (m.side === 'in') opening -= isPre(m) ? 0 : m.qtyIn
+      else opening += NO_DEDUCT.has(m.kind) ? 0 : m.qtyOut
+    }
+    openingByLot[lot] = opening
+    backSolved.add(lot)
+  }
+
   const balByLot = {}
   const lastDriftByLot = {}   // drift ครั้งก่อนของ lot — ใช้หา "จุดที่ของหายจริง" (drift เปลี่ยนค่า)
   const rows = []
 
   for (const m of mv) {
     if (!(m.lot in balByLot)) {
-      // opening ของ lot: มีรับเข้า → 0; ไม่มี (lot เก่าก่อนระบบ) → ยอดก่อนเบิกของแถวแรก
-      const opening = hasReceipt.has(m.lot) ? 0 : (m._qtyBefore ?? 0)
-      openingByLot[m.lot] = opening
-      balByLot[m.lot] = opening
+      balByLot[m.lot] = openingByLot[m.lot]
       lastDriftByLot[m.lot] = 0
     }
     // drift = ยอดที่ระบบคำนวณ ≠ ยอดก่อนเบิกที่ต้นทางบันทึกไว้ → มี movement ที่ไม่ถูกบันทึก
     // (Excel ทำ detect นี้ไม่ได้ — คลังเคยเจอเองแล้วเรียก "Group B Data Gap" 19 lots, Context.csv:1508)
     // เช็คเฉพาะแถวขาออกที่มี qty_before จริง; ไม่ throw/ไม่แก้ยอด แค่ flag ให้คนดู
+    // แถวเบิกออก 0 ไม่เทียบ: "เบิก 10 จ่าย 0 รอตรวจรับ" ชีทพิมพ์ก่อนเบิก 0 ทั้งที่มีของรอตรวจรับ → ไม่ตรงปลอม
     // balanceBefore = ยอดสะสม "ก่อน" หักแถวนี้ — เก็บไว้ให้ UI แสดงตรงๆ
     // (คำนวณจาก balance+qtyOut ไม่ได้ เพราะแถว NO_DEDUCT ไม่ได้ถูกหัก → จะเกินไป qtyOut)
     const balanceBefore = balByLot[m.lot]
-    const drift = (m.side === 'out' && m._qtyBefore != null)
+    const drift = (m.side === 'out' && m._qtyBefore != null && m.qtyOut !== 0)
       ? balanceBefore - m._qtyBefore
       : null
 
@@ -135,14 +172,15 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
     // ตรวจสมการ "ในแถวเดียวกัน" ของต้นทาง: ก่อนเบิก − เบิกออก = หลังเบิก
     // ไม่เท่า = คนกรอกผิด/Excel ไม่ได้ตัดยอด (คนละเรื่องกับ drift ที่เป็นช่องว่างระหว่างแถว)
     // พบจริง 55 แถว เช่น ก่อนเบิก 10 เบิก 40 แต่หลังเบิกยังเป็น 10
-    // แถวไม่หักยอด (บันทึกเท่านั้น/แก้ไขระบบ) ชีทตั้งใจให้ หลัง = ก่อน → ตรวจ ก่อน − หลัง แทน
+    // แถวไม่หักยอด (บันทึกเท่านั้น) ชีทตั้งใจให้ หลัง = ก่อน → ตรวจ ก่อน − หลัง แทน
     // (เดิมใช้สมการเดียวกัน → แถวบันทึกเท่านั้น 152/154 แถวจริงขึ้น "กรอกผิด" ปลอม — แก้ 14/11/2569)
     const rowErr = (m.side === 'out' && m._qtyBefore != null && m._qtyAfter != null)
       ? (m._qtyBefore - (NO_DEDUCT.has(m.kind) ? 0 : m.qtyOut)) - m._qtyAfter
       : null
 
+    const preSystem = backSolved.has(m.lot) && isPre(m)
     const deduct = NO_DEDUCT.has(m.kind) ? 0 : m.qtyOut
-    balByLot[m.lot] += m.qtyIn - deduct
+    balByLot[m.lot] += (preSystem ? 0 : m.qtyIn) - deduct
     rows.push({
       date: m.date,
       lot: m.lot,
@@ -156,6 +194,7 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
       value: (m.qtyIn + m.qtyOut) * price,
       side: m.side,
       noDeduct: NO_DEDUCT.has(m.kind),
+      preSystem,                   // ใบรับก่อนเริ่มระบบที่ไม่บวกยอด (นับในยอดตั้งต้นของ lot แล้ว)
       qtyBefore: m._qtyBefore,
       balanceBefore,               // ยอดสะสมก่อนหักแถวนี้ — UI ใช้แสดงคู่กับ qtyBefore ตอนอธิบาย drift
       drift,                       // null = เทียบไม่ได้ · 0 = ตรง · ≠0 = ยอดสะสมไม่ตรงบันทึก (ค้างมาได้)
@@ -168,33 +207,49 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
       // แถวที่ย้ายมาจาก Excel ตอนเริ่มใช้ระบบ — ประวัติก่อนหน้าไม่ครบเป็นเรื่องปกติ
       // ไม่ใช่ของหายจริง (52% ของ drift ทั้งระบบมาจากกลุ่มนี้) → แยกออกจากรายการที่ต้องตรวจ
       fromMigration: MIGRATION_RE.test(m.ref || ''),
+      settled: false,              // ตั้งด้านล่าง: จุดไม่ตรงใน lot ที่คงเหลือตอนนี้ตรง Master
     })
   }
 
+  // ── เทียบคงเหลือปลายทางกับ Master (ตัวตรวจหลัก) ──
+  // lot ที่คงเหลือตรง Master = ของไม่ได้หาย จุดไม่ตรงระหว่างทางเป็นเรื่องการบันทึก
+  // (lot เดียวแยกหลายแถวในชีท · ลำดับแถววันเดียวกัน) → ลดเป็นสีเทา ไม่เตือน
+  const round =(n) => Math.round(n * 10000) / 10000
+
   const lots = Object.keys(balByLot).sort((a, b) => a.localeCompare(b, 'th')).map(lot => {
     const lotRows = rows.filter(r => r.lot === lot)
+    const closing = balByLot[lot]
+    const masterQty = masterByLot ? (masterByLot[lot] || 0) : null
+    const masterMismatch = masterByLot ? round(closing) !== round(masterQty) : false
+    if (masterByLot && !masterMismatch) for (const r of lotRows) if (r.isDriftPoint && !r.fromMigration) r.settled = true
     const driftRows = lotRows.filter(r => r.hasDrift)
     const driftPoints = lotRows.filter(r => r.isDriftPoint)
-    const driftReal = driftPoints.filter(r => !r.fromMigration).length
+    const driftReal = driftPoints.filter(r => !r.fromMigration && !r.settled).length
     const rowErrCount = lotRows.filter(r => r.hasRowErr).length
-    const negative = balByLot[lot] < 0
+    const negative = closing < 0
     return {
       lot,
       opening: openingByLot[lot],
-      closing: balByLot[lot],
+      closing,
       hasReceipt: hasReceipt.has(lot),
+      // มียอดตั้งต้น (ประวัติไม่ครบ) → หัว lot แสดงช่อง "ยอดตั้งต้นของ lot"
+      hasOpening: backSolved.has(lot) || !hasReceipt.has(lot),
       negative,
+      masterQty,                        // null = ไม่ได้เทียบ
+      masterMismatch,                   // คงเหลือที่ไล่ได้ ≠ คงเหลือใน Master ตอนนี้
       driftCount: driftPoints.length,   // นับ "จุดที่ของหาย" ไม่ใช่ทุกแถวที่ drift ค้าง
       // drift ล่าสุดของ lot — ใช้บอกขนาดของช่องว่างรวม (บวก = ระบบคิดว่ามีมากกว่าที่บันทึก)
       lastDrift: driftRows.length ? driftRows[driftRows.length - 1].drift : 0,
       exp: lotExp(lotRows),
-      totalIn: lotRows.reduce((s, r) => s + r.qtyIn, 0),
-      // เฉพาะแถวที่หักยอดจริง → ยอดตั้งต้น + รับ − เบิก = คงเหลือ เสมอ (แถวบันทึกเท่านั้น/แก้ไขระบบ ไม่นับ)
+      // ไม่นับใบรับก่อนเริ่มระบบที่ไม่บวกยอด → ยอดตั้งต้น + รับ − เบิก = คงเหลือ เสมอ
+      totalIn: lotRows.reduce((s, r) => s + (r.preSystem ? 0 : r.qtyIn), 0),
+      // เฉพาะแถวที่หักยอดจริง (แถวบันทึกเท่านั้น ไม่นับ)
       totalOut: lotRows.reduce((s, r) => s + (r.noDeduct ? 0 : r.qtyOut), 0),
-      driftReal,                                          // ยอดไม่ตรงที่ต้องตรวจ
-      driftMigration: driftPoints.length - driftReal,     // ข้อมูลก่อนเริ่มใช้ระบบ (สีเทา ไม่ใช่เตือน)
+      driftReal,                                                          // ยอดไม่ตรงที่ต้องตรวจ
+      driftMigration: driftPoints.filter(r => r.fromMigration).length,    // ข้อมูลก่อนเริ่มใช้ระบบ (สีเทา)
+      driftSettled: driftPoints.filter(r => r.settled).length,            // ไม่ตรงระหว่างทาง คงเหลือตรง Master (สีเทา)
       rowErrCount,
-      warn: driftReal > 0 || rowErrCount > 0 || negative,
+      warn: driftReal > 0 || rowErrCount > 0 || negative || masterMismatch,
     }
   })
 
@@ -202,15 +257,17 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
     rows,
     lots,
     summary: {
-      totalIn: rows.reduce((s, r) => s + r.qtyIn, 0),
+      totalIn: rows.reduce((s, r) => s + (r.preSystem ? 0 : r.qtyIn), 0),
       totalOut: rows.reduce((s, r) => s + r.qtyOut, 0),
       lotCount: lots.length,
       negativeLots: lots.filter(l => l.negative).length,
+      masterMismatchLots: lots.filter(l => l.masterMismatch).length,
       driftLots: lots.filter(l => l.driftCount > 0).length,
       driftRows: rows.filter(r => r.isDriftPoint).length,   // จำนวนจุดที่ของหายจริง (รวม migration)
-      // แยกจุดที่ "ต้องตรวจจริง" ออกจากจุดที่เกิดตอนย้ายข้อมูล Excel
-      driftRowsReal: rows.filter(r => r.isDriftPoint && !r.fromMigration).length,
+      // แยกจุดที่ "ต้องตรวจจริง" ออกจากจุดที่เกิดตอนย้ายข้อมูล Excel / ที่คงเหลือตรง Master แล้ว
+      driftRowsReal: rows.filter(r => r.isDriftPoint && !r.fromMigration && !r.settled).length,
       driftRowsMigration: rows.filter(r => r.isDriftPoint && r.fromMigration).length,
+      driftRowsSettled: rows.filter(r => r.settled).length,
       rowErrRows: rows.filter(r => r.hasRowErr).length,     // แถวที่ต้นทางกรอกผิด (ก่อน−ออก≠หลัง)
     },
   }
@@ -288,10 +345,13 @@ export function displayRef(ref) {
 
 const fmt = (n) => (Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })
 
-// บรรทัดอธิบายใต้แถวที่ยอดมีปัญหา → [{ type: 'drift'|'migration'|'rowErr', text }]
+// บรรทัดอธิบายใต้แถวที่ยอดมีปัญหา → [{ type: 'drift'|'migration'|'settled'|'rowErr', text }]
 // ใช้ร่วมจอ + ใบพิมพ์ ให้คำตรงกัน
 export function rowIssues(r) {
   const out = []
+  if (r.preSystem) {
+    out.push({ type: 'migration', text: 'รับก่อนเริ่มใช้ระบบ (ก่อน ต.ค.68): ไม่บวกเข้าคงเหลือ เพราะยอดตั้งต้นของ lot นับของที่เหลือ ณ วันเริ่มระบบไว้แล้ว — การเบิกก่อน ต.ค.68 ไม่มีในระบบ' })
+  }
   if (r.isDriftPoint) {
     const gap = r.driftDelta > 0 ? 'ขาดไป' : 'เกินมา'
     const head = `ชีทเบิกบันทึกว่าก่อนเบิกเหลือ ${fmt(r.qtyBefore)} แต่ไล่จากประวัติได้ ${fmt(r.balanceBefore)}`
@@ -299,11 +359,13 @@ export function rowIssues(r) {
       // ผลต่างของแถวก่อนหน้าหายไป — ยอดกลับมาตรง (ยังนับเป็นจุดเปลี่ยน แต่คำ "ขาดไป/เกินมา" จะชวนงง)
       const prev = r.drift - r.driftDelta
       out.push({
-        type: r.fromMigration ? 'migration' : 'drift',
+        type: r.fromMigration ? 'migration' : r.settled ? 'settled' : 'drift',
         text: `ยอดกลับมาตรงกัน: ชีทเบิกบันทึกว่าก่อนเบิกเหลือ ${fmt(r.qtyBefore)} ตรงกับที่ไล่จากประวัติ — ผลต่าง ${fmt(Math.abs(prev))} ของแถวก่อนหน้าหายไประหว่างทาง`,
       })
     } else if (r.fromMigration) {
       out.push({ type: 'migration', text: `ข้อมูลก่อนเริ่มใช้ระบบ: ${head} — ประวัติก่อน ต.ค.68 ไม่ได้นำเข้า ไม่ใช่ของหาย` })
+    } else if (r.settled) {
+      out.push({ type: 'settled', text: `ไม่ตรงระหว่างทาง: ${head} — แต่คงเหลือของ lot ตอนนี้ตรงกับ Master ไม่ใช่ของหาย (มักเกิดจาก lot เดียวแยกหลายแถวในชีทเบิก)` })
     } else {
       const carried = r.driftDelta !== r.drift ? ` (รวมที่ต่างมาก่อนหน้า ต่างกันทั้งหมด ${fmt(Math.abs(r.drift))})` : ''
       out.push({ type: 'drift', text: `ยอดไม่ตรง: ${head} — ${gap} ${fmt(Math.abs(r.driftDelta))} ก่อนแถวนี้${carried}` })
