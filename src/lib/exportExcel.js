@@ -144,6 +144,37 @@ export async function exportApBatchExcel(rows, batchId, meta = {}, auth = {}) {
 }
 
 /**
+ * ส่งออกหลายชีทจาก array-of-arrays ที่เตรียมไว้แล้ว (เช่น usageReportSheets) — audit `export_excel` เหมือน exportToExcel
+ * @param {{ name: string, rows: any[][], cols?: number[] }[]} sheets
+ * @param {string} fileName  - รวม .xlsx
+ * @param {object} auth
+ * @param {{ tableName?: string, details?: object }} [opts] - table_name / details ของ audit log
+ */
+export async function exportSheetsToExcel(sheets, fileName, auth = {}, { tableName = 'export', details = {} } = {}) {
+  const wb = XLSX.utils.book_new();
+  for (const s of sheets) {
+    const ws = XLSX.utils.aoa_to_sheet(s.rows);
+    if (s.cols) ws['!cols'] = s.cols.map(wch => ({ wch }));
+    XLSX.utils.book_append_sheet(wb, ws, s.name);
+  }
+  const xlsxType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const buf  = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const file = new File([new Blob([buf], { type: xlsxType })], fileName, { type: xlsxType });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: fileName }); }
+    catch (e) { if (e.name !== 'AbortError') XLSX.writeFile(wb, fileName); }
+  } else {
+    XLSX.writeFile(wb, fileName);
+  }
+  await insertAuditLog({
+    action: 'export_excel', table_name: tableName,
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: sheets.reduce((s, x) => s + Math.max(0, x.rows.length - 1), 0),
+    details: { file: fileName, sheets: sheets.map(s => s.name), ...details },
+  });
+}
+
+/**
  * ส่งออกข้อมูลเป็น Excel (.xlsx)
  * @param {object[]} rows  - array ของ data object
  * @param {Array<{header: string, key?: string, value?: (row)=>any}>} columns - column definitions

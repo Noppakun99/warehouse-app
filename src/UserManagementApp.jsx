@@ -34,7 +34,7 @@ const GRANTABLE_SYSTEMS = [
   { key: 'return',     label: 'คืนยา',               color: 'bg-violet-100 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300', defaultRoles: ['requester','staff','admin'] },
   { key: 'audit',      label: 'Audit Log',            color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300',  defaultRoles: ['staff','admin'] },
   { key: 'analytics',  label: 'วิเคราะห์การเบิกยา', color: 'bg-cyan-100 dark:bg-cyan-950/60 text-cyan-700 dark:text-cyan-300',    defaultRoles: ['requester','staff','admin'] },
-  { key: 'reorder',    label: 'วิเคราะห์การสั่งซื้อ', color: 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300', defaultRoles: ['staff','admin'] },
+  { key: 'reorder',    label: 'ระบบการสั่งซื้อยา', color: 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300', defaultRoles: ['staff','admin'] },
   { key: 'ledger',     label: 'ทะเบียนคงคลัง',       color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300',    defaultRoles: ['admin'] },
   { key: 'stockcount', label: 'ตรวจนับคงคลัง',       color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300', defaultRoles: ['staff','admin'] },
   { key: 'stockcard',  label: 'Stockcard',            color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300',    defaultRoles: ['requester','staff','admin'] },

@@ -11,8 +11,9 @@ import { isUsageRow, localYmd } from '../../supabase/functions/_shared/usageRow.
 import {
   parseUnitFactor, parseExpDate as _parseExpDate, waitDaysSince, isBelowSafetyStock, isPurchaseReceipt,
   pickMainUnit, stockTotalInMainUnit, latestPurchaseUnit, buildSearchIndex, buildDrugProfile, normDept,
-  latestPolicyByCompany, COMPANY_WIDE_POLICY_PREFIX,
+  latestPolicyByCompany, COMPANY_WIDE_POLICY_PREFIX, usageBaseQty,
 } from './drugProfile.js'
+import { buildDrugUsageReport } from './usageReport.js'
 import { isoMonthsAgo, isoPrevMonthEnd, listMonthYM } from './reorder.js'
 import { purchaseDatesByCode, pendingRequestFor } from './purchaseReportSheet.js'
 // ReorderApp import parseUnitFactor จาก db.js มาแต่เดิม — คงทางเข้าเดิมไว้ (ตัวจริงอยู่ drugProfile.js)
@@ -3105,6 +3106,68 @@ export async function fetchDrugProfile(drugCode, { department = null } = {}) {
   return profile && { ...profile, returnPolicyError, purchaseRequest, inventoryUpdatedAt: uploadMeta?.inventory?.updated_at || null }
 }
 
+// หน้า "ค้นยา · สรุปรับ-เบิก" (ReorderApp) — หลายรหัสในรอบเดียว: query ละตารางด้วย .in() แล้วจับกลุ่มต่อรหัส
+// คงเหลือ/หน่วยหลัก/เรท มาจาก buildDrugProfile ตัวเดียวกับบัตรยา (ตัวเลขต้องตรงกัน — Rule #6)
+// ช่วง from..to = ยอดเบิก/รับในรายงาน · เรทใช้ 4 เดือนปิดงวดเสมอ (CONTEXT §เรท) → ดึงเบิกครอบทั้งสองช่วง
+// คืน [{ code, … }] ตามลำดับ codes ที่ส่งมา · รหัสที่ไม่มีใน inventory = ตกไป (บัตรยาก็คืน null)
+export async function fetchDrugUsageReport(codes = [], { from, to } = {}) {
+  const list = [...new Set(codes.map(c => String(c || '').trim()).filter(Boolean))]
+  if (!supabase || !list.length || !from || !to) return []
+  const pageAll = async (build) => {
+    const out = []
+    for (let off = 0; ; off += 1000) {
+      const { data, error } = await build().range(off, off + 999)
+      if (error) throw error
+      out.push(...(data || []))
+      if (!data || data.length < 1000) break
+    }
+    return out
+  }
+  const rateFrom = isoMonthsAgo(4)
+  const rateTo = isoPrevMonthEnd()
+  const dFrom = from < rateFrom ? from : rateFrom
+  const dTo = to > rateTo ? to : rateTo
+
+  const [invRows, recvRows, dispRows, cfgRows, prRows, uploadMeta] = await Promise.all([
+    pageAll(() => supabase.from('inventory')
+      .select('code, name, type, unit, lot, exp, qty, location, main_log, invoice, safety_stock, receive_status')
+      .in('code', list).order('location').order('id')),
+    pageAll(() => supabase.from('receive_logs')
+      .select('drug_code, drug_name, lot, drug_unit, receive_date, purchase_type, price_per_unit, bill_number, supplier_current, qty_received, drug_swap_policy, swap_tier_detail, swap_condition_am')
+      .in('drug_code', list)
+      .order('receive_date', { ascending: false, nullsFirst: false }).order('id', { ascending: false })),
+    pageAll(() => supabase.from('dispense_logs')
+      .select('drug_code, dispense_date, department, lot, qty_out, drug_unit, item_type')
+      .in('drug_code', list).gte('dispense_date', dFrom).lte('dispense_date', dTo)
+      .order('dispense_date', { ascending: false, nullsFirst: false }).order('id', { ascending: false })),
+    // exclude_status ใช้แค่ป้ายตัดออก/ต่ำกว่า SS — โหลดล้ม = ไม่มีป้าย (บัตรยาก็ไม่ล้มเพราะตัวนี้)
+    supabase.from('drug_reorder_config').select('code, exclude_status').in('code', list)
+      .then(({ data, error }) => (error ? [] : data || [])),
+    // ป้ายแจ้งซื้อ — โหลดล้ม = ไม่มีป้าย รายงานยังออกได้ (กติกาเดียวกับบัตรยา)
+    supabase.from('purchase_request').select('code, notified_on, status, reason, note').in('code', list)
+      .then(({ data, error }) => (error ? [] : data || [])),
+    fetchUploadMeta().catch(() => null),
+  ])
+
+  const group = (rows, key) => {
+    const m = {}
+    for (const r of rows) (m[String(r[key] || '').trim()] ||= []).push(r)
+    return m
+  }
+  const inv = group(invRows, 'code'), recv = group(recvRows, 'drug_code'), disp = group(dispRows, 'drug_code')
+  const cfg = group(cfgRows, 'code'), pr = group(prRows, 'code')
+  return list.map(code => buildDrugUsageReport({
+    code,
+    rows: inv[code] || [],
+    receiveRows: recv[code] || [],
+    dispenseRows: disp[code] || [],
+    excludeStatus: cfg[code]?.[0]?.exclude_status || null,
+    purchaseRequests: pr[code] || [],
+    range: { from, to },
+    rateMonths: listMonthYM(rateFrom, rateTo),
+  })).filter(Boolean).map(r => ({ ...r, inventoryUpdatedAt: uploadMeta?.inventory?.updated_at || null }))
+}
+
 // --- รายการแจ้งซื้อ (purchase_request — ADR-0030) ---
 // Excel (รายงานการซื้อยา_69.xlsx) เป็นตัวจริง: นำเข้าแบบแทนทั้งชุดผ่าน CLI `npm run import:purchase`
 // สถานะสด (รอกี่วัน/มาส่งแล้ว) คำนวณจาก receive_logs ด้วย requestState (purchaseReportSheet.js)
@@ -3766,10 +3829,10 @@ export async function fetchMonthlyDispenseUsage(fromDate, toDate, { code: onlyCo
   for (const r of rows) {
     const code = (r.drug_code || '').trim()
     if (!code || code === '-') continue
-    if (!isUsageRow(r)) continue
-    // normalize → หน่วยย่อยสุด (เม็ด): qty_out อาจอยู่หน่วย pack ต่างกันต่อแถว → ×factor ก่อนรวม
-    const qty = (parseFloat(r.qty_out || 0) || 0) * parseUnitFactor(r.drug_unit).factor
-    if (qty <= 0) continue
+    // นับเป็นการใช้ไหม + normalize → หน่วยย่อยสุด (qty_out อาจอยู่หน่วย pack ต่างกันต่อแถว)
+    // กฎเดียวกับหน้า "ค้นยา · สรุปรับ-เบิก" (usageBaseQty ใน drugProfile.js)
+    const qty = usageBaseQty(r)
+    if (!qty) continue
     const ym = String(r.dispense_date || '').slice(0, 7)
     if (!ym) continue
     if (!byCode[code]) byCode[code] = { name: r.drug_name || '', unit: r.drug_unit || '', months: {} }

@@ -269,11 +269,10 @@ export default function AppRoot() {
         content = <AnalyticsApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'reorder':
-      case 'reorder-supplier':
-      case 'reorder-verify':
-      case 'reorder-history':
       case 'reorder-purchase': // จากคิวงาน/การ์ดแจ้งซื้อบน Dashboard — ไม่มีในเมนู
-        content = <ReorderApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} initialTab={{ 'reorder-supplier': 'supplier', 'reorder-verify': 'verify', 'reorder-history': 'history', 'reorder-purchase': 'purchase' }[page] || 'analysis'} onGoBack={goBack} canGoBack={canGoBack} />;
+      case 'reorder-analysis': // จาก Dashboard (ยาหมดสต็อก / ต่ำกว่า Safety Stock) → แท็บวิเคราะห์สั่งซื้อ — ไม่มีในเมนู
+        // เมนู "ระบบการสั่งซื้อยา" ('reorder') เปิดแท็บค้นยา · สรุปรับ-เบิก (14/11/2569)
+        content = <ReorderApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} initialTab={{ 'reorder-purchase': 'purchase', 'reorder-analysis': 'analysis' }[page] || 'search'} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'ledger':
         content = <StockLedgerApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
@@ -859,7 +858,7 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
     expired:        { label: 'เปิดรายการยาใกล้หมดอายุ', run: () => setAlertModal('expiry') },
     nearExpiry:     { label: 'เปิดรายการยาใกล้หมดอายุ', run: () => setAlertModal('expiry') },
     swap:           { label: 'บันทึกการคืนบริษัท',      run: () => setSwapPopupRows(swapDue) },
-    outOfStock:     { label: 'ไปหน้าวิเคราะห์สั่งซื้อ',  run: () => onNavigate('reorder') },
+    outOfStock:     { label: 'ไปหน้าวิเคราะห์สั่งซื้อ',  run: () => onNavigate('reorder-analysis') },
     pendingReceive: { label: 'ไปแผนผังคลังยา',          run: () => onNavigate('inventory') },
     loanOverdue:    { label: 'ไปหน้ายืม-คืนยา',          run: () => onNavigate('loan') },
     purchaseWaiting:  { label: 'ไปแท็บแจ้งซื้อแล้ว',     run: () => onNavigate('reorder-purchase') },
@@ -881,7 +880,7 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
       onOpenStock={() => setAlertModal('stock')}
       onOpenExpiry={() => setAlertModal('expiry')}
       onOpenLowStock={() => setAlertModal('lowStock')}
-      onOpenReorder={() => onNavigate('reorder')}
+      onOpenReorder={() => onNavigate('reorder-analysis')}
     />
   );
   const flowChart = (
@@ -939,7 +938,7 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
       )}
       {alertModal === 'lowStock' && (
         <LowStockAlertSection lowStock={alerts.lowStock} onClose={() => setAlertModal(null)}
-          onOpenReorder={() => { setAlertModal(null); onNavigate('reorder'); }} />
+          onOpenReorder={() => { setAlertModal(null); onNavigate('reorder-analysis'); }} />
       )}
       {alertModal === 'stock' && (
         <StockSummaryModal onClose={() => setAlertModal(null)} auth={auth} />

@@ -1,28 +1,26 @@
 // ReorderApp.jsx — ระบบวิเคราะห์การสั่งซื้อยา (Pharmacy Reorder System)
 // อ้างอิง spec §3 — logic อยู่ใน src/lib/reorder.js (pure functions + tests)
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  ShoppingCart, AlertTriangle, Package, Building2, CheckCircle2, XCircle, Clock,
-  ChevronDown, FileSpreadsheet, Printer, Save, History, Search, Upload,
+  ShoppingCart, AlertTriangle, Package, CheckCircle2, XCircle, Clock,
+  FileSpreadsheet, Save, Search, Upload,
   Pencil, ListChecks, AlertCircle, Loader2, RefreshCw, X,
-  Database, Calendar, ShieldAlert, TrendingDown, Trash2, GitCompare, ShoppingBag,
+  Database, Calendar, ShieldAlert, TrendingDown, GitCompare, ShoppingBag,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import DrugSearchBar from './DrugSearchBar';
+import DrugUsageReport from './DrugUsageReport';
 import BackButton from './BackButton';
 import UploadSuccessModal from './UploadSuccessModal';
 import Toast from './Toast';
 import { supabase } from './lib/supabase';
 import {
   fetchInventory, fetchDrugReorderConfig, upsertDrugReorderConfig,
-  bulkUpsertDrugReorderConfig, fetchMonthlyDispenseUsage, saveAnalysisRun,
-  fetchAnalysisRuns, deleteAnalysisRun, logReorderAction,
-  fetchLatestReceiptInfo, parseUnitFactor,
-  fetchReorderOrders, setReorderOrder, fetchPurchaseRequests,
+  bulkUpsertDrugReorderConfig, fetchMonthlyDispenseUsage, logReorderAction,
+  fetchLatestReceiptInfo, parseUnitFactor, fetchPurchaseRequests,
 } from './lib/db';
 import { requestState, pendingRequestFor, todayIso as prTodayIso } from './lib/purchaseReportSheet';
 import { exportToExcel } from './lib/exportExcel';
-import { openPrintView } from './lib/openPrintView';
 import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import {
   analyzeBatch, analyzeDrug, STATUS, DEFAULT_LEAD_TIME,
@@ -73,7 +71,7 @@ const venLetter = (risk) =>
 const EXCLUDE_OPTIONS = [
   { value: '',                label: 'คำนวณตามปกติ' },
   { value: STATUS.ON_DEMAND,  label: 'สั่งเมื่อขอ — ไม่คำนวณ V' },
-  { value: STATUS.EXCLUDED,   label: 'ตัดออก — ไม่อยู่ในใบสั่งซื้อ' },
+  { value: STATUS.EXCLUDED,   label: 'ตัดออก — ไม่คำนวณสั่งซื้อ' },
 ];
 
 // ────────────────────────────────────────────────────────────
@@ -126,18 +124,6 @@ const QUICK_RANGES = [
   { months: 6,  label: '6 เดือน' },
   { months: 12, label: '12 เดือน' },
 ];
-
-function fmtDateTimeThai(iso) {
-  if (!iso) return '-';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '-';
-  const dd = String(d.getDate()).padStart(2, '0');
-  const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-  const y = (d.getFullYear() + 543) % 100;
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  return `${dd} ${months[d.getMonth()]} ${y} ${hh}:${mm}`;
-}
 
 // ISO date input — overlay pattern แสดง DD/MM/YYYY (พ.ศ.) ตาม docs/patterns.md
 // ห้ามใช้ plain <input type="date"> เพราะ browser US locale แสดง MM/DD/YYYY
@@ -408,7 +394,16 @@ function ImportMasterModal({ open, onClose, onImported, auth }) {
 // ────────────────────────────────────────────────────────────
 // Main App
 // ────────────────────────────────────────────────────────────
-export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysis', onGoBack, canGoBack }) {
+// ระบบการสั่งซื้อยา = งานฝั่งคลังเท่านั้น (user เคาะ 14/11/2569): ค้นยา → วิเคราะห์ ROP/SS → ติดตามที่แจ้งซื้อ → ตรวจสูตรกับ Excel
+// ใบสั่งซื้อ/ใบเสนอราคาเป็นงานจัดซื้อ — ถอดแท็บใบสั่งซื้อแยกบริษัท · ปุ่มติ๊กสั่งแล้ว · ประวัติ snapshot ออก (ข้อมูลเดิมใน DB ไม่ลบ)
+const TABS = [
+  { id: 'search',   label: 'ค้นยา · สรุปรับ-เบิก', icon: Search },
+  { id: 'analysis', label: 'วิเคราะห์สั่งซื้อ',     icon: ListChecks },
+  { id: 'purchase', label: 'แจ้งซื้อแล้ว',          icon: ShoppingBag },
+  { id: 'verify',   label: 'ตรวจสูตร',             icon: ShieldAlert },
+];
+
+export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'search', onGoBack, canGoBack }) {
   // ── Filters / control state ──
   const [statsFrom, setStatsFrom] = useState(isoMonthsAgo(4));
   const [statsTo,   setStatsTo]   = useState(isoPrevMonthEnd());
@@ -443,35 +438,45 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
 
   // ── Results ──
   const [result, setResult] = useState(null); // { rows, suppliers, totals }
-  const [orderedMap, setOrderedMap] = useState({});   // { codeKey: ordered_at } — โหลดจาก DB (reorder_orders)
   // รายการแจ้งซื้อจาก Excel (purchase_request — ADR-0030) · โหลดแยก ล้มแล้วหน้าวิเคราะห์ยังใช้ได้
   const [purchase, setPurchase] = useState({ loading: true, error: '', requests: [], purchaseDates: {}, importedAt: null });
 
   // ── UI ──
-  const [tab, setTab] = useState(initialTab); // analysis | supplier | verify | history
+  const [tab, setTab] = useState(TABS.some(t => t.id === initialTab) ? initialTab : 'search');
+  // หน้าค้นยาเก็บ mount ไว้หลังเปิดครั้งแรก — สลับแท็บแล้วยาที่เลือกไม่หาย
+  const [searchSeen, setSearchSeen] = useState(tab === 'search');
+  const openTab = (id) => { setTab(id); if (id === 'search') setSearchSeen(true); };
   const [editingDrug, setEditingDrug] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [successPopup, setSuccessPopup] = useState(null); // { message, fileName } — popup ยืนยันหลัง Import Master เสร็จ
   const [toast, setToast] = useState(null);               // { tone, message } — แจ้งผลแทน alert()
 
-  // Initial fetch
+  // โหลดคลังทั้งก้อน + รันวิเคราะห์ทุกรหัส เฉพาะเมื่อเปิดแท็บที่ใช้ครั้งแรก (แท็บค้นยาไม่ต้องรอ)
+  const dataLoaded = useRef(false);
   useEffect(() => {
+    if ((tab !== 'analysis' && tab !== 'verify') || dataLoaded.current) return;
+    dataLoaded.current = true;
     (async () => {
       setLoadingData(true);
       try {
-        const [inv, cfg, receipt, orders] = await Promise.all([fetchInventory(), fetchDrugReorderConfig(), fetchLatestReceiptInfo(), fetchReorderOrders()]);
+        const [inv, cfg, receipt] = await Promise.all([fetchInventory(), fetchDrugReorderConfig(), fetchLatestReceiptInfo()]);
         setInventory(inv || {});
         setConfigMap(Object.fromEntries((cfg || []).map(c => [codeKey(c.code), c])));
         setReceiptInfo(receipt || {});
-        // normalize key ให้ตรงกับ codeKey ที่ UI ใช้ (กัน case/space drift)
-        setOrderedMap(Object.fromEntries(Object.entries(orders || {}).map(([code, at]) => [codeKey(code), at])));
       } catch (e) { setRunError(e.message || 'โหลดข้อมูลไม่สำเร็จ'); }
       finally { setLoadingData(false); }
     })();
+  }, [tab]);
+
+  // รายการแจ้งซื้อ — ใช้ทั้งแท็บแจ้งซื้อแล้ว และป้าย "แจ้งซื้อ x วัน" ในตารางวิเคราะห์
+  const purchaseLoaded = useRef(false);
+  useEffect(() => {
+    if ((tab !== 'analysis' && tab !== 'purchase') || purchaseLoaded.current) return;
+    purchaseLoaded.current = true;
     fetchPurchaseRequests()
       .then(d => setPurchase({ loading: false, error: '', ...d }))
       .catch(e => setPurchase(p => ({ ...p, loading: false, error: e.message || 'โหลดไม่สำเร็จ' })));
-  }, []);
+  }, [tab]);
 
   // ป้าย "แจ้งซื้อ x วัน" ต่อรหัส — ใบที่ยังรอของเก่าสุด (ตัวเดียวกับบัตรยา)
   const pendingMap = useMemo(() => {
@@ -584,21 +589,6 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rerunToken]);
 
-  const toggleOrdered = useCallback(async (code) => {
-    const ck = codeKey(code);
-    const now = orderedMap[ck];
-    // optimistic update — เก็บ prev ไว้ rollback ถ้า DB ล้ม
-    const next = { ...orderedMap };
-    if (now) { delete next[ck]; } else { next[ck] = todayIso(); }
-    setOrderedMap(next);
-    try {
-      await setReorderOrder(ck, !now, auth);   // เก็บ normalized key (codeKey) — ตรงกับ orderedMap + กัน drift ตอน untick
-    } catch (e) {
-      setOrderedMap(orderedMap);                 // rollback
-      setToast({ tone: 'error', message: 'บันทึกสถานะ"สั่งแล้ว"ไม่สำเร็จ: ' + (e?.message || e) });
-    }
-  }, [orderedMap, auth]);
-
   const clearToast = useCallback(() => setToast(null), []);
 
   const onMasterSaved = useCallback(async (config) => {
@@ -615,24 +605,6 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
       fileName,
     });
   }, []);
-
-  const saveSnapshot = useCallback(async () => {
-    if (!result) return;
-    try {
-      const id = await saveAnalysisRun({
-        mode: 'normal', stats_from: statsFrom, stats_to: statsTo,
-        excluded_month: excludedMonth || null,
-        lead_time_default: leadDefault,
-        snapshot_date: todayIso(),
-        total_rows: result.rows.length,
-        reorder_rows: result.reorderRows,
-        total_amount: result.totals.totalAmount,
-        summary: { byStatus: result.totals.byStatus, supplierCount: result.suppliers.length },
-        results: result.rows,
-      }, auth);
-      setToast({ tone: 'success', message: `บันทึก Snapshot สำเร็จ (ID #${id})` });
-    } catch (e) { setToast({ tone: 'error', message: 'บันทึก Snapshot ไม่สำเร็จ: ' + (e.message || e) }); }
-  }, [result, statsFrom, statsTo, excludedMonth, leadDefault, auth]);
 
   // Filtered rows based on search + status filter
   const filteredRows = useMemo(() => {
@@ -655,93 +627,99 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'analysi
   }, [result]);
 
   // ────────────────────────────────────────────────────────
+  const card = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm p-3 sm:p-5';
+  const pendingCount = Object.keys(pendingMap).length;
+  const analysisBody = loadingData ? <LoadingState text="กำลังโหลดข้อมูลคลัง + Master…"/>
+    : running && !result ? <LoadingState text="กำลังคำนวณ…"/>
+    : !result ? <EmptyState text="ยังไม่มีผลการวิเคราะห์ — กด 'รันวิเคราะห์'"/>
+    : null;
+
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-800 font-sans text-slate-800 dark:text-slate-100 pb-20">
-      {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + action */}
-      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 sticky top-0 z-30">
-        <div className="max-w-[1600px] mx-auto flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-3">
+      {/* หัวเดียวทั้งระบบ + แท็บ — sidebar (AppShell) คุม navigation */}
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-30">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 pt-3 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-3 min-w-0">
             <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
             <div className="p-1.5 rounded-lg bg-orange-100 dark:bg-orange-950/60 text-orange-600 shrink-0"><ShoppingCart size={18}/></div>
-            <button onClick={onRefresh} className="text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">
-              <h1 className="text-base sm:text-lg font-bold leading-tight text-slate-800 dark:text-slate-100">ระบบวิเคราะห์การสั่งซื้อยา</h1>
-              <p className="text-xs text-slate-400 dark:text-slate-500">คำนวณ ROP · Safety Stock · ใบสั่งซื้อแยกบริษัท · ตามสูตรจาก Excel "วิเคราะห์สั่งซื้อ"</p>
+            <button onClick={onRefresh} className="text-left hover:opacity-70 transition-opacity min-w-0" title="คลิกเพื่อโหลดใหม่">
+              <h1 className="text-base sm:text-lg font-bold leading-tight text-slate-800 dark:text-slate-100">ระบบการสั่งซื้อยา</h1>
+              <p className="hidden sm:block text-xs text-slate-400 dark:text-slate-500">ค้นยา · วิเคราะห์ ROP / Safety Stock · ติดตามรายการที่แจ้งซื้อ — ตามสูตรชีท "วิเคราะห์สั่งซื้อ"</p>
             </button>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          {tab === 'analysis' && (
             <button onClick={() => setImportOpen(true)} className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
               <Upload size={14}/> Import Master
             </button>
-            <button onClick={saveSnapshot} disabled={!result || running} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-colors">
-              <Save size={14}/> บันทึก Snapshot
-            </button>
-          </div>
+          )}
+        </div>
+        <div className="max-w-[1600px] mx-auto px-2 sm:px-6 mt-2 flex overflow-x-auto">
+          {TABS.map(t => (
+            <TabBtn key={t.id} id={t.id} cur={tab} set={openTab} icon={<t.icon size={14}/>}>
+              {t.label}{t.id === 'purchase' && pendingCount ? ` (รอ ${pendingCount})` : ''}
+            </TabBtn>
+          ))}
         </div>
       </div>
 
       <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-4 space-y-4">
-        {/* Control Bar */}
-        <ControlBar
-          {...{ statsFrom, setStatsFrom, statsTo, setStatsTo, excludedMonth, setExcludedMonth, leadDefault, setLeadDefault, search, setSearch, drugNames, monthsInRange, running, onRun: runAnalysis }}
-        />
+        {searchSeen && (
+          <div className={tab === 'search' ? 'max-w-6xl mx-auto' : 'hidden'}>
+            <DrugUsageReport auth={auth} onToast={setToast} />
+          </div>
+        )}
 
-        {runError && (
+        {runError && (tab === 'analysis' || tab === 'verify') && (
           <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800/60 text-rose-800 dark:text-rose-300 rounded-xl p-3 text-sm flex items-center gap-2">
             <ShieldAlert size={16}/> {runError}
           </div>
         )}
 
-        {/* Status Strip */}
-        {result && (
-          <StatusStrip
-            counts={statusCounts}
-            total={result.rows.length}
-            reorderRows={result.reorderRows}
-            totalAmount={result.totals.totalAmount}
-            active={statusFilter}
-            onPick={(s) => setStatusFilter(s === statusFilter ? null : s)}
-          />
+        {tab === 'analysis' && (
+          <>
+            <ControlBar
+              {...{ statsFrom, setStatsFrom, statsTo, setStatsTo, excludedMonth, setExcludedMonth, leadDefault, setLeadDefault, search, setSearch, drugNames, monthsInRange, running, onRun: runAnalysis }}
+            />
+            {result && (
+              <StatusStrip
+                counts={statusCounts}
+                total={result.rows.length}
+                reorderRows={result.reorderRows}
+                totalAmount={result.totals.totalAmount}
+                active={statusFilter}
+                onPick={(s) => setStatusFilter(s === statusFilter ? null : s)}
+              />
+            )}
+            <div className={card}>
+              {analysisBody || (
+                <AnalysisTab
+                  rows={filteredRows}
+                  pendingMap={pendingMap}
+                  onEdit={setEditingDrug} auth={auth}
+                  months={monthsInRange.filter(mm => mm !== excludedMonth)}
+                />
+              )}
+            </div>
+          </>
         )}
 
-        {/* Tabs */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
-          <div className="flex border-b border-slate-200 dark:border-slate-700 overflow-x-auto bg-gradient-to-r from-slate-50 dark:from-slate-900 to-white">
-            <TabBtn id="analysis" cur={tab} set={setTab} icon={<ListChecks size={14}/>}>ตารางวิเคราะห์</TabBtn>
-            <TabBtn id="supplier" cur={tab} set={setTab} icon={<Building2 size={14}/>}>ใบสั่งซื้อแยกบริษัท {result?.suppliers?.length ? `(${result.suppliers.length})` : ''}</TabBtn>
-            <TabBtn id="purchase" cur={tab} set={setTab} icon={<ShoppingBag size={14}/>}>แจ้งซื้อแล้ว {Object.keys(pendingMap).length ? `(รอ ${Object.keys(pendingMap).length})` : ''}</TabBtn>
-            <TabBtn id="reconcile" cur={tab} set={setTab} icon={<GitCompare size={14}/>}>เทียบกับ Excel</TabBtn>
-            <TabBtn id="verify"   cur={tab} set={setTab} icon={<ShieldAlert size={14}/>}>Verification</TabBtn>
-            <TabBtn id="history"  cur={tab} set={setTab} icon={<History size={14}/>}>History</TabBtn>
-          </div>
+        {tab === 'purchase' && (
+          // ไม่ต้องรันวิเคราะห์ก่อน — ข้อมูลมาจาก purchase_request + receive_logs ตรง
+          <div className={card}><PurchaseRequestTab purchase={purchase}/></div>
+        )}
 
-          <div className="p-3 sm:p-5">
-            {tab === 'purchase' ? (
-              // ไม่ต้องรันวิเคราะห์ก่อน — ข้อมูลมาจาก purchase_request + receive_logs ตรง
-              <PurchaseRequestTab purchase={purchase}/>
-            ) : loadingData ? (
-              <LoadingState text="กำลังโหลดข้อมูลคลัง + Master…"/>
-            ) : running && !result ? (
-              <LoadingState text="กำลังคำนวณ…"/>
-            ) : !result ? (
-              <EmptyState text="ยังไม่มีผลการวิเคราะห์ — กด 'รันวิเคราะห์'"/>
-            ) : tab === 'analysis' ? (
-              <AnalysisTab
-                rows={filteredRows}
-                orderedMap={orderedMap} toggleOrdered={toggleOrdered} pendingMap={pendingMap}
-                onEdit={setEditingDrug} auth={auth}
-                months={monthsInRange.filter(mm => mm !== excludedMonth)}
-              />
-            ) : tab === 'supplier' ? (
-              <SupplierTab suppliers={result.suppliers} totalAmount={result.totals.totalAmount} auth={auth}/>
-            ) : tab === 'reconcile' ? (
-              <ReconcileTab appRows={result.rows} auth={auth}/>
-            ) : tab === 'verify' ? (
+        {tab === 'verify' && (
+          <>
+            <div className={card}>
+              <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3 flex items-center gap-1.5"><GitCompare size={15}/> เทียบผลแอปกับชีท Excel</h2>
+              {analysisBody || <ReconcileTab appRows={result.rows} auth={auth}/>}
+            </div>
+            <div className={card}>
+              <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3 flex items-center gap-1.5"><ShieldAlert size={15}/> ทดสอบสูตรคำนวณ</h2>
               <VerifyTab/>
-            ) : (
-              <HistoryTab auth={auth}/>
-            )}
-          </div>
-        </div>
+            </div>
+          </>
+        )}
       </div>
 
       <MasterEditModal open={!!editingDrug} drug={editingDrug} onClose={() => setEditingDrug(null)} onSave={onMasterSaved}/>
@@ -1123,7 +1101,7 @@ const TOGGLE_COLS = [
 // ────────────────────────────────────────────────────────────
 // Analysis tab — table (desktop) + cards (mobile)
 // ────────────────────────────────────────────────────────────
-function AnalysisTab({ rows, orderedMap, toggleOrdered, pendingMap = {}, onEdit, auth, months }) {
+function AnalysisTab({ rows, pendingMap = {}, onEdit, auth, months }) {
   const [sortBy, setSortBy] = useState('status'); // status | amount | gap
   const [exporting, setExporting] = useState(false);
   const [detailRow, setDetailRow] = useState(null); // แถวที่เปิด side panel
@@ -1249,7 +1227,7 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, pendingMap = {}, onEdit,
             </tr>
           </thead>
           <tbody>
-            {sorted.map((r, i) => <AnalysisRow key={r.code + i} r={r} visibleCols={visibleCols} pending={pendingMap[codeKey(r.code)]} ordered={!!orderedMap[codeKey(r.code)]} toggleOrdered={() => toggleOrdered(r.code)} onOpen={() => setDetailRow(r)} onEdit={() => onEdit({ code: r.code, name: r.name, supplier: r.supplier, risk_group: r.riskGroup, lead_time_days: r.leadTimeDays, price_per_unit: r.pricePerUnit })}/>)}
+            {sorted.map((r, i) => <AnalysisRow key={r.code + i} r={r} visibleCols={visibleCols} pending={pendingMap[codeKey(r.code)]} onOpen={() => setDetailRow(r)} onEdit={() => onEdit({ code: r.code, name: r.name, supplier: r.supplier, risk_group: r.riskGroup, lead_time_days: r.leadTimeDays, price_per_unit: r.pricePerUnit })}/>)}
           </tbody>
           {/* ยอดรวมท้ายตาราง — sticky ล่าง รวมเฉพาะแถวที่แสดง (Rule #6) */}
           <tfoot className="sticky bottom-0 z-20">
@@ -1276,7 +1254,7 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, pendingMap = {}, onEdit,
 
       {/* Mobile cards */}
       <div className="md:hidden space-y-2">
-        {sorted.map((r, i) => <AnalysisCard key={r.code + i} r={r} pending={pendingMap[codeKey(r.code)]} ordered={!!orderedMap[codeKey(r.code)]} toggleOrdered={() => toggleOrdered(r.code)} onOpen={() => setDetailRow(r)} onEdit={() => onEdit({ code: r.code, name: r.name, supplier: r.supplier, risk_group: r.riskGroup, lead_time_days: r.leadTimeDays, price_per_unit: r.pricePerUnit })}/>)}
+        {sorted.map((r, i) => <AnalysisCard key={r.code + i} r={r} pending={pendingMap[codeKey(r.code)]} onOpen={() => setDetailRow(r)} onEdit={() => onEdit({ code: r.code, name: r.name, supplier: r.supplier, risk_group: r.riskGroup, lead_time_days: r.leadTimeDays, price_per_unit: r.pricePerUnit })}/>)}
       </div>
 
       <DrugDetailPanel r={detailRow} months={months} onClose={() => setDetailRow(null)}/>
@@ -1284,7 +1262,7 @@ function AnalysisTab({ rows, orderedMap, toggleOrdered, pendingMap = {}, onEdit,
   );
 }
 
-function AnalysisRow({ r, ordered, pending, toggleOrdered, onEdit, onOpen, visibleCols }) {
+function AnalysisRow({ r, pending, onEdit, onOpen, visibleCols }) {
   const meta = STATUS_META[r.status] || STATUS_META[STATUS.SUFFICIENT];
   const tone = TONE_CLASSES[meta.tone];
   const Icon = meta.icon;
@@ -1292,15 +1270,14 @@ function AnalysisRow({ r, ordered, pending, toggleOrdered, onEdit, onOpen, visib
   const ropPct = r.rop > 0 ? Math.min(100, Math.round((r.stock / r.rop) * 100)) : null;
   const showCol = (k) => !visibleCols || visibleCols.has(k);
   return (
-    <tr className={`border-t border-slate-100 dark:border-slate-800 transition-colors ${ordered ? 'bg-emerald-50 dark:bg-emerald-950/40' : 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+    <tr className="border-t border-slate-100 dark:border-slate-800 transition-colors bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800">
       {/* รายการยา + แถบสีสถานะซ้าย (scan เร็วโดยไม่ต้องอ่าน chip) — คลิกชื่อเปิดรายละเอียด */}
       <td className="p-0 sticky left-0 z-10 bg-inherit shadow-[2px_0_4px_rgba(0,0,0,0.04)]">
         <div className="flex items-stretch gap-2.5 px-3 py-2.5">
           <span className={`w-1 rounded-full shrink-0 ${tone.bar}`} aria-hidden="true"/>
           <button onClick={onOpen} className="min-w-0 text-left hover:opacity-70 transition-opacity" title="ดูรายละเอียด">
             <div className="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
-              {ordered && <CheckCircle2 size={13} className="text-emerald-600 shrink-0"/>}
-              <span className={ordered ? 'line-through text-slate-400 dark:text-slate-500' : ''}>{r.name || '-'}</span>
+              <span>{r.name || '-'}</span>
               {pending && <PendingPill p={pending}/>}
             </div>
             <div className="text-xs text-slate-400 dark:text-slate-500 font-mono truncate">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}{r.receiveDate ? ` · รับ ${fmtThaiDate(r.receiveDate)}` : ''}</div>
@@ -1361,10 +1338,6 @@ function AnalysisRow({ r, ordered, pending, toggleOrdered, onEdit, onOpen, visib
       )}
       <td className="px-3 py-2.5 text-center">
         <div className="flex items-center justify-center gap-1">
-          <button onClick={toggleOrdered} title={ordered ? 'ยกเลิกการสั่ง' : 'สั่งแล้ว'}
-            className={`w-6 h-6 rounded-md border flex items-center justify-center transition-colors ${ordered ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 dark:border-slate-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:border-emerald-400'}`}>
-            {ordered && <CheckCircle2 size={12}/>}
-          </button>
           <button onClick={onEdit} title="แก้ Master" className="w-6 h-6 rounded-md border border-slate-300 dark:border-slate-600 hover:bg-orange-50 dark:hover:bg-orange-950/50 hover:border-orange-400 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-orange-700">
             <Pencil size={11}/>
           </button>
@@ -1374,15 +1347,15 @@ function AnalysisRow({ r, ordered, pending, toggleOrdered, onEdit, onOpen, visib
   );
 }
 
-function AnalysisCard({ r, ordered, pending, toggleOrdered, onEdit, onOpen }) {
+function AnalysisCard({ r, pending, onEdit, onOpen }) {
   const meta = STATUS_META[r.status] || STATUS_META[STATUS.SUFFICIENT];
   const tone = TONE_CLASSES[meta.tone];
   const Icon = meta.icon;
   return (
-    <div className={`bg-white dark:bg-slate-900 border rounded-xl p-3 shadow-sm ${ordered ? 'border-emerald-200 dark:border-emerald-900/60 opacity-75' : 'border-slate-200 dark:border-slate-700'}`}>
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm">
       <div className="flex items-start justify-between gap-2 mb-2">
         <button onClick={onOpen} className="flex-1 min-w-0 text-left" title="ดูรายละเอียด">
-          <div className={`font-bold text-sm leading-tight ${ordered ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-100'}`}>{r.name || '-'}</div>
+          <div className="font-bold text-sm leading-tight text-slate-800 dark:text-slate-100">{r.name || '-'}</div>
           <div className="text-[11px] text-slate-400 dark:text-slate-500 font-mono">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}</div>
           {pending && <div className="mt-1"><PendingPill p={pending}/></div>}
         </button>
@@ -1406,9 +1379,6 @@ function AnalysisCard({ r, ordered, pending, toggleOrdered, onEdit, onOpen }) {
           {r.amount > 0 ? <span className="font-bold text-emerald-700 dark:text-emerald-300">฿{fmtBaht(r.amount)}</span> : <span className="text-slate-400 dark:text-slate-500 text-xs">ไม่ต้องสั่ง</span>}
         </div>
         <div className="flex items-center gap-1.5">
-          <button onClick={toggleOrdered} className={`px-2.5 py-1 rounded-md text-xs font-medium ${ordered ? 'bg-emerald-500 text-white' : 'bg-slate-100 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-slate-600 dark:text-slate-300'}`}>
-            {ordered ? '✓ สั่งแล้ว' : 'สั่งแล้ว'}
-          </button>
           <button onClick={onEdit} className="w-7 h-7 rounded-md border border-slate-300 dark:border-slate-600 hover:bg-orange-50 dark:hover:bg-orange-950/50 flex items-center justify-center text-slate-500 dark:text-slate-400">
             <Pencil size={11}/>
           </button>
@@ -1424,142 +1394,6 @@ function Stat({ label, value, tone = 'slate' }) {
     <div className="bg-slate-50 dark:bg-slate-800 rounded-md px-1.5 py-1.5">
       <div className="text-[9px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider">{label}</div>
       <div className={`text-sm font-black tabular-nums ${t.text}`}>{value}</div>
-    </div>
-  );
-}
-
-// ────────────────────────────────────────────────────────────
-// Supplier tab
-// ────────────────────────────────────────────────────────────
-function SupplierTab({ suppliers, totalAmount, auth }) {
-  if (!suppliers || suppliers.length === 0) return <EmptyState text="ไม่มีรายการที่ต้องสั่งซื้อ"/>;
-  return (
-    <div className="space-y-4">
-      <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-xl p-3 text-sm flex items-center justify-between flex-wrap gap-2">
-        <span className="text-emerald-800 dark:text-emerald-300"><b>{suppliers.length}</b> บริษัท · <b>{suppliers.reduce((s, g) => s + g.items.length, 0)}</b> รายการ</span>
-        <span className="text-emerald-700 dark:text-emerald-300">มูลค่ารวม <b className="text-base">฿{fmtBaht(totalAmount)}</b></span>
-      </div>
-      {suppliers.map((g, i) => <SupplierCard key={i} group={g} auth={auth}/>)}
-    </div>
-  );
-}
-
-function SupplierCard({ group, auth }) {
-  const [expanded, setExpanded] = useState(true);
-  const exportOne = async () => {
-    await exportToExcel(group.items, [
-      { header: 'รหัส', key: 'code' },
-      { header: 'ชื่อยา', key: 'name' },
-      { header: 'หน่วยซื้อ', key: 'unit' },
-      { header: 'บริษัทล่าสุด', key: 'supplier' },
-      { header: 'คงเหลือ', value: r => Math.round(r.stock) },
-      { header: 'ROP', key: 'rop' },
-      { header: 'ต้องซื้อ(หน่วยซื้อ)', value: r => Math.round(r.orderQty) },
-      { header: 'ต้องซื้อ(เม็ด)', value: r => Math.round(r.orderQty * (r.packFactor || 1)) },
-      { header: 'ราคา/หน่วยซื้อ', key: 'pricePerUnit' },
-      { header: 'มูลค่า', key: 'amount' },
-    ], group.supplier, `PO_${group.supplier.replace(/\s+/g, '_')}_${todayIso()}.xlsx`, auth);
-  };
-
-  const printPo = () => {
-    const rows = group.items.map((it, i) => `
-      <tr>
-        <td>${i + 1}</td><td>${it.code || '-'}</td><td>${it.name || '-'}</td>
-        <td class="r">${fmtNum(it.stock)}</td><td class="r">${fmtNum(it.rop)}</td>
-        <td class="r"><b>${fmtNum(it.orderQty)}</b></td>
-        <td class="r">${fmtBaht(it.pricePerUnit)}</td>
-        <td class="r"><b>${fmtBaht(it.amount)}</b></td>
-      </tr>`).join('');
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>ใบสั่งซื้อ ${group.supplier}</title>
-      <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
-      <style>
-        body { font-family: 'Sarabun', sans-serif; padding: 24px; color: #0f172a; }
-        h1 { font-size: 20px; margin: 0 0 4px; }
-        h2 { font-size: 14px; color: #475569; margin: 0 0 16px; font-weight: 500; }
-        table { width: 100%; border-collapse: collapse; font-size: 11px; }
-        th, td { border: 1px solid #cbd5e1; padding: 6px 8px; }
-        th { background: #f1f5f9; text-align: left; }
-        .r { text-align: right; }
-        tfoot td { background: #fef3c7; font-weight: bold; }
-        .sign { margin-top: 40px; display: flex; justify-content: space-around; font-size: 12px; }
-        .sign div { text-align: center; width: 200px; border-top: 1px dashed #94a3b8; padding-top: 4px; }
-      </style></head><body>
-      <h1>ใบสั่งซื้อยา — ${group.supplier}</h1>
-      <h2>วันที่ ${fmtDateTimeThai(new Date().toISOString())} · ${group.items.length} รายการ · มูลค่ารวม ฿${fmtBaht(group.totalAmount)}</h2>
-      <table>
-        <thead><tr><th>ลำดับ</th><th>รหัส</th><th>ชื่อยา</th><th class="r">คงเหลือ</th><th class="r">ROP</th><th class="r">ต้องซื้อ</th><th class="r">ราคา/หน่วย</th><th class="r">มูลค่า</th></tr></thead>
-        <tbody>${rows}</tbody>
-        <tfoot><tr><td colspan="5" class="r">รวม</td><td class="r">${fmtNum(group.totalQty)}</td><td></td><td class="r">฿${fmtBaht(group.totalAmount)}</td></tr></tfoot>
-      </table>
-      <div class="sign"><div>ผู้สั่งซื้อ</div><div>ผู้อนุมัติ</div></div>
-      <script>window.onload = () => setTimeout(() => window.print(), 300);</script>
-      </body></html>`;
-    openPrintView(html);   // Blob URL + fallback <a> สำหรับ LINE WebView (Critical Rule #4)
-    logReorderAction('print_po', { supplier: group.supplier, items: group.items.length, amount: group.totalAmount }, auth);
-  };
-
-  return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm">
-      <button onClick={() => setExpanded(v => !v)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-t-2xl">
-        <div className="flex items-center gap-2">
-          <Building2 size={16} className="text-orange-600"/>
-          <span className="font-bold text-slate-800 dark:text-slate-100">{group.supplier}</span>
-          <span className="text-xs text-slate-500 dark:text-slate-400">· {group.items.length} รายการ</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">฿{fmtBaht(group.totalAmount)}</span>
-          <ChevronDown size={14} className={`text-slate-400 dark:text-slate-500 transition-transform ${expanded ? 'rotate-180' : ''}`}/>
-        </div>
-      </button>
-      {expanded && (
-        <>
-          <div className="border-t border-slate-200 dark:border-slate-700">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-50 dark:bg-slate-800">
-                <tr>
-                  <th className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300">รหัส / ชื่อยา</th>
-                  <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">คงเหลือ</th>
-                  <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">ROP</th>
-                  <th className="px-3 py-2 text-right font-semibold text-cyan-700 dark:text-cyan-300">ต้องซื้อ</th>
-                  <th className="px-3 py-2 text-right font-semibold text-slate-600 dark:text-slate-300">฿/หน่วย</th>
-                  <th className="px-3 py-2 text-right font-semibold text-emerald-700 dark:text-emerald-300">มูลค่า</th>
-                </tr>
-              </thead>
-              <tbody>
-                {group.items.map((it, i) => (
-                  <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
-                    <td className="px-3 py-2">
-                      <div className="font-semibold text-slate-700 dark:text-slate-200">{it.name || '-'}</div>
-                      <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{it.code}</div>
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{fmtNum(it.stock)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-orange-700 dark:text-orange-300">{fmtNum(it.rop)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-bold text-cyan-700 dark:text-cyan-300">{fmtNum(it.orderQty)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-slate-500 dark:text-slate-400">{fmtBaht(it.pricePerUnit)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-bold text-emerald-700 dark:text-emerald-300">฿{fmtBaht(it.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot className="bg-amber-50 dark:bg-amber-950/40">
-                <tr>
-                  <td colSpan={3} className="px-3 py-2 text-right font-bold text-slate-700 dark:text-slate-200">รวม</td>
-                  <td className="px-3 py-2 text-right font-bold text-cyan-700 dark:text-cyan-300 tabular-nums">{fmtNum(group.totalQty)}</td>
-                  <td></td>
-                  <td className="px-3 py-2 text-right font-black text-emerald-700 dark:text-emerald-300 tabular-nums text-sm">฿{fmtBaht(group.totalAmount)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-          <div className="border-t border-slate-200 dark:border-slate-700 px-4 py-2.5 flex items-center justify-end gap-2 bg-slate-50 dark:bg-slate-800 rounded-b-2xl">
-            <button onClick={exportOne} className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-medium">
-              <FileSpreadsheet size={12}/> Export Excel
-            </button>
-            <button onClick={printPo} className="flex items-center gap-1.5 text-xs bg-slate-700 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg font-medium">
-              <Printer size={12}/> พิมพ์ใบสั่งซื้อ
-            </button>
-          </div>
-        </>
-      )}
     </div>
   );
 }
@@ -1849,66 +1683,3 @@ function VerifyTab() {
   );
 }
 
-// ────────────────────────────────────────────────────────────
-// History tab
-// ────────────────────────────────────────────────────────────
-function HistoryTab({ auth }) {
-  const [runs, setRuns] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  const reload = useCallback(async () => {
-    setLoading(true);
-    try { setRuns(await fetchAnalysisRuns(50)); }
-    finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { reload(); }, [reload]);
-
-  const remove = async (id) => {
-    if (!confirm('ลบ snapshot นี้ออกจากระบบ?')) return;
-    await deleteAnalysisRun(id, auth);
-    reload();
-  };
-
-  if (loading || runs == null) return <LoadingState text="กำลังโหลด history…"/>;
-  if (runs.length === 0) return <EmptyState text="ยังไม่มี snapshot — กด 'บันทึก Snapshot' จากหน้าผลวิเคราะห์"/>;
-
-  return (
-    <div className="overflow-auto rounded-xl border border-slate-200 dark:border-slate-700">
-      <table className="w-full text-sm">
-        <thead className="bg-slate-100 dark:bg-slate-800">
-          <tr>
-            <th className="px-3 py-2 text-left">เวลา</th>
-            <th className="px-3 py-2 text-left">โดย</th>
-            <th className="px-3 py-2 text-center">โหมด</th>
-            <th className="px-3 py-2 text-left">ช่วงสถิติ</th>
-            <th className="px-3 py-2 text-right">รายการ</th>
-            <th className="px-3 py-2 text-right">ต้องสั่ง</th>
-            <th className="px-3 py-2 text-right">มูลค่า</th>
-            <th className="px-3 py-2 text-center">⚙</th>
-          </tr>
-        </thead>
-        <tbody>
-          {runs.map(r => (
-            <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800">
-              <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{fmtDateTimeThai(r.run_at)}</td>
-              <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{r.run_by || '-'}</td>
-              <td className="px-3 py-2 text-center">
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${r.mode === 'refill' ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300' : 'bg-orange-100 dark:bg-orange-950/60 text-orange-700 dark:text-orange-300'}`}>{r.mode}</span>
-              </td>
-              <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">{r.stats_from} → {r.stats_to}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{fmtNum(r.total_rows)}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-orange-700 dark:text-orange-300 font-semibold">{fmtNum(r.reorder_rows)}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-emerald-700 dark:text-emerald-300 font-semibold">฿{fmtBaht(r.total_amount)}</td>
-              <td className="px-3 py-2 text-center">
-                <button onClick={() => remove(r.id)} className="text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded p-1" title="ลบ">
-                  <Trash2 size={13}/>
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}

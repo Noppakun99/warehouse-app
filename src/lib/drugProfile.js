@@ -9,6 +9,7 @@
 
 import { computeStats, fmtCoverage, thaiMonthLabel } from './reorder.js'
 import { computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './swapPolicy.js'
+import { isUsageRow } from '../../supabase/functions/_shared/usageRow.js'
 
 const toNum = (v) => parseFloat(String(v ?? '0').replace(/,/g, '')) || 0
 
@@ -441,6 +442,96 @@ export function dispenseHistory(sortedRows = [], department = null) {
   const own = department ? normDept(department) : null
   const matched = own ? sortedRows.filter(r => normDept(r.department) === own) : sortedRows
   return { department: department || null, total: matched.length, rows: matched.slice(0, HISTORY_LIMIT).map(dispenseView) }
+}
+
+// ── สรุปรับ-เบิก (หน้า "ค้นยา · สรุปรับ-เบิก" ใน ReorderApp — 14/11/2569) ─────────────────────
+// ยอดเบิก 1 แถวเป็นหน่วยย่อยสุด ถ้านับเป็นการใช้ (CONTEXT §เรท) · 0 = ไม่นับ
+// ตัวเดียวกับ fetchMonthlyDispenseUsage (เรทของหน้าวิเคราะห์สั่งซื้อ + บัตรยา) — แก้กฎที่นี่ที่เดียว
+// dispense_logs ของรหัสเดียวกันลงหลายหน่วยปน (Para: 1000เม็ด / 500เม็ด / เม็ด) → ต้อง ×factor ก่อนรวม ห้ามบวก qty_out ดิบ
+export function usageBaseQty(row) {
+  if (!isUsageRow(row)) return 0
+  const q = toNum(row?.qty_out) * parseUnitFactor(row?.drug_unit).factor
+  return q > 0 ? q : 0
+}
+
+// { 'YYYY-MM': หน่วยย่อยสุด } — monthsBase ของ usageRate
+export function usageMonthsBase(dispenseRows = []) {
+  const out = {}
+  for (const r of dispenseRows) {
+    const ym = String(r.dispense_date || '').slice(0, 7)
+    const q = ym ? usageBaseQty(r) : 0
+    if (q) out[ym] = (out[ym] || 0) + q
+  }
+  return out
+}
+
+// ค่าในช่อง "หน่วยงานที่เบิก" ที่นับเป็นการใช้ (อยู่ในยอดรวม/เรท) แต่ไม่ใช่หน่วยงาน — ไม่จัดอันดับ มาก/น้อยสุด
+// (Rule #16 · ตรวจ DB 14/11/2569)
+// `คืนยา` / `เบิกเพื่อแลกเปลี่ยนคืนยา` / `เบิกยาหมดอายุจากคลัง` ไม่ต้องอยู่ที่นี่ — isUsageRow ตัดทิ้งก่อนแล้ว (ไม่นับในยอด/เรท)
+export const NON_DEPARTMENT_NAMES = new Set(['เบิกเพิ่มจากความผิดพลาด'])
+
+// ยอดเบิกช่วง months (ทุกเดือนในช่วง แม้ไม่มีเบิก = 0) เป็นหน่วยหลัก (mainUnit = หน่วยของบัตรยา)
+// รายหน่วยงาน: จับกลุ่มด้วย normDept ("ห้องยา G" = "ห้องยาG") ชื่อที่แสดง = ชื่อที่ลงบ่อยสุด · เรียงมาก→น้อย
+// count = จำนวนแถวเบิก (ครั้ง) ที่นับเป็นการใช้
+export function summarizeUsage({ dispenseRows = [], mainUnit, months = [] }) {
+  const pack = parseUnitFactor(mainUnit).factor || 1
+  const inRange = new Set(months)
+  const byMonth = {}
+  const depts = new Map()
+  let total = 0, count = 0
+  for (const r of dispenseRows) {
+    const ym = String(r.dispense_date || '').slice(0, 7)
+    if (!inRange.has(ym)) continue
+    const base = usageBaseQty(r)
+    if (!base) continue
+    total += base
+    count += 1
+    byMonth[ym] = (byMonth[ym] || 0) + base
+    const name = String(r.department || '').trim() || '-'
+    const key = normDept(name) || '-'
+    let d = depts.get(key)
+    if (!d) { d = { names: new Map(), base: 0, count: 0 }; depts.set(key, d) }
+    d.names.set(name, (d.names.get(name) || 0) + 1)
+    d.base += base
+    d.count += 1
+  }
+  const all = [...depts.values()].map(d => ({
+    department: [...d.names.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'th'))[0][0],
+    qty: round2(d.base / pack),
+    count: d.count,
+    share: total > 0 ? d.base / total : 0,   // สัดส่วนของยอดเบิกทั้งหมด (รวมแถวที่ไม่ใช่หน่วยงาน)
+  })).sort((a, b) => b.qty - a.qty || b.count - a.count || a.department.localeCompare(b.department, 'th'))
+  const departments = all.filter(d => !NON_DEPARTMENT_NAMES.has(d.department))
+  const minQty = departments.length > 1 ? departments[departments.length - 1].qty : null
+  return {
+    unit: mainUnit || null,
+    total: round2(total / pack),
+    count,
+    monthly: months.map(ym => ({ ym, label: thaiMonthLabel(ym), qty: round2((byMonth[ym] || 0) / pack) })),
+    departments,
+    nonDepartments: all.filter(d => NON_DEPARTMENT_NAMES.has(d.department)),
+    top: departments[0] || null,
+    // น้อยสุด — เท่ากันหลายหน่วยงานได้ (Para 12 เดือน: 3 หน่วยงานเบิก 1 กล่อง) · หน่วยงานเดียว = ไม่มีน้อยสุด
+    lowest: minQty == null ? [] : departments.filter(d => d.qty === minQty),
+  }
+}
+
+// บิลรับเข้าช่วง from..to (ISO) เรียงใหม่→เก่า (ลำดับเดียวกับ receiveRows) · qtyMain = แปลงเป็นหน่วยหลัก
+// convertible = false เมื่อหน่วยฐานไม่ตรงกับหน่วยหลัก (เช่น 450ml กับ ขวด) — ยอดแปลงเชื่อไม่ได้ ให้ UI โชว์หน่วยดิบ
+export function receiptsInRange(receiveRows = [], { from, to, mainUnit }) {
+  const main = parseUnitFactor(mainUnit)
+  const out = []
+  for (const r of receiveRows) {
+    const d = String(r.receive_date || '').slice(0, 10)
+    if (!d || d < from || d > to) continue
+    const u = parseUnitFactor(r.drug_unit)
+    const convertible = u.base.toLowerCase() === main.base.toLowerCase() || (u.factor === 1 && main.factor === 1)
+    out.push({
+      ...receiveView(r),
+      qtyMain: convertible ? round2(toNum(r.qty_received) * u.factor / (main.factor || 1)) : null,
+    })
+  }
+  return out
 }
 
 // ── นโยบายคืนบริษัทราย lot (22/10/2569) — ใช้ร่วม บัตรยา (DrugProfileModal) + โมดอลใกล้หมดอายุ (ExpiryAlertSection) ──

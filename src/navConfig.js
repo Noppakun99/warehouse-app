@@ -5,8 +5,8 @@
 // ============================================================
 import {
   Package, Database, RotateCcw, TrendingUp, TrendingDown,
-  Activity, ShoppingCart, ClipboardList, Users, History, BarChart3, Layers,
-  FileText, ClipboardCheck, Send, ScanLine, ListChecks, Building2, ShieldAlert,
+  Activity, ShoppingCart, ClipboardList, Users, BarChart3, Layers,
+  FileText, ClipboardCheck, Send, ScanLine, ListChecks, Building2,
   Undo2, CalendarClock, Trash2, HandCoins, ScrollText, ArrowLeftRight, CalendarDays, Thermometer,
   MessageSquare, Settings2, Clock, Droplet, Pill,
 } from 'lucide-react';
@@ -38,6 +38,8 @@ export const NAV_GROUPS = [
       { page: 'loan',        icon: ArrowLeftRight, title: 'ยืม-คืนยาระหว่าง รพ.', c: 'sky', roles: ['requester', 'staff', 'admin'] },
       { page: 'stockcount', icon: ClipboardCheck, title: 'ตรวจนับคงคลัง',   c: 'emerald', roles: ['staff', 'admin'] },
       { page: 'temperature', icon: Thermometer, title: 'อุณหภูมิที่เก็บยา', c: 'sky',   roles: ['staff', 'admin'] },
+      // รวม 4 เมนูย่อยเดิม (วิเคราะห์/ใบสั่งซื้อแยกบริษัท/ตรวจสูตร/ประวัติ) เป็นระบบเดียว มีแท็บข้างใน — งานคลัง ไม่ใช่งานจัดซื้อ (14/11/2569)
+      { page: 'reorder',     icon: ShoppingCart, title: 'ระบบการสั่งซื้อยา', c: 'orange', roles: ['staff', 'admin'] },
     ],
   },
   {
@@ -46,16 +48,7 @@ export const NAV_GROUPS = [
       { page: 'dispense', icon: TrendingDown, title: 'ประวัติเบิกจ่าย', c: 'rose', roles: ['requester', 'staff', 'admin'] },
       { page: 'stockcard', icon: ScrollText, title: 'การ์ดคลัง (Stockcard)', c: 'teal', roles: ['requester', 'staff', 'admin'] },
       { page: 'return-policy', icon: Building2, title: 'นโยบายคืนบริษัท', c: 'violet', roles: ['staff', 'admin'] },
-      {
-        key: 'analyze', icon: Activity, title: 'วิเคราะห์', c: 'cyan', roles: ['requester', 'staff', 'admin'],
-        children: [
-          { page: 'analytics',        icon: Activity,     title: 'วิเคราะห์การเบิก',    c: 'cyan',   roles: ['requester', 'staff', 'admin'] },
-          { page: 'reorder',          icon: ShoppingCart, title: 'วิเคราะห์สั่งซื้อ',    c: 'orange', roles: ['staff', 'admin'] },
-          { page: 'reorder-supplier', icon: Building2,    title: 'ใบสั่งซื้อแยกบริษัท', c: 'orange', roles: ['staff', 'admin'] },
-          { page: 'reorder-verify',   icon: ShieldAlert,  title: 'ตรวจสูตรสั่งซื้อ',     c: 'orange', roles: ['staff', 'admin'] },
-          { page: 'reorder-history',  icon: History,      title: 'ประวัติการวิเคราะห์สั่งซื้อ', c: 'orange', roles: ['staff', 'admin'] },
-        ],
-      },
+      { page: 'analytics', icon: Activity, title: 'วิเคราะห์การเบิก', c: 'cyan', roles: ['requester', 'staff', 'admin'] },
       {
         key: 'forms', icon: FileText, title: 'แบบฟอร์มต่างๆ', c: 'slate', roles: ['requester', 'staff', 'admin'],
         children: [

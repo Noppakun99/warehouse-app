@@ -1,9 +1,9 @@
 /**
  * Reorder Analysis — smoke + UX clarity
  *
- * เป้าหมาย: ระบบวิเคราะห์การสั่งซื้อยา (ReorderApp) เปิดได้ + render ตามคาดที่
+ * เป้าหมาย: ระบบการสั่งซื้อยา (ReorderApp) เปิดได้ + render ตามคาดที่
  *  1. Header + Control Bar + Status Strip ครบ
- *  2. Tabs ครบ 4 tab สลับได้
+ *  2. Tabs ครบ 4 tab สลับได้ (ค้นยา · วิเคราะห์สั่งซื้อ · แจ้งซื้อแล้ว · ตรวจสูตร — รวมเมนู 14/11/2569)
  *  3. Verification tab รัน golden tests ผ่าน 100%
  *  4. Mobile (375px) แสดง card layout แทน table
  *  5. Filter ด้วย Status chip ใช้งานได้
@@ -17,7 +17,7 @@ async function gotoReorder(page) {
   await page.getByRole('button', { name: /ต่ำกว่า Safety Stock/ }).first().click();
   // ใน modal มีปุ่ม "เปิดระบบวิเคราะห์การสั่งซื้อ" (desktop) → คลิกเข้า ReorderApp
   await page.getByRole('button', { name: /เปิดระบบวิเคราะห์การสั่งซื้อ/ }).click();
-  await page.waitForSelector('text=ระบบวิเคราะห์การสั่งซื้อยา', { timeout: 10_000 });
+  await page.waitForSelector('text=ระบบการสั่งซื้อยา', { timeout: 10_000 });
 }
 
 test.describe('ReorderApp — smoke', () => {
@@ -26,7 +26,7 @@ test.describe('ReorderApp — smoke', () => {
     if (!page) test.skip();
     await gotoReorder(page);
 
-    await expect(page.getByRole('heading', { name: /ระบบวิเคราะห์การสั่งซื้อยา/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /ระบบการสั่งซื้อยา/ })).toBeVisible();
 
     // Control bar — ช่วงสถิติ + Lead Time + ปุ่มรัน (ไม่มีโหมด Normal/Refill แล้ว — factor 2.3 คงที่)
     await expect(page.getByText('ช่วงสถิติ (จาก)')).toBeVisible();
@@ -38,11 +38,14 @@ test.describe('ReorderApp — smoke', () => {
     if (!page) test.skip();
     await gotoReorder(page);
 
-    // ชื่อ tab ซ้ำกับเมนูย่อย "วิเคราะห์สั่งซื้อ" ใน sidebar (กางอยู่เมื่ออยู่หน้านี้) → .last() = tab ในหน้า
-    // (sidebar render ก่อนเนื้อหาใน DOM) — ไม่ระบุแล้ว strict mode เจอ 2 ปุ่ม
-    const tabs = ['ตารางวิเคราะห์', 'ใบสั่งซื้อแยกบริษัท', 'แจ้งซื้อแล้ว', 'Verification', 'History'];
+    // .last() = tab ในหน้า (sidebar render ก่อนเนื้อหาใน DOM — กันชื่อชนเมนู)
+    const tabs = ['ค้นยา · สรุปรับ-เบิก', 'วิเคราะห์สั่งซื้อ', 'แจ้งซื้อแล้ว', 'ตรวจสูตร'];
     for (const t of tabs) {
       await expect(page.getByRole('button', { name: new RegExp(t) }).last()).toBeVisible();
+    }
+    // ส่วนงานจัดซื้อถอดออกแล้ว (14/11/2569)
+    for (const gone of ['ใบสั่งซื้อแยกบริษัท', 'บันทึก Snapshot', 'History']) {
+      await expect(page.getByRole('button', { name: new RegExp(gone) })).toHaveCount(0);
     }
 
     // แท็บแจ้งซื้อแล้ว (ADR-0030) — ตัวกรอง 4 ปุ่ม + มีรายการ (อ่านอย่างเดียว)
@@ -52,15 +55,15 @@ test.describe('ReorderApp — smoke', () => {
     }
     await expect(page.getByText(/รายงานการซื้อยา_69\.xlsx/)).toBeVisible();
 
-    // คลิก Verification → เห็นปุ่ม "Run tests"
-    await page.getByRole('button', { name: /Verification/ }).last().click();
+    // คลิก ตรวจสูตร → เห็นปุ่ม "Run tests"
+    await page.getByRole('button', { name: /ตรวจสูตร/ }).last().click();
     await expect(page.getByRole('button', { name: /Run tests/ })).toBeVisible();
   });
 
-  test('Verification tab รัน golden tests ผ่าน 100%', async ({ staffPage: page }) => {
+  test('แท็บตรวจสูตร รัน golden tests ผ่าน 100%', async ({ staffPage: page }) => {
     if (!page) test.skip();
     await gotoReorder(page);
-    await page.getByRole('button', { name: /Verification/ }).last().click();
+    await page.getByRole('button', { name: /ตรวจสูตร/ }).last().click();
     await page.getByRole('button', { name: /Run tests/ }).click();
     // ต้องเห็น "0 ล้มเหลว" ในผลลัพธ์
     await expect(page.getByText(/0 ล้มเหลว/)).toBeVisible({ timeout: 5_000 });
@@ -91,4 +94,41 @@ test.describe('ReorderApp — smoke', () => {
     await expect(tableHeader).toBeHidden({ timeout: 5_000 });
   });
 
+});
+
+// หน้าแรกของเมนู "ระบบการสั่งซื้อยา" = แท็บค้นยา · สรุปรับ-เบิก (14/11/2569) — อ่านอย่างเดียว
+test.describe('ค้นยา · สรุปรับ-เบิก', () => {
+  async function gotoSearch(page) {
+    await page.goto('/');
+    await waitForAppShell(page);
+    const hamburger = page.getByRole('button', { name: 'เปิดเมนู' });
+    if (await hamburger.isVisible().catch(() => false)) await hamburger.click();
+    await page.getByRole('button', { name: 'ระบบการสั่งซื้อยา', exact: true }).first().click();
+    await expect(page.getByRole('heading', { name: 'ระบบการสั่งซื้อยา' })).toBeVisible({ timeout: 10_000 });
+  }
+
+  for (const width of [1280, 375]) {
+    test(`ค้นยา Para → สรุป + หน่วยงาน + ปุ่มส่งออก (${width}px)`, async ({ staffPage: page }) => {
+      if (!page) test.skip();
+      await page.setViewportSize({ width, height: 800 });
+      await gotoSearch(page);
+      const input = page.getByRole('textbox', { name: 'ค้นหายา' });
+      await expect(input).not.toHaveAttribute('placeholder', /กำลังโหลด/, { timeout: 20_000 });
+      await input.fill('1000227');
+      await input.press('Enter');
+      const section = page.locator('#usage-1000227');
+      await expect(section).toBeVisible({ timeout: 30_000 });
+      for (const t of ['คงเหลือ', 'เรท/เดือน', 'เบิกรวมในช่วง', 'หน่วยงานที่เบิก']) await expect(section.getByText(t).first()).toBeVisible();
+      await expect(section.getByText('มากสุด', { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Excel', exact: true })).toBeEnabled();
+      await expect(page.getByRole('button', { name: 'พิมพ์', exact: true })).toBeEnabled();
+      // ไม่ล้นแนวนอน (Rule #5)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+      // สลับไปแท็บวิเคราะห์แล้วกลับ — ยาที่ค้นไว้ยังอยู่ (หน้าค้นยาไม่ unmount)
+      await page.getByRole('button', { name: /วิเคราะห์สั่งซื้อ/ }).last().click();
+      await expect(page.getByRole('button', { name: /รันวิเคราะห์/ })).toBeVisible();
+      await page.getByRole('button', { name: /ค้นยา · สรุปรับ-เบิก/ }).last().click();
+      await expect(section).toBeVisible();
+    });
+  }
 });
