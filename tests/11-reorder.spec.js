@@ -40,10 +40,17 @@ test.describe('ReorderApp — smoke', () => {
 
     // ชื่อ tab ซ้ำกับเมนูย่อย "วิเคราะห์สั่งซื้อ" ใน sidebar (กางอยู่เมื่ออยู่หน้านี้) → .last() = tab ในหน้า
     // (sidebar render ก่อนเนื้อหาใน DOM) — ไม่ระบุแล้ว strict mode เจอ 2 ปุ่ม
-    const tabs = ['ตารางวิเคราะห์', 'ใบสั่งซื้อแยกบริษัท', 'Verification', 'History'];
+    const tabs = ['ตารางวิเคราะห์', 'ใบสั่งซื้อแยกบริษัท', 'แจ้งซื้อแล้ว', 'Verification', 'History'];
     for (const t of tabs) {
       await expect(page.getByRole('button', { name: new RegExp(t) }).last()).toBeVisible();
     }
+
+    // แท็บแจ้งซื้อแล้ว (ADR-0030) — ตัวกรอง 4 ปุ่ม + มีรายการ (อ่านอย่างเดียว)
+    await page.getByRole('button', { name: /แจ้งซื้อแล้ว/ }).last().click();
+    for (const f of ['รอของ', 'มาส่งแล้ว', 'ยกเลิก', 'ทั้งหมด']) {
+      await expect(page.getByRole('button', { name: new RegExp(`^${f} \\(`) })).toBeVisible();
+    }
+    await expect(page.getByText(/รายงานการซื้อยา_69\.xlsx/)).toBeVisible();
 
     // คลิก Verification → เห็นปุ่ม "Run tests"
     await page.getByRole('button', { name: /Verification/ }).last().click();

@@ -59,6 +59,7 @@ const NOTIF_LABELS = {
   analysis_run:                 { label: 'บันทึก Snapshot สั่งซื้อ', color: 'text-orange-600', dot: 'bg-orange-400' },
   update_reorder_config:        { label: 'แก้ Master ยา',         color: 'text-violet-600',  dot: 'bg-violet-400' },
   import_reorder_config:        { label: 'Import Master ยา',      color: 'text-indigo-600',  dot: 'bg-indigo-400' },
+  import_purchase_request:      { label: 'นำเข้ารายงานแจ้งซื้อ',   color: 'text-indigo-600',  dot: 'bg-indigo-400' },
   mark_ordered:                 { label: 'ทำเครื่องหมายสั่งแล้ว',  color: 'text-emerald-600', dot: 'bg-emerald-400' },
   print_po:                     { label: 'พิมพ์ใบสั่งซื้อ',        color: 'text-slate-700 dark:text-slate-200',   dot: 'bg-slate-500'  },
   // ── บอทประกาศ LINE ──

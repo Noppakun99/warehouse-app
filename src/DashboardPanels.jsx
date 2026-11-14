@@ -9,9 +9,9 @@ import {
   AlertTriangle, Undo2, PackageX, ClipboardCheck, CalendarClock, ArrowLeftRight, MessageSquareWarning,
   ListChecks, ChevronRight, CircleCheck, X, ArrowRight, Boxes, ShoppingCart, Activity,
   TrendingUp, TrendingDown, ChevronDown, CalendarDays, Database, Hourglass, Search, RotateCcw, Lightbulb, Copy, Check,
-  BookOpenCheck, Pencil, Trash2, Plus, Package,
+  BookOpenCheck, Pencil, Trash2, Plus, Package, ShoppingBag, FileSpreadsheet, Loader2,
 } from 'lucide-react';
-import { SWAP_ACTION_STATUS, insertFormularyChange, updateFormularyChange, deleteFormularyChange, fetchCartDraft, deleteCartDraft } from './lib/db';
+import { SWAP_ACTION_STATUS, insertFormularyChange, updateFormularyChange, deleteFormularyChange, fetchCartDraft, deleteCartDraft, fetchPurchaseArrivals } from './lib/db';
 import { reqTypeLabel, clearLocalCart } from './lib/reqType';
 import { openDrugSearch } from './lib/drugSearchEvent';
 import { isSwapRed, fmtYmdBE } from './lib/workQueue';
@@ -32,7 +32,7 @@ const SEVERITY = {
 const QUEUE_ICON = {
   expired: AlertTriangle, swap: Undo2, outOfStock: PackageX, pendingReceive: Hourglass,
   nearExpiry: CalendarClock, loanOverdue: ArrowLeftRight, annualCount: ListChecks, lineQuota: MessageSquareWarning,
-  formulary: BookOpenCheck,
+  formulary: BookOpenCheck, purchaseWaiting: ShoppingBag, purchaseNotMoved: FileSpreadsheet,
 };
 
 const fmtNum = (n) => (Number(n) || 0).toLocaleString();
@@ -204,6 +204,12 @@ const QUEUE_COLUMNS = {
   formularyOut:   [FCOL.received, FCOL.total, COL.unit,
                    { label: 'Lot ที่มีของ', cell: r => (r.lots ? fmtNum(r.lots) : '-'), num: true },
                    FCOL.supplier, FCOL.price],
+  // รายงานแจ้งซื้อยา (ADR-0030) — หมายเหตุเฉพาะ staff: แถวของผู้เบิกถูกล้าง note ก่อนส่งมา (AppRoot)
+  purchaseWaiting:  [{ label: 'วันที่แจ้ง', cell: r => fmtYmdBE(r.notified_on), nowrap: true }, COL.unit,
+                     { label: 'เหตุผล · หมายเหตุ', wide: true, full: true, cell: r => [r.reason, r.note].filter(Boolean).join(' · ') || '-' }],
+  purchaseNotMoved: [{ label: 'วันที่แจ้ง', cell: r => fmtYmdBE(r.notified_on), nowrap: true },
+                     { label: 'บิลซื้อเข้า', cell: r => fmtYmdBE(r.arrivedOn), nowrap: true },
+                     { label: 'แถวใน Excel', cell: r => `${dash(r.source_sheet)} ${r.source_row ?? ''}`.trim(), nowrap: true }],
   ptcRegister:    [{ label: 'วันที่ประชุม', cell: r => fmtYmdBE(r.ptc_date), nowrap: true },
                    { label: 'อ้างอิง', cell: r => dash(r.ptc_ref) },
                    { label: 'หมายเหตุ', cell: r => dash(r.note), wide: true }],
@@ -235,6 +241,8 @@ const NEW_DRUG_BADGE = {
 };
 const NON_PURCHASE_TAG = { 'การสนับสนุน': 'ยาสนับสนุน', 'การบริจาค': 'ยาบริจาค' };
 
+const purchaseNote = (p) => `แจ้งซื้อแล้ว ${fmtNum(p.waitDays)} วัน (${fmtYmdBE(p.notified_on)})`;
+
 // ชื่อยา + รหัส + หมายเหตุ + ป้ายท้ายแถว
 function rowHead(key, r) {
   const name = r.name || r.drug_name || r.code || r.drug_code || '-';
@@ -250,7 +258,12 @@ function rowHead(key, r) {
         badge: d == null ? '-' : d < 0 ? `เลยเส้นตาย ${fmtNum(-d)} วัน` : `เหลือ ${fmtNum(d)} วัน`, tone: isSwapRed(r) ? 'red' : 'amber' };
     }
     case 'outOfStock':
-      return { name, code, badge: 'หมด', tone: 'red' };
+      return { name, code, note: r.purchasePending ? purchaseNote(r.purchasePending) : null, badge: 'หมด', tone: 'red' };
+    case 'purchaseWaiting':
+      return { name, code, note: r.count > 1 ? `แจ้ง ${fmtNum(r.count)} ใบ (แสดงใบเก่าสุด)` : null,
+        badge: `รอ ${fmtNum(r.waitDays)} วัน`, tone: r.waitDays > 60 ? 'red' : 'amber' };
+    case 'purchaseNotMoved':
+      return { name, code, badge: `รอ ${fmtNum(r.leadDays)} วันถึงได้ของ`, tone: 'emerald' };
     case 'pendingReceive':
       return { name, code, badge: r.waitDays == null ? 'ไม่ทราบวันรับ' : `รอ ${fmtNum(r.waitDays)} วัน`, tone: 'amber' };
     case 'loanOverdue':
@@ -379,7 +392,7 @@ export function QueueDetailModal({ item, onClose, manage, toolbar = null, footer
                   {open && <div className="mt-2">{rowDetail(r)}</div>}
                   <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                     {cols.map(c => (
-                      <div key={c.label} className="flex gap-1.5 min-w-0">
+                      <div key={c.label} className={`flex gap-1.5 min-w-0 ${c.full ? 'col-span-2' : ''}`}>
                         <dt className="text-slate-400 dark:text-slate-500 shrink-0">{c.label}</dt>
                         <dd className={`text-slate-700 dark:text-slate-200 min-w-0 break-words ${c.num ? 'font-semibold tabular-nums' : ''}`}>{c.cell(r)}</dd>
                       </div>
@@ -402,6 +415,66 @@ export function QueueDetailModal({ item, onClose, manage, toolbar = null, footer
         </div>
       </div>
     </div>
+  );
+}
+
+// ── โมดอลรายการแจ้งซื้อ (รอของ / ไฟล์ยังไม่ย้าย) — QueueDetailModal + ช่องค้นชื่อยา/รหัส ─────────
+// ตัวเลขหัวโมดอลนับตามที่กรอง · ตัวเลขในคิว/การ์ด = ทั้งหมด (ค้นว่าง = ตรงกัน)
+export function PurchaseQueueModal({ item, manage, onClose }) {
+  const [q, setQ] = useState('');
+  const shown = useMemo(() => {
+    if (!item) return null;
+    const s = q.trim().toLowerCase();
+    if (!s) return item;
+    return { ...item, rows: item.rows.filter(r => String(r.code || '').toLowerCase().includes(s) || String(r.name || '').toLowerCase().includes(s)) };
+  }, [item, q]);
+  if (!item) return null;
+  const toolbar = (
+    <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800">
+      <div className="relative sm:w-72">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นชื่อยา / รหัส" aria-label="ค้นชื่อยาหรือรหัส"
+          className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-8 pr-3 py-1.5 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-400" />
+      </div>
+    </div>
+  );
+  const rowDetail = item.key === 'purchaseNotMoved' ? (r => <PurchaseArrivals row={r} />) : null;
+  return <QueueDetailModal item={shown} manage={manage} onClose={onClose} toolbar={toolbar} rowDetail={rowDetail} />;
+}
+
+// กางแถว "ไฟล์ยังไม่ย้าย" — บิลซื้อตั้งแต่วันที่แจ้ง (โหลดตอนกาง · บิลแรก = บิลที่ทำให้ขึ้นว่ามาแล้ว)
+function PurchaseArrivals({ row }) {
+  const [state, setState] = useState({ loading: true, error: '', rows: [] });
+  useEffect(() => {
+    let alive = true;
+    fetchPurchaseArrivals(row.code, row.notified_on)
+      .then(rows => { if (alive) setState({ loading: false, error: '', rows }); })
+      .catch(e => { if (alive) setState({ loading: false, error: e.message || 'โหลดไม่สำเร็จ', rows: [] }); });
+    return () => { alive = false; };
+  }, [row.code, row.notified_on]);
+
+  if (state.loading) return <p className="text-xs text-slate-400 dark:text-slate-500 inline-flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> กำลังโหลดบิลรับเข้า…</p>;
+  if (state.error) return <p className="text-xs text-red-600 dark:text-red-400">โหลดบิลรับเข้าไม่สำเร็จ: {state.error}</p>;
+  if (!state.rows.length) return <p className="text-xs text-slate-500 dark:text-slate-400">ไม่พบบิลซื้อตั้งแต่ {fmtYmdBE(row.notified_on)}</p>;
+  return (
+    <ul className="space-y-1.5">
+      {state.rows.map(b => (
+        <li key={b.id} className="rounded-lg bg-slate-50 dark:bg-slate-800/60 px-3 py-2 text-xs">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="font-semibold text-slate-800 dark:text-slate-100 tabular-nums">รับ {fmtYmdBE(b.receive_date)}</span>
+            <span className="text-slate-600 dark:text-slate-300">บิล {b.bill_number || '-'}{b.po_number ? ` · PO ${b.po_number}` : ''}</span>
+            <span className="text-slate-500 dark:text-slate-400 min-w-0 break-words">{b.supplier_current || '-'}</span>
+          </div>
+          <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-slate-600 dark:text-slate-300 tabular-nums">
+            <span>Lot {b.lot || '-'}</span>
+            <span>EXP {b.exp || '-'}</span>
+            <span className="font-semibold text-slate-800 dark:text-slate-100">{fmtNum(b.qty_received)} {b.drug_unit || ''}</span>
+            {b.total_price_vat != null && <span>{Number(b.total_price_vat).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>}
+            {b.receive_status && <span className="text-slate-500 dark:text-slate-400">{b.receive_status}</span>}
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -676,7 +749,8 @@ export function Collapsible({ title, open, onToggle, alwaysOpenLg = false, child
 const TOP5_OPEN_KEY = 'dashboard_top5_open';
 
 // ── คอลัมน์ภาพรวม: 3 ตัวเลข + ยาต้องสั่งซื้อ 5 อันดับ ─────────────────────
-export function OverviewPanel({ alerts, wide = false, canReorder = false, onOpenStock, onOpenExpiry, onOpenLowStock, onOpenReorder }) {
+// purchase = summarizePurchaseStatus | null (ยังโหลด/ล้ม → การ์ดแจ้งซื้อแสดง – และไม่มีป้ายใน Top 5)
+export function OverviewPanel({ alerts, purchase = null, wide = false, canReorder = false, onOpenStock, onOpenExpiry, onOpenLowStock, onOpenReorder, onOpenPurchase }) {
   // drugCount คำนวณใน fetchDashboardAlerts ด้วยกฎเดียวกับ fetchStockSummary (โมดอลที่การ์ดนี้เปิด) — Rule #6
   const drugCount = alerts?.drugCount ?? null;
   const expiring = alerts?.expiring || [];
@@ -685,6 +759,7 @@ export function OverviewPanel({ alerts, wide = false, canReorder = false, onOpen
     { key: 'stock', label: 'รายการยาในคลัง', value: drugCount, icon: Boxes, tone: 'text-sky-700 dark:text-sky-300', chip: 'bg-sky-100 dark:bg-sky-950/60 text-sky-600', onClick: onOpenStock },
     { key: 'expiry', label: 'ใกล้หมดอายุใน 16 เดือน', value: expiring.length, icon: CalendarClock, tone: 'text-orange-700 dark:text-orange-300', chip: 'bg-orange-100 dark:bg-orange-950/60 text-orange-600', onClick: expiring.length ? onOpenExpiry : undefined },
     { key: 'low', label: 'ต่ำกว่า Safety Stock', value: lowStock.length, icon: ShoppingCart, tone: 'text-amber-700 dark:text-amber-300', chip: 'bg-amber-100 dark:bg-amber-950/60 text-amber-600', onClick: lowStock.length ? onOpenLowStock : undefined },
+    { key: 'purchase', label: 'แจ้งซื้อแล้ว รอของ', value: purchase ? purchase.waiting.length : null, icon: ShoppingBag, tone: 'text-blue-700 dark:text-blue-300', chip: 'bg-blue-100 dark:bg-blue-950/60 text-blue-600', onClick: purchase?.waiting.length ? onOpenPurchase : undefined },
   ];
   const top5 = lowStock.slice(0, 5);
   // พับไว้เป็นค่าเริ่มต้น ให้กราฟด้านล่างอยู่ในจอ — จำการกาง/พับไว้ที่เครื่อง (localStorage อาจถูกปิดใน WebView)
@@ -698,7 +773,7 @@ export function OverviewPanel({ alerts, wide = false, canReorder = false, onOpen
 
   return (
     <div className="space-y-3">
-      <div className={`grid gap-3 ${wide ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-3 lg:grid-cols-1'}`}>
+      <div className={`grid gap-3 ${wide ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-1'}`}>
         {tiles.map(t => {
           const Icon = t.icon;
           const body = (
@@ -733,17 +808,26 @@ export function OverviewPanel({ alerts, wide = false, canReorder = false, onOpen
             )}
           </div>
           {topOpen && <ul className="divide-y divide-slate-50 dark:divide-slate-800">
-            {top5.map((r, i) => (
+            {top5.map((r, i) => {
+              const pr = purchase?.pendingByCode?.[String(r.code ?? '').trim()];
+              return (
               <li key={r.code || i} className="flex items-center justify-between gap-3 px-4 py-2.5">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 leading-tight truncate">{r.name || r.code}</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                     คงเหลือ <span className="font-bold text-red-600 dark:text-red-400">{fmtNum(r.qty)}</span> / SS {fmtNum(r.safety_stock)}{r.unit ? ` ${r.unit}` : ''}
                   </p>
+                  {pr && (
+                    <p className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 text-[11px] font-semibold"
+                      title={`แจ้งเมื่อ ${fmtYmdBE(pr.notified_on)}${pr.reason ? ` · ${pr.reason}` : ''}`}>
+                      <ShoppingBag size={11} /> แจ้งซื้อแล้ว {fmtNum(pr.waitDays)} วัน
+                    </p>
+                  )}
                 </div>
                 <span className="inline-flex items-center rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 text-xs font-bold tabular-nums shrink-0">{Math.round((r.ratio || 0) * 100)}%</span>
               </li>
-            ))}
+              );
+            })}
           </ul>}
         </div>
       )}

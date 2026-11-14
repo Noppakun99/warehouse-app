@@ -145,6 +145,23 @@ section('รอบเบิก-รับถัดไป (announceSchedule ตั
   assertEq(describeNextCycle('2026-10-10', [], new Map()), null, 'ไม่มีรอบ → null')
 }
 
+section('รายงานแจ้งซื้อยา (purchase)')
+{
+  const pA = { id: 1, code: 'A', waitDays: 75, count: 1 }
+  const purchase = { waiting: [pA, { id: 2, code: 'Z', waitDays: 10, count: 1 }], pendingByCode: { A: pA }, notMoved: [{ id: 9, code: 'C' }] }
+  const q = buildWorkQueue({ lowStock: [{ code: 'A ', qty: 0, safety_stock: 5 }, { code: 'B', qty: 0, safety_stock: 5 }], purchase })
+  assertEq(byKey(q, 'outOfStock').rows[0].purchasePending, pA, 'หมดสต็อกที่แจ้งซื้อแล้ว → ติดแถวแจ้งซื้อ (trim รหัส)')
+  assertEq(byKey(q, 'outOfStock').rows[1].purchasePending, undefined, 'ยังไม่แจ้งซื้อ → ไม่มีป้าย')
+  assertEq(byKey(q, 'purchaseNotMoved').count, 1, 'ไฟล์ยังไม่ย้าย = notMoved')
+  const w = byKey(q, 'purchaseWaiting')
+  assertDeep([w.count, w.informational, w.note], [2, true, 'รอนานสุด 75 วัน · เกิน 60 วัน 1 รายการ'], 'รอของ = informational + รอนานสุด')
+  assertEq(w.rows, purchase.waiting, 'rows = ชุดที่นับ (Rule #6)')
+  assertEq(q.findIndex(it => it.key === 'purchaseWaiting') > q.findIndex(it => it.key === 'purchaseNotMoved'), true, 'รอของอยู่หลังงานค้าง')
+  const empty = buildWorkQueue({ purchase: { waiting: [], pendingByCode: {}, notMoved: [] } })
+  assertDeep(empty, [], 'ไม่มีรายการ → ไม่แสดงทั้ง 2 แถว')
+  assertEq(byKey(buildWorkQueue({}), 'purchaseWaiting'), undefined, 'purchase = null (ยังโหลด/ล้ม) → ไม่แสดง')
+}
+
 // ────────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(50)}`)
 if (fail === 0) {

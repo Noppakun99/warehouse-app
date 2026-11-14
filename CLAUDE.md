@@ -63,6 +63,7 @@ npm run import:master    # ชีท Master           → inventory         🔴
 npm run import:dispense  # ชีท 'เบิก '          → dispense_logs     🔴 DELETE ALL
 npm run import:reorder   # ชีท วิเคราะห์สั่งซื้อ → drug_reorder_config 🟢 UPSERT
 npm run import:loan      # ชีท 'รพ.ยืมยา'       → drug_loan         🟢 diff insert/update
+npm run import:purchase  # รายงานการซื้อยา_69.xlsx → purchase_request 🔴 DELETE ALL (ADR-0030)
 npm run export:csv       # ทุกชีท → csv_file/*.csv (ไม่แตะ DB)
 npm run import:restore   # กู้คืนจาก backup/*.json
 node scripts/stock.mjs <คำค้น> [--all]  # เช็คคงเหลือยาจากชีท Master (อ่านอย่างเดียว — สกิล /stock-check)
@@ -120,6 +121,7 @@ Single-page React (ไม่มี React Router) — ทุก Supabase query �
 | ยืม-คืนมีมูลค่า | [handoff](docs/handoff-2026-10-04-loan-valuation.md) · [design](docs/design-loan-valuation.md) | แก้มูลค่ายืม-คืนใน Master / ขึ้นเดือน |
 | ของส่งต่อผู้ดูแลไม่นับค้างคืน | [ADR-0025](docs/adr/0025-pass-through-loan-closed-on-handover.md) · [CONTEXT.md §ของค้างคืน](CONTEXT.md) | แก้ `DrugLoanApp` |
 | ออกแบบ Dashboard ใหม่ | [handoff](docs/handoff-2026-10-10-dashboard.md) · [scripts](docs/handoff-2026-10-10-dashboard-scripts/) | grill ต่อ / แก้กฎตัดแถวของเรท |
+| แจ้งซื้อแล้ว (รายงานซื้อยาเข้าแอป) | [docs/features/purchase-request.md](docs/features/purchase-request.md) · [ADR-0030](docs/adr/0030-purchase-request-from-excel-report.md) | แก้ `purchaseReportSheet.js` / แท็บแจ้งซื้อแล้ว / ป้ายบัตรยา |
 | ส่งต่อ 13/11 ใบพิมพ์ใบเบิก + ตะกร้าค้าง | [handoff](docs/handoff-2026-11-13-req-print-cart.md) | **เริ่มงานต่อจากเครื่องอื่น** |
 | Navigation + Sub-apps | [navigation-shell.md](docs/architecture/navigation-shell.md) · [sub-apps.md](docs/architecture/sub-apps.md) | แก้เมนู/แถบล่างจอ · แก้ sub-app หรือฟอร์มพิมพ์ |
 | Roadmap | [docs/roadmap.md](docs/roadmap.md) | วางแผน feature ใหม่ |

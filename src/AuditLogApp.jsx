@@ -236,6 +236,7 @@ const ACTION_LABELS = {
   delete_analysis_run:          { label: 'ลบ Snapshot สั่งซื้อ',     color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'       },
   update_reorder_config:        { label: 'แก้ Master ยา',           color: 'bg-violet-100 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300' },
   import_reorder_config:        { label: 'Import Master ยา',        color: 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300' },
+  import_purchase_request:      { label: 'นำเข้ารายงานแจ้งซื้อ',     color: 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300' },
   mark_ordered:                 { label: 'ทำเครื่องหมายสั่งแล้ว',     color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
   unmark_ordered:               { label: 'ยกเลิกสั่งแล้ว',           color: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'   },
   print_po:                     { label: 'พิมพ์ใบสั่งซื้อ',           color: 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'     },
@@ -589,7 +590,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
     { label: 'ยืม-คืนยา',  keys: ['insert_drug_loan', 'return_drug_loan', 'update_drug_loan', 'delete_drug_loan', 'import_drug_loan', 'create_loan_slip', 'cancel_loan_slip', 'reconcile_loan_slip'] },
     { label: 'คลัง/Inventory', keys: ['import_inventory', 'move_location', 'reconcile_location_move', 'create_stock_count', 'create_annual_count', 'close_annual_count', 'add_annual_count_lot', 'add_unknown_count_item', 'update_stock_count', 'clear_stock_count_item', 'refresh_annual_count_qty', 'followup_stock_count', 'delete_stock_count', 'seed_ledger', 'close_ledger_period', 'reopen_ledger_period', 'add_ledger_adjustment', 'create_temperature_log', 'update_temperature_log', 'delete_temperature_log', 'import_temperature_log'] },
     { label: 'ส่งบัญชี (AP)', keys: ['ap_acknowledge', 'ap_unacknowledge', 'ap_mark_inspected', 'ap_uninspect', 'ap_send_batch', 'ap_unsend_batch', 'ap_mark_posted', 'ap_unpost', 'ap_reset_batch', 'print_ap_batch', 'print_ack_batch', 'export_ap_batch'] },
-    { label: 'วิเคราะห์สั่งซื้อ', keys: ['analysis_run', 'analysis_view', 'delete_analysis_run', 'update_reorder_config', 'import_reorder_config', 'mark_ordered', 'unmark_ordered', 'print_po', 'reconcile_excel'] },
+    { label: 'วิเคราะห์สั่งซื้อ', keys: ['analysis_run', 'analysis_view', 'delete_analysis_run', 'update_reorder_config', 'import_reorder_config', 'import_purchase_request', 'mark_ordered', 'unmark_ordered', 'print_po', 'reconcile_excel'] },
     { label: 'บัญชียา (PTC)', keys: ['add_formulary_change', 'update_formulary_change', 'delete_formulary_change'] },
     { label: 'อื่นๆ',      keys: ['export_excel', 'export_pdf', 'login'] },
   ];

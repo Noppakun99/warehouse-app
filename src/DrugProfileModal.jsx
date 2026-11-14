@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   X, Pill, Database, MapPin, Layers, Hourglass, AlertTriangle, CircleCheck, PackageX, Ban, ScrollText,
-  TrendingDown, Loader2, CalendarClock, Receipt, ChevronDown, Activity, History, Truck, Info, RotateCcw,
+  TrendingDown, Loader2, CalendarClock, Receipt, ChevronDown, Activity, History, Truck, Info, RotateCcw, ShoppingCart,
 } from 'lucide-react';
 import { fetchDrugProfile } from './lib/db';
 import { parseExpDate, packUnitLabel, packWord, returnPolicyLabel, policySourceNote } from './lib/drugProfile';
@@ -199,6 +199,24 @@ function statusChips(p) {
   return out;
 }
 
+// แจ้งซื้อแล้ว (purchase_request — ADR-0030): ใบที่ยังรอของ เก่าสุด · ผู้เบิกเห็นวันที่+เหตุผล · หมายเหตุเฉพาะ staff/admin
+function PurchaseRequestNote({ pr, isStaff }) {
+  return (
+    <div className="flex items-start gap-2 rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/40 px-3 py-2 text-blue-800 dark:text-blue-200">
+      <ShoppingCart size={15} className="shrink-0 mt-0.5" />
+      <div className="min-w-0 text-xs">
+        <p className="text-sm font-semibold">
+          แจ้งซื้อแล้ว {fmtNum(pr.waitDays)} วัน <span className="font-normal">· ยังไม่มีบิลซื้อเข้า</span>
+        </p>
+        <p className="mt-0.5">
+          แจ้งเมื่อ {fmtIsoTh(pr.notified_on)}{pr.count > 1 ? ` (แจ้งซ้ำ ${pr.count} ครั้ง)` : ''}{pr.reason ? ` · ${pr.reason}` : ''}
+        </p>
+        {isStaff && pr.note && <p className="mt-0.5 text-blue-700/80 dark:text-blue-300/80 break-words">หมายเหตุ: {pr.note}</p>}
+      </div>
+    </div>
+  );
+}
+
 function LotRow({ l }) {
   let expTone = 'text-slate-500 dark:text-slate-400';
   let expNote = '';
@@ -349,6 +367,8 @@ export default function DrugProfileModal({ code, isStaff, department = null, onC
                     ))}
                   </div>
                 )}
+
+                {p.purchaseRequest && <PurchaseRequestNote pr={p.purchaseRequest} isStaff={isStaff} />}
 
                 {/* เรท = กฎหน้าวิเคราะห์สั่งซื้อ (4 เดือนที่ปิดงวด) เขียนช่วงเดือนกำกับเสมอ (CONTEXT §เรท) */}
                 {p.rate && (

@@ -14,6 +14,7 @@ import {
   latestPolicyByCompany, COMPANY_WIDE_POLICY_PREFIX,
 } from './drugProfile.js'
 import { isoMonthsAgo, isoPrevMonthEnd, listMonthYM } from './reorder.js'
+import { purchaseDatesByCode, pendingRequestFor } from './purchaseReportSheet.js'
 // ReorderApp import parseUnitFactor จาก db.js มาแต่เดิม — คงทางเข้าเดิมไว้ (ตัวจริงอยู่ drugProfile.js)
 export { parseUnitFactor }
 
@@ -1966,6 +1967,7 @@ export async function fetchNotifications(scope = null) {
     'analysis_run',
     'update_reorder_config',
     'import_reorder_config',
+    'import_purchase_request',
     'mark_ordered',
     'print_po',
     // ── Stock Count ──
@@ -3041,7 +3043,7 @@ export async function fetchDrugProfile(drugCode, { department = null } = {}) {
   const rateFrom = isoMonthsAgo(4)
   const rateTo = isoPrevMonthEnd()
 
-  const [rows, receiveRows, cfgRes, uploadMeta, dispenseRows, monthly] = await Promise.all([
+  const [rows, receiveRows, cfgRes, uploadMeta, dispenseRows, monthly, purchaseRequests] = await Promise.all([
     // ลำดับ location เดียวกับ fetchAllInventoryRows → หน่วยสำรอง (ไม่มีบิลซื้อ) ตรงกับโมดอลรายการยาในคลัง
     pageAll(() => supabase.from('inventory')
       .select('code, name, type, unit, lot, exp, qty, location, main_log, invoice, safety_stock, receive_status')
@@ -3058,6 +3060,9 @@ export async function fetchDrugProfile(drugCode, { department = null } = {}) {
       .eq('drug_code', code)
       .order('dispense_date', { ascending: false, nullsFirst: false }).order('id', { ascending: false })),
     fetchMonthlyDispenseUsage(rateFrom, rateTo, { code }),
+    // ป้าย "แจ้งซื้อแล้ว x วัน" — โหลดล้ม = ไม่มีป้าย บัตรยายังเปิดได้
+    supabase.from('purchase_request').select('code, notified_on, status, reason, note').eq('code', code)
+      .then(({ data, error }) => (error ? [] : data || [])),
   ])
   if (!rows.length) return null
 
@@ -3096,7 +3101,71 @@ export async function fetchDrugProfile(drugCode, { department = null } = {}) {
     companyPolicies,
     companyBillPolicies: latestPolicyByCompany(billPolicyRows),
   })
-  return profile && { ...profile, returnPolicyError, inventoryUpdatedAt: uploadMeta?.inventory?.updated_at || null }
+  const purchaseRequest = pendingRequestFor(purchaseRequests, purchaseDatesByCode(receiveRows)[code] || [])
+  return profile && { ...profile, returnPolicyError, purchaseRequest, inventoryUpdatedAt: uploadMeta?.inventory?.updated_at || null }
+}
+
+// --- รายการแจ้งซื้อ (purchase_request — ADR-0030) ---
+// Excel (รายงานการซื้อยา_69.xlsx) เป็นตัวจริง: นำเข้าแบบแทนทั้งชุดผ่าน CLI `npm run import:purchase`
+// สถานะสด (รอกี่วัน/มาส่งแล้ว) คำนวณจาก receive_logs ด้วย requestState (purchaseReportSheet.js)
+
+// DELETE ทั้งตาราง แล้ว INSERT ใหม่ทั้งหมด (CLI สำรองก่อนเรียกเสมอ) · คืนจำนวนแถวที่เขียน
+export async function replacePurchaseRequests(rows, auth = {}, { fileName = null } = {}) {
+  if (!supabase) throw new Error('Supabase not configured')
+  if (!Array.isArray(rows) || !rows.length) throw new Error('ไม่มีรายการให้นำเข้า')
+  const by = resolveAuditUserName(auth)
+  const { error: delErr } = await supabase.from('purchase_request').delete().gte('id', 0)
+  if (delErr) throw delErr
+  const CHUNK = 500
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const { error } = await supabase.from('purchase_request')
+      .insert(rows.slice(i, i + CHUNK).map(r => ({ ...r, imported_by: by })))
+    if (error) throw error
+  }
+  await insertAuditLog({
+    action: 'import_purchase_request', table_name: 'purchase_request',
+    user_name: by, department: auth?.department || '-', record_count: rows.length,
+    details: fileName ? { file_name: fileName } : null,
+  })
+  return rows.length
+}
+
+// แท็บ "แจ้งซื้อแล้ว" ใน ReorderApp → { requests, purchaseDates: { code: [ISO asc] }, importedAt }
+// paginate ตาม Rule #2 · บิลซื้อดึงเฉพาะตั้งแต่วันที่แจ้งเก่าสุด (บิลก่อนนั้นไม่มีผลกับสถานะ)
+export async function fetchPurchaseRequests() {
+  if (!supabase) return { requests: [], purchaseDates: {}, importedAt: null }
+  const pageAll = async (build) => {
+    const out = []
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await build().range(from, from + 999)
+      if (error) throw error
+      out.push(...(data || []))
+      if (!data || data.length < 1000) break
+    }
+    return out
+  }
+  const requests = await pageAll(() => supabase.from('purchase_request')
+    .select('id, code, name, unit, drug_type, notified_on, status, reason, note, source_sheet, source_row, imported_at')
+    .order('notified_on', { ascending: false }).order('id'))
+  if (!requests.length) return { requests, purchaseDates: {}, importedAt: null }
+  const since = requests.reduce((m, r) => (r.notified_on < m ? r.notified_on : m), requests[0].notified_on)
+  const receipts = await pageAll(() => supabase.from('receive_logs')
+    .select('drug_code, receive_date, purchase_type')
+    .eq('purchase_type', 'การซื้อ').gte('receive_date', since).order('id'))
+  const importedAt = requests.reduce((m, r) => (r.imported_at > m ? r.imported_at : m), '')
+  return { requests, purchaseDates: purchaseDatesByCode(receipts), importedAt: importedAt || null }
+}
+
+// โมดอล "ของมาแล้วแต่ไฟล์ยังไม่ย้าย" กางแถว → บิลซื้อของรหัสนี้ตั้งแต่วันที่แจ้ง
+// เงื่อนไขเดียวกับ arrivedOn (requestState: purchase_type การซื้อ · receive_date ≥ วันที่แจ้ง) → แถวแรก = บิลที่ทำให้ขึ้นว่ามาแล้ว
+export async function fetchPurchaseArrivals(code, since) {
+  if (!supabase || !code || !since) return []
+  const { data, error } = await supabase.from('receive_logs')
+    .select('id, receive_date, bill_number, po_number, supplier_current, lot, exp, qty_received, drug_unit, price_per_unit, total_price_vat, receive_status')
+    .eq('drug_code', code).eq('purchase_type', 'การซื้อ').gte('receive_date', since)
+    .order('receive_date').order('id')
+  if (error) throw error
+  return data || []
 }
 
 // หน้านโยบายคืนบริษัท: ทุกอย่างที่ buildCompanyPolicyIndex ต้องใช้ · paginate ตาม Rule #2

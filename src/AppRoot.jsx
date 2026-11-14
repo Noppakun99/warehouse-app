@@ -17,7 +17,8 @@ import RequisitionApp     from './RequisitionApp';
 import DispenseLogApp     from './DispenseLogApp';
 import ReceiveLogApp      from './ReceiveLogApp';
 import { supabase }       from './lib/supabase';
-import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS, fetchSwapReturnActions, swapActionKey, fetchLatestLineQuotaAlerts, fetchDrugLoans, loanOverdueDays, fetchOpenAnnualCount, fetchUploadMeta, fetchHolidayMap, fetchFormularyChanges, fetchNewDrugData } from './lib/db';
+import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS, fetchSwapReturnActions, swapActionKey, fetchLatestLineQuotaAlerts, fetchDrugLoans, loanOverdueDays, fetchOpenAnnualCount, fetchUploadMeta, fetchHolidayMap, fetchFormularyChanges, fetchNewDrugData, fetchPurchaseRequests } from './lib/db';
+import { summarizePurchaseStatus } from './lib/purchaseReportSheet';
 import { buildNewDrugs, buildFormularyOut, countReceivedNew, NEW_DRUG_DAYS } from './lib/formularyChange';
 import { buildLotReturnPolicies, returnPolicyLabel, policySourceNote } from './lib/drugProfile';
 import { matchReceiveDetails } from './lib/receiveMatch';
@@ -26,7 +27,7 @@ import { pickPopupRows, readSeen, writeSeen, popupStorageKey } from './lib/popup
 import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import { resolveCycles } from '../supabase/functions/_shared/announceSchedule.js';
 import { InstallAppCard } from './InstallApp';
-import { DashboardInfoLines, DrugSearchLauncher, WorkQueuePanel, QueueDetailModal, FormularyModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner, OnboardingCard, CartReminderCard, RequisitionLauncher } from './DashboardPanels';
+import { DashboardInfoLines, DrugSearchLauncher, WorkQueuePanel, QueueDetailModal, FormularyModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner, OnboardingCard, CartReminderCard, RequisitionLauncher, PurchaseQueueModal } from './DashboardPanels';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
@@ -271,7 +272,8 @@ export default function AppRoot() {
       case 'reorder-supplier':
       case 'reorder-verify':
       case 'reorder-history':
-        content = <ReorderApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} initialTab={{ 'reorder-supplier': 'supplier', 'reorder-verify': 'verify', 'reorder-history': 'history' }[page] || 'analysis'} onGoBack={goBack} canGoBack={canGoBack} />;
+      case 'reorder-purchase': // จากคิวงาน/การ์ดแจ้งซื้อบน Dashboard — ไม่มีในเมนู
+        content = <ReorderApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} initialTab={{ 'reorder-supplier': 'supplier', 'reorder-verify': 'verify', 'reorder-history': 'history', 'reorder-purchase': 'purchase' }[page] || 'analysis'} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'ledger':
         content = <StockLedgerApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
@@ -715,6 +717,8 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
   // ยาเข้าใหม่/ตัดออก/ทะเบียน PTC — null = ยังโหลดไม่เสร็จ (แถวคิวยังไม่ขึ้น) · formularyTick = โหลดใหม่หลังแก้ทะเบียน
   const [formularyRaw, setFormularyRaw] = useState(null);
   const [formularyTick, setFormularyTick] = useState(0);
+  // รายงานแจ้งซื้อยา (ADR-0030) — summarizePurchaseStatus · null = ยังโหลด/ล้ม (ไม่ขึ้นตัวเลข 0 ปลอม)
+  const [purchase, setPurchase] = useState(null);
   const [queueDetailKey, setQueueDetailKey] = useState(null);
   const [uploadMeta, setUploadMeta] = useState(null);
   const [cycle, setCycle] = useState(null);            // รอบเบิก-รับถัดไป (describeNextCycle)
@@ -809,6 +813,22 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
     return () => { alive = false; };
   }, [auth.id, isStaff, formularyTick]);
 
+  // ทุก role — ผู้เบิกเห็นวันที่แจ้ง+เหตุผล แต่ไม่เห็นหมายเหตุ (ตกลง 14/11/2569 เหมือนบัตรยา)
+  useEffect(() => {
+    if (!supabase) return;
+    let alive = true;
+    fetchPurchaseRequests().then(d => {
+      if (!alive) return;
+      const s = summarizePurchaseStatus(d.requests, d.purchaseDates);
+      if (!isStaff) {
+        const strip = (r) => ({ ...r, note: null });
+        const waiting = s.waiting.map(strip);
+        setPurchase({ waiting, notMoved: [], pendingByCode: Object.fromEntries(waiting.map(r => [String(r.code).trim(), r])) });
+      } else setPurchase(s);
+    }).catch(() => { if (alive) setPurchase(null); });
+    return () => { alive = false; };
+  }, [auth.id, isStaff]);
+
   const today = localYmd(new Date());
   const formularySummary = useMemo(() => {
     if (!formularyRaw || !alertsLoaded) return null;
@@ -822,10 +842,16 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
   }, [formularyRaw, alertsLoaded, alerts.discontinued, today]);
 
   const queue = useMemo(
-    () => (isStaff ? buildWorkQueue({ ...alerts, swapDue, ...queueExtra, role: auth.role, formulary: formularySummary }) : []),
-    [isStaff, alerts, swapDue, queueExtra, auth.role, formularySummary],
+    () => (isStaff ? buildWorkQueue({ ...alerts, swapDue, ...queueExtra, role: auth.role, formulary: formularySummary, purchase }) : []),
+    [isStaff, alerts, swapDue, queueExtra, auth.role, formularySummary, purchase],
   );
-  const queueDetail = queue.find(it => it.key === queueDetailKey) || null;
+  // ผู้เบิกไม่มีคิว — การ์ด "แจ้งซื้อแล้ว รอของ" เปิดรายการชุดเดียวกับที่นับ (Rule #6)
+  const purchaseWaitingItem = purchase?.waiting.length
+    ? { key: 'purchaseWaiting', label: 'แจ้งซื้อแล้ว ยังไม่มีบิลซื้อเข้า', count: purchase.waiting.length,
+        note: `รอนานสุด ${purchase.waiting[0].waitDays.toLocaleString()} วัน · นับจากวันที่แจ้งในรายงานการซื้อยา`, rows: purchase.waiting }
+    : null;
+  const queueDetail = queue.find(it => it.key === queueDetailKey)
+    || (queueDetailKey === 'purchaseWaiting' ? purchaseWaitingItem : null);
   const swapOpenCount = useMemo(() => swapDue.filter(isSwapOpen).length, [swapDue]);
 
   // ปุ่ม "ไปหน้าจัดการ" ในโมดอลรายการของคิว
@@ -836,6 +862,8 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
     outOfStock:     { label: 'ไปหน้าวิเคราะห์สั่งซื้อ',  run: () => onNavigate('reorder') },
     pendingReceive: { label: 'ไปแผนผังคลังยา',          run: () => onNavigate('inventory') },
     loanOverdue:    { label: 'ไปหน้ายืม-คืนยา',          run: () => onNavigate('loan') },
+    purchaseWaiting:  { label: 'ไปแท็บแจ้งซื้อแล้ว',     run: () => onNavigate('reorder-purchase') },
+    purchaseNotMoved: { label: 'ไปแท็บแจ้งซื้อแล้ว',     run: () => onNavigate('reorder-purchase') },
   };
   const openQueueItem = (it) => {
     if (it.key === 'annualCount') { onNavigate('stockcount'); return; }
@@ -846,6 +874,8 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
   const overview = (
     <OverviewPanel
       alerts={alerts}
+      purchase={purchase}
+      onOpenPurchase={() => setQueueDetailKey('purchaseWaiting')}
       wide={!isStaff}
       canReorder={isStaff}
       onOpenStock={() => setAlertModal('stock')}
@@ -919,6 +949,8 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
       {queueDetail?.key === 'formulary'
         ? <FormularyModal raw={formularyRaw} discontinued={alerts.discontinued || []} today={today} auth={auth}
             onChanged={() => setFormularyTick(t => t + 1)} onClose={() => setQueueDetailKey(null)} />
+        : queueDetail?.key === 'purchaseWaiting' || queueDetail?.key === 'purchaseNotMoved'
+        ? <PurchaseQueueModal item={queueDetail} manage={isStaff ? QUEUE_MANAGE[queueDetail.key] : null} onClose={() => setQueueDetailKey(null)} />
         : <QueueDetailModal item={queueDetail} manage={queueDetail ? QUEUE_MANAGE[queueDetail.key] : null} onClose={() => setQueueDetailKey(null)} />}
 
       {/* ยาต้องเปลี่ยน/คืนบริษัท — popup เฉพาะ lot ใหม่ (staff) หรือเปิดจากคิว/แบนเนอร์ (ทุก lot) */}

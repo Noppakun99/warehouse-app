@@ -38,11 +38,12 @@ export const fmtYmdBE = (ymd) => {
  * @param {Array} p.quota           fetchLatestLineQuotaAlerts() — แสดงเฉพาะ admin
  * @param {string} p.role
  * @param {{newCount, outToReview, ptcWaiting}|null} p.formulary  ยาเข้าใหม่/ตัดออก (formularyChange.js) — null = ยังโหลดไม่เสร็จ
+ * @param {{waiting, pendingByCode, notMoved}|null} p.purchase  summarizePurchaseStatus (purchaseReportSheet.js) — null = ยังโหลดไม่เสร็จ/ล้ม
  * @returns {Array<{key, label, count, severity: 'red'|'amber'|'slate', note, rows, progress?, informational?}>}
  */
 export function buildWorkQueue({
   expiring = [], lowStock = [], pendingReceive = [], swapDue = [], loans = [],
-  annual = null, quota = [], role = 'staff', formulary = null,
+  annual = null, quota = [], role = 'staff', formulary = null, purchase = null,
 } = {}) {
   const T = QUEUE_THRESHOLDS
   const items = []
@@ -70,7 +71,9 @@ export function buildWorkQueue({
     rows: swapOpen,
   })
 
+  // ป้าย "แจ้งซื้อแล้ว x วัน" ต่อแถว — รู้ว่าสั่งไปแล้ว ไม่ต้องแจ้งซ้ำ
   const outOfStock = lowStock.filter(r => (Number(r.qty) || 0) <= 0 && (Number(r.safety_stock) || 0) > 0)
+    .map(r => { const p = purchase?.pendingByCode?.[String(r.code ?? '').trim()]; return p ? { ...r, purchasePending: p } : r })
   push({
     key: 'outOfStock', label: 'ยาหมดสต็อก', count: outOfStock.length, severity: 'red',
     note: 'คงเหลือ 0 และมี Safety Stock', rows: outOfStock,
@@ -109,6 +112,24 @@ export function buildWorkQueue({
     push({
       key: 'lineQuota', label: 'โควตาแจ้งเตือน LINE ใกล้หมด', count: quota.length,
       severity: 'amber', note: 'บอทอาจส่งข้อความไม่ได้ในเดือนนี้', rows: quota,
+    })
+  }
+
+  // รายงานแจ้งซื้อยา (ADR-0030) — งานของคลัง: บิลซื้อเข้าแล้วแต่ไฟล์ยังไม่ติ๊ก/ย้ายไป Sheet1
+  if (purchase) {
+    push({
+      key: 'purchaseNotMoved', label: 'รายงานซื้อยา: ของมาแล้วแต่ไฟล์ยังไม่ย้าย', count: purchase.notMoved.length,
+      severity: 'amber', note: 'ติ๊กมาส่งแล้ว + ย้ายไป Sheet1 ในรายงานการซื้อยา_69.xlsx แล้วนำเข้าใหม่',
+      rows: purchase.notMoved,
+    })
+    // รอจัดซื้อ/บริษัท ไม่ใช่งานค้างของคลัง → informational · ซ่อนเมื่อ 0
+    const w = purchase.waiting
+    const over60 = w.filter(r => r.waitDays > 60).length
+    if (w.length) items.push({
+      key: 'purchaseWaiting', label: 'แจ้งซื้อแล้ว ยังไม่มีบิลซื้อเข้า', count: w.length,
+      severity: 'slate', informational: true,
+      note: [`รอนานสุด ${w[0].waitDays.toLocaleString()} วัน`, over60 && `เกิน 60 วัน ${over60} รายการ`].filter(Boolean).join(' · '),
+      rows: w,
     })
   }
 
