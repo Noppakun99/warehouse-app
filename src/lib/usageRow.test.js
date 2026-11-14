@@ -23,6 +23,7 @@ section('ตัด 4 แบบเหมือนสูตร E4 ของชี�
   assertEq(isUsageRow({ item_type: 'ยาโครงการ', department: 'ห้องยาG' }), false, 'ชนิดรายการ ยาโครงการ')
   assertEq(isUsageRow({ item_type: 'ซื้อยา', department: 'คืนยา' }), false, 'หน่วยงาน คืนยา')
   assertEq(isUsageRow({ item_type: 'ยกยอด', department: 'เบิกเพื่อแลกเปลี่ยนคืนยา' }), false, 'หน่วยงาน เบิกเพื่อแลกเปลี่ยนคืนยา')
+  assertEq(isUsageRow({ item_type: 'ซื้อยา', department: 'เบิกยาหมดอายุจากคลัง' }), false, 'หน่วยงาน เบิกยาหมดอายุจากคลัง (ตัดจำหน่าย ไม่ใช่การใช้)')
 }
 
 section('แถวที่ต้องนับเป็นการใช้')
