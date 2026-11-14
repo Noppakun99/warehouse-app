@@ -20,7 +20,7 @@ import FilterSheet, { FilterButton } from './FilterSheet';
 
 // ค่า department ที่ "ไม่ใช่หน่วยงานจริง" — เป็นการปรับปรุงระบบ/ความเคลื่อนไหวพิเศษ
 // ตัดออกจาก dropdown กรองหน่วยงาน + กราฟสรุประดับหน่วยงาน แต่ยังคงแสดงเป็นแถวในตารางเบิกตามปกติ
-const NON_DEPARTMENTS = new Set(['เบิกเพิ่มจากความผิดพลาด', 'คืนยา']);
+const NON_DEPARTMENTS = new Set(['เบิกเพิ่มจากความผิดพลาด', 'คืนยา', 'เบิกยาหมดอายุจากคลัง']);
 const isExcludedDept = (d) => NON_DEPARTMENTS.has(String(d || '').trim());
 
 // ดึง unique departments ทั้งหมด (pagination รอบ 1000)
