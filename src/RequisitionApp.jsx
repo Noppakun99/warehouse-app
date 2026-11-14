@@ -6,7 +6,7 @@ import {
   CheckCircle, XCircle, Package, FileText,
   Printer, RefreshCcw, ChevronRight, ChevronDown, ChevronUp, Bell,
   Check, X, AlertCircle, Clock, FileDown,
-  SlidersHorizontal, MapPin, Share2, Loader2,
+  SlidersHorizontal, MapPin, Share2, Loader2, ClipboardList,
 } from 'lucide-react';
 import { parseUnit } from './lib/unitParser';
 import { allocateFefo, sortLotsForDispense, lotOrderNote, isSupportedLot } from './lib/lotAllocation';
@@ -1926,7 +1926,7 @@ async function printCoverForm(req, preopenedWin) {
     <div class="hosp"><strong>${COVER_FORM.hospital}</strong></div>
     ${lineRight('วันที่', fill(thaiDate, 'flex:none;width:150px'))}
     <p>เรียน ผู้อำนวยการ${COVER_FORM.hospital}</p>
-    ${line('ข้าพเจ้า', fill(headName || req.requester_name || ''), 'ตำแหน่ง', fill())}
+    ${line('ข้าพเจ้า', fill(headName || req.requester_name || ''), 'ตำแหน่ง', fill(headName ? head.position : ''))}
     ${line('หน่วยงานผู้เบิก(ฝ่าย)', fill(req.department || ''), 'มีความประสงค์จะขอเบิกวัสดุเพื่อใช้ในรายการต่อไปนี้')}
     <table>
       <thead><tr>
@@ -1982,6 +1982,100 @@ async function printCoverForm(req, preopenedWin) {
           ${dateLine}
         </div>
       </div>
+    </div>
+    <script>window.onload=()=>{window.print();}</script>
+    </body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  openPrintUrl(url, preopenedWin);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+// ============================================================
+// ใบขอเบิก — สิ่งที่ผู้เบิกกรอกส่งมา (requested_qty + หมายเหตุผู้เบิก) ไม่มี lot/คงเหลือ
+// คู่กับ "ใบตัดเบิก" (printReq — ระบบ/คลังจัด lot ให้) และใบปะหน้า (user ขอ 14/11/2569 ให้ผู้เบิกพิมพ์ได้ครบ 3 แบบ)
+// จำนวน = requested_qty เสมอ (ไม่ใช่ approved_qty) — ใบนี้เป็นหลักฐานว่าหน่วยงานขออะไร
+// ============================================================
+async function printRequestForm(req, preopenedWin) {
+  const items = req.requisition_items || [];
+  // จำนวน/หน่วยนับ = หน่วยซื้อตาม Master แบบใบตัดเบิก (6,000 เม็ด → 6 × 1000เม็ด · user สั่ง 14/11/2569)
+  // กฎเดียวกับหน้าคีย์ (entryUnitOf): lot ต่างขนาดแพ็ค / ไม่มีขนาด = คงหน่วยย่อยที่ DB เก็บ
+  const { fefoByCode, unitByCode } = await computeReqAllocations([req]);
+  const packOf = (code) => {
+    const lots = fefoByCode[code] || [];
+    const unit = unitByCode[code] || '';
+    const packSizes = lots.length ? lots.map(l => l.packSize) : [parseUnit(unit).packSize];
+    return entryUnitOf({ unit, baseUnit: parseUnit(unit).baseUnit || '', packSizes });
+  };
+  const dt = (v) => new Date(v).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
+  const edited = req.updated_at && req.updated_at !== req.created_at;
+  const rows = items.map((item, i) => {
+    const want = Number(item.requested_qty) || 0;
+    const { packSize, label } = packOf(String(item.drug_code || '').trim());
+    const qty = packSize > 1 ? fmtPackNote(want, packSize, item.drug_unit || '') : want.toLocaleString();
+    const unit = packSize > 1 ? label : (item.drug_unit || '-');
+    return `<tr>
+      <td class="c">${i + 1}</td>
+      <td class="c mono wide">${escHtml(item.drug_code || '-')}</td>
+      <td>${escHtml(item.drug_name || '-')}${item.item_note ? `<div class="inl">หมายเหตุ: ${escHtml(item.item_note)}</div>` : ''}</td>
+      <td class="r"><b>${escHtml(qty)}</b></td>
+      <td class="c">${escHtml(unit)}</td>
+      <td class="sm wide">${escHtml(item.item_note || '')}</td>
+    </tr>`;
+  }).join('');
+  const kind = req.req_type ? ` · ใบเบิก${escHtml(reqTypeLabel(req.req_type))}` : '';
+
+  const html = `<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
+    <title>ใบขอเบิก ${escHtml(req.req_number)}</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
+      @page { size: A4 portrait; margin: 12mm 12mm 12mm; }
+      * { box-sizing: border-box; }
+      body { font-family: 'Sarabun', sans-serif; font-size: 14px; color: #111; margin: 16px; line-height: 1.55; }
+      @media screen { body { max-width: 186mm; margin: 16px auto; padding: 0 16px; } }
+      h2 { text-align: center; font-size: 19px; margin: 0 0 2px; }
+      .sub { text-align: center; color: #444; margin-bottom: 10px; }
+      .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 16px; margin-bottom: 8px; }
+      .meta b { font-weight: 600; }
+      @media (max-width: 600px) { .meta { grid-template-columns: 1fr; } }
+      table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; }
+      th, td { border: 1px solid #333; padding: 4px 6px; font-size: 13px; vertical-align: top; }
+      th { font-weight: 600; text-align: center; background: #f1f5f9; }
+      thead { display: table-header-group; }
+      tr { page-break-inside: avoid; }
+      td.c { text-align: center; } td.r { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+      td.mono { font-family: monospace; font-size: 12px; } td.sm { font-size: 12px; color: #333; }
+      .inl { display: none; font-size: 12px; color: #333; }
+      /* ดูบนมือถือก่อนพิมพ์: ซ่อนรหัส/หมายเหตุ (หมายเหตุย้ายไปใต้ชื่อยา) กันตารางล้นจอ — ตอนพิมพ์ A4 ได้ครบทุกคอลัมน์ */
+      @media screen and (max-width: 600px) { .wide { display: none; } .inl { display: block; } th, td { padding: 3px 4px; } }
+      .note { font-size: 12.5px; color: #333; margin: 0 0 4px; }
+      .sig { margin-top: 28px; margin-left: auto; width: 300px; max-width: 100%; text-align: center; page-break-inside: avoid; }
+      .sig p { margin: 0 0 8px; }
+      .ln { display: inline-block; border-bottom: 1px dotted #333; min-width: 190px; }
+    </style></head><body>
+    <h2>ใบขอเบิกยาและเวชภัณฑ์</h2>
+    <div class="sub">${escHtml(COVER_FORM.hospital)} · รายการที่หน่วยงานขอเบิก</div>
+    <div class="meta">
+      <span>เลขที่เบิก <b>${escHtml(req.req_number)}</b>${kind}</span>
+      <span>วันที่ส่งใบเบิก <b>${dt(req.created_at)}</b></span>
+      <span>หน่วยงาน <b>${escHtml(req.department || '-')}</b></span>
+      <span>ผู้ขอเบิก <b>${escHtml(req.requester_name || '-')}</b></span>
+      ${edited ? `<span>แก้ไขล่าสุด <b>${dt(req.updated_at)}</b></span>` : ''}
+    </div>
+    <table>
+      <thead><tr>
+        <th style="width:44px">ลำดับ</th><th class="wide" style="width:78px">รหัส</th><th>รายการ</th>
+        <th style="width:80px">จำนวนที่ขอ</th><th style="width:72px">หน่วยนับ</th><th class="wide" style="width:150px">หมายเหตุ</th>
+      </tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" class="c">ไม่มีรายการ</td></tr>'}</tbody>
+    </table>
+    <p class="note">รวม ${items.length} รายการ${req.note ? ` · หมายเหตุใบเบิก: ${escHtml(req.note)}` : ''}</p>
+    <p class="note">จำนวนในใบนี้คือจำนวนที่หน่วยงานขอ — lot และจำนวนที่คลังจ่ายจริงดูที่ใบตัดเบิก</p>
+    <div class="sig">
+      <p>(ลงชื่อ) <span class="ln">&nbsp;</span> ผู้ขอเบิก</p>
+      <p>( <span class="ln">&nbsp;</span> )</p>
+      <p>วันที่ <span class="ln" style="min-width:150px">&nbsp;</span></p>
     </div>
     <script>window.onload=()=>{window.print();}</script>
     </body></html>`;
@@ -2206,10 +2300,11 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
           return (
             <div key={req.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm">
               {/* div ไม่ใช่ button — ข้างในมีปุ่มพิมพ์/แก้/ลบ (button ซ้อน button = invalid HTML, hydration error) */}
-              <div role="button" tabIndex={0} className="w-full p-4 text-left flex items-start justify-between gap-3 cursor-pointer"
+              {/* flex-wrap: จอแคบ (มือถือผู้เบิก) กลุ่มป้าย+ปุ่มขึ้นบรรทัดใหม่ชิดขวา — เดิมปุ่ม 5–6 ปุ่มบีบชื่อหน่วยงานเหลือคำละบรรทัด */}
+              <div role="button" tabIndex={0} className="w-full p-4 text-left flex flex-wrap items-start justify-between gap-x-3 gap-y-2 cursor-pointer"
                 onClick={() => setExpanded(expanded===req.id ? null : req.id)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(expanded===req.id ? null : req.id); } }}>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1 basis-48">
                   <p className="font-mono text-xs text-slate-400 dark:text-slate-500">{req.req_number}{req.req_type && <span className="font-sans font-semibold text-blue-600 dark:text-blue-300"> · ใบเบิก{reqTypeLabel(req.req_type)}</span>}</p>
                   <p className="font-semibold text-slate-800 dark:text-slate-100 mt-0.5">{req.department}</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -2222,14 +2317,23 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${cfg.badge}`}>{cfg.label}</span>
+                <div className="flex items-center gap-1 sm:gap-2 shrink-0 ml-auto">
+                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium whitespace-nowrap ${cfg.badge}`}>{cfg.label}</span>
+                  {/* พิมพ์ 3 แบบ (user สั่ง 14/11/2569): ใบขอเบิก = ที่ผู้เบิกกรอก · ใบตัดเบิก = lot ที่ระบบ/คลังจัด · ใบปะหน้า */}
+                  <button onClick={e => { e.stopPropagation(); printRequestForm(req, window.open('', '_blank')); }}
+                    className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/50 rounded-lg transition-colors"
+                    title="พิมพ์ใบขอเบิก (รายการที่หน่วยงานขอ)" aria-label="พิมพ์ใบขอเบิก">
+                    <ClipboardList size={15} />
+                  </button>
                   <button onClick={e => { e.stopPropagation(); setOutReq(req); }}
-                    className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-[#1E90FF] hover:bg-[#F0F8FF] dark:hover:bg-slate-800 rounded-lg transition-colors" title="พิมพ์ใบเบิก">
+                    className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-[#1E90FF] hover:bg-[#F0F8FF] dark:hover:bg-slate-800 rounded-lg transition-colors"
+                    title={['pending', 'approved', 'partial'].includes(req.status) ? 'พิมพ์ใบตัดเบิก (lot ที่ระบบจัดให้ล่วงหน้า — คลังยังไม่จัดยา)' : 'พิมพ์ใบตัดเบิก (lot ที่คลังจัดจ่าย)'}
+                    aria-label="พิมพ์ใบตัดเบิก">
                     <Printer size={15} />
                   </button>
                   <button onClick={e => { e.stopPropagation(); printCoverForm(req, window.open('', '_blank')); }}
-                    className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-lg transition-colors" title="พิมพ์ใบปะหน้า (ใบเบิกเวชภัณฑ์ยา)">
+                    className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-lg transition-colors"
+                    title="พิมพ์ใบปะหน้า (ใบเบิกเวชภัณฑ์ยา)" aria-label="พิมพ์ใบปะหน้า">
                     <FileText size={15} />
                   </button>
                   <button onClick={e => { e.stopPropagation(); exportReqExcel([req], auth); }}
