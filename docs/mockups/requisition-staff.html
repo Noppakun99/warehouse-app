@@ -1,0 +1,619 @@
+<title>หน้าเบิกยาเจ้าหน้าที่</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* layout: คิวใบเบิก (แถบสถานะ 4 ขั้นกดกรอง → แถวละใบ) ↔ หน้ารายละเอียดใบ (หัวใบ+ขั้น → ตัวกรองในใบ → ตาราง ≥768px / การ์ด <768px → แถบปุ่มล่างจอ) */
+:root {
+  --bg: #f1f5f9; --surface: #ffffff; --sunken: #f8fafc; --fg: #1e293b; --muted: #64748b; --faint: #94a3b8; --line: #e2e8f0;
+  --accent: #1E90FF; --accent-ink: #ffffff; --accent-soft: #e8f3ff;
+  --red: #b91c1c; --red-soft: #fee2e2; --red-line: #fca5a5; --red-tint: #fef2f2;
+  --amber: #92400e; --amber-soft: #fef3c7; --amber-line: #fcd34d; --amber-tint: #fffbeb;
+  --green: #047857; --green-soft: #d1fae5; --green-line: #6ee7b7;
+  --violet: #6d28d9; --violet-soft: #ede9fe; --violet-line: #c4b5fd;
+  --teal: #0f766e; --teal-soft: #ccfbf1; --teal-line: #5eead4;
+  --indigo: #4338ca; --indigo-soft: #eef2ff; --indigo-line: #c7d2fe;
+  --slate-soft: #e2e8f0; --slate-line: #cbd5e1;
+  --shadow: 0 -6px 20px rgba(15, 23, 42, .08);
+  --font: "Noto Sans Thai", "Leelawadee UI", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0b1220; --surface: #0f172a; --sunken: #111c2f; --fg: #e2e8f0; --muted: #94a3b8; --faint: #64748b; --line: #1e293b;
+  --accent: #60a5fa; --accent-ink: #0b1220; --accent-soft: #10264a;
+  --red: #fca5a5; --red-soft: #3b1217; --red-line: #7f1d1d; --red-tint: #1f0d12;
+  --amber: #fcd34d; --amber-soft: #33240a; --amber-line: #78350f; --amber-tint: #1d1609;
+  --green: #6ee7b7; --green-soft: #062a20; --green-line: #065f46;
+  --violet: #c4b5fd; --violet-soft: #1f1640; --violet-line: #4c1d95;
+  --teal: #5eead4; --teal-soft: #062b28; --teal-line: #115e59;
+  --indigo: #a5b4fc; --indigo-soft: #161a3d; --indigo-line: #3730a3;
+  --slate-soft: #1e293b; --slate-line: #334155;
+  --shadow: 0 -6px 20px rgba(0, 0, 0, .45); color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0b1220; --surface: #0f172a; --sunken: #111c2f; --fg: #e2e8f0; --muted: #94a3b8; --faint: #64748b; --line: #1e293b;
+  --accent: #60a5fa; --accent-ink: #0b1220; --accent-soft: #10264a;
+  --red: #fca5a5; --red-soft: #3b1217; --red-line: #7f1d1d; --red-tint: #1f0d12;
+  --amber: #fcd34d; --amber-soft: #33240a; --amber-line: #78350f; --amber-tint: #1d1609;
+  --green: #6ee7b7; --green-soft: #062a20; --green-line: #065f46;
+  --violet: #c4b5fd; --violet-soft: #1f1640; --violet-line: #4c1d95;
+  --teal: #5eead4; --teal-soft: #062b28; --teal-line: #115e59;
+  --indigo: #a5b4fc; --indigo-soft: #161a3d; --indigo-line: #3730a3;
+  --slate-soft: #1e293b; --slate-line: #334155;
+  --shadow: 0 -6px 20px rgba(0, 0, 0, .45); color-scheme: dark }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; line-height: 1.45; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.wrap { max-width: 1280px; margin: 0 auto; padding-block: 16px 140px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 12px; }
+.view { display: grid; gap: 12px; min-width: 0; }
+.wrap > *, .view > *, .slipHead > * { min-width: 0; }
+.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+button, input, select { font: inherit; color: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+svg.i { width: 1em; height: 1em; flex: none; vertical-align: -0.15em; }
+
+.note { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.note b { color: var(--fg); font-weight: 600; }
+.appbar { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.appbar h1 { font-size: 18px; margin: 0; font-weight: 700; text-wrap: balance; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--slate-line); background: var(--surface); border-radius: 10px; padding: 8px 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.btn:hover { background: var(--sunken); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.06); background: var(--accent); }
+.btn.danger { color: var(--red); border-color: var(--red-line); }
+.btn.danger:hover { background: var(--red-tint); }
+.btn.sm { padding: 6px 10px; font-size: 13px; }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--muted); font-weight: 500; }
+.btn.ghost:hover { background: var(--sunken); color: var(--fg); }
+
+.strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.chip { text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 8px 10px 8px 12px; cursor: pointer; display: grid; gap: 2px; min-width: 0; position: relative; overflow: clip; }
+.chip::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--c, var(--slate-line)); }
+.chip .k { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip .v { font-size: 22px; font-weight: 700; color: var(--c, var(--fg)); line-height: 1.2; }
+.chip .s { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
+.c-sheet { --c: var(--amber); } .c-pick { --c: var(--accent); } .c-check { --c: var(--violet); } .c-hist { --c: var(--muted); }
+
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.search { flex: 1 1 220px; min-width: 0; border: 1px solid var(--slate-line); background: var(--surface); border-radius: 10px; padding: 7px 10px; }
+.sel { border: 1px solid var(--slate-line); background: var(--surface); border-radius: 10px; padding: 7px 8px; }
+.seg { display: inline-flex; border: 1px solid var(--slate-line); border-radius: 10px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: transparent; padding: 7px 12px; cursor: pointer; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.seg button + button { border-left: 1px solid var(--slate-line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.count { font-size: 12.5px; color: var(--muted); }
+
+.pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; border: 1px solid; border-radius: 999px; padding: 0 8px; white-space: nowrap; line-height: 1.6; }
+.p-red { color: var(--red); background: var(--red-soft); border-color: var(--red-line); }
+.p-amber { color: var(--amber); background: var(--amber-soft); border-color: var(--amber-line); }
+.p-green { color: var(--green); background: var(--green-soft); border-color: var(--green-line); }
+.p-violet { color: var(--violet); background: var(--violet-soft); border-color: var(--violet-line); }
+.p-blue { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+.p-teal { color: var(--teal); background: var(--teal-soft); border-color: var(--teal-line); }
+.p-slate { color: var(--muted); background: var(--slate-soft); border-color: var(--slate-line); }
+.p-indigo { color: var(--indigo); background: var(--indigo-soft); border-color: var(--indigo-line); }
+
+/* คิว */
+.list { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: clip; }
+.qhead, .qrow { display: grid; grid-template-columns: 6px minmax(0, 2.1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.5fr) 20px; gap: 12px; align-items: center; }
+.qhead { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2; padding: 8px 12px 8px 0; font-size: 12px; color: var(--muted); background: var(--sunken); border-bottom: 1px solid var(--line); font-weight: 600; }
+.qrow { padding: 10px 12px 10px 0; border: 0; border-bottom: 1px solid var(--line); background: var(--surface); width: 100%; text-align: left; }
+button.qrow { cursor: pointer; }
+button.qrow:hover { background: var(--sunken); }
+div.qrow { color: var(--muted); }
+.stripe { align-self: stretch; border-radius: 0 3px 3px 0; background: var(--c, var(--slate-line)); }
+.nm { min-width: 0; display: grid; gap: 1px; }
+.nm .t { font-weight: 600; font-size: 15px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nm .m { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: center; }
+.cell { min-width: 0; display: grid; gap: 2px; }
+.cell .a { font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell .b { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px; }
+.lbl { display: none; font-size: 11px; color: var(--faint); }
+.chev { color: var(--faint); justify-self: end; }
+.empty { padding: 28px 12px; text-align: center; color: var(--muted); }
+
+/* หน้ารายละเอียด */
+.back { justify-self: start; }
+.slipHead { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: grid; gap: 12px; }
+.sh-top { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; align-items: flex-start; }
+.sh-top h1 { margin: 0; font-size: 20px; font-weight: 700; }
+.sh-meta { font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.sh-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.sh-badges .pill { font-size: 12.5px; padding: 2px 10px; }
+.sh-actions { display: flex; flex-wrap: wrap; gap: 4px; border-top: 1px solid var(--line); padding-top: 8px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--n, 5), minmax(0, 1fr)); gap: 6px; }
+.steps li { display: grid; gap: 2px; padding-top: 10px; border-top: 3px solid var(--line); font-size: 12.5px; color: var(--muted); min-width: 0; }
+.steps li b { font-weight: 600; font-size: 13px; color: inherit; }
+.steps li span { font-size: 11.5px; }
+.steps li.done { border-top-color: var(--green); color: var(--fg); }
+
+.steps li.now { border-top-color: var(--accent); color: var(--accent); }
+.demo { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); border: 1px dashed var(--slate-line); border-radius: 12px; padding: 8px 10px; }
+.callout { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; border: 1px solid; border-radius: 12px; padding: 9px 12px; }
+.callout.k-sheet { color: var(--amber); background: var(--amber-tint); border-color: var(--amber-line); }
+.callout.k-pick { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+.callout.k-check { color: var(--violet); background: var(--violet-soft); border-color: var(--violet-line); }
+.callout.k-done { color: var(--teal); background: var(--teal-soft); border-color: var(--teal-line); }
+.callout svg { margin-top: 2px; }
+.fchips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fchip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 10px 4px 12px; cursor: pointer; font-size: 13px; color: var(--muted); }
+.fchip b { color: var(--fg); font-weight: 700; }
+.fchip.f-near b { color: var(--amber); } .fchip.f-short b, .fchip.f-part b { color: var(--red); } .fchip.f-over b { color: var(--violet); }
+.fchip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+
+/* ตารางรายการ (≥768px) */
+.tbl { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: clip; }
+table.it { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+.it col.c-idx { width: 40px; } .it col.c-drug { width: 27%; } .it col.c-req { width: 12%; } .it col.c-loc { width: 11%; } .it col.c-res { width: 21%; }
+.it th { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2; background: var(--sunken); color: var(--muted); font-size: 12px; font-weight: 600; text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.it th small { font-weight: 500; color: var(--faint); }
+.it th.r, .it td.r { text-align: right; }
+.it td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; min-width: 0; }
+.it td.idx { color: var(--faint); text-align: right; padding-right: 4px; }
+.it tr.flag td { background: var(--amber-tint); }
+.it tr.flag td:first-child { box-shadow: inset 3px 0 0 var(--amber); }
+.it tr.bad td { background: var(--red-tint); }
+.it tr.bad td:first-child { box-shadow: inset 3px 0 0 var(--red); }
+.it tr.grp td { background: var(--indigo-soft); color: var(--indigo); font-weight: 600; font-size: 12.5px; padding: 6px 10px; }
+.dn { font-weight: 600; overflow-wrap: anywhere; }
+.dm { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: center; margin-top: 2px; }
+.rq { font-weight: 700; font-size: 15px; }
+.rq small, .sub { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+.locs { display: grid; gap: 4px; justify-items: start; }
+.locp { font-family: var(--mono); font-size: 12px; color: var(--indigo); background: var(--indigo-soft); border: 1px solid var(--indigo-line); border-radius: 6px; padding: 0 6px; overflow-wrap: anywhere; }
+.lotl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding-block: 4px; }
+.lotl + .lotl { border-top: 1px dashed var(--line); }
+.ll-a { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: center; min-width: 0; }
+.ll-a .exp { color: var(--muted); font-size: 12.5px; }
+.ll-q { text-align: right; white-space: nowrap; }
+.ll-q b { font-weight: 700; color: var(--green); }
+.ll-q small { display: block; font-size: 11.5px; color: var(--muted); }
+.it .ll-q small { display: inline; margin-right: 8px; }
+.it .lotl { align-items: baseline; }
+.lnote { font-size: 12px; font-weight: 600; display: flex; gap: 4px; align-items: center; margin-top: 4px; }
+.lnote.warn { color: var(--violet); } .lnote.bad { color: var(--red); }
+.okt { color: var(--green); font-weight: 600; display: inline-flex; gap: 4px; align-items: center; }
+.est { color: var(--muted); }
+.rseg { display: inline-flex; border: 1px solid var(--slate-line); border-radius: 9px; overflow: hidden; }
+.rseg button { border: 0; background: var(--surface); padding: 5px 10px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--muted); display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+.rseg button + button { border-left: 1px solid var(--slate-line); }
+.rseg button[aria-pressed="true"].full { background: var(--green); color: var(--surface); }
+.rseg button[aria-pressed="true"].part { background: var(--red); color: var(--surface); }
+.partf { display: grid; gap: 6px; margin-top: 8px; }
+.partf label { display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted); flex-wrap: wrap; }
+.partf input { width: 6.5em; border: 1px solid var(--slate-line); background: var(--surface); border-radius: 8px; padding: 4px 8px; text-align: right; }
+.partf select { border: 1px solid var(--slate-line); background: var(--surface); border-radius: 8px; padding: 4px 6px; max-width: 100%; }
+
+/* การ์ดรายการ (<768px) */
+.cards { display: grid; gap: 8px; }
+.icard { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 8px; }
+.icard.flag { border-color: var(--amber-line); box-shadow: inset 3px 0 0 var(--amber); }
+.icard.bad { border-color: var(--red-line); box-shadow: inset 3px 0 0 var(--red); }
+.ic-top { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 8px; align-items: start; }
+.ic-idx { width: 26px; height: 26px; border-radius: 999px; background: var(--slate-soft); color: var(--muted); font-weight: 700; font-size: 12.5px; display: grid; place-items: center; }
+.ic-req { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--muted); }
+.ic-req b { color: var(--fg); font-size: 15px; }
+.ic-lots { background: var(--sunken); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; }
+.ic-lots .hd { font-size: 11.5px; color: var(--faint); display: flex; justify-content: space-between; gap: 8px; }
+.grpc { font-size: 12.5px; font-weight: 600; color: var(--indigo); padding: 6px 2px 0; }
+
+/* แถบปุ่มล่างจอ */
+.bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--surface); border-top: 1px solid var(--line); box-shadow: var(--shadow); padding-block: 10px max(10px, env(safe-area-inset-bottom, 0px)); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.bar-in { max-width: 1280px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
+.bar-msg { font-size: 13px; color: var(--muted); display: grid; gap: 1px; min-width: 0; }
+.bar-msg b { color: var(--fg); font-size: 14px; }
+.bar-btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.bar-btns .btn { padding: 10px 18px; }
+.rejf { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; flex: 1 1 320px; }
+.rejf input { flex: 1 1 200px; min-width: 0; border: 1px solid var(--red-line); background: var(--surface); border-radius: 10px; padding: 8px 10px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom, 0px)); z-index: 30; background: var(--fg); color: var(--bg); border-radius: 10px; padding: 8px 14px; font-size: 13px; max-width: calc(100% - 32px); }
+
+@media (max-width: 900px) {
+  .qhead { display: none; }
+  .qrow { grid-template-columns: 6px minmax(0, 1fr) minmax(0, 1fr) 16px; grid-template-areas: "s n n c" "s a b c" "s d d c"; row-gap: 8px; }
+  .qrow .stripe { grid-area: s; } .qrow .nm { grid-area: n; } .qrow .c1 { grid-area: a; } .qrow .c2 { grid-area: b; } .qrow .c3 { grid-area: d; } .qrow .chev { grid-area: c; align-self: center; }
+  .lbl { display: block; }
+  .cell .a { white-space: normal; }
+}
+@media (max-width: 767px) {
+  .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .steps { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(96px, 1fr); overflow-x: auto; padding-bottom: 2px; }
+  .bar-in { display: grid; justify-content: stretch; }
+  .bar-btns { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; justify-content: stretch; }
+  .bar-btns .btn { padding: 11px 10px; white-space: normal; }
+  .rejf { display: grid; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <div class="note"><span><b>mockup</b> ให้เคาะก่อนลงโค้ด</span><span>ใบ <b>REQ-20261113-2101</b> ห้องยา G 40 รายการ = ใบจริงในระบบ · lot/คงเหลือจาก inventory ณ 14/11/2569</span><span>ใบอื่นในคิว = ตัวอย่าง (หน่วยงาน/จำนวนรายการจากชีทเบิก 9–13/11 · สถานะสมมุติ)</span><span>จอ ≥768px เป็นตาราง · แคบกว่าเป็นการ์ด</span></div>
+
+  <section class="view" id="vQueue" aria-label="คิวใบเบิก">
+    <header class="appbar">
+      <h1>ระบบเบิกยาออนไลน์</h1>
+      <button class="btn primary sm" type="button" id="proxyBtn">__I_plus__ สร้างใบเบิกแทนหน่วยงาน</button>
+    </header>
+    <section class="strip" id="qStrip" aria-label="ขั้นของใบเบิก"></section>
+    <div class="tools">
+      <input id="qSearch" class="search" type="search" placeholder="ค้นหน่วยงาน หรือ เลขใบเบิก" aria-label="ค้นใบเบิก">
+      <select id="qType" class="sel" aria-label="ประเภทใบเบิก">
+        <option value="">ทุกประเภทใบ</option><option value="drug">ใบเบิกยา</option><option value="saline">ใบเบิกน้ำเกลือ</option><option value="supply">ใบเบิกถุง/ขวด/ตลับ</option>
+      </select>
+    </div>
+    <div class="count num" id="qCount"></div>
+    <section class="list" id="qList"></section>
+  </section>
+
+  <section class="view" id="vSlip" aria-label="รายละเอียดใบเบิก" hidden>
+    <button class="btn ghost sm back" type="button" id="backBtn">__I_back__ คิวใบเบิก</button>
+    <header class="slipHead" id="slipHead"></header>
+    <div class="demo">
+      <span>ดูหน้าตาเมื่อใบอยู่ขั้น (เฉพาะ mockup):</span>
+      <div class="seg" role="group" aria-label="สลับขั้น" id="stageSeg">
+        <button type="button" data-s="sheet">รอลงชีท</button>
+        <button type="button" data-s="self">จัดจ่ายเองก่อนลงชีท</button>
+        <button type="button" data-s="pick">รอจัด</button>
+        <button type="button" data-s="check">รอตรวจจ่าย</button>
+        <button type="button" data-s="done">จ่ายแล้ว</button>
+      </div>
+    </div>
+    <div class="callout" id="stageNote"></div>
+    <div class="fchips" id="iChips" role="group" aria-label="กรองรายการในใบ"></div>
+    <div class="tools">
+      <input id="iSearch" class="search" type="search" placeholder="ค้นชื่อยาหรือรหัสในใบนี้" aria-label="ค้นรายการในใบ">
+      <div class="seg" role="group" aria-label="เรียงรายการ">
+        <button type="button" id="sortDoc" aria-pressed="true">ตามลำดับใบ</button>
+        <button type="button" id="sortLoc" aria-pressed="false">ตามที่เก็บ (เดินจัด)</button>
+      </div>
+    </div>
+    <div class="count num" id="iCount"></div>
+    <div id="items"></div>
+  </section>
+</div>
+
+<div class="bar" id="bar" hidden><div class="bar-in" id="barIn"></div></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+const D = {"req":{"number":"REQ-20261113-2101","dept":"ห้องยา G","type":"drug","created":"2026-11-13T07:58:30.953772+00:00","items":[{"drug_code":"1000227","drug_name":"Acetaminophen 500mg ,Para","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":6000},{"drug_code":"1600015","drug_name":"Glycerylguaiacolate 100mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":10000},{"drug_code":"1590036","drug_name":"Ibuprofen 400mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":1500},{"drug_code":"1000030","drug_name":"Amoxicillin trihydrate 500mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":3000},{"drug_code":"1500013","drug_name":"Amoxicillin 875mg + Clavulanate 125mg ,1gm","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":1200},{"drug_code":"1000139","drug_name":"Furosemide 40mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":10000},{"drug_code":"1000131","drug_name":"Ferrous Fumarate 200mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":5000},{"drug_code":"1036001","drug_name":"DoxazosinMesilate 4mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":2000},{"drug_code":"1550017","drug_name":"Sertraline 50mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":1440},{"drug_code":"1660045","drug_name":"Bisoprolol 2.5mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":1000},{"drug_code":"1000116","drug_name":"Dimenhydrinate 50mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":2000},{"drug_code":"1500003","drug_name":"Acyclovir 400mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":750},{"drug_code":"1590035","drug_name":"Manidipine  20mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":2000},{"drug_code":"1600019","drug_name":"Losartan 100mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":3600},{"drug_code":"1460131","drug_name":"CyproheptadineHCL 4mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":6000},{"drug_code":"1000184","drug_name":"MetforminHCL 500mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":5000},{"drug_code":"1610003","drug_name":"Simvastatin 20mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":5000},{"drug_code":"1000039","drug_name":"Aspirin 81mg.","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":5000},{"drug_code":"1000223","drug_name":"Omeprazole 20mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":7200},{"drug_code":"1670083","drug_name":"TenofovirAlafenaMide 25mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":1200},{"drug_code":"1053001","drug_name":"Triferdine","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":1200},{"drug_code":"1680056","drug_name":"Atorvastatin 40mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":3000},{"drug_code":"1460090","drug_name":"Calcium carbonate 600mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":1000},{"drug_code":"1540027","drug_name":"Pioglitazone 30mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":4000},{"drug_code":"1690027","drug_name":"Phenytoinsodium 50mg ,Capsule","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":250},{"drug_code":"1000270","drug_name":"SalbutamolSulfate 2mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":1000},{"drug_code":"1460124","drug_name":"Clotrimazole 100mgvaginal","drug_type":"Apply","drug_unit":"เม็ด","requested_qty":72},{"drug_code":"1460050","drug_name":"Antacidgel ,240ml","drug_type":"Syrup","drug_unit":"ขวด","requested_qty":60},{"drug_code":"1690045","drug_name":"Acetaminophen 250mg/5ml ,60ml ,Para","drug_type":"Syrup","drug_unit":"ขวด","requested_qty":50},{"drug_code":"1000230","drug_name":"Acetaminophen 120mg/5ml ,60ml ,Para","drug_type":"Syrup","drug_unit":"ขวด","requested_qty":50},{"drug_code":"1690055","drug_name":"Risperidone OralSolution 1mg/ml ,30ml","drug_type":"Syrup","drug_unit":"ขวด","requested_qty":3},{"drug_code":"1680032","drug_name":"PotassiumChlorideElixir 500mg(6.67meq)/5ml ,30ml","drug_type":"Syrup","drug_unit":"ขวด","requested_qty":100},{"drug_code":"1540031","drug_name":"Povidone-iodine sol 30ml","drug_type":"Apply","drug_unit":"ขวด","requested_qty":20},{"drug_code":"1000148","drug_name":"Hista-oph 5ml","drug_type":"Apply","drug_unit":"หลอด","requested_qty":240},{"drug_code":"1430302","drug_name":"MethylSalicylateBalm","drug_type":"Apply","drug_unit":"หลอด","requested_qty":100},{"drug_code":"1460042","drug_name":"Urea 10% ,Cream","drug_type":"Apply","drug_unit":"450กรัม","requested_qty":12},{"drug_code":"1000188","drug_name":"Metronidazole 500mg/100ml","drug_type":"Injection","drug_unit":"vial","requested_qty":100},{"drug_code":"1000044","drug_name":"BenzathineBenzylpenicillin 1.2MU","drug_type":"Injection","drug_unit":"vial","requested_qty":30},{"drug_code":"1019001","drug_name":"Glipizide 5mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":3000},{"drug_code":"1460091","drug_name":"Calcium carbonate 1250mg","drug_type":"Tablet","drug_unit":"เม็ด","requested_qty":1000}]},"lots":[{"code":"1690055","lot":"M690223","exp":"27/08/2030","unit":"ขวด","qty":"7","location":"D-1-3","item_type":"ยกยอด"},{"code":"1000044","lot":"31100226","exp":"05/02/2029","unit":"vial","qty":"40","location":"C-5-4","item_type":"ยกยอด"},{"code":"1000044","lot":"31100726","exp":"13/03/2029","unit":"vial","qty":"100","location":"C-5-4","item_type":"ยกยอด"},{"code":"1000148","lot":"23845","exp":"03/12/2028","unit":"12หลอด","qty":"3","location":"D-4-4","item_type":"ยกยอด"},{"code":"1000148","lot":"OS2601","exp":"04/03/2029","unit":"หลอด","qty":"74","location":"D-4-4","item_type":"ยกยอด"},{"code":"1000148","lot":"OS2601","exp":"04/03/2029","unit":"หลอด","qty":"150","location":"D-4-4","item_type":"ยกยอด(2)"},{"code":"1460124","lot":"I6A01","exp":"12/01/2031","unit":"6เม็ด","qty":"87","location":"D-4-4","item_type":"ยกยอด(2)"},{"code":"1500003","lot":"26F075","exp":"10/06/2029","unit":"25เม็ด","qty":"45","location":"A-1-4","item_type":"ยกยอด"},{"code":"1000270","lot":"26082003","exp":"08/04/2029","unit":"1000เม็ด","qty":"7","location":"C-2-4","item_type":"เปลี่ยนหมดอายุ"},{"code":"1660045","lot":"26H02011","exp":"06/05/2029","unit":"100เม็ด","qty":"50","location":"A-1-3","item_type":"ยกยอด"},{"code":"1000227","lot":"38596608","exp":"23/04/2027","unit":"1000เม็ด","qty":"28","location":"E-10","item_type":"สนับสนุน"},{"code":"1000227","lot":"38596607","exp":"23/04/2027","unit":"1000เม็ด","qty":"8","location":"E-10","item_type":"สนับสนุน"},{"code":"1000227","lot":"38596609","exp":"26/06/2027","unit":"1000เม็ด","qty":"1","location":"E-10","item_type":"สนับสนุน"},{"code":"1610003","lot":"QL056A","exp":"19/05/2029","unit":"1000เม็ด","qty":"85","location":"E-10","item_type":"ยกยอด"},{"code":"1610003","lot":"QL068A","exp":"29/05/2029","unit":"1000เม็ด","qty":"150","location":"E-10","item_type":"ซื้อยา"},{"code":"1000039","lot":"26111116","exp":"20/05/2029","unit":"1000เม็ด","qty":"52","location":"E-10","item_type":"ยกยอด"},{"code":"1000039","lot":"26111203","exp":"20/08/2029","unit":"1000เม็ด","qty":"60","location":"E-10","item_type":"ยกยอด"},{"code":"1000227","lot":"194664","exp":"28/02/2031","unit":"1000เม็ด","qty":"3","location":"E-10","item_type":"ยกยอด"},{"code":"1000227","lot":"194685","exp":"22/07/2031","unit":"1000เม็ด","qty":"10","location":"E-10","item_type":"ยกยอด"},{"code":"1000188","lot":"L260168","exp":"17/03/2029","unit":"vial","qty":"600","location":"E-11","item_type":"ยกยอด"},{"code":"1690045","lot":"9557016","exp":"15/08/2029","unit":"ขวด","qty":"450","location":"E-11","item_type":"ยกยอด"},{"code":"1000230","lot":"466936","exp":"05/06/2029","unit":"ขวด","qty":"150","location":"E-11","item_type":"ยกยอด"},{"code":"1000230","lot":"466947","exp":"11/08/2029","unit":"ขวด","qty":"250","location":"E-11","item_type":"ยกยอด"},{"code":"1460050","lot":"B266104","exp":"17/06/2029","unit":"ขวด","qty":"200","location":"E-11","item_type":"ยกยอด"},{"code":"1460050","lot":"B267124","exp":"10/07/2029","unit":"ขวด","qty":"300","location":"E-11","item_type":"ยกยอด"},{"code":"1600015","lot":"E40250","exp":"19/05/2030","unit":"1000เม็ด","qty":"7","location":"B-4-3","item_type":"ยกยอด"},{"code":"1600015","lot":"G40202","exp":"14/07/2030","unit":"1000เม็ด","qty":"15","location":"B-4-3","item_type":"ซื้อยา"},{"code":"1460090","lot":"509176","exp":"22/09/2027","unit":"500เม็ด","qty":"63","location":"E-1-3 ,E-3-5","item_type":"ยกยอด"},{"code":"1590036","lot":"52959","exp":"10/06/2031","unit":"500เม็ด","qty":"1","location":"B-3-3","item_type":"ยกยอด"},{"code":"1590036","lot":"52958","exp":"10/06/2031","unit":"500เม็ด","qty":"20","location":"B-3-3","item_type":"ซื้อยา"},{"code":"1680032","lot":"269404","exp":"30/06/2028","unit":"ขวด","qty":"170","location":"E-5-1","item_type":"ยกยอด"},{"code":"1680032","lot":"269515","exp":"31/08/2028","unit":"ขวด","qty":"400","location":"E-5-1","item_type":"ซื้อยา"},{"code":"1600019","lot":"L690599","exp":"21/05/2028","unit":"300เม็ด","qty":"54","location":"E-2-5 ,E-3-5","item_type":"ยกยอด(2)"},{"code":"1540031","lot":"PS517A","exp":"10/06/2028","unit":"bott","qty":"6","location":"E-7-4","item_type":"ยกยอด(2)"},{"code":"1540031","lot":"PS622A","exp":"13/07/2029","unit":"bott","qty":"200","location":"E-7-4","item_type":"ซื้อยา"},{"code":"1460042","lot":"6908636","exp":"10/08/2028","unit":"450กรัม","qty":"10","location":"E-6-2","item_type":"ซื้อยา"},{"code":"1460091","lot":"CU649","exp":"25/05/2028","unit":"100เม็ด","qty":"90","location":"E-1-4 ,E-1-5","item_type":"ยกยอด"},{"code":"1460091","lot":"CU657","exp":"08/09/2028","unit":"100เม็ด","qty":"80","location":"E-1-4 ,E-1-5","item_type":"ยกยอด"},{"code":"1460091","lot":"CU662","exp":"17/09/2028","unit":"100เม็ด","qty":"80","location":"E-1-4 ,E-1-5","item_type":"ซื้อยา"},{"code":"1000131","lot":"603191","exp":"28/03/2028","unit":"1000เม็ด","qty":"13","location":"B-2-2 ,B-1-2","item_type":"ยกยอด"},{"code":"1000131","lot":"606129","exp":"15/06/2028","unit":"1000เม็ด","qty":"50","location":"B-2-2 ,B-1-2","item_type":"ยกยอด"},{"code":"1500013","lot":"05726H02","exp":"04/08/2029","unit":"100เม็ด","qty":"96","location":"A-1-1 ,A-1-2 ,A-1-5","item_type":"ซื้อยา"},{"code":"1690027","lot":"2601013","exp":"16/03/2031","unit":"250เม็ด","qty":"7","location":"A-4-2","item_type":"ยกยอด"},{"code":"1000030","lot":"N690170","exp":"14/05/2028","unit":"500เม็ด","qty":"4","location":"A-2-4 ,A-2-5","item_type":"ยกยอด"},{"code":"1000030","lot":"N690113","exp":"30/03/2028","unit":"500เม็ด","qty":"5","location":"A-2-4 ,A-2-5","item_type":"ยกยอด"},{"code":"1000030","lot":"N690112","exp":"30/03/2028","unit":"500เม็ด","qty":"12","location":"A-2-4 ,A-2-5","item_type":"ยกยอด"},{"code":"1000030","lot":"N690125","exp":"03/04/2028","unit":"500เม็ด","qty":"10","location":"A-2-4 ,A-2-5","item_type":"ซื้อยา"},{"code":"1000223","lot":"K693062","exp":"27/07/2028","unit":"100เม็ด","qty":"172","location":"C-6","item_type":"ยกยอด"},{"code":"1000223","lot":"K693064","exp":"07/08/2028","unit":"100เม็ด","qty":"1","location":"C-6","item_type":"ยกยอด"},{"code":"1540027","lot":"GB614","exp":"08/06/2029","unit":"100เม็ด","qty":"580","location":"C-6","item_type":"ยกยอด"},{"code":"1540027","lot":"GB618","exp":"02/07/2029","unit":"100เม็ด","qty":"200","location":"C-6","item_type":"ซื้อยา"},{"code":"1590035","lot":"260873","exp":"03/08/2029","unit":"100เม็ด","qty":"200","location":"ห้องประชุมเล็กชั้น4","item_type":"ยกยอด(2)"},{"code":"1680056","lot":"CH6117","exp":"05/08/2029","unit":"30เม็ด","qty":"1100","location":"ห้องประชุมเล็กชั้น4","item_type":"ยกยอด"},{"code":"1000184","lot":"H40188","exp":"12/08/2030","unit":"500เม็ด","qty":"396","location":"ห้องประชุมเล็กชั้น4","item_type":"ยกยอด"},{"code":"1000184","lot":"H40189","exp":"12/08/2030","unit":"500เม็ด","qty":"104","location":"ห้องประชุมเล็กชั้น4","item_type":"ยกยอด"},{"code":"1000184","lot":"I40158","exp":"14/09/2030","unit":"500เม็ด","qty":"300","location":"ห้องประชุมเล็กชั้น4","item_type":"ซื้อยา"},{"code":"1036001","lot":"610063","exp":"03/10/2028","unit":"500เม็ด","qty":"77","location":"B-4-2","item_type":"ซื้อยา"},{"code":"1036001","lot":"610063","exp":"03/10/2028","unit":"500เม็ด","qty":"150","location":"B-4-2","item_type":"ซื้อยา(2)"},{"code":"1670083","lot":"1426185","exp":"31/03/2029","unit":"30เม็ด","qty":"70","location":"D-1-3 ,D-1-2","item_type":"ยกยอด"},{"code":"1670083","lot":"1426273","exp":"31/03/2029","unit":"30เม็ด","qty":"100","location":"D-1-3 ,D-1-2","item_type":"ยกยอด"},{"code":"1460131","lot":"1FK1333","exp":"14/11/2030","unit":"1000เม็ด","qty":"10","location":"A-3-4","item_type":"ยกยอด"},{"code":"1460131","lot":"1GH0835","exp":"14/08/2029","unit":"1000เม็ด","qty":"30","location":"A-3-4","item_type":"ซื้อยา"},{"code":"1590035","lot":"260876","exp":"17/08/2029","unit":"100เม็ด","qty":"100","location":"E-1-1 ,E-1-2 ,E-1-3","item_type":"คืนยา"},{"code":"1680056","lot":"CH6131","exp":"08/09/2029","unit":"30เม็ด","qty":"1200","location":"E-4-5","item_type":"ยกยอด"},{"code":"1680056","lot":"CH6140","exp":"03/10/2029","unit":"30เม็ด","qty":"800","location":"E-4-5","item_type":"ซื้อยา"},{"code":"1000139","lot":"T690355","exp":"13/08/2029","unit":"500เม็ด","qty":"8","location":"B-2-3 ,B-2-5","item_type":"ยกยอด"},{"code":"1000139","lot":"T690357","exp":"18/08/2029","unit":"500เม็ด","qty":"10","location":"B-2-3 ,B-2-5","item_type":"ยกยอด"},{"code":"1000139","lot":"T690375","exp":"18/08/2029","unit":"500เม็ด","qty":"40","location":"B-2-3 ,B-2-5","item_type":"ซื้อยา"},{"code":"1000116","lot":"G40100","exp":"07/07/2030","unit":"1000เม็ด","qty":"7","location":"A-3-2","item_type":"ยกยอด"},{"code":"1000116","lot":"G40409","exp":"25/07/2030","unit":"1000เม็ด","qty":"10","location":"A-3-2","item_type":"ยกยอด"},{"code":"1590035","lot":"260986","exp":"07/09/2029","unit":"100เม็ด","qty":"900","location":"E-1-3 ,ห้องประชุมเล็กชั้น4","item_type":"ยกยอด"},{"code":"1053001","lot":"A695055","exp":"24/05/2030","unit":"30เม็ด","qty":"180","location":"D-4-5","item_type":"ยกยอด"},{"code":"1053001","lot":"A693005","exp":"06/07/2030","unit":"30เม็ด","qty":"200","location":"D-4-5","item_type":"ซื้อยา"},{"code":"1000184","lot":"G40420","exp":"27/07/2030","unit":"500เม็ด","qty":"9","location":"E-1-4,ห้องประชุมเล็กชั้น4","item_type":"ยกยอด"},{"code":"1550017","lot":"L695031","exp":"21/07/2031","unit":"30เม็ด","qty":"110","location":"D-1-5","item_type":"ยกยอด"},{"code":"1550017","lot":"L695030","exp":"21/07/2031","unit":"30เม็ด","qty":"6","location":"D-1-5","item_type":"ยกยอด"},{"code":"1019001","lot":"26H135","exp":"15/08/2031","unit":"500เม็ด","qty":"56","location":"E-5-4 ,E-10","item_type":"ยกยอด"},{"code":"1019001","lot":"26K102","exp":"13/09/2031","unit":"500เม็ด","qty":"150","location":"E-5-4 ,E-10","item_type":"ยกยอด"},{"code":"1019001","lot":"26N044","exp":"05/10/2031","unit":"500เม็ด","qty":"100","location":"E-5-4 ,E-10","item_type":"ซื้อยา"},{"code":"1430302","lot":"B2609329","exp":"24/09/2031","unit":"หลอด","qty":"300","location":"E-7-3","item_type":"ยกยอด"},{"code":"1430302","lot":"B2610361","exp":"17/10/2031","unit":"หลอด","qty":"300","location":"E-7-3","item_type":"ซื้อยา"}]};
+const TODAY = new Date(2026, 10, 14);
+const ICON = {
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  back: '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  chev: '<path d="m9 18 6-6-6-6"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  alert: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>',
+  printer: '<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
+  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
+  down: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/>',
+  pkg: '<path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+  pin: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+};
+const ic = (k) => `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
+document.querySelectorAll('#proxyBtn, #backBtn').forEach(b => { b.innerHTML = b.innerHTML.replace('__I_plus__', ic('plus')).replace('__I_back__', ic('back')); });
+
+const pad = (x) => String(x).padStart(2, '0');
+const n = (v) => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
+const fmt = (v) => n(v).toLocaleString('th-TH');
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const addMonths = (d, k) => { const x = new Date(d); x.setMonth(x.getMonth() + k); return x; };
+const LIM6 = addMonths(TODAY, 6), LIM16 = addMonths(TODAY, 16);
+const parseExp = (s) => { const m = String(s || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null; };
+const thDate = (d) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear() + 543}`;
+const fmtExp = (s) => { const d = parseExp(s); return d ? thDate(d) : (s || '-'); };
+const monthsLeft = (d) => { let m = (d.getFullYear() - TODAY.getFullYear()) * 12 + d.getMonth() - TODAY.getMonth(); if (d.getDate() < TODAY.getDate()) m--; return m; };
+const countdown = (d) => { const m = monthsLeft(d); return m >= 1 ? `อีก ${m} เดือน` : `อีก ${Math.max(0, Math.round((d - TODAY) / 864e5))} วัน`; };
+
+// สูตรเดียวกับแอป: unitParser.parseUnit · lotAllocation.sortLotsForDispense / allocateFefo · mergeSameLotEntries · lotNotExpired
+const UNITS = 'เม็ด|แคปซูล|cap|tab|ml|mg|g|iu|unit|วาย|ซอง|ขวด|หลอด|แผ่น|อัน|ชิ้น|pack|pcs';
+const ALIAS = { bott: 'ขวด', gm: 'กรัม', neb: 'หลอด', capsules: 'แคปซูล', '50vial': 'vial', vial: 'vial' };
+function parseUnit(raw) {
+  if (!raw || raw === '-') return { packSize: null, baseUnit: raw || '-' };
+  const s = String(raw).trim();
+  let m = s.match(/(\d+)\s*แผง\s*[×x]\s*(\d+)\s*(เม็ด|แคปซูล|cap|tab)/i); if (m) return { packSize: +m[1] * +m[2], baseUnit: m[3] };
+  m = s.match(new RegExp(`\\((\\d[\\d,]*)\\s*(${UNITS})\\)`, 'i')); if (m) return { packSize: parseInt(m[1].replace(/,/g, ''), 10), baseUnit: m[2] };
+  m = s.match(new RegExp(`^([\\d,]+)\\s*(${UNITS})$`, 'i')); if (m) return { packSize: parseInt(m[1].replace(/,/g, ''), 10), baseUnit: m[2] };
+  return { packSize: null, baseUnit: ALIAS[s.toLowerCase()] || s };
+}
+const isSupported = (l) => ['สนับสนุน', 'สนับสนุน2'].includes(String(l.itemType || '').trim());
+function sortLots(lots) {
+  const tier = (l, d) => isSupported(l) ? 1 : (d && d <= LIM6 ? 0 : 2);
+  return lots.map(l => ({ l, d: parseExp(l.exp) })).sort((a, b) => {
+    const ta = tier(a.l, a.d), tb = tier(b.l, b.d); if (ta !== tb) return ta - tb;
+    if (!a.d && !b.d) return 0; if (!a.d) return 1; if (!b.d) return -1; return a.d - b.d;
+  }).map(x => x.l);
+}
+function allocate(reqBase, lots) {
+  const want = Math.max(0, Math.floor(n(reqBase))); let rem = want; const allocation = [];
+  for (const l of lots) {
+    if (rem <= 0) break;
+    const avail = Math.floor(l.base / l.packSize); if (avail <= 0) continue;
+    const use = Math.min(avail, Math.ceil(rem / l.packSize)); const base = use * l.packSize;
+    allocation.push({ ...l, packs: use, base }); rem -= base;
+  }
+  const got = allocation.reduce((s, a) => s + a.base, 0);
+  return { allocation, got, short: Math.max(0, want - got), over: Math.max(0, got - want), ok: got >= want };
+}
+const splitLoc = (s) => String(s || '').split(',').map(x => x.trim()).filter(x => x && x !== '-');
+
+const lotsBy = {};
+for (const r of D.lots) {
+  const ps = parseUnit(r.unit).packSize || 1, packs = n(r.qty);
+  (lotsBy[r.code] ||= []).push({ lot: r.lot, exp: r.exp, unit: r.unit, loc: splitLoc(r.location), itemType: r.item_type || '', packSize: ps, packs, base: packs * ps });
+}
+for (const c of Object.keys(lotsBy)) {
+  const map = new Map();
+  for (const l of lotsBy[c]) {
+    const k = `${String(l.lot).trim()}|${String(l.exp).trim()}`; const p = map.get(k);
+    if (p) { p.packs += l.packs; p.base += l.base; if (isSupported(l)) p.itemType = l.itemType; l.loc.forEach(x => { if (!p.loc.includes(x)) p.loc.push(x); }); }
+    else map.set(k, { ...l, loc: [...l.loc] });
+  }
+  lotsBy[c] = sortLots([...map.values()].filter(l => { const d = parseExp(l.exp); return !d || d >= TODAY; }));
+}
+
+const ITEMS = D.req.items.map((it, i) => {
+  const lots = lotsBy[it.drug_code] || [];
+  const a = allocate(it.requested_qty, lots);
+  const onhand = lots.reduce((s, l) => s + l.base, 0);
+  const locs = []; a.allocation.forEach(al => al.loc.forEach(x => { if (!locs.includes(x)) locs.push(x); }));
+  const perLotLoc = new Set(a.allocation.map(al => al.loc.join(', '))).size > 1;
+  const near = a.allocation.some(al => { const d = parseExp(al.exp); return d && d <= LIM16; });
+  return { i, code: it.drug_code, name: it.drug_name, type: it.drug_type, unit: it.drug_unit, req: n(it.requested_qty), a, onhand, locs, perLotLoc, near,
+    short: !a.ok, over: a.over > 0, hay: `${it.drug_name} ${it.drug_code}`.toLowerCase() };
+});
+const zoneOf = (loc) => { if (!loc) return 'ไม่มีของในคลัง'; const m = loc.match(/^([A-Z])-/i); return m ? `ชั้น ${m[1].toUpperCase()}` : loc; };
+const locKey = (it) => it.locs[0] ? `${/^[A-Z]-/i.test(it.locs[0]) ? '0' : '1'}${it.locs[0].replace(/\d+/g, d => d.padStart(3, '0'))}` : '9';
+
+// คิว — ใบจริง 1 ใบ + ตัวอย่างจากชีทเบิก (หน่วยงาน/วันที่/จำนวนรายการจริง · สถานะสมมุติ)
+const TYPE = { drug: 'ใบเบิกยา', saline: 'ใบเบิกน้ำเกลือ', supply: 'ใบเบิกถุง/ขวด/ตลับ' };
+const realCreated = new Date(D.req.created);
+const QUEUE = [
+  { real: true, dept: D.req.dept, no: D.req.number, type: D.req.type, at: realCreated, items: ITEMS.length, st: 'sheet' },
+  { dept: 'IPD', type: 'saline', at: new Date(2026, 10, 13), items: 7, st: 'sheet' },
+  { dept: 'ห้องยา1', type: 'supply', at: new Date(2026, 10, 12), items: 6, st: 'pick', rc: 'บย.70/0412' },
+  { dept: 'ห้องยา1', type: 'saline', at: new Date(2026, 10, 12), items: 1, st: 'pick', rc: 'บย.70/0413' },
+  { dept: 'แผนไทย', type: 'supply', at: new Date(2026, 10, 12), items: 3, st: 'pick', rc: 'บย.70/0411' },
+  { dept: 'ER', type: 'saline', at: new Date(2026, 10, 12), items: 5, st: 'check', rc: 'บย.70/0410' },
+  { dept: 'ห้องยา G', type: 'drug', at: new Date(2026, 10, 11), items: 62, st: 'done', rc: 'บย.70/0405' },
+  { dept: 'ทันตกรรม', type: 'drug', at: new Date(2026, 10, 11), items: 1, st: 'recv', rc: 'บย.70/0406' },
+  { dept: 'IPD', type: 'saline', at: new Date(2026, 10, 10), items: 3, st: 'recv', rc: 'บย.70/0401' },
+  { dept: 'ห้องยา G', type: 'supply', at: new Date(2026, 10, 10), items: 7, st: 'recv', rc: 'บย.70/0400' },
+  { dept: 'ห้องยา1', type: 'drug', at: new Date(2026, 10, 9), items: 26, st: 'recv', rc: 'บย.70/0396' },
+];
+const TABS = [
+  { key: 'sheet', label: 'รอลงชีท', cls: 'c-sheet', has: ['sheet'] },
+  { key: 'pick', label: 'รอจัด', cls: 'c-pick', has: ['pick', 'self'] },
+  { key: 'check', label: 'รอตรวจจ่าย', cls: 'c-check', has: ['check'] },
+  { key: 'hist', label: 'ประวัติ', cls: 'c-hist', has: ['done', 'recv', 'rej'] },
+];
+const ST = {
+  sheet: { pill: 'p-amber', label: 'รอลงชีทเบิก', sub: 'ลงชีทแล้วได้เลข บย. → พร้อมจัด', c: 'var(--amber)' },
+  self:  { pill: 'p-blue', label: 'จัดจ่ายเองก่อนลงชีท', sub: 'คนจัดเลือก lot เอง', c: 'var(--accent)' },
+  pick:  { pill: 'p-blue', label: 'รอจัดยา', sub: 'จัดตาม lot ในชีท', c: 'var(--accent)' },
+  check: { pill: 'p-violet', label: 'รอตรวจจ่าย', sub: 'จัดเสร็จแล้ว ให้อีกคนตรวจ', c: 'var(--violet)' },
+  done:  { pill: 'p-teal', label: 'จ่ายแล้ว รอผู้เบิกรับ', sub: '', c: 'var(--teal)' },
+  recv:  { pill: 'p-green', label: 'ผู้เบิกรับแล้ว', sub: '', c: 'var(--green)' },
+};
+const waitText = (d) => { const days = Math.floor((TODAY - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 864e5); return days <= 0 ? 'วันนี้' : `รอ ${days} วัน`; };
+
+const state = { tab: 'sheet', q: '', qType: '', stage: 'sheet', iFilter: 'all', iq: '', sort: 'doc', rejecting: false,
+  pick: ITEMS.map(it => it.short ? { st: 'part', qty: it.a.got, why: 'ของไม่พอ' } : { st: 'full', qty: '', why: 'ของไม่พอ' }) };
+try { const s = localStorage.getItem('reqmock_sort'); if (s === 'loc') state.sort = 'loc'; } catch {}
+const wide = window.matchMedia('(min-width: 768px)');
+
+function renderQueue() {
+  const tab = TABS.find(t => t.key === state.tab);
+  document.getElementById('qStrip').innerHTML = TABS.map(t => {
+    const rows = QUEUE.filter(r => t.has.includes(r.st));
+    const items = rows.reduce((s, r) => s + r.items, 0);
+    const oldest = rows.length ? rows.reduce((m, r) => r.at < m ? r.at : m, rows[0].at) : null;
+    const sub = t.key === 'hist' ? '7 วันล่าสุด' : rows.length ? `${fmt(items)} รายการ · เก่าสุด${waitText(oldest).replace('รอ', '')}` : 'ไม่มีค้าง';
+    return `<button type="button" class="chip ${t.cls}" data-t="${t.key}" aria-pressed="${state.tab === t.key}"><span class="k">${t.label}</span><span class="v num">${rows.length}</span><span class="s num">${sub}</span></button>`;
+  }).join('');
+  document.querySelectorAll('#qStrip .chip').forEach(b => b.addEventListener('click', () => { state.tab = b.dataset.t; renderQueue(); }));
+
+  let rows = QUEUE.filter(r => tab.has.includes(r.st));
+  if (state.qType) rows = rows.filter(r => r.type === state.qType);
+  if (state.q) rows = rows.filter(r => `${r.dept} ${r.no || ''}`.toLowerCase().includes(state.q));
+  document.getElementById('qCount').textContent = `${rows.length} ใบ · ${fmt(rows.reduce((s, r) => s + r.items, 0))} รายการ`;
+  const head = `<div class="qhead"><span></span><span>หน่วยงาน · ใบเบิก</span><span>ส่งเมื่อ</span><span>รายการ</span><span>ขั้นถัดไป</span><span></span></div>`;
+  const body = rows.map(r => {
+    const s = ST[r.st];
+    const flags = r.real ? [ITEMS.filter(x => x.short).length ? `<span class="pill p-red">ไม่พอ ${ITEMS.filter(x => x.short).length}</span>` : '',
+      `<span class="pill p-amber">ใกล้หมดอายุ ${ITEMS.filter(x => x.near).length}</span>`].join('') : '';
+    const when = r.real ? `${thDate(r.at)} ${pad(r.at.getHours())}:${pad(r.at.getMinutes())}` : thDate(r.at);
+    const inner = `<span class="stripe" style="--c:${s.c}"></span>
+      <span class="nm"><span class="t">${esc(r.dept)}</span><span class="m">${r.real ? `<span class="mono">${esc(r.no)}</span>` : '<span class="pill p-slate">ตัวอย่าง</span>'}<span>${TYPE[r.type]}</span>${r.rc ? `<span class="pill p-green">ลงชีทแล้ว ${r.rc}</span>` : ''}</span></span>
+      <span class="cell c1"><span class="lbl">ส่งเมื่อ</span><span class="a num">${when}</span><span class="b">${r.st === 'recv' || r.st === 'done' ? '' : waitText(r.at)}</span></span>
+      <span class="cell c2"><span class="lbl">รายการ</span><span class="a num">${fmt(r.items)} รายการ</span><span class="b">${flags}</span></span>
+      <span class="cell c3"><span class="lbl">ขั้นถัดไป</span><span class="a"><span class="pill ${s.pill}">${s.label}</span></span><span class="b">${s.sub}</span></span>
+      <span class="chev">${r.real ? ic('chev') : ''}</span>`;
+    return r.real ? `<button type="button" class="qrow" id="openReal">${inner}</button>` : `<div class="qrow" title="ใบตัวอย่าง — เปิดดูรายละเอียดได้ที่ใบจริง REQ-20261113-2101">${inner}</div>`;
+  }).join('');
+  document.getElementById('qList').innerHTML = head + (body || `<div class="empty">ไม่มีใบในขั้นนี้</div>`);
+  const o = document.getElementById('openReal'); if (o) o.addEventListener('click', () => { location.hash = 'slip'; });
+}
+
+const STAGE_NOTE = {
+  sheet: ['k-sheet', 'alert', 'ยังไม่ลงชีทเบิก — lot ในตารางเป็น<b>ประมาณการ</b>ตาม FEFO (ใกล้หมดอายุภายใน 6 เดือนก่อน → ยาสนับสนุน → exp ใกล้สุด) · lot จริงตามที่ลงชีท · <b>ลงชีท = อนุมัติ</b> ไม่ต้องกดอนุมัติในแอป'],
+  self: ['k-pick', 'pkg', 'จัดจ่ายเองก่อนลงชีท — ยังไม่มี lot จากชีท ระบบเสนอ lot ตาม FEFO · หยิบ lot อื่นหรือได้ไม่ครบ กด "ไม่ครบ/ไม่ตรง" แล้วระบุ · คลังลงชีทตามที่จ่ายจริงภายหลัง'],
+  pick: ['k-pick', 'pkg', 'ลงชีทแล้ว <b>บย.70/0414</b> (ตัวอย่าง) — จัดตาม lot ในชีท · ครบทุกรายการกด "จัดเสร็จ" ได้เลย · บันทึกเฉพาะรายการที่จัดไม่ครบหรือ lot ไม่ตรง'],
+  check: ['k-check', 'check', 'จัดเสร็จแล้ว — ให้อีกคนตรวจ · ดูแถวที่ไฮไลต์ก่อน (จัดไม่ครบ) แล้วกด "ตรวจแล้ว จ่ายออก" ครั้งเดียว'],
+  done: ['k-done', 'check', 'จ่ายออกแล้ว — รอผู้เบิกกดรับของ'],
+};
+const STEPS = (st) => {
+  const self = st === 'self';
+  const list = self
+    ? [['ส่งใบเบิก', '13/11 14:58'], ['จัดเสร็จ', 'เลือก lot เอง'], ['ตรวจแล้ว จ่ายออก', 'อีกคนตรวจ'], ['ผู้เบิกรับของ', ''], ['ลงชีทตามที่จ่าย', 'ภายหลัง']]
+    : [['ส่งใบเบิก', '13/11 14:58'], ['ลงชีทเบิก', st === 'sheet' ? 'รอเลข บย.' : 'บย.70/0414'], ['จัดเสร็จ', 'คนจัด'], ['ตรวจแล้ว จ่ายออก', 'อีกคนตรวจ'], ['ผู้เบิกรับของ', '']];
+  const now = self ? 1 : { sheet: 1, pick: 2, check: 3, done: 4 }[st];
+  return `<ol class="steps" style="--n:${list.length}">${list.map(([b, s], i) => `<li class="${i < now ? 'done' : i === now ? 'now' : ''}"><b>${b}</b><span>${s}</span></li>`).join('')}</ol>`;
+};
+
+function renderSlipHead() {
+  const st = state.stage;
+  const badge = st === 'sheet' ? '<span class="pill p-amber">รอลงชีทเบิก</span>'
+    : st === 'self' ? '<span class="pill p-blue">จัดจ่ายเองก่อนลงชีท</span><span class="pill p-amber">รอลงชีทตามที่จ่ายจริง</span>'
+    : `<span class="pill p-green">ลงชีทแล้ว บย.70/0414</span><span class="pill ${ST[st].pill}">${ST[st].label}</span>`;
+  document.getElementById('slipHead').innerHTML = `
+    <div class="sh-top"><div><h1>${esc(D.req.dept)}</h1><div class="sh-meta num"><span class="mono">${esc(D.req.number)}</span><span>${TYPE[D.req.type]}</span><span>ส่ง ${thDate(realCreated)} ${pad(realCreated.getHours())}:${pad(realCreated.getMinutes())}</span><span>${ITEMS.length} รายการ</span></div></div>
+    <div class="sh-badges">${badge}</div></div>
+    ${STEPS(st)}
+    <div class="sh-actions"><button class="btn ghost sm" type="button">${ic('printer')} พิมพ์ใบเบิก</button><button class="btn ghost sm" type="button">${ic('printer')} ใบ lot คุม</button><button class="btn ghost sm" type="button">${ic('file')} ใบปะหน้า</button><button class="btn ghost sm" type="button">${ic('down')} Excel</button></div>`;
+  const [k, i, t] = STAGE_NOTE[st];
+  const cn = document.getElementById('stageNote'); cn.className = `callout ${k}`; cn.innerHTML = `${ic(i)}<span>${t}</span>`;
+  document.querySelectorAll('#stageSeg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.s === st));
+}
+
+const isPart = (it) => state.pick[it.i].st === 'part';
+const picking = () => state.stage === 'pick' || state.stage === 'self' || state.stage === 'check' || state.stage === 'done';
+const FILTERS = () => [
+  ['all', 'ทั้งหมด', ITEMS.length, ''],
+  ['near', 'ใกล้หมดอายุ', ITEMS.filter(x => x.near).length, 'f-near'],
+  ['short', 'ของไม่พอ', ITEMS.filter(x => x.short).length, 'f-short'],
+  ['over', 'จ่ายเกิน (ปัดเต็มกล่อง)', ITEMS.filter(x => x.over).length, 'f-over'],
+  ...(picking() ? [['part', 'จัดไม่ครบ/ไม่ตรง', ITEMS.filter(isPart).length, 'f-part']] : []),
+];
+
+function lotLines(it) {
+  const u = esc(it.unit);
+  if (!it.a.allocation.length) return `<div class="lnote bad">${ic('alert')} ไม่มีของในคลัง</div>`;
+  const lines = it.a.allocation.map(al => {
+    const d = parseExp(al.exp), near = d && d <= LIM16;
+    return `<div class="lotl"><div class="ll-a"><span class="mono">${esc(al.lot)}</span><span class="exp num">Exp ${fmtExp(al.exp)}</span>${near ? `<span class="pill p-amber">${ic('clock')} ${countdown(d)}</span>` : ''}${isSupported(al) ? '<span class="pill p-green">สนับสนุน</span>' : ''}${it.perLotLoc ? al.loc.map(x => `<span class="locp">${esc(x)}</span>`).join('') : ''}</div>
+      <div class="ll-q num">${al.packSize > 1 ? `<small>${fmt(al.packs)} × ${esc(al.unit)}</small>` : ''}<b>${fmt(al.base)}</b> ${u}</div></div>`;
+  }).join('');
+  const over = it.over ? `<div class="lnote warn">${ic('pkg')} ปัดเต็มกล่อง เกินที่ขอ ${fmt(it.a.over)} ${u}</div>` : '';
+  const short = it.short ? `<div class="lnote bad">${ic('alert')} ของไม่พอ ขาด ${fmt(it.a.short)} ${u}</div>` : '';
+  return lines + over + short;
+}
+
+function resultHtml(it) {
+  const u = esc(it.unit), p = state.pick[it.i], st = state.stage;
+  if (st === 'sheet') {
+    if (!it.a.allocation.length) return '<span class="pill p-red">ไม่มีของ</span>';
+    if (it.short) return `<span class="pill p-red">จ่ายได้ไม่ครบ</span><span class="sub num">ได้ ${fmt(it.a.got)} จาก ${fmt(it.req)} ${u}</span>`;
+    return `<span class="okt">${ic('check')} พอจ่าย</span><span class="sub">ประมาณการ</span>`;
+  }
+  if (st === 'pick' || st === 'self') {
+    const seg = `<div class="rseg" role="group" aria-label="ผลการจัด ${esc(it.name)}"><button type="button" class="full" data-i="${it.i}" data-v="full" aria-pressed="${p.st === 'full'}">${ic('check')} ครบ</button><button type="button" class="part" data-i="${it.i}" data-v="part" aria-pressed="${p.st === 'part'}">ไม่ครบ/ไม่ตรง</button></div>`;
+    if (p.st !== 'part') return seg;
+    return seg + `<div class="partf"><label for="pq-${it.i}">จัดได้ <input id="pq-${it.i}" class="num" type="number" min="0" inputmode="numeric" data-i="${it.i}" value="${esc(p.qty)}"> ${u}</label>
+      <label for="pw-${it.i}">เหตุ <select id="pw-${it.i}" data-i="${it.i}">${['ของไม่พอ', 'lot ไม่ตรงชีท', 'ของชำรุด/แตก', 'อื่นๆ'].map(o => `<option${o === p.why ? ' selected' : ''}>${o}</option>`).join('')}</select></label></div>`;
+  }
+  if (st === 'check') {
+    if (p.st !== 'part') return `<span class="okt">${ic('check')} จัดครบ</span>`;
+    return `<span class="pill p-red">จัดไม่ครบ/ไม่ตรง</span><span class="sub num">ได้ ${fmt(p.qty || 0)} จาก ${fmt(it.req)} ${u} · ${esc(p.why)}</span>`;
+  }
+  return `<span class="okt num">${ic('check')} จ่าย ${fmt(p.st === 'part' ? p.qty || 0 : it.a.got)} ${u}</span>`;
+}
+const rowCls = (it) => (picking() && state.stage !== 'done' && isPart(it)) || (state.stage === 'sheet' && it.short) ? 'bad' : '';
+
+function renderItems() {
+  const chips = FILTERS();
+  if (!chips.some(c => c[0] === state.iFilter)) state.iFilter = 'all';
+  document.getElementById('iChips').innerHTML = chips.map(([k, l, c, cls]) => `<button type="button" class="fchip ${cls}" data-f="${k}" aria-pressed="${state.iFilter === k}">${l} <b class="num">${c}</b></button>`).join('');
+  document.querySelectorAll('#iChips .fchip').forEach(b => b.addEventListener('click', () => { state.iFilter = b.dataset.f; renderItems(); }));
+  document.getElementById('sortDoc').setAttribute('aria-pressed', state.sort === 'doc');
+  document.getElementById('sortLoc').setAttribute('aria-pressed', state.sort === 'loc');
+
+  let rows = ITEMS.filter(it => state.iFilter === 'all' || (state.iFilter === 'part' ? isPart(it) : it[state.iFilter]));
+  if (state.iq) rows = rows.filter(it => it.hay.includes(state.iq));
+  if (state.sort === 'loc') rows = [...rows].sort((a, b) => locKey(a).localeCompare(locKey(b)) || a.i - b.i);
+  document.getElementById('iCount').textContent = `แสดง ${rows.length} จาก ${ITEMS.length} รายการ`;
+  const groups = []; let last;
+  for (const it of rows) { const z = state.sort === 'loc' ? zoneOf(it.locs[0]) : null; if (!groups.length || z !== last) { groups.push({ z, rows: [] }); last = z; } groups[groups.length - 1].rows.push(it); }
+  const lotHead = state.stage === 'sheet' || state.stage === 'self' ? 'จ่ายจาก lot <small>(ประมาณการ FEFO)</small>' : 'จ่ายจาก lot <small>(ตามชีท บย.)</small>';
+  const el = document.getElementById('items');
+  if (!rows.length) { el.innerHTML = '<div class="tbl"><div class="empty">ไม่พบรายการ</div></div>'; return; }
+
+  if (wide.matches) {
+    const body = groups.map(g => (g.z ? `<tr class="grp"><td colspan="6">${esc(g.z)} · ${g.rows.length} รายการ</td></tr>` : '') + g.rows.map(it => `
+      <tr class="${rowCls(it)}">
+        <td class="idx num">${it.i + 1}</td>
+        <td><div class="dn">${esc(it.name)}</div><div class="dm"><span class="mono">${esc(it.code)}</span><span class="pill p-slate">${esc(it.type)}</span></div></td>
+        <td class="r num"><div class="rq">${fmt(it.req)}<small>${esc(it.unit)} · มี ${fmt(it.onhand)}</small></div></td>
+        <td><div class="locs">${it.locs.map(x => `<span class="locp">${esc(x)}</span>`).join('') || '<span class="sub">-</span>'}</div></td>
+        <td>${lotLines(it)}</td>
+        <td>${resultHtml(it)}</td>
+      </tr>`).join('')).join('');
+    el.innerHTML = `<div class="tbl"><table class="it"><colgroup><col class="c-idx"><col class="c-drug"><col class="c-req"><col class="c-loc"><col><col class="c-res"></colgroup>
+      <thead><tr><th class="r">#</th><th>รายการยา</th><th class="r">ขอเบิก</th><th>ที่เก็บ</th><th>${lotHead}</th><th>${state.stage === 'sheet' ? 'ประเมิน' : 'ผลการจัด'}</th></tr></thead><tbody>${body}</tbody></table></div>`;
+  } else {
+    el.innerHTML = `<div class="cards">${groups.map(g => (g.z ? `<div class="grpc">${esc(g.z)} · ${g.rows.length} รายการ</div>` : '') + g.rows.map(it => `
+      <article class="icard ${rowCls(it)}">
+        <div class="ic-top"><span class="ic-idx num">${it.i + 1}</span><div><div class="dn">${esc(it.name)}</div><div class="dm"><span class="mono">${esc(it.code)}</span><span class="pill p-slate">${esc(it.type)}</span></div></div></div>
+        <div class="ic-req num"><span>ขอ <b>${fmt(it.req)}</b> ${esc(it.unit)}</span><span>คงเหลือ ${fmt(it.onhand)}</span></div>
+        <div class="ic-lots"><div class="hd"><span>${state.stage === 'sheet' || state.stage === 'self' ? 'จ่ายจาก lot (ประมาณการ FEFO)' : 'จ่ายจาก lot (ตามชีท)'}</span><span>${it.perLotLoc ? '' : it.locs.map(x => `<span class="locp">${esc(x)}</span>`).join(' ')}</span></div>${lotLines(it)}</div>
+        <div>${resultHtml(it)}</div>
+      </article>`).join('')).join('')}</div>`;
+  }
+  el.querySelectorAll('.rseg button').forEach(b => b.addEventListener('click', () => {
+    const p = state.pick[+b.dataset.i]; p.st = b.dataset.v;
+    if (p.st === 'part' && p.qty === '') p.qty = ITEMS[+b.dataset.i].a.got;
+    renderItems(); renderBar();
+  }));
+  el.querySelectorAll('.partf input').forEach(x => x.addEventListener('input', () => { state.pick[+x.dataset.i].qty = x.value; }));
+  el.querySelectorAll('.partf select').forEach(x => x.addEventListener('change', () => { state.pick[+x.dataset.i].why = x.value; }));
+}
+
+function toast(t) { const el = document.getElementById('toast'); el.textContent = t; el.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { el.hidden = true; }, 2600); }
+function setStage(s) { state.stage = s; state.rejecting = false; renderSlip(); }
+
+function renderBar() {
+  const bar = document.getElementById('bar'), inn = document.getElementById('barIn');
+  bar.hidden = location.hash !== '#slip';
+  if (bar.hidden) return;
+  const part = ITEMS.filter(isPart).length, st = state.stage;
+  let msg = '', btns = '';
+  if (st === 'sheet' && state.rejecting) {
+    inn.innerHTML = `<div class="rejf"><label for="rejWhy" class="bar-msg"><b>ไม่อนุมัติทั้งใบ</b>แจ้งเหตุให้ผู้เบิก</label><input id="rejWhy" type="text" placeholder="เช่น ส่งซ้ำกับใบเมื่อวาน"></div>
+      <div class="bar-btns"><button class="btn" type="button" id="bCancel">ยกเลิก</button><button class="btn danger" type="button" id="bRejOk">${ic('x')} ยืนยันไม่อนุมัติ</button></div>`;
+    document.getElementById('bCancel').onclick = () => { state.rejecting = false; renderBar(); };
+    document.getElementById('bRejOk').onclick = () => { state.rejecting = false; renderBar(); toast('mockup: ไม่ได้บันทึกจริง — ใบจะไปอยู่ในประวัติ สถานะไม่อนุมัติ'); };
+    return;
+  }
+  if (st === 'sheet') {
+    msg = `<b>รอลงชีทเบิก</b><span>ลงชีทแล้วใบจะขึ้น "ลงชีทแล้ว บย." และย้ายไปรอจัดเอง</span>`;
+    btns = `<button class="btn danger" type="button" id="bRej">${ic('x')} ไม่อนุมัติทั้งใบ</button><button class="btn" type="button" id="bSelf">${ic('pkg')} จัดจ่ายเอง (ก่อนลงชีท)</button>`;
+  } else if (st === 'pick' || st === 'self') {
+    msg = `<b class="num">ครบ ${ITEMS.length - part} · ไม่ครบ/ไม่ตรง ${part}</b><span>จาก ${ITEMS.length} รายการ</span>`;
+    btns = `<button class="btn primary" type="button" id="bNext">${ic('check')} จัดเสร็จ</button>`;
+  } else if (st === 'check') {
+    msg = part ? `<b class="num">จัดไม่ครบ/ไม่ตรง ${part} รายการ</b><span>ตรวจแถวที่ไฮไลต์ก่อนจ่ายออก</span>` : `<b>จัดครบทุกรายการ</b><span>${ITEMS.length} รายการ</span>`;
+    btns = `<button class="btn primary" type="button" id="bNext">${ic('check')} ตรวจแล้ว จ่ายออก</button>`;
+  } else {
+    msg = `<b>จ่ายออกแล้ว</b><span>รอผู้เบิกกดรับของ</span>`;
+    btns = `<button class="btn" type="button">${ic('printer')} พิมพ์ใบเบิก</button>`;
+  }
+  inn.innerHTML = `<div class="bar-msg">${msg}</div><div class="bar-btns">${btns}</div>`;
+  const r = document.getElementById('bRej'); if (r) r.onclick = () => { state.rejecting = true; renderBar(); document.getElementById('rejWhy').focus(); };
+  const s = document.getElementById('bSelf'); if (s) s.onclick = () => { setStage('self'); toast('mockup: เปลี่ยนเป็นจัดจ่ายเองก่อนลงชีท'); };
+  const nx = document.getElementById('bNext'); if (nx) nx.onclick = () => { setStage(st === 'check' ? 'done' : 'check'); toast('mockup: ไม่ได้บันทึกจริง'); window.scrollTo({ top: 0 }); };
+}
+
+function renderSlip() { renderSlipHead(); renderItems(); renderBar(); }
+function route() {
+  const slip = location.hash === '#slip';
+  document.getElementById('vQueue').hidden = slip;
+  document.getElementById('vSlip').hidden = !slip;
+  if (slip) renderSlip(); else { renderQueue(); renderBar(); }
+}
+
+document.getElementById('qSearch').addEventListener('input', e => { state.q = e.target.value.trim().toLowerCase(); renderQueue(); });
+document.getElementById('qType').addEventListener('change', e => { state.qType = e.target.value; renderQueue(); });
+document.getElementById('backBtn').addEventListener('click', () => { location.hash = 'queue'; });
+document.querySelectorAll('#stageSeg button').forEach(b => b.addEventListener('click', () => setStage(b.dataset.s)));
+document.getElementById('iSearch').addEventListener('input', e => { state.iq = e.target.value.trim().toLowerCase(); renderItems(); });
+const setSort = (s) => { state.sort = s; try { localStorage.setItem('reqmock_sort', s); } catch {} renderItems(); };
+document.getElementById('sortDoc').addEventListener('click', () => setSort('doc'));
+document.getElementById('sortLoc').addEventListener('click', () => setSort('loc'));
+wide.addEventListener('change', () => { if (location.hash === '#slip') renderItems(); });
+window.addEventListener('hashchange', () => { route(); window.scrollTo({ top: 0 }); });
+route();
+</script>
