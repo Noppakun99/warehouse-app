@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { ScrollText, Package, AlertTriangle, Info, X, FileDown, Printer, RotateCcw, ChevronDown, CalendarDays } from 'lucide-react'
+import { ScrollText, AlertTriangle, Info, X, FileDown, Printer, RotateCcw, ChevronDown, ChevronLeft, CalendarDays } from 'lucide-react'
 import { fetchInventoryNameCodeMap, fetchStockCard, fetchAllStockCardIssues, fetchVendorExchanges } from './lib/db'
 import { buildStockCard, filterStockCard, orderLots, defaultLot, sortRowsByDate, kindBadgeOf, rowTitle, displayRef, rowIssues } from './lib/stockCard'
 import { buildVendorExchanges } from './lib/vendorExchange'
 import { exportToExcel } from './lib/exportExcel'
 import DrugSearchBar from './DrugSearchBar'
 import BackButton from './BackButton'
+import FilterSheet, { FilterButton } from './FilterSheet'
 
-// selLot ยังไม่ได้เลือก → คอมเลือกให้ (defaultLot) · มือถือดูทุก lot (docs/features/stock-card.md ข้อ 2/7)
+// selLot ยังไม่ได้เลือก → คอมเลือกให้ (defaultLot) · มือถือ = ชั้นรายการ lot (docs/features/stock-card.md ข้อ 2/7)
 const AUTO = Symbol('auto')
 
 // บรรทัดอธิบายใต้แถว (rowIssues) — ข้อมูลก่อนเริ่มใช้ระบบเป็นสีเทา ไม่ใช่เตือน
@@ -49,21 +50,22 @@ function IsoDateInput({ value, onChange, className = '' }) {
   )
 }
 
-// คอลัมน์ Excel — ตรงกับตารางที่ผู้ใช้เห็น (Rule #6: stat/export ต้องตรงกับตาราง)
+// คอลัมน์ Excel — แถวตรงกับที่ผู้ใช้เห็น (Rule #6) · คอลัมน์ครบเดิม ชื่อหัวตามคำ CONTEXT §การ์ดคลัง lot (ข้อตกลงข้อ 6)
 const STOCKCARD_EXCEL_COLS = [
   { header: 'วันที่',            value: (r) => fmtThai(r.date) },
   { header: 'Lot',              key: 'lot' },
   { header: 'ชนิดรายการ',        key: 'kind' },
   { header: 'รับเข้า',           value: (r) => (r.qtyIn > 0 ? r.qtyIn : '') },
   { header: 'เบิกออก',           value: (r) => (r.qtyOut > 0 ? r.qtyOut : '') },
-  { header: 'คงเหลือ Lot',       value: (r) => r.balance },
-  { header: 'ยอดที่บันทึกไว้',    value: (r) => (r.qtyBefore == null ? '' : r.qtyBefore) },
-  { header: 'ยอดหลังเบิก (บันทึก)', value: (r) => (r.qtyAfter == null ? '' : r.qtyAfter) },
+  { header: 'คงเหลือ',           value: (r) => r.balance },
+  { header: 'คงเหลือก่อนเบิกตามชีทเบิก', value: (r) => (r.qtyBefore == null ? '' : r.qtyBefore) },
+  { header: 'คงเหลือหลังเบิกตามชีทเบิก', value: (r) => (r.qtyAfter == null ? '' : r.qtyAfter) },
   { header: 'ผลต่างสะสม',        value: (r) => (r.drift == null ? '' : r.drift) },
-  { header: 'ของหายจุดนี้',      value: (r) => (r.isDriftPoint ? r.driftDelta : '') },
+  { header: 'ยอดไม่ตรงจุดนี้',    value: (r) => (r.isDriftPoint ? r.driftDelta : '') },
   { header: 'แถวกรอกผิด',        value: (r) => (r.hasRowErr ? `ผิด ${r.rowErr}` : '') },
+  { header: 'คำอธิบาย',          value: (r) => rowIssues(r).map(it => it.text).join(' / ') },
   { header: 'หน่วยงาน/บริษัท',    key: 'party' },
-  { header: 'หมายเหตุ/บิล',      key: 'ref' },
+  { header: 'หมายเหตุ/บิล',      value: (r) => displayRef(r.ref) },
   { header: 'มูลค่า',            value: (r) => (r.value ? r.value : '') },
   { header: 'Exp',              value: (r) => fmtThai(r.exp) },
 ]
@@ -79,50 +81,85 @@ function openPrintUrl(url) {
 }
 
 // ใบพิมพ์การ์ดคลัง — Blob URL (ห้าม document.write: พังบน iOS Safari, Rule #4)
-function printStockCard(meta, rows, summary, filterLabel) {
+// ออกตามที่เห็นบนจอ (ข้อตกลงข้อ 6): sections = [{ info: lot, rows }] — lot เดียว 1 ช่วง · ทุก lot แบ่งช่วงทีละ lot
+// 6 คอลัมน์เดียวกับจอ + หัวของ lot + บรรทัดอธิบายใต้แถวที่ยอดมีปัญหา (rowIssues ตัวเดียวกับจอ)
+function printStockCard(meta, sections, filterLabel) {
   const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
-  const body = rows.map(r => `<tr${r.qtyIn > 0 ? ' class="in"' : ''}>
-    <td>${esc(fmtThai(r.date))}</td><td>${esc(r.lot)}</td><td>${esc(r.kind)}</td>
+  const rowHtml = (r) => {
+    const kb = kindBadgeOf(r.kind)
+    const note = displayRef(r.ref)
+    const issues = rowIssues(r)
+    return `<tr class="${r.side === 'in' ? 'in' : ''}${issues.length ? ' has-iss' : ''}">
+    <td class="d">${esc(fmtThai(r.date))}</td>
+    <td>${esc(rowTitle(r))}${kb ? ` <span class="kb">${esc(kb)}</span>` : ''}</td>
     <td class="n">${r.qtyIn > 0 ? fmtNum(r.qtyIn) : '-'}</td>
-    <td class="n">${r.qtyOut > 0 ? fmtNum(r.qtyOut) : '-'}</td>
-    <td class="n b${r.balance < 0 ? ' neg' : ''}">${fmtNum(r.balance)}${r.isDriftPoint ? ' *' : ''}</td>
-    <td class="n${r.hasDrift ? ' warn' : ''}">${r.qtyBefore == null ? '-' : fmtNum(r.qtyBefore)}</td>
-    <td>${esc(r.party)}</td><td class="sm">${esc(r.ref)}</td>
-    <td class="n">${r.value ? fmtNum(r.value) : '-'}</td><td class="sm">${esc(fmtThai(r.exp))}</td>
-  </tr>`).join('')
+    <td class="n">${r.qtyOut > 0 ? `${fmtNum(r.qtyOut)}${r.noDeduct ? ' <span class="kb">ไม่หัก</span>' : ''}` : '-'}</td>
+    <td class="n b${r.balance < 0 ? ' neg' : ''}">${fmtNum(r.balance)}</td>
+    <td class="sm">${note ? esc(r.side === 'in' ? `บิล ${note}` : note) : '-'}</td>
+  </tr>${issues.map(it => `<tr class="iss ${it.type}"><td></td><td colspan="5">${esc(it.text)}</td></tr>`).join('')}`
+  }
+  const statsHtml = (l) => [
+    !l.hasReceipt && `ยอดตั้งต้นของ lot <b>${fmtNum(l.opening)}</b>`,
+    `รับเข้ารวม <b>${fmtNum(l.totalIn)}</b>`,
+    `เบิกออกรวม <b>${fmtNum(l.totalOut)}</b>`,
+    `คงเหลือ <b class="${l.closing < 0 ? 'neg' : ''}">${fmtNum(l.closing)}</b>`,
+  ].filter(Boolean).join(' · ')
+  const issueSum = (l) => [
+    l.driftReal > 0 && `ยอดไม่ตรง ${l.driftReal} จุด`,
+    l.rowErrCount > 0 && `แถวกรอกผิด ${l.rowErrCount} แถว`,
+    l.negative && 'คงเหลือติดลบ',
+    l.driftMigration > 0 && `ข้อมูลก่อนเริ่มใช้ระบบ ${l.driftMigration} จุด`,
+  ].filter(Boolean).join(' · ')
+  // ความกว้างคอลัมน์ตายตัว — ทุกช่วง lot ตรงกันทั้งหน้า (auto layout กว้างตามเนื้อหาของแต่ละตาราง)
+  const head = '<colgroup><col style="width:82px"><col><col style="width:62px"><col style="width:96px"><col style="width:64px"><col style="width:30%"></colgroup><thead><tr><th>วันที่</th><th>รายการ</th><th class="n">รับเข้า</th><th class="n">เบิกออก</th><th class="n">คงเหลือ</th><th>หมายเหตุ</th></tr></thead>'
+  const body = sections.map(({ info: l, rows }) => `<section>
+<div class="lot"><span class="chip">Lot ${esc(l.lot)}</span> Exp <b>${esc(l.exp ? fmtThai(l.exp) : '-')}</b> · ${statsHtml(l)}</div>
+${issueSum(l) ? `<div class="lot-iss">${esc(issueSum(l))}</div>` : ''}
+<table>${head}<tbody>${rows.length ? rows.map(rowHtml).join('') : '<tr><td colspan="6" class="empty">ไม่มีรายการในช่วงวันที่นี้</td></tr>'}</tbody></table>
+</section>`).join('')
 
   const html = `<!doctype html><html lang="th"><head><meta charset="utf-8">
-<title>การ์ดคลัง ${esc(meta.name)}</title>
+<title>การ์ดคลัง ${esc(meta.name)}${filterLabel ? ` ${esc(filterLabel)}` : ''}</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
   *{box-sizing:border-box}
   body{font-family:'Sarabun',sans-serif;margin:16px;color:#1e293b;font-size:12px}
   h1{font-size:17px;margin:0 0 2px}
   .meta{color:#475569;font-size:12px;margin-bottom:2px}
-  .sum{margin:8px 0;font-size:12px;color:#334155}
-  .sum b{color:#0f172a}
-  table{width:100%;border-collapse:collapse;margin-top:8px}
+  section{margin-top:12px}
+  section+section{border-top:2px solid #94a3b8;padding-top:10px}
+  .lot{font-size:12.5px;color:#334155}
+  .lot b{color:#0f172a}
+  .chip{font-family:monospace;font-weight:700;font-size:13px;background:#e2e8f0;padding:1px 6px;border-radius:4px;color:#0f172a}
+  .lot-iss{font-size:11.5px;color:#b45309;font-weight:600;margin-top:2px}
+  table{width:100%;border-collapse:collapse;margin-top:6px;table-layout:fixed}
+  td{overflow-wrap:anywhere}
+  thead{display:table-header-group}
+  tr{page-break-inside:avoid}
   th{background:#e2e8f0;border:1px solid #cbd5e1;padding:5px 6px;text-align:left;font-weight:700;font-size:11px;white-space:nowrap}
-  td{border:1px solid #e2e8f0;padding:4px 6px;vertical-align:middle}
+  th.n{text-align:right}
+  td{border:1px solid #e2e8f0;padding:4px 6px;vertical-align:top}
+  td.d{white-space:nowrap}
   td.n{text-align:right;white-space:nowrap}
   td.b{font-weight:700}
-  td.sm{font-size:10px;color:#475569}
+  td.sm{font-size:10.5px;color:#475569}
+  td.empty{text-align:center;color:#94a3b8;padding:10px}
+  .kb{font-size:10px;border:1px solid #cbd5e1;border-radius:8px;padding:0 5px;color:#475569;white-space:nowrap}
   tr.in td{background:#f0fdf4}
-  td.neg{color:#dc2626}
-  td.warn{color:#b45309;font-weight:600}
+  tr.has-iss td{border-bottom-color:transparent}
+  tr.iss td{border-top:none;font-size:10.5px;padding-top:0}
+  tr.iss.drift td+td{color:#b45309}
+  tr.iss.rowErr td+td{color:#be123c}
+  tr.iss.migration td+td{color:#64748b}
+  .neg{color:#dc2626}
   .note{margin-top:10px;font-size:10px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:6px}
-  @media print{@page{size:A4 landscape;margin:9mm} body{margin:0}}
+  @media print{@page{size:A4 portrait;margin:10mm} body{margin:0}}
 </style></head><body>
 <h1>การ์ดคลัง lot — ${esc(meta.name)}</h1>
-<div class="meta">รหัส ${esc(meta.code)} · หน่วย ${esc(meta.unit || '-')} · ราคา/หน่วย ${fmtNum(meta.pricePerUnit)} · จำนวน Lot ${summary.lotCount}</div>
-<div class="meta">พิมพ์เมื่อ ${fmtThai(new Date().toISOString().slice(0, 10))}${filterLabel ? ` · ${esc(filterLabel)}` : ''}</div>
-<div class="sum">รับเข้ารวม <b>${fmtNum(summary.totalIn)}</b> · เบิกออกรวม <b>${fmtNum(summary.totalOut)}</b>${
-  summary.driftRows > 0 ? ` · จุดยอดไม่ตรง <b>${summary.driftRows}</b>` : ''}${
-  summary.rowErrRows > 0 ? ` · แถวกรอกผิด <b>${summary.rowErrRows}</b>` : ''}</div>
-<table><thead><tr>
-${['วันที่', 'Lot', 'ชนิดรายการ', 'รับเข้า', 'เบิกออก', 'คงเหลือ Lot', 'ยอดที่บันทึกไว้', 'หน่วยงาน/บริษัท', 'หมายเหตุ/บิล', 'มูลค่า', 'Exp'].map(h => `<th>${h}</th>`).join('')}
-</tr></thead><tbody>${body}</tbody></table>
-<div class="note">* = จุดที่ยอดคำนวณไม่ตรงกับยอดที่บันทึกไว้ (มีการเคลื่อนไหวที่ไม่ถูกบันทึก) — ไม่ใช่การคำนวณผิด</div>
+<div class="meta">รหัส ${esc(meta.code)} · หน่วย ${esc(meta.unit || '-')} · ราคา/หน่วย ${fmtNum(meta.pricePerUnit)}</div>
+<div class="meta">${filterLabel ? `<b>${esc(filterLabel)}</b> · ` : ''}พิมพ์เมื่อ ${fmtThai(new Date().toISOString().slice(0, 10))}</div>
+${body}
+<div class="note">ยอดไม่ตรง = คงเหลือที่ไล่จากประวัติรับ-เบิก ไม่ตรงกับคงเหลือก่อนเบิกตามชีทเบิก (มีการเคลื่อนไหวที่ไม่ได้ลงบันทึกก่อนแถวนั้น) — ไม่ใช่การคำนวณผิด · ข้อมูลก่อนเริ่มใช้ระบบ = ประวัติก่อน ต.ค.68 ไม่ได้นำเข้า ไม่ใช่ของหาย</div>
 </body></html>`
 
   const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
@@ -139,15 +176,16 @@ function KindBadge({ kind, side, noDeduct }) {
 }
 
 // รายการ lot ฝั่งซ้าย — ลำดับ: มีป้ายเตือน → ยังมีของ (หมดอายุเร็วก่อน) → หมดแล้ว (จาง) · ท้ายสุด "ดูทุก lot"
-function LotList({ lots, selected, onSelect }) {
+// fill = มือถือ: เต็มความสูง ให้หน้าเลื่อนเอง (กล่องเลื่อนซ้อนในหน้าเลื่อนใช้ยากบนจอสัมผัส)
+function LotList({ lots, selected, onSelect, fill = false }) {
   const ordered = orderLots(lots)
   return (
     <nav aria-label="รายการ lot" className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden md:sticky md:top-20">
       <div className="flex items-center justify-between px-4 py-2.5 text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
-        <span>Lot ({lots.length})</span>
+        <span>Lot ({lots.length}){fill && <span className="normal-case tracking-normal font-normal"> · แตะเพื่อดูความเคลื่อนไหว</span>}</span>
         <span>คงเหลือ</span>
       </div>
-      <div className="max-h-[70vh] overflow-y-auto p-2 space-y-1">
+      <div className={`p-2 space-y-1 ${fill ? '' : 'max-h-[70vh] overflow-y-auto'}`}>
         {ordered.map(l => {
           const sel = selected === l.lot
           const faded = !sel && !l.warn && l.closing === 0
@@ -245,6 +283,58 @@ function RowDetail({ r, price }) {
   )
 }
 
+// มือถือ: แตะแถว → bottom sheet ส่วนที่ซ่อน (มูลค่า · ยอดตามชีทเบิก · บรรทัดอธิบาย) — ข้อตกลงข้อ 7
+function RowSheet({ r, price, showLot, onClose, onDrift }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+  const issues = rowIssues(r)
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label="รายละเอียดแถว" onClick={e => e.stopPropagation()}
+        className="relative w-full max-h-[85vh] overflow-y-auto bg-white dark:bg-slate-900 rounded-t-2xl shadow-2xl p-4 pb-6 space-y-3">
+        <span className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-700 absolute left-1/2 -translate-x-1/2 top-2" />
+        <div className="flex items-start gap-2 pt-1">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+              {fmtThai(r.date)}{showLot && <span className="ml-1.5 font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded">{r.lot}</span>}
+            </p>
+            <p className="font-bold text-slate-800 dark:text-slate-100 break-words">{rowTitle(r)}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="ปิด" className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"><X size={18} /></button>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          {[
+            ['รับเข้า', r.qtyIn > 0 ? fmtNum(r.qtyIn) : '-', 'text-emerald-700 dark:text-emerald-300'],
+            ['เบิกออก', r.qtyOut > 0 ? `${fmtNum(r.qtyOut)}${r.noDeduct ? ' (ไม่หัก)' : ''}` : '-', 'text-slate-700 dark:text-slate-200'],
+            ['คงเหลือ', fmtNum(r.balance), r.balance < 0 ? 'text-rose-600' : 'text-teal-700 dark:text-teal-300'],
+          ].map(([k, v, c]) => (
+            <div key={k} className="bg-slate-50 dark:bg-slate-800 rounded-xl py-2">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">{k}</p>
+              <p className={`font-bold tabular-nums ${c}`}>{v}</p>
+            </div>
+          ))}
+        </div>
+        {issues.map((it, j) => (
+          <div key={j} className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${ISSUE_STYLE[it.type]}`}>
+            {it.type === 'migration' ? <Info size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
+            <span className="flex-1 min-w-0">{it.text}</span>
+          </div>
+        ))}
+        <RowDetail r={r} price={price} />
+        {issues.length > 0 && (
+          <button type="button" onClick={() => onDrift(r)}
+            className="w-full py-2.5 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-sm font-semibold">
+            ดูรายละเอียดยอดของแถวนี้
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}, initialDrug = null, onInitialDrugUsed }) {
   const [drugOptions, setDrugOptions] = useState([])
   const [nameToCode, setNameToCode] = useState({})
@@ -255,6 +345,8 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
   const [selLot, setSelLot] = useState(AUTO)       // lot ที่เลือก · null = ดูทุก lot เรียงตามวัน
   const [openRow, setOpenRow] = useState(null)     // แถวที่กางดูรายละเอียด (มูลค่า · ยอดตามชีทเบิก)
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768)
+  const [sheetRow, setSheetRow] = useState(null)   // มือถือ: แถวที่เปิด bottom sheet
+  const [filterOpen, setFilterOpen] = useState(false)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [driftRow, setDriftRow] = useState(null)   // แถวที่กดดูรายละเอียด "ยอดไม่ตรง"/"แถวกรอกผิด"
@@ -290,7 +382,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
   // ล้าง rowRefs ด้วย ไม่งั้น ref ของยาตัวก่อนค้าง → กระโดดไปหา element ที่หลุด DOM แล้ว
   const resetView = () => {
     setSelLot(AUTO); setOpenRow(null); setDateFrom(''); setDateTo('')
-    setDriftRow(null); setFlashKey(null)
+    setDriftRow(null); setFlashKey(null); setSheetRow(null); setFilterOpen(false)
     rowRefs.current = {}
   }
 
@@ -427,7 +519,20 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
     }
   }, [card, lot])
 
-  const pickLot = (l) => { setSelLot(l); setOpenRow(null); setFlashKey(null) }
+  // ใบพิมพ์ = แถวชุดเดียวกับจอ (visibleRows — Rule #6) · ทุก lot แบ่งช่วงตามลำดับรายการ lot
+  // กรองวันที่อยู่ → ข้าม lot ที่ไม่มีแถวในช่วง (ไม่งั้นได้หัว lot เปล่าเต็มหน้า)
+  const printSections = useMemo(() => {
+    if (!card) return []
+    if (lot) return [{ info: card.lots.find(l => l.lot === lot), rows: visibleRows }]
+    return orderLots(card.lots)
+      // ลำดับแถวใน lot ตาม card.rows (ลำดับที่ใช้ไล่คงเหลือ) — sortRowsByDate สลับรับ/เบิกวันเดียวกันได้
+      .map(l => ({ info: l, rows: filterStockCard(card.rows.filter(r => r.lot === l.lot), { from: dateFrom || undefined, to: dateTo || undefined }) }))
+      .filter(s => !(dateFrom || dateTo) || s.rows.length > 0)
+  }, [card, lot, visibleRows, dateFrom, dateTo])
+
+  const pickLot = (l) => { setSelLot(l); setOpenRow(null); setFlashKey(null); setSheetRow(null); if (isMobile) window.scrollTo(0, 0) }
+  // มือถือ 2 ชั้น: ยังไม่ได้แตะ lot (AUTO) = ชั้นรายการ lot · แตะแล้ว = ชั้นความเคลื่อนไหว (ข้อตกลงข้อ 7)
+  const mobileList = isMobile && selLot === AUTO
 
   // key แถวที่ stable ข้ามการกรอง (index เปลี่ยนเมื่อกรอง → ใช้เป็น ref key ไม่ได้)
   const rowKey = (r) => `${r.lot}|${r.date}|${r.side}|${r.qtyIn}|${r.qtyOut}|${r.qtyBefore ?? ''}`
@@ -503,9 +608,9 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
       <div className="max-w-7xl mx-auto px-4 py-5 space-y-4">
         {/* เลือกยา */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
-          <div className="flex items-center justify-between gap-3 mb-1.5">
-            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400">เลือกยา</label>
-            <div className="flex gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-1.5">
+            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">เลือกยา</label>
+            <div className="flex flex-wrap gap-2">
               <button
                 onClick={loadExchanges}
                 disabled={exchLoading}
@@ -680,7 +785,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
               {/* export/print ใช้ visibleRows = ตรงกับที่ผู้ใช้เห็น (Rule #6) */}
               <div className="flex gap-2 shrink-0">
                 <button
-                  onClick={() => printStockCard(meta, visibleRows, card.summary, filterLabel)}
+                  onClick={() => printStockCard(meta, printSections, filterLabel)}
                   className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
                 >
                   <Printer size={16} /> พิมพ์
@@ -688,7 +793,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                 <button
                   onClick={() => exportToExcel(
                     visibleRows, STOCKCARD_EXCEL_COLS, 'การ์ดคลัง lot',
-                    `stockcard_${meta.code}_${new Date().toISOString().slice(0, 10)}.xlsx`, auth
+                    `stockcard_${meta.code}_${lot ? `lot-${String(lot).replace(/[\\/:*?"<>|\s]+/g, '-')}` : 'ทุกlot'}${hasDateFilter ? '_กรองวันที่' : ''}_${new Date().toISOString().slice(0, 10)}.xlsx`, auth
                   )}
                   className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
                 >
@@ -699,9 +804,18 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
 
             {/* รายการ lot ซ้าย + ความเคลื่อนไหวของ lot ที่เลือกขวา (ข้อตกลงข้อ 2) */}
             <div className="grid gap-4 items-start md:grid-cols-[17rem_minmax(0,1fr)]">
-              <LotList lots={card.lots} selected={lot} onSelect={pickLot} />
+              {(!isMobile || mobileList) && (
+                <LotList lots={card.lots} selected={mobileList ? undefined : lot} onSelect={pickLot} fill={isMobile} />
+              )}
 
+              {!mobileList && (
               <div className="min-w-0 space-y-3">
+                {isMobile && (
+                  <button type="button" onClick={() => pickLot(AUTO)}
+                    className="flex items-center gap-1 text-sm font-semibold text-teal-700 dark:text-teal-300 hover:opacity-80 transition-opacity">
+                    <ChevronLeft size={18} /> รายการ lot ({card.lots.length})
+                  </button>
+                )}
                 {/* หัวของ lot */}
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
                   {view.info ? (
@@ -717,7 +831,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                     </p>
                   )}
 
-                  <div className={`mt-3 grid grid-cols-2 gap-2 ${view.hasOpening ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+                  <div className={`mt-3 grid gap-2 ${view.hasOpening ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}>
                     {view.hasOpening && (
                       <LotStat label={view.info ? 'ยอดตั้งต้นของ lot' : 'ยอดตั้งต้นรวม'} value={view.opening}
                         hint={view.info ? 'ไม่มีประวัติรับเข้าในระบบ' : 'เฉพาะ lot ที่ไม่มีประวัติรับเข้า'} />
@@ -870,63 +984,72 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                   </div>
                 )}
 
-                {/* มือถือ (< 768px) — ชั่วคราวจนถึงขั้น 3 (2 ชั้น + FilterSheet) */}
+                {/* มือถือ ชั้น 2 — แถว 2 บรรทัด (วันที่·รายการ / รับ·เบิก·คงเหลือ) แตะแล้วเปิด bottom sheet · ช่วงวันที่อยู่ใน FilterSheet */}
                 {isMobile && (
                   <div className="space-y-2">
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-3">{dateFilter}</div>
-                    {visibleRows.map((r, i) => {
-                      const key = rowKey(r)
-                      const flash = flashKey === key
-                      const kb = kindBadgeOf(r.kind)
-                      return (
-                      <div
-                        key={i}
-                        ref={el => { if (el) rowRefs.current[`m:${key}`] = el }}
-                        className={`bg-white dark:bg-slate-900 rounded-xl border p-3 transition-colors ${flash ? 'border-amber-400 ring-2 ring-amber-300 bg-amber-50 dark:bg-amber-950/40' : (r.qtyIn > 0 ? 'border-emerald-200 dark:border-emerald-900/60' : 'border-slate-200 dark:border-slate-700')}`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs text-slate-500 dark:text-slate-400">{fmtThai(r.date)}</span>
-                          {kb && <KindBadge kind={kb} side={r.side} noDeduct={r.noDeduct} />}
-                        </div>
-                        <div className="mt-1.5 flex items-center gap-2">
-                          <Package size={14} className="text-slate-400 dark:text-slate-500 shrink-0" />
-                          <span className="font-semibold text-slate-700 dark:text-slate-200 text-sm">Lot {r.lot}</span>
-                        </div>
-                        <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-                          <div className="bg-emerald-50 dark:bg-emerald-950/40 rounded-lg py-1.5">
-                            <p className="text-[10px] text-emerald-600">รับเข้า</p>
-                            <p className="font-bold text-emerald-700 dark:text-emerald-300 text-sm">{r.qtyIn > 0 ? fmtNum(r.qtyIn) : '-'}</p>
-                          </div>
-                          <div className="bg-slate-50 dark:bg-slate-800 rounded-lg py-1.5">
-                            <p className="text-[10px] text-slate-500 dark:text-slate-400">เบิกออก</p>
-                            <p className="font-bold text-slate-700 dark:text-slate-200 text-sm">{r.qtyOut > 0 ? fmtNum(r.qtyOut) : '-'}</p>
-                          </div>
-                          <div className={`rounded-lg py-1.5 ${r.balance < 0 ? 'bg-rose-50 dark:bg-rose-950/40' : 'bg-teal-50 dark:bg-teal-950/40'}`}>
-                            <p className={`text-[10px] ${r.balance < 0 ? 'text-rose-600' : 'text-teal-600'}`}>คงเหลือ</p>
-                            <p className={`font-bold text-sm ${r.balance < 0 ? 'text-rose-700 dark:text-rose-300' : 'text-teal-700 dark:text-teal-300'}`}>{fmtNum(r.balance)}</p>
-                          </div>
-                        </div>
-                        {rowIssues(r).map((it, j) => (
-                          <button key={j} type="button" onClick={() => setDriftRow(r)}
-                            className={`mt-2 w-full flex items-start gap-1.5 text-[11px] rounded-lg px-2 py-1.5 text-left ${ISSUE_STYLE[it.type]}`}>
-                            {it.type === 'migration' ? <Info size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
-                            <span>{it.text}</span>
-                          </button>
-                        ))}
-                        <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 space-y-0.5">
-                          {r.party && <p>{r.side === 'in' ? 'บริษัท' : 'หน่วยงาน'}: {r.party}</p>}
-                          {r.ref && <p className="break-words">หมายเหตุ: {displayRef(r.ref)}</p>}
-                          {r.exp && r.exp !== '-' && <p>Exp: {fmtThai(r.exp)}</p>}
-                        </div>
-                      </div>
-                      )
-                    })}
-                    {visibleRows.length === 0 && (
-                      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-400 dark:text-slate-500 text-sm">ไม่มีรายการในช่วงวันที่นี้</div>
+                    <div className="flex items-center gap-2">
+                      <FilterButton activeCount={hasDateFilter ? 1 : 0} onOpen={() => setFilterOpen(true)} />
+                      <span className="ml-auto text-xs text-slate-400 dark:text-slate-500 tabular-nums">
+                        {visibleRows.length === lotRows.length ? `${lotRows.length} รายการ` : `${visibleRows.length} / ${lotRows.length} รายการ`}
+                      </span>
+                    </div>
+                    {hasDateFilter && (
+                      <p className="text-xs text-sky-700 dark:text-sky-300 break-words">
+                        กรอง: ช่วง {dateFrom ? fmtThai(dateFrom) : '...'}–{dateTo ? fmtThai(dateTo) : '...'}
+                      </p>
                     )}
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden divide-y divide-slate-100 dark:divide-slate-800">
+                      {visibleRows.map((r, i) => {
+                        const key = rowKey(r)
+                        const flash = flashKey === key
+                        const kb = kindBadgeOf(r.kind)
+                        const issues = rowIssues(r)
+                        return (
+                          <div key={i} ref={el => { if (el) rowRefs.current[`m:${key}`] = el }}
+                            className={flash ? 'bg-amber-100 dark:bg-amber-950/60 ring-2 ring-inset ring-amber-400' : ''}>
+                            <button type="button" onClick={() => setSheetRow(r)}
+                              className="w-full text-left px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors">
+                              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm">
+                                <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">{fmtThai(r.date)}</span>
+                                {!lot && <span className="font-mono text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded">{r.lot}</span>}
+                                <span className={`min-w-0 break-words font-medium ${r.side === 'in' ? 'text-emerald-800 dark:text-emerald-300' : 'text-slate-700 dark:text-slate-200'}`}>{rowTitle(r)}</span>
+                                {kb && <KindBadge kind={kb} side={r.side} noDeduct={r.noDeduct} />}
+                              </div>
+                              <div className="mt-1 flex items-baseline justify-end gap-3 text-xs tabular-nums whitespace-nowrap">
+                                {r.qtyIn > 0 && <span className="text-emerald-700 dark:text-emerald-300">รับ <b>+{fmtNum(r.qtyIn)}</b></span>}
+                                {r.qtyOut > 0 && (
+                                  <span className={r.noDeduct ? 'text-slate-400 dark:text-slate-500' : 'text-slate-600 dark:text-slate-300'}>
+                                    เบิก <b>{r.noDeduct ? fmtNum(r.qtyOut) : `−${fmtNum(r.qtyOut)}`}</b>{r.noDeduct && ' (ไม่หัก)'}
+                                  </span>
+                                )}
+                                <span className="text-slate-500 dark:text-slate-400">คงเหลือ <b className={`text-sm ${r.balance < 0 ? 'text-rose-600' : 'text-slate-800 dark:text-slate-100'}`}>{fmtNum(r.balance)}</b></span>
+                              </div>
+                            </button>
+                            {issues.length > 0 && (
+                              <div className="px-3 pb-2.5 space-y-1">
+                                {issues.map((it, j) => (
+                                  <button key={j} type="button" onClick={() => setDriftRow(r)}
+                                    className={`w-full flex items-start gap-1.5 text-[11px] rounded-lg px-2 py-1.5 text-left ${ISSUE_STYLE[it.type]}`}>
+                                    {it.type === 'migration' ? <Info size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
+                                    <span className="min-w-0">{it.text}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                      {visibleRows.length === 0 && (
+                        <p className="p-8 text-center text-slate-400 dark:text-slate-500 text-sm">ไม่มีรายการในช่วงวันที่นี้</p>
+                      )}
+                    </div>
+                    <FilterSheet open={filterOpen} onClose={() => setFilterOpen(false)} onClear={() => { setDateFrom(''); setDateTo('') }}>
+                      {dateFilter}
+                    </FilterSheet>
                   </div>
                 )}
               </div>
+              )}
             </div>
           </>
         )}
@@ -939,6 +1062,10 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
         )}
       </div>
 
+      {isMobile && sheetRow && meta && (
+        <RowSheet r={sheetRow} price={meta.pricePerUnit} showLot={!lot} onClose={() => setSheetRow(null)}
+          onDrift={(r) => { setSheetRow(null); setDriftRow(r) }} />
+      )}
       {driftRow && <DriftModal row={driftRow} onClose={() => setDriftRow(null)} />}
     </div>
   )
