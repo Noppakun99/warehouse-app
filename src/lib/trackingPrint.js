@@ -81,7 +81,7 @@ export function summarizePending(rows) {
 function pendingSummaryHtml(rows) {
   const s = summarizePending(rows);
   const item = (label, value, note = '') =>
-    `<span><b>${esc(label)}</b> ${esc(value)}${note ? ` (${esc(note)})` : ''}</span>`;
+    `<span>${esc(label)} <b>${esc(value)}</b>${note ? ` <i>(${esc(note)})</i>` : ''}</span>`;
   const wait = (d) => (d == null ? '-' : fmtWaitDays(d));
   return `<div class="sum">
   ${item('รายการยา', `${s.drugs} รายการ`, `${s.lots} lot`)}
@@ -89,7 +89,69 @@ function pendingSummaryHtml(rows) {
   ${item('PO', `${s.pos} ใบ`, s.noPo ? `ไม่มี PO ${s.noPo} lot` : '')}
   ${item('รอนานสุด', wait(s.maxWait))}
   ${item('รอน้อยสุด', wait(s.minWait), s.noDate ? `ไม่ทราบวันรับ ${s.noDate} lot` : '')}
+  <span class="legend"><span class="wait w-hi">เกิน 7 วัน</span><span class="wait w-mid">4–7 วัน</span></span>
 </div>`;
+}
+
+// โซน = ตัวอักษรนำหน้าตำแหน่ง — กฎเดียวกับ zoneOf ของตัวกรองโซนในโมดอลแผนผัง (App.jsx)
+const zoneOfLocation = (loc) => {
+  const m = String(loc ?? '').trim().toUpperCase().match(/^([A-Z]+)/);
+  return m ? m[1] : '';
+};
+const fmtLocation = (loc) => String(loc ?? '').split(',').map(s => s.trim()).filter(Boolean).join(', ');
+// เกณฑ์สีเดียวกับ waitBadge บนจอ (>7 แดง · >3 เหลือง)
+const waitClass = (d) => (d == null ? 'w-unk' : d > 7 ? 'w-hi' : d > 3 ? 'w-mid' : '');
+
+// ใบรอตรวจรับ: บิล+PO และ รอมา+วันรับ รวมช่องละ 2 บรรทัด (เดิม 11 คอลัมน์ 11.5px อ่านยาก — user 14/11/2569)
+// groupByZone = โมดอลเรียงตามตำแหน่ง → แทรกหัวกลุ่ม Log ให้เดินหาของตามตู้ได้
+function pendingTableHtml(rows, groupByZone) {
+  const cols = [
+    ['ลำดับ', 'w-no'], ['ตำแหน่ง', 'w-loc'], ['ชื่อยา', ''], ['Lot', 'w-lot'], ['วันหมดอายุ', 'w-exp'],
+    ['คงเหลือ x หน่วย', 'w-qty'], ['บิลยา / PO', 'w-bill'], ['รอมาแล้ว', 'w-wait'], ['บริษัท', 'w-sup'],
+  ];
+  const colgroup = `<colgroup>${cols.map(([, w]) => `<col class="${w}"/>`).join('')}</colgroup>`;
+  const thead = `<thead><tr>${cols.map(([h]) => `<th>${esc(h)}</th>`).join('')}</tr></thead>`;
+  if (rows.length === 0) {
+    return `<table class="pt">${colgroup}${thead}<tbody><tr><td class="c empty" colspan="${cols.length}">ไม่มีรายการ</td></tr></tbody></table>`;
+  }
+  // นับ lot ต่อ "ช่วงติดกัน" ไม่ใช่ต่อโซนทั้งใบ — การเรียงตามตำแหน่งไม่ trim/ไม่ upper (cmpLoc ใน App.jsx)
+  // ตำแหน่งขึ้นต้นด้วยช่องว่าง/ตัวเล็ก/ตัวเลข ทำโซนเดียวแตกเป็น 2 กลุ่ม — หัวกลุ่มต้องตรงกับแถวใต้มันเสมอ
+  const runLen = [];
+  if (groupByZone) {
+    rows.forEach((r, i) => {
+      const z = zoneOfLocation(r.location);
+      if (i > 0 && zoneOfLocation(rows[i - 1].location) === z) runLen[runLen.length - 1] += 1;
+      else runLen.push(1);
+    });
+  }
+  let prevZone = null;
+  let run = -1;
+  const body = rows.map((r, i) => {
+    let group = '';
+    if (groupByZone) {
+      const z = zoneOfLocation(r.location);
+      if (i === 0 || z !== prevZone) {
+        prevZone = z;
+        run += 1;
+        group = `<tr class="grp"><td colspan="${cols.length}">${esc(z ? `Log ${z}` : 'ที่เก็บอื่น / ไม่ระบุตำแหน่ง')}<span>${runLen[run]} lot</span></td></tr>`;
+      }
+    }
+    const qty = isBlank(r.unit) ? cell(r.qty) : `${isBlank(r.qty) ? '-' : esc(r.qty)} x ${esc(r.unit)}`;
+    const po = isBlank(r.po) ? '<span class="sm muted">ไม่มี PO</span>' : `<span class="sm">PO ${esc(String(r.po).trim())}</span>`;
+    const recv = r._receiveDate ? `<span class="sm">รับ ${esc(fmtThaiFromIso(r._receiveDate))}</span>` : '';
+    return `${group}<tr>
+<td class="c">${i + 1}</td>
+<td class="loc">${cell(fmtLocation(r.location))}</td>
+<td class="name">${cell(r.name)}</td>
+<td class="c">${cell(r.lot)}</td>
+<td class="c nowrap">${cell(r.exp)}</td>
+<td class="c nowrap">${qty}</td>
+<td class="bill">${cell(r.invoice)}${po}</td>
+<td class="c"><span class="wait ${waitClass(r.waitDays)}">${esc(fmtWaitDays(r.waitDays))}</span>${recv}</td>
+<td class="sup">${cell(shortSupplier(r.supplier))}</td>
+</tr>`;
+  }).join('');
+  return `<table class="pt">${colgroup}${thead}<tbody>${body}</tbody></table>`;
 }
 
 /**
@@ -101,26 +163,13 @@ function pendingSummaryHtml(rows) {
  * @param {string} [opts.printedBy]    ชื่อผู้พิมพ์
  * @param {boolean} [opts.dashboardMode] โมดอลใกล้หมดอายุของ Dashboard (AppRoot) — คอลัมน์ต่างจาก
  *   โมดอลแผนผัง: มี รหัสยา/สถานะ(นับวัน)/นโยบายเปลี่ยนยา แทน สถานะตรวจรับ (ตรงกับ EXPIRY_EXCEL_COLS)
+ * @param {boolean} [opts.groupByZone] ใบรอตรวจรับที่เรียงตามตำแหน่ง → แทรกหัวกลุ่ม Log
  */
-export function printTrackingList(rows, { title, isExpiryMode = false, filterNote = '', printedBy = '', dashboardMode = false } = {}) {
-  // ใบรอตรวจรับ: ตัด ชนิด/สถานะตรวจรับ (ทุกแถวคือ "รอตรวจรับ") ให้ทุกแถวอยู่บรรทัดเดียว
-  // ย่อชื่อบริษัท — Excel ยังมีชื่อเต็ม
+export function printTrackingList(rows, { title, isExpiryMode = false, filterNote = '', printedBy = '', dashboardMode = false, groupByZone = false } = {}) {
+  // ใบรอตรวจรับ: ตาราง 9 คอลัมน์ของตัวเอง (pendingTableHtml) · ย่อชื่อบริษัท — Excel ยังมีชื่อเต็ม
   const pendingMode = !isExpiryMode && !dashboardMode;
   // โมดอล Dashboard ใช้ชุดคอลัมน์ของตัวเอง ให้ตรงกับ Excel ของโมดอลเดียวกัน (Rule #6)
-  const cols = pendingMode ? [
-    { header: 'ลำดับ',   get: (_r, i) => i + 1, cls: 'c w-no' },
-    { header: 'ชื่อยา',  get: r => r.name },
-    { header: 'ตำแหน่ง', get: r => r.location, cls: 'c nowrap' },
-    { header: 'Lot',     get: r => r.lot, cls: 'c' },
-    { header: 'วันหมดอายุ', get: r => r.exp, cls: 'c nowrap' },
-    // ช่องเดียว "5 x 1000เม็ด" — แยก 2 คอลัมน์แล้วชื่อยา/บริษัทตัดบรรทัด 10/45 แถว (ทดสอบ 16/10/2569)
-    { header: 'คงเหลือ x หน่วย', get: r => isBlank(r.unit) ? r.qty : `${isBlank(r.qty) ? '-' : r.qty} x ${r.unit}`, cls: 'c nowrap' },
-    { header: 'บิลยา',   get: r => r.invoice, cls: 'c' },
-    { header: 'PO',      get: r => r.po, cls: 'c nowrap' },
-    { header: 'วันที่รับเข้า', get: r => fmtThaiFromIso(r._receiveDate), cls: 'c nowrap' },
-    { header: 'รอมาแล้ว', get: r => fmtWaitDays(r.waitDays), cls: 'c nowrap b' },
-    { header: 'บริษัท',  get: r => shortSupplier(r.supplier) },
-  ] : dashboardMode ? [
+  const cols = dashboardMode ? [
     { header: 'ลำดับ',   get: (_r, i) => i + 1, cls: 'c w-no' },
     { header: 'ชื่อยา',  get: r => r.name },
     { header: 'รหัสยา',  get: r => r.code, cls: 'c' },
@@ -182,13 +231,35 @@ export function printTrackingList(rows, { title, isExpiryMode = false, filterNot
   td.nowrap { white-space: nowrap; }
   td.b { font-weight: 700; }
   /* ใบรอตรวจรับ: กว้าง = พื้นที่พิมพ์ A4 แนวนอน (297 − 2×8mm) ให้จอกับกระดาษตัดบรรทัดเหมือนกัน
-     11.5px ทุกแถวอยู่บรรทัดเดียว (45 lot = 2 หน้า) — แนวตั้งชื่อยา/บริษัทตัดบรรทัด 35/45 แถว อ่านยาก
-     ไม่ย่อให้จบหน้าเดียว: เคยลอง zoom อัตโนมัติ (16/10/2569) ตัวหนังสือเล็กจนอ่านไม่ออก — ล้นหน้า 2 ดีกว่า */
+     13px + ช่อง 2 บรรทัด (บิล/PO · รอมา/วันรับ) แทน 11 คอลัมน์ 11.5px บรรทัดเดียว (user ว่าเล็ก อ่านยาก 14/11/2569)
+     ไม่ย่อให้จบหน้าเดียว: เคยลอง zoom อัตโนมัติ (16/10/2569) ตัวหนังสือเล็กจนอ่านไม่ออก — ล้นหลายหน้าดีกว่า */
+  .pending { font-size: 13px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .pending .page { width: 281mm; margin: 0 auto; }
-  .pending table { font-size: 11.5px; }
-  .pending th { padding: 4px 3px; border-color: #000; }
-  .pending td { padding: 4px 3px; border-color: #475569; }
-  .pending th.w-no, .pending td.w-no { width: 30px; }
+  .pending h1 { font-size: 20px; }
+  .pending .sub, .pending .meta { font-size: 12.5px; }
+  .pending .sum { font-size: 13px; gap: 4px 22px; padding: 6px 10px; margin-bottom: 8px; border-radius: 6px; align-items: center; }
+  .pending .sum b { font-weight: 700; }
+  .pending .sum i { font-style: normal; color: #475569; }
+  .pending .legend { margin-left: auto; display: flex; gap: 6px; }
+  .pt { table-layout: fixed; font-size: 13px; }
+  .pt th { padding: 6px 5px; border: 1px solid #000; background: #e2e8f0; font-size: 12.5px; }
+  .pt td { padding: 5px 6px; border: 1px solid #64748b; line-height: 1.35; overflow-wrap: anywhere; }
+  .pt col.w-no { width: 36px; } .pt col.w-loc { width: 92px; } .pt col.w-lot { width: 96px; }
+  .pt col.w-exp { width: 86px; } .pt col.w-qty { width: 116px; } .pt col.w-bill { width: 150px; }
+  .pt col.w-wait { width: 96px; } .pt col.w-sup { width: 140px; }
+  .pt td.loc { font-weight: 700; }
+  .pt td.name { font-weight: 600; font-size: 13.5px; }
+  .pt td.sup { font-size: 12px; }
+  .pt .sm { display: block; font-size: 11.5px; color: #475569; margin-top: 1px; }
+  .pt .muted { color: #94a3b8; }
+  .wait { display: inline-block; font-weight: 700; padding: 0 6px; border-radius: 4px; border: 1px solid transparent; white-space: nowrap; }
+  .wait.w-hi  { background: #fee2e2; border-color: #dc2626; color: #991b1b; }
+  .wait.w-mid { background: #fef3c7; border-color: #d97706; color: #92400e; }
+  .wait.w-unk { font-weight: 600; color: #64748b; }
+  .legend .wait { font-size: 11.5px; }
+  /* หัวกลุ่มเทาอ่อน + เส้นบนหนา (ไม่ใช้แถบดำ — เปลืองหมึก) */
+  .pt tr.grp td { background: #e2e8f0; color: #0f172a; font-weight: 700; font-size: 14px; padding: 4px 8px; border: 1px solid #000; border-top-width: 2px; }
+  .pt tr.grp td span { font-weight: 400; font-size: 12px; margin-left: 10px; color: #475569; }
   th.w-no, td.w-no { width: 34px; }
   tbody tr:nth-child(even) { background: #f8fafc; }
   td.empty { padding: 18px; color: #64748b; }
@@ -212,11 +283,11 @@ export function printTrackingList(rows, { title, isExpiryMode = false, filterNot
   <span class="note">${filterNote ? esc(filterNote) : 'แสดงทุกรายการ'}</span>
   <span>รวม ${rows.length} รายการ</span>
 </div>
-${!isExpiryMode && !dashboardMode && rows.length > 0 ? pendingSummaryHtml(rows) : ''}
-<table>
+${pendingMode && rows.length > 0 ? pendingSummaryHtml(rows) : ''}
+${pendingMode ? pendingTableHtml(rows, groupByZone) : `<table>
   <thead><tr>${thead}</tr></thead>
   <tbody>${tbody}</tbody>
-</table>
+</table>`}
 <div class="foot">
   <span>${printedBy ? 'ผู้พิมพ์: ' + esc(printedBy) : ''}</span>
   <span>พิมพ์เมื่อ ${todayThaiDateTime()}</span>

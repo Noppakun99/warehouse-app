@@ -2566,6 +2566,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
             isExpiryMode,
             // โหมดใกล้หมดอายุ → คอลัมน์ชุดเดียวกับโมดอล Dashboard (ตรงกับ Excel ด้านบน, Rule #6)
             dashboardMode: isExpiryMode,
+            groupByZone: !isExpiryMode && modalWaitSort === 'loc',
             filterNote: notes.length ? `ตัวกรอง: ${notes.join(' · ')}` : '',
             printedBy: auth?.name || auth?.username || '',
           });
