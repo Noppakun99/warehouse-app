@@ -247,7 +247,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         const itemQty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
         // ข้ามยาที่คงเหลือ 0 — ถูกนำออกจากคลังแล้ว ไม่ต้องแจ้งเตือน
         if (itemQty === 0) return;
-        // ยาตัดออกจากบัญชีที่ยังมีของ ยังต้องเตือนหมดอายุ (ตรงกับ fetchDashboardAlerts) — การ์ดแสดง "สถานะ: …|ตัดออก" อยู่แล้ว
+        // ยาตัดออกจากบัญชีที่ยังมีของ ยังต้องเตือนหมดอายุ (ตรงกับ fetchDashboardAlerts) — การ์ดติดป้าย "ตัดออกจากบัญชี" (renderItemCard)
 
         const expDate = parseDateString(item.exp);
         const itemData = { ...item, location: loc, originalIndex: idx };
@@ -828,24 +828,23 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
         : [];
     const isStrictMatch = strictDetails.length > 0;
 
+    // สถานะ EXP → สีแถบซ้ายของการ์ด + ป้าย "อีก N เดือน"
     const expDate = parseDateString(item.exp);
-    let expColorClass = "text-slate-700 dark:text-slate-200 font-medium";
-    let expBgClass = "bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-800";
-    let expIcon = null;
-
+    let expTone = 'slate';
+    let expLeft = null;
     if (expDate) {
       expDate.setHours(0,0,0,0);
       if (expDate < todayForDisplay) {
-        expColorClass = "text-rose-700 dark:text-rose-300 font-bold";
-        expBgClass = "bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60 shadow-sm";
-        expIcon = <AlertTriangle size={14} className="inline mr-1 text-rose-600" />;
-      } else if (expDate <= targetDateForDisplay) {
-        expColorClass = "text-amber-700 dark:text-amber-300 font-bold";
-        expBgClass = "bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/60 shadow-sm";
-        expIcon = <Clock size={14} className="inline mr-1 text-amber-600" />;
+        expTone = 'rose';
+        expLeft = 'หมดอายุแล้ว';
       } else {
-        expColorClass = "text-emerald-700 dark:text-emerald-300 font-bold";
-        expBgClass = "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-900/50";
+        expTone = expDate <= targetDateForDisplay ? 'amber' : 'emerald';
+        const months = (expDate.getFullYear() - todayForDisplay.getFullYear()) * 12
+          + expDate.getMonth() - todayForDisplay.getMonth()
+          - (expDate.getDate() < todayForDisplay.getDate() ? 1 : 0);
+        expLeft = months >= 1 ? `อีก ${months} เดือน`
+          : expDate.getTime() === todayForDisplay.getTime() ? 'หมดอายุวันนี้'
+          : `อีก ${Math.round((expDate - todayForDisplay) / 86400000)} วัน`;
       }
     }
 
@@ -867,101 +866,118 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
       }
     }
 
+    // receiveStatus เก็บ `<สถานะตรวจรับ>|<ผลการพิจารณา>` — แยกเป็นป้ายภาษาคน ไม่โชว์ข้อความดิบ
+    const [rsMain = '', rsDecision = ''] = String(item.receiveStatus || '').split('|').map(s => s.trim());
+    const showRs = !isPendingStatus && rsMain && rsMain !== 'ไม่มีการดำเนินการ';
+    const isDelisted = rsDecision.includes('ตัดออก');
+    const showQtyReceived = item.isPending && item.qtyReceived != null;
+    const tone = isPendingStatus ? 'sky' : expTone;
+    const ACCENT = {
+      rose: 'bg-rose-500', amber: 'bg-amber-400', emerald: 'bg-emerald-500',
+      sky: 'bg-sky-400', slate: 'bg-slate-300 dark:bg-slate-600',
+    };
+    const EXP_PILL = {
+      rose: 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300',
+      amber: 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300',
+      emerald: 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300',
+      slate: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300',
+    };
+    const pill = 'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold';
+    const factLabel = 'flex items-center gap-1 text-[11px] font-semibold text-slate-400 dark:text-slate-500';
+    const factValue = 'mt-0.5 text-sm font-semibold text-slate-800 dark:text-slate-100 break-words';
+    const smallBtn = 'inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer';
+
     return (
-      <div key={uniqueItemId} className={`bg-white dark:bg-slate-900 border ${isPendingStatus ? 'border-sky-300 dark:border-sky-800/60 bg-sky-50 dark:bg-sky-950/40 border-dashed shadow-sky-100' : 'border-slate-200 dark:border-slate-700 shadow-indigo-200/50'} shadow-lg hover:shadow-xl hover:shadow-indigo-200/60 rounded-2xl p-5 hover:border-indigo-300 transition`}>
-        <div className="flex flex-col sm:flex-row items-start gap-5">
-          <div className={`p-3 rounded-xl shrink-0 shadow-inner mt-1 ${isPendingStatus ? 'bg-sky-100 dark:bg-sky-950/60 text-sky-600' : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400'}`}>
-            {isPendingStatus ? <Package size={32} /> : <Pill size={32} />}
-          </div>
-          
-          <div className="w-full">
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
-              <div>
-                <h4 className="font-bold text-slate-800 dark:text-slate-100 text-lg leading-tight mb-2">
-                  {item.code && item.code !== '-' && <span className="text-indigo-600 dark:text-indigo-400 mr-2">[{item.code}]</span>}
-                  {item.name}
-                  {item.type && <span className="ml-2 align-middle"><DrugTypeBadge type={item.type} /></span>}
-                </h4>
-                <div className="flex flex-wrap gap-2">
-                  {locationId && (
-                    <span className="inline-flex items-center gap-1.5 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300 px-3 py-1 rounded-full text-xs font-bold border border-indigo-200 dark:border-indigo-900/60">
-                      <MapPin size={14} /> ตำแหน่งจัดเก็บ: {locationId}
-                    </span>
+      <div key={uniqueItemId} className={`relative overflow-hidden rounded-2xl border shadow-sm hover:shadow-md transition-shadow ${isPendingStatus ? 'bg-sky-50/50 dark:bg-sky-950/30 border-sky-200 dark:border-sky-900/60' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700'}`}>
+        <span aria-hidden className={`absolute inset-y-0 left-0 w-1.5 ${ACCENT[tone]}`} />
+        <div className="pl-5 pr-4 py-4 sm:pl-6 sm:pr-5">
+          <div className="space-y-4">
+            {/* หัว: รหัส/ชนิด + ชื่อยา · คงเหลือเด่นมุมขวา */}
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  {item.code && item.code !== '-' && (
+                    <span className="font-mono text-xs font-semibold text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 rounded-md px-1.5 py-0.5">{item.code}</span>
                   )}
-                  {item.pendingMove && (
-                    <span title={`แจ้งโดย ${item.pendingMove.created_by || '-'}`} className="inline-flex items-center gap-1.5 bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 px-3 py-1 rounded-full text-xs font-bold border border-amber-200 dark:border-amber-900/60">
-                      <MoveRight size={14} /> ย้ายจาก {item.pendingMove.from_location} · รอลง Excel
-                    </span>
-                  )}
-                  {isStaff && locationId && (
-                    <button onClick={() => setMoveItem({ ...item, location: locationId })}
-                      className="inline-flex items-center gap-1.5 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 px-3 py-1 rounded-full text-xs font-bold border border-indigo-300 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50">
-                      <MoveRight size={14} /> ย้ายที่เก็บ
-                    </button>
-                  )}
-                  {isPendingStatus && (
-                    <span className="inline-flex items-center gap-1.5 bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 px-3 py-1 rounded-full text-xs font-bold border border-sky-200 dark:border-sky-900/60">
-                      <Package size={14} /> สถานะ: รอตรวจรับ
-                    </span>
-                  )}
-                  {isPendingStatus && waitTimeStr && (
-                    <span className="inline-flex items-center gap-1.5 bg-orange-100 dark:bg-orange-950/60 text-orange-800 dark:text-orange-300 px-3 py-1 rounded-full text-xs font-bold border border-orange-200 dark:border-orange-900/60">
-                      <Clock size={14} /> รอตรวจรับมา {waitTimeStr}
-                    </span>
-                  )}
-                  {!isPendingStatus && item.receiveStatus && item.receiveStatus !== 'ไม่มีการดำเนินการ' && (
-                    <span className="inline-flex items-center gap-1.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-3 py-1 rounded-full text-xs font-bold border border-emerald-200 dark:border-emerald-900/60">
-                      <Check size={14} /> สถานะ: {item.receiveStatus}
-                    </span>
-                  )}
+                  {item.type && <DrugTypeBadge type={item.type} />}
+                  {isDelisted && <span className={`${pill} bg-red-50 dark:bg-red-950/50 text-red-700 dark:text-red-300`}>ตัดออกจากบัญชี</span>}
                 </div>
+                <h4 className="mt-1.5 text-base sm:text-lg font-bold leading-snug text-slate-900 dark:text-slate-50 break-words">{item.name}</h4>
               </div>
-              
-              <button
-                onClick={() => toggleDetails(uniqueItemId)}
-                className={`shrink-0 inline-flex items-center justify-center gap-1.5 min-w-[140px] px-3 py-1.5 rounded-xl text-sm font-medium transition-colors border ${
-                  isExpanded
-                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600'
-                    : 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/60 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 cursor-pointer'
-                }`}
-              >
-                <FileText size={16} /> รายละเอียด
-                {isExpanded ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
-              </button>
+              <div className={`rounded-xl px-3.5 py-2 text-right ${isPendingStatus ? 'bg-sky-100/70 dark:bg-sky-950/60' : 'bg-slate-50 dark:bg-slate-800'}`}>
+                <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">{showQtyReceived ? 'จำนวนที่รับ' : 'คงเหลือ'}</div>
+                <div className={`text-2xl font-black leading-tight tabular-nums ${isPendingStatus ? 'text-sky-700 dark:text-sky-300' : 'text-slate-900 dark:text-slate-50'}`}>
+                  {showQtyReceived ? item.qtyReceived : item.qty}
+                </div>
+                {item.unit && <div className="text-[11px] text-slate-500 dark:text-slate-400 max-w-28 truncate" title={item.unit}>{item.unit}</div>}
+              </div>
             </div>
-            
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
-              <div className="bg-slate-50 dark:bg-slate-800 px-3.5 py-3 rounded-xl border border-slate-100 dark:border-slate-800">
-                <div className="text-[11px] text-slate-400 dark:text-slate-500 uppercase font-bold tracking-wider mb-1">ชนิด/หน่วย</div>
-                <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">{item.type} <span className="text-slate-400 dark:text-slate-500 font-normal">({item.unit})</span></div>
+
+            {/* ข้อมูลหลัก: ตำแหน่ง · Lot · บิล · EXP */}
+            <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3">
+              <div className="min-w-0">
+                <dt className={factLabel}><MapPin size={12} /> ตำแหน่ง</dt>
+                <dd className={factValue}>{locationId || item.location || '-'}</dd>
               </div>
-              <div className={`${item.isPending ? 'bg-sky-50 dark:bg-sky-950/40 border-sky-100 dark:border-sky-900/50' : 'bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-800'} px-3.5 py-3 rounded-xl border`}>
-                <div className="text-[11px] text-slate-400 dark:text-slate-500 uppercase font-bold tracking-wider mb-1">
-                  {item.isPending && item.qtyReceived != null ? 'จำนวนที่รับ' : 'จำนวนคงเหลือ'}
-                </div>
-                <div className={`text-base font-black tabular-nums ${item.isPending ? 'text-sky-700 dark:text-sky-300' : 'text-slate-800 dark:text-slate-100'}`}>
-                  {item.isPending && item.qtyReceived != null ? item.qtyReceived : item.qty}
-                </div>
+              <div className="min-w-0">
+                <dt className={factLabel}>Lot</dt>
+                <dd className={`${factValue} font-mono`}>{item.lot || '-'}</dd>
               </div>
-              <div className="bg-slate-50 dark:bg-slate-800 px-3.5 py-3 rounded-xl border border-slate-100 dark:border-slate-800">
-                <div className="text-[11px] text-slate-400 dark:text-slate-500 uppercase font-bold tracking-wider mb-1">Lot Number</div>
-                <div className="text-sm font-semibold text-slate-700 dark:text-slate-200 font-mono">{item.lot}</div>
+              <div className="min-w-0">
+                <dt className={factLabel}><FileText size={12} /> เลขที่บิลซื้อ</dt>
+                <dd className={`${factValue} font-mono`}>{item.invoice || '-'}</dd>
               </div>
-              <div className="bg-indigo-50 dark:bg-indigo-950/40 px-3.5 py-3 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
-                <div className="text-[11px] text-indigo-400 uppercase font-bold tracking-wider mb-1">เลขที่บิลซื้อ</div>
-                <div className="text-sm font-semibold text-indigo-700 dark:text-indigo-300 font-mono">{item.invoice}</div>
+              <div className="min-w-0">
+                <dt className={factLabel}><CalendarDays size={12} /> EXP</dt>
+                <dd className={`${factValue} flex flex-wrap items-center gap-x-2 gap-y-1`}>
+                  {formatDateDisplay(item.exp) || '-'}
+                  {expLeft && (
+                    <span className={`${pill} ${EXP_PILL[expTone]}`}>
+                      {expTone === 'rose' ? <AlertTriangle size={11} /> : expTone === 'amber' ? <Clock size={11} /> : null}
+                      {expLeft}
+                    </span>
+                  )}
+                </dd>
               </div>
-              <div className={`px-3.5 py-3 rounded-xl border ${expBgClass}`}>
-                <div className="text-[11px] opacity-70 uppercase font-bold tracking-wider mb-1">Exp Date</div>
-                <div className={`text-sm font-semibold ${expColorClass}`}>
-                  {expIcon}
-                  {formatDateDisplay(item.exp)}
-                </div>
+            </dl>
+
+            {/* สถานะ (ป้าย) ซ้าย · ปุ่ม ขวา */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 dark:border-slate-800 pt-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {isPendingStatus && (
+                  <span className={`${pill} bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300`}><Package size={12} /> รอตรวจรับ</span>
+                )}
+                {isPendingStatus && waitTimeStr && (
+                  <span className={`${pill} bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-300`}><Clock size={12} /> รอมา {waitTimeStr}</span>
+                )}
+                {showRs && (
+                  <span className={`${pill} bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300`}><Check size={12} /> {rsMain}</span>
+                )}
+                {item.pendingMove && (
+                  <span title={`แจ้งโดย ${item.pendingMove.created_by || '-'}`} className={`${pill} bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300`}>
+                    <MoveRight size={12} /> ย้ายจาก {item.pendingMove.from_location} · รอลง Excel
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2 ml-auto">
+                {isStaff && locationId && (
+                  <button onClick={() => setMoveItem({ ...item, location: locationId })}
+                    className={`${smallBtn} bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600 hover:border-indigo-300 hover:text-indigo-700 dark:hover:text-indigo-300`}>
+                    <MoveRight size={14} /> ย้ายที่เก็บ
+                  </button>
+                )}
+                <button onClick={() => toggleDetails(uniqueItemId)} aria-expanded={isExpanded}
+                  className={`${smallBtn} ${isExpanded
+                    ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700'
+                    : 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-900/60 hover:bg-indigo-100 dark:hover:bg-indigo-950'}`}>
+                  <FileText size={14} /> ประวัติรับยา
+                  {isExpanded ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                </button>
               </div>
             </div>
 
             {isExpanded && (
-              <div className="mt-4">
+              <div>
                 <div className="bg-teal-50 dark:bg-teal-950/40 rounded-xl p-4 border border-teal-100 dark:border-teal-900/50 relative overflow-hidden">
                   <div className="absolute -right-4 -top-4 text-teal-100/50 opacity-50"><Database size={100} /></div>
                   <h5 className="font-bold text-teal-800 dark:text-teal-300 flex items-center gap-2 mb-3 relative z-10 border-b border-teal-200 dark:border-teal-900/60 pb-2 flex-wrap">
