@@ -2,7 +2,7 @@
 // รัน: npm run test:stockcard   (standalone node ไม่มี framework ตาม convention repo)
 // fixture อ้างอิงข้อมูลจริงจาก DB + สูตร Excel §45.5/§46.2 (Context.csv)
 
-import { buildStockCard, filterStockCard, NO_DEDUCT, lotOf, dateSortKey } from './stockCard.js'
+import { buildStockCard, filterStockCard, NO_DEDUCT, lotOf, dateSortKey, orderLots, defaultLot, sortRowsByDate, kindBadgeOf, rowTitle, displayRef, rowIssues } from './stockCard.js'
 
 let pass = 0, fail = 0
 function eq(actual, expected, label) {
@@ -396,6 +396,156 @@ section('Test 25: drift ปกติ (ไม่มี note migration) → driftR
   eq(r.rows[1].fromMigration, false, 'ไม่มี note migration')
   eq(r.summary.driftRowsReal, 1, 'นับเป็นของหายจริง')
   eq(r.summary.driftRowsMigration, 0, 'ไม่นับเป็น migration')
+}
+
+// ── Test 26–33: ข้อมูลหน้าการ์ดคลังแบบใหม่ (13/11/2569 — docs/features/stock-card.md) ──
+section('Test 26: lot — exp/รับรวม/เบิกรวม (เบิกรวมไม่นับแถวไม่หักยอด) + สมการยอด')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-01', lot: 'A', item_type: 'ซื้อยา', qty_received: 100, exp: '2027-05-31' }],
+    dispenseRows: [
+      { dispense_date: '2026-02-01', lot: 'A', item_type: 'ยกยอด', qty_out: 30, qty_before: 100, qty_after: 70, exp: '31/05/2027' },
+      { dispense_date: '2026-02-02', lot: 'A', item_type: 'บันทึกเท่านั้น', qty_out: 5, qty_before: 70, qty_after: 70 },
+    ],
+  })
+  const a = r.lots[0]
+  eq(a.exp, '2027-05-31', 'exp จากแถวรับเข้าก่อน')
+  eq(a.totalIn, 100, 'รับรวม')
+  eq(a.totalOut, 30, 'เบิกรวมไม่นับบันทึกเท่านั้น')
+  eq(a.opening + a.totalIn - a.totalOut, a.closing, 'ยอดตั้งต้น + รับ − เบิก = คงเหลือ')
+  eq(a.warn, false, 'ไม่มีปัญหา → ไม่เตือน')
+}
+
+section('Test 27: lot ไม่มีแถวรับ → exp จากแถวเบิกล่าสุด · ว่าง/"-" ข้าม')
+{
+  const r = buildStockCard({
+    dispenseRows: [
+      { dispense_date: '2026-01-01', lot: 'B', qty_out: 1, qty_before: 10, exp: '2027-01-01' },
+      { dispense_date: '2026-02-01', lot: 'B', qty_out: 1, qty_before: 9, exp: '-' },
+    ],
+  })
+  eq(r.lots[0].exp, '2027-01-01', 'ข้าม "-"')
+}
+
+section('Test 28: นับยอดไม่ตรงจริง vs ข้อมูลก่อนเริ่มใช้ระบบ vs กรอกผิด → warn')
+{
+  const r = buildStockCard({
+    receiveRows: [
+      { receive_date: '2025-09-01', lot: 'M', qty_received: 100 },
+      { receive_date: '2026-01-01', lot: 'R', qty_received: 100 },
+    ],
+    dispenseRows: [
+      { dispense_date: '2025-10-01', lot: 'M', qty_out: 5, qty_before: 80, note: 'นำเข้าจาก ต.ค.68 (unpivot)' },
+      { dispense_date: '2026-02-01', lot: 'R', qty_out: 5, qty_before: 90, qty_after: 80 },
+    ],
+  })
+  const m = r.lots.find(l => l.lot === 'M'), rr = r.lots.find(l => l.lot === 'R')
+  eq([m.driftReal, m.driftMigration, m.rowErrCount, m.warn], [0, 1, 0, false], 'migration อย่างเดียว = ไม่เตือน')
+  eq([rr.driftReal, rr.driftMigration, rr.rowErrCount, rr.warn], [1, 0, 1, true], 'ยอดไม่ตรงจริง + กรอกผิด = เตือน')
+}
+
+section('Test 29: orderLots — เตือน → มีของ exp เร็วก่อน → หมดแล้วท้าย')
+{
+  const lots = [
+    { lot: 'empty', warn: false, closing: 0, exp: '2026-01-01' },
+    { lot: 'late', warn: false, closing: 5, exp: '2028-01-01' },
+    { lot: 'noexp', warn: false, closing: 5, exp: '' },
+    { lot: 'early', warn: false, closing: 5, exp: '15/03/2570' },
+    { lot: 'bad', warn: true, closing: 0, exp: '2029-01-01' },
+  ]
+  eq(orderLots(lots).map(l => l.lot), ['bad', 'early', 'late', 'noexp', 'empty'], 'ลำดับ lot (exp พ.ศ. อ่านได้ · ไม่มี exp ท้ายกลุ่ม)')
+  eq(defaultLot(lots), 'bad', 'เปิด lot ที่มีป้ายเตือนก่อน')
+  eq(defaultLot(lots.filter(l => !l.warn)), 'early', 'ไม่มีเตือน → มีของ exp เร็วสุด')
+  eq(defaultLot([{ lot: 'x', warn: false, closing: 0, exp: '' }]), null, 'หมดทุก lot → null (ดูทุก lot)')
+  eq(defaultLot([]), null, 'ไม่มี lot → null')
+}
+
+section('Test 30: sortRowsByDate — ข้าม lot เรียงวัน รับก่อนเบิก')
+{
+  const r = buildStockCard({
+    receiveRows: [
+      { receive_date: '2026-03-01', lot: 'B', qty_received: 10 },
+      { receive_date: '2026-01-01', lot: 'A', qty_received: 10 },
+    ],
+    dispenseRows: [
+      { dispense_date: '2026-03-01', lot: 'A', qty_out: 1, qty_before: 10 },
+      { dispense_date: '2026-02-01', lot: 'B', qty_out: 1, qty_before: 0 },
+    ],
+  })
+  eq(sortRowsByDate(r.rows).map(x => `${x.date}|${x.lot}|${x.side}`),
+    ['2026-01-01|A|in', '2026-02-01|B|out', '2026-03-01|B|in', '2026-03-01|A|out'], 'เรียงวัน → รับก่อนเบิก')
+  eq(r.rows.length, 4, 'ไม่แตะ array เดิม')
+}
+
+section('Test 31: ป้ายชนิดรายการ + คอลัมน์รายการ')
+{
+  eq([kindBadgeOf('ซื้อยา'), kindBadgeOf('ยกยอด'), kindBadgeOf('คืนยา'), kindBadgeOf('บันทึกเท่านั้น')],
+    [null, null, 'คืนยา', 'บันทึกเท่านั้น'], 'ซื้อยา/ยกยอด ไม่แสดงป้าย')
+  eq(rowTitle({ side: 'in', party: 'บริษัท ก' }), 'รับจาก บริษัท ก', 'แถวรับ')
+  eq(rowTitle({ side: 'out', party: 'ER' }), 'เบิก ER', 'แถวเบิก')
+  eq([rowTitle({ side: 'in', party: '' }), rowTitle({ side: 'out' })], ['รับเข้า', 'เบิกออก'], 'ไม่มีชื่อ')
+}
+
+section('Test 32: displayRef ตัดศัพท์ unpivot ตอนแสดงผล')
+{
+  eq(displayRef('นำเข้าจาก ต.ค.68 (unpivot)'), 'นำเข้าจากชีทเบิก ต.ค.68', 'ค่าจริงใน DB (594 แถว)')
+  eq(displayRef('IV12345'), 'IV12345', 'หมายเหตุอื่นไม่แตะ')
+  eq(displayRef(null), '', 'null → ว่าง')
+}
+
+section('Test 33: rowIssues — ข้อความใต้แถว')
+{
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-01-01', lot: 'A', qty_received: 4800 }],
+    dispenseRows: [
+      { dispense_date: '2026-02-01', lot: 'A', qty_out: 100, qty_before: 4750, qty_after: 4650 },
+      { dispense_date: '2026-03-01', lot: 'A', qty_out: 100, qty_before: 4640, qty_after: 4500 },
+    ],
+  })
+  const [i1] = rowIssues(r.rows[1])
+  eq(i1, { type: 'drift', text: 'ยอดไม่ตรง: ชีทเบิกบันทึกว่าก่อนเบิกเหลือ 4,750 แต่ไล่จากประวัติได้ 4,800 — ขาดไป 50 ก่อนแถวนี้' }, 'drift จุดแรก')
+  const i2 = rowIssues(r.rows[2])
+  eq(i2.map(x => x.type), ['drift', 'rowErr'], 'จุดที่ 2 มีทั้งยอดไม่ตรงและกรอกผิด')
+  eq(i2[0].text.endsWith('ขาดไป 10 ก่อนแถวนี้ (รวมที่ต่างมาก่อนหน้า ต่างกันทั้งหมด 60)'), true, 'drift ค้างบอกยอดรวม')
+  eq(i2[1].text, 'แถวกรอกผิด: ชีทเบิกบันทึก ก่อนเบิก 4,640 − เบิก 100 = หลังเบิก 4,500 (ควรเป็น 4,540)', 'กรอกผิด')
+  eq(rowIssues(r.rows[0]), [], 'แถวรับ ไม่มีปัญหา')
+  const m = buildStockCard({
+    receiveRows: [{ receive_date: '2025-09-01', lot: 'M', qty_received: 100 }],
+    dispenseRows: [{ dispense_date: '2025-10-01', lot: 'M', qty_out: 5, qty_before: 80, note: 'นำเข้าจาก ต.ค.68 (unpivot)' }],
+  })
+  eq(rowIssues(m.rows[1])[0].type, 'migration', 'ข้อมูลก่อนเริ่มใช้ระบบ แยก type')
+}
+
+section('Test 34: แถวไม่หักยอด — หลัง = ก่อน คือถูก (เดิมขึ้นกรอกผิดปลอม 152/154 แถวจริง)')
+{
+  const r = buildStockCard({
+    dispenseRows: [
+      { dispense_date: '2026-01-01', lot: 'N', item_type: 'บันทึกเท่านั้น', qty_out: 5, qty_before: 70, qty_after: 70 },
+      { dispense_date: '2026-01-02', lot: 'N', item_type: 'บันทึกเท่านั้น', qty_out: 5, qty_before: 70, qty_after: 65 },
+    ],
+  })
+  eq(r.rows[0].hasRowErr, false, 'หลัง = ก่อน → ไม่ผิด')
+  eq(r.rows[1].hasRowErr, true, 'แถวไม่หักยอดแต่หลังเบิกลด → ผิด')
+  eq(rowIssues(r.rows[1])[0].text, 'แถวกรอกผิด: แถวบันทึกเท่านั้นไม่ตัดยอด หลังเบิกควรเท่าก่อนเบิก 70 แต่ชีทเบิกบันทึก 65', 'ข้อความแถวไม่หักยอด')
+  eq(r.summary.rowErrRows, 1, 'นับเฉพาะแถวที่ผิดจริง')
+}
+
+section('Test 35: rowIssues — ยอดกลับมาตรง (drift → 0) ไม่ใช้คำ ขาดไป/เกินมา')
+{
+  // รับ 60 · เบิก 12 (ชีทว่าก่อนเบิก 60 ตรง) · ชีทว่าก่อนเบิก 60 แต่ไล่ได้ 48 (เกิน 12) · ชีทว่า 44 ไล่ได้ 44 (กลับมาตรง)
+  const r = buildStockCard({
+    receiveRows: [{ receive_date: '2026-03-04', lot: 'Z', qty_received: 60 }],
+    dispenseRows: [
+      { dispense_date: '2026-03-16', lot: 'Z', qty_out: 12, qty_before: 60 },
+      { dispense_date: '2026-03-17', lot: 'Z', qty_out: 4, qty_before: 60 },
+      { dispense_date: '2026-03-23', lot: 'Z', qty_out: 15, qty_before: 44 },
+    ],
+  })
+  const back = r.rows[3]
+  eq(back.drift, 0, 'ผลต่างกลับเป็น 0')
+  eq(back.isDriftPoint, true, 'ยังนับเป็นจุดเปลี่ยน (ไม่แก้สูตร)')
+  eq(rowIssues(back), [{ type: 'drift', text: 'ยอดกลับมาตรงกัน: ชีทเบิกบันทึกว่าก่อนเบิกเหลือ 44 ตรงกับที่ไล่จากประวัติ — ผลต่าง 12 ของแถวก่อนหน้าหายไประหว่างทาง' }], 'ข้อความยอดกลับมาตรง')
+  eq(rowIssues(r.rows[2])[0].text.includes('เกินมา 12'), true, 'แถวก่อนหน้ายังเป็น เกินมา')
 }
 
 console.log('\n' + '─'.repeat(50))

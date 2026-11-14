@@ -1,12 +1,21 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { ScrollText, Package, AlertTriangle, TrendingUp, TrendingDown, Filter, X, FileDown, Printer, RotateCcw } from 'lucide-react'
+import { ScrollText, Package, AlertTriangle, Info, X, FileDown, Printer, RotateCcw, ChevronDown, CalendarDays } from 'lucide-react'
 import { fetchInventoryNameCodeMap, fetchStockCard, fetchAllStockCardIssues, fetchVendorExchanges } from './lib/db'
-import { buildStockCard, filterStockCard } from './lib/stockCard'
+import { buildStockCard, filterStockCard, orderLots, defaultLot, sortRowsByDate, kindBadgeOf, rowTitle, displayRef, rowIssues } from './lib/stockCard'
 import { buildVendorExchanges } from './lib/vendorExchange'
 import { exportToExcel } from './lib/exportExcel'
 import DrugSearchBar from './DrugSearchBar'
-import SearchableSelect from './SearchableSelect'
 import BackButton from './BackButton'
+
+// selLot ยังไม่ได้เลือก → คอมเลือกให้ (defaultLot) · มือถือดูทุก lot (docs/features/stock-card.md ข้อ 2/7)
+const AUTO = Symbol('auto')
+
+// บรรทัดอธิบายใต้แถว (rowIssues) — ข้อมูลก่อนเริ่มใช้ระบบเป็นสีเทา ไม่ใช่เตือน
+const ISSUE_STYLE = {
+  drift: 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300',
+  rowErr: 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300',
+  migration: 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
+}
 
 // วันที่ ISO/DD-MM-YYYY → DD/MM/YYYY (พ.ศ.) ตาม Rule #14
 const fmtThai = (raw) => {
@@ -129,6 +138,113 @@ function KindBadge({ kind, side, noDeduct }) {
   return <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold border ${cls}`}>{kind || '-'}</span>
 }
 
+// รายการ lot ฝั่งซ้าย — ลำดับ: มีป้ายเตือน → ยังมีของ (หมดอายุเร็วก่อน) → หมดแล้ว (จาง) · ท้ายสุด "ดูทุก lot"
+function LotList({ lots, selected, onSelect }) {
+  const ordered = orderLots(lots)
+  return (
+    <nav aria-label="รายการ lot" className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden md:sticky md:top-20">
+      <div className="flex items-center justify-between px-4 py-2.5 text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
+        <span>Lot ({lots.length})</span>
+        <span>คงเหลือ</span>
+      </div>
+      <div className="max-h-[70vh] overflow-y-auto p-2 space-y-1">
+        {ordered.map(l => {
+          const sel = selected === l.lot
+          const faded = !sel && !l.warn && l.closing === 0
+          return (
+            <button key={l.lot} type="button" onClick={() => onSelect(l.lot)} aria-pressed={sel}
+              className={`w-full text-left rounded-xl px-3 py-2 border transition-colors ${sel
+                ? 'bg-teal-50 dark:bg-teal-950/40 border-teal-300 dark:border-teal-800'
+                : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+              <div className={faded ? 'opacity-60' : ''}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate font-mono text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-1.5 py-0.5 rounded" title={l.lot}>{l.lot}</span>
+                  <span className={`shrink-0 text-sm font-bold tabular-nums ${l.closing < 0 ? 'text-rose-600' : 'text-slate-800 dark:text-slate-100'}`}>{fmtNum(l.closing)}</span>
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
+                  <span className="mr-1 tabular-nums">Exp {l.exp ? fmtThai(l.exp) : '-'}</span>
+                  {l.driftReal > 0 && <IssueChip tone="amber">ยอดไม่ตรง {l.driftReal}</IssueChip>}
+                  {l.rowErrCount > 0 && <IssueChip tone="rose">กรอกผิด {l.rowErrCount}</IssueChip>}
+                  {l.negative && <IssueChip tone="rose">ติดลบ</IssueChip>}
+                  {l.driftMigration > 0 && <IssueChip tone="slate">ข้อมูลก่อนเริ่มใช้ระบบ {l.driftMigration}</IssueChip>}
+                </div>
+              </div>
+            </button>
+          )
+        })}
+        {lots.length > 1 && (
+          <button type="button" onClick={() => onSelect(null)} aria-pressed={selected === null}
+            className={`w-full flex items-center gap-2 rounded-xl px-3 py-2.5 mt-1 border text-sm font-medium transition-colors ${selected === null
+              ? 'bg-teal-50 dark:bg-teal-950/40 border-teal-300 dark:border-teal-800 text-teal-800 dark:text-teal-300'
+              : 'border-dashed border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+            <CalendarDays size={15} className="shrink-0" /> ดูทุก lot เรียงตามวัน
+          </button>
+        )}
+      </div>
+    </nav>
+  )
+}
+
+// ป้ายเตือนในรายการ lot (กดไม่ได้ — อยู่ในปุ่มเลือก lot อยู่แล้ว)
+function IssueChip({ tone, children }) {
+  const cls = {
+    amber: 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300',
+    rose: 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300',
+    slate: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
+  }[tone]
+  return (
+    <span className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-px font-semibold ${cls}`}>
+      {tone !== 'slate' && <AlertTriangle size={10} />}{children}
+    </span>
+  )
+}
+
+// ตัวเลขบนหัวของ lot
+function LotStat({ label, value, hint, tone }) {
+  const t = {
+    emerald: 'text-emerald-700 dark:text-emerald-300',
+    teal: 'text-teal-700 dark:text-teal-300',
+    rose: 'text-rose-600 dark:text-rose-400',
+  }[tone] || 'text-slate-800 dark:text-slate-100'
+  return (
+    <div className="bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 px-3 py-2">
+      <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">{label}</p>
+      <p className={`text-lg font-bold tabular-nums ${t}`}>{fmtNum(value)}</p>
+      {hint && <p className="text-[10px] text-slate-400 dark:text-slate-500">{hint}</p>}
+    </div>
+  )
+}
+
+// รายละเอียดที่ซ่อนอยู่ของแถว (กดแถวแล้วกาง) — มูลค่าย้ายมาอยู่ที่นี่ (ข้อตกลงข้อ 3)
+function RowDetail({ r, price }) {
+  const items = [
+    ['มูลค่า', r.value ? `${fmtNum(r.value)} บาท` : '-', price ? `ราคา/หน่วย ${fmtNum(price)}` : null],
+    ['Exp', fmtThai(r.exp)],
+    ['ชนิดรายการ', r.kind || '-', r.noDeduct ? 'ไม่ตัดยอด' : null],
+    ...(r.side === 'in'
+      ? [['บริษัท', r.party || '-'], ['เลขที่บิล', r.ref || '-']]
+      : [
+        ['คงเหลือก่อนเบิกตามชีทเบิก', r.qtyBefore == null ? 'ไม่ได้บันทึก' : fmtNum(r.qtyBefore)],
+        ['คงเหลือหลังเบิกตามชีทเบิก', r.qtyAfter == null ? 'ไม่ได้บันทึก' : fmtNum(r.qtyAfter)],
+        ['หน่วยงาน', r.party || '-'],
+        ['หมายเหตุ', displayRef(r.ref) || '-'],
+      ]),
+  ]
+  return (
+    <dl className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-2 text-xs">
+      {items.map(([k, v, hint]) => (
+        <div key={k} className="min-w-0">
+          <dt className="text-slate-400 dark:text-slate-500">{k}</dt>
+          <dd className="font-semibold text-slate-700 dark:text-slate-200 break-words tabular-nums">
+            {v}
+            {hint && <span className="block font-normal text-[10px] text-slate-400 dark:text-slate-500">{hint}</span>}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
 export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}, initialDrug = null, onInitialDrugUsed }) {
   const [drugOptions, setDrugOptions] = useState([])
   const [nameToCode, setNameToCode] = useState({})
@@ -136,12 +252,12 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
   const [data, setData] = useState(null)      // { receiveRows, dispenseRows, meta }
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [lotFilter, setLotFilter] = useState('')
-  const [kindFilter, setKindFilter] = useState('')
+  const [selLot, setSelLot] = useState(AUTO)       // lot ที่เลือก · null = ดูทุก lot เรียงตามวัน
+  const [openRow, setOpenRow] = useState(null)     // แถวที่กางดูรายละเอียด (มูลค่า · ยอดตามชีทเบิก)
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [showFilter, setShowFilter] = useState(false)
-  const [driftRow, setDriftRow] = useState(null)   // แถวที่กดดูรายละเอียด "ยอดไม่ตรงบันทึก"
+  const [driftRow, setDriftRow] = useState(null)   // แถวที่กดดูรายละเอียด "ยอดไม่ตรง"/"แถวกรอกผิด"
   const [flashKey, setFlashKey] = useState(null)   // แถวที่เพิ่งกระโดดไป — ไฮไลต์ชั่วคราว
   const rowRefs = useRef({})                       // key แถว → element (สำหรับ scroll ไปหา)
   const [scanning, setScanning] = useState(false)
@@ -164,13 +280,24 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
     return () => { alive = false }
   }, [])
 
-  // ล้างทุกอย่างกลับ empty state — ใช้ตอนกด X ล้างชื่อยา (ตารางต้องหายไปด้วย)
+  useEffect(() => {
+    const fn = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', fn)
+    return () => window.removeEventListener('resize', fn)
+  }, [])
+
+  // ยาตัวใหม่/ล้างชื่อยา → กลับไปให้ระบบเลือก lot เอง + ทิ้งตัวกรอง/แถวที่กาง
   // ล้าง rowRefs ด้วย ไม่งั้น ref ของยาตัวก่อนค้าง → กระโดดไปหา element ที่หลุด DOM แล้ว
-  const clearAll = () => {
-    setData(null); setError('')
-    setLotFilter(''); setKindFilter(''); setDateFrom(''); setDateTo('')
+  const resetView = () => {
+    setSelLot(AUTO); setOpenRow(null); setDateFrom(''); setDateTo('')
     setDriftRow(null); setFlashKey(null)
     rowRefs.current = {}
+  }
+
+  // ล้างทุกอย่างกลับ empty state — ใช้ตอนกด X ล้างชื่อยา (ตารางต้องหายไปด้วย)
+  const clearAll = () => {
+    setData(null); setError('')
+    resetView()
   }
 
   const loadCard = async (name) => {
@@ -179,9 +306,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
     setLoading(true); setError('')
     try {
       setData(await fetchStockCard(code))
-      setLotFilter(''); setKindFilter(''); setDateFrom(''); setDateTo('')
-      setDriftRow(null); setFlashKey(null)
-      rowRefs.current = {}   // ยาตัวใหม่ → ทิ้ง ref เก่าทั้งหมด
+      resetView()
     } catch (e) { setError(e.message); setData(null) }
     finally { setLoading(false) }
   }
@@ -233,9 +358,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
     setLoading(true); setError('')
     try {
       setData(await fetchStockCard(code))
-      setLotFilter(''); setKindFilter(''); setDateFrom(''); setDateTo('')
-      setDriftRow(null); setFlashKey(null)
-      rowRefs.current = {}
+      resetView()
     } catch (e) { setError(e.message); setData(null) }
     finally { setLoading(false) }
   }
@@ -268,57 +391,100 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
     })
   }, [data])
 
-  const visibleRows = useMemo(
-    () => (card ? filterStockCard(card.rows, {
-      lot: lotFilter || undefined,
-      kind: kindFilter || undefined,
-      from: dateFrom || undefined,
-      to: dateTo || undefined,
-    }) : []),
-    [card, lotFilter, kindFilter, dateFrom, dateTo]
+  // lot ที่แสดงจริง: AUTO บนคอม = defaultLot (มีป้ายเตือน → ยังมีของ หมดอายุเร็วสุด) · มือถือไม่เลือกให้
+  // lot ที่เลือกไว้แต่ไม่มีในยานี้ (ไม่ควรเกิด — resetView ทุกครั้งที่เปลี่ยนยา) → ดูทุก lot
+  const lot = !card ? null
+    : selLot === AUTO ? (isMobile ? null : defaultLot(card.lots))
+      : (selLot && card.lots.some(l => l.lot === selLot) ? selLot : null)
+
+  const lotRows = useMemo(
+    () => (!card ? [] : lot ? card.rows.filter(r => r.lot === lot) : sortRowsByDate(card.rows)),
+    [card, lot]
   )
+  const visibleRows = useMemo(
+    () => filterStockCard(lotRows, { from: dateFrom || undefined, to: dateTo || undefined }),
+    [lotRows, dateFrom, dateTo]
+  )
+
+  // หัวของ lot ที่ดูอยู่ (หรือรวมทุก lot) — ยอดตั้งต้น + รับ − เบิก = คงเหลือ เสมอ
+  // (lot ที่มีประวัติรับเข้า opening = 0 · totalOut ไม่นับแถวไม่หักยอด — stockCard.js)
+  const view = useMemo(() => {
+    if (!card) return null
+    const ls = lot ? card.lots.filter(l => l.lot === lot) : card.lots
+    const sum = (f) => ls.reduce((s, l) => s + f(l), 0)
+    return {
+      info: lot ? ls[0] : null,
+      lotCount: ls.length,
+      hasOpening: ls.some(l => !l.hasReceipt),
+      opening: sum(l => l.opening),
+      totalIn: sum(l => l.totalIn),
+      totalOut: sum(l => l.totalOut),
+      closing: sum(l => l.closing),
+      driftReal: sum(l => l.driftReal),
+      driftMigration: sum(l => l.driftMigration),
+      rowErr: sum(l => l.rowErrCount),
+      negative: ls.filter(l => l.negative).length,
+    }
+  }, [card, lot])
+
+  const pickLot = (l) => { setSelLot(l); setOpenRow(null); setFlashKey(null) }
 
   // key แถวที่ stable ข้ามการกรอง (index เปลี่ยนเมื่อกรอง → ใช้เป็น ref key ไม่ได้)
   const rowKey = (r) => `${r.lot}|${r.date}|${r.side}|${r.qtyIn}|${r.qtyOut}|${r.qtyBefore ?? ''}`
 
-  // กด badge → ล้างตัวกรองที่บังแถวนั้น แล้วเลื่อนไปหา + ไฮไลต์
-  // ⚠️ desktop <tr> กับ mobile card ใช้ key เดียวกัน — ต้องแยก ref เป็น 'd:'/'m:'
-  // ไม่งั้น card (render ทีหลัง) ทับ ref ของ tr แล้ว scrollIntoView ยิงใส่ element
-  // ที่ display:none บน desktop → ไม่เลื่อนไปไหน
+  // กดบรรทัดสรุปบนหัวของ lot → ล้างช่วงวันที่ที่บังแถวนั้น แล้วเลื่อนไปหา + ไฮไลต์
+  // ref แยก 'd:' (ตารางคอม) / 'm:' (การ์ดมือถือ) — เลือกตัวที่มองเห็นจริง
   const jumpToRow = (predicate) => {
-    if (!card) return
-    const target = card.rows.find(predicate)
+    const target = lotRows.find(predicate)
     if (!target) return
-    setLotFilter(''); setKindFilter(''); setDateFrom(''); setDateTo('')
+    setDateFrom(''); setDateTo('')
     const key = rowKey(target)
     setFlashKey(key)
     // รอ React render แถวที่เพิ่งถูกปลดกรองก่อนค่อย scroll
     setTimeout(() => {
-      // เลือก element ที่มองเห็นจริง (offsetParent = null เมื่อ display:none)
+      // เลือก element ที่มองเห็นจริง (offsetParent = null เมื่อ display:none/หลุด DOM)
       const el = [rowRefs.current[`d:${key}`], rowRefs.current[`m:${key}`]]
         .find(n => n && n.offsetParent !== null)
       if (!el) return
-      // ตารางมี max-h-[70vh] = scroll container ของตัวเอง → scrollIntoView จัดกลางในกล่อง
+      // ตารางคอมเป็น scroll container ของตัวเอง → scrollIntoView จัดกลางในกล่อง
       // แต่ถ้ากล่องอยู่นอกจอ ผู้ใช้จะไม่เห็นอะไรเลย จึงเลื่อนหน้าไปหากล่องด้วย
       el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      const box = el.closest('.overflow-x-auto')
+      const box = el.closest('[data-scrollbox]')
       if (box) box.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }, 60)
     setTimeout(() => setFlashKey(null), 2600)
   }
-  const kinds = useMemo(
-    () => (card ? [...new Set(card.rows.map(r => r.kind).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'th')) : []),
-    [card]
-  )
 
   const meta = data?.meta
-  const hasFilter = !!(lotFilter || kindFilter || dateFrom || dateTo)
-  // บอกบนใบพิมพ์ว่ากรองอะไรอยู่ — กันเข้าใจผิดว่าเป็นข้อมูลครบทั้งหมด
+  const hasDateFilter = !!(dateFrom || dateTo)
+  // บอกบนใบพิมพ์ว่าเป็น lot ไหน/ช่วงไหน — กันเข้าใจผิดว่าเป็นข้อมูลครบทั้งหมด
   const filterLabel = [
-    lotFilter && `Lot ${lotFilter}`,
-    kindFilter && `ชนิด ${kindFilter}`,
-    (dateFrom || dateTo) && `ช่วง ${dateFrom ? fmtThai(dateFrom) : '...'}–${dateTo ? fmtThai(dateTo) : '...'}`,
+    lot ? `Lot ${lot}` : (card && card.lots.length > 1 ? 'ทุก lot เรียงตามวัน' : ''),
+    hasDateFilter && `ช่วง ${dateFrom ? fmtThai(dateFrom) : '...'}–${dateTo ? fmtThai(dateTo) : '...'}`,
   ].filter(Boolean).join(' · ')
+
+  // ช่วงวันที่ — ตัวแปรชุดเดียว (มือถือจะย้ายเข้า FilterSheet ในขั้น 3)
+  const dateFilter = (
+    <div className="flex flex-wrap items-end gap-3">
+      <div>
+        <label className="block text-[11px] font-semibold text-slate-400 dark:text-slate-500 mb-1">ตั้งแต่วันที่</label>
+        <IsoDateInput value={dateFrom} onChange={setDateFrom} className="w-36" />
+      </div>
+      <div>
+        <label className="block text-[11px] font-semibold text-slate-400 dark:text-slate-500 mb-1">ถึงวันที่</label>
+        <IsoDateInput value={dateTo} onChange={setDateTo} className="w-36" />
+      </div>
+      {hasDateFilter && (
+        <button type="button" onClick={() => { setDateFrom(''); setDateTo('') }}
+          className="flex items-center gap-1 px-2 py-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">
+          <X size={14} /> ล้างช่วงวันที่
+        </button>
+      )}
+      <span className="ml-auto self-center text-xs text-slate-400 dark:text-slate-500 tabular-nums">
+        {visibleRows.length === lotRows.length ? `${lotRows.length} รายการ` : `${visibleRows.length} / ${lotRows.length} รายการ`}
+      </span>
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-800">
@@ -498,255 +664,269 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-400 dark:text-slate-500 text-sm">กำลังโหลด...</div>
         )}
 
-        {!loading && card && meta && (
+        {!loading && card && meta && view && (
           <>
-            {/* header ยา: รหัส / หน่วย / ราคา / จำนวน lot (ตาม Excel row 5) */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <p className="font-bold text-slate-800 dark:text-slate-100 text-lg leading-tight">{meta.name || '-'}</p>
-                {/* export/print ใช้ visibleRows = ตรงกับที่ผู้ใช้เห็นหลังกรอง (Rule #6) */}
-                <div className="flex gap-2 shrink-0">
-                  <button
-                    onClick={() => printStockCard(meta, visibleRows, card.summary, filterLabel)}
-                    className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
-                  >
-                    <Printer size={16} /> พิมพ์
-                  </button>
-                  <button
-                    onClick={() => exportToExcel(
-                      visibleRows, STOCKCARD_EXCEL_COLS, 'การ์ดคลัง lot',
-                      `stockcard_${meta.code}_${new Date().toISOString().slice(0, 10)}.xlsx`, auth
-                    )}
-                    className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 rounded-lg px-3 py-1 text-sm font-medium transition-colors"
-                  >
-                    <FileDown size={16} /> Excel
-                  </button>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-x-6 gap-y-1 mt-2 text-sm">
-                <span className="text-slate-500 dark:text-slate-400">รหัส: <b className="text-slate-700 dark:text-slate-200">{meta.code}</b></span>
-                <span className="text-slate-500 dark:text-slate-400">หน่วย: <b className="text-slate-700 dark:text-slate-200">{meta.unit || '-'}</b></span>
-                <span className="text-slate-500 dark:text-slate-400">ราคา/หน่วย: <b className="text-slate-700 dark:text-slate-200">{fmtNum(meta.pricePerUnit)}</b></span>
-                <span className="text-slate-500 dark:text-slate-400">จำนวน Lot: <b className="text-slate-700 dark:text-slate-200">{card.summary.lotCount}</b></span>
-              </div>
-              <div className="flex flex-wrap gap-2 mt-3">
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60">
-                  <TrendingUp size={13} /> รับเข้ารวม {fmtNum(card.summary.totalIn)}
-                </span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60">
-                  <TrendingDown size={13} /> เบิกออกรวม {fmtNum(card.summary.totalOut)}
-                </span>
-                {card.summary.negativeLots > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800/60">
-                    <AlertTriangle size={13} /> คงเหลือติดลบ {card.summary.negativeLots} lot
-                  </span>
-                )}
-                {card.summary.driftLots > 0 && (
-                  <button
-                    onClick={() => jumpToRow(r => r.isDriftPoint)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors"
-                    title="ไปที่แถวแรกที่ยอดไม่ตรง"
-                  >
-                    <AlertTriangle size={13} /> ยอดไม่ตรงบันทึก {card.summary.driftLots} lot
-                  </button>
-                )}
-                {card.summary.rowErrRows > 0 && (
-                  <button
-                    onClick={() => jumpToRow(r => r.hasRowErr)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800/60 hover:bg-rose-200 dark:hover:bg-rose-900/60 transition-colors"
-                    title="ไปที่แถวแรกที่กรอกผิด"
-                  >
-                    <AlertTriangle size={13} /> แถวกรอกผิด {card.summary.rowErrRows} แถว
-                  </button>
-                )}
-              </div>
-              {card.summary.driftLots > 0 && (
-                <p className="mt-2 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-lg px-3 py-2">
-                  พบ <b>{card.summary.driftRows} จุด</b> ที่ยอดคำนวณไม่ตรงกับ &quot;ยอดที่บันทึกไว้&quot; —
-                  แปลว่ามีการเคลื่อนไหวที่ไม่ได้ถูกบันทึกในระบบ (ไม่ใช่การคำนวณผิด)
-                  เครื่องหมายเตือนแสดงเฉพาะ<b>จุดที่ของหายจริง</b> แถวถัดไปที่ยอดต่างเท่าเดิมไม่เตือนซ้ำ
+            {/* หัวยา — กะทัดรัด (ป้ายเตือนย้ายไปอยู่รายการ lot + หัวของ lot แล้ว) */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <div className="min-w-0 flex-1 basis-64">
+                <p className="font-bold text-slate-800 dark:text-slate-100 text-lg leading-tight break-words">{meta.name || '-'}</p>
+                <p className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  <span>รหัส: <b className="text-slate-700 dark:text-slate-200">{meta.code}</b></span>
+                  <span>หน่วย: <b className="text-slate-700 dark:text-slate-200">{meta.unit || '-'}</b></span>
+                  <span>ราคา/หน่วย: <b className="text-slate-700 dark:text-slate-200 tabular-nums">{fmtNum(meta.pricePerUnit)}</b></span>
+                  <span><b className="text-slate-700 dark:text-slate-200 tabular-nums">{card.summary.lotCount}</b> lot</span>
                 </p>
-              )}
+              </div>
+              {/* export/print ใช้ visibleRows = ตรงกับที่ผู้ใช้เห็น (Rule #6) */}
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => printStockCard(meta, visibleRows, card.summary, filterLabel)}
+                  className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
+                >
+                  <Printer size={16} /> พิมพ์
+                </button>
+                <button
+                  onClick={() => exportToExcel(
+                    visibleRows, STOCKCARD_EXCEL_COLS, 'การ์ดคลัง lot',
+                    `stockcard_${meta.code}_${new Date().toISOString().slice(0, 10)}.xlsx`, auth
+                  )}
+                  className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
+                >
+                  <FileDown size={16} /> Excel
+                </button>
+              </div>
             </div>
 
-            {/* ตัวกรอง (พับได้) */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700">
-              <button
-                onClick={() => setShowFilter(v => !v)}
-                className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-colors"
-              >
-                <span className="flex items-center gap-2"><Filter size={15} /> ตัวกรอง
-                  {hasFilter && <span className="px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 text-[11px]">กำลังกรอง</span>}
-                </span>
-                <span className="text-xs text-slate-400 dark:text-slate-500">{visibleRows.length} / {card.rows.length} รายการ</span>
-              </button>
-              {showFilter && (
-                <div className="px-4 pb-4 flex flex-wrap gap-3 border-t border-slate-100 dark:border-slate-800 pt-3">
-                  <div className="w-44">
-                    <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Lot</label>
-                    <SearchableSelect
-                      value={lotFilter}
-                      onChange={setLotFilter}
-                      options={card.lots.map(l => l.lot)}
-                      placeholder="ทุก lot"
-                      emptyLabel="ทุก lot"
-                    />
+            {/* รายการ lot ซ้าย + ความเคลื่อนไหวของ lot ที่เลือกขวา (ข้อตกลงข้อ 2) */}
+            <div className="grid gap-4 items-start md:grid-cols-[17rem_minmax(0,1fr)]">
+              <LotList lots={card.lots} selected={lot} onSelect={pickLot} />
+
+              <div className="min-w-0 space-y-3">
+                {/* หัวของ lot */}
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
+                  {view.info ? (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="text-xs font-semibold text-slate-400 dark:text-slate-500">Lot</span>
+                      <span className="font-mono text-base font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 px-2 py-0.5 rounded-md break-all">{view.info.lot}</span>
+                      <span className="text-sm text-slate-500 dark:text-slate-400">Exp <b className="text-slate-700 dark:text-slate-200 tabular-nums">{view.info.exp ? fmtThai(view.info.exp) : '-'}</b></span>
+                    </div>
+                  ) : (
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-bold text-slate-800 dark:text-slate-100">
+                      <CalendarDays size={16} className="text-teal-600 shrink-0" /> ทุก lot เรียงตามวัน
+                      <span className="text-xs font-normal text-slate-400 dark:text-slate-500">{view.lotCount} lot · คอลัมน์คงเหลือเป็นยอดของ lot ในแถวนั้น</span>
+                    </p>
+                  )}
+
+                  <div className={`mt-3 grid grid-cols-2 gap-2 ${view.hasOpening ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+                    {view.hasOpening && (
+                      <LotStat label={view.info ? 'ยอดตั้งต้นของ lot' : 'ยอดตั้งต้นรวม'} value={view.opening}
+                        hint={view.info ? 'ไม่มีประวัติรับเข้าในระบบ' : 'เฉพาะ lot ที่ไม่มีประวัติรับเข้า'} />
+                    )}
+                    <LotStat label="รับเข้ารวม" value={view.totalIn} tone="emerald" />
+                    <LotStat label="เบิกออกรวม" value={view.totalOut} />
+                    <LotStat label={view.info ? 'คงเหลือ' : 'คงเหลือรวม'} value={view.closing} tone={view.closing < 0 ? 'rose' : 'teal'} />
                   </div>
-                  <div>
-                    <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">ชนิดรายการ</label>
-                    <select value={kindFilter} onChange={e => setKindFilter(e.target.value)}
-                      className="border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-teal-400 outline-none">
-                      <option value="">ทุกชนิด</option>
-                      {kinds.map(k => <option key={k} value={k}>{k}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">ตั้งแต่วันที่</label>
-                    <IsoDateInput value={dateFrom} onChange={setDateFrom} className="w-36" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">ถึงวันที่</label>
-                    <IsoDateInput value={dateTo} onChange={setDateTo} className="w-36" />
-                  </div>
-                  {hasFilter && (
-                    <button onClick={() => { setLotFilter(''); setKindFilter(''); setDateFrom(''); setDateTo('') }}
-                      className="self-end flex items-center gap-1 px-3 py-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
-                      <X size={14} /> ล้างตัวกรอง
-                    </button>
+
+                  {/* บรรทัดสรุปจุดที่ยอดมีปัญหา — กดแล้วเลื่อนไปแถวแรกของเรื่องนั้น (ข้อตกลงข้อ 4) */}
+                  {(view.driftReal + view.rowErr + view.negative + view.driftMigration) > 0 && (
+                    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                      {(view.driftReal + view.rowErr + view.negative) > 0
+                        ? <AlertTriangle size={14} className="text-amber-600 shrink-0" />
+                        : <Info size={14} className="text-slate-400 shrink-0" />}
+                      {view.driftReal > 0 && (
+                        <button type="button" onClick={() => jumpToRow(r => r.isDriftPoint && !r.fromMigration)}
+                          className="font-semibold text-amber-700 dark:text-amber-300 underline underline-offset-2 decoration-amber-300 hover:decoration-amber-600 transition-colors">
+                          ยอดไม่ตรง {view.driftReal} จุด
+                        </button>
+                      )}
+                      {view.rowErr > 0 && (
+                        <button type="button" onClick={() => jumpToRow(r => r.hasRowErr)}
+                          className="font-semibold text-rose-700 dark:text-rose-300 underline underline-offset-2 decoration-rose-300 hover:decoration-rose-600 transition-colors">
+                          แถวกรอกผิด {view.rowErr} แถว
+                        </button>
+                      )}
+                      {view.negative > 0 && (
+                        <span className="font-semibold text-rose-700 dark:text-rose-300">คงเหลือติดลบ{view.info ? '' : ` ${view.negative} lot`}</span>
+                      )}
+                      {view.driftMigration > 0 && (
+                        <button type="button" onClick={() => jumpToRow(r => r.isDriftPoint && r.fromMigration)}
+                          className="text-slate-500 dark:text-slate-400 underline underline-offset-2 decoration-slate-300 hover:decoration-slate-500 transition-colors">
+                          ข้อมูลก่อนเริ่มใช้ระบบ {view.driftMigration} จุด
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
 
-            {/* ตาราง (desktop) */}
-            <div className="hidden md:block bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-              <div className="overflow-x-auto max-h-[70vh]">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 z-10">
-                    <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                      {['วันที่', 'Lot', 'ชนิดรายการ', 'รับเข้า', 'เบิกออก', 'คงเหลือ Lot', 'ยอดที่บันทึกไว้', 'หน่วยงาน/บริษัท', 'หมายเหตุ/บิล', 'มูลค่า', 'Exp'].map(h => (
-                        <th key={h} className="px-3 py-2.5 text-left font-bold whitespace-nowrap border-b border-slate-200 dark:border-slate-700">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
+                {/* ตาราง 6 คอลัมน์ (คอม) — กดแถวกางดูมูลค่า/ยอดตามชีทเบิก */}
+                {!isMobile && (
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">{dateFilter}</div>
+                    <div data-scrollbox key={lot ?? '*'} className="overflow-auto max-h-[70vh]">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 z-10">
+                          <tr className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                            <th className="px-3 py-3 text-left bg-slate-50 dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700">วันที่</th>
+                            <th className="px-3 py-3 text-left bg-slate-50 dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700">รายการ</th>
+                            <th className="px-3 py-3 text-right bg-slate-50 dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700">รับเข้า</th>
+                            <th className="px-3 py-3 text-right bg-slate-50 dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700">เบิกออก</th>
+                            <th className="px-3 py-3 text-right bg-slate-50 dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700">คงเหลือ</th>
+                            <th className="px-3 py-3 text-left bg-slate-50 dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700">หมายเหตุ</th>
+                            <th className="w-8 bg-slate-50 dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700"><span className="sr-only">กางดูรายละเอียด</span></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleRows.map((r, i) => {
+                            const key = rowKey(r)
+                            const flash = flashKey === key
+                            const open = openRow === key
+                            const issues = rowIssues(r)
+                            const kb = kindBadgeOf(r.kind)
+                            const note = displayRef(r.ref)
+                            const toggle = () => setOpenRow(open ? null : key)
+                            const line = 'border-b border-slate-100 dark:border-slate-800'
+                            return (
+                              <React.Fragment key={i}>
+                                <tr
+                                  ref={el => { if (el) rowRefs.current[`d:${key}`] = el }}
+                                  onClick={toggle}
+                                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle() } }}
+                                  tabIndex={0}
+                                  aria-expanded={open}
+                                  className={`cursor-pointer transition-colors ${issues.length || open ? '' : line} ${flash
+                                    ? 'bg-amber-100 dark:bg-amber-950/60 ring-2 ring-inset ring-amber-400'
+                                    : open ? 'bg-teal-50/70 dark:bg-teal-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}
+                                >
+                                  <td className="px-3 py-2.5 align-top whitespace-nowrap text-slate-600 dark:text-slate-300 tabular-nums">{fmtThai(r.date)}</td>
+                                  <td className="px-3 py-2.5 align-top min-w-40">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      {!lot && <span className="font-mono text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded">{r.lot}</span>}
+                                      <span className={`font-medium ${r.side === 'in' ? 'text-emerald-800 dark:text-emerald-300' : 'text-slate-700 dark:text-slate-200'}`}>{rowTitle(r)}</span>
+                                      {kb && <KindBadge kind={kb} side={r.side} noDeduct={r.noDeduct} />}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2.5 align-top text-right tabular-nums whitespace-nowrap">
+                                    {r.qtyIn > 0
+                                      ? <span className="font-semibold text-emerald-700 dark:text-emerald-300">{fmtNum(r.qtyIn)}</span>
+                                      : <span className="text-slate-300 dark:text-slate-600">-</span>}
+                                  </td>
+                                  <td className="px-3 py-2.5 align-top text-right tabular-nums whitespace-nowrap">
+                                    {r.qtyOut > 0
+                                      ? (r.noDeduct
+                                        ? <span className="text-slate-400 dark:text-slate-500">{fmtNum(r.qtyOut)} <span className="text-[10px]">(ไม่หัก)</span></span>
+                                        : <span className="text-slate-700 dark:text-slate-200">{fmtNum(r.qtyOut)}</span>)
+                                      : <span className="text-slate-300 dark:text-slate-600">-</span>}
+                                  </td>
+                                  <td className={`px-3 py-2.5 align-top text-right tabular-nums whitespace-nowrap font-bold ${r.balance < 0 ? 'text-rose-600' : 'text-slate-800 dark:text-slate-100'}`}>
+                                    {fmtNum(r.balance)}
+                                  </td>
+                                  {/* ตัด 2 บรรทัดแทน truncate บรรทัดเดียว — truncate ทำให้ตาราง auto layout กว้างตามหมายเหตุยาวสุด
+                                      แล้วล้นขวา (แผงขวาที่ 1280px กว้างแค่ ~690px) · ข้อความเต็มอยู่ title + แถวที่กาง */}
+                                  <td className="px-3 py-2.5 align-top text-xs text-slate-500 dark:text-slate-400">
+                                    <p className="line-clamp-2 break-words" title={note}>{note ? (r.side === 'in' ? `บิล ${note}` : note) : '-'}</p>
+                                  </td>
+                                  <td className="pr-3 py-2.5 align-top text-slate-400 dark:text-slate-500">
+                                    <ChevronDown size={15} className={open ? 'rotate-180' : ''} />
+                                  </td>
+                                </tr>
+                                {issues.length > 0 && (
+                                  <tr className={open ? '' : line}>
+                                    <td colSpan={7} className="px-3 pb-2.5 pt-0">
+                                      <div className="space-y-1">
+                                        {issues.map((it, j) => (
+                                          <div key={j} className={`flex items-start gap-2 rounded-lg px-3 py-1.5 text-xs ${ISSUE_STYLE[it.type]}`}>
+                                            {it.type === 'migration'
+                                              ? <Info size={13} className="mt-0.5 shrink-0" />
+                                              : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
+                                            <span className="flex-1 min-w-0">{it.text}</span>
+                                            {j === 0 && (
+                                              <button type="button" onClick={() => setDriftRow(r)}
+                                                className="shrink-0 font-semibold underline underline-offset-2 hover:opacity-80 transition-opacity">
+                                                ดูรายละเอียด
+                                              </button>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                                {open && (
+                                  <tr className={`${line} bg-teal-50/40 dark:bg-teal-950/20`}>
+                                    <td colSpan={7} className="px-4 py-3">
+                                      <RowDetail r={r} price={meta.pricePerUnit} />
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            )
+                          })}
+                          {visibleRows.length === 0 && (
+                            <tr><td colSpan={7} className="px-3 py-10 text-center text-slate-400 dark:text-slate-500">ไม่มีรายการในช่วงวันที่นี้</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* มือถือ (< 768px) — ชั่วคราวจนถึงขั้น 3 (2 ชั้น + FilterSheet) */}
+                {isMobile && (
+                  <div className="space-y-2">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-3">{dateFilter}</div>
                     {visibleRows.map((r, i) => {
                       const key = rowKey(r)
                       const flash = flashKey === key
+                      const kb = kindBadgeOf(r.kind)
                       return (
-                      <tr
+                      <div
                         key={i}
-                        ref={el => { if (el) rowRefs.current[`d:${key}`] = el }}
-                        className={`border-b transition-colors ${flash ? 'bg-amber-100 dark:bg-amber-950/60 ring-2 ring-amber-400 border-amber-300 dark:border-amber-800/60' : `border-slate-100 dark:border-slate-800 ${r.qtyIn > 0 ? 'bg-emerald-50 dark:bg-emerald-950/40' : ''}`}`}
+                        ref={el => { if (el) rowRefs.current[`m:${key}`] = el }}
+                        className={`bg-white dark:bg-slate-900 rounded-xl border p-3 transition-colors ${flash ? 'border-amber-400 ring-2 ring-amber-300 bg-amber-50 dark:bg-amber-950/40' : (r.qtyIn > 0 ? 'border-emerald-200 dark:border-emerald-900/60' : 'border-slate-200 dark:border-slate-700')}`}
                       >
-                        <td className="px-3 py-2 whitespace-nowrap text-slate-600 dark:text-slate-300">{fmtThai(r.date)}</td>
-                        <td className="px-3 py-2 whitespace-nowrap font-medium text-slate-700 dark:text-slate-200">{r.lot}</td>
-                        <td className="px-3 py-2 whitespace-nowrap"><KindBadge kind={r.kind} side={r.side} noDeduct={r.noDeduct} /></td>
-                        <td className="px-3 py-2 text-right text-emerald-700 dark:text-emerald-300 font-semibold">{r.qtyIn > 0 ? fmtNum(r.qtyIn) : '-'}</td>
-                        <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-200">
-                          {r.qtyOut > 0 ? fmtNum(r.qtyOut) : '-'}
-                          {r.noDeduct && r.qtyOut > 0 && <span className="ml-1 text-[10px] text-slate-400 dark:text-slate-500">(ไม่หัก)</span>}
-                        </td>
-                        <td className={`px-3 py-2 text-right font-bold ${r.balance < 0 ? 'text-rose-600' : 'text-slate-800 dark:text-slate-100'}`}>
-                          {fmtNum(r.balance)}
-                          {/* เตือนเฉพาะ "จุดที่ของหายจริง" — แถวที่ drift ค้างมาไม่เตือนซ้ำ */}
-                          {r.isDriftPoint && (
-                            <button
-                              onClick={() => setDriftRow(r)}
-                              className="ml-1 inline-flex items-center align-middle text-amber-600 hover:text-amber-700 hover:bg-amber-100 dark:hover:bg-amber-950/70 rounded p-0.5 transition-colors"
-                              aria-label="ดูรายละเอียดยอดไม่ตรง"
-                            >
-                              <AlertTriangle size={13} />
-                            </button>
-                          )}
-                        </td>
-                        {/* ยอดที่ต้นทางบันทึกไว้ (qty_before) — ให้เห็นว่าไอคอนเทียบกับอะไร ไม่ต้องเปิดโมดอล */}
-                        <td className={`px-3 py-2 text-right ${r.hasDrift ? 'text-amber-700 dark:text-amber-300 font-semibold' : 'text-slate-400 dark:text-slate-500'}`}>
-                          {r.qtyBefore == null ? '-' : fmtNum(r.qtyBefore)}
-                          {/* กรอกผิดที่ต้นทาง (ก่อน−ออก≠หลัง) — คนละเรื่องกับ drift จึงใช้สีแดงแยก */}
-                          {r.hasRowErr && (
-                            <button
-                              onClick={() => setDriftRow(r)}
-                              className="ml-1 inline-flex items-center align-middle text-rose-600 hover:text-rose-700 hover:bg-rose-100 dark:hover:bg-rose-950/70 rounded p-0.5 transition-colors"
-                              aria-label="แถวนี้กรอกผิด"
-                            >
-                              <AlertTriangle size={13} />
-                            </button>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-slate-600 dark:text-slate-300 max-w-[180px] truncate" title={r.party}>{r.party || '-'}</td>
-                        <td className="px-3 py-2 text-slate-500 dark:text-slate-400 text-xs max-w-[200px] truncate" title={r.ref}>{r.ref || '-'}</td>
-                        <td className="px-3 py-2 text-right text-slate-600 dark:text-slate-300">{r.value ? fmtNum(r.value) : '-'}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-slate-500 dark:text-slate-400 text-xs">{fmtThai(r.exp)}</td>
-                      </tr>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-slate-500 dark:text-slate-400">{fmtThai(r.date)}</span>
+                          {kb && <KindBadge kind={kb} side={r.side} noDeduct={r.noDeduct} />}
+                        </div>
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <Package size={14} className="text-slate-400 dark:text-slate-500 shrink-0" />
+                          <span className="font-semibold text-slate-700 dark:text-slate-200 text-sm">Lot {r.lot}</span>
+                        </div>
+                        <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                          <div className="bg-emerald-50 dark:bg-emerald-950/40 rounded-lg py-1.5">
+                            <p className="text-[10px] text-emerald-600">รับเข้า</p>
+                            <p className="font-bold text-emerald-700 dark:text-emerald-300 text-sm">{r.qtyIn > 0 ? fmtNum(r.qtyIn) : '-'}</p>
+                          </div>
+                          <div className="bg-slate-50 dark:bg-slate-800 rounded-lg py-1.5">
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400">เบิกออก</p>
+                            <p className="font-bold text-slate-700 dark:text-slate-200 text-sm">{r.qtyOut > 0 ? fmtNum(r.qtyOut) : '-'}</p>
+                          </div>
+                          <div className={`rounded-lg py-1.5 ${r.balance < 0 ? 'bg-rose-50 dark:bg-rose-950/40' : 'bg-teal-50 dark:bg-teal-950/40'}`}>
+                            <p className={`text-[10px] ${r.balance < 0 ? 'text-rose-600' : 'text-teal-600'}`}>คงเหลือ</p>
+                            <p className={`font-bold text-sm ${r.balance < 0 ? 'text-rose-700 dark:text-rose-300' : 'text-teal-700 dark:text-teal-300'}`}>{fmtNum(r.balance)}</p>
+                          </div>
+                        </div>
+                        {rowIssues(r).map((it, j) => (
+                          <button key={j} type="button" onClick={() => setDriftRow(r)}
+                            className={`mt-2 w-full flex items-start gap-1.5 text-[11px] rounded-lg px-2 py-1.5 text-left ${ISSUE_STYLE[it.type]}`}>
+                            {it.type === 'migration' ? <Info size={13} className="mt-0.5 shrink-0" /> : <AlertTriangle size={13} className="mt-0.5 shrink-0" />}
+                            <span>{it.text}</span>
+                          </button>
+                        ))}
+                        <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 space-y-0.5">
+                          {r.party && <p>{r.side === 'in' ? 'บริษัท' : 'หน่วยงาน'}: {r.party}</p>}
+                          {r.ref && <p className="break-words">หมายเหตุ: {displayRef(r.ref)}</p>}
+                          {r.exp && r.exp !== '-' && <p>Exp: {fmtThai(r.exp)}</p>}
+                        </div>
+                      </div>
                       )
                     })}
                     {visibleRows.length === 0 && (
-                      <tr><td colSpan={11} className="px-3 py-10 text-center text-slate-400 dark:text-slate-500">ไม่มีรายการตามตัวกรอง</td></tr>
+                      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-400 dark:text-slate-500 text-sm">ไม่มีรายการในช่วงวันที่นี้</div>
                     )}
-                  </tbody>
-                </table>
+                  </div>
+                )}
               </div>
-            </div>
-
-            {/* card list (mobile < 768px — Rule #5) */}
-            <div className="md:hidden space-y-2">
-              {visibleRows.map((r, i) => {
-                const key = rowKey(r)
-                const flash = flashKey === key
-                return (
-                <div
-                  key={i}
-                  ref={el => { if (el) rowRefs.current[`m:${key}`] = el }}
-                  className={`bg-white dark:bg-slate-900 rounded-xl border p-3 transition-colors ${flash ? 'border-amber-400 ring-2 ring-amber-300 bg-amber-50 dark:bg-amber-950/40' : (r.qtyIn > 0 ? 'border-emerald-200 dark:border-emerald-900/60' : 'border-slate-200 dark:border-slate-700')}`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-slate-500 dark:text-slate-400">{fmtThai(r.date)}</span>
-                    <KindBadge kind={r.kind} side={r.side} noDeduct={r.noDeduct} />
-                  </div>
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <Package size={14} className="text-slate-400 dark:text-slate-500 shrink-0" />
-                    <span className="font-semibold text-slate-700 dark:text-slate-200 text-sm">Lot {r.lot}</span>
-                  </div>
-                  <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-                    <div className="bg-emerald-50 dark:bg-emerald-950/40 rounded-lg py-1.5">
-                      <p className="text-[10px] text-emerald-600">รับเข้า</p>
-                      <p className="font-bold text-emerald-700 dark:text-emerald-300 text-sm">{r.qtyIn > 0 ? fmtNum(r.qtyIn) : '-'}</p>
-                    </div>
-                    <div className="bg-slate-50 dark:bg-slate-800 rounded-lg py-1.5">
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400">เบิกออก</p>
-                      <p className="font-bold text-slate-700 dark:text-slate-200 text-sm">{r.qtyOut > 0 ? fmtNum(r.qtyOut) : '-'}</p>
-                    </div>
-                    <div className={`rounded-lg py-1.5 ${r.balance < 0 ? 'bg-rose-50 dark:bg-rose-950/40' : 'bg-teal-50 dark:bg-teal-950/40'}`}>
-                      <p className={`text-[10px] ${r.balance < 0 ? 'text-rose-600' : 'text-teal-600'}`}>คงเหลือ</p>
-                      <p className={`font-bold text-sm ${r.balance < 0 ? 'text-rose-700 dark:text-rose-300' : 'text-teal-700 dark:text-teal-300'}`}>{fmtNum(r.balance)}</p>
-                    </div>
-                  </div>
-                  {r.isDriftPoint && (
-                    <button
-                      onClick={() => setDriftRow(r)}
-                      className="mt-2 w-full flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded px-2 py-1.5 text-left active:bg-amber-100"
-                    >
-                      <AlertTriangle size={13} className="shrink-0" />
-                      <span>ของหายตรงจุดนี้ {fmtNum(Math.abs(r.driftDelta))} — แตะดูรายละเอียด</span>
-                    </button>
-                  )}
-                  {r.qtyBefore != null && (
-                    <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
-                      ยอดที่บันทึกไว้: <b className={r.hasDrift ? 'text-amber-700 dark:text-amber-300' : 'text-slate-500 dark:text-slate-400'}>{fmtNum(r.qtyBefore)}</b>
-                    </p>
-                  )}
-                  <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 space-y-0.5">
-                    {r.party && <p>{r.side === 'in' ? 'บริษัท' : 'หน่วยงาน'}: {r.party}</p>}
-                    {r.ref && <p className="truncate">อ้างอิง: {r.ref}</p>}
-                    {r.exp && r.exp !== '-' && <p>Exp: {fmtThai(r.exp)}</p>}
-                  </div>
-                </div>
-                )
-              })}
-              {visibleRows.length === 0 && (
-                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-400 dark:text-slate-500 text-sm">ไม่มีรายการตามตัวกรอง</div>
-              )}
             </div>
           </>
         )}
@@ -770,6 +950,9 @@ function DriftModal({ row, onClose }) {
   const recorded = row.qtyBefore             // ยอดก่อนเบิกที่ต้นทางบันทึก
   const diff = row.drift
   const more = diff > 0                      // บวก = ระบบคิดว่ามีมากกว่าที่บันทึก (ของหายไปโดยไม่มีแถว)
+  // แถวไม่หักยอด (บันทึกเท่านั้น/แก้ไขระบบ): หลังเบิกควร = ก่อนเบิก (stockCard.js rowErr)
+  const expectAfter = row.noDeduct ? recorded : recorded - row.qtyOut
+  const title = row.hasDrift ? (row.fromMigration ? 'ข้อมูลก่อนเริ่มใช้ระบบ' : 'ยอดไม่ตรง') : 'แถวกรอกผิด'
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={onClose}>
@@ -781,7 +964,7 @@ function DriftModal({ row, onClose }) {
           <div className="flex items-center gap-2">
             <div className="p-2 bg-amber-100 dark:bg-amber-950/60 text-amber-600 rounded-xl shrink-0"><AlertTriangle size={18} /></div>
             <div>
-              <p className="font-bold text-slate-800 dark:text-slate-100 text-sm leading-tight">ยอดไม่ตรงกับที่บันทึก</p>
+              <p className="font-bold text-slate-800 dark:text-slate-100 text-sm leading-tight">{title}</p>
               <p className="text-slate-400 dark:text-slate-500 text-xs">Lot {row.lot} · {fmtThai(row.date)}</p>
             </div>
           </div>
@@ -791,10 +974,10 @@ function DriftModal({ row, onClose }) {
         </div>
 
         <div className="p-4 space-y-3">
-          {/* แถวตามที่ต้นทาง (Excel) บันทึก — ให้เห็นว่าสมการในแถวถูกไหม */}
+          {/* แถวตามที่ชีทเบิกบันทึก — ให้เห็นว่าสมการในแถวถูกไหม */}
           <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
             <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 border-b border-slate-200 dark:border-slate-700">
-              แถวนี้ตามที่บันทึกไว้ (จาก Excel)
+              แถวนี้ตามชีทเบิก
             </p>
             <table className="w-full text-sm">
               <tbody>
@@ -809,8 +992,11 @@ function DriftModal({ row, onClose }) {
                   </td>
                 </tr>
                 <tr className="border-b border-slate-100 dark:border-slate-800">
-                  <td className="px-3 py-2 text-slate-500 dark:text-slate-400">เบิกออก</td>
-                  <td className="px-3 py-2 text-right font-bold text-slate-800 dark:text-slate-100">− {fmtNum(row.qtyOut)}</td>
+                  <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
+                    เบิกออก
+                    {row.noDeduct && <span className="block text-[11px]">แถว{row.kind} — ไม่ตัดยอด</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right font-bold text-slate-800 dark:text-slate-100">{row.noDeduct ? fmtNum(row.qtyOut) : `− ${fmtNum(row.qtyOut)}`}</td>
                 </tr>
                 <tr className={row.hasRowErr ? 'bg-rose-50 dark:bg-rose-950/40' : 'bg-slate-50 dark:bg-slate-800'}>
                   <td className="px-3 py-2 text-slate-500 dark:text-slate-400">คงเหลือหลังเบิก</td>
@@ -822,12 +1008,16 @@ function DriftModal({ row, onClose }) {
             </table>
             {row.hasRowErr ? (
               <p className="text-[11px] text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 px-3 py-2 border-t border-rose-200 dark:border-rose-900/60">
-                <b>แถวนี้กรอกผิด</b> — {fmtNum(recorded)} − {fmtNum(row.qtyOut)} ควรได้ {fmtNum(recorded - row.qtyOut)}
-                {' '}แต่บันทึกไว้ {fmtNum(row.qtyAfter)} (ต่าง {fmtNum(Math.abs(row.rowErr))})
+                <b>แถวนี้กรอกผิด</b> — {row.noDeduct
+                  ? `แถวไม่ตัดยอด หลังเบิกควรเท่าก่อนเบิก ${fmtNum(expectAfter)}`
+                  : `${fmtNum(recorded)} − ${fmtNum(row.qtyOut)} ควรได้ ${fmtNum(expectAfter)}`}
+                {' '}แต่ชีทเบิกบันทึก {fmtNum(row.qtyAfter)} (ต่าง {fmtNum(Math.abs(row.rowErr))})
               </p>
             ) : row.qtyAfter != null ? (
               <p className="text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-2 border-t border-emerald-200 dark:border-emerald-900/60">
-                สมการในแถวนี้ถูกต้อง ({fmtNum(recorded)} − {fmtNum(row.qtyOut)} = {fmtNum(row.qtyAfter)})
+                สมการในแถวนี้ถูกต้อง ({row.noDeduct
+                  ? `ไม่ตัดยอด หลังเบิก = ก่อนเบิก = ${fmtNum(row.qtyAfter)}`
+                  : `${fmtNum(recorded)} − ${fmtNum(row.qtyOut)} = ${fmtNum(row.qtyAfter)}`})
               </p>
             ) : (
               <p className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 px-3 py-2 border-t border-slate-200 dark:border-slate-700">
@@ -836,19 +1026,21 @@ function DriftModal({ row, onClose }) {
             )}
           </div>
 
-          {/* เทียบยอดตั้งต้น: ระบบไล่จากบิลรับ vs ที่ต้นทางบันทึก */}
+          {/* เทียบคงเหลือก่อนเบิกตามชีทเบิก กับยอดที่ไล่จากประวัติ — แสดงเฉพาะแถวที่ยอดไม่ตรงจริง
+              (แถวกรอกผิดอย่างเดียวผลต่าง = 0 กล่องนี้จะชวนเข้าใจผิด) */}
+          {row.hasDrift && (
           <div className="border border-amber-200 dark:border-amber-900/60 rounded-xl overflow-hidden">
             <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-1.5 border-b border-amber-200 dark:border-amber-900/60">
-              ตรวจ &ldquo;คงเหลือก่อนเบิก&rdquo; — ไม่ตรงกับบิลรับเข้า
+              เทียบกับยอดที่ไล่จากประวัติ
             </p>
             <table className="w-full text-sm">
               <tbody>
                 <tr className="border-b border-slate-100 dark:border-slate-800">
-                  <td className="px-3 py-2 text-slate-500 dark:text-slate-400">ระบบไล่จากบิลรับเข้า</td>
+                  <td className="px-3 py-2 text-slate-500 dark:text-slate-400">ไล่จากประวัติรับ-เบิก</td>
                   <td className="px-3 py-2 text-right font-bold text-slate-800 dark:text-slate-100">{fmtNum(calc)}</td>
                 </tr>
                 <tr className="border-b border-slate-100 dark:border-slate-800">
-                  <td className="px-3 py-2 text-slate-500 dark:text-slate-400">ต้นทางบันทึกว่าเหลือ</td>
+                  <td className="px-3 py-2 text-slate-500 dark:text-slate-400">คงเหลือก่อนเบิกตามชีทเบิก</td>
                   <td className="px-3 py-2 text-right font-bold text-slate-800 dark:text-slate-100">{fmtNum(recorded)}</td>
                 </tr>
                 <tr className="bg-amber-50 dark:bg-amber-950/40">
@@ -864,33 +1056,34 @@ function DriftModal({ row, onClose }) {
               </p>
             )}
           </div>
+          )}
 
           <div className="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 leading-relaxed">
             <p className="font-semibold text-slate-700 dark:text-slate-200 mb-1">แปลว่าอะไร</p>
             {row.hasRowErr ? (
               <p>
                 <b className="text-rose-700 dark:text-rose-300">แถวนี้กรอกผิดที่ต้นทาง</b> — ตัวเลขก่อนเบิก/เบิกออก/หลังเบิก
-                ไม่สอดคล้องกันเอง ควรตรวจกับ sheet เบิกว่ากรอกตกหล่นหรือไม่ได้ตัดยอด
+                ไม่สอดคล้องกันเอง ควรตรวจกับชีทเบิกว่ากรอกตกหล่นหรือไม่ได้ตัดยอด
               </p>
             ) : (
               <>
                 <p>
-                  <b className="text-amber-700 dark:text-amber-300">ค่า &ldquo;คงเหลือก่อนเบิก&rdquo; ({fmtNum(recorded)}) ไม่ถูกต้อง</b> —
-                  ควรเป็น {fmtNum(calc)} ตามบิลรับเข้า
+                  <b className="text-amber-700 dark:text-amber-300">คงเหลือก่อนเบิกตามชีทเบิก ({fmtNum(recorded)}) ไม่ตรง</b> —
+                  ไล่จากประวัติได้ {fmtNum(calc)}
                   {more
-                    ? ' แปลว่ามีการเบิกไปก่อนหน้านี้แล้วไม่ได้ตัดใน sheet เบิก'
+                    ? ' แปลว่ามีการเบิกไปก่อนหน้านี้แล้วไม่ได้ลงชีทเบิก'
                     : ' แปลว่ามีของเข้าเพิ่มโดยไม่มีบิลรับบันทึกไว้'}
                 </p>
                 <p className="mt-1.5">
-                  <b>ตัวเลข &ldquo;เบิกออก {fmtNum(row.qtyOut)}&rdquo; ไม่ได้ผิด</b> — ที่ผิดคือยอดตั้งต้นที่ยกมา
+                  <b>ตัวเลข &ldquo;เบิกออก {fmtNum(row.qtyOut)}&rdquo; ไม่ได้ผิด</b> — ที่ไม่ตรงคือคงเหลือก่อนเบิกที่ชีทเบิกบันทึก
                   {row.qtyAfter == null && ' (แถวนี้ไม่ได้บันทึกยอดหลังเบิก จึงตรวจสมการในแถวไม่ได้)'}
                 </p>
               </>
             )}
-            {String(row.ref || '').includes('unpivot') && (
+            {row.hasDrift && row.fromMigration && (
               <p className="mt-1.5 text-slate-500 dark:text-slate-400">
-                หมายเหตุแถวนี้เป็น <b>“นำเข้าจาก ต.ค.68”</b> — ประวัติการเบิกก่อนเดือน ต.ค. 68
-                ไม่ได้ถูกนำเข้าระบบ ช่องว่างนี้จึงเป็นเรื่องปกติของ lot ที่รับเข้าก่อนเริ่มใช้ระบบ
+                แถวนี้เป็น<b>ข้อมูลก่อนเริ่มใช้ระบบ</b> ({displayRef(row.ref)}) — ประวัติการเบิกก่อน ต.ค.68
+                ไม่ได้นำเข้าระบบ ช่องว่างนี้จึงไม่ใช่ของหาย ไม่ต้องตามแก้
               </p>
             )}
             <p className="mt-1.5 text-slate-500 dark:text-slate-400">
@@ -901,7 +1094,7 @@ function DriftModal({ row, onClose }) {
           <div className="text-xs text-slate-500 dark:text-slate-400 space-y-1 border-t border-slate-100 dark:border-slate-800 pt-3">
             <p>ชนิดรายการ: <b className="text-slate-700 dark:text-slate-200">{row.kind || '-'}</b></p>
             {row.party && <p>{row.side === 'in' ? 'บริษัท' : 'หน่วยงาน'}: <b className="text-slate-700 dark:text-slate-200">{row.party}</b></p>}
-            {row.ref && <p>อ้างอิง: <b className="text-slate-700 dark:text-slate-200">{row.ref}</b></p>}
+            {row.ref && <p>หมายเหตุ: <b className="text-slate-700 dark:text-slate-200">{displayRef(row.ref)}</b></p>}
           </div>
         </div>
       </div>
