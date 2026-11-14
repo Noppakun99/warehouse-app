@@ -26,8 +26,9 @@ import DrugSearchBar from './DrugSearchBar';
 // ============================================================
 // Drug type badge colors
 // normalize code สำหรับ match — ตัด leading zeros, lowercase, แก้ scientific notation
+const thaiDateFromIso = iso => { if (!iso) return null; const [y,m,d] = iso.split('-'); return `${d}/${m}/${Number(y)+543}`; };
 function IsoDateInput({ value, onChange, className = '', ring = 'focus-within:ring-[#1E90FF]' }) {
-  const display = iso => { if (!iso) return null; const [y,m,d] = iso.split('-'); return `${d}/${m}/${Number(y)+543}`; }
+  const display = thaiDateFromIso;
   return (
     <div className={`relative flex items-center bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl focus-within:ring-2 ${ring} ${className}`}>
       <span className={`px-3 py-2 text-sm w-full select-none pointer-events-none ${value ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>{display(value) || 'dd/mm/yyyy'}</span>
@@ -3263,7 +3264,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
           <div className="hidden sm:flex items-center gap-2">
             <div className="relative w-28 min-h-[36px] border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:ring-[#1E90FF]">
               <span className={`px-2 py-1.5 text-sm pointer-events-none block w-full ${dateFilter ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'}`}>
-                {dateFilter ? dateFilter.split('-').reverse().join('/') : 'dd/mm/yyyy'}
+                {dateFilter ? thaiDateFromIso(dateFilter) : 'dd/mm/yyyy'}
               </span>
               <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
                 onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }}
@@ -3293,7 +3294,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
             <div className="flex gap-2">
               <div className="relative flex-1 min-h-[36px] border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:ring-[#1E90FF]">
                 <span className={`px-2 py-1.5 text-sm pointer-events-none block w-full ${dateFilter ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'}`}>
-                  {dateFilter ? dateFilter.split('-').reverse().join('/') : 'dd/mm/yyyy'}
+                  {dateFilter ? thaiDateFromIso(dateFilter) : 'dd/mm/yyyy'}
                 </span>
                 <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
                   onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }}
