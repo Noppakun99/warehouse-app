@@ -1,22 +1,30 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Thermometer, Plus, RefreshCcw, X, AlertTriangle, CheckCircle2,
-  ShieldAlert, Pencil, Trash2, FlaskConical, FileDown, Upload, Snowflake, Building2, Sun, Sunset, Clock,
+  ShieldAlert, Pencil, Trash2, FlaskConical, FileDown, Upload, Snowflake, Building2, Sun, Sunset, Clock, Printer,
 } from 'lucide-react';
+import {
+  ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceArea, ResponsiveContainer,
+} from 'recharts';
 import BackButton from './BackButton';
 import Toast from './Toast';
 import UploadSuccessModal from './UploadSuccessModal';
 import { exportToExcel } from './lib/exportExcel';
 import {
-  fetchTemperatureLogs, fetchTemperatureStats, insertTemperatureLog,
+  fetchTemperatureLogs, insertTemperatureLog,
   updateTemperatureLog, deleteTemperatureLog, isExcursion,
   TEMP_POINTS, tempPoint, TEMP_ROUNDS, TEMP_DEVICES, TEMP_DEVICE_DEFAULT, tempDeviceLabel,
-  findTemperatureSameRound, importTemperatureRows, fetchTemperatureRecorders,
+  findTemperatureSameRound, importTemperatureRows, fetchTemperatureRecorders, fetchTemperatureFirstDate,
 } from './lib/db';
+import {
+  summarizeReadings, buildMonthReport, dailySeries, monthRange, monthBounds, thaiMonthLabel, fiscalYearMonths,
+} from './lib/temperatureReport';
+import { printTemperatureReport } from './lib/temperaturePrint';
 
 // บันทึกอุณหภูมิตู้เย็นคลังยา — ADR-0018
 // ⚠️ แถว source='generated' = ค่าที่ Apps Script เคยสุ่มขึ้น ไม่ใช่การวัดจริง
-//    db.js กรองออกให้แล้วโดย default — หน้านี้ขอ includeGenerated เฉพาะตอนโชว์หลักฐาน
+//    db.js กรองออกให้แล้วโดย default — แถบ "แสดงค่าที่ระบบสร้าง" ถอดออก 14/11/2569 (user สั่ง)
+//    แถวยังอยู่ใน DB เป็นหลักฐาน ดูได้ด้วย SQL `where source = 'generated'`
 
 const todayIso = () => {
   const d = new Date();
@@ -29,6 +37,82 @@ const thaiDate = (iso) => {
 };
 const hhmm = (t) => (t ? String(t).slice(0, 5) : '-');
 const fmt1 = (n) => (n == null ? '-' : Number(n).toFixed(1));
+const ymOf = (iso) => String(iso).slice(0, 7);
+const addMonths = (ym, k) => {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, m - 1 + k, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+const minYm = (a, b) => (a < b ? a : b);
+
+// AppShell สลับธีมด้วย class 'dark' ที่ <html> — สี recharts เป็น prop JS จึงต้องตามเอง (แบบเดียวกับ DashboardPanels)
+const readHtmlDark = () => typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+function useHtmlDark() {
+  const [dark, setDark] = useState(readHtmlDark);
+  useEffect(() => {
+    const obs = new MutationObserver(() => setDark(readHtmlDark()));
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => obs.disconnect();
+  }, []);
+  return dark;
+}
+
+// สีผ่าน validator ของ skill dataviz ทั้งธีมสว่าง/มืด (#0284c7) · แดง = สถานะหลุดช่วง (มีคำกำกับใน tooltip/legend)
+const CHART = {
+  line: '#0284c7', out: '#dc2626', band: '#10b981',
+  light: { grid: '#f1f5f9', tick: '#94a3b8' },
+  dark:  { grid: '#1e293b', tick: '#64748b' },
+};
+
+function TempTooltip({ active, payload }) {
+  const d = payload?.[0]?.payload;
+  if (!active || !d) return null;
+  return (
+    <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs shadow-sm text-slate-700 dark:text-slate-200">
+      <p className="font-semibold">{thaiDate(d.date)}</p>
+      {d.count
+        ? <>
+            <p>ต่ำสุด–สูงสุด <b className="tabular-nums">{fmt1(d.min)}–{fmt1(d.max)} °C</b></p>
+            <p className="text-slate-400">{d.count} ค่า</p>
+            {d.out && <p className="text-rose-600 dark:text-rose-400 font-semibold flex items-center gap-1"><AlertTriangle size={11} />หลุดช่วง</p>}
+          </>
+        : <p className="text-slate-400">ไม่ได้วัด</p>}
+    </div>
+  );
+}
+
+// กราฟรายวัน: แถบเขียว = ช่วงยอมรับ · แถบฟ้า = ต่ำสุด–สูงสุดของวัน · จุดแดง = หลุดช่วง · วันที่ไม่ได้วัดเว้นว่าง (ไม่ลากเส้นข้าม)
+function TempChart({ series, lo, hi }) {
+  const dark = useHtmlDark();
+  const c = dark ? CHART.dark : CHART.light;
+  const vals = series.filter(d => d.count).flatMap(d => [d.min, d.max]);
+  const yMin = Math.floor(Math.min(lo, ...vals) - 1);
+  const yMax = Math.ceil(Math.max(hi, ...vals) + 1);
+  // ช่วงสั้นแสดงจุดทุกวัน · ช่วงยาวแสดงเฉพาะวันที่วัดเดี่ยว (ไม่มีวันข้างเคียง) — ไม่งั้นวันนั้นหายจากกราฟ
+  const showAll = series.length <= 62;
+  const isolated = (i) => !series[i - 1]?.count && !series[i + 1]?.count;
+  const renderDot = (p) => (p.value != null && (showAll || isolated(p.index))
+    ? <circle key={`d${p.dataKey}${p.index}`} cx={p.cx} cy={p.cy} r={2.5} fill={CHART.line} />
+    : <g key={`d${p.dataKey}${p.index}`} />);
+  return (
+    <div className="h-56">
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={series} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+          <CartesianGrid stroke={c.grid} vertical={false} />
+          <ReferenceArea y1={lo} y2={hi} fill={CHART.band} fillOpacity={0.12} stroke={CHART.band} strokeOpacity={0.5} strokeDasharray="4 3" ifOverflow="extendDomain" />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: c.tick }} tickLine={false} axisLine={false} minTickGap={24} />
+          <YAxis domain={[yMin, yMax]} allowDecimals={false} tick={{ fontSize: 11, fill: c.tick }} tickLine={false} axisLine={false} unit="°" />
+          <Tooltip content={<TempTooltip />} cursor={{ stroke: c.tick, strokeDasharray: '3 3' }} />
+          <Area dataKey="range" stroke="none" fill={CHART.line} fillOpacity={0.18} isAnimationActive={false} connectNulls={false} activeDot={false} />
+          <Line dataKey="max" stroke={CHART.line} strokeWidth={2} isAnimationActive={false} connectNulls={false} dot={renderDot} activeDot={{ r: 4 }} />
+          <Line dataKey="min" stroke={CHART.line} strokeWidth={2} isAnimationActive={false} connectNulls={false} dot={renderDot} activeDot={{ r: 4 }} />
+          <Line dataKey="outPoint" stroke="none" isAnimationActive={false} legendType="none"
+            dot={{ r: 4.5, fill: CHART.out, stroke: dark ? '#0f172a' : '#fff', strokeWidth: 1.5 }} activeDot={false} />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
 
 // คอลัมน์ Excel — "ที่มา" กับ "วัดด้วย" ต้องติดไปด้วยเสมอ ไม่งั้นไฟล์ที่ส่งออกไป
 // แยกไม่ออกว่าแถวไหนเป็นค่าที่ระบบสุ่ม/วัดด้วยจอตู้ (ADR-0018)
@@ -218,7 +302,7 @@ function RecordModal({ initial, onSave, onCancel, saving, point }) {
             <div>
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">อุณหภูมิ (°C) *</label>
               <input type="number" step="0.1" inputMode="decimal" value={temp} onChange={(e) => setTemp(e.target.value)}
-                placeholder="เช่น 4.2"
+                placeholder={pt.kind === 'fridge' ? 'เช่น 4.2' : 'เช่น 26.5'}
                 className={`w-full border rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 ${out ? 'border-rose-400 dark:border-rose-700' : 'border-slate-300 dark:border-slate-600'}`} />
             </div>
             <div>
@@ -335,11 +419,12 @@ function ActionModal({ row, onSave, onCancel, saving }) {
 export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
   const [rows, setRows] = useState([]);
   const [point, setPoint] = useState(TEMP_POINTS[0].key);
-  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [showGenerated, setShowGenerated] = useState(false);
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  // ช่วงรายงานเป็น "เดือน" (user สั่ง 14/11/2569) — ค่าเริ่ม = เดือนนี้
+  const curYm = ymOf(todayIso());
+  const [monthFrom, setMonthFrom] = useState(curYm);
+  const [monthTo, setMonthTo] = useState(curYm);
+  const [firstDate, setFirstDate] = useState(null);
   const [recordedBy, setRecordedBy] = useState('');
   const [recorders, setRecorders] = useState([]);
   const [modal, setModal] = useState(false);
@@ -353,21 +438,21 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
   const isAdmin = auth?.role === 'admin';
   const clearToast = useCallback(() => setToast(null), []);
 
+  // วันที่จริงของช่วง — ปลายช่วงไม่เกินวันนี้ (ไม่งั้นความครบถ้วนนับวันในอนาคตเป็นรอบที่ขาด)
+  const [lowYm, highYm] = [monthFrom, monthTo].sort();
+  const from = monthBounds(lowYm).from;
+  const to = minYm(monthBounds(highYm).to, todayIso());
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, s] = await Promise.all([
-        fetchTemperatureLogs({ from: from || undefined, to: to || undefined, includeGenerated: showGenerated, recordedBy: recordedBy || undefined, location: point }),
-        fetchTemperatureStats({ from: from || undefined, to: to || undefined, recordedBy: recordedBy || undefined, location: point }),
-      ]);
-      setRows(r);
-      setStats(s);
+      setRows(await fetchTemperatureLogs({ from, to, recordedBy: recordedBy || undefined, location: point }));
     } catch (e) {
       setToast({ tone: 'error', message: 'โหลดข้อมูลไม่สำเร็จ: ' + (e?.message || e) });
     } finally {
       setLoading(false);
     }
-  }, [from, to, showGenerated, recordedBy, point]);
+  }, [from, to, recordedBy, point]);
 
   // รายชื่อผู้บันทึกโหลดครั้งเดียว (ไม่ผูกกับตัวกรอง ไม่งั้นเลือกแล้วชื่ออื่นหาย)
   useEffect(() => {
@@ -379,6 +464,58 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // เดือนแรกของตัวเลือก = เดือนที่จุดวัดนี้มีค่าวัดจริงครั้งแรก
+  useEffect(() => {
+    let alive = true;
+    fetchTemperatureFirstDate(point)
+      .then((d) => { if (alive) setFirstDate(d); })
+      .catch(() => { if (alive) setFirstDate(null); });
+    return () => { alive = false; };
+  }, [point]);
+
+  // สถิติ/กราฟ/สรุปรายเดือน/ใบพิมพ์ คิดจาก rows ชุดเดียวกับตาราง (Rule #6)
+  const stats = useMemo(() => summarizeReadings(rows, { from, to }), [rows, from, to]);
+  const series = useMemo(() => {
+    const pt = tempPoint(point);
+    const byDate = new Map(dailySeries(rows).map(d => [d.date, d]));
+    const out = [];
+    for (let d = new Date(`${from}T00:00:00`); ; d.setDate(d.getDate() + 1)) {
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      if (iso > to) break;
+      const x = byDate.get(iso);
+      const outPoint = !x ? null : x.max > pt.max ? x.max : x.min < pt.min ? x.min : null;
+      out.push({ date: iso, label: `${d.getDate()}/${d.getMonth() + 1}`, count: x?.count || 0, min: x?.min ?? null, max: x?.max ?? null,
+        range: x ? [x.min, x.max] : null, out: !!x?.out, outPoint });
+    }
+    return out;
+  }, [rows, from, to, point]);
+  const monthReports = useMemo(() => monthRange(lowYm, highYm).map((ym) => {
+    const r = buildMonthReport(rows, ym);
+    const inMonth = rows.filter(x => x.reading_date >= r.from && x.reading_date <= r.to);
+    return { ...r, devices: [...new Set(inMonth.map(x => tempDeviceLabel(x.device)))].join(', ') };
+  }), [rows, lowYm, highYm]);
+
+  const monthOptions = useMemo(() => {
+    // ย้อนอย่างน้อย 12 เดือนเสมอ — ปุ่มลัด 3 เดือน/ปีงบ ต้องมีเดือนใน dropdown แม้จุดวัดเพิ่งเริ่มบันทึก
+    const first = minYm(firstDate ? ymOf(firstDate) : curYm, addMonths(curYm, -11));
+    return monthRange(first, curYm).reverse();
+  }, [firstDate, curYm]);
+  const fy = fiscalYearMonths();
+  const presets = [
+    { label: 'เดือนนี้', a: curYm, b: curYm },
+    { label: '3 เดือนล่าสุด', a: addMonths(curYm, -2), b: curYm },
+    { label: 'ปีงบนี้', a: fy.from, b: minYm(fy.to, curYm) },
+    ...(firstDate ? [{ label: 'ทั้งหมด', a: ymOf(firstDate), b: curYm }] : []),
+  ];
+  const rangeLabel = lowYm === highYm ? thaiMonthLabel(lowYm) : `${thaiMonthLabel(lowYm)} – ${thaiMonthLabel(highYm)}`;
+  // กรองผู้บันทึกอยู่ = rows มีแค่ของคนนั้น → ใบพิมพ์จะขึ้น "ไม่ได้วัด" ในรอบที่คนอื่นวัด (ข้อความเท็จบนเอกสารที่ลงชื่อ)
+  // จึงไม่ให้พิมพ์จนกว่าจะล้างตัวกรอง (scrutinize 14/11/2569)
+  const printBlocked = !!recordedBy;
+  const handlePrint = (reports) => {
+    if (printBlocked) return;
+    printTemperatureReport(reports, tempPoint(point), { printedBy: auth?.name || auth?.username || '' });
+  };
 
   const handleSave = async (payload) => {
     setSaving(true);
@@ -447,6 +584,9 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
       const map = {};
       headers.forEach((h, i) => { const f = matchHeader(h); if (f && map[f] == null) map[f] = i; });
 
+      // ลงจุดวัดที่เลือกอยู่ + เกณฑ์ของจุดนั้น — เดิมไม่ส่ง location ทุกไฟล์ลง "ตู้เย็นคลังยา" เกณฑ์ 2–8
+      // (logger ห้อง 26°C จะกลายเป็นหลุดช่วงของตู้เย็นทุกแถว)
+      const pt = tempPoint(point);
       const warnings = [];
       const parsed = [];
       lines.slice(headerIdx + 1).forEach((line, n) => {
@@ -468,13 +608,14 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
           round_label: Number(hms.slice(0, 2)) < 12 ? 'เช้า' : 'บ่าย',
           temp_c: t, humidity_pct: Number.isFinite(hum) ? hum : null,
           source_ref: `${rawDate} ${rawTime}`.trim(),
+          location: pt.key, min_c: pt.min, max_c: pt.max,
         });
       });
 
       if (!parsed.length) throw new Error('ไม่พบแถวข้อมูลที่อ่านได้');
       const { inserted, skipped } = await importTemperatureRows(parsed, { device: 'data_logger' }, auth);
       setImportResult({
-        message: `นำเข้า ${inserted.toLocaleString()} รายการ` +
+        message: `นำเข้า ${inserted.toLocaleString()} รายการ เข้า ${pt.key}` +
           (skipped > 0 ? ` · ข้าม ${skipped.toLocaleString()} รายการที่มีอยู่แล้ว` : ''),
         fileName: file.name,
         warnings,
@@ -501,14 +642,14 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
         <button onClick={load} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title="โหลดใหม่"><RefreshCcw size={16} /></button>
         {/* จอแคบซ่อนแค่ "ข้อความ" ไม่ซ่อนปุ่ม — ไม่งั้นผู้ใช้หา Excel/นำเข้าไม่เจอเลย */}
         <button onClick={() => exportToExcel(rows, TEMP_EXCEL_COLS, 'อุณหภูมิตู้เย็น',
-            `temperature_${point}_${todayIso()}.xlsx`, auth)}
+            `temperature_${point}_${lowYm}_${highYm}.xlsx`, auth)}
           disabled={!rows.length} title="Export Excel"
           className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-900/60 disabled:opacity-40 rounded-lg px-2.5 sm:px-3 py-2 text-sm font-medium shrink-0">
           <FileDown size={16} /> <span className="hidden sm:inline">Excel</span>
         </button>
         <button onClick={() => fileRef.current?.click()} disabled={saving}
           className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 disabled:opacity-40 rounded-lg px-2.5 sm:px-3 py-2 text-sm font-medium shrink-0"
-          title="นำเข้า CSV จากเครื่องบันทึกอุณหภูมิ (data logger)">
+          title={`นำเข้า CSV จากเครื่องบันทึกอุณหภูมิ (data logger) เข้า ${point}`}>
           <Upload size={16} /> <span className="hidden sm:inline">นำเข้า CSV</span>
         </button>
         <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={handleImportFile} className="hidden" />
@@ -540,54 +681,157 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
           })}
         </div>
 
-        {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <StatCard label="ค่าที่วัดจริง" value={stats.count.toLocaleString()} sub={stats.dataFrom ? `${thaiDate(stats.dataFrom)} – ${thaiDate(stats.dataTo)}` : null} tone="sky" icon={Thermometer} />
-            <StatCard label="เฉลี่ย / ต่ำสุด–สูงสุด" value={`${fmt1(stats.avg)} °C`} sub={`${fmt1(stats.min)} – ${fmt1(stats.max)} °C`} tone="slate" />
-            <StatCard label="หลุดช่วง" value={stats.excursionCount.toLocaleString()}
-              sub={stats.unhandledCount > 0 ? `ยังไม่ระบุการดำเนินการ ${stats.unhandledCount}` : 'ระบุการดำเนินการครบ'}
-              tone={stats.excursionCount > 0 ? 'rose' : 'emerald'} icon={stats.excursionCount > 0 ? AlertTriangle : CheckCircle2} />
-            <StatCard label="ความครบถ้วน" value={`${stats.pct}%`} sub={`บันทึก ${stats.count} จาก ${stats.expected} รอบ`}
-              tone={stats.pct >= 80 ? 'emerald' : 'amber'} />
+        {/* ช่วงเดือน — คุมทั้งการ์ด กราฟ สรุปรายเดือน ตาราง Excel และใบพิมพ์ (ชุดข้อมูลเดียวกัน) */}
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">ตั้งแต่เดือน</label>
+              <select value={monthFrom} onChange={(e) => setMonthFrom(e.target.value)}
+                className="border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 w-36">
+                {monthOptions.map((ym) => <option key={ym} value={ym}>{thaiMonthLabel(ym)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">ถึงเดือน</label>
+              <select value={monthTo} onChange={(e) => setMonthTo(e.target.value)}
+                className="border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 w-36">
+                {monthOptions.map((ym) => <option key={ym} value={ym}>{thaiMonthLabel(ym)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">ผู้บันทึก</label>
+              <select value={recordedBy} onChange={(e) => setRecordedBy(e.target.value)}
+                className="border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 w-44">
+                <option value="">ทุกคน</option>
+                {recorders.map((r) => (
+                  <option key={r.name} value={r.name}>{r.name} ({r.count})</option>
+                ))}
+              </select>
+            </div>
+            {recordedBy && (
+              <button onClick={() => setRecordedBy('')}
+                className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1 pb-2"><X size={12} /> ล้างผู้บันทึก</button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {presets.map((p) => {
+              const on = lowYm === [p.a, p.b].sort()[0] && highYm === [p.a, p.b].sort()[1];
+              return (
+                <button key={p.label} type="button" onClick={() => { setMonthFrom(p.a); setMonthTo(p.b); }}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${on
+                    ? 'bg-sky-50 dark:bg-sky-950/50 border-sky-300 dark:border-sky-800 text-sky-700 dark:text-sky-300'
+                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <StatCard label="ค่าที่วัดจริง" value={stats.count.toLocaleString()} sub={rangeLabel} tone="sky" icon={Thermometer} />
+          <StatCard label="เฉลี่ย / ต่ำสุด–สูงสุด" value={`${fmt1(stats.avg)} °C`} sub={`${fmt1(stats.min)} – ${fmt1(stats.max)} °C`} tone="slate" />
+          <StatCard label="หลุดช่วง" value={stats.excursions.length.toLocaleString()}
+            sub={stats.unhandled.length > 0 ? `ยังไม่ระบุการดำเนินการ ${stats.unhandled.length}` : 'ระบุการดำเนินการครบ'}
+            tone={stats.excursions.length > 0 ? 'rose' : 'emerald'} icon={stats.excursions.length > 0 ? AlertTriangle : CheckCircle2} />
+          <StatCard label="ความครบถ้วน" value={`${stats.pct}%`} sub={`วัด ${stats.roundsDone} จาก ${stats.expected} รอบ`}
+            tone={stats.pct >= 80 ? 'emerald' : 'amber'} />
+        </div>
+
+        {!loading && rows.length > 0 && (
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-1">
+              <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">อุณหภูมิรายวัน · {rangeLabel}</h2>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="inline-flex items-center gap-1"><span className="w-3 h-2 rounded-sm bg-emerald-500/20 border-y border-dashed border-emerald-600" />ช่วงที่ยอมรับ {tempPoint(point).min}–{tempPoint(point).max} °C</span>
+                <span className="inline-flex items-center gap-1"><span className="w-3 h-0.5 bg-sky-600" />ต่ำสุด–สูงสุดของวัน</span>
+                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600" />หลุดช่วง</span>
+              </p>
+            </div>
+            <TempChart series={series} lo={tempPoint(point).min} hi={tempPoint(point).max} />
           </div>
         )}
 
-        {stats?.generatedCount > 0 && (
-          <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-amber-800 dark:text-amber-300 flex items-start gap-2">
-              <FlaskConical size={16} className="shrink-0 mt-0.5" />
-              มี {stats.generatedCount.toLocaleString()} แถวที่ระบบสุ่มขึ้นในอดีต (ไม่ใช่ค่าที่วัดจริง) — ไม่ถูกนำมาคิดสถิติ
-            </p>
-            <button onClick={() => setShowGenerated((v) => !v)}
-              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-medium shrink-0">
-              {showGenerated ? 'ซ่อนค่าที่ระบบสร้าง' : 'แสดงค่าที่ระบบสร้าง'}
+        {/* สรุปรายเดือน + พิมพ์ — ใบพิมพ์ใช้ buildMonthReport ชุดเดียวกับแถวในตารางนี้ */}
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div className="px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800">
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">สรุปรายเดือน</h2>
+            <button onClick={() => handlePrint(monthReports)} disabled={loading || !rows.length || printBlocked}
+              title={printBlocked ? 'ล้างตัวกรองผู้บันทึกก่อนพิมพ์' : undefined}
+              className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 disabled:opacity-40 rounded-lg px-3 py-1.5 text-sm font-medium">
+              <Printer size={15} /> พิมพ์รายงาน{monthReports.length > 1 ? ` ${monthReports.length} เดือน` : ''}
             </button>
           </div>
-        )}
-
-        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 flex flex-wrap items-end gap-3">
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">ตั้งแต่วันที่</label>
-            <IsoDateInput value={from} onChange={setFrom} className="w-40" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">ถึงวันที่</label>
-            <IsoDateInput value={to} onChange={setTo} className="w-40" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">ผู้บันทึก</label>
-            <select value={recordedBy} onChange={(e) => setRecordedBy(e.target.value)}
-              className="border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 w-44">
-              <option value="">ทุกคน</option>
-              {recorders.map((r) => (
-                <option key={r.name} value={r.name}>{r.name} ({r.count})</option>
-              ))}
-            </select>
-          </div>
-          {(from || to || recordedBy) && (
-            <button onClick={() => { setFrom(''); setTo(''); setRecordedBy(''); }}
-              className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1 pb-2"><X size={12} /> ล้างวันที่</button>
+          {printBlocked && (
+            <p className="px-4 py-2 text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 flex items-start gap-1.5">
+              <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+              กำลังกรองเฉพาะ {recordedBy} — รอบที่คนอื่นวัดนับเป็นไม่ได้วัด · ล้างตัวกรองผู้บันทึกก่อนพิมพ์รายงาน
+            </p>
           )}
+          {(() => {
+            const list = monthReports.slice().reverse();
+            const pctTone = (p) => (p >= 80 ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300');
+            const printBtn = (r) => (
+              <button onClick={() => handlePrint([r])} disabled={!r.summary.count || printBlocked}
+                title={printBlocked ? 'ล้างตัวกรองผู้บันทึกก่อนพิมพ์' : `พิมพ์เดือน ${r.label}`}
+                className="p-1.5 text-slate-400 hover:text-sky-600 disabled:opacity-30 disabled:hover:text-slate-400"><Printer size={15} /></button>
+            );
+            return (
+              <>
+                <table className="hidden md:table w-full text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 text-xs">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-semibold">เดือน</th>
+                      <th className="px-3 py-2 text-right font-semibold">วัดแล้ว / ควรมี</th>
+                      <th className="px-3 py-2 text-right font-semibold">ครบถ้วน</th>
+                      <th className="px-3 py-2 text-right font-semibold">เฉลี่ย</th>
+                      <th className="px-3 py-2 text-right font-semibold">ต่ำสุด–สูงสุด</th>
+                      <th className="px-3 py-2 text-left font-semibold">หลุดช่วง</th>
+                      <th className="px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-200 tabular-nums">
+                    {list.map((r) => {
+                      const s = r.summary;
+                      return (
+                        <tr key={r.ym}>
+                          <td className="px-4 py-2 font-medium whitespace-nowrap">{r.label}</td>
+                          <td className="px-3 py-2 text-right whitespace-nowrap">{s.roundsDone} / {s.expected} รอบ</td>
+                          <td className={`px-3 py-2 text-right font-semibold ${s.expected ? pctTone(s.pct) : 'text-slate-400'}`}>{s.expected ? `${s.pct}%` : '-'}</td>
+                          <td className="px-3 py-2 text-right">{fmt1(s.avg)}</td>
+                          <td className="px-3 py-2 text-right whitespace-nowrap">{s.count ? `${fmt1(s.min)} – ${fmt1(s.max)}` : '-'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {s.excursions.length
+                              ? <span className="text-rose-600 dark:text-rose-400 font-semibold">{s.excursions.length} ครั้ง{s.unhandled.length ? <span className="font-normal text-xs"> · ยังไม่ระบุ {s.unhandled.length}</span> : ''}</span>
+                              : <span className="text-slate-400">-</span>}
+                          </td>
+                          <td className="px-3 py-1 text-right">{printBtn(r)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+                  {list.map((r) => {
+                    const s = r.summary;
+                    return (
+                      <div key={r.ym} className="px-4 py-2.5 flex items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{r.label}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                            วัด {s.roundsDone}/{s.expected} รอบ{s.expected ? <span className={`font-semibold ${pctTone(s.pct)}`}> ({s.pct}%)</span> : ''}
+                            {s.count ? ` · ${fmt1(s.min)}–${fmt1(s.max)} °C` : ''}
+                          </p>
+                          {s.excursions.length > 0 && <p className="text-xs text-rose-600 dark:text-rose-400 font-semibold">หลุดช่วง {s.excursions.length} ครั้ง{s.unhandled.length ? ` · ยังไม่ระบุ ${s.unhandled.length}` : ''}</p>}
+                        </div>
+                        {printBtn(r)}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         {excursions.length > 0 && (

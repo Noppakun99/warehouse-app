@@ -16,6 +16,7 @@ import {
 import { buildDrugUsageReport } from './usageReport.js'
 import { isoMonthsAgo, isoPrevMonthEnd, listMonthYM } from './reorder.js'
 import { purchaseDatesByCode, pendingRequestFor } from './purchaseReportSheet.js'
+import { isExcursion, TEMP_MIN_DEFAULT, TEMP_MAX_DEFAULT } from './temperatureReport.js'
 // ReorderApp import parseUnitFactor จาก db.js มาแต่เดิม — คงทางเข้าเดิมไว้ (ตัวจริงอยู่ drugProfile.js)
 export { parseUnitFactor }
 
@@ -5170,8 +5171,8 @@ export const TEMP_DEVICES = [
 export const TEMP_DEVICE_DEFAULT = 'fridge_display'
 export const tempDeviceLabel = (k) =>
   TEMP_DEVICES.find(d => d.key === k)?.label || (k === 'none' ? 'ไม่ได้วัด' : k || '-')
-export const TEMP_MIN_DEFAULT = 2
-export const TEMP_MAX_DEFAULT = 8
+// กฎหลุดช่วง + สรุปสถิติ อยู่ใน temperatureReport.js (pure) — re-export ให้ component import ที่เดิมได้
+export { isExcursion, TEMP_MIN_DEFAULT, TEMP_MAX_DEFAULT }
 
 /**
  * normalize ชื่อผู้บันทึก — ฟอร์มเดิมเป็น free text จึงมีชื่อคนเดียวกันเขียนหลายแบบ
@@ -5180,18 +5181,6 @@ export const TEMP_MAX_DEFAULT = 8
  */
 export const normRecorder = (s) => String(s || '').replace(/[’‘`´]/g, "'").trim()
 
-/** ค่าที่ "วัดจริง" เท่านั้น — generated ไม่นับ (ADR-0018) */
-export const isRealReading = (r) => r?.source !== 'generated'
-
-/** หลุดช่วงยอมรับไหม — ใช้เกณฑ์ที่ snapshot ไว้ในแถว ไม่ใช่ค่าคงที่ในโค้ด */
-export function isExcursion(r) {
-  if (!r) return false
-  const lo = r.min_c ?? TEMP_MIN_DEFAULT
-  const hi = r.max_c ?? TEMP_MAX_DEFAULT
-  const t = Number(r.temp_c)
-  return Number.isFinite(t) && (t < Number(lo) || t > Number(hi))
-}
-
 /**
  * ประวัติการวัด — default กรอง generated ออก
  * @param {object} opts { from, to, includeGenerated }
@@ -5199,18 +5188,26 @@ export function isExcursion(r) {
  */
 export async function fetchTemperatureLogs({ from, to, includeGenerated = false, recordedBy, location } = {}) {
   if (!supabase) return []
-  let q = supabase.from('temperature_log').select('*')
-  if (from) q = q.gte('reading_date', from)
-  if (to)   q = q.lte('reading_date', to)
-  // จุดวัดต่างชนิดกันเอาค่ามารวมกันไม่ได้ (ตู้เย็น 5°C กับห้อง 28°C) — กรองที่ชั้นนี้ชั้นเดียว
-  if (location) q = q.eq('location', location)
-  if (!includeGenerated) q = q.neq('source', 'generated')
-  const { data, error } = await q
-    .order('reading_date', { ascending: false })
-    .order('reading_time', { ascending: false, nullsFirst: false })
-    .limit(2000)
-  if (error) throw error
-  let rows = data || []
+  // Rule #2 — Supabase ตัดที่ 1000 แถว/ครั้ง แม้สั่ง limit(2000) (เคยทำสถิติตู้เย็นนับได้ 660 จาก 991
+  // เพราะ 1000 แถวแรกมีแถว generated ปน) · data logger วัดทุก 5–15 นาทีเกิน 1000 ในไม่กี่วัน
+  const PAGE = 1000
+  let rows = []
+  for (let off = 0; ; off += PAGE) {
+    let q = supabase.from('temperature_log').select('*')
+    if (from) q = q.gte('reading_date', from)
+    if (to)   q = q.lte('reading_date', to)
+    // จุดวัดต่างชนิดกันเอาค่ามารวมกันไม่ได้ (ตู้เย็น 5°C กับห้อง 28°C) — กรองที่ชั้นนี้ชั้นเดียว
+    if (location) q = q.eq('location', location)
+    if (!includeGenerated) q = q.neq('source', 'generated')
+    const { data, error } = await q
+      .order('reading_date', { ascending: false })
+      .order('reading_time', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: false })
+      .range(off, off + PAGE - 1)
+    if (error) throw error
+    rows = rows.concat(data || [])
+    if (!data || data.length < PAGE) break
+  }
   // กรองชื่อฝั่ง client เพราะต้อง normalize apostrophe ก่อนเทียบ (P'Jeab = P’Jeab)
   if (recordedBy) rows = rows.filter(r => normRecorder(r.recorded_by) === normRecorder(recordedBy))
   return rows
@@ -5219,11 +5216,18 @@ export async function fetchTemperatureLogs({ from, to, includeGenerated = false,
 /** รายชื่อผู้บันทึก (distinct, normalize แล้ว) สำหรับ dropdown ตัวกรอง */
 export async function fetchTemperatureRecorders() {
   if (!supabase) return []
-  const { data, error } = await supabase.from('temperature_log')
-    .select('recorded_by').neq('source', 'generated')
-  if (error) throw error
+  // Rule #2 — ค่าจริงมี 991 แถว (14/11/2569) อีกไม่กี่วันเกิน 1000 → ชื่อที่อยู่หลังแถว 1000 หายจาก dropdown
+  const PAGE = 1000
+  let data = []
+  for (let off = 0; ; off += PAGE) {
+    const { data: page, error } = await supabase.from('temperature_log')
+      .select('recorded_by').neq('source', 'generated').order('id').range(off, off + PAGE - 1)
+    if (error) throw error
+    data = data.concat(page || [])
+    if (!page || page.length < PAGE) break
+  }
   const counts = new Map()
-  for (const r of data || []) {
+  for (const r of data) {
     const k = normRecorder(r.recorded_by)
     if (!k || k === '-') continue
     counts.set(k, (counts.get(k) || 0) + 1)
@@ -5233,46 +5237,17 @@ export async function fetchTemperatureRecorders() {
     .map(([name, count]) => ({ name, count }))
 }
 
-/**
- * สรุปสถิติ + ความครบถ้วนของการบันทึก
- * **ไม่เติมแถวให้รอบที่ไม่มีคนวัด** — ความครบถ้วนคำนวณจากแถวจริง ÷ รอบที่ควรมี (ADR-0018 ข้อ 6)
- */
-export async function fetchTemperatureStats({ from, to, roundsPerDay = 2, recordedBy, location } = {}) {
-  // ⚠️ ต้องส่ง location เสมอ — min/max/avg ที่คิดข้ามจุดวัดไม่มีความหมายทางกายภาพ
-  // (ค่าเฉลี่ยของตู้เย็น 5°C กับห้อง 28°C = 16°C ซึ่งไม่ใช่อุณหภูมิของอะไรเลย)
-  const rows = await fetchTemperatureLogs({ from, to, includeGenerated: true, recordedBy, location })
-  const real = rows.filter(isRealReading)
-  const generated = rows.length - real.length
+// สถิติ/ความครบถ้วน = summarizeReadings ใน temperatureReport.js คิดจากแถวที่ fetchTemperatureLogs คืน
+// (ตัวกรอง generated อยู่ชั้นนี้ชั้นเดียว · ส่ง location เสมอ — ค่าเฉลี่ยข้ามจุดวัดไม่มีความหมาย)
 
-  const temps = real.map(r => Number(r.temp_c)).filter(Number.isFinite)
-  const excursions = real.filter(isExcursion)
-  // excursion ที่ยังไม่มีใครบันทึกการดำเนินการ = ช่องว่างที่ผู้ตรวจถามหา
-  const unhandled = excursions.filter(r => !String(r.action_taken || '').trim())
-
-  // ความครบถ้วน: นับ "วัน" ที่ควรมีจากช่วงที่เลือก (ถ้าไม่ระบุ ใช้ช่วงข้อมูลจริง)
-  const days = (() => {
-    const ds = real.map(r => r.reading_date).sort()
-    const a = from || ds[0]
-    const b = to || ds[ds.length - 1]
-    if (!a || !b) return 0
-    return Math.floor((new Date(b) - new Date(a)) / 86400000) + 1
-  })()
-  const expected = days * roundsPerDay
-  const pct = expected > 0 ? Math.min(100, Math.round((real.length / expected) * 100)) : 0
-
-  return {
-    count: real.length,
-    generatedCount: generated,
-    min: temps.length ? Math.min(...temps) : null,
-    max: temps.length ? Math.max(...temps) : null,
-    avg: temps.length ? temps.reduce((s, t) => s + t, 0) / temps.length : null,
-    excursionCount: excursions.length,
-    unhandledCount: unhandled.length,
-    expected,
-    pct,
-    dataFrom: real.length ? real[real.length - 1].reading_date : null,
-    dataTo: real.length ? real[0].reading_date : null,
-  }
+/** วันแรกที่มีค่าวัดจริงของจุดวัดนั้น — ใช้ตั้งเดือนแรกของตัวเลือกช่วงเดือน */
+export async function fetchTemperatureFirstDate(location) {
+  if (!supabase) return null
+  let q = supabase.from('temperature_log').select('reading_date').neq('source', 'generated')
+  if (location) q = q.eq('location', location)
+  const { data, error } = await q.order('reading_date', { ascending: true }).limit(1)
+  if (error) throw error
+  return data?.[0]?.reading_date || null
 }
 
 /** บันทึกค่าใหม่ (คนกรอกในแอป) — source='manual' เสมอ ห้ามให้ caller override */

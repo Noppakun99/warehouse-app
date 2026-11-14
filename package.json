@@ -52,7 +52,8 @@
     "test:linechat": "node src/lib/lineChatImport.test.js",
     "test:locationmove": "node src/lib/locationMove.test.js",
     "test:loanslip": "node src/lib/loanSlip.test.js",
-    "test:usagereport": "node src/lib/usageReport.test.js"
+    "test:usagereport": "node src/lib/usageReport.test.js",
+    "test:tempreport": "node src/lib/temperatureReport.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",
