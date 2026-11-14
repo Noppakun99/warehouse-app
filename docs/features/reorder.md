@@ -4,16 +4,16 @@
 
 ## ภาพรวม
 
+**ตั้งแต่ 14/11/2569 = "ระบบการสั่งซื้อยา"** — เมนูเดียวในกลุ่มงานคลัง (รวม 4 เมนูย่อยเดิม) · **ขอบเขต = งานคลังเท่านั้น** ใบสั่งซื้อ/ใบเสนอราคาเป็นงานจัดซื้อ (user เคาะ) จึงถอด แท็บใบสั่งซื้อแยกบริษัท (`print_po` ใช้ 4 ครั้ง) · ปุ่มติ๊กสั่งแล้ว (`reorder_orders` 2 ครั้ง) · แท็บ History/บันทึก Snapshot (`analysis_runs` 1 ครั้ง) — ข้อมูลเดิมใน DB และฟังก์ชันใน db.js ไม่ลบ (ไม่มี consumer แล้ว)
+
 ```
-ReorderApp.jsx (sub-app, page='reorder' ใน AppRoot)
-├── ControlBar         ช่วงสถิติ · โหมด Normal/Refill · เดือนตัด · Lead Time default · ค้นหา
-├── StatusStrip        6 สถานะ (clickable filter): หมดสต็อค/ใกล้หมดอายุ/สั่งเพิ่ม/เพียงพอ/สั่งเมื่อขอ/ตัดออก
-├── Tab: ตารางวิเคราะห์   sortable + Excel export + mark ordered + edit master
-├── Tab: ใบสั่งซื้อแยกบริษัท Card per supplier + print Blob URL + Excel export
-├── Tab: เทียบกับ Excel   Reconcile — upload CSV วิเคราะห์สั่งซื้อ → เทียบ SS/ROP/สถานะ/จำนวนสั่ง (read-only, ADR-0001)
-├── Tab: Verification    Run Golden tests (Atorvastatin reference) ใน browser
-└── Tab: History         รายการ analysis_runs snapshot + ลบได้
+ReorderApp.jsx (page 'reorder' · หัวเดียว + 4 แท็บ · initialTab: search | analysis | purchase | verify)
+├── ค้นยา · สรุปรับ-เบิก   DrugUsageReport (แท็บแรก · mount ค้างไว้ สลับแท็บแล้วยาที่เลือกไม่หาย)
+├── วิเคราะห์สั่งซื้อ       ControlBar + StatusStrip + ตาราง ROP/SS + Import Master (โหลดคลังเมื่อเปิดแท็บครั้งแรก)
+├── แจ้งซื้อแล้ว            PurchaseRequestTab (ADR-0030 · ไม่ต้องรันวิเคราะห์)
+└── ตรวจสูตร               เทียบกับ Excel (Reconcile, ADR-0001) + ทดสอบสูตร (golden tests ในเบราว์เซอร์)
 ```
+Dashboard: `reorder-analysis` → แท็บวิเคราะห์ · `reorder-purchase` → แท็บแจ้งซื้อแล้ว (ไม่มีในเมนู)
 
 ## ไฟล์ที่เกี่ยวข้อง
 
@@ -133,7 +133,7 @@ npm run test:reorder    # 33 golden assertions — ต้องผ่าน 100%
 
 ## ข้อจำกัด / TODO
 
-1. ~~**dispense_type filter**~~ **แก้แล้ว 2026-10-10** — `fetchMonthlyDispenseUsage` ตัดแถวด้วย `isUsageRow` ([_shared/usageRow.js](../../supabase/functions/_shared/usageRow.js)) = 4 แบบเดียวกับสูตร E4 ชีทวิเคราะห์สั่งซื้อ (ชนิดรายการ `บันทึกเท่านั้น`/`ยาโครงการ` · หน่วยงาน `คืนยา`/`เบิกเพื่อแลกเปลี่ยนคืนยา`) แทนกฎเดิม main_log/note มีคำว่า "บันทึก". ผลจริงหน้าต่าง มิ.ย.–ก.ย.69: เรทเปลี่ยน 50 รหัส (SS/ROP เปลี่ยน 24) — **46/50 ตรงยอดรายเดือนในชีท Excel แล้ว** (ก่อนแก้ 0/50); 4 ที่เหลือ (ยาสมุนไพร 1660083/1590019/81/1590033) ต่างกันที่ packsize ×50/×100 ระหว่างแอปกับ Excel ไม่ใช่กฎตัดแถว — ยังไม่แก้
+1. ~~**dispense_type filter**~~ **แก้แล้ว 2026-10-10** — `fetchMonthlyDispenseUsage` ตัดแถวด้วย `isUsageRow` ([_shared/usageRow.js](../../supabase/functions/_shared/usageRow.js)) = 4 แบบเดียวกับสูตร E4 ชีทวิเคราะห์สั่งซื้อ (ชนิดรายการ `บันทึกเท่านั้น`/`ยาโครงการ` · หน่วยงาน `คืนยา`/`เบิกเพื่อแลกเปลี่ยนคืนยา` · + `เบิกยาหมดอายุจากคลัง` ตั้งแต่ 14/11/2569 — สูตร Excel ต้องแก้ตาม ดู docs/handoff-2026-11-14-expired-not-usage.md) แทนกฎเดิม main_log/note มีคำว่า "บันทึก". ผลจริงหน้าต่าง มิ.ย.–ก.ย.69: เรทเปลี่ยน 50 รหัส (SS/ROP เปลี่ยน 24) — **46/50 ตรงยอดรายเดือนในชีท Excel แล้ว** (ก่อนแก้ 0/50); 4 ที่เหลือ (ยาสมุนไพร 1660083/1590019/81/1590033) ต่างกันที่ packsize ×50/×100 ระหว่างแอปกับ Excel ไม่ใช่กฎตัดแถว — ยังไม่แก้
 2. ~~**Mark ordered** เก็บใน localStorage~~ **ย้ายเข้า DB แล้ว 2026-07-03** — table `reorder_orders` (`fetchReorderOrders`/`setReorderOrder` ใน [db.js](../../src/lib/db.js)); sync ข้ามเครื่อง/คน. persist จนกว่าคนกดยกเลิกเอง (ไม่ auto-reset). migration apply แล้ว (prod 2026-07-04)
 3. **Phase 2**: ~~reconcile view (upload Excel เทียบ)~~ **เสร็จ 2026-07-03** (tab "เทียบกับ Excel" — `reconcileRows` ใน [reorder.js](../../src/lib/reorder.js), read-only diff ±1, audit `reconcile_excel`).
    - ~~auto-revert Refill~~ **ยกเลิก** — Refill mode ถูกลบโดยตั้งใจ (Q1 DONE 2026-06-13, ใช้ `excludedMonth` แทน) → ไม่มีอะไรให้ revert
