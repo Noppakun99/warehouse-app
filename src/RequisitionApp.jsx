@@ -1885,6 +1885,8 @@ async function printCoverForm(req, preopenedWin) {
   // บล็อกลายเซ็น = grid [ป้าย | เส้นเซ็น | บทบาท] — ชื่อ/ตำแหน่งอยู่คอลัมน์กลาง จึงกึ่งกลางใต้เส้นเซ็นพอดี
   // ข้อความยาวกว่าเส้น (ที่ความกว้าง A4) → safe center ชิดต้นเส้นแล้วล้นไปทางขวา แทนล้นออกนอกคอลัมน์ทางซ้าย
   const nm = (text) => `<span class="nm">${escHtml(text)}</span>`;
+  // ชื่อบุคคลในวงเล็บ — ชื่อกับนามสกุลเว้น 3 ช่อง (ช่องเดียวดูติดกัน · user สั่ง 14/11/2569)
+  const person = (name) => `<span class="nm">(${escHtml(name).replace(/ +/g, '&nbsp;&nbsp;&nbsp;')})</span>`;
   const blankName = '<span class="pl">(</span><span class="f">&nbsp;</span><span class="pr">)</span>';
   const sig = (label, role, rows) => `<div class="sig"><span>${label}</span>${fill()}<span>${role}</span>${rows.join('')}</div>`;
   const head = COVER_FORM.requesterHead;
@@ -1954,7 +1956,7 @@ async function printCoverForm(req, preopenedWin) {
         </div>
         <div class="blk">
           ${sig('(ลงชื่อ)', '(ผู้เบิก)', [
-            headName ? nm(`(${headName})`) : blankName,
+            headName ? person(headName) : blankName,
             nm(`ตำแหน่ง ${head.position}`),
             nm(head.group),
           ])}
@@ -1966,7 +1968,7 @@ async function printCoverForm(req, preopenedWin) {
           <p><strong>เรียน ${COVER_FORM.approver.role}</strong></p>
           <p class="indent">- เพื่ออนุมัติเบิกจ่ายวัสดุตามคำขอข้างต้น</p>
           ${sig('(ลงชื่อ)', '(ผู้จ่ายยาและลงทะเบียน)', [
-            nm(`(${COVER_FORM.dispenser.name})`),
+            person(COVER_FORM.dispenser.name),
             nm(COVER_FORM.dispenser.role),
             nm(`ตำแหน่ง ${COVER_FORM.dispenser.position}`),
           ])}
@@ -1976,7 +1978,7 @@ async function printCoverForm(req, preopenedWin) {
         </div>
         <div class="blk">
           ${sig('(ลงชื่อ)', '(ผู้อนุมัติเบิกจ่าย)', [
-            nm(`(${COVER_FORM.approver.name})`),
+            person(COVER_FORM.approver.name),
             nm(COVER_FORM.approver.role),
             nm(`ตำแหน่ง ${COVER_FORM.approver.position}`),
           ])}
