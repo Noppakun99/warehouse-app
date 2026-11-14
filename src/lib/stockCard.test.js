@@ -628,7 +628,7 @@ section('Test 39: เทียบ Master — คงเหลือตรง = �
   eq(ok.summary.driftRowsSettled, 2, 'นับแยก')
 }
 
-section('Test 40: เทียบ Master — คงเหลือไม่ตรง = เตือน (lot รับ/เบิกพิมพ์ต่างกัน)')
+section('Test 40: เทียบ Master — คงเหลือไม่ตรง = แถวปรับยอดท้าย lot (lot รับ/เบิกพิมพ์ต่างกัน)')
 {
   // รับเป็น S685043 แต่เบิกเป็น S685040 → lot หนึ่งเหลือ 30 อีก lot ติดลบ 30 · Master ไม่มีทั้งคู่
   const r = buildStockCard({
@@ -637,9 +637,17 @@ section('Test 40: เทียบ Master — คงเหลือไม่ต�
     masterRows: [{ lot: 'X1', qty: 5 }, { lot: ' X1 ', qty: '2' }],
   })
   const a = r.lots.find(l => l.lot === 'S685043'), b = r.lots.find(l => l.lot === 'S685040')
-  eq([a.closing, a.masterQty, a.masterMismatch, a.warn], [30, 0, true, true], 'ระบบเหลือ 30 แต่ Master 0')
+  eq([a.calcClosing, a.closing, a.masterQty, a.masterMismatch, a.adjustQty, a.adjustExplained, a.warn], [30, 0, 0, true, -30, false, false], 'ระบบเหลือ 30 แต่ Master 0 → ปรับ −30 คงเหลือ = Master ไม่เตือน')
+  eq(a.opening + a.totalIn - a.totalOut + a.adjustQty, a.closing, 'ยอดตั้งต้น + รับ − เบิก + ปรับ = คงเหลือ')
   eq([b.opening, b.closing, b.masterMismatch], [30, 0, false], 'lot ที่ไม่มีใบรับ ไล่ย้อนจากก่อนเบิก')
-  eq(r.summary.masterMismatchLots, 1, 'นับ lot ไม่ตรง Master')
+  eq(r.summary.masterMismatchLots, 1, 'นับ lot ที่ปรับตาม Master')
+  eq(r.summary.adjustUnexplainedLots, 1, 'ปรับแบบไม่รู้สาเหตุ')
+  const adjRow = r.rows.find(x => x.adjust)
+  eq([adjRow.lot, adjRow.side, adjRow.qtyOut, adjRow.balance, adjRow.balanceBefore], ['S685043', 'out', 30, 0, 30], 'แถวปรับยอดท้าย lot')
+  eq(r.rows.filter(x => x.lot === 'S685043').at(-1).adjust, true, 'อยู่แถวสุดท้ายของ lot')
+  eq([r.summary.totalIn, r.summary.totalOut], [30, 30], 'ยอดรวมรับ/เบิกไม่นับแถวปรับยอด')
+  eq(rowTitle(adjRow), 'ปรับยอดให้ตรง Master', 'ชื่อแถว')
+  eq(rowIssues(adjRow)[0].type, 'adjust', 'บรรทัดอธิบาย')
   const m = buildStockCard({ dispenseRows: [{ dispense_date: '2026-02-05', lot: 'X1', qty_out: 3, qty_before: 10 }], masterRows: [{ lot: 'X1', qty: 5 }, { lot: ' X1 ', qty: '2' }] })
   eq([m.lots[0].masterQty, m.lots[0].masterMismatch], [7, false], 'Master หลายแถว lot เดียวกัน = บวกรวม (ตัดช่องว่าง)')
 }
@@ -652,6 +660,38 @@ section('Test 41: มีแต่ใบรับก่อนเริ่มร�
   eq([gone.opening, gone.totalIn, gone.closing, gone.hasOpening, gone.masterMismatch, gone.warn], [0, 0, 0, true, false, false], 'เบิกหมดก่อน ต.ค.68 → คงเหลือ 0 ตรง Master')
   const kept = buildStockCard({ ...input, masterRows: [{ lot: 'J670399', qty: 40 }] }).lots[0]
   eq([kept.opening, kept.closing, kept.masterMismatch], [40, 40, false], 'ยังเหลือใน Master → ใช้ยอด Master')
+}
+
+section('Test 42: แถว Master แก้ไขระบบ/คืนยา ที่ไม่มีในชีทรับยา → ปรับยอดอธิบายได้ (G690149 จริง)')
+{
+  // รับ 400+200 · เบิก 386 (รวมแถวแก้ไขระบบ 30) = 214 · Master 44+200+แถวแก้ไขระบบ 0 = 244 · คืนยอดใบยกเลิก 30
+  const r = buildStockCard({
+    asOf: '2026-11-14',
+    receiveRows: [
+      { receive_date: '2026-08-20', lot: 'G690149', qty_received: 400 },
+      { receive_date: '2026-08-25', lot: 'G690149', qty_received: 200 },
+    ],
+    dispenseRows: [
+      { dispense_date: '2026-09-14', lot: 'G690149', item_type: 'ซื้อยา', qty_out: 356 },
+      { dispense_date: '2026-10-20', lot: 'G690149', item_type: 'แก้ไขระบบ', qty_out: 30, qty_before: 30, qty_after: 0 },
+    ],
+    masterRows: [
+      { lot: 'G690149', qty: 0, item_type: 'แก้ไขระบบ', invoice: 'คืนยอด ศบส.1 ยกเลิกใบ 1/10/69 ไม่ได้รับของ' },
+      { lot: 'G690149', qty: 200, item_type: 'ยกยอด(2)' },
+      { lot: 'G690149', qty: 44, item_type: 'ยกยอด' },
+    ],
+  })
+  const l = r.lots[0]
+  eq([l.calcClosing, l.closing, l.adjustQty, l.adjustExplained, l.warn], [214, 244, 30, true, false], 'ปรับ +30 อธิบายได้')
+  const adj = r.rows.at(-1)
+  eq([adj.adjust, adj.side, adj.qtyIn, adj.date, adj.ref], [true, 'in', 30, '2026-11-14', 'คืนยอด ศบส.1 ยกเลิกใบ 1/10/69 ไม่ได้รับของ'], 'แถวปรับยอดรับเข้า + หมายเหตุจาก Master')
+  eq(rowIssues(adj)[0].text.includes('แก้ไขระบบ'), true, 'บอกชนิดแถว Master')
+  // คืนยาที่ลงชีทรับยาไว้แล้ว → ไม่ปรับซ้ำ
+  const dup = buildStockCard({
+    receiveRows: [{ receive_date: '2026-08-03', lot: '60789', qty_received: 2 }],
+    masterRows: [{ lot: '60789', qty: 2, item_type: 'คืนยา', invoice: 'ใช้ใบยืมยาเป็นใบคืนยา' }],
+  })
+  eq([dup.lots[0].masterMismatch, dup.rows.some(x => x.adjust)], [false, false], 'คืนยาที่ลงชีทรับแล้ว ตรง Master ไม่มีแถวปรับ')
 }
 
 console.log('\n' + '─'.repeat(50))

@@ -2730,7 +2730,7 @@ export async function fetchStockCard(drugCode) {
   // (ห้ามใช้ราคาในแถวเบิก — แถว 'ยกยอด' มี price=0 ตาม Excel §45.5 I8)
   // ทุกแถวของรหัสนี้ (ไม่ limit) — masterRows ใช้เทียบคงเหลือ lot กับ Master (แถวซ้ำ lot เดียวกันต้องบวกรวม)
   const { data: invRows } = await supabase
-    .from('inventory').select('code, name, unit, lot, qty').eq('code', code)
+    .from('inventory').select('code, name, unit, lot, qty, item_type, invoice').eq('code', code)   // item_type+invoice = เหตุผลแถวปรับยอดตาม Master
   const inv = invRows?.[0] || null
   const priceRow = receiveRows.find(r => parseFloat(r.price_per_unit) > 0)
   const meta = {
@@ -2771,7 +2771,7 @@ export async function fetchAllStockCardIssues() {
   const [recv, disp, inv] = await Promise.all([
     pageAll('receive_logs', 'drug_code, drug_name, lot, exp, item_type, qty_received, supplier_current, bill_number, receive_date, price_per_unit, drug_unit', 'receive_date'),
     pageAll('dispense_logs', 'drug_code, drug_name, lot, exp, item_type, qty_out, qty_before, qty_after, department, note, dispense_date, price_per_unit, drug_unit', 'dispense_date'),
-    pageAll('inventory', 'id, code, lot, qty', 'code'),
+    pageAll('inventory', 'id, code, lot, qty, item_type, invoice', 'code'),
   ])
 
   const byCode = {}

@@ -87,6 +87,19 @@ function toMovements(receiveRows = [], dispenseRows = []) {
 // สแกน 14/11/2569: นับใบรับเก่าเต็มจำนวน → คงเหลือ lot ไม่ตรง Master 1,017 lot · ตัดออกแล้วเหลือ 124
 export const SYSTEM_START = '2025-10-01'
 
+// ── ปรับยอดให้ตรง Master (user สั่ง 14/11/2569: "Master ถูกต้อง ให้แอปตรง") ──
+// lot ที่ไล่จากประวัติรับ-เบิกแล้วไม่เท่า Master → แถวท้าย lot ส่วนต่าง ±N คงเหลือปลาย = Master
+// เหตุผลที่รู้ได้: แถว Master ชนิดเหล่านี้เพิ่มของเข้า lot โดยไม่มีแถวในชีทรับยา (คืนยอดใบที่ยกเลิก · คืนยาจากใบยืม · รับเกินบิล)
+// ของที่แถวนั้นนำเข้า = คงเหลือของแถว + ยอดเบิกที่ระบุชนิดเดียวกัน → เท่าส่วนต่างพอดี = อธิบายได้
+// ใช้เป็นกฎบวกทุกแถวไม่ได้: หลายแถวคืนยาลงชีทรับยาไว้แล้ว/ยอดตั้งต้นไล่ย้อนรวมไว้แล้ว (บวกซ้ำ)
+export const MASTER_ADJUST_KINDS = new Set(['แก้ไขระบบ', 'คืนยา'])
+export const ADJUST_KIND = 'ปรับยอดตาม Master'
+
+const todayIso = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 /**
  * buildStockCard({ receiveRows, dispenseRows, pricePerUnit, masterRows })
  *   → { rows, lots, summary }
@@ -96,9 +109,10 @@ export const SYSTEM_START = '2025-10-01'
  * summary = { totalIn, totalOut, lotCount, negativeLots, masterMismatchLots, ... }
  *
  * pricePerUnit = ราคาจาก Master (ไม่ใช้ราคาในแถวเบิก — แถว 'ยกยอด' มี price=0 ตาม Excel §45.5 I8)
- * masterRows   = แถว inventory ของรหัสนี้ [{ lot, qty }] (ไม่ส่ง = ไม่เทียบกับ Master)
+ * masterRows   = แถว inventory ของรหัสนี้ [{ lot, qty, item_type?, invoice? }] (ไม่ส่ง = ไม่เทียบกับ Master)
+ * asOf         = วันที่ของแถวปรับยอดตาม Master (ค่าเริ่มต้น = วันนี้ — Master คือยอด ณ ตอนนี้)
  */
-export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUnit = 0, masterRows = null } = {}) {
+export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUnit = 0, masterRows = null, asOf = null } = {}) {
   const price = toNum(pricePerUnit)
   const mv = toMovements(receiveRows, dispenseRows)
 
@@ -216,12 +230,52 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
   // (lot เดียวแยกหลายแถวในชีท · ลำดับแถววันเดียวกัน) → ลดเป็นสีเทา ไม่เตือน
   const round =(n) => Math.round(n * 10000) / 10000
 
+  // แถว Master ชนิดปรับยอด/คืนยาต่อ lot — เหตุผลของแถวปรับยอด
+  const masterAdjByLot = {}
+  if (masterRows) for (const r of masterRows) {
+    const kind = String(r.item_type || '').trim()
+    if (MASTER_ADJUST_KINDS.has(kind)) (masterAdjByLot[lotOf(r.lot)] ||= []).push({ kind, qty: toNum(r.qty), note: String(r.invoice || '').trim() })
+  }
+  const adjustByLot = {}
+  if (masterByLot) for (const lot of Object.keys(balByLot)) {
+    const diff = round((masterByLot[lot] || 0) - balByLot[lot])
+    if (diff === 0) continue
+    const adj = masterAdjByLot[lot] || []
+    const kinds = new Set(adj.map(a => a.kind))
+    const added = adj.reduce((s, a) => s + a.qty, 0) +
+      rows.filter(r => r.lot === lot && r.side === 'out' && !r.noDeduct && kinds.has(r.kind)).reduce((s, r) => s + r.qtyOut, 0)
+    const explained = adj.length > 0 && round(added) === diff
+    adjustByLot[lot] = { diff, explained, reasons: explained ? adj : [] }
+  }
+  // แทรกแถวปรับยอดเป็นแถวสุดท้ายของ lot (rows เรียง lot → วัน อยู่แล้ว)
+  const adjDate = asOf || todayIso()
+  const allRows = []
+  rows.forEach((r, i) => {
+    allRows.push(r)
+    const a = adjustByLot[r.lot]
+    if (!a || (rows[i + 1] && rows[i + 1].lot === r.lot)) return
+    allRows.push({
+      date: adjDate, lot: r.lot, kind: ADJUST_KIND,
+      qtyIn: a.diff > 0 ? a.diff : 0, qtyOut: a.diff < 0 ? -a.diff : 0,
+      balance: masterByLot[r.lot] || 0,
+      party: '', ref: a.reasons.map(x => x.note).filter(Boolean).join(' · '), exp: '',
+      value: Math.abs(a.diff) * price, side: a.diff > 0 ? 'in' : 'out',
+      noDeduct: false, preSystem: false, qtyBefore: null, balanceBefore: balByLot[r.lot],
+      drift: null, hasDrift: false, driftDelta: null, isDriftPoint: false,
+      qtyAfter: null, rowErr: null, hasRowErr: false, fromMigration: false, settled: false,
+      adjust: true, adjustExplained: a.explained, adjustReasons: a.reasons,
+    })
+  })
+
   const lots = Object.keys(balByLot).sort((a, b) => a.localeCompare(b, 'th')).map(lot => {
-    const lotRows = rows.filter(r => r.lot === lot)
-    const closing = balByLot[lot]
+    const lotRows = allRows.filter(r => r.lot === lot)
+    const calcClosing = balByLot[lot]
     const masterQty = masterByLot ? (masterByLot[lot] || 0) : null
-    const masterMismatch = masterByLot ? round(closing) !== round(masterQty) : false
-    if (masterByLot && !masterMismatch) for (const r of lotRows) if (r.isDriftPoint && !r.fromMigration) r.settled = true
+    const adj = adjustByLot[lot] || null
+    const closing = adj ? masterQty : calcClosing
+    // ตรง Master เลย หรือปรับแล้วอธิบายได้ → จุดไม่ตรงระหว่างทางเป็นสีเทา
+    // ปรับแต่ไม่รู้สาเหตุ → คงจุดยอดไม่ตรงไว้ให้ไล่หาว่าของขาด/เกินตรงไหน
+    if (masterByLot && (!adj || adj.explained)) for (const r of lotRows) if (r.isDriftPoint && !r.fromMigration) r.settled = true
     const driftRows = lotRows.filter(r => r.hasDrift)
     const driftPoints = lotRows.filter(r => r.isDriftPoint)
     const driftReal = driftPoints.filter(r => !r.fromMigration && !r.settled).length
@@ -230,38 +284,43 @@ export function buildStockCard({ receiveRows = [], dispenseRows = [], pricePerUn
     return {
       lot,
       opening: openingByLot[lot],
-      closing,
+      closing,                          // ปรับแล้ว = Master · ไม่ปรับ = ที่ไล่จากประวัติ
+      calcClosing,                      // คงเหลือที่ไล่จากประวัติรับ-เบิก (ก่อนปรับ)
       hasReceipt: hasReceipt.has(lot),
       // มียอดตั้งต้น (ประวัติไม่ครบ) → หัว lot แสดงช่อง "ยอดตั้งต้นของ lot"
       hasOpening: backSolved.has(lot) || !hasReceipt.has(lot),
       negative,
       masterQty,                        // null = ไม่ได้เทียบ
-      masterMismatch,                   // คงเหลือที่ไล่ได้ ≠ คงเหลือใน Master ตอนนี้
+      masterMismatch: !!adj,            // ไล่จากประวัติได้ ≠ Master → มีแถวปรับยอดท้าย lot
+      adjustQty: adj ? adj.diff : 0,    // ยอดตั้งต้น + รับ − เบิก + ปรับ = คงเหลือ
+      adjustExplained: adj ? adj.explained : false,
       driftCount: driftPoints.length,   // นับ "จุดที่ของหาย" ไม่ใช่ทุกแถวที่ drift ค้าง
       // drift ล่าสุดของ lot — ใช้บอกขนาดของช่องว่างรวม (บวก = ระบบคิดว่ามีมากกว่าที่บันทึก)
       lastDrift: driftRows.length ? driftRows[driftRows.length - 1].drift : 0,
       exp: lotExp(lotRows),
-      // ไม่นับใบรับก่อนเริ่มระบบที่ไม่บวกยอด → ยอดตั้งต้น + รับ − เบิก = คงเหลือ เสมอ
-      totalIn: lotRows.reduce((s, r) => s + (r.preSystem ? 0 : r.qtyIn), 0),
+      // ไม่นับใบรับก่อนเริ่มระบบที่ไม่บวกยอด และแถวปรับยอด → ยอดตั้งต้น + รับ − เบิก + ปรับ = คงเหลือ เสมอ
+      totalIn: lotRows.reduce((s, r) => s + (r.preSystem || r.adjust ? 0 : r.qtyIn), 0),
       // เฉพาะแถวที่หักยอดจริง (แถวบันทึกเท่านั้น ไม่นับ)
-      totalOut: lotRows.reduce((s, r) => s + (r.noDeduct ? 0 : r.qtyOut), 0),
+      totalOut: lotRows.reduce((s, r) => s + (r.noDeduct || r.adjust ? 0 : r.qtyOut), 0),
       driftReal,                                                          // ยอดไม่ตรงที่ต้องตรวจ
       driftMigration: driftPoints.filter(r => r.fromMigration).length,    // ข้อมูลก่อนเริ่มใช้ระบบ (สีเทา)
       driftSettled: driftPoints.filter(r => r.settled).length,            // ไม่ตรงระหว่างทาง คงเหลือตรง Master (สีเทา)
       rowErrCount,
-      warn: driftReal > 0 || rowErrCount > 0 || negative || masterMismatch,
+      // ไม่ตรง Master อย่างเดียวไม่เตือนแล้ว (ปรับให้ตรงด้วยแถวท้าย lot) — ปรับแบบไม่รู้สาเหตุยังเหลือ driftReal ให้เตือน
+      warn: driftReal > 0 || rowErrCount > 0 || negative,
     }
   })
 
   return {
-    rows,
+    rows: allRows,
     lots,
     summary: {
-      totalIn: rows.reduce((s, r) => s + (r.preSystem ? 0 : r.qtyIn), 0),
-      totalOut: rows.reduce((s, r) => s + r.qtyOut, 0),
+      totalIn: allRows.reduce((s, r) => s + (r.preSystem || r.adjust ? 0 : r.qtyIn), 0),
+      totalOut: allRows.reduce((s, r) => s + (r.adjust ? 0 : r.qtyOut), 0),
       lotCount: lots.length,
       negativeLots: lots.filter(l => l.negative).length,
-      masterMismatchLots: lots.filter(l => l.masterMismatch).length,
+      masterMismatchLots: lots.filter(l => l.masterMismatch).length,           // lot ที่มีแถวปรับยอด
+      adjustUnexplainedLots: lots.filter(l => l.masterMismatch && !l.adjustExplained).length,
       driftLots: lots.filter(l => l.driftCount > 0).length,
       driftRows: rows.filter(r => r.isDriftPoint).length,   // จำนวนจุดที่ของหายจริง (รวม migration)
       // แยกจุดที่ "ต้องตรวจจริง" ออกจากจุดที่เกิดตอนย้ายข้อมูล Excel / ที่คงเหลือตรง Master แล้ว
@@ -330,6 +389,7 @@ export const kindBadgeOf = (kind) => (SHOWN_KINDS.has(kind) ? kind : null)
 
 // คอลัมน์ "รายการ": รับจาก <บริษัท> / เบิก <หน่วยงาน>
 export function rowTitle(r) {
+  if (r.adjust) return 'ปรับยอดให้ตรง Master'
   const party = String(r.party || '').trim()
   if (r.side === 'in') return party ? `รับจาก ${party}` : 'รับเข้า'
   return party ? `เบิก ${party}` : 'เบิกออก'
@@ -349,6 +409,17 @@ const fmt = (n) => (Number(n) || 0).toLocaleString('en-US', { maximumFractionDig
 // ใช้ร่วมจอ + ใบพิมพ์ ให้คำตรงกัน
 export function rowIssues(r) {
   const out = []
+  if (r.adjust) {
+    const sign = r.qtyIn > 0 ? `+${fmt(r.qtyIn)}` : `−${fmt(r.qtyOut)}`
+    const base = `ไล่จากประวัติรับ-เบิกได้ ${fmt(r.balanceBefore)} · Master มี ${fmt(r.balance)} (${sign})`
+    out.push({
+      type: 'adjust',
+      text: r.adjustExplained
+        ? `ปรับให้ตรง Master: ${base} — Master มีแถว${[...new Set(r.adjustReasons.map(a => a.kind))].join('/')} ที่ไม่มีในชีทรับยา`
+        : `ปรับให้ตรง Master: ${base} — ยังไม่ทราบสาเหตุจากข้อมูลในระบบ (ตรวจกับบิล/ใบเบิกจริงได้)`,
+    })
+    return out
+  }
   if (r.preSystem) {
     out.push({ type: 'migration', text: 'รับก่อนเริ่มใช้ระบบ (ก่อน ต.ค.68): ไม่บวกเข้าคงเหลือ เพราะยอดตั้งต้นของ lot นับของที่เหลือ ณ วันเริ่มระบบไว้แล้ว — การเบิกก่อน ต.ค.68 ไม่มีในระบบ' })
   }

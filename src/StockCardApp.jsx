@@ -17,8 +17,11 @@ const ISSUE_STYLE = {
   rowErr: 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300',
   migration: 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
   settled: 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
+  adjust: 'bg-sky-50 dark:bg-sky-950/40 text-sky-800 dark:text-sky-300',
 }
-const isInfoIssue = (type) => type === 'migration' || type === 'settled'
+const isInfoIssue = (type) => type === 'migration' || type === 'settled' || type === 'adjust'
+// หมายเหตุในตาราง: แถวรับ = เลขบิล · แถวปรับยอด = หมายเหตุของแถว Master (ไม่ใช่บิล)
+const noteText = (r, note) => (!note ? '-' : r.side === 'in' && !r.adjust ? `บิล ${note}` : note)
 // DriftModal อธิบายได้เฉพาะแถวเบิกที่ยอดไม่ตรง/กรอกผิด — ใบรับก่อนเริ่มระบบมีแค่บรรทัดอธิบาย ไม่มีรายละเอียดให้เปิด
 const hasDriftDetail = (r) => r.isDriftPoint || r.hasRowErr
 
@@ -99,7 +102,7 @@ function printStockCard(meta, sections, filterLabel) {
     <td class="n">${r.qtyIn > 0 ? fmtNum(r.qtyIn) : '-'}</td>
     <td class="n">${r.qtyOut > 0 ? `${fmtNum(r.qtyOut)}${r.noDeduct ? ' <span class="kb">ไม่หัก</span>' : ''}` : '-'}</td>
     <td class="n b${r.balance < 0 ? ' neg' : ''}">${fmtNum(r.balance)}</td>
-    <td class="sm">${note ? esc(r.side === 'in' ? `บิล ${note}` : note) : '-'}</td>
+    <td class="sm">${esc(noteText(r, note))}</td>
   </tr>${issues.map(it => `<tr class="iss ${it.type}"><td></td><td colspan="5">${esc(it.text)}</td></tr>`).join('')}`
   }
   const statsHtml = (l) => [
@@ -109,7 +112,7 @@ function printStockCard(meta, sections, filterLabel) {
     `คงเหลือ <b class="${l.closing < 0 ? 'neg' : ''}">${fmtNum(l.closing)}</b>`,
   ].filter(Boolean).join(' · ')
   const issueSum = (l) => [
-    l.masterMismatch && `คงเหลือไม่ตรง Master (Master มี ${fmtNum(l.masterQty)})`,
+    l.masterMismatch && `ปรับยอดให้ตรง Master ${l.adjustQty > 0 ? '+' : '−'}${fmtNum(Math.abs(l.adjustQty))} (ไล่จากประวัติได้ ${fmtNum(l.calcClosing)})`,
     l.driftReal > 0 && `ยอดไม่ตรง ${l.driftReal} จุด`,
     l.rowErrCount > 0 && `แถวกรอกผิด ${l.rowErrCount} แถว`,
     l.negative && 'คงเหลือติดลบ',
@@ -157,6 +160,7 @@ ${issueSum(l) ? `<div class="lot-iss">${esc(issueSum(l))}</div>` : ''}
   tr.iss.drift td+td{color:#b45309}
   tr.iss.rowErr td+td{color:#be123c}
   tr.iss.migration td+td,tr.iss.settled td+td{color:#64748b}
+  tr.iss.adjust td+td{color:#0369a1}
   .neg{color:#dc2626}
   .note{margin-top:10px;font-size:10px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:6px}
   @media print{@page{size:A4 portrait;margin:10mm} body{margin:0}}
@@ -207,7 +211,7 @@ function LotList({ lots, selected, onSelect, fill = false }) {
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
                   <span className="mr-1 tabular-nums">Exp {l.exp ? fmtThai(l.exp) : '-'}</span>
-                  {l.masterMismatch && <IssueChip tone="rose">ไม่ตรง Master</IssueChip>}
+                  {l.masterMismatch && <IssueChip tone="slate">ปรับตาม Master</IssueChip>}
                   {l.driftReal > 0 && <IssueChip tone="amber">ยอดไม่ตรง {l.driftReal}</IssueChip>}
                   {l.rowErrCount > 0 && <IssueChip tone="rose">กรอกผิด {l.rowErrCount}</IssueChip>}
                   {l.negative && <IssueChip tone="rose">ติดลบ</IssueChip>}
@@ -422,7 +426,8 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
         const driftPoints = c.summary.driftRowsReal          // ไม่นับที่เกิดตอนย้ายข้อมูล Excel / ที่คงเหลือตรง Master แล้ว
         const migrationPoints = c.summary.driftRowsMigration
         const rowErrs = c.summary.rowErrRows
-        const masterLots = c.summary.masterMismatchLots      // คงเหลือ lot ≠ Master = ตัวตรวจหลัก
+        // ปรับตาม Master แบบไม่รู้สาเหตุ = ยังควรไล่กับเอกสารจริง · ที่อธิบายได้ (แถว Master แก้ไขระบบ/คืนยา) ไม่ต้องตรวจ
+        const masterLots = c.summary.adjustUnexplainedLots
         if (driftPoints > 0 || rowErrs > 0 || migrationPoints > 0 || masterLots > 0) {
           found.push({
             code,
@@ -757,8 +762,8 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                           </span>
                         )}
                         {it.masterLots > 0 && (
-                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800/60">
-                            ไม่ตรง Master {it.masterLots} lot
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-300 dark:border-sky-800/60">
+                            ปรับตาม Master ไม่รู้สาเหตุ {it.masterLots} lot
                           </span>
                         )}
                         {it.driftPoints > 0 && (
@@ -859,14 +864,15 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                     <LotStat label={view.info ? 'คงเหลือ' : 'คงเหลือรวม'} value={view.closing} tone={view.closing < 0 ? 'rose' : 'teal'} />
                   </div>
 
-                  {/* คงเหลือที่ไล่ได้ ≠ Master = ตัวตรวจหลัก (ของหาย/เกินจริง หรือ lot รับ-เบิกพิมพ์ไม่ตรงกัน) */}
+                  {/* ไล่จากประวัติได้ ≠ Master → แถวปรับยอดท้าย lot ให้คงเหลือ = Master (Master ถูกต้อง — user 14/11/2569) */}
                   {view.masterMismatch > 0 && (
-                    <p className="mt-3 flex items-start gap-1.5 text-xs font-semibold text-rose-700 dark:text-rose-300">
-                      <AlertTriangle size={14} className="mt-px shrink-0" />
+                    <button type="button" onClick={() => jumpToRow(r => r.adjust)}
+                      className="mt-3 flex items-start gap-1.5 text-left text-xs font-semibold text-sky-700 dark:text-sky-300 underline underline-offset-2 decoration-sky-300 hover:decoration-sky-600 transition-colors">
+                      <Info size={14} className="mt-px shrink-0" />
                       {view.info
-                        ? `คงเหลือไม่ตรง Master: ไล่จากประวัติได้ ${fmtNum(view.info.closing)} แต่ Master มี ${fmtNum(view.info.masterQty)}`
-                        : `คงเหลือไม่ตรง Master ${view.masterMismatch} lot`}
-                    </p>
+                        ? `ปรับยอดให้ตรง Master ${view.info.adjustQty > 0 ? '+' : '−'}${fmtNum(Math.abs(view.info.adjustQty))}: ไล่จากประวัติได้ ${fmtNum(view.info.calcClosing)} · Master มี ${fmtNum(view.info.masterQty)}`
+                        : `ปรับยอดให้ตรง Master ${view.masterMismatch} lot`}
+                    </button>
                   )}
 
                   {/* บรรทัดสรุปจุดที่ยอดมีปัญหา — กดแล้วเลื่อนไปแถวแรกของเรื่องนั้น (ข้อตกลงข้อ 4) */}
@@ -971,7 +977,7 @@ export default function StockCardApp({ onGoBack, canGoBack, onRefresh, auth = {}
                                   {/* ตัด 2 บรรทัดแทน truncate บรรทัดเดียว — truncate ทำให้ตาราง auto layout กว้างตามหมายเหตุยาวสุด
                                       แล้วล้นขวา (แผงขวาที่ 1280px กว้างแค่ ~690px) · ข้อความเต็มอยู่ title + แถวที่กาง */}
                                   <td className="px-3 py-2.5 align-top text-xs text-slate-500 dark:text-slate-400">
-                                    <p className="line-clamp-2 break-words" title={note}>{note ? (r.side === 'in' ? `บิล ${note}` : note) : '-'}</p>
+                                    <p className="line-clamp-2 break-words" title={note}>{noteText(r, note)}</p>
                                   </td>
                                   <td className="pr-3 py-2.5 align-top text-slate-400 dark:text-slate-500">
                                     <ChevronDown size={15} className={open ? 'rotate-180' : ''} />

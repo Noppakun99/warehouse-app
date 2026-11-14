@@ -83,12 +83,13 @@ test.describe('จอคอม', () => {
     await expect(page.locator('tr.ring-2').first()).toBeVisible({ timeout: 3000 })
   })
 
-  test('lot ไม่ตรง Master → ป้ายในรายการ lot + บรรทัดสรุปในหัว', async ({ page }) => {
+  test('lot ไม่ตรง Master → แถวปรับยอดท้าย lot + ป้าย + บรรทัดสรุปในหัว', async ({ page }) => {
     await openDriftDrug(page)
-    await expect(page.getByText(/^คงเหลือไม่ตรง Master \d+ lot$/)).toBeVisible()
-    const bad = lotList(page).locator('button:has(span:text-is("ไม่ตรง Master"))').first()
-    await bad.click()
-    await expect(page.getByText(/^คงเหลือไม่ตรง Master: ไล่จากประวัติได้ .+ แต่ Master มี /)).toBeVisible()
+    await expect(page.getByText(/^ปรับยอดให้ตรง Master \d+ lot$/)).toBeVisible()
+    const adj = lotList(page).locator('button:has(span:text-is("ปรับตาม Master"))').first()
+    await adj.click()
+    await expect(page.getByText(/^ปรับยอดให้ตรง Master [+−][\d,.]+: ไล่จากประวัติได้ .+ · Master มี /)).toBeVisible()
+    await expect(page.getByText('ปรับยอดให้ตรง Master', { exact: true }).first()).toBeVisible()
   })
 
   test('บรรทัดอธิบายใต้แถว → ดูรายละเอียด เปิดโมดอล', async ({ page }) => {
