@@ -116,7 +116,7 @@ test.describe('แถบปุ่มล่างจอ — ผู้เบิก
     const leaf = page.getByRole('button', { name: 'ประวัติรับยา', exact: true });
     if (!(await leaf.isVisible().catch(() => false))) await page.getByRole('button', { name: 'รับยา', exact: true }).click();
     await leaf.click();
-    await expect(page.getByText('บันทึกการรับเข้าคลัง').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'ประวัติรับยา' })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByPlaceholder('ค้นหาบริษัท...')).toHaveCount(0);
     await filterBtn(page).click();
     const sheet = page.getByRole('dialog', { name: 'ตัวกรอง' });
@@ -154,7 +154,7 @@ test.describe('แถบปุ่มล่างจอ — ผู้เบิก
     const leaf = page.getByRole('button', { name: 'ประวัติรับยา', exact: true });
     if (!(await leaf.isVisible().catch(() => false))) await page.getByRole('button', { name: 'รับยา', exact: true }).click();
     await leaf.click();
-    await expect(page.getByText('บันทึกการรับเข้าคลัง').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: 'ประวัติรับยา' })).toBeVisible({ timeout: 15_000 });
     await expectDrugCards(page);
   });
 
