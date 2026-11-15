@@ -31,11 +31,13 @@ async function gotoDashboard(page) {
 
 // เมนู sidebar — จอเล็กเปิด drawer ก่อน · บางหน้าอยู่ในเมนูย่อย (navConfig จัดใหม่ 11/10/2569) → กางแม่ก่อน
 // (getByRole ไม่นับปุ่มที่ display:none → sidebar คอมที่ซ่อนบนจอเล็กไม่ถูกนับ)
-const MENU_PARENT = { 'ประวัติรับยา': 'รับยา', 'วิเคราะห์การเบิก': 'วิเคราะห์' };
+const MENU_PARENT = { 'ประวัติรับยา': 'รับยา' };
+// staff เห็นเลขงานค้างติดท้ายชื่อเมนู (เช่น "เบิกยาออนไลน์ 1" / "9+") → exact ไม่ติด
+const menuName = (name) => new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}( \\d+\\+?)?$`);
 async function clickMenu(page, name) {
   const hamburger = page.getByRole('button', { name: 'เปิดเมนู' });
   if (await hamburger.isVisible().catch(() => false)) await hamburger.click();
-  const btn = page.getByRole('button', { name, exact: true }).first();
+  const btn = page.getByRole('button', { name: menuName(name) }).first();
   if (MENU_PARENT[name] && !(await btn.isVisible().catch(() => false))) {
     await page.getByRole('button', { name: MENU_PARENT[name], exact: true }).first().click();
   }
@@ -84,9 +86,9 @@ test.describe('UX Smoke — ทุก sub-app เปิดได้ไม่ cra
     await expect(page.getByText('ระบบ', { exact: true }).first()).toBeVisible();
 
     // ชั้นบนสุด: หน้าเดี่ยว + เมนูแม่ของหน้าที่อยู่ในเมนูย่อย ต้องเห็นครบโดยไม่ต้องกาง
-    const top = ['เบิกยาออนไลน์', 'แผนผังคลังยา', 'รับยา', 'คืนยา / ยาเสียหาย', 'ประวัติเบิกจ่าย', 'วิเคราะห์'];
+    const top = ['เบิกยาออนไลน์', 'แผนผังคลังยา', 'รับยา', 'คืนยา / ยาเสียหาย', 'ประวัติเบิกจ่าย', 'วิเคราะห์การเบิก'];
     const visible = await Promise.all(
-      top.map(n => page.getByRole('button', { name: n, exact: true }).first().isVisible().catch(() => false))
+      top.map(n => page.getByRole('button', { name: menuName(n) }).first().isVisible().catch(() => false))
     );
     expect(visible.filter(Boolean).length).toBe(top.length);
   });
@@ -152,10 +154,14 @@ test.describe('UX Consistency — กฎจาก CLAUDE.md', () => {
   test('UI ทั้งหมดเป็นภาษาไทย (dashboard cards ต้องมีอักษรไทย)', async ({ staffPage: page }) => {
     if (!page) test.skip();
     await gotoDashboard(page);
-    // หัวข้อบางส่วนขึ้นหลังข้อมูลโหลด (เช่น "ยาต้องสั่งซื้อ 5 อันดับแรก") → poll ไม่นับครั้งเดียวตอนยังโหลด
+    // หัวข้อบางส่วนขึ้นหลังข้อมูลโหลด (คิวงาน · กราฟ) → poll ไม่นับครั้งเดียวตอนยังโหลด
+    // "ยาต้องสั่งซื้อ 5 อันดับแรก" เป็นปุ่มพับแล้ว · popup ของ staff (h3 ไทย) ขึ้นบ้างไม่ขึ้นบ้าง → ไม่นับจำนวนตายตัวเกิน 2
     const thaiPattern = /[ก-๙]/;
-    await expect.poll(async () => (await page.locator('h2, h3').allTextContents()).filter(t => thaiPattern.test(t)).length,
-      { timeout: 15_000 }).toBeGreaterThanOrEqual(3);
+    const heads = () => page.locator('h2, h3').allTextContents();
+    await expect.poll(async () => (await heads()).filter(t => thaiPattern.test(t)).length,
+      { timeout: 15_000 }).toBeGreaterThanOrEqual(2);
+    // หัวข้อที่ไม่มีอักษรไทยได้แค่ชื่อหน้า "Dashboard"
+    expect((await heads()).map(t => t.trim()).filter(t => t && !thaiPattern.test(t) && t !== 'Dashboard')).toEqual([]);
   });
 
   test('Date ใน UI เป็น DD/MM/YYYY หรือ พ.ศ. — ไม่มี ISO (YYYY-MM-DD) visible (กฎ #3)', async ({ staffPage: page }) => {

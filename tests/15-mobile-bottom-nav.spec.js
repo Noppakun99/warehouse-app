@@ -66,6 +66,7 @@ test.describe('แถบปุ่มล่างจอ — ผู้เบิก
   });
 
   test('ประวัติเบิก: หน่วยงานที่ไม่มีประวัติเบิก → เปิดแบบไม่กรอง · เมนู sidebar ไม่ตั้งตัวกรอง', async ({ page }) => {
+    test.setTimeout(90_000);   // เปิดหน้าประวัติเบิก 3 รอบ (2 รอบไม่กรอง = โหลดทั้งตาราง) เกิน 30 วิได้
     // บัญชี test (ห้องยา G) ปุ่มแถบล่าง → ห้องยาG
     await openDispense(page, () => bottomNav(page).getByRole('button', { name: 'ประวัติเบิก' }).click());
     await expect(filterSummary(page)).toHaveText('กรอง: ห้องยาG');
@@ -130,7 +131,7 @@ test.describe('แถบปุ่มล่างจอ — ผู้เบิก
   async function expectDrugCards(page) {
     await page.getByPlaceholder(/ค้นหา/).first().fill('Baclofen 10mg');
     await page.getByRole('button', { name: /^Baclofen 10mg(?!.*\d{6})/ }).first().click();   // แถวใน dropdown — การ์ดรายการหลักของหน้ารับยาเป็น button เหมือนกันแต่มีรหัสยาในชื่อ
-    await expect(page.getByText(/^รหัส: /)).toBeVisible({ timeout: 30_000 });      // เข้าแผงยาที่เลือกแล้ว
+    await expect(page.getByText(/^รหัส \S+ · หน่วย /)).toBeVisible({ timeout: 30_000 });      // เข้าแผงยาที่เลือกแล้ว
     const card = page.getByRole('button', { name: /Lot .*Exp /i }).first();
     await expect(card).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('table')).toHaveCount(0);
@@ -140,6 +141,7 @@ test.describe('แถบปุ่มล่างจอ — ผู้เบิก
   }
 
   test('ค้นยาในประวัติเบิก/ประวัติรับบนมือถือ: เป็นการ์ด ไม่ต้องเลื่อนแนวนอน · แตะเปิดรายละเอียด · จอคอมยังเป็นตาราง', async ({ page }) => {
+    test.setTimeout(90_000);   // 2 หน้าประวัติ + ค้นยา 2 รอบ
     await openDispense(page, async () => {
       await page.getByRole('button', { name: 'เปิดเมนู' }).click();
       await page.getByRole('button', { name: 'ประวัติเบิกจ่าย', exact: true }).click();
@@ -224,7 +226,9 @@ test.describe('แถบปุ่มล่างจอ — ผู้เบิก
     await page.keyboard.press('Escape');
 
     await card.getByRole('button', { name: /^เบิกยาออนไลน์/ }).click();
-    await expect(bottomNav(page).locator('[aria-current="page"]')).not.toHaveText('หน้าหลัก');
+    // หน้าเบิกยาออนไลน์ไม่มีแถบล่าง (มีแถบปุ่มของตัวเอง) → ตรวจที่หน้าเบิกแทน aria-current
+    await expect(page.getByText(/ค้นหายาในคลัง|ใบเบิก/).first()).toBeVisible({ timeout: 10_000 });
+    await expect(bottomNav(page)).toBeHidden();
   });
 });
 
