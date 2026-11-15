@@ -32,7 +32,7 @@ async function openDispense(page, click) {
   const done = page.waitForResponse(isMainLoad, { timeout: 30_000 });
   await click();
   await done;
-  await expect(page.getByText('บันทึกการเบิกจ่าย (คลังเบิก)')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'ประวัติเบิกจ่าย' })).toBeVisible();
 }
 
 test.describe('แถบปุ่มล่างจอ — ผู้เบิก 375px', () => {
@@ -58,7 +58,7 @@ test.describe('แถบปุ่มล่างจอ — ผู้เบิก
       if (r.method() === 'GET' && u.includes('/rest/v1/dispense_logs?select=*') && u.includes('order=dispense_date.desc')) loads.push(u);
     });
     await bottomNav(page).getByRole('button', { name: 'ประวัติเบิก' }).click();
-    await expect(page.getByText('บันทึกการเบิกจ่าย (คลังเบิก)')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'ประวัติเบิกจ่าย' })).toBeVisible();
     await expect(filterSummary(page)).toHaveText('กรอง: ER', { timeout: 30_000 });
     await expect(filterBtn(page)).toHaveAccessibleName('ตัวกรอง (1)');
     await expect.poll(() => loads.length, { timeout: 15_000 }).toBeGreaterThan(0);

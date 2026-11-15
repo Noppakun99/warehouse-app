@@ -17,6 +17,8 @@ import { exportToExcel } from './lib/exportExcel';
 import { normalizeLotSearch, insertAuditLog, resolveAuditUserName, resolveDispenseDepartment } from './lib/db';
 import { openExcelSync } from './lib/excelSyncEvent';
 import FilterSheet, { FilterButton } from './FilterSheet';
+import { PERIODS, periodRange, activePeriod, dayLabel, rankBy, pgOrValue } from './lib/historyPeriods';
+import HistorySummary from './HistorySummary';
 
 // ค่า department ที่ "ไม่ใช่หน่วยงานจริง" — เป็นการปรับปรุงระบบ/ความเคลื่อนไหวพิเศษ
 // ตัดออกจาก dropdown กรองหน่วยงาน + กราฟสรุประดับหน่วยงาน แต่ยังคงแสดงเป็นแถวในตารางเบิกตามปกติ
@@ -79,20 +81,6 @@ const thaiToIso = (thai) => {
   const [d, m, y] = thai.split('/');
   return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
 };
-
-function dateDiff(isoFrom, isoTo) {
-  if (!isoFrom || !isoTo) return '';
-  let y1 = +isoFrom.slice(0,4), m1 = +isoFrom.slice(5,7)-1, d1 = +isoFrom.slice(8,10);
-  let y2 = +isoTo.slice(0,4),   m2 = +isoTo.slice(5,7)-1,   d2 = +isoTo.slice(8,10);
-  let years = y2 - y1, months = m2 - m1, days = d2 - d1;
-  if (days < 0)   { months--; days += new Date(y2, m2, 0).getDate(); }
-  if (months < 0) { years--;  months += 12; }
-  const parts = [];
-  if (years  > 0) parts.push(`${years} ปี`);
-  if (months > 0) parts.push(`${months} เดือน`);
-  if (days   > 0) parts.push(`${days} วัน`);
-  return parts.length ? parts.join(' ') : 'วันเดียวกัน';
-}
 
 function ThaiDateInput({ value, onChange, ring = 'focus-within:ring-rose-400', size = 'w-28', placeholder }) {
   return (
@@ -216,25 +204,9 @@ export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBa
 
   return (
     <div className="min-h-screen bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100 font-sans">
-      {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + action */}
-      <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 flex items-center gap-2">
-        <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
-        <div className="p-1.5 rounded-lg bg-rose-100 dark:bg-rose-950/60 text-rose-600 shrink-0"><TrendingDown size={18} /></div>
-        <button onClick={onRefresh} className="font-bold text-base text-slate-800 dark:text-slate-100 truncate flex-1 min-w-0 text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">บันทึกการเบิกจ่าย (คลังเบิก)</button>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button onClick={() => setShowSummary(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-            <BarChart3 size={15} /> สรุปผล
-          </button>
-          {isStaff && (
-            <button onClick={openExcelSync}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-            ><FileSpreadsheet size={15} /> นำเข้าจาก Excel</button>
-          )}
-        </div>
-      </div>
-
-      <DispenseView isAdmin={isAdmin} auth={auth} initialDept={initialDept} onFiltersChange={setViewFilters} />
+      {/* title bar อยู่ใน DispenseView — ปุ่มส่งออก Excel ต้องใช้ตัวกรองของ view */}
+      <DispenseView isAdmin={isAdmin} isStaff={isStaff} auth={auth} initialDept={initialDept} onFiltersChange={setViewFilters}
+        onRefresh={onRefresh} onGoBack={onGoBack} canGoBack={canGoBack} onOpenSummary={() => setShowSummary(true)} />
       {showSummary      && <DispenseSummaryModal initial={viewFilters} onClose={() => setShowSummary(false)} />}
     </div>
   );
@@ -405,7 +377,45 @@ function EditModal({ row, onClose, onSaved, auth = {} }) {
 // ============================================================
 // View / Search
 // ============================================================
-function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersChange }) {
+// ตัวกรองชุดเดียวของตาราง/จัดตามใบ/สถิติ/ส่งออก (Rule #6) — วันที่ใน state เป็น DD/MM/YYYY ค.ศ. · มีวันเริ่มไม่มีวันสิ้นสุด = ถึงวันนี้
+function applyViewFilters(q, { search, deptFilter, typeFilter, dateFrom, dateTo }) {
+  if (deptFilter) q = q.eq('department', deptFilter);
+  if (typeFilter) q = q.eq('drug_type', typeFilter);
+  const isoFrom = thaiToIso(dateFrom) || dateFrom;
+  const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
+  if (isoFrom) q = q.gte('dispense_date', isoFrom);
+  if (isoTo)   q = q.lte('dispense_date', isoTo);
+  if (search.trim()) { const ls = normalizeLotSearch(search); const s = pgOrValue(`%${search}%`); q = q.or(`drug_name.ilike.${s},drug_code.ilike.${s},lot.ilike.${pgOrValue(`%${ls}%`)}`); }
+  return q;
+}
+
+const fmtBaht = (n) => (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const rowValue = (r) => (r.qty_out || 0) * (getPrice(r) || 0);
+// จ่ายของที่หมดอายุแล้ว ณ วันจ่าย → Exp สีแดง
+const expiredAtDispense = (r) => { const e = parseDate(fmtAnyDate(r.exp)); return !!(e && r.dispense_date && e <= r.dispense_date.slice(0, 10)); };
+
+// "ใบ" = วันเบิก + หน่วยงาน · หน่วยงานจริงก่อน (มูลค่ามาก→น้อย) ค่าที่ไม่ใช่หน่วยงานท้ายวัน · ในใบเรียงตามลำดับที่ลงชีท (id)
+function groupByDayDept(rows) {
+  const days = new Map();
+  for (const r of rows) {
+    const day = (r.dispense_date || '').slice(0, 10);
+    if (!days.has(day)) days.set(day, new Map());
+    const dept = r.department && r.department !== '-' ? String(r.department).trim() : '';
+    const groups = days.get(day);
+    if (!groups.has(dept)) groups.set(dept, { key: `${day}|${dept}`, dept, nonDept: isExcludedDept(dept), rows: [], total: 0 });
+    const g = groups.get(dept);
+    g.rows.push(r);
+    g.total += rowValue(r);
+  }
+  return [...days].map(([day, groups]) => ({
+    day,
+    groups: [...groups.values()]
+      .map(g => ({ ...g, rows: g.rows.sort((a, b) => a.id - b.id) }))
+      .sort((a, b) => (a.nonDept - b.nonDept) || (b.total - a.total)),
+  }));
+}
+
+function DispenseView({ isAdmin = false, isStaff = false, auth = {}, initialDept = '', onFiltersChange, onRefresh, onGoBack, canGoBack, onOpenSummary }) {
   const [rows, setRows]             = useState([]);
   const [loading, setLoading]       = useState(true);
   const [exportLoading, setExportLoading] = useState(false);
@@ -429,8 +439,6 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
   const [drugRows, setDrugRows]         = useState([]);
   const [drugLoading, setDrugLoading]   = useState(false);
   const [drugReload, setDrugReload]    = useState(0);
-  const [drugDateFrom, setDrugDateFrom] = useState('');
-  const [drugDateTo, setDrugDateTo]     = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const searchRef = useRef(null);
   const [aggStats, setAggStats] = useState(null);
@@ -438,75 +446,109 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
   const [mobileDetail, setMobileDetail] = useState(null);
   const [filterOpen, setFilterOpen] = useState(false);   // bottom sheet ตัวกรอง (มือถือ)
   const closeFilter = useCallback(() => setFilterOpen(false), []);
+  const [viewMode, setViewMode] = useState('group');   // 'group' = จัดตามใบ (วัน + หน่วยงาน) · 'list' = ทีละรายการ
+  const [customDates, setCustomDates] = useState(false);
+  const filterArgs = useMemo(() => ({ search, deptFilter, typeFilter, dateFrom, dateTo }), [search, deptFilter, typeFilter, dateFrom, dateTo]);
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
-    if (!deptReady) return;
+    if (!deptReady || viewMode !== 'list') return;
     setLoading(true);
-    let q = supabase.from('dispense_logs').select('*')
+    let q = applyViewFilters(supabase.from('dispense_logs').select('*'), filterArgs)
       .order('dispense_date', { ascending: false })
       .order('id', { ascending: false });
-    if (deptFilter)    q = q.eq('department', deptFilter);
-    if (typeFilter)    q = q.eq('drug_type', typeFilter);
-    const isoFrom = thaiToIso(dateFrom) || dateFrom;
-    const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
-    if (isoFrom && isoTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
-    else if (isoFrom)       { q = q.gte('dispense_date', isoFrom); }
-    else if (isoTo)         { q = q.lte('dispense_date', isoTo); }
-    if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%`); }
     q = withRealRowFilter(q);   // แสดงเฉพาะเบิกจริง qty>0 — ตรงกับ stat count (Rule #6)
     q = q.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
     const { data } = await q;
     setRows(data || []);
     setLoading(false);
-  }, [search, deptFilter, typeFilter, dateFrom, dateTo, page, deptReady]);
+  }, [filterArgs, page, deptReady, viewMode]);
 
   const handleExport = useCallback(async () => {
     if (!supabase) return;
     setExportLoading(true);
     try {
-      const isoFrom = thaiToIso(dateFrom) || dateFrom;
-      const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
-      const allRows = await fetchAllRows(() => {
-        let q = supabase.from('dispense_logs').select('*')
-          .order('dispense_date', { ascending: false })
-          .order('id', { ascending: false });
-        if (deptFilter) q = q.eq('department', deptFilter);
-        if (typeFilter) q = q.eq('drug_type', typeFilter);
-        if (isoFrom && isoTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
-        else if (isoFrom)       { q = q.gte('dispense_date', isoFrom); }
-        else if (isoTo)         { q = q.lte('dispense_date', isoTo); }
-        if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%`); }
-        return q;
-      });
+      const allRows = await fetchAllRows(() => applyViewFilters(supabase.from('dispense_logs').select('*'), filterArgs)
+        .order('dispense_date', { ascending: false })
+        .order('id', { ascending: false }));
       await exportToExcel(allRows, DISPENSE_EXCEL_COLS, 'ประวัติเบิกยา', `dispense_logs_${new Date().toISOString().slice(0,10)}.xlsx`, auth);
     } finally {
       setExportLoading(false);
     }
-  }, [search, deptFilter, typeFilter, dateFrom, dateTo, auth]);
+  }, [filterArgs, auth]);
 
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [load]);
 
+  // ── จัดตามใบ: โหลดทีละช่วงวัน — ตัดวันสุดท้ายของก้อนทิ้ง (อาจมาไม่ครบ) ไปเริ่มก้อนถัดไป ใบจึงไม่ขาดกลางใบ
+  const [groupReload, setGroupReload] = useState(0);
+  const groupKey = `${JSON.stringify(filterArgs)}#${groupReload}`;
+  const [grp, setGrp] = useState({ key: '', rows: [], next: 0, hasMore: false, loading: false, error: '' });
+  const grpReq = useRef(0);
+  const fetchDayChunk = useCallback(async (offset) => {
+    const CHUNK = 500;
+    const base = () => withRealRowFilter(applyViewFilters(supabase.from('dispense_logs').select('*'), filterArgs))
+      .order('dispense_date', { ascending: false })
+      .order('id', { ascending: false });
+    const { data, error } = await base().range(offset, offset + CHUNK - 1);
+    if (error) throw new Error(error.message);
+    const got = data || [];
+    if (got.length < CHUNK) return { rows: got, next: offset + got.length, hasMore: false };
+    const last = got[got.length - 1].dispense_date;
+    const cut = got.findIndex(r => r.dispense_date === last);
+    if (cut > 0) return { rows: got.slice(0, cut), next: offset + cut, hasMore: true };
+    // ทั้งก้อนเป็นวันเดียว (>500 รายการ) → ดึงวันนั้นให้ครบ
+    const whole = await fetchAllRows(() => (last == null ? base().is('dispense_date', null) : base().eq('dispense_date', last)));
+    return { rows: whole, next: offset + whole.length, hasMore: true };
+  }, [filterArgs]);
+
+  useEffect(() => {
+    if (!supabase || !deptReady || viewMode !== 'group') return;
+    const id = ++grpReq.current;
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetchDayChunk(0);
+        if (id === grpReq.current) setGrp({ key: groupKey, ...r, loading: false, error: '' });
+      } catch (e) {
+        if (id === grpReq.current) setGrp({ key: groupKey, rows: [], next: 0, hasMore: false, loading: false, error: e.message });
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [fetchDayChunk, groupKey, deptReady, viewMode]);
+
+  const loadMoreDays = async () => {
+    const id = grpReq.current;
+    setGrp(g => ({ ...g, loading: true, error: '' }));
+    try {
+      const r = await fetchDayChunk(grp.next);
+      if (id === grpReq.current) setGrp(g => ({ ...g, rows: [...g.rows, ...r.rows], next: r.next, hasMore: r.hasMore, loading: false }));
+    } catch (e) {
+      if (id === grpReq.current) setGrp(g => ({ ...g, loading: false, error: e.message }));
+    }
+  };
+  const grpCurrent = grp.key === groupKey;   // ผลของตัวกรองชุดปัจจุบันหรือยัง (เปลี่ยนตัวกรอง → ซ่อนผลเก่าระหว่างโหลด)
+  const grpRows = useMemo(() => (grpCurrent ? grp.rows : []), [grpCurrent, grp.rows]);
+  const grpLoading = !grpCurrent || grp.loading;
+  const dayGroups = useMemo(() => groupByDayDept(grpRows), [grpRows]);
+  const [openGroups, setOpenGroups] = useState({});    // key → true/false ที่ผู้ใช้กดเอง
+  const [showAllRows, setShowAllRows] = useState({});  // มือถือ: ใบที่กด "ดูอีก N รายการ"
+  const firstDay = dayGroups[0]?.day;
+  const firstGroupKey = dayGroups[0]?.groups[0]?.key;
+  // ค่าเริ่ม: คอม = กางใบของวันล่าสุด · มือถือ = กางใบแรกใบเดียว · ที่เหลือย่อ (แสดงชื่อยาย่อ)
+  const isGroupOpen = (day, key) => openGroups[key] ?? (isMobile ? key === firstGroupKey : day === firstDay);
+  const reloadAll = () => { load(); setGroupReload(n => n + 1); };
+
   // โหลด aggregate stats (count, qty, value) ของทุก rows ที่ตรงกับ filter — ไม่ใช่แค่หน้าปัจจุบัน
+  // ตัวกรองเปลี่ยนเร็ว (กดปุ่มลัดตอนก้อนเดิมยังโหลด) — ผลของคำขอเก่าห้ามทับผลใหม่
+  const aggReq = useRef(0);
   const loadAgg = useCallback(async () => {
     if (!supabase || !deptReady) return;
     setAggStats(null);
-    const isoFrom = thaiToIso(dateFrom) || dateFrom;
-    const isoTo   = thaiToIso(dateTo) || dateTo || (isoFrom ? new Date().toISOString().split('T')[0] : '');
-    const applyFilters = (q) => {
-      if (deptFilter) q = q.eq('department', deptFilter);
-      if (typeFilter) q = q.eq('drug_type', typeFilter);
-      if (isoFrom && isoTo)   { q = q.gte('dispense_date', isoFrom).lte('dispense_date', isoTo); }
-      else if (isoFrom)       { q = q.gte('dispense_date', isoFrom); }
-      else if (isoTo)         { q = q.lte('dispense_date', isoTo); }
-      if (search.trim()) { const ls = normalizeLotSearch(search); q = q.or(`drug_name.ilike.%${search}%,drug_code.ilike.%${search}%,lot.ilike.%${ls}%`); }
-      // กรอง qty_out=0 — รายการ void ไม่นับใน "ปริมาณรวมออก/มูลค่ารวม"
-      q = q.gt('qty_out', 0);
-      return q;
-    };
+    const req = ++aggReq.current;
+    // กรอง qty_out=0 — รายการ void ไม่นับใน "ปริมาณรวมออก/มูลค่ารวม"
+    const applyFilters = (q) => applyViewFilters(q, filterArgs).gt('qty_out', 0);
     const [countResult, data, minResult, maxResult] = await Promise.all([
       applyFilters(supabase.from('dispense_logs').select('*', { count: 'exact', head: true })),
-      fetchAllRows(() => applyFilters(supabase.from('dispense_logs').select('qty_out, price_per_unit, drug_unit, drug_code, drug_name'))),
+      fetchAllRows(() => applyFilters(supabase.from('dispense_logs').select('qty_out, price_per_unit, drug_unit, drug_code, drug_name, department'))),
       applyFilters(supabase.from('dispense_logs').select('dispense_date').not('dispense_date', 'is', null).order('dispense_date', { ascending: true }).limit(1)),
       applyFilters(supabase.from('dispense_logs').select('dispense_date').not('dispense_date', 'is', null).order('dispense_date', { ascending: false }).limit(1)),
     ]);
@@ -518,8 +560,16 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
     const totalValue = data.reduce((s, r) => s + ((r.qty_out || 0) * (getPrice(r) || 0)), 0);
     const minDate = minResult.data?.[0]?.dispense_date || null;
     const maxDate = maxResult.data?.[0]?.dispense_date || null;
-    setAggStats({ count: count ?? data.length, drugCount, totalValue, minDate, maxDate });
-  }, [search, deptFilter, typeFilter, dateFrom, dateTo, deptReady]);
+    const value = r => (r.qty_out || 0) * (getPrice(r) || 0);
+    const deptKey = r => (r.department || '').trim() || null;
+    // อันดับหน่วยงานไม่นับ NON_DEPARTMENTS (Rule #16) — บอกยอดที่ตัดไว้ใต้อันดับแทน
+    const depts = rankBy(data.filter(r => !isExcludedDept(r.department)), deptKey, value);
+    const nonDepts = rankBy(data.filter(r => isExcludedDept(r.department)), deptKey, value, { n: 10 });
+    const drugs = rankBy(data, r => (r.drug_code && r.drug_code !== '-') ? r.drug_code.trim() : (r.drug_name || '').trim() || null,
+      value, { labelFn: r => (r.drug_name || '').trim() || r.drug_code });
+    if (req !== aggReq.current) return;
+    setAggStats({ count: count ?? data.length, drugCount, totalValue, minDate, maxDate, depts, nonDepts, drugs });
+  }, [filterArgs, deptReady]);
 
   useEffect(() => { const t = setTimeout(loadAgg, 300); return () => clearTimeout(t); }, [loadAgg]);
 
@@ -564,10 +614,12 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
 
   const hasFilter  = search || deptFilter || typeFilter || dateFrom || dateTo;
 
-  // ป้ายขอบเขตบน stat card — บอกทั้งหน่วยงานและชนิดยาที่กรองอยู่
-  const scopeLabel = [deptFilter, typeFilter].filter(Boolean).join(' · ');
-
-  const clearAll = () => { setSearch(''); setDeptFilter(''); setTypeFilter(''); setDateFrom(''); setDateTo(''); setPage(0); };
+  const clearAll = () => { setSearch(''); setDeptFilter(''); setTypeFilter(''); setDateFrom(''); setDateTo(''); setCustomDates(false); setPage(0); };
+  const period = activePeriod(dateFrom, dateTo);
+  const pickPeriod = (key) => {
+    const [f, t] = periodRange(key);
+    setDateFrom(f); setDateTo(t); setCustomDates(false); setPage(0);
+  };
 
   useEffect(() => { onFiltersChange?.({ dept: deptFilter, dateFrom, dateTo }); }, [onFiltersChange, deptFilter, dateFrom, dateTo]);
 
@@ -578,7 +630,7 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
     // นับจากแถวที่ลบได้จริง — ลบซ้ำ (แถวหายไปแล้ว) ต้องไม่คืนยอดเข้า inventory ซ้ำ
     const { data: deleted, error } = await supabase.from('dispense_logs').delete().eq('id', row.id).select('id');
     setDrugRows(prev => prev.filter(r => r.id !== row.id));
-    if (error || !deleted?.length) { load(); return; }
+    if (error || !deleted?.length) { reloadAll(); return; }
     await insertAuditLog({
       action: 'delete_dispense', table_name: 'dispense_logs',
       user_name: resolveAuditUserName(auth), department: auth?.department || '-',
@@ -589,30 +641,45 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
       await adjustInventory(row.drug_code, row.lot, row.qty_out);
     }
     setExpanded(null);
-    load();
+    reloadAll();
   };
 
   // โหลด rows ของยาที่เลือก
   useEffect(() => {
     if (!selectedDrug || !supabase) { setDrugRows([]); return; }
     setDrugLoading(true);
-    supabase.from('dispense_logs')
+    // ยาที่เบิกบ่อยเกิน 1,000 แถวได้ (Rule #2)
+    fetchAllRows(() => supabase.from('dispense_logs')
       .select('*')
       .eq('drug_name', selectedDrug)
       .order('dispense_date', { ascending: false })
-      .then(({ data }) => { setDrugRows(data || []); setDrugLoading(false); });
+      .order('id', { ascending: false }))
+      .then(data => { setDrugRows(data || []); setDrugLoading(false); });
   }, [selectedDrug, drugReload]);
 
-  const filteredDrugRows = useMemo(() => drugRows.filter(r => {
-    if ((r.qty_out || 0) <= 0) return false;
-    if (drugDateFrom && r.dispense_date < (thaiToIso(drugDateFrom) || drugDateFrom)) return false;
-    if (drugDateTo   && r.dispense_date > (thaiToIso(drugDateTo)   || drugDateTo))   return false;
-    return true;
-  }), [drugRows, drugDateFrom, drugDateTo]);
+  // ใช้ช่วงเวลา + หน่วยงานจากตัวกรองด้านบนชุดเดียวกับหน้า (เดิมมีช่องวันที่ของตัวเอง ปุ่มลัดช่วงเวลาไม่มีผล)
+  const filteredDrugRows = useMemo(() => {
+    const isoFrom = thaiToIso(dateFrom) || dateFrom;
+    const isoTo   = thaiToIso(dateTo) || dateTo || '';
+    return drugRows.filter(r => {
+      if ((r.qty_out || 0) <= 0) return false;
+      if (deptFilter && r.department !== deptFilter) return false;
+      const d = (r.dispense_date || '').slice(0, 10);
+      if (isoFrom && d < isoFrom) return false;
+      if (isoTo   && d > isoTo)   return false;
+      return true;
+    });
+  }, [drugRows, dateFrom, dateTo, deptFilter]);
   const drugCode      = drugRows.find(r => r.drug_code && r.drug_code !== '-')?.drug_code || '-';
   const drugUnit      = drugRows.map(r => getUnit(r)).find(u => u !== '-') || '-';
   const drugTotalQty  = filteredDrugRows.reduce((s, r) => s + (r.qty_out || 0), 0);
+  // หน่วยไม่เท่ากัน (1000เม็ด/30เม็ด) = บวก qty ข้ามหน่วยไม่มีความหมาย → แสดง "หลายหน่วย"
+  const drugUnitSet   = [...new Set(filteredDrugRows.map(r => getUnit(r).trim()).filter(u => u && u !== '-'))];
+  const drugMixedUnit = drugUnitSet.length > 1;
   const drugTotalVal  = filteredDrugRows.reduce((s, r) => s + ((r.qty_out || 0) * (getPrice(r) || 0)), 0);
+  const drugDeptKey   = r => (r.department || '').trim() || null;
+  const drugDepts     = rankBy(filteredDrugRows.filter(r => !isExcludedDept(r.department)), drugDeptKey, rowValue, { n: 10 });
+  const drugNonDepts  = rankBy(filteredDrugRows.filter(r => isExcludedDept(r.department)), drugDeptKey, rowValue, { n: 10 });
 
   const filteredDrugs = search.trim()
     ? drugNames.filter(n => n.name.toLowerCase().includes(search.toLowerCase())).slice(0, 10)
@@ -630,14 +697,12 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
     setSearch('');
     setSelectedDrug('');
     setDrugRows([]);
-    setDrugDateFrom('');
-    setDrugDateTo('');
     setPage(0);
   };
 
   // ตัวกรอง — เก็บเป็นตัวแปรชุดเดียว วางใน layout เดิม (คอม) หรือใน FilterSheet (มือถือ) อย่างใดอย่างหนึ่ง
   const searchBox = (
-          <div className="relative flex-1 min-w-[180px]" ref={searchRef}>
+          <div className="relative w-full" ref={searchRef}>
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input
               type="text" value={search}
@@ -665,26 +730,55 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
   const deptSelect = (
           <SearchableSelect value={deptFilter} onChange={v => { setDeptFilter(v); setPage(0); }}
             options={departments} emptyLabel="ทุกหน่วยงาน" placeholder="ทุกหน่วยงาน"
-            className={isMobile ? 'w-full' : 'w-44'} />
+            className="w-full" />
   );
   const typeSelect = (
           <SearchableSelect value={typeFilter} onChange={v => { setTypeFilter(v); setPage(0); }}
             options={drugTypes} emptyLabel="ทุกชนิดยา" placeholder="ทุกชนิดยา"
-            className={isMobile ? 'w-full' : 'w-36'} />
+            className="w-full" />
   );
   const clearBtn = (
-          <button onClick={clearAll} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด">
+          <button onClick={clearAll} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-2 transition-colors" title="ล้างตัวกรองทั้งหมด" aria-label="ล้างตัวกรองทั้งหมด">
             <RefreshCcw size={16} />
           </button>
   );
   const excelBtn = (
           <button
             onClick={handleExport}
-            disabled={exportLoading || (aggStats ? aggStats.count === 0 : rows.length === 0)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-xl text-xs font-semibold transition-colors"
-            title="ส่งออก Excel (ทุก row)">
-            <FileDown size={14} /> {exportLoading ? 'กำลังส่งออก...' : 'Excel'}
+            disabled={exportLoading || !aggStats || aggStats.count === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 text-white rounded-lg text-sm font-semibold transition-colors"
+            title="ส่งออก Excel ทุกรายการตามตัวกรอง">
+            <FileDown size={15} /> {exportLoading ? 'กำลังส่งออก...' : 'ส่งออก Excel'}
           </button>
+  );
+  const importBtn = isStaff && (
+          <button onClick={openExcelSync}
+            className="flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] rounded-lg text-sm font-medium bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+          ><FileSpreadsheet size={15} /> นำเข้าจาก Excel</button>
+  );
+  const showDates = customDates || period === 'custom';
+  const chipCls = (on) => `shrink-0 whitespace-nowrap rounded-full px-3 min-h-[36px] text-sm border transition-colors ${on
+    ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200 font-semibold'
+    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`;
+  const periodChips = (
+        <div role="group" aria-label="ช่วงเวลา" className={`flex gap-1.5 ${isMobile ? 'overflow-x-auto pb-0.5' : 'flex-wrap'}`}>
+          {PERIODS.map(([k, label]) => {
+            const on = period === k && !customDates;
+            return <button key={k} type="button" aria-pressed={on} onClick={() => pickPeriod(k)} className={chipCls(on)}>{label}</button>;
+          })}
+          <button type="button" aria-pressed={showDates} className={chipCls(showDates)}
+            onClick={() => { setCustomDates(true); if (isMobile) setFilterOpen(true); }}>กำหนดวันเอง</button>
+        </div>
+  );
+  const viewToggle = (
+        <div role="group" aria-label="มุมมอง" className="flex bg-slate-100 dark:bg-slate-800 rounded-xl p-0.5 shrink-0">
+          {[['group', 'จัดตามใบ (วัน + หน่วยงาน)'], ['list', 'ทีละรายการ']].map(([k, label]) => (
+            <button key={k} type="button" aria-pressed={viewMode === k} onClick={() => { setViewMode(k); setExpanded(null); }}
+              className={`rounded-lg px-3 min-h-[32px] text-sm transition-colors ${viewMode === k
+                ? 'bg-white dark:bg-slate-900 text-rose-800 dark:text-rose-200 font-semibold shadow-sm'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100'}`}>{label}</button>
+          ))}
+        </div>
   );
   const dateRow = (
         <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -700,92 +794,247 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
         </div>
   );
   // มือถือ: บอกตัวกรองที่ใช้อยู่ใต้ช่องค้นหา (ตัวกรองซ่อนใน sheet — ไม่บอก = ดูเหมือนรายการทั้งหมด)
-  const dateLabel = (dateFrom || dateTo) ? `${dateFrom || '…'} – ${dateTo || 'วันนี้'}` : '';
+  const dateLabel = !(dateFrom || dateTo) ? ''
+    : period !== 'custom' ? PERIODS.find(([k]) => k === period)[1]
+    : `${toBE(dateFrom) || '…'} – ${toBE(dateTo) || 'วันนี้'}`;
   const activeFilters = [deptFilter, typeFilter, dateLabel].filter(Boolean);
+  const dataRangeLabel = aggStats?.minDate && aggStats?.maxDate
+    ? `${toBE(isoToThai(aggStats.minDate))} – ${toBE(isoToThai(aggStats.maxDate))}` : '';
+  const fieldLabel = 'text-xs font-semibold text-slate-500 dark:text-slate-400';
+
+  const fmtPrice = (r) => getPrice(r) != null ? fmtBaht(getPrice(r)) : '-';
+  const fmtValue = (r) => getPrice(r) != null ? fmtBaht(rowValue(r)) : '-';
+  // รายละเอียดแถวที่กาง (ตารางทีละรายการ + ตารางในใบ) — admin แก้ไข/ลบได้
+  const rowDetail = (row) => (
+    <>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-1.5 text-sm mb-3">
+        {[
+          ['รหัสยา', row.drug_code],
+          ['ชนิด', row.drug_type],
+          ['หน่วยงาน', row.department],
+          ['MainLog', row.main_log],
+          ['DetailedLog', row.detail_log],
+          ['Lot', row.lot],
+          ['Exp', fmtAnyDate(row.exp)],
+          ['ราคา/หน่วย', getPrice(row) != null ? `${fmtBaht(getPrice(row))} บาท` : null],
+          ['คงเหลือก่อนเบิก', row.qty_before?.toLocaleString()],
+          ['ปริมาณออก', row.qty_out?.toLocaleString()],
+          ['คงเหลือหลังจ่าย', row.qty_after?.toLocaleString()],
+          ['หมายเหตุ', row.note],
+        ].map(([label, val]) => val != null && val !== '-' && val !== '' ? (
+          <div key={label}>
+            <span className="text-slate-400 dark:text-slate-500 text-xs">{label}: </span>
+            <span className="text-slate-700 dark:text-slate-200 font-medium">{val}</span>
+          </div>
+        ) : null)}
+      </div>
+      {isAdmin && (
+        <div className="flex gap-2 pt-2 border-t border-rose-100 dark:border-rose-900/50">
+          <button
+            onClick={e => { e.stopPropagation(); setEditingRow(row); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-900/60 hover:bg-indigo-100 dark:hover:bg-indigo-950/70 transition-colors">
+            <Pencil size={13}/> แก้ไข
+          </button>
+          <button
+            onClick={e => handleDelete(row, e)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 dark:bg-red-950/40 text-red-600 border border-red-200 dark:border-red-900/60 hover:bg-red-100 dark:hover:bg-red-950/70 transition-colors">
+            <Trash2 size={13}/> ลบ
+          </button>
+        </div>
+      )}
+    </>
+  );
+  const expCls = (r, base = 'text-slate-500 dark:text-slate-400') => expiredAtDispense(r) ? 'text-red-600 dark:text-red-400 font-semibold' : base;
+
+  const renderGroup = (day, g) => {
+    const open = isGroupOpen(day, g.key);
+    const preview = [...new Set(g.rows.map(r => r.drug_name).filter(Boolean))].join(' · ');
+    const shown = isMobile && !showAllRows[g.key] ? g.rows.slice(0, 4) : g.rows;
+    const bodyId = `dg-${g.key}`;
+    return (
+      <article key={g.key} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
+        <button type="button" aria-expanded={open} aria-controls={bodyId}
+          onClick={() => setOpenGroups(s => ({ ...s, [g.key]: !open }))}
+          className="w-full text-left px-4 py-3 min-h-[44px] flex flex-wrap items-center gap-x-3 gap-y-1 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors">
+          <span className="text-base font-bold text-slate-800 dark:text-slate-100 break-words min-w-0">{g.dept || 'ไม่ระบุหน่วยงาน'}</span>
+          {g.nonDept && <span className="text-xs font-semibold rounded-full px-2.5 py-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200">ไม่ใช่หน่วยงาน</span>}
+          <span className="text-sm text-slate-500 dark:text-slate-400">{g.rows.length.toLocaleString()} รายการ</span>
+          <span className="ml-auto font-bold text-amber-700 dark:text-amber-300 tabular-nums whitespace-nowrap">{fmtBaht(g.total)} บาท</span>
+          <ChevronDown size={16} aria-hidden="true" className={`text-slate-400 dark:text-slate-500 shrink-0 ${open ? 'rotate-180' : ''}`} />
+          {!open && <span className="w-full text-xs text-slate-500 dark:text-slate-400 truncate" title={preview}>{preview}</span>}
+        </button>
+        {open && (isMobile ? (
+          <div id={bodyId}>
+            <ul className="border-t border-slate-100 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
+              {shown.map(r => (
+                <li key={r.id}>
+                  <button type="button" onClick={() => setMobileDetail(r)}
+                    className="w-full text-left px-4 py-2.5 flex gap-3 active:bg-rose-50 dark:active:bg-rose-950/40 transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm text-slate-900 dark:text-slate-50 break-words">{r.drug_name}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words">
+                        {r.drug_code} · Lot {r.lot || '-'} · <span className={expCls(r, '')}>Exp {fmtAnyDate(r.exp)}</span>
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-bold text-rose-700 dark:text-rose-300 tabular-nums">{(r.qty_out || 0).toLocaleString()} <span className="font-normal text-slate-500 dark:text-slate-400">{getUnit(r)}</span></p>
+                      <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5 tabular-nums">{fmtValue(r)} บ.</p>
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {g.rows.length > shown.length && (
+              <button type="button" onClick={() => setShowAllRows(s => ({ ...s, [g.key]: true }))}
+                className="w-full min-h-[44px] border-t border-slate-100 dark:border-slate-800 text-sm font-semibold text-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors">
+                ดูอีก {(g.rows.length - shown.length).toLocaleString()} รายการ
+              </button>
+            )}
+          </div>
+        ) : (
+          <div id={bodyId} className="overflow-x-auto border-t border-slate-100 dark:border-slate-800">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-800/80 text-xs text-slate-500 dark:text-slate-400">
+                  <th scope="col" className="text-left font-semibold px-4 py-2">ยา</th>
+                  <th scope="col" className="text-left font-semibold px-3 py-2">Lot · Exp</th>
+                  <th scope="col" className="text-right font-semibold px-3 py-2">จ่าย</th>
+                  <th scope="col" className="text-right font-semibold px-3 py-2">ราคา/หน่วย</th>
+                  <th scope="col" className="text-right font-semibold px-4 py-2">มูลค่า (บาท)</th>
+                  <th scope="col" className="w-8"><span className="sr-only">รายละเอียด</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {g.rows.map(r => (
+                  <React.Fragment key={r.id}>
+                    <tr onClick={() => setExpanded(expanded === r.id ? null : r.id)}
+                      className={`border-t border-slate-100 dark:border-slate-800 cursor-pointer transition-colors ${expanded === r.id ? 'bg-rose-50 dark:bg-rose-950/40' : 'hover:bg-rose-50 dark:hover:bg-rose-950/50'}`}>
+                      <td className="px-4 py-2 min-w-[240px]">
+                        <span className="font-semibold text-slate-900 dark:text-slate-50">{r.drug_name}</span>
+                        <span className="block text-xs text-slate-500 dark:text-slate-400">{r.drug_code}</span>
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-200">
+                        {r.lot || '-'}
+                        <span className={`block text-xs ${expCls(r)}`}>Exp {fmtAnyDate(r.exp)}</span>
+                      </td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums">
+                        <span className="font-bold text-rose-700 dark:text-rose-300">{(r.qty_out || 0).toLocaleString()}</span> <span className="text-slate-500 dark:text-slate-400">{getUnit(r)}</span>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-700 dark:text-slate-200">{fmtPrice(r)}</td>
+                      <td className="px-4 py-2 text-right font-semibold tabular-nums text-slate-800 dark:text-slate-100">{fmtValue(r)}</td>
+                      <td className="pr-3 text-slate-400 dark:text-slate-500">{expanded === r.id ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}</td>
+                    </tr>
+                    {expanded === r.id && (
+                      <tr className="bg-rose-50 dark:bg-rose-950/40">
+                        <td colSpan={6} className="px-6 py-3">{rowDetail(r)}</td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </article>
+    );
+  };
+
 
   return (
+    <>
+      {/* Title bar — sidebar (AppShell) คุม navigation; เหลือ title + action */}
+      <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 flex items-center gap-2">
+        <BackButton onGoBack={onGoBack} canGoBack={canGoBack} />
+        <div className="p-1.5 rounded-lg bg-rose-100 dark:bg-rose-950/60 text-rose-600 shrink-0"><TrendingDown size={18} /></div>
+        <div className="flex-1 min-w-0">
+          {/* ชื่อปุ่มต้องไม่ซ้ำเมนู sidebar "ประวัติเบิกจ่าย" (คนใช้โปรแกรมอ่านจอ/เทสแยกไม่ออก) */}
+          <h1 aria-label="ประวัติเบิกจ่าย" className="font-bold text-base text-slate-800 dark:text-slate-100 truncate">
+            <button onClick={onRefresh} aria-label="โหลดหน้าประวัติเบิกจ่ายใหม่" className="text-left hover:opacity-70 transition-opacity" title="คลิกเพื่อโหลดใหม่">ประวัติเบิกจ่าย</button>
+          </h1>
+          <p className="hidden sm:block text-xs text-slate-500 dark:text-slate-400 truncate">
+            ของที่จ่ายออกจากคลังให้หน่วยงาน{dataRangeLabel && ` · ข้อมูล ${dataRangeLabel}`}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button onClick={onOpenSummary}
+            className="flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] rounded-lg text-sm font-medium bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <BarChart3 size={15} /> สรุปผล
+          </button>
+          {!isMobile && importBtn}
+          {!isMobile && excelBtn}
+        </div>
+      </div>
+
     <div className="p-4 space-y-4 max-w-5xl mx-auto">
       {editingRow && (
         <EditModal
           row={editingRow}
           auth={auth}
           onClose={() => setEditingRow(null)}
-          onSaved={() => { setEditingRow(null); load(); setDrugReload(n => n + 1); }}
+          onSaved={() => { setEditingRow(null); reloadAll(); setDrugReload(n => n + 1); }}
         />
       )}
-      {/* Filter card — มือถือ: ช่องค้นหา + ปุ่มตัวกรอง (bottom sheet) · คอม: layout เดิม */}
-      <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur border border-slate-200 dark:border-slate-700 rounded-xl p-3 shadow-sm space-y-2 sticky top-14 z-10">
-        <div className="flex flex-wrap gap-2">
-          {searchBox}
-          {isMobile
-            ? <FilterButton activeCount={activeFilters.length} onOpen={() => setFilterOpen(true)} />
-            : <>{deptSelect}{typeSelect}{clearBtn}{excelBtn}</>}
+      {/* ตัวกรอง — มือถือ: ช่องค้นหา + ปุ่มตัวกรอง (bottom sheet) + ปุ่มลัดช่วงเวลา · คอม: การ์ดตัวกรองเต็ม */}
+      {isMobile ? (
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <div className="flex-1 min-w-0">{searchBox}</div>
+            <FilterButton activeCount={activeFilters.length} onOpen={() => setFilterOpen(true)} />
+          </div>
+          {activeFilters.length > 0 && <p className="text-xs text-sky-700 dark:text-sky-300 truncate">กรอง: {activeFilters.join(' · ')}</p>}
+          {periodChips}
         </div>
-        {isMobile
-          ? (activeFilters.length > 0 && <p className="text-xs text-sky-700 dark:text-sky-300 truncate">กรอง: {activeFilters.join(' · ')}</p>)
-          : dateRow}
-      </div>
+      ) : (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-sm space-y-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="flex-1 min-w-[240px] space-y-1"><p className={fieldLabel}>ค้นหา</p>{searchBox}</div>
+            <div className="w-48 space-y-1"><p className={fieldLabel}>หน่วยงาน</p>{deptSelect}</div>
+            <div className="w-40 space-y-1"><p className={fieldLabel}>ชนิดยา</p>{typeSelect}</div>
+            {hasFilter && clearBtn}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {periodChips}
+            {viewToggle}
+          </div>
+          {showDates && dateRow}
+        </div>
+      )}
       {isMobile && (
         <FilterSheet open={filterOpen} onClose={closeFilter} onClear={clearAll}>
           {deptSelect}
           {typeSelect}
           {dateRow}
-          <div className="flex justify-end">{excelBtn}</div>
+          <div className="space-y-1"><p className={fieldLabel}>มุมมอง</p>{viewToggle}</div>
+          <div className="flex flex-wrap justify-end gap-2">{importBtn}{excelBtn}</div>
         </FilterSheet>
       )}
 
-      {/* ตารางประวัติเบิกยาที่เลือก */}
+      {/* ยาที่เลือก — สรุป (แผงเดียวกับหน้า) + ตาราง · ช่วงเวลา/หน่วยงานมาจากตัวกรองด้านบน */}
       {selectedDrug && (
-        <div className="bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-800/60 rounded-xl shadow-md overflow-hidden">
-          {/* Header */}
-          <div className="bg-rose-700 px-4 py-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-white text-base">{selectedDrug}</p>
-                <p className="text-xs text-rose-200 mt-0.5">รหัส: {drugCode} · หน่วย: {drugUnit}</p>
-                {drugRows.length > 0 && (() => {
-                  const depts = [...new Set(drugRows.map(r => r.department).filter(d => d && d !== '-'))];
-                  return depts.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5 mt-2 items-center">
-                      <span className="text-xs text-rose-200 font-semibold shrink-0">หน่วยงานที่เบิก:</span>
-                      {depts.map(d => (
-                        <span key={d} className="text-xs bg-white/20 border border-white/30 text-white px-2 py-0.5 rounded-full">{d}</span>
-                      ))}
-                    </div>
-                  ) : null;
-                })()}
-              </div>
-              <button onClick={clearSearchDrug} className="text-rose-200 hover:text-white shrink-0 mt-0.5"><X size={16}/></button>
+        <HistorySummary isMobile={isMobile} storageKey="dispense_drug"
+          title={`สรุปยานี้ · ${dateLabel || 'ทั้งหมด'}${deptFilter ? ` · ${deptFilter}` : ''}`}
+          stats={[
+            { label: 'มูลค่ารวม', value: drugLoading ? '–' : Math.round(drugTotalVal).toLocaleString(), unit: 'บาท', tone: 'amber' },
+            drugMixedUnit && !drugLoading
+              ? { label: 'ปริมาณเบิกรวม', value: 'หลายหน่วย', sub: `${drugUnitSet.join(' · ')} — ดูตาราง`, tone: 'rose' }
+              : { label: 'ปริมาณเบิกรวม', value: drugLoading ? '–' : drugTotalQty.toLocaleString(undefined, { maximumFractionDigits: 0 }), unit: drugUnit !== '-' ? drugUnit : '', tone: 'rose' },
+            { label: 'รายการเบิก', value: drugLoading ? '–' : filteredDrugRows.length.toLocaleString(), unit: 'รายการ', sub: drugLoading ? null : `${drugDepts.size.toLocaleString()} หน่วยงาน` },
+          ]}
+          lists={!drugLoading && filteredDrugRows.length ? [
+            { title: 'หน่วยงานที่เบิกยานี้', short: 'หน่วยงาน', rank: drugDepts, countUnit: 'รายการเบิก', bar: 'bg-rose-400',
+              desc: 'เรียงตามมูลค่าที่เบิกยานี้ (จำนวน × ราคา/หน่วย เป็นบาท) ในช่วงที่เลือก · ตัวเลขล่าง = จำนวนรายการเบิก',
+              note: drugNonDepts.size ? `ไม่นับในอันดับ: ${drugNonDepts.top.map(t => `${t.label} ${Math.round(t.value).toLocaleString()} บาท`).join(' · ')}` : null },
+          ] : null} />
+      )}
+      {selectedDrug && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
+          <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="min-w-0">
+              <h2 className="font-bold text-slate-900 dark:text-slate-50 break-words">{selectedDrug}</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">รหัส {drugCode} · หน่วย {drugUnit} · {filteredDrugRows.length.toLocaleString()} รายการเบิก</p>
             </div>
-          </div>
-
-          {/* Date filter */}
-          <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-3">
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">ช่วงวันที่:</span>
-            <ThaiDateInput value={drugDateFrom} onChange={setDrugDateFrom} size="w-24" />
-            <span className="text-xs text-slate-400 dark:text-slate-500">ถึง</span>
-            <ThaiDateInput value={drugDateTo} onChange={setDrugDateTo} size="w-24" />
-            {(drugDateFrom || drugDateTo) && (
-              <button onClick={() => { setDrugDateFrom(''); setDrugDateTo(''); }}
-                className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-0.5"><X size={11}/>ล้าง</button>
-            )}
-          </div>
-
-          {/* Summary cards */}
-          <div className="grid grid-cols-3 gap-2 sm:gap-3 px-4 py-3">
-            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-slate-300/50">
-              <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{filteredDrugRows.length.toLocaleString()}</p>
-              <p className="text-xs text-slate-300 mt-0.5">รายการ (กรอง)</p>
-            </div>
-            <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-rose-300/60">
-              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
-              <p className="relative text-base sm:text-2xl font-bold text-white tabular-nums break-all">{drugTotalQty.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-              <p className="relative text-xs text-rose-50 mt-0.5">ปริมาณรวม (ออก)</p>
-            </div>
-            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-amber-200/60">
-              <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{drugTotalVal.toLocaleString(undefined,{maximumFractionDigits:0})}</p>
-              <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวม (บาท)</p>
-            </div>
+            <button type="button" onClick={clearSearchDrug} aria-label="ปิดยาที่เลือก"
+              className="shrink-0 -m-1 p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:text-slate-200 dark:hover:bg-slate-800 transition-colors"><X size={16}/></button>
           </div>
 
           {/* Table */}
@@ -906,40 +1155,62 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
         </div>
       )}
 
-      {/* Summary strip + main table — ซ่อนเมื่อดู drug detail panel */}
-      {!selectedDrug && rows.length > 0 && (
-        <div className="space-y-2">
-          {aggStats?.minDate && aggStats?.maxDate && (
-            <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 flex-wrap">
-              <CalendarDays size={13} className="text-slate-400 dark:text-slate-500 shrink-0" />
-              <span>ข้อมูลตั้งแต่ <span className="font-semibold text-slate-700 dark:text-slate-200">{toBE(isoToThai(aggStats.minDate))}</span> – <span className="font-semibold text-slate-700 dark:text-slate-200">{toBE(isoToThai(aggStats.maxDate))}</span></span>
-              <span className="text-slate-400 dark:text-slate-500">·</span>
-              <span className="text-slate-600 dark:text-slate-300">{dateDiff(aggStats.minDate, aggStats.maxDate)}</span>
-            </div>
-          )}
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
-            <div className="bg-gradient-to-br from-slate-600 to-slate-800 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-slate-300/50">
-              <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{aggStats ? aggStats.count.toLocaleString() : '...'}</p>
-              <p className="text-xs text-slate-300 mt-0.5">จำนวนรายการ{scopeLabel ? ` (${scopeLabel})` : ' ทุกหน่วยงาน'}</p>
-            </div>
-            <div className="relative overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-rose-300/60">
-              <span className="pointer-events-none absolute -left-5 -top-8 w-28 h-28 rounded-full bg-white/25 blur-xl" />
-              <p className="relative text-base sm:text-2xl font-bold text-white tabular-nums break-all">{aggStats ? aggStats.drugCount.toLocaleString() : '...'}</p>
-              <p className="relative text-xs text-rose-50 mt-0.5">จำนวนชนิดยา{scopeLabel ? ` (${scopeLabel})` : ' ทุกหน่วยงาน'}</p>
-            </div>
-            <div className="bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-lg min-w-0 shadow-amber-200/60">
-              <p className="text-base sm:text-2xl font-bold text-white tabular-nums break-all">{aggStats ? aggStats.totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) : '...'}</p>
-              <p className="text-xs text-amber-50 mt-0.5">มูลค่ารวม (บาท){scopeLabel ? ` (${scopeLabel})` : ' ทุกหน่วยงาน'}</p>
-            </div>
-          </div>
-        </div>
+      {/* สรุป — ตัวเลขชุดเดียวกับตัวกรอง (Rule #6) · ซ่อนเมื่อดูแผงยาที่เลือก */}
+      {!selectedDrug && (!aggStats || aggStats.count > 0) && (
+        <HistorySummary isMobile={isMobile} storageKey="dispense" title={`สรุป · ${dateLabel || 'ทั้งหมด'}`}
+          stats={[
+            { label: 'มูลค่ารวม', value: aggStats ? Math.round(aggStats.totalValue).toLocaleString() : '–', unit: 'บาท', tone: 'amber',
+              sub: aggStats ? `จาก ${aggStats.depts.size.toLocaleString()} หน่วยงาน` : null },
+            { label: 'รายการเบิก', value: aggStats ? aggStats.count.toLocaleString() : '–', unit: 'รายการ', tone: 'rose' },
+            { label: 'ชนิดยา', value: aggStats ? aggStats.drugCount.toLocaleString() : '–', unit: 'ชนิด' },
+          ]}
+          lists={aggStats ? [
+            { title: 'หน่วยงานที่เบิกมูลค่าสูงสุด', short: 'หน่วยงาน', rank: aggStats.depts, countUnit: 'รายการเบิก', bar: 'bg-rose-400',
+              desc: 'เรียงตามมูลค่าที่เบิก (จำนวน × ราคา/หน่วย เป็นบาท) ในช่วงที่เลือก · ตัวเลขล่าง = จำนวนรายการเบิก',
+              note: aggStats.nonDepts.size ? `ไม่นับในอันดับ: ${aggStats.nonDepts.top.map(t => `${t.label} ${Math.round(t.value).toLocaleString()} บาท`).join(' · ')}` : null },
+            { title: 'ยาที่เบิกมูลค่าสูงสุด', short: 'ยา', rank: aggStats.drugs, countUnit: 'รายการเบิก', bar: 'bg-amber-400',
+              desc: 'วัดว่ามูลค่าที่จ่ายออกไปลงที่ยาตัวไหนมากสุด — เรียงตามมูลค่า (บาท) ไม่ใช่จำนวนครั้ง · ตัวเลขล่าง = จำนวนรายการเบิก · ไม่แสดงจำนวนหน่วยเพราะแต่ละยาหน่วยต่างกัน' },
+          ] : null} />
       )}
 
-      {!selectedDrug && loading && <p className="text-center text-slate-400 dark:text-slate-500 py-10">กำลังโหลด...</p>}
-      {!selectedDrug && !loading && rows.length === 0 && (
+      {/* จัดตามใบ (วัน + หน่วยงาน) */}
+      {!selectedDrug && viewMode === 'group' && (
+        grpRows.length === 0 ? (
+          grpLoading ? <p className="text-center text-slate-400 dark:text-slate-500 py-10">กำลังโหลด...</p>
+          : grp.error ? <p className="text-center text-red-600 dark:text-red-400 py-10">โหลดข้อมูลไม่สำเร็จ: {grp.error}</p>
+          : (
+            <div className="text-center text-slate-400 dark:text-slate-500 py-20">
+              <TrendingDown size={48} className="mx-auto mb-3 opacity-30" />
+              <p>ไม่พบข้อมูล{hasFilter ? ' — ลองเปลี่ยนตัวกรอง' : ' — กด นำเข้าจาก Excel เพื่อนำเข้าข้อมูล'}</p>
+            </div>
+          )
+        ) : (
+          <div className="space-y-5">
+            {dayGroups.map(d => (
+              <section key={d.day} className="space-y-2">
+                <h2 className="px-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{dayLabel(d.day)}</h2>
+                {d.groups.map(g => renderGroup(d.day, g))}
+              </section>
+            ))}
+            <div className="flex flex-wrap items-center justify-center gap-3 text-sm text-slate-500 dark:text-slate-400">
+              <span>{grp.hasMore ? `แสดงถึง ${dayLabel(dayGroups[dayGroups.length - 1].day)}` : 'แสดงครบทุกวันแล้ว'}</span>
+              {grp.hasMore && (
+                <button type="button" onClick={loadMoreDays} disabled={grpLoading}
+                  className="min-h-[40px] px-4 rounded-xl text-sm font-semibold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors">
+                  {grpLoading ? 'กำลังโหลด...' : 'แสดงวันก่อนหน้า'}
+                </button>
+              )}
+              {grp.error && <span className="w-full text-center text-red-600 dark:text-red-400">โหลดข้อมูลไม่สำเร็จ: {grp.error}</span>}
+            </div>
+          </div>
+        )
+      )}
+
+      {!selectedDrug && viewMode === 'list' && loading && <p className="text-center text-slate-400 dark:text-slate-500 py-10">กำลังโหลด...</p>}
+      {!selectedDrug && viewMode === 'list' && !loading && rows.length === 0 && (
         <div className="text-center text-slate-400 dark:text-slate-500 py-20">
           <TrendingDown size={48} className="mx-auto mb-3 opacity-30" />
-          <p>ไม่พบข้อมูล{hasFilter ? ' — ลองเปลี่ยนตัวกรอง' : ' — กด Import CSV เพื่อนำเข้าข้อมูล'}</p>
+          <p>ไม่พบข้อมูล{hasFilter ? ' — ลองเปลี่ยนตัวกรอง' : ' — กด นำเข้าจาก Excel เพื่อนำเข้าข้อมูล'}</p>
         </div>
       )}
 
@@ -1003,7 +1274,7 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
         </div>
       )}
 
-      {!selectedDrug && rows.length > 0 && isMobile && (
+      {!selectedDrug && viewMode === 'list' && rows.length > 0 && isMobile && (
         <div className="space-y-2">
           {rows.map((row, i) => (
             <div key={row.id} onClick={() => setMobileDetail(row)}
@@ -1035,22 +1306,22 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
         </div>
       )}
 
-      {!selectedDrug && rows.length > 0 && !isMobile && (
+      {!selectedDrug && viewMode === 'list' && rows.length > 0 && !isMobile && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-260px)]">
             <table className="w-full min-w-[800px] text-sm">
               <thead className="sticky top-0 z-[5]">
                 <tr className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
-                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">วันที่เบิก</th>
-                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">ชื่อรายการยา</th>
-                  <th className="px-4 py-3.5 text-right bg-slate-50 dark:bg-slate-800/80">จำนวน</th>
-                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">หน่วย</th>
-                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">Lot</th>
-                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">Exp</th>
-                  <th className="px-4 py-3.5 text-right bg-slate-50 dark:bg-slate-800/80">ราคา/หน่วย</th>
-                  <th className="px-4 py-3.5 text-right bg-slate-50 dark:bg-slate-800/80">มูลค่า (บาท)</th>
-                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800/80">หน่วยงาน</th>
-                  <th className="px-4 py-3.5 w-8 bg-slate-50 dark:bg-slate-800/80"></th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800">วันที่เบิก</th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800">ชื่อรายการยา</th>
+                  <th className="px-4 py-3.5 text-right bg-slate-50 dark:bg-slate-800">จำนวน</th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800">หน่วย</th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800">Lot</th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800">Exp</th>
+                  <th className="px-4 py-3.5 text-right bg-slate-50 dark:bg-slate-800">ราคา/หน่วย</th>
+                  <th className="px-4 py-3.5 text-right bg-slate-50 dark:bg-slate-800">มูลค่า (บาท)</th>
+                  <th className="px-4 py-3.5 text-left bg-slate-50 dark:bg-slate-800">หน่วยงาน</th>
+                  <th className="px-4 py-3.5 w-8 bg-slate-50 dark:bg-slate-800"></th>
                 </tr>
               </thead>
               <tbody>
@@ -1081,41 +1352,7 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
                     {expanded === row.id && (
                       <tr key={`${row.id}-detail`} className="bg-rose-50 dark:bg-rose-950/40 border-b border-rose-100 dark:border-rose-900/50">
                         <td colSpan={10} className="px-6 py-3">
-                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-1.5 text-sm mb-3">
-                            {[
-                              ['รหัสยา', row.drug_code],
-                              ['ชนิด', row.drug_type],
-                              ['หน่วยงาน', row.department],
-                              ['MainLog', row.main_log],
-                              ['DetailedLog', row.detail_log],
-                              ['Lot', row.lot],
-                              ['Exp', fmtAnyDate(row.exp)],
-                              ['ราคา/หน่วย', getPrice(row) != null ? `${Number(getPrice(row)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} บาท` : null],
-                              ['คงเหลือก่อนเบิก', row.qty_before?.toLocaleString()],
-                              ['ปริมาณออก', row.qty_out?.toLocaleString()],
-                              ['คงเหลือหลังจ่าย', row.qty_after?.toLocaleString()],
-                              ['หมายเหตุ', row.note],
-                            ].map(([label, val]) => val != null && val !== '-' && val !== '' ? (
-                              <div key={label}>
-                                <span className="text-slate-400 dark:text-slate-500 text-xs">{label}: </span>
-                                <span className="text-slate-700 dark:text-slate-200 font-medium">{val}</span>
-                              </div>
-                            ) : null)}
-                          </div>
-                          {isAdmin && (
-                            <div className="flex gap-2 pt-2 border-t border-rose-100 dark:border-rose-900/50">
-                              <button
-                                onClick={e => { e.stopPropagation(); setEditingRow(row); }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-900/60 hover:bg-indigo-100 dark:hover:bg-indigo-950/70 transition-colors">
-                                <Pencil size={13}/> แก้ไข
-                              </button>
-                              <button
-                                onClick={e => handleDelete(row, e)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 dark:bg-red-950/40 text-red-600 border border-red-200 dark:border-red-900/60 hover:bg-red-100 dark:hover:bg-red-950/70 transition-colors">
-                                <Trash2 size={13}/> ลบ
-                              </button>
-                            </div>
-                          )}
+                          {rowDetail(row)}
                         </td>
                       </tr>
                     )}
@@ -1127,7 +1364,7 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
         </div>
       )}
 
-      {(rows.length === PAGE_SIZE || page > 0) && (() => {
+      {viewMode === 'list' && (rows.length === PAGE_SIZE || page > 0) && (() => {
         const totalPages = aggStats ? Math.ceil(aggStats.count / PAGE_SIZE) : null;
         return (
           <div className="flex items-center gap-3 justify-center pt-2 flex-wrap">
@@ -1159,6 +1396,7 @@ function DispenseView({ isAdmin = false, auth = {}, initialDept = '', onFiltersC
         );
       })()}
     </div>
+    </>
   );
 }
 
