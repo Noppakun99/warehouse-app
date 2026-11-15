@@ -28,7 +28,7 @@ import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import { resolveCycles } from '../supabase/functions/_shared/announceSchedule.js';
 import { InstallAppCard } from './InstallApp';
 import { PendingReceiveModal } from './PendingLotCard';
-import { DashboardInfoLines, DrugSearchLauncher, WorkQueuePanel, QueueDetailModal, FormularyModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner, OnboardingCard, CartReminderCard, RequisitionLauncher, PurchaseQueueModal } from './DashboardPanels';
+import { DashboardInfoLines, DrugSearchLauncher, WorkQueuePanel, QueueDetailModal, FormularyModal, Collapsible, OverviewPanel, MonthlyFlowChart, SwapBanner, OnboardingCard, CartReminderCard, PurchaseQueueModal } from './DashboardPanels';
 import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
@@ -921,10 +921,9 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
           </>
         ) : (
           <>
-            <RequisitionLauncher onOpen={() => onNavigate('requisition')} />
             <SwapBanner count={swapOpenCount} onOpen={() => setSwapPopupRows(swapDue)} />
             <CartReminderCard auth={auth} onContinue={() => onNavigate('requisition-cart')} />
-            <OnboardingCard userId={auth.id} onNavigate={onNavigate} />
+            <OnboardingCard onNavigate={onNavigate} />
             <Collapsible className="mt-5" title="ภาพรวมคลัง" open={overviewOpen} onToggle={() => setOverviewOpen(o => !o)}>
               {overview}
               <div className="mt-4">{flowChart}</div>

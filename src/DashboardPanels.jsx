@@ -76,23 +76,6 @@ export function DrugSearchLauncher() {
   );
 }
 
-// ── ปุ่มเบิกยาออนไลน์บนหน้าหลักของผู้เบิก (user ขอ 13/11/2569 — เดิมต้องหาในเมนู) ──────
-// แสดงตลอด ไม่รวมในการ์ดแนะนำเพราะการ์ดนั้นปิดถาวรได้ · ไอคอน Package ตรงกับเมนู sidebar (navConfig)
-// พื้นฟ้าอ่อนโทนเดียวกับการ์ด "เริ่มต้นใช้งาน" (user สั่ง 13/11/2569 — แบบไล่สีเข้มเด่นเกินการ์ดอื่น)
-export function RequisitionLauncher({ onOpen }) {
-  return (
-    <button type="button" onClick={onOpen}
-      className="mt-4 w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/30 dark:hover:bg-sky-950/50 border border-sky-200 dark:border-sky-900/60 shadow-sm transition-colors">
-      <span className="p-2 rounded-xl bg-sky-500 text-white shrink-0"><Package size={22} /></span>
-      <span className="flex-1 min-w-0">
-        <span className="block font-bold text-base text-slate-800 dark:text-slate-100">เบิกยาออนไลน์</span>
-        <span className="block text-xs sm:text-sm text-slate-500 dark:text-slate-400">สร้างใบเบิก ยา · น้ำเกลือ · ถุง/ขวด/ตลับ ส่งให้คลังยา</span>
-      </span>
-      <ChevronRight size={20} className="shrink-0 text-sky-500 dark:text-sky-400" />
-    </button>
-  );
-}
-
 // ── คิวงานวันนี้ ─────────────────────────────────────────────────────
 export function WorkQueuePanel({ items = [], loading = false, onOpen }) {
   const pendingCount = items.filter(it => !it.informational).length;
@@ -1034,19 +1017,13 @@ export function MonthlyFlowChart({ charts, months = 6, onChangeMonths, endYm, on
   );
 }
 
-// ── การ์ดแนะนำ 3 ข้อของผู้เบิก (ข้อตกลงข้อ 23) — ปิดได้ จำในเบราว์เซอร์ต่อบัญชี ──────
-// แต่ละข้อมีปุ่มในการ์ดเอง (ไม่อ้าง "ปุ่มล่างจอ" — แถบล่างมีเฉพาะจอเล็ก) · เครื่องของหน่วยงานอาจใช้ร่วมหลายบัญชี → key ต่อ user
-const onboardKey = (userId) => `onboard_dismissed_${userId}`;
-export function OnboardingCard({ userId, onNavigate }) {
-  const [hidden, setHidden] = useState(() => {
-    try { return localStorage.getItem(onboardKey(userId)) === '1'; } catch { return false; }
-  });
-  if (hidden) return null;
-  const dismiss = () => {
-    try { localStorage.setItem(onboardKey(userId), '1'); } catch { /* localStorage ปิด — ปิดได้แค่รอบนี้ */ }
-    setHidden(true);
-  };
+// ── การ์ดแนะนำ 4 ข้อของผู้เบิก (ข้อตกลงข้อ 23) ──────
+// แต่ละข้อมีปุ่มในการ์ดเอง (ไม่อ้าง "ปุ่มล่างจอ" — แถบล่างมีเฉพาะจอเล็ก)
+// ปิดไม่ได้ (15/11/2569 — เดิม "ไม่ต้องแสดงอีก") เพราะเป็นทางเข้าเบิกยาออนไลน์หลักบนหน้าหลัก
+export function OnboardingCard({ onNavigate }) {
+  // ข้อ 1 = เบิกยาออนไลน์ (user สั่ง 15/11/2569 ย้ายจากปุ่มแยกเข้ามาในการ์ดนี้) · กดได้ทั้งแถว
   const tips = [
+    { icon: Package,      text: 'สร้างใบเบิก ยา · น้ำเกลือ · ถุง/ขวด/ตลับ ส่งให้คลังยา',   label: 'เบิกยาออนไลน์', run: () => onNavigate('requisition') },
     { icon: Search,       text: 'พิมพ์ชื่อยา รหัส หรือ lot เพื่อดูคงเหลือและวันหมดอายุ', label: 'ค้นหายา',    run: openDrugSearch },
     { icon: RotateCcw,    text: 'แจ้งคืนยา หรือยาเสียหาย กลับคลัง',                       label: 'คืนยา',      run: () => onNavigate('return') },
     { icon: TrendingDown, text: 'ดูยาที่หน่วยงานของคุณเคยเบิก',                           label: 'ประวัติเบิก', run: () => onNavigate('dispense-mine') },
@@ -1056,21 +1033,20 @@ export function OnboardingCard({ userId, onNavigate }) {
       <div className="flex items-center gap-2">
         <span className="p-1.5 rounded-lg bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 shrink-0"><Lightbulb size={16} /></span>
         <h3 className="flex-1 min-w-0 font-bold text-slate-800 dark:text-slate-100">เริ่มต้นใช้งาน</h3>
-        <button type="button" onClick={dismiss}
-          className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-          <X size={14} /> ไม่ต้องแสดงอีก
-        </button>
       </div>
       <ol className="mt-3 space-y-2">
         {tips.map((t, i) => {
           const Icon = t.icon;
           return (
-            <li key={t.label} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl px-3 py-2.5">
-              <span className="w-6 h-6 rounded-full bg-sky-500 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
-              <span className="flex-1 min-w-0 text-sm text-slate-700 dark:text-slate-200">{t.text}</span>
-              <button type="button" onClick={t.run}
-                className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-slate-800 transition-colors">
-                <Icon size={14} /> {t.label}
+            <li key={t.label}>
+              <button type="button" onClick={t.run} aria-label={`${t.label} — ${t.text}`}
+                className="w-full text-left flex items-center gap-3 bg-slate-50 dark:bg-slate-800/60 hover:bg-sky-50 dark:hover:bg-sky-950/40 rounded-xl px-3 py-2.5 min-h-[44px] cursor-pointer transition-colors">
+                <span className="w-6 h-6 rounded-full bg-sky-500 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="flex items-center gap-1.5 text-sm font-semibold text-sky-700 dark:text-sky-300"><Icon size={15} className="shrink-0" /> {t.label}</span>
+                  <span className="block text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-0.5">{t.text}</span>
+                </span>
+                <ChevronRight size={18} className="shrink-0 text-sky-500 dark:text-sky-400" aria-hidden="true" />
               </button>
             </li>
           );

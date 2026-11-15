@@ -215,19 +215,16 @@ test.describe('แถบปุ่มล่างจอ — ผู้เบิก
     await expect(bottomNav(page).locator('[aria-current="page"]')).toHaveText('คืนยา');
   });
 
-  test('การ์ดแนะนำ: ปุ่มพาไปหน้าถูก · ปิดแล้วไม่กลับมา', async ({ page }) => {
+  test('การ์ดแนะนำ: ปุ่มพาไปหน้าถูก · ปิดไม่ได้ (ทางเข้าเบิกยาออนไลน์)', async ({ page }) => {
     const card = page.locator('section', { hasText: 'เริ่มต้นใช้งาน' });
     await expect(card).toBeVisible({ timeout: 10_000 });
+    await expect(card.getByRole('button', { name: 'ไม่ต้องแสดงอีก' })).toHaveCount(0);
     await card.getByRole('button', { name: 'ค้นหายา' }).click();
     await expect(page.getByPlaceholder(/ค้นหายา/).last()).toBeFocused();
     await page.keyboard.press('Escape');
 
-    await card.getByRole('button', { name: 'ไม่ต้องแสดงอีก' }).click();
-    await expect(card).toBeHidden();
-    await page.reload();
-    await expect(bottomNav(page)).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText('ภาพรวมคลัง')).toBeVisible();
-    await expect(page.locator('section', { hasText: 'เริ่มต้นใช้งาน' })).toHaveCount(0);
+    await card.getByRole('button', { name: /^เบิกยาออนไลน์/ }).click();
+    await expect(bottomNav(page).locator('[aria-current="page"]')).not.toHaveText('หน้าหลัก');
   });
 });
 
