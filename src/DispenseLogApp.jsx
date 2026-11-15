@@ -195,7 +195,8 @@ const DISPENSE_EXCEL_COLS = [
 // ============================================================
 // initialDept = ตั้งตัวกรองหน่วยงานไว้ก่อน (ปุ่ม "ประวัติเบิก" บนแถบล่างของผู้เบิก — page 'dispense-mine')
 // เป็นแค่ค่าเริ่มต้น เปลี่ยน/ล้างได้ ไม่ใช่การจำกัดสิทธิ์
-export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBack, initialDept = '' }) {
+// initialDrug = เลือกยาไว้ก่อน (ลิงก์ "ดูทั้งหมด" บนบัตรยา) · onInitialDrugUsed = ให้ AppRoot ล้างหลังอ่านแล้ว
+export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBack, initialDept = '', initialDrug = null, onInitialDrugUsed }) {
   const [showSummary, setShowSummary] = useState(false);
   // ตัวกรองที่ตั้งอยู่ในหน้า → ส่งให้โมดอลสรุปเป็นค่าเริ่มต้น (เดิมเปิดมาทุกหน่วยงาน/ทุกช่วงเสมอ ไม่ตรงตารางที่ดูอยู่)
   const [viewFilters, setViewFilters] = useState({});
@@ -205,7 +206,7 @@ export default function DispenseLogApp({ onRefresh, auth = {}, onGoBack, canGoBa
   return (
     <div className="min-h-screen bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100 font-sans">
       {/* title bar อยู่ใน DispenseView — ปุ่มส่งออก Excel ต้องใช้ตัวกรองของ view */}
-      <DispenseView isAdmin={isAdmin} isStaff={isStaff} auth={auth} initialDept={initialDept} onFiltersChange={setViewFilters}
+      <DispenseView isAdmin={isAdmin} isStaff={isStaff} auth={auth} initialDept={initialDept} initialDrug={initialDrug} onInitialDrugUsed={onInitialDrugUsed} onFiltersChange={setViewFilters}
         onRefresh={onRefresh} onGoBack={onGoBack} canGoBack={canGoBack} onOpenSummary={() => setShowSummary(true)} />
       {showSummary      && <DispenseSummaryModal initial={viewFilters} onClose={() => setShowSummary(false)} />}
     </div>
@@ -415,11 +416,11 @@ function groupByDayDept(rows) {
   }));
 }
 
-function DispenseView({ isAdmin = false, isStaff = false, auth = {}, initialDept = '', onFiltersChange, onRefresh, onGoBack, canGoBack, onOpenSummary }) {
+function DispenseView({ isAdmin = false, isStaff = false, auth = {}, initialDept = '', initialDrug = null, onInitialDrugUsed, onFiltersChange, onRefresh, onGoBack, canGoBack, onOpenSummary }) {
   const [rows, setRows]             = useState([]);
   const [loading, setLoading]       = useState(true);
   const [exportLoading, setExportLoading] = useState(false);
-  const [search, setSearch]         = useState('');
+  const [search, setSearch]         = useState(initialDrug || '');
   const [deptFilter, setDeptFilter] = useState('');
   // ชื่อหน่วยงานใน app_users ("ER (ฉุกเฉิน)") ≠ dispense_logs ("ER") → ต้องหาชื่อจริงก่อน (resolveDispenseDepartment)
   // ระหว่างรอห้ามโหลดตาราง/สถิติ — load ไม่มีตัวกันผลเก่า ผลแบบไม่กรองกลับมาทีหลังจะทับผลที่กรองแล้ว
@@ -435,7 +436,7 @@ function DispenseView({ isAdmin = false, isStaff = false, auth = {}, initialDept
   const [page, setPage]             = useState(0);
   const PAGE_SIZE = 200;
   const [drugNames, setDrugNames]       = useState([]);
-  const [selectedDrug, setSelectedDrug] = useState('');
+  const [selectedDrug, setSelectedDrug] = useState(initialDrug || '');
   const [drugRows, setDrugRows]         = useState([]);
   const [drugLoading, setDrugLoading]   = useState(false);
   const [drugReload, setDrugReload]    = useState(0);
@@ -591,6 +592,9 @@ function DispenseView({ isAdmin = false, isStaff = false, auth = {}, initialDept
   }, []);
 
   // หน่วยงานที่ไม่มีประวัติเบิก (คลังยา/ทดลองระบบ) จับคู่ไม่ได้ → เปิดแบบไม่กรอง
+  // เปิดจากบัตรยา ("ดูทั้งหมด") — ค่าเริ่มต้นของ search/selectedDrug มาจาก initialDrug แล้วให้ AppRoot ล้าง
+  useEffect(() => { if (initialDrug) onInitialDrugUsed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!initialDept) return;
     resolveDispenseDepartment(initialDept)

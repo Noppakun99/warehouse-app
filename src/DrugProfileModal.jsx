@@ -1,15 +1,36 @@
 // DrugProfileModal.jsx — บัตรยา (Phase 2a+2b แผน Dashboard) · เปิดจากช่องค้นหาเดียว ทุกหน้า ทุก role
 // "มีไหม เหลือเท่าไหร่ อยู่ไหน มาจากบิลไหน ใช้หมดเมื่อไหร่" ของยา 1 รหัส ณ ยอดนำเข้าล่าสุด — นิยาม CONTEXT.md §บัตรยา
-// ผู้เบิกเห็นประวัติเบิกเฉพาะหน่วยงานตัวเอง · ประวัติรับทั้งหมด + การ์ดคลัง lot เฉพาะ staff/admin
+// ประวัติรับ/เบิกทุกหน่วยงาน ทุก role (user ตัดสิน 15/11/2569) · การ์ดคลัง lot เฉพาะ staff/admin
+// "ดูทั้งหมด" → หน้าประวัติเบิกจ่าย/ประวัติรับยาที่เลือกยานี้ไว้แล้ว (onOpenHistory) · คัดลอกข้อความไลน์ (drugCardLineText)
 // ตัวเลขทั้งหมดมาจาก buildDrugProfile (src/lib/drugProfile.js) ที่ใช้กฎเดียวกับโมดอลรายการยาในคลัง + Dashboard
 // คอม = โมดอลกลางจอ · มือถือ = เต็มจอ
 import React, { useState, useEffect } from 'react';
 import {
   X, Pill, Database, MapPin, Layers, Hourglass, AlertTriangle, CircleCheck, PackageX, Ban, ScrollText,
   TrendingDown, Loader2, CalendarClock, Receipt, ChevronDown, Activity, History, Truck, Info, RotateCcw, ShoppingCart,
+  ChevronRight, Copy, Check,
 } from 'lucide-react';
 import { fetchDrugProfile } from './lib/db';
 import { parseExpDate, packUnitLabel, packWord, returnPolicyLabel, policySourceNote } from './lib/drugProfile';
+import { drugCardLineText } from './lib/usageReport';
+import { copyText } from './lib/clipboard';
+
+// หัวส่วนประวัติ + ลิงก์ "ดูทั้งหมด" (ไม่มีชื่อยาใน log = เปิดหน้าที่เลือกยาไว้ไม่ได้ → ไม่แสดงลิงก์)
+function HistoryHead({ icon: Icon, children, onMore, moreLabel }) {
+  return (
+    <div className="flex items-start justify-between gap-2">
+      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 inline-flex flex-wrap items-center gap-x-1 min-w-0">
+        <Icon size={12} className="shrink-0" /> {children}
+      </p>
+      {onMore && (
+        <button type="button" onClick={onMore} aria-label={moreLabel}
+          className="shrink-0 -my-1 min-h-[32px] inline-flex items-center gap-0.5 rounded-lg px-2 text-xs font-semibold text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-950/40">
+          ดูทั้งหมด <ChevronRight size={14} />
+        </button>
+      )}
+    </div>
+  );
+}
 
 const fmtNum = (n) => (Number(n) || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 const fmtThaiDate = (d) => (d ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear() + 543}` : '-');
@@ -281,19 +302,19 @@ function ReturnPolicyRow({ l }) {
   );
 }
 
-export default function DrugProfileModal({ code, isStaff, department = null, onClose, onOpenStockCard }) {
+export default function DrugProfileModal({ code, isStaff, onClose, onOpenStockCard, onOpenHistory }) {
   // ผลโหลดผูกกับรหัสที่ขอ — เปลี่ยนรหัส = ถือว่ายังไม่โหลด (ไม่โชว์บัตรของยาตัวก่อน)
   const [state, setState] = useState({ code: null, profile: null, error: '' });
+  const [copied, setCopied] = useState(null);   // null | 'ok' | 'fail'
 
   useEffect(() => {
     if (!code) return undefined;
     let alive = true;
-    // ผู้เบิก → ประวัติเบิกเฉพาะหน่วยงานตัวเอง · staff (department null) → ทุกหน่วยงาน
-    fetchDrugProfile(code, { department: isStaff ? null : department })
+    fetchDrugProfile(code)
       .then(profile => { if (alive) setState({ code, profile, error: '' }); })
       .catch(e => { if (alive) setState({ code, profile: null, error: e.message || 'โหลดไม่สำเร็จ' }); });
     return () => { alive = false; };
-  }, [code, isStaff, department]);
+  }, [code]);
 
   useEffect(() => {
     if (!code) return undefined;
@@ -311,6 +332,13 @@ export default function DrugProfileModal({ code, isStaff, department = null, onC
     p.split.pending ? ['รอตรวจรับ', p.split.pending] : null,
     p.split.expired ? ['หมดอายุ', p.split.expired] : null,
   ].filter(Boolean) : [];
+
+  const copyLine = async () => {
+    const ok = await copyText(drugCardLineText(p, { statusTexts: chips.map(c => c.text), updatedAtText: fmtThaiDateTime(p.inventoryUpdatedAt) }));
+    setCopied(ok ? 'ok' : 'fail');
+    setTimeout(() => setCopied(null), 2500);
+  };
+  const dh = p?.dispenseHistory;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-stretch sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm sm:p-4" onClick={onClose}>
@@ -421,21 +449,23 @@ export default function DrugProfileModal({ code, isStaff, department = null, onC
                 </section>
               )}
 
-              {/* ประวัติเบิก — ผู้เบิกเห็นเฉพาะหน่วยงานตัวเอง (CONTEXT §บัตรยา) */}
+              {/* ประวัติเบิก — ทุกหน่วยงาน ทุก role · หัวบอกหน่วยงานที่เบิกบ่อยสุด (15/11/2569) */}
               <section className="border-t border-slate-100 dark:border-slate-800 px-4 py-3">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 inline-flex items-center gap-1">
-                  <History size={12} /> ประวัติเบิก{p.dispenseHistory.department ? ` — ${p.dispenseHistory.department}` : ' — ทุกหน่วยงาน'}
-                  {p.dispenseHistory.total > p.dispenseHistory.rows.length && <span className="normal-case tracking-normal font-semibold"> (ล่าสุด {p.dispenseHistory.rows.length} จาก {fmtNum(p.dispenseHistory.total)} ครั้ง)</span>}
-                </p>
-                {p.dispenseHistory.rows.length === 0 ? (
-                  <p className="py-2 text-sm text-slate-400 dark:text-slate-500">{p.dispenseHistory.department ? 'หน่วยงานนี้ยังไม่เคยเบิกยานี้' : 'ยังไม่มีประวัติเบิก'}</p>
+                <HistoryHead icon={History} moreLabel="ดูประวัติเบิกจ่ายทั้งหมดของยานี้"
+                  onMore={dh.logName && onOpenHistory ? () => onOpenHistory('dispense', dh.logName) : null}>
+                  ประวัติเบิก
+                  {dh.topDept && <span className="normal-case tracking-normal font-semibold"> — เบิกบ่อยสุด {dh.topDept.department} ({fmtNum(dh.topDept.count)} จาก {fmtNum(dh.topDept.of)} ครั้ง)</span>}
+                  {dh.total > dh.rows.length && <span className="normal-case tracking-normal font-semibold"> · ล่าสุด {dh.rows.length} จาก {fmtNum(dh.total)} รายการ</span>}
+                </HistoryHead>
+                {dh.rows.length === 0 ? (
+                  <p className="py-2 text-sm text-slate-400 dark:text-slate-500">ยังไม่มีประวัติเบิก</p>
                 ) : (
                   <MiniTable
                     rowKey={(r, i) => `${r.date}|${r.department}|${r.lot}|${i}`}
-                    rows={p.dispenseHistory.rows}
+                    rows={dh.rows}
                     cols={[
                       { label: 'วันที่', cell: r => fmtIsoTh(r.date), nowrap: true },
-                      ...(p.dispenseHistory.department ? [] : [{ label: 'หน่วยงาน', cell: r => r.department }]),
+                      { label: 'หน่วยงาน', cell: r => r.department },
                       { label: 'Lot', cell: r => r.lot },
                       { label: 'จำนวน', cell: r => fmtNum(r.qty), num: true },
                       { label: 'หน่วย', cell: r => packUnitLabel(r.unit), nowrap: true },
@@ -445,12 +475,14 @@ export default function DrugProfileModal({ code, isStaff, department = null, onC
                 )}
               </section>
 
-              {/* ประวัติรับ — staff/admin เท่านั้น */}
-              {isStaff && (
+              {/* ประวัติรับ — ทุก role (user ตัดสิน 15/11/2569 — เดิมเฉพาะ staff/admin) */}
                 <section className="border-t border-slate-100 dark:border-slate-800 px-4 py-3">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 inline-flex items-center gap-1">
-                    <Truck size={12} /> ประวัติรับ{p.lastReceiveDate ? <span className="normal-case tracking-normal font-semibold"> · รับล่าสุด {fmtIsoTh(p.lastReceiveDate)}</span> : ''}
-                  </p>
+                  <HistoryHead icon={Truck} moreLabel="ดูประวัติรับยาทั้งหมดของยานี้"
+                    onMore={p.receiveLogName && onOpenHistory ? () => onOpenHistory('receive', p.receiveLogName) : null}>
+                    ประวัติรับ
+                    {p.lastReceiveDate && <span className="normal-case tracking-normal font-semibold"> · รับล่าสุด {fmtIsoTh(p.lastReceiveDate)}</span>}
+                    {p.receiveTotal > p.receiveHistory.length && <span className="normal-case tracking-normal font-semibold"> · ล่าสุด {p.receiveHistory.length} จาก {fmtNum(p.receiveTotal)} รายการ</span>}
+                  </HistoryHead>
                   {p.receiveHistory.length === 0 ? (
                     <p className="py-2 text-sm text-slate-400 dark:text-slate-500">ยังไม่มีประวัติรับในระบบ</p>
                   ) : (
@@ -469,12 +501,22 @@ export default function DrugProfileModal({ code, isStaff, department = null, onC
                     />
                   )}
                 </section>
-              )}
             </>
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-100 dark:border-slate-800">
+        <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-3 border-t border-slate-100 dark:border-slate-800">
+          {p && (
+            <button type="button" onClick={copyLine} aria-live="polite"
+              className={`mr-auto inline-flex items-center gap-1.5 rounded-xl py-2 px-3 font-medium text-sm border transition-colors ${copied === 'ok'
+                ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
+                : copied === 'fail'
+                  ? 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300'
+                  : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 hover:border-slate-400 text-slate-700 dark:text-slate-200'}`}>
+              {copied === 'ok' ? <Check size={15} /> : <Copy size={15} />}
+              {copied === 'ok' ? 'คัดลอกแล้ว' : copied === 'fail' ? 'คัดลอกไม่ได้' : 'คัดลอกข้อความไลน์'}
+            </button>
+          )}
           <button type="button" onClick={onClose} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2 px-4 font-medium text-sm transition-colors">ปิด</button>
           {isStaff && p && (
             <button type="button" onClick={() => onOpenStockCard?.(p.code, p.name)}

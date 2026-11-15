@@ -236,24 +236,28 @@ section('เรท + คงอยู่ได้อีก (กฎหน้าว
   assertEq(usageRate({ usage: null, rows, mainUnit: 'x' }), null, 'ไม่มีข้อมูลเรท = null')
 }
 
-section('ประวัติเบิก: เฉพาะหน่วยงานตัวเอง')
+section('ประวัติเบิก: ทุกหน่วยงาน + เบิกบ่อยสุด (15/11/2569)')
 {
   assertEq(normDept('ห้องยา G'), normDept('ห้องยาG'), 'ตัดช่องว่าง')
   assertEq(normDept('ER (ฉุกเฉิน)'), normDept('ER'), 'ตัดข้อความในวงเล็บ')
   const rows = [
-    { dispense_date: '2026-10-02', department: 'ห้องยาG', qty_out: '5', drug_unit: '200เม็ด', lot: 'A' },
-    { dispense_date: '2026-10-01', department: 'ห้องยา1', qty_out: '10', drug_unit: '200เม็ด', lot: 'A' },
-    { dispense_date: '2026-09-01', department: 'ห้องยาG', qty_out: '2', drug_unit: '200เม็ด', lot: 'B' },
+    { dispense_date: '2026-10-03', department: 'คืนยา', qty_out: '1', drug_unit: '200เม็ด', lot: 'A', drug_name: 'Para 500' },
+    { dispense_date: '2026-10-02', department: 'ห้องยาG', qty_out: '5', drug_unit: '200เม็ด', lot: 'A', drug_name: 'Para 500' },
+    { dispense_date: '2026-10-01', department: 'ห้องยา1', qty_out: '10', drug_unit: '200เม็ด', lot: 'A', drug_name: 'Para 500mg' },
+    { dispense_date: '2026-09-02', department: 'เบิกเพิ่มจากความผิดพลาด', qty_out: '3', drug_unit: '200เม็ด', lot: 'B' },
+    { dispense_date: '2026-09-01', department: 'ห้องยา G', qty_out: '2', drug_unit: '200เม็ด', lot: 'B', drug_name: 'Para 500' },
   ]
-  const g = dispenseHistory(rows, 'ห้องยา G')
-  assertEq(g.total, 2, 'ผู้เบิกห้องยา G เห็น 2 แถวของตัวเอง')
-  assertDeep(g.rows.map(r => r.qty), [5, 2], 'ไม่มีแถวของห้องยา1')
-  assertEq(dispenseHistory(rows, null).total, 3, 'staff (department null) เห็นทุกหน่วยงาน')
-  assertEq(dispenseHistory(rows, 'คลังยา').total, 0, 'หน่วยงานที่ไม่มีประวัติ = 0 (UI แสดง empty state)')
+  const h = dispenseHistory(rows)
+  assertEq(h.total, 5, 'เห็นทุกหน่วยงาน รวมแถวที่ไม่ใช่หน่วยงาน')
+  assertDeep(h.topDept, { department: 'ห้องยาG', count: 2, of: 3 }, 'บ่อยสุด = ห้องยาG 2 ครั้ง (รวม "ห้องยา G") · ไม่นับคืนยา/เบิกเพิ่มจากความผิดพลาด · ชื่อลงเท่ากันเลือกตาม localeCompare th')
+  assertEq(h.logName, 'Para 500', 'ชื่อใน log ที่ลงบ่อยสุด (ลิงก์ ดูทั้งหมด)')
+  assertEq(dispenseHistory([]).topDept, null, 'ไม่มีประวัติ = ไม่มีเบิกบ่อยสุด')
+  assertEq(dispenseHistory([{ department: 'คืนยา', qty_out: 1 }]).topDept, null, 'มีแต่คืนยา = ไม่มีเบิกบ่อยสุด')
   const many = Array.from({ length: 25 }, (_, i) => ({ dispense_date: '2026-09-01', department: 'ER', qty_out: i }))
-  const e = dispenseHistory(many, 'ER (ฉุกเฉิน)')
+  const e = dispenseHistory(many)
   assertEq(e.rows.length, HISTORY_LIMIT, `แสดงล่าสุด ${HISTORY_LIMIT} แถว`)
   assertEq(e.total, 25, 'แต่บอกจำนวนทั้งหมด')
+  assertEq(e.logName, null, 'ไม่มี drug_name = null (ไม่แสดงลิงก์)')
 }
 
 console.log('\n=== packUnitLabel (ป้ายหน่วยแสดงผล) ===')

@@ -190,10 +190,10 @@ const round2 = (n) => Math.round(n * 100) / 100
 // excludeStatus  = drug_reorder_config.exclude_status ของรหัส
 // receiveRows    = receive_logs ของรหัส เรียงใหม่→เก่า — บิลของ lot + ประวัติรับ (Phase 2b)
 // usage          = { months: ['YYYY-MM'…], monthsBase: { ym → เม็ด } } จาก fetchMonthlyDispenseUsage ช่วงเดียวกับ ReorderApp
-// dispenseRows   = dispense_logs ของรหัส เรียงใหม่→เก่า · department = หน่วยงานผู้เบิก (null = ทุกหน่วยงาน — staff)
+// dispenseRows   = dispense_logs ของรหัส เรียงใหม่→เก่า (ทุกหน่วยงาน)
 export function buildDrugProfile({
   rows = [], purchaseUnit = null, receiveDates = {}, excludeStatus = null, today = new Date(),
-  receiveRows = [], usage = null, dispenseRows = [], department = null,
+  receiveRows = [], usage = null, dispenseRows = [],
   companyPolicies = {}, companyBillPolicies = null,
 }) {
   if (!rows.length) return null
@@ -301,8 +301,10 @@ export function buildDrugProfile({
     excludeStatus: excludeStatus || null,
     unitNote: unitNote({ mainUnit, purchaseUnit, stockRows, receiveRows }),
     rate: usageRate({ usage, rows, mainUnit }),
-    dispenseHistory: dispenseHistory(dispenseRows, department),
+    dispenseHistory: dispenseHistory(dispenseRows),
     receiveHistory: receiveRows.slice(0, HISTORY_LIMIT).map(receiveView),
+    receiveTotal: receiveRows.length,
+    receiveLogName: logDrugName(receiveRows),
     lastReceiveDate: receiveRows.reduce((m, r) => (r.receive_date && (!m || r.receive_date > m) ? r.receive_date : m), null),
   }
 }
@@ -437,11 +439,43 @@ const receiveView = (r) => ({
   qty: round2(toNum(r.qty_received)), unit: r.drug_unit || '-', price: toNum(r.price_per_unit), purchaseType: r.purchase_type || null,
 })
 
-// ประวัติเบิก: department = null → ทุกหน่วยงาน (staff) · มีค่า → เฉพาะหน่วยงานนั้น (ผู้เบิก — CONTEXT §บัตรยา)
-export function dispenseHistory(sortedRows = [], department = null) {
-  const own = department ? normDept(department) : null
-  const matched = own ? sortedRows.filter(r => normDept(r.department) === own) : sortedRows
-  return { department: department || null, total: matched.length, rows: matched.slice(0, HISTORY_LIMIT).map(dispenseView) }
+// ชื่อที่ลงบ่อยสุดใน log — หน้าประวัติเบิกจ่าย/ประวัติรับยาเลือกยาด้วย drug_name (ลิงก์ "ดูทั้งหมด" จากบัตรยา)
+export function logDrugName(rows = []) {
+  const n = new Map()
+  for (const r of rows) {
+    const name = String(r?.drug_name || '').trim()
+    if (name && name !== '-') n.set(name, (n.get(name) || 0) + 1)
+  }
+  return [...n.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'th'))[0]?.[0] || null
+}
+
+// ประวัติเบิก: ทุกหน่วยงานทุก role (user ตัดสิน 15/11/2569 — เดิมผู้เบิกเห็นเฉพาะหน่วยงานตัวเอง)
+// topDept = หน่วยงานที่เบิกบ่อยสุด (ครั้ง) · นับเฉพาะแถวที่เป็นการใช้ (isUsageRow) และไม่ใช่ NON_DEPARTMENT_NAMES
+// จับกลุ่มด้วย normDept ชื่อที่แสดง = ชื่อที่ลงบ่อยสุด (กฎเดียวกับ summarizeUsage)
+export function dispenseHistory(sortedRows = []) {
+  const depts = new Map()
+  let usageCount = 0
+  for (const r of sortedRows) {
+    if (!isUsageRow(r)) continue
+    const name = String(r.department || '').trim()
+    if (!name || name === '-' || NON_DEPARTMENT_NAMES.has(name)) continue
+    usageCount += 1
+    const key = normDept(name)
+    let d = depts.get(key)
+    if (!d) { d = { names: new Map(), count: 0 }; depts.set(key, d) }
+    d.names.set(name, (d.names.get(name) || 0) + 1)
+    d.count += 1
+  }
+  const top = [...depts.values()].sort((a, b) => b.count - a.count)[0]
+  return {
+    total: sortedRows.length,
+    rows: sortedRows.slice(0, HISTORY_LIMIT).map(dispenseView),
+    topDept: top ? {
+      department: [...top.names.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'th'))[0][0],
+      count: top.count, of: usageCount,
+    } : null,
+    logName: logDrugName(sortedRows),
+  }
 }
 
 // ── สรุปรับ-เบิก (หน้า "ค้นยา · สรุปรับ-เบิก" ใน ReorderApp — 14/11/2569) ─────────────────────

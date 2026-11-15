@@ -3025,8 +3025,8 @@ export async function fetchDrugSearchIndex() {
 // บัตรยา 1 รหัส: inventory ทุกแถวของรหัส + receive_logs ของรหัส (หน่วยซื้อล่าสุด · วันรับของ lot ที่รอตรวจรับ ·
 // บิลของ lot · ประวัติรับ) + dispense_logs ของรหัส (ประวัติเบิก) + ยอดเบิกรายเดือนช่วงเดียวกับหน้าวิเคราะห์สั่งซื้อ (เรท)
 // + exclude_status + เวลานำเข้าล่าสุด → buildDrugProfile. คืน null ถ้าไม่มีรหัสนี้ใน inventory
-// department = หน่วยงานผู้เบิก → ประวัติเบิกเฉพาะหน่วยงานนั้น (null = staff เห็นทุกหน่วยงาน — CONTEXT §บัตรยา)
-export async function fetchDrugProfile(drugCode, { department = null } = {}) {
+// ประวัติรับ/เบิกทุกหน่วยงานทุก role (user ตัดสิน 15/11/2569 — CONTEXT §บัตรยา)
+export async function fetchDrugProfile(drugCode) {
   const code = String(drugCode || '').trim()
   if (!supabase || !code) return null
 
@@ -3059,7 +3059,7 @@ export async function fetchDrugProfile(drugCode, { department = null } = {}) {
     supabase.from('drug_reorder_config').select('exclude_status').eq('code', code).maybeSingle(),
     fetchUploadMeta().catch(() => null),
     pageAll(() => supabase.from('dispense_logs')
-      .select('dispense_date, department, lot, qty_out, drug_unit, item_type, note')
+      .select('dispense_date, department, lot, qty_out, drug_unit, item_type, note, drug_name')
       .eq('drug_code', code)
       .order('dispense_date', { ascending: false, nullsFirst: false }).order('id', { ascending: false })),
     fetchMonthlyDispenseUsage(rateFrom, rateTo, { code }),
@@ -3100,7 +3100,6 @@ export async function fetchDrugProfile(drugCode, { department = null } = {}) {
     receiveRows,
     usage: { months: listMonthYM(rateFrom, rateTo), monthsBase: monthly[code]?.months || {} },
     dispenseRows,
-    department,
     companyPolicies,
     companyBillPolicies: latestPolicyByCompany(billPolicyRows),
   })

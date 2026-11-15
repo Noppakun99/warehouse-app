@@ -2,8 +2,8 @@
 // รัน: node src/lib/usageReport.test.js  (npm run test:usagereport)
 // ครอบ: usageBaseQty/summarizeUsage/receiptsInRange (drugProfile.js) + buildDrugUsageReport · ข้อความไลน์ · Excel 4 ชีท · ใบพิมพ์
 
-import { usageBaseQty, usageMonthsBase, summarizeUsage, receiptsInRange } from './drugProfile.js'
-import { buildDrugUsageReport, usageReportLineText, usageReportSheets, usageReportHtml, fmtThaiDate, unitShort, groupReceiptBills } from './usageReport.js'
+import { usageBaseQty, usageMonthsBase, summarizeUsage, receiptsInRange, buildDrugProfile } from './drugProfile.js'
+import { buildDrugUsageReport, usageReportLineText, drugCardLineText, CARD_LINE_LOTS, usageReportSheets, usageReportHtml, fmtThaiDate, unitShort, groupReceiptBills } from './usageReport.js'
 
 let pass = 0, fail = 0
 const fails = []
@@ -121,6 +121,31 @@ assertEq(line.includes('น้อยสุด ER, OPD 1'), true, 'น้อย�
 assertEq(line.includes('• แจ้งซื้อ 14/10/2569 รอของ 31 วัน'), true, 'สถานะแจ้งซื้อ')
 assertEq(line.includes('• รับเข้า 2 บิล รวม 85 กล่อง · ล่าสุด 30/09/2569 สสจ. 80 กล่อง'), true, 'รับเข้านับรายบิล')
 assertEq(usageReportLineText([rep, arrived]).split('\n')[0], 'สรุปรับ-เบิกยา 2 รายการ', 'หลายยา = หัวรวม')
+
+section('drugCardLineText — ข้อความไลน์จากบัตรยา (15/11/2569)')
+{
+  const p = {
+    ...buildDrugProfile({ rows: inv, purchaseUnit: '1000เม็ด', receiveRows: recv.map(r => ({ ...r, drug_code: '1000227' })), dispenseRows: disp, today: TODAY }),
+    purchaseRequest: { waitDays: 31, notified_on: '2026-10-14' },
+  }
+  const t = drugCardLineText(p, { statusTexts: ['รอตรวจรับ 1 lot'], updatedAtText: '15 พ.ย. 69 14:00' })
+  const ls = t.split('\n')
+  assertEq(ls[0], 'Paracetamol 500mg (รหัส 1000227)', 'บรรทัดแรก = ชื่อยา (รหัส)')
+  assertEq(ls[1], 'ยอด ณ นำเข้า Excel ล่าสุด 15 พ.ย. 69 14:00', 'บอกเวลายอด (บัตรยาไม่ใช่ยอดสด)')
+  assertEq(ls.includes('• คงเหลือ 50 กล่อง (1,000 เม็ด) (พร้อมเบิก 40 · รอตรวจรับ 10)'), true, 'คงเหลือ + แยกพร้อมเบิก/รอตรวจรับ')
+  assertEq(ls.includes('• รอตรวจรับ 1 lot'), true, 'ชิปสถานะบนบัตรตามมาครบ')
+  assertEq(ls.includes('• แจ้งซื้อแล้ว 31 วัน (แจ้ง 14/10/2569)'), true, 'แจ้งซื้อ')
+  assertEq(ls.includes('ราย lot (2):'), true, 'หัวราย lot')
+  assertEq(ls.some(l => l.startsWith('- lot A1 หมดอายุ 01/01/2571 · 40 กล่อง (1,000 เม็ด)')), true, 'lot + exp พ.ศ. + จำนวน')
+  assertEq(ls.some(l => l.startsWith('- lot A2') && l.endsWith('· รอตรวจรับ')), true, 'lot รอตรวจรับมีป้าย')
+  assertEq(ls.includes('• รับล่าสุด 30/09/2569 สสจ. (บิล B3)'), true, 'รับล่าสุด')
+  assertEq(ls.includes('• เบิกบ่อยสุด ห้องยาG (4 จาก 6 ครั้ง)'), true, 'เบิกบ่อยสุด (ไม่นับคืนยา) · ห้องยา G = ห้องยาG')
+  const manyLots = buildDrugProfile({ rows: Array.from({ length: CARD_LINE_LOTS + 2 }, (_, i) => ({ ...inv[0], lot: `L${i}` })), today: TODAY })
+  const t2 = drugCardLineText(manyLots).split('\n')
+  assertEq(t2.filter(l => l.startsWith('- lot ')).length, CARD_LINE_LOTS, `แสดงไม่เกิน ${CARD_LINE_LOTS} lot`)
+  assertEq(t2.includes('- และอีก 2 lot (ดูในบัตรยา)'), true, 'บอกจำนวน lot ที่ไม่ได้แสดง')
+  assertEq(drugCardLineText(null), '', 'ไม่มีบัตร = ข้อความว่าง')
+}
 const sheets = usageReportSheets([rep])
 assertDeep(sheets.map(s => s.name), ['สรุป', 'รายเดือน', 'หน่วยงาน', 'รับเข้า'], 'Excel 4 ชีท')
 assertEq(sheets[0].rows[4][9], 5.5, 'ชีทสรุป เบิกรวม = จอ')

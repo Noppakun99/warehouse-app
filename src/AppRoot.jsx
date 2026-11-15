@@ -91,6 +91,8 @@ export default function AppRoot() {
   const drugEntryRef = useRef(false);   // มี history entry ของบัตรยาค้างอยู่
   const skipPopRef = useRef(false);     // popstate ที่เกิดจาก closeDrug สั่ง history.back() เอง
   const [stockCardTarget, setStockCardTarget] = useState(null); // { code, name } — StockCardApp ใช้แล้วล้าง
+  // "ดูทั้งหมด" จากบัตรยา → { page: 'dispense'|'receive', name } · หน้าประวัติอ่านตอน mount แล้วล้าง (ไม่ล้าง = เข้าเมนูครั้งหน้าเด้งยาเดิม)
+  const [historyTarget, setHistoryTarget] = useState(null);
 
   // navigateTo: ไปหน้าใหม่ (push) — ถ้าหน้าเดิมซ้ำหน้าปัจจุบันไม่ push (กัน stack บวม)
   // เปิดหน้าจากบัตรยา (ปุ่มการ์ดคลัง lot) → ใช้ entry ของบัตรแทน push ใหม่ ย้อนแล้วกลับหน้าเดิมเลย ไม่เด้งบัตรค้าง
@@ -141,6 +143,15 @@ export default function AppRoot() {
     setStockCardTarget({ code, name });
     setPage('stockcard');
   };
+  // อยู่หน้านั้นอยู่แล้ว setPage ไม่ทำอะไร (กัน push ซ้ำ) → ปิดบัตรเอง แล้ว remount หน้าให้อ่านยาใหม่
+  const openHistoryFor = (target, name) => {
+    setHistoryTarget({ page: target, name });
+    const s = stackRef.current;
+    if (s[s.length - 1] === target) { closeDrug(); setSubKey(k => k + 1); }
+    else setPage(target);
+  };
+  const historyDrugFor = (target) => (historyTarget?.page === target ? historyTarget.name : null);
+  const clearHistoryTarget = () => setHistoryTarget(null);
 
   const dismissToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
 
@@ -238,7 +249,8 @@ export default function AppRoot() {
         );
         break;
       case 'dispense':
-        content = <DispenseLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
+        content = <DispenseLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack}
+          initialDrug={historyDrugFor('dispense')} onInitialDrugUsed={clearHistoryTarget} />;
         break;
       // ปุ่ม "ประวัติเบิก" บนแถบล่างของผู้เบิก — หน้าเดียวกัน ตั้งตัวกรองหน่วยงานตัวเองไว้ก่อน (เปลี่ยนได้)
       // แยก page key แทน state ที่ต้องล้าง → เมนู "ประวัติเบิกจ่าย" ใน sidebar ยังเปิดแบบไม่กรองเหมือนเดิม
@@ -246,7 +258,8 @@ export default function AppRoot() {
         content = <DispenseLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} initialDept={auth.department || ''} />;
         break;
       case 'receive':
-        content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
+        content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack}
+          initialDrug={historyDrugFor('receive')} onInitialDrugUsed={clearHistoryTarget} />;
         break;
       case 'receive-ap':
         content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} initialTab="ap" onGoBack={goBack} canGoBack={canGoBack} />;
@@ -327,9 +340,9 @@ export default function AppRoot() {
         <DrugProfileModal
           code={drugCode}
           isStaff={auth.role === 'staff' || auth.role === 'admin'}
-          department={auth.department}
           onClose={closeDrug}
           onOpenStockCard={openStockCardFor}
+          onOpenHistory={openHistoryFor}
         />
       )}
 

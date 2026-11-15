@@ -142,6 +142,44 @@ export function usageReportLineText(reports = []) {
   return [...head, blocks.join('\n\n')].join('\n')
 }
 
+// ── ข้อความไลน์จากบัตรยา (ปุ่มคัดลอกบน DrugProfileModal — user สั่ง 15/11/2569) ──────────
+// p = buildDrugProfile + purchaseRequest (fetchDrugProfile) · statusTexts = ข้อความชิปสถานะบนบัตร (statusChips)
+// updatedAtText = เวลานำเข้า Excel ล่าสุดตามที่บัตรแสดง — บัตรยาไม่ใช่ยอดสด ต้องบอกเวลาเสมอ (CONTEXT §บัตรยา)
+export const CARD_LINE_LOTS = 10
+const fmtDateObj = (d) => d ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear() + 543}` : null
+export function drugCardLineText(p, { statusTexts = [], updatedAtText = '' } = {}) {
+  if (!p) return ''
+  const lines = [`${p.name} (รหัส ${p.code})`]
+  if (updatedAtText) lines.push(`ยอด ณ นำเข้า Excel ล่าสุด ${updatedAtText}`)
+  const split = [
+    p.split.pending > 0 && `รอตรวจรับ ${fmtQty(p.split.pending)}`,
+    p.split.expired > 0 && `หมดอายุ ${fmtQty(p.split.expired)}`,
+  ].filter(Boolean)
+  lines.push(`• คงเหลือ ${fmtQty(p.total)} ${packUnitLabel(p.mainUnit)}${split.length ? ` (พร้อมเบิก ${fmtQty(p.split.ready)} · ${split.join(' · ')})` : ''}`)
+  statusTexts.forEach(t => lines.push(`• ${t}`))
+  if (p.rate) {
+    lines.push(p.rate.avgMonth > 0
+      ? `• เรท ${fmtQty(p.rate.avgMonth)} ${unitShort(p.rate.unit)}/เดือน (${p.rate.monthLabel}) ใช้ได้อีก ${p.rate.coverage}`
+      : `• ไม่มีการเบิกช่วง ${p.rate.monthLabel}`)
+  }
+  if (p.purchaseRequest) lines.push(`• แจ้งซื้อแล้ว ${fmtQty(p.purchaseRequest.waitDays)} วัน (แจ้ง ${fmtThaiDate(p.purchaseRequest.notified_on)})`)
+  if (p.lots.length) {
+    lines.push('', `ราย lot (${p.lots.length}):`)
+    p.lots.slice(0, CARD_LINE_LOTS).forEach(l => {
+      const exp = fmtDateObj(l.expDate) || (l.exp && l.exp !== '-' ? l.exp : 'ไม่ระบุ')
+      const loc = l.locations.length ? ` · ชั้น ${l.locations.join(', ')}` : ''
+      lines.push(`- lot ${l.lot} หมดอายุ ${exp} · ${fmtQty(l.qty)} ${packUnitLabel(l.unit)}${loc}${l.pending ? ' · รอตรวจรับ' : ''}`)
+    })
+    if (p.lots.length > CARD_LINE_LOTS) lines.push(`- และอีก ${p.lots.length - CARD_LINE_LOTS} lot (ดูในบัตรยา)`)
+  }
+  const last = p.receiveHistory?.[0]
+  const top = p.dispenseHistory?.topDept
+  if (last || top) lines.push('')
+  if (last) lines.push(`• รับล่าสุด ${fmtThaiDate(last.date)} ${last.supplier} (บิล ${last.billNumber})`)
+  if (top) lines.push(`• เบิกบ่อยสุด ${top.department} (${fmtQty(top.count)} จาก ${fmtQty(top.of)} ครั้ง)`)
+  return lines.join('\n')
+}
+
 // ── Excel 4 ชีท (สรุป · รายเดือน · หน่วยงาน · รับเข้า) ──────────────────────
 // คืน [{ name, rows: aoa, cols: [ความกว้าง] }] — ตัวเขียนไฟล์อยู่ exportExcel.js (exportSheetsToExcel)
 export function usageReportSheets(reports = [], { updatedAt = null } = {}) {
