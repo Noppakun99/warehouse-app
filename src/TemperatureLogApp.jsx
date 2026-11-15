@@ -14,10 +14,11 @@ import {
   fetchTemperatureLogs, insertTemperatureLog,
   updateTemperatureLog, deleteTemperatureLog, isExcursion,
   TEMP_POINTS, tempPoint, TEMP_ROUNDS, TEMP_DEVICES, TEMP_DEVICE_DEFAULT, tempDeviceLabel,
-  findTemperatureSameRound, importTemperatureRows, fetchTemperatureRecorders, fetchTemperatureFirstDate,
+  findTemperatureSameRound, importTemperatureRows, fetchTemperatureRecorders, fetchTemperatureFirstDate, fetchTemperatureLastDate,
 } from './lib/db';
 import {
-  summarizeReadings, buildMonthReport, dailySeries, monthRange, monthBounds, thaiMonthLabel, fiscalYearMonths,
+  summarizeReadings, buildMonthReport, monthRange, monthBounds, thaiMonthLabel, fiscalYearMonths,
+  describeReadings, chartBuckets,
 } from './lib/temperatureReport';
 import { printTemperatureReport } from './lib/temperaturePrint';
 
@@ -64,16 +65,19 @@ const CHART = {
   dark:  { grid: '#1e293b', tick: '#64748b' },
 };
 
-function TempTooltip({ active, payload }) {
+const UNIT_WORD = { day: 'วัน', week: 'สัปดาห์', month: 'เดือน' };
+
+function TempTooltip({ active, payload, unit }) {
   const d = payload?.[0]?.payload;
   if (!active || !d) return null;
   return (
     <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs shadow-sm text-slate-700 dark:text-slate-200">
-      <p className="font-semibold">{thaiDate(d.date)}</p>
+      <p className="font-semibold">{d.title}</p>
       {d.count
         ? <>
             <p>ต่ำสุด–สูงสุด <b className="tabular-nums">{fmt1(d.min)}–{fmt1(d.max)} °C</b></p>
-            <p className="text-slate-400">{d.count} ค่า</p>
+            {unit !== 'day' && <p>เฉลี่ย <b className="tabular-nums">{fmt1(d.avg)} °C</b></p>}
+            <p className="text-slate-400">{d.count.toLocaleString()} ค่า</p>
             {d.out && <p className="text-rose-600 dark:text-rose-400 font-semibold flex items-center gap-1"><AlertTriangle size={11} />หลุดช่วง</p>}
           </>
         : <p className="text-slate-400">ไม่ได้วัด</p>}
@@ -81,8 +85,9 @@ function TempTooltip({ active, payload }) {
   );
 }
 
-// กราฟรายวัน: แถบเขียว = ช่วงยอมรับ · แถบฟ้า = ต่ำสุด–สูงสุดของวัน · จุดแดง = หลุดช่วง · วันที่ไม่ได้วัดเว้นว่าง (ไม่ลากเส้นข้าม)
-function TempChart({ series, lo, hi }) {
+// กราฟ: แถบเขียว = ช่วงยอมรับ · แถบฟ้า = ต่ำสุด–สูงสุดของวัน/สัปดาห์/เดือน (chartBuckets) · เส้นประ = เฉลี่ย (เฉพาะรวมช่วง)
+// · จุดแดง = หลุดช่วง · ช่วงที่ไม่ได้วัดเว้นว่าง (ไม่ลากเส้นข้าม)
+function TempChart({ series, unit, lo, hi }) {
   const dark = useHtmlDark();
   const c = dark ? CHART.dark : CHART.light;
   const vals = series.filter(d => d.count).flatMap(d => [d.min, d.max]);
@@ -102,14 +107,51 @@ function TempChart({ series, lo, hi }) {
           <ReferenceArea y1={lo} y2={hi} fill={CHART.band} fillOpacity={0.12} stroke={CHART.band} strokeOpacity={0.5} strokeDasharray="4 3" ifOverflow="extendDomain" />
           <XAxis dataKey="label" tick={{ fontSize: 11, fill: c.tick }} tickLine={false} axisLine={false} minTickGap={24} />
           <YAxis domain={[yMin, yMax]} allowDecimals={false} tick={{ fontSize: 11, fill: c.tick }} tickLine={false} axisLine={false} unit="°" />
-          <Tooltip content={<TempTooltip />} cursor={{ stroke: c.tick, strokeDasharray: '3 3' }} />
+          <Tooltip content={<TempTooltip unit={unit} />} cursor={{ stroke: c.tick, strokeDasharray: '3 3' }} />
           <Area dataKey="range" stroke="none" fill={CHART.line} fillOpacity={0.18} isAnimationActive={false} connectNulls={false} activeDot={false} />
           <Line dataKey="max" stroke={CHART.line} strokeWidth={2} isAnimationActive={false} connectNulls={false} dot={renderDot} activeDot={{ r: 4 }} />
           <Line dataKey="min" stroke={CHART.line} strokeWidth={2} isAnimationActive={false} connectNulls={false} dot={renderDot} activeDot={{ r: 4 }} />
+          {unit !== 'day' && (
+            <Line dataKey="avg" stroke={CHART.line} strokeWidth={1.5} strokeDasharray="4 3" isAnimationActive={false} connectNulls={false} dot={false} activeDot={false} />
+          )}
           <Line dataKey="outPoint" stroke="none" isAnimationActive={false} legendType="none"
             dot={{ r: 4.5, fill: CHART.out, stroke: dark ? '#0f172a' : '#fff', strokeWidth: 1.5 }} activeDot={false} />
         </ComposedChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+// สรุปจากกราฟ — ข้อความมาจาก describeReadings ชุดเดียวกับใบพิมพ์ (Rule #6)
+const INSIGHT_TONE = {
+  good: { box: 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/60', text: 'text-emerald-800 dark:text-emerald-200', Icon: CheckCircle2 },
+  warn: { box: 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/60', text: 'text-amber-800 dark:text-amber-200', Icon: AlertTriangle },
+  bad:  { box: 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60', text: 'text-rose-800 dark:text-rose-200', Icon: ShieldAlert },
+  none: { box: 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700', text: 'text-slate-600 dark:text-slate-300', Icon: Thermometer },
+};
+const LINE_DOT = { info: 'bg-sky-500', warn: 'bg-amber-500', bad: 'bg-rose-600', muted: 'bg-slate-300 dark:bg-slate-600' };
+const LINE_TEXT = {
+  info: 'text-slate-700 dark:text-slate-200', warn: 'text-amber-800 dark:text-amber-300',
+  bad: 'text-rose-700 dark:text-rose-300', muted: 'text-slate-500 dark:text-slate-400',
+};
+
+function InsightBox({ insight, title }) {
+  const t = INSIGHT_TONE[insight.tone] || INSIGHT_TONE.none;
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-3">
+      <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">สรุปจากกราฟ · {title}</h2>
+      <p className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-sm font-semibold ${t.box} ${t.text}`}>
+        <t.Icon size={16} className="shrink-0 mt-0.5" />
+        <span className="min-w-0">{insight.verdict}</span>
+      </p>
+      <ul className="space-y-1.5">
+        {insight.lines.map((l, i) => (
+          <li key={i} className={`flex items-start gap-2 text-sm ${LINE_TEXT[l.tone] || LINE_TEXT.info}`}>
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 mt-2 ${LINE_DOT[l.tone] || LINE_DOT.info}`} />
+            <span className="min-w-0 break-words tabular-nums">{l.text}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -474,27 +516,29 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
     return () => { alive = false; };
   }, [point]);
 
+  // วันวัดล่าสุดของจุดวัด (ทุกช่วงเวลา) — ให้กล่องสรุปบอก "ไม่มีการบันทึกตั้งแต่…" · โหลดใหม่ทุกครั้งที่ rows เปลี่ยน (บันทึก/นำเข้าแล้วไม่ค้างค่าเก่า)
+  // undefined = ยังไม่รู้/โหลดไม่สำเร็จ → กล่องสรุปไม่พูดถึง (ห้ามบอกว่าไม่เคยวัด)
+  const [lastDate, setLastDate] = useState(undefined);
+  useEffect(() => {
+    let alive = true;
+    fetchTemperatureLastDate(point)
+      .then((d) => { if (alive) setLastDate(d); })
+      .catch(() => { if (alive) setLastDate(undefined); });
+    return () => { alive = false; };
+  }, [point, rows]);
+
   // สถิติ/กราฟ/สรุปรายเดือน/ใบพิมพ์ คิดจาก rows ชุดเดียวกับตาราง (Rule #6)
   const stats = useMemo(() => summarizeReadings(rows, { from, to }), [rows, from, to]);
-  const series = useMemo(() => {
-    const pt = tempPoint(point);
-    const byDate = new Map(dailySeries(rows).map(d => [d.date, d]));
-    const out = [];
-    for (let d = new Date(`${from}T00:00:00`); ; d.setDate(d.getDate() + 1)) {
-      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      if (iso > to) break;
-      const x = byDate.get(iso);
-      const outPoint = !x ? null : x.max > pt.max ? x.max : x.min < pt.min ? x.min : null;
-      out.push({ date: iso, label: `${d.getDate()}/${d.getMonth() + 1}`, count: x?.count || 0, min: x?.min ?? null, max: x?.max ?? null,
-        range: x ? [x.min, x.max] : null, out: !!x?.out, outPoint });
-    }
-    return out;
-  }, [rows, from, to, point]);
+  // ช่วงยาวกว่า 3 เดือนรวมจุดเป็นรายสัปดาห์/รายเดือน (user เคาะ 15/11/2569)
+  const chart = useMemo(() => chartBuckets(rows, tempPoint(point), { from, to }), [rows, from, to, point]);
+  const insight = useMemo(() => describeReadings(rows, tempPoint(point), { from, to, partial: !!recordedBy, lastDate }),
+    [rows, from, to, point, recordedBy, lastDate]);
   const monthReports = useMemo(() => monthRange(lowYm, highYm).map((ym) => {
     const r = buildMonthReport(rows, ym);
     const inMonth = rows.filter(x => x.reading_date >= r.from && x.reading_date <= r.to);
-    return { ...r, devices: [...new Set(inMonth.map(x => tempDeviceLabel(x.device)))].join(', ') };
-  }), [rows, lowYm, highYm]);
+    return { ...r, devices: [...new Set(inMonth.map(x => tempDeviceLabel(x.device)))].join(', '),
+      insight: describeReadings(inMonth, tempPoint(point), { from: r.from, to: r.to }) };
+  }), [rows, lowYm, highYm, point]);
 
   const monthOptions = useMemo(() => {
     // ย้อนอย่างน้อย 12 เดือนเสมอ — ปุ่มลัด 3 เดือน/ปีงบ ต้องมีเดือนใน dropdown แม้จุดวัดเพิ่งเริ่มบันทึก
@@ -741,16 +785,19 @@ export default function TemperatureLogApp({ onRefresh, auth, onGoBack, canGoBack
         {!loading && rows.length > 0 && (
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-1">
-              <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">อุณหภูมิรายวัน · {rangeLabel}</h2>
+              <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">อุณหภูมิราย{UNIT_WORD[chart.unit]} · {rangeLabel}</h2>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="inline-flex items-center gap-1"><span className="w-3 h-2 rounded-sm bg-emerald-500/20 border-y border-dashed border-emerald-600" />ช่วงที่ยอมรับ {tempPoint(point).min}–{tempPoint(point).max} °C</span>
-                <span className="inline-flex items-center gap-1"><span className="w-3 h-0.5 bg-sky-600" />ต่ำสุด–สูงสุดของวัน</span>
+                <span className="inline-flex items-center gap-1"><span className="w-3 h-0.5 bg-sky-600" />ต่ำสุด–สูงสุดของ{UNIT_WORD[chart.unit]}</span>
+                {chart.unit !== 'day' && <span className="inline-flex items-center gap-1"><span className="w-3 border-t-2 border-dashed border-sky-600" />เฉลี่ย</span>}
                 <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600" />หลุดช่วง</span>
               </p>
             </div>
-            <TempChart series={series} lo={tempPoint(point).min} hi={tempPoint(point).max} />
+            <TempChart series={chart.points} unit={chart.unit} lo={tempPoint(point).min} hi={tempPoint(point).max} />
           </div>
         )}
+
+        {!loading && <InsightBox insight={insight} title={rangeLabel} />}
 
         {/* สรุปรายเดือน + พิมพ์ — ใบพิมพ์ใช้ buildMonthReport ชุดเดียวกับแถวในตารางนี้ */}
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">

@@ -5277,6 +5277,16 @@ export async function fetchTemperatureFirstDate(location) {
   return data?.[0]?.reading_date || null
 }
 
+/** วันล่าสุดที่มีค่าวัดจริงของจุดวัดนั้น — กล่องสรุปจากกราฟบอก "ไม่ได้บันทึกตั้งแต่…" เมื่อช่วงที่เลือกไม่มีค่า */
+export async function fetchTemperatureLastDate(location) {
+  if (!supabase) return null
+  let q = supabase.from('temperature_log').select('reading_date').neq('source', 'generated')
+  if (location) q = q.eq('location', location)
+  const { data, error } = await q.order('reading_date', { ascending: false }).limit(1)
+  if (error) throw error
+  return data?.[0]?.reading_date || null
+}
+
 /** บันทึกค่าใหม่ (คนกรอกในแอป) — source='manual' เสมอ ห้ามให้ caller override */
 export async function insertTemperatureLog(row, auth = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')

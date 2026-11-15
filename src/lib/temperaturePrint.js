@@ -81,6 +81,15 @@ function dayTable(days) {
 <tbody>${days.map(dayRow).join('')}</tbody></table>`;
 }
 
+// สรุปจากกราฟ — describeReadings ชุดเดียวกับกล่องบนจอ · บรรทัดเฉลี่ยซ้ำกับช่องสรุปด้านบนจึงตัดออก
+function insightHtml(insight) {
+  if (!insight) return '';
+  const lines = insight.lines.filter((l, i) => !(i === 0 && /^เฉลี่ย/.test(l.text)) && !/^บันทึก \d/.test(l.text));
+  return `<div class="ins ${insight.tone}"><p class="v"><b>สรุป:</b> ${esc(insight.verdict)}</p>`
+    + (lines.length ? `<ul>${lines.map((l) => `<li class="${l.tone}">${esc(l.text)}</li>`).join('')}</ul>` : '')
+    + '</div>';
+}
+
 function pageHtml(report, point, { filterNote, printedBy, printedAt }) {
   const s = report.summary;
   const devices = report.devices;
@@ -106,6 +115,7 @@ function pageHtml(report, point, { filterNote, printedBy, printedAt }) {
   <div><span>ต่ำสุด – สูงสุด</span><b>${f1(s.min)} – ${f1(s.max)} °C</b></div>
   <div><span>หลุดช่วง</span><b class="${s.excursions.length ? 'bad' : ''}">${s.excursions.length} ครั้ง</b>${s.unhandled.length ? `<small class="bad">ยังไม่ระบุการดำเนินการ ${s.unhandled.length}</small>` : ''}</div>
 </div>
+${insightHtml(report.insight)}
 <div class="two">${dayTable(report.days.slice(0, half))}${dayTable(report.days.slice(half))}</div>
 <h2>ค่าที่หลุดช่วงและการดำเนินการ</h2>
 ${excHtml}
@@ -139,6 +149,12 @@ h2 { font-size: 13px; margin: 8px 0 3px; }
 .sum span { display: block; font-size: 10.5px; color: #4b5563; }
 .sum b { font-size: 13.5px; }
 .sum small { display: block; font-size: 10.5px; }
+.ins { border: 1px solid #d1d5db; border-left-width: 4px; border-radius: 6px; padding: 3px 8px; margin: 0 0 6px; font-size: 11.5px; }
+.ins.good { border-left-color: #059669; } .ins.warn { border-left-color: #d97706; } .ins.bad { border-left-color: #b91c1c; } .ins.none { border-left-color: #9ca3af; }
+.ins .v { margin: 0; }
+.ins ul { margin: 1px 0 0; padding-left: 16px; }
+.ins li { line-height: 1.35; }
+.ins li.bad { color: #b91c1c; } .ins li.warn { color: #92400e; } .ins li.muted { color: #6b7280; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 th, td { border: 1px solid #9ca3af; padding: 1.5px 4px; line-height: 1.25; }
