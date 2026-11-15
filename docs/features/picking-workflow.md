@@ -1,5 +1,18 @@
 # Picking Workflow — จัดยา → ตรวจนับ → จ่ายออก → รับยา
 
+## หน้าเบิกยาเจ้าหน้าที่แบบใหม่ (15/11/2569 — ตาม mockup `docs/mockups/requisition-staff.html` ที่ user เคาะ)
+
+> ส่วน StaffDashboard / PickingModal / VerifyModal / RequisitionDetail ข้างล่างเป็นของเดิม — **PickingModal + VerifyModal ลบแล้ว** (จัด/ตรวจในหน้าใบแทน)
+
+- **ตรรกะอยู่ [reqStaffView.js](../../src/lib/reqStaffView.js)** (pure · `npm run test:reqstaff`): `stageOf` (status → pending/pick/check/ready/done/recv/rej) · `QUEUE_TABS` · `nextStep` · `itemAllocation` (lot ต่อรายการตามขั้น: รออนุมัติ = ประมาณการ FEFO · รอจัดลงชีทแล้ว = lot ตามชีท ห้ามคำนวณใหม่ · รอจัดยังไม่ลงชีท = FEFO สดหลังหัก lot ที่ใบอื่นหยิบไป · ตรวจขึ้นไป = `picked_allocation`) · `pickPayload` · `trimAllocation` · `sortByLog` (ลำดับเดียวกับใบพิมพ์ฉบับคลัง `sortRowsByLog`) · `reqFlags` (ป้ายในคิวใช้ `itemAllocation` ตัวเดียวกับหน้าใบ — Rule #6)
+- **lot พร้อมจ่าย** `loadStaffLots(codes, { excludeReqId })` (RequisitionApp) — merge แถวซ้ำ · ตัดหมดอายุ · `sortLotsForDispense` · `applyHolds(..., { fefoRemainder: false })` · ดึง inventory ทีละ 100 รหัส (Rule #2) — ใช้ทั้งคิวและหน้าใบ
+- **คิว**: แถบ 4 ขั้น รอลงชีท/อนุมัติ · รอจัด · รอตรวจจ่าย (picking + ready เดิม) · ประวัติ (กรองวันที่) → แถวละใบ (หน่วยงาน·เลขใบ·ประเภท·ลงชีทแล้ว | ส่งเมื่อ+รอกี่วัน | จำนวนรายการ+ป้ายไม่พอ/ใกล้หมดอายุ | ขั้นถัดไป) · จอ < 1024 เป็นการ์ด · ติ๊กเลือก + อนุมัติ/ลบที่เลือก เหมือนเดิม · ปุ่มพิมพ์ย้ายไปหัวใบ
+- **หน้าใบ**: หัวใบ + แถบ 5 ขั้น + พิมพ์ใบเบิก/ใบ lot คุม/ใบปะหน้า/Excel · ตัวกรองในใบ (ใกล้หมดอายุ/ของไม่พอ/จ่ายเกิน/จัดไม่ครบ/แจ้งแก้) · ค้นในใบ · **เรียงตามที่เก็บ (เดินจัด)** จัดกลุ่มตาม MainLog (จำใน localStorage `req_staff_sort` · ปุ่มพิมพ์ใช้การเรียงเดียวกันเป็นค่าเริ่มต้น) · ≥768px ตาราง / แคบกว่าการ์ด · แถบปุ่มล่าง `sticky` ในคอลัมน์เนื้อหา (fixed left-0 โดน sidebar บัง)
+- **รอจัด**: ผลการจัดรายแถว [ครบ][ไม่ครบ/ไม่ตรง → จัดได้ + เหตุ `PICK_REASONS`] · ของไม่พอเริ่มที่ "ไม่ครบ" ให้เอง · หมายเหตุคลัง (`staff_note` + chip เดิม) · "จัดเสร็จ" → `startPickingRequisition` (ไม่ครบ = ตัด allocation ตามลำดับจ่ายให้รวมเท่าที่จัดได้ + ต่อเหตุท้าย staff_note) · ช่องชื่อผู้จัดเติมชื่อผู้ login
+- **รอตรวจจ่าย**: แถวจัดไม่ครบไฮไลต์ · **ผู้ตรวจเจอของผิด → "แจ้งแก้" ที่แถว (หยิบผิดยา/ผิด lot/จำนวนไม่ตรง/อื่นๆ + รายละเอียด) ไม่บังคับ** แก้ของแล้วจ่ายต่อ ไม่ส่งกลับไปจัด · **คนจัด = คนตรวจได้** (ไม่มีคนจัดยา — แค่บอกในแถบล่าง ไม่บล็อก) · "ตรวจแล้ว จ่ายออก" กดครั้งเดียว → `verifyAndDispenseRequisition` (db.js): picking → dispensed ข้าม ready (กันกดซ้ำด้วย `.eq('status','picking')`) · เขียน `requisition_items.verify_note` · audit `verify_requisition` (มี `issues`, `same_as_picker`) + `dispense_requisition` — action เดิม ไม่ต้องเพิ่ม label (Rule #12) · เขียนหมายเหตุไม่ได้ (ยังไม่รัน `verify_note_migration.sql`) = จ่ายออกสำเร็จ + แจ้งบนจอ หมายเหตุยังอยู่ใน audit
+- ใบ `ready` ค้างจาก flow เดิม → ปุ่ม "จ่ายออก" (`DispatchConfirmModal` เดิม)
+- จัดจ่ายเองก่อนลงชีท → อยู่หน้าเดิมต่อในขั้นรอจัด (เดิมเด้งกลับคิว)
+
 ## Status Flow
 
 ```

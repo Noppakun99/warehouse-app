@@ -3407,6 +3407,33 @@ export async function verifyRequisition(id, verifierName, auth = {}) {
   await insertAuditLog({ action: 'verify_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id, req_number: reqRow?.req_number, req_department: reqRow?.department, verifier_name: verifierName } })
 }
 
+// "ตรวจแล้ว จ่ายออก" กดครั้งเดียว (หน้าเบิกยาเจ้าหน้าที่ 15/11/2569): picking → dispensed ข้าม ready
+// notes = [{ id, verify_note, drug_code, drug_name }] เฉพาะรายการที่ผู้ตรวจแจ้งแก้ (ไม่บังคับ) · ผู้ตรวจ = ผู้จัดได้ (ไม่มีคนจัดยา)
+// audit 2 action เดิม (verify + dispense) → กระดิ่ง/ประวัติไม่ต้องเพิ่ม label ใหม่ (Rule #12)
+export async function verifyAndDispenseRequisition(id, { verifierName, notes = [] }, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const now = new Date().toISOString()
+  // .eq status = กันกดซ้ำ/สองเครื่องจ่ายใบเดียวกัน — ไม่ใช่ picking แล้วไม่มีแถวให้ update
+  const { data: reqRow, error } = await supabase.from('requisitions')
+    .update({ status: 'dispensed', verifier_name: verifierName, verified_at: now, dispensed_at: now, updated_at: now })
+    .eq('id', id)
+    .eq('status', 'picking')
+    .select('department, req_number, picker_name')
+    .maybeSingle()
+  if (error) throw error
+  if (!reqRow) throw new Error('ใบนี้ถูกจ่ายออกหรือเปลี่ยนสถานะไปแล้ว — กลับไปที่คิวแล้วเปิดใหม่')
+  // จ่ายออกสำเร็จแล้ว — เขียนหมายเหตุไม่ได้ (เช่นยังไม่รัน verify_note_migration.sql) ห้ามทำให้ทั้งขั้นล้ม · หมายเหตุยังอยู่ใน audit
+  let notesSaved = true
+  for (const nt of notes) {
+    const { error: e2 } = await supabase.from('requisition_items').update({ verify_note: nt.verify_note || null }).eq('id', nt.id)
+    if (e2) { console.error('verify_note', e2); notesSaved = false; break }
+  }
+  const base = { requisition_id: id, req_number: reqRow?.req_number, req_department: reqRow?.department }
+  await insertAuditLog({ action: 'verify_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { ...base, verifier_name: verifierName, same_as_picker: !!reqRow?.picker_name && reqRow.picker_name === verifierName, issues: notes.map(nt => ({ drug_code: nt.drug_code, drug_name: nt.drug_name, note: nt.verify_note })) } })
+  await insertAuditLog({ action: 'dispense_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: base })
+  return { notesSaved }
+}
+
 export async function markRequisitionDispensed(id, auth = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
   const { data: reqRow, error } = await supabase.from('requisitions')

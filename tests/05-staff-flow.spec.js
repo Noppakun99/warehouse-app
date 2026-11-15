@@ -13,33 +13,34 @@ test.describe('Staff Flow (ระบบเบิกยา — มุมมอง
     if (!page) test.skip();
     await page.goto('/');
     await waitForAppShell(page);
-    await page.getByText('ระบบเบิกยาออนไลน์').click();
+    await page.getByRole('button', { name: 'เบิกยาออนไลน์' }).first().click();
     await expect(
-      page.getByRole('button', { name: 'รอดำเนินการ' }).first()
+      page.getByRole('button', { name: /รอลงชีท\/อนุมัติ/ }).first()
     ).toBeVisible({ timeout: 8_000 });
   });
 
-  test('staff เห็น tab รอดำเนินการ และ ทั้งหมด', async ({ staffPage: page }) => {
+  // คิวใหม่ 15/11/2569: แถบ 4 ขั้น รอลงชีท/อนุมัติ · รอจัด · รอตรวจจ่าย · ประวัติ
+  test('staff เห็นแถบ 4 ขั้นของคิวใบเบิก', async ({ staffPage: page }) => {
     if (!page) test.skip();
     await page.goto('/');
     await waitForAppShell(page);
-    await page.getByText('ระบบเบิกยาออนไลน์').click();
-    await page.waitForSelector('text=รอดำเนินการ', { timeout: 8_000 });
-    await expect(page.getByRole('button', { name: 'รอดำเนินการ' }).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: 'ทั้งหมด' }).first()).toBeVisible();
+    await page.getByRole('button', { name: 'เบิกยาออนไลน์' }).first().click();
+    for (const name of [/รอลงชีท\/อนุมัติ/, /^รอจัด/, /รอตรวจจ่าย/, /^ประวัติ/]) {
+      await expect(page.getByRole('button', { name }).first()).toBeVisible({ timeout: 8_000 });
+    }
   });
 
   test('staff เห็นรายการใบเบิก (มีข้อมูลหรือ empty state)', async ({ staffPage: page }) => {
     if (!page) test.skip();
     await page.goto('/');
     await waitForAppShell(page);
-    await page.getByText('ระบบเบิกยาออนไลน์').click();
+    await page.getByRole('button', { name: 'เบิกยาออนไลน์' }).first().click();
     await page.waitForResponse(
       r => r.url().includes('requisitions') && r.status() < 400,
       { timeout: 8_000 }
     ).catch(() => {});
     await expect(
-      page.getByText(/รอดำเนินการ|ไม่พบ|ใบเบิก/i).first()
+      page.getByText(/รอลงชีท|ไม่มีใบ|ใบเบิก/i).first()
     ).toBeVisible({ timeout: 8_000 });
   });
 
@@ -49,7 +50,7 @@ test.describe('Staff Flow (ระบบเบิกยา — มุมมอง
     // 1. requester ส่งใบเบิกก่อน
     await requesterPage.goto('/');
     await waitForAppShell(requesterPage);
-    await requesterPage.getByText('ระบบเบิกยาออนไลน์').click();
+    await requesterPage.getByRole('button', { name: 'เบิกยาออนไลน์' }).first().click();
     await requesterPage.waitForSelector('text=ค้นหายาในคลัง', { timeout: 8_000 });
 
     const searchRes = waitForSupabase(requesterPage, { table: 'inventory' });
@@ -75,21 +76,19 @@ test.describe('Staff Flow (ระบบเบิกยา — มุมมอง
     // 2. staff reload แล้ว approve
     await page.goto('/');
     await waitForAppShell(page);
-    await page.getByText('ระบบเบิกยาออนไลน์').click();
+    await page.getByRole('button', { name: 'เบิกยาออนไลน์' }).first().click();
     await page.waitForResponse(
       r => r.url().includes('requisitions') && r.status() < 400,
       { timeout: 8_000 }
     ).catch(() => {});
 
-    const firstPending = page.locator('text=รอดำเนินการ').last();
+    const firstPending = page.locator('[data-testid="req-row"]').first();
     const hasPending = await firstPending.isVisible().catch(() => false);
     if (!hasPending) { test.skip(); return; }
+    await firstPending.click();
 
-    await page.locator('[data-testid="req-row"], .cursor-pointer').first().click().catch(async () => {
-      await page.locator('.border.rounded-xl').first().click();
-    });
-
-    const approveBtn = page.getByRole('button', { name: /^อนุมัติ$/ }).first();
+    // ใบห้องยาG ที่รอลงชีทไม่มีปุ่มอนุมัติ (ลงชีท = อนุมัติ) → skip
+    const approveBtn = page.getByRole('button', { name: /ยืนยันอนุมัติใบเบิก/ }).first();
     const hasApprove = await approveBtn.isVisible({ timeout: 3_000 }).catch(() => false);
     if (!hasApprove) { test.skip(); return; }
 
@@ -97,25 +96,28 @@ test.describe('Staff Flow (ระบบเบิกยา — มุมมอง
     await approveBtn.click();
     await updateRes;
 
-    await expect(page.getByText('อนุมัติแล้ว').first()).toBeVisible({ timeout: 8_000 });
+    // อนุมัติแล้วกลับคิว — ใบย้ายไปขั้นรอจัด
+    await expect(page.getByRole('button', { name: /^รอจัด/ }).first()).toBeVisible({ timeout: 8_000 });
   });
 
-  test('staff เห็นปุ่ม อนุมัติที่เลือก หลังเลือก item', async ({ staffPage: page }) => {
+  test('staff เห็นแถบทำกับใบที่เลือก หลังติ๊กใบ', async ({ staffPage: page }) => {
     if (!page) test.skip();
     await page.goto('/');
     await waitForAppShell(page);
-    await page.getByText('ระบบเบิกยาออนไลน์').click();
-    await page.waitForSelector('text=รอดำเนินการ', { timeout: 8_000 });
+    await page.getByRole('button', { name: 'เบิกยาออนไลน์' }).first().click();
+    await page.getByRole('button', { name: /รอลงชีท\/อนุมัติ/ }).first().waitFor({ timeout: 8_000 });
+    // แถบขั้นขึ้นก่อนโหลดใบเสร็จ — รอแถวใบ (ไม่มีใบ = skip)
+    await page.locator('[data-testid="req-row"]').first().waitFor({ timeout: 8_000 }).catch(() => {});
 
-    // ปุ่ม bulk render เฉพาะตอน selected.size > 0 — ต้องเลือก checkbox ก่อน
-    // ช่อง "เลือกทั้งหมด" ซ่อนอยู่ (14/11/2569) → checkbox ตัวแรก = ใบแรก
-    const firstItemCheckbox = page.locator('input[type="checkbox"]').first();
+    // แถบ bulk render เฉพาะตอนติ๊กแล้ว · checkbox ตัวแรก = ใบแรก
+    // "อนุมัติที่เลือก" ขึ้นเฉพาะใบที่ไม่ใช่ห้องยาG รอลงชีท → เช็ค "ลบที่เลือก" ซึ่งขึ้นทุกครั้ง (ไม่กด)
+    const firstItemCheckbox = page.locator('[data-testid="req-row"] input[type="checkbox"]').first();
     const hasItem = await firstItemCheckbox.isVisible().catch(() => false);
     if (!hasItem) { test.skip(); return; }
 
     await firstItemCheckbox.click();
     await expect(
-      page.getByRole('button', { name: /อนุมัติที่เลือก/i })
+      page.getByRole('button', { name: /ลบที่เลือก/i })
     ).toBeVisible({ timeout: 5_000 });
   });
 });

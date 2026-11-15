@@ -6,7 +6,8 @@ import {
   CheckCircle, XCircle, Package, FileText,
   Printer, RefreshCcw, ChevronRight, ChevronDown, ChevronUp, Bell,
   Check, X, AlertCircle, Clock, FileDown,
-  SlidersHorizontal, MapPin, Share2, Loader2, ClipboardList, CheckSquare,
+  MapPin, Share2, Loader2, ClipboardList, CheckSquare,
+  ListOrdered, AlertTriangle, StickyNote,
 } from 'lucide-react';
 import { parseUnit } from './lib/unitParser';
 import { allocateFefo, sortLotsForDispense, lotOrderNote, isSupportedLot } from './lib/lotAllocation';
@@ -14,11 +15,12 @@ import { findOverReserved, availableForOwn, increasedCodes } from './lib/reserva
 import { RESERVING_STATUSES, summarizeHolds, applyHolds } from './lib/reservation';
 import { REQ_TYPES, reqTypeLabel, reqTypeOfRows, entryUnitOf, CART_KEY, CART_TYPE_KEY } from './lib/reqType';
 import { awaitsSheetEntry } from './lib/onlineReqPlan';
+import { QUEUE_TABS, stageOf, tabOf, nextStep, waitText, itemAllocation, defaultPickResult, pickPayload, verifyNoteText, sortByLog, reqFlags, PICK_REASONS, VERIFY_ISSUES } from './lib/reqStaffView';
 import { rankDrugs, matchDrugQuery } from './lib/drugSearchText';
 import { SORT_BY_LOG, SORT_BY_REQ, sortRowsByLog, sheetTitle, fmtDateCE, buildSheetHtml, toPackQty, fmtPackNote } from './lib/reqSheetFormat';
 import { buildSheetXlsxBlob, htmlToPdfBlob, shareOrDownload, safeFileName } from './lib/reqSheetExport';
 import ConfirmModal from './ConfirmModal';
-import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, updateRequesterRequisition, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows } from './lib/db';
+import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, updateRequesterRequisition, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyAndDispenseRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 
 // ============================================================
@@ -220,15 +222,6 @@ const genReqNumber = () => {
 // ============================================================
 // Helpers
 // ============================================================
-const timeAgo = (dateStr) => {
-  const mins = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
-  if (mins < 1) return 'เพิ่งส่งมา';
-  if (mins < 60) return `${mins} นาทีที่แล้ว`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs} ชั่วโมงที่แล้ว`;
-  return `${Math.floor(hrs / 24)} วันที่แล้ว`;
-};
-
 const drugPreview = (items) => {
   if (!items?.length) return 'ไม่มีรายการ';
   const names = items.slice(0, 2).map(i => i.drug_name).filter(Boolean);
@@ -630,6 +623,29 @@ async function fetchReservedBase(codes, opts) {
   return Object.fromEntries(Object.entries(holds).map(([k, h]) => [k, h.total]));
 }
 
+// lot พร้อมจ่ายต่อรหัส (หน้าเจ้าหน้าที่ — คิว + หน้าใบ): บวกรวมแถวซ้ำ · ตัด lot หมดอายุ · เรียงลำดับจ่าย (ยาสนับสนุนก่อน)
+// · หักเฉพาะ lot ที่ใบอื่นหยิบไปแล้ว (fefoRemainder false — ใบที่ยังไม่จัดไม่ได้เอาของออกจากชั้น) · key = รหัส trim
+// fetchInventoryByCodes ไม่แบ่งหน้า → ส่งทีละ 100 รหัส กันชนเพดาน 1000 แถว (Rule #2)
+async function loadStaffLots(codes, { excludeReqId = null } = {}) {
+  const uniq = [...new Set((codes || []).map(c => String(c || '').trim()).filter(Boolean))];
+  if (!supabase || !uniq.length) return { lotsByCode: {}, rowsByCode: {} };
+  const rows = [];
+  for (let i = 0; i < uniq.length; i += 100) rows.push(...await fetchInventoryByCodes(uniq.slice(i, i + 100)));
+  const holds = await fetchReservationHolds(uniq, { excludeReqId });
+  const rowsByCode = {};
+  rows.forEach(r => { const c = String(r.code || '').trim(); (rowsByCode[c] = rowsByCode[c] || []).push(r); });
+  const lotsByCode = {};
+  Object.entries(rowsByCode).forEach(([c, list]) => {
+    const sorted = sortLotsForDispense(mergeSameLotEntries(list.map(l => {
+      const { packSize, baseUnit } = parseUnit(l.unit);
+      const packs = parseFloat(l.qty) || 0;
+      return { lot: l.lot, exp: l.exp, unit: l.unit, location: l.location, mainLog: l.main_log || '', itemType: l.item_type || '', baseUnit: baseUnit || l.unit, packSize: packSize || 1, packs, base: packs * (packSize || 1) };
+    })).filter(lotNotExpired), parseExp);
+    lotsByCode[c] = applyHolds(sorted, holds[codeKey(c)], { fefoRemainder: false }).lots;
+  });
+  return { lotsByCode, rowsByCode };
+}
+
 // เปิดหน้าปริ้นจาก Blob URL — LINE/FB in-app WebView บล็อก window.open → คืน null → นำทางผ่าน <a> click แทน (Rule #4)
 function openPrintUrl(url, preopenedWin) {
   if (preopenedWin && !preopenedWin.closed) { preopenedWin.location.href = url; return preopenedWin; }
@@ -709,19 +725,6 @@ const lotPackLabel = (l) => {
   // ใช้ baseUnit (หน่วยย่อยล้วน) — l.unit เต็มมีตัวเลข packSize ปน จะได้ "× 200 200เม็ด" ซ้ำ
   return size > 1 ? `${packs.toLocaleString()} กล่อง × ${size.toLocaleString()} ${l.baseUnit || l.unit || ''}`.trim()
                   : `${packs.toLocaleString()} ${l.baseUnit || l.unit || ''}`.trim();
-};
-
-// แสดงคงเหลือราย lot เป็น "กล่อง × หน่วยย่อย" ให้ staff นับของจริงง่าย
-//   on = ข้อมูล lot จาก inventory สด { packs, packSize, unit }, pickedPacks = กล่องที่จ่ายไป
-//   คืน { remainPacks, label, before, out } — label/before/out เป็นข้อความ "กล่อง × หน่วย"
-const remainLotPacks = (on, pickedPacks) => {
-  if (!on) return null;
-  const size = on.packSize || 1;
-  const before = Math.max(0, on.packs || 0);
-  const out = Math.max(0, pickedPacks || 0);
-  const remainPacks = Math.max(0, before - out);
-  const fmt = (p) => size > 1 ? `${p.toLocaleString()} กล่อง × ${size.toLocaleString()}${on.unit || ''}` : `${p.toLocaleString()} ${on.unit || ''}`;
-  return { remainPacks, label: fmt(remainPacks), before: fmt(before), out: fmt(out) };
 };
 
 // หน่วยคีย์บนจอ: หน่วยซื้อที่มีขนาด (1000เม็ด/450ml) อ่านเป็น "5 × 1000เม็ด" — Master ไม่บอกชื่อภาชนะ (กล่อง/ขวด/กระป๋อง)
@@ -2649,414 +2652,6 @@ function ReqOutputModal({ req, auth, defaultSort = SORT_BY_REQ, onClose }) {
   );
 }
 
-// ============================================================
-// PickingModal — staff จัดยา เลือก Lot FEFO + บันทึกจำนวนที่จัด
-// ============================================================
-function PickingModal({ req, auth, onClose, onDone }) {
-  const defaultName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : (auth.username || '');
-  const [pickerName, setPickerName] = useState(defaultName);
-  const [loadingInv, setLoadingInv]     = useState(true);
-  const [saving, setSaving]             = useState(false);
-  const [error, setError]               = useState('');
-  const sheetMode = !!req.sheet_entered_at;
-
-  const approvedItems = useMemo(() =>
-    (req.requisition_items || []).filter(item => (item.approved_qty ?? item.requested_qty) > 0),
-    [req]
-  );
-
-  const [itemStates, setItemStates] = useState(() =>
-    approvedItems.map(item => ({
-      id:           item.id,
-      drug_name:    item.drug_name,
-      drug_code:    item.drug_code,
-      drug_unit:    item.drug_unit,
-      approved_qty: item.approved_qty ?? item.requested_qty,
-      picked_lot:   '',
-      picked_exp:   '',
-      picked_qty:   item.approved_qty ?? item.requested_qty,
-      staff_note:   item.staff_note || '',
-    }))
-  );
-
-  useEffect(() => {
-    // ใบที่ลงชีทเบิกแล้ว (scripts/online-req.mjs) = lot ตัดในชีทไปแล้ว → จัดตาม lot ในชีท ห้ามคำนวณ FEFO ใหม่
-    // (หลังนำเข้า inventory ลดไปแล้ว คำนวณใหม่ = ได้ lot/คงเหลือหลังหัก ผิดทั้งคู่)
-    if (sheetMode) {
-      setItemStates(prev => prev.map(item => {
-        const src = approvedItems.find(i => i.id === item.id);
-        const alloc = (Array.isArray(src?.picked_allocation) ? src.picked_allocation : [])
-          .map(a => ({ ...a, packSize: a.packSize || (a.packs ? a.base / a.packs : 1), unit: a.unit || '' }));
-        const lotOnHand = {};
-        alloc.forEach(a => {
-          if (a.onhand == null) return;
-          lotOnHand[String(a.lot || '').trim()] = { packs: a.onhand / a.packSize, packSize: a.packSize, unit: a.baseUnit || '' };
-        });
-        const allocatedBase = alloc.reduce((s, a) => s + (Number(a.base) || 0), 0);
-        const want = Number(item.approved_qty) || 0;
-        return { ...item, allocation: alloc, lotOnHand, heldBase: 0, allocatedBase,
-          shortfallBase: Math.max(0, want - allocatedBase), overBase: Math.max(0, allocatedBase - want),
-          picked_lot: alloc[0]?.lot || '', picked_exp: alloc[0]?.exp || '', picked_qty: allocatedBase };
-      }));
-      setLoadingInv(false);
-      return;
-    }
-    const codes = [...new Set(approvedItems.map(i => i.drug_code).filter(Boolean))];
-    if (!codes.length) { setLoadingInv(false); return; }
-    // ใบอื่นที่หยิบ lot ไปแล้วแต่ยังไม่ลงชีท+นำเข้า (ใบจ่ายก่อนลงชีท) — ของออกจากชั้นแล้วแต่ inventory ยังไม่ลด
-    Promise.all([fetchInventoryByCodes(codes), fetchReservationHolds(codes, { excludeReqId: req.id })]).then(([data, holds]) => {
-      const map = {};
-      data.forEach(row => {
-        const code = String(row.code || '').trim();
-        if (!map[code]) map[code] = [];
-        map[code].push(row);
-      });
-      // คำนวณ allocation สดจากของจริง ณ ตอนนี้ (ADR-0005) — approved_qty เป็นเม็ด · ลำดับจ่าย = ยาสนับสนุนก่อน
-      setItemStates(prev => prev.map(item => {
-        const lots = map[String(item.drug_code || '').trim()] || [];
-        // บวกรวมแถวซ้ำ lot เดียวกันก่อน — ห้ามปล่อยซ้ำเข้า allocation/onhand (บัคแถวซ้ำ 2026-07-18)
-        const sortedLots = sortLotsForDispense(mergeSameLotEntries(lots.map(l => {
-          const { packSize, baseUnit } = parseUnit(l.unit);
-          const packs = parseFloat(l.qty) || 0;
-          // unit = หน่วยเต็ม (แสดง packs × unit), baseUnit = หน่วยย่อยล้วน (เม็ด/amp/ขวด) สำหรับ label คงเหลือ
-          return { lot: l.lot, exp: l.exp, unit: l.unit, location: l.location, itemType: l.item_type || '', baseUnit: baseUnit || l.unit, packSize: packSize || 1, packs, base: packs * (packSize || 1) };
-        })), parseExp);
-        // หักราย lot เฉพาะที่ถูกหยิบไปจริง — ใบที่ยังไม่จัดไม่หัก (ของยังอยู่บนชั้น)
-        const { lots: fefoLots, held: heldBase } = applyHolds(sortedLots, holds[codeKey(item.drug_code)], { fefoRemainder: false });
-        // lot หมดอายุห้ามจัด (FEFO จะหยิบ exp เก่าสุดก่อน = หมดอายุก่อน) — ให้ตรงกับฝั่งค้นหาผู้เบิก
-        const alloc = allocateFefo(item.approved_qty, fefoLots.filter(lotNotExpired));
-        const first = alloc.allocation[0];
-        // คงเหลือกล่องสดราย lot (lot → { packs, packSize, unit }) — แสดง "คงเหลือก่อน/หลังจ่าย" เป็นกล่อง
-        // unit ใช้ baseUnit (หน่วยย่อยล้วน) กัน label เพี้ยน เช่น "× 1000เม็ด" ไม่ใช่ "× 10001000เม็ด"
-        // บวกสะสม (+=) เหมือน VerifyModal — ห้าม assign ทับ ไม่งั้น lot เดียวกันคนละ exp โดนทับ snapshot ผิด
-        const lotOnHand = {};
-        fefoLots.forEach(l => {
-          const k = String(l.lot || '').trim();
-          const prev2 = lotOnHand[k] || { packs: 0, packSize: l.packSize, unit: l.baseUnit };
-          prev2.packs += l.packs;
-          lotOnHand[k] = prev2;
-        });
-        return { ...item, allocation: alloc.allocation, shortfallBase: alloc.shortfallBase, allocatedBase: alloc.allocatedBase, overBase: alloc.overBase, lotOnHand, heldBase,
-          picked_lot: first?.lot || '', picked_exp: first?.exp || '', picked_qty: alloc.allocatedBase };
-      }));
-      setLoadingInv(false);
-    }).catch(() => setLoadingInv(false));
-  }, []);
-
-  const handleConfirm = async () => {
-    if (!pickerName.trim()) { setError('กรุณากรอกชื่อผู้จัดยา'); return; }
-    setSaving(true); setError('');
-    try {
-      const items = itemStates.map(it => ({
-        id:         it.id,
-        picked_lot: it.picked_lot || null,
-        picked_exp: it.picked_exp || null,
-        picked_qty: parseInt(it.picked_qty) || 0,
-        picked_allocation: sheetMode ? (it.allocation?.length ? it.allocation : null)
-          : (it.allocation && it.allocation.length)
-          // onhand = คงเหลือ lot นั้น (หน่วยย่อยสุด) snapshot ณ ตอนจัด — ใบ lot คุมใช้เป็น "คงเหลือก่อนเบิก" ที่พิมพ์ซ้ำเมื่อไหร่ก็ตรง
-          ? it.allocation.map(a => {
-              const oh = it.lotOnHand?.[String(a.lot || '').trim()];
-              return { lot: a.lot, exp: a.exp, base: a.base, packs: a.packs, onhand: oh ? oh.packs * oh.packSize : null };
-            })
-          : null,
-        staff_note: it.staff_note?.trim() || null,
-      }));
-      await startPickingRequisition(req.id, { pickerName: pickerName.trim(), items }, auth);
-      onDone();
-    } catch (e) { setError(e.message); setSaving(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-purple-50 dark:bg-purple-950/40 flex items-center gap-3 shrink-0">
-          <div className="w-9 h-9 bg-purple-100 dark:bg-purple-950/60 rounded-xl flex items-center justify-center">
-            <Package size={18} className="text-purple-600" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-bold text-purple-800 dark:text-purple-300">เริ่มจัดยา</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">{req.req_number} · {req.department}</p>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">ชื่อผู้จัดยา</label>
-            <input type="text" value={pickerName} onChange={e => setPickerName(e.target.value)}
-              placeholder="กรอกชื่อผู้จัดยา"
-              className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-400" />
-          </div>
-
-          {loadingInv ? (
-            <div className="flex items-center justify-center py-8 text-slate-400 dark:text-slate-500 gap-2">
-              <RefreshCcw size={18} className="animate-spin" /> กำลังโหลดข้อมูล Lot...
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {itemStates.length === 0 && (
-                <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-4">ไม่มีรายการที่อนุมัติ</p>
-              )}
-              {itemStates.map((item) => {
-                const alloc = item.allocation || [];
-                return (
-                  <div key={item.id} className="bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2.5">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{item.drug_name}</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        อนุมัติ <span className="font-bold text-emerald-600">{Number(item.approved_qty).toLocaleString()}</span> {item.drug_unit || ''}
-                      </p>
-                      {item.heldBase > 0 && (
-                        <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
-                          คงเหลือ lot หักใบรอลงชีท {Number(item.heldBase).toLocaleString()} {item.drug_unit || ''} (ใบอื่นหยิบไปแล้ว ยังไม่ลงชีท)
-                        </p>
-                      )}
-                    </div>
-                    {alloc.length > 0 ? (
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">{sheetMode ? `จ่ายจาก Lot ตามชีทเบิก${req.receipt_no ? ` (${req.receipt_no})` : ''}` : 'จ่ายจาก Lot (FEFO — ใกล้หมดอายุก่อน)'}</label>
-                        <div className="space-y-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5">
-                          {alloc.map((a, ai) => {
-                            const remain = remainLotPacks(item.lotOnHand?.[String(a.lot || '').trim()], a.packs);
-                            return (
-                            <div key={ai} className="text-sm">
-                              <div className="grid grid-cols-[1fr_auto] gap-x-2 gap-y-1 items-start">
-                                <div className="flex items-center gap-x-2 gap-y-1 flex-wrap min-w-0">
-                                  <span className="font-mono font-semibold text-slate-700 dark:text-slate-200">Lot {a.lot || '-'}</span>
-                                  <span className="text-xs text-slate-400 dark:text-slate-500">Exp {fmtExp(a.exp)}</span>
-                                  {isNearExpiry(a.exp) && (
-                                    <span className="inline-flex items-center gap-0.5 text-xs bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 rounded px-1.5 py-0.5 font-semibold"><Clock size={10}/> ใกล้หมดอายุ · {expCountdown(a.exp)}</span>
-                                  )}
-                                </div>
-                                <div className="text-right whitespace-nowrap">
-                                  <span className="font-bold text-emerald-600">{a.base.toLocaleString()} {item.drug_unit || ''}</span>
-                                  <span className="block text-xs text-slate-400 dark:text-slate-500">({a.packs.toLocaleString()} × {a.unit})</span>
-                                </div>
-                              </div>
-                              {a.location && a.location !== '-' && (
-                                <p className="flex items-center gap-1 text-xs text-indigo-700 dark:text-indigo-300 font-semibold mt-0.5">
-                                  <MapPin size={11}/> ที่เก็บ: {a.location}
-                                </p>
-                              )}
-                              {remain && (
-                                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-                                  คงเหลือก่อนจ่าย <span className="font-medium text-slate-600 dark:text-slate-300">{remain.before}</span>
-                                  <span className="text-slate-400 dark:text-slate-500"> − เบิกออก {remain.out} = </span>
-                                  <span className="font-bold text-indigo-700 dark:text-indigo-300">{remain.label}</span>
-                                </p>
-                              )}
-                            </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-lg px-3 py-2">
-                        ไม่พบ Lot ในคลัง — กรุณาตรวจสอบสต็อก
-                      </p>
-                    )}
-                    {item.overBase > 0 && (
-                      <p className="text-xs text-amber-600 font-semibold flex items-center gap-1">
-                        <AlertCircle size={12} /> จ่ายเต็มกล่อง — ได้ {Number(item.allocatedBase).toLocaleString()} {item.drug_unit || ''} (เกินที่ขอ {Number(item.overBase).toLocaleString()})
-                      </p>
-                    )}
-                    {item.shortfallBase > 0 && (
-                      <p className="text-xs text-red-600 font-semibold flex items-center gap-1">
-                        <AlertCircle size={12} /> ของไม่พอเบิก — จัดได้ {Number(item.allocatedBase).toLocaleString()} จาก {Number(item.approved_qty).toLocaleString()} {item.drug_unit || ''} (ขาด {Number(item.shortfallBase).toLocaleString()})
-                      </p>
-                    )}
-                    <div>
-                      <div className="flex flex-wrap gap-1 mb-1">
-                        {STAFF_NOTE_PRESETS.map(p => (
-                          <button key={p} type="button"
-                            onClick={() => setItemStates(prev => prev.map(s => s.id === item.id ? { ...s, staff_note: s.staff_note ? `${s.staff_note} ${p}` : p } : s))}
-                            className="text-xs px-2 py-0.5 rounded-full border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:border-purple-400 hover:text-purple-700 transition-colors">
-                            {p}
-                          </button>
-                        ))}
-                      </div>
-                      <input type="text" value={item.staff_note}
-                        onChange={e => setItemStates(prev => prev.map(s => s.id === item.id ? { ...s, staff_note: e.target.value } : s))}
-                        placeholder="หมายเหตุคลัง (ขึ้นใบ lot คุม)"
-                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1.5 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-400" />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {error && <p className="text-sm text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2">{error}</p>}
-        </div>
-
-        <div className="px-4 pb-5 pt-3 border-t border-slate-100 dark:border-slate-800 flex gap-2 shrink-0">
-          <button onClick={onClose} disabled={saving}
-            className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2.5 font-medium text-sm transition-colors">
-            ยกเลิก
-          </button>
-          <button onClick={handleConfirm} disabled={saving || loadingInv || !pickerName.trim()}
-            className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-2.5 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
-            <Package size={15} /> {saving ? 'กำลังบันทึก...' : 'ยืนยันจัดยา'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================
-// VerifyModal — staff คนที่ 2 ตรวจนับ (Double Check)
-// ============================================================
-function VerifyModal({ req, auth, onClose, onDone }) {
-  const defaultName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : (auth.username || '');
-  const [verifierName, setVerifierName] = useState(defaultName);
-  const [saving, setSaving]             = useState(false);
-  const [error, setError]               = useState('');
-  const [onHandLotMap, setOnHandLotMap] = useState(null); // "code|lot" → { packs, packSize, unit } คงเหลือสดราย lot
-  const [checkedItems, setCheckedItems] = useState({});    // item.id → staff ติ๊กว่าตรวจรายการนี้ถูกต้องแล้ว
-
-  const pickedItems = (req.requisition_items || []).filter(item => item.picked_qty != null);
-
-  // โหลดคงเหลือสดราย lot เพื่อให้ผู้ตรวจนับเทียบ "คงเหลือหลังจ่าย" เป็นกล่อง × หน่วยย่อย (นับของจริงง่าย)
-  useEffect(() => {
-    if (!supabase) return;
-    const codes = [...new Set((req.requisition_items || []).filter(i => i.picked_qty != null).map(i => i.drug_code).filter(Boolean))];
-    if (!codes.length) { setOnHandLotMap({}); return; }
-    fetchInventoryByCodes(codes).then(data => {
-      const map = {};
-      data.forEach(row => {
-        const key = `${String(row.code || '').trim()}|${String(row.lot || '').trim()}`;
-        const { packSize, baseUnit } = parseUnit(row.unit);
-        const packs = parseFloat(row.qty) || 0;
-        // เก็บ baseUnit (หน่วยย่อยไม่มีตัวเลข) — label = packs × packSize+baseUnit เช่น "0 × 100เม็ด"
-        const prev = map[key] || { packs: 0, packSize: packSize || 1, unit: baseUnit || row.unit || '' };
-        prev.packs += packs;
-        map[key] = prev;
-      });
-      setOnHandLotMap(map);
-    }).catch(() => setOnHandLotMap({}));
-  }, [req.id]);
-  const isSamePicker = verifierName.trim() && verifierName.trim() === req.picker_name;
-  const allChecked = pickedItems.length > 0 && pickedItems.every(item => checkedItems[item.id]);
-
-  const handleConfirm = async () => {
-    if (!verifierName.trim()) { setError('กรุณากรอกชื่อผู้ตรวจนับ'); return; }
-    if (!allChecked) { setError('กรุณาติ๊กยืนยันให้ครบทุกรายการก่อน'); return; }
-    setSaving(true); setError('');
-    try {
-      await verifyRequisition(req.id, verifierName.trim(), auth);
-      onDone();
-    } catch (e) { setError(e.message); setSaving(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-indigo-50 dark:bg-indigo-950/40 flex items-center gap-3 shrink-0">
-          <div className="w-9 h-9 bg-indigo-100 dark:bg-indigo-950/60 rounded-xl flex items-center justify-center">
-            <CheckCircle size={18} className="text-indigo-600" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-bold text-indigo-800 dark:text-indigo-300">ตรวจนับยา (Double Check)</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">ผู้จัด: <span className="font-medium">{req.picker_name || '-'}</span> · {req.req_number}</p>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">ชื่อผู้ตรวจนับ</label>
-            <input type="text" value={verifierName} onChange={e => setVerifierName(e.target.value)}
-              placeholder="กรอกชื่อผู้ตรวจนับ"
-              className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
-            {isSamePicker && (
-              <div className="flex items-start gap-2 bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900/60 rounded-xl px-3 py-2 mt-2">
-                <AlertCircle size={14} className="text-orange-500 shrink-0 mt-0.5" />
-                <p className="text-xs text-orange-700 dark:text-orange-300">ชื่อตรงกับผู้จัดยา — แนะนำให้ใช้เจ้าหน้าที่คนอื่นตรวจนับเพื่อความถูกต้อง</p>
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">รายการที่จัดแล้ว</p>
-            {pickedItems.length === 0 && (
-              <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-4">ไม่มีรายการที่จัดแล้ว</p>
-            )}
-            {pickedItems.map(item => {
-              const allocs = Array.isArray(item.picked_allocation) && item.picked_allocation.length
-                ? item.picked_allocation
-                : [{ lot: item.picked_lot, exp: item.picked_exp, base: item.picked_qty, packs: null }];
-              const checked = !!checkedItems[item.id];
-              return (
-              <div key={item.id} className={`rounded-xl border px-3 py-2.5 ${checked ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800/60' : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 min-w-0 truncate">{item.drug_name}</p>
-                  <div className="shrink-0 text-right">
-                    <span className="text-sm font-bold text-indigo-700 dark:text-indigo-300">{Number(item.picked_qty).toLocaleString()}</span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 ml-1">{item.drug_unit || ''}</span>
-                  </div>
-                </div>
-                {/* แต่ละ lot ที่จ่าย + คงเหลือหลังจ่ายเป็นกล่อง × หน่วยย่อย (นับของจริงง่าย) */}
-                <div className="mt-1 space-y-1">
-                  {allocs.map((a, ai) => {
-                    const key = `${String(item.drug_code || '').trim()}|${String(a.lot || '').trim()}`;
-                    // ใบลงชีทแล้ว: คงเหลือสดหลังนำเข้าหักใบนี้ไปแล้ว → ใช้ snapshot ก่อนจ่ายที่สคริปต์ลงชีทเก็บไว้
-                    const ps = a.packSize || (a.packs ? a.base / a.packs : 1);
-                    const on = req.sheet_entered_at && a.onhand != null
-                      ? { packs: a.onhand / ps, packSize: ps, unit: a.baseUnit || '' }
-                      : (onHandLotMap ? onHandLotMap[key] : null);
-                    const remain = remainLotPacks(on, a.packs);
-                    return (
-                      <div key={ai} className="text-xs text-slate-500 dark:text-slate-400">
-                        <div className="flex items-center gap-1 flex-wrap">
-                          <span className="font-mono font-medium text-slate-600 dark:text-slate-300">Lot {a.lot || '-'}</span>
-                          {a.exp && <span className="text-slate-400 dark:text-slate-500">· Exp {fmtExp(a.exp)}</span>}
-                          {isNearExpiry(a.exp) && (
-                            <span className="inline-flex items-center gap-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 rounded px-1 py-0.5 font-semibold"><Clock size={9}/> ใกล้หมดอายุ · {expCountdown(a.exp)}</span>
-                          )}
-                          <span className="text-slate-400 dark:text-slate-500">· จ่าย {Number(a.base).toLocaleString()} {item.drug_unit || ''}</span>
-                        </div>
-                        {remain && (
-                          <p className="text-slate-400 dark:text-slate-500 mt-0.5">
-                            คงเหลือก่อนจ่าย <span className="font-medium text-slate-600 dark:text-slate-300">{remain.before}</span>
-                            <span> − เบิกออก {remain.out} = </span>
-                            <span className="font-bold text-indigo-700 dark:text-indigo-300">{remain.label}</span>
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                {/* ติ๊กยืนยันว่าตรวจรายการนี้ถูกต้องแล้ว */}
-                <button type="button" onClick={() => setCheckedItems(p => ({ ...p, [item.id]: !p[item.id] }))}
-                  className={`mt-2 w-full flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-colors ${checked ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-emerald-400'}`}>
-                  <CheckCircle size={14} /> {checked ? 'ตรวจรับรายการนี้แล้ว ✓' : 'ติ๊กเมื่อตรวจรายการนี้ถูกต้อง'}
-                </button>
-              </div>
-              );
-            })}
-          </div>
-          {error && <p className="text-sm text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2">{error}</p>}
-        </div>
-
-        <div className="px-4 pb-5 pt-3 border-t border-slate-100 dark:border-slate-800 flex gap-2 shrink-0">
-          <button onClick={onClose} disabled={saving}
-            className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2.5 font-medium text-sm transition-colors">
-            ยกเลิก
-          </button>
-          <button onClick={handleConfirm} disabled={saving || !verifierName.trim() || !allChecked}
-            className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-2.5 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
-            <CheckCircle size={15} /> {saving ? 'กำลังบันทึก...' : 'ยืนยันถูกต้อง'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function StaffRoot({ onBack, alreadyAuthed = false, auth = {}, onProxyRequest }) {
   const [authed, setAuthed]     = useState(alreadyAuthed);
@@ -3089,46 +2684,119 @@ function StaffRoot({ onBack, alreadyAuthed = false, auth = {}, onProxyRequest })
   return <StaffDashboard onLogout={() => alreadyAuthed ? onBack() : setAuthed(false)} onSelect={setSelected} auth={auth} filter={filter} setFilter={setFilter} dateFilter={dateFilter} setDateFilter={setDateFilter} onProxyRequest={onProxyRequest} />;
 }
 
-// ---- Staff Dashboard ----
+// ============================================================
+// หน้าเบิกยาเจ้าหน้าที่ — คิวใบเบิก + หน้ารายละเอียดใบ (ตาม docs/mockups/requisition-staff.html · user เคาะ 15/11/2569)
+// ขั้น: รอลงชีท/อนุมัติ → รอจัด (ผลการจัดรายแถว) → รอตรวจจ่าย (แจ้งแก้รายแถว ไม่บังคับ · คนจัด=คนตรวจได้) → จ่ายแล้ว
+// ตรรกะขั้น/lot/ผลการจัด อยู่ lib/reqStaffView.js (golden test) — component แค่ประกอบข้อมูล + แสดงผล
+// ============================================================
+const TONE = {
+  amber:  { pill: 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800/60', bar: 'bg-amber-500', num: 'text-amber-600 dark:text-amber-400' },
+  blue:   { pill: 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-800/60', bar: 'bg-[#1E90FF]', num: 'text-[#1E90FF] dark:text-blue-300' },
+  violet: { pill: 'bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-800/60', bar: 'bg-violet-500', num: 'text-violet-600 dark:text-violet-300' },
+  teal:   { pill: 'bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border-teal-300 dark:border-teal-800/60', bar: 'bg-teal-500', num: 'text-teal-600 dark:text-teal-300' },
+  green:  { pill: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800/60', bar: 'bg-emerald-500', num: 'text-emerald-600 dark:text-emerald-300' },
+  red:    { pill: 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border-red-300 dark:border-red-800/60', bar: 'bg-red-500', num: 'text-red-600 dark:text-red-400' },
+  slate:  { pill: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600', bar: 'bg-slate-400', num: 'text-slate-700 dark:text-slate-200' },
+};
+const TAB_TONE = { pending: 'amber', pick: 'blue', check: 'violet', hist: 'slate' };
+const Pill = ({ tone = 'slate', className = '', children }) => (
+  <span className={`inline-flex items-center gap-1 text-xs font-semibold border rounded-full px-2 leading-5 whitespace-nowrap ${TONE[tone].pill} ${className}`}>{children}</span>
+);
+
+// ตาราง/การ์ดเลือกด้วยความกว้างจอ — render ชุดเดียว ไม่ซ่อนด้วย CSS (pattern FilterSheet)
+function useMinWidth(px) {
+  const q = `(min-width: ${px}px)`;
+  const [ok, setOk] = useState(() => typeof window !== 'undefined' && window.matchMedia(q).matches);
+  useEffect(() => {
+    const m = window.matchMedia(q);
+    const on = () => setOk(m.matches);
+    m.addEventListener('change', on);
+    return () => m.removeEventListener('change', on);
+  }, [q]);
+  return ok;
+}
+
+const fmtDT = (iso) => {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '-';
+  const p = (x) => String(x).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear() + 543} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+const splitLocs = (s) => String(s || '').split(',').map(x => x.trim()).filter(x => x && x !== '-');
+const defaultActor = (auth) => (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name.trim() : (auth.username || '');
+const SORT_PREF_KEY = 'req_staff_sort';
+
+// ---- Staff Dashboard (คิวใบเบิก) ----
 function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, dateFilter, setDateFilter, onProxyRequest }) {
+  const wide = useMinWidth(1024);
   const [list, setList]         = useState([]);
   const [loading, setLoading]   = useState(true);
-  const [deleteId, setDeleteId] = useState(null);
-  const [outReq, setOutReq]     = useState(null); // ReqOutputModal
   const [selected, setSelected] = useState(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
-  const [searchName, setSearchName] = useState('');
-  const [searchDept, setSearchDept] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
-  const [pickingModal, setPickingModal] = useState(null); // req object
-  const [verifyModal, setVerifyModal]   = useState(null); // req object
-  const [dispatchModal, setDispatchModal] = useState(null); // req ที่กำลังยืนยันจ่ายออก
-  const [dispatching, setDispatching]     = useState(false); // กำลังจ่ายออก (loading)
+  const [q, setQ]               = useState('');
+  const [qType, setQType]       = useState('');
+  const [lots, setLots]         = useState({ key: '', byCode: {} });
+  const tab = QUEUE_TABS.some(t => t.key === filter) ? filter : 'pending';
 
-  const handleDelete = async (e, id) => {
-    e.stopPropagation();
-    if (deleteId !== id) { setDeleteId(id); return; }
-    const req = list.find(r => r.id === id);
-    await supabase.from('requisition_items').delete().eq('requisition_id', id);
-    await supabase.from('requisitions').delete().eq('id', id);
-    insertAuditLog({ action: 'delete_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { req_number: req?.req_number, requisition_id: id } });
-    setDeleteId(null);
-    setList(prev => prev.filter(r => r.id !== id));
-    setSelected(prev => { const s = new Set(prev); s.delete(id); return s; });
-  };
+  const load = useCallback(async () => {
+    if (!supabase) { setLoading(false); return; }
+    const { data } = await supabase.from('requisitions').select('*, requisition_items(*)')
+      .order('created_at', { ascending: false }).limit(200);
+    setList(data||[]); setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    load();
+    if (!supabase) return;
+    const ch = supabase.channel('staff-dashboard')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'requisitions' }, load).subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [load]);
+
+  // ป้าย "ไม่พอ/ใกล้หมดอายุ" — ใบที่ยังไม่มี lot ในใบ (FEFO) ต้องใช้ inventory · ใบลงชีท/จัดแล้วใช้ lot ในใบ
+  const fefoCodes = useMemo(() => [...new Set(list
+    .filter(r => { const s = stageOf(r); return s === 'pending' || (s === 'pick' && !r.sheet_entered_at); })
+    .flatMap(r => (r.requisition_items || []).map(i => String(i.drug_code || '').trim()))
+    .filter(Boolean))].sort().join('|'), [list]);
+  useEffect(() => {
+    if (!fefoCodes) return;
+    let alive = true;
+    loadStaffLots(fefoCodes.split('|')).then(r => { if (alive) setLots({ key: fefoCodes, byCode: r.lotsByCode }); }).catch(() => {});
+    return () => { alive = false; };
+  }, [fefoCodes]);
+  const flagsOf = useMemo(() => {
+    const m = {};
+    const ready = lots.key === fefoCodes;
+    list.forEach(r => {
+      if (tabOf(r) === 'hist') return;
+      const needsInv = stageOf(r) === 'pending' || (stageOf(r) === 'pick' && !r.sheet_entered_at);
+      if (needsInv && !ready) return;
+      m[r.id] = reqFlags(r, { lotsOf: c => lots.byCode[String(c || '').trim()] || [], isNear: isNearExpiry });
+    });
+    return m;
+  }, [list, lots, fefoCodes]);
+
+  const byTab = useMemo(() => {
+    const inHistDate = (r) => !dateFilter || (r.created_at && r.created_at.slice(0, 10) === dateFilter);
+    const m = Object.fromEntries(QUEUE_TABS.map(t => [t.key, []]));
+    list.forEach(r => { const k = tabOf(r); if (k !== 'hist' || inHistDate(r)) m[k].push(r); });
+    return m;
+  }, [list, dateFilter]);
+
+  const typeKeys = useMemo(() => [...new Set(list.map(r => r.req_type).filter(Boolean))], [list]);
+  const ql = q.trim().toLowerCase();
+  const filtered = byTab[tab].filter(r =>
+    (!qType || r.req_type === qType) &&
+    (!ql || `${r.department || ''} ${r.req_number || ''} ${r.receipt_no || ''} ${r.requester_name || ''}`.toLowerCase().includes(ql)));
+  // ติ๊กไว้แล้วเปลี่ยนแท็บ/ตัวกรอง → ใบที่ติ๊กค้างแต่มองไม่เห็นต้องไม่ถูกนับ/อนุมัติ/ลบ
+  const visibleSelected = filtered.filter(r => selected.has(r.id)).map(r => r.id);
 
   const toggleSelect = (e, id) => {
     e.stopPropagation();
     setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   };
-
-  const toggleAll = () => {
-    if (visibleSelected.length === filtered.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(filtered.map(r => r.id)));
-    }
-  };
+  const toggleAll = () => setSelected(visibleSelected.length === filtered.length ? new Set() : new Set(filtered.map(r => r.id)));
 
   const bulkDelete = async () => {
     if (!visibleSelected.length) return;
@@ -3162,389 +2830,277 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
     setBulkLoading(false);
   };
 
-  const approveOne = async (req, e) => {
-    e.stopPropagation();
-    if (!supabase || req.status !== 'pending' || awaitsSheetEntry(req)) return;
-    for (const item of req.requisition_items || []) {
-      await supabase.from('requisition_items').update({ approved_qty: item.requested_qty }).eq('id', item.id);
-    }
-    await supabase.from('requisitions').update({ status: 'approved', updated_at: new Date().toISOString() }).eq('id', req.id);
-    insertAuditLog({ action: 'update_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { req_number: req.req_number, requisition_id: req.id, action_detail: 'quick_approve' } });
-    load();
+  const chipSub = (t) => {
+    const rows = byTab[t.key];
+    if (t.key === 'hist') return dateFilter ? `วันที่ ${thaiDateFromIso(dateFilter)}` : 'ทุกวันที่';
+    if (!rows.length) return 'ไม่มีค้าง';
+    const items = rows.reduce((s, r) => s + (r.requisition_items?.length || 0), 0);
+    const oldest = rows.reduce((m, r) => (r.created_at < m ? r.created_at : m), rows[0].created_at);
+    return `${items.toLocaleString()} รายการ · เก่าสุด${waitText(oldest).replace('รอ', '')}`;
   };
 
-  const confirmDispatch = async () => {
-    if (!dispatchModal) return;
-    setDispatching(true);
-    try {
-      await markRequisitionDispensed(dispatchModal.id, auth);
-      load();
-    } catch {}
-    setDispatching(false);
-    setDispatchModal(null);
+  const flagPills = (r) => {
+    const f = flagsOf[r.id];
+    if (!f) return null;
+    const st = stageOf(r);
+    return (
+      <>
+        {f.short > 0 && <Pill tone="red">{st === 'check' || st === 'ready' ? 'จัดไม่ครบ' : 'ไม่พอ'} {f.short}</Pill>}
+        {f.near > 0 && <Pill tone="amber">ใกล้หมดอายุ {f.near}</Pill>}
+      </>
+    );
   };
 
-  const load = useCallback(async () => {
-    if (!supabase) { setLoading(false); return; }
-    const { data } = await supabase.from('requisitions').select('*, requisition_items(*)')
-      .order('created_at', { ascending: false }).limit(200);
-    setList(data||[]); setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    load();
-    if (!supabase) return;
-    const ch = supabase.channel('staff-dashboard')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'requisitions' }, load).subscribe();
-    return () => supabase.removeChannel(ch);
-  }, [load]);
-
-  const pendingCount    = list.filter(r => r.status === 'pending').length;
-  const approvedCount   = list.filter(r => r.status === 'approved' || r.status === 'partial').length;
-  const pickingCount    = list.filter(r => r.status === 'picking'  || r.status === 'ready').length;
-
-  const allDepts = [...new Set(list.map(r => r.department).filter(Boolean))].sort();
-
-  const filtered = list.filter(r => {
-    const statusMatch =
-      filter === 'all'      ? true :
-      filter === 'approved' ? (r.status === 'approved' || r.status === 'partial') :
-      filter === 'picking'  ? (r.status === 'picking'  || r.status === 'ready') :
-      r.status === filter;
-    const dateMatch = filter === 'pending' || filter === 'approved' || filter === 'picking' || !dateFilter || (r.created_at && r.created_at.slice(0, 10) === dateFilter);
-    const nameMatch = !searchName.trim() || (r.requester_name||'').toLowerCase().includes(searchName.trim().toLowerCase()) || (r.req_number||'').toLowerCase().includes(searchName.trim().toLowerCase());
-    const deptMatch = !searchDept || r.department === searchDept;
-    return statusMatch && dateMatch && nameMatch && deptMatch;
-  });
-  // ติ๊กไว้แล้วเปลี่ยนแท็บ/ตัวกรอง → ใบที่ติ๊กค้างแต่มองไม่เห็นต้องไม่ถูกนับ/อนุมัติ/ลบ
-  const visibleSelected = filtered.filter(r => selected.has(r.id)).map(r => r.id);
-
-  const tabs = [
-    { key:'pending',  label:'รอดำเนินการ'   },
-    { key:'approved', label:'รออนุมัติ/จัด' },
-    { key:'picking',  label:'กำลังจัด/ตรวจ' },
-    { key:'all',      label:'ประวัติ'        },
-  ];
+  const nameBlock = (r) => (
+    <div className="min-w-0">
+      <p className="font-semibold text-[15px] text-slate-800 dark:text-slate-100 truncate">{r.department || '-'}</p>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+        <span className="font-mono">{r.req_number}</span>
+        {r.req_type && <span>ใบเบิก{reqTypeLabel(r.req_type)}</span>}
+        {r.requester_name && <span className="truncate max-w-40">ผู้เบิก {r.requester_name}</span>}
+        {r.receipt_no && <Pill tone="green">ลงชีทแล้ว {r.receipt_no}</Pill>}
+      </div>
+    </div>
+  );
+  const sentBlock = (r) => (
+    <div className="min-w-0">
+      {!wide && <p className="text-[11px] text-slate-400 dark:text-slate-500">ส่งเมื่อ</p>}
+      <p className="font-semibold tabular-nums text-slate-700 dark:text-slate-200 text-sm">{fmtDT(r.created_at)}</p>
+      {tabOf(r) !== 'hist' && <p className="text-xs text-slate-500 dark:text-slate-400">{waitText(r.created_at)}</p>}
+    </div>
+  );
+  const itemsBlock = (r) => (
+    <div className="min-w-0">
+      {!wide && <p className="text-[11px] text-slate-400 dark:text-slate-500">รายการ</p>}
+      <p className="font-semibold tabular-nums text-slate-700 dark:text-slate-200 text-sm">{(r.requisition_items?.length || 0).toLocaleString()} รายการ</p>
+      <div className="flex flex-wrap gap-1 mt-0.5">{flagPills(r)}</div>
+    </div>
+  );
+  const nextBlock = (r) => {
+    const ns = nextStep(r);
+    return (
+      <div className="min-w-0">
+        {!wide && <p className="text-[11px] text-slate-400 dark:text-slate-500">ขั้นถัดไป</p>}
+        <Pill tone={ns.tone}>{ns.label}</Pill>
+        {ns.sub && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{ns.sub}</p>}
+      </div>
+    );
+  };
+  const checkBox = (r) => (
+    <span className="pt-0.5" onClick={e => toggleSelect(e, r.id)} onKeyDown={e => e.stopPropagation()}>
+      <input type="checkbox" readOnly checked={selected.has(r.id)} aria-label={`เลือกใบ ${r.req_number}`}
+        className="w-4 h-4 accent-[#1E90FF] cursor-pointer" />
+    </span>
+  );
+  const ROW_GRID = 'grid grid-cols-[20px_minmax(0,2.1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)_16px] gap-3 items-center';
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-800">
       <PageHeader onBack={onLogout} title="ระบบเบิกยาออนไลน์">
-        {pendingCount > 0 && (
-          <span className="flex items-center gap-1 bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-            <Bell size={11}/> {pendingCount}
-          </span>
-        )}
         {onProxyRequest && (
           <button onClick={onProxyRequest}
             className="flex items-center gap-1.5 bg-[#1E90FF] hover:bg-[#1a7fe0] text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-colors shadow-sm whitespace-nowrap">
             <Plus size={14}/> <span className="hidden sm:inline">สร้างใบเบิกแทนหน่วยงาน</span><span className="sm:hidden">สร้างใบเบิก</span>
           </button>
         )}
-        <button onClick={load} className="text-white/70 hover:text-white p-1 transition-colors"><RefreshCcw size={18}/></button>
+        <button onClick={load} aria-label="โหลดคิวใหม่" className="text-slate-400 hover:text-[#1E90FF] p-1 transition-colors"><RefreshCcw size={18}/></button>
       </PageHeader>
 
-      {/* Filter Bar — mobile-responsive */}
-      <div className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-3 py-2">
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
-            <input type="text" value={searchName} onChange={e => setSearchName(e.target.value)}
-              placeholder="ชื่อผู้เบิก หรือ เลขใบเบิก..."
-              className="w-full pl-8 pr-7 py-1.5 border border-slate-300 dark:border-slate-600 rounded-xl text-sm text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
-            {searchName && (
-              <button onClick={() => setSearchName('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
-                <X size={13}/>
+      <div className="w-full max-w-7xl mx-auto px-3 sm:px-4 py-3 space-y-3">
+        {/* แถบขั้น 4 ขั้น — กดเพื่อดูใบในขั้นนั้น */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {QUEUE_TABS.map(t => {
+            const on = tab === t.key;
+            const tone = TONE[TAB_TONE[t.key]];
+            return (
+              <button key={t.key} type="button" aria-pressed={on}
+                onClick={() => { setFilter(t.key); if (t.key === 'hist' && !dateFilter) setDateFilter(new Date().toISOString().slice(0, 10)); }}
+                className={`relative overflow-hidden text-left rounded-xl border pl-3.5 pr-2.5 py-2 transition-colors ${on ? 'border-[#1E90FF] ring-1 ring-[#1E90FF] bg-blue-50 dark:bg-blue-950/40' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                <span className={`absolute inset-y-0 left-0 w-1 ${tone.bar}`} />
+                <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">{t.label}</span>
+                <span className={`block text-2xl font-bold leading-tight tabular-nums ${tone.num}`}>{byTab[t.key].length}</span>
+                <span className="block text-[11px] text-slate-500 dark:text-slate-400 truncate tabular-nums">{chipSub(t)}</span>
               </button>
-            )}
-          </div>
-          {/* Filter toggle — mobile only */}
-          <button onClick={() => setShowFilters(f => !f)}
-            className={`sm:hidden flex items-center justify-center w-9 h-9 rounded-xl border transition-colors shrink-0 ${showFilters || searchDept || !dateFilter ? 'bg-[#F0F8FF] dark:bg-blue-950/40 border-[#1E90FF] dark:border-blue-700 text-[#1E90FF] dark:text-blue-300' : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:border-slate-400'}`}>
-            <SlidersHorizontal size={16}/>
-          </button>
-          {/* Desktop: always visible */}
-          <div className="hidden sm:flex items-center gap-2">
-            <div className="relative w-28 min-h-[36px] border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:ring-[#1E90FF]">
-              <span className={`px-2 py-1.5 text-sm pointer-events-none block w-full ${dateFilter ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'}`}>
-                {dateFilter ? thaiDateFromIso(dateFilter) : 'dd/mm/yyyy'}
-              </span>
-              <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
-                onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }}
-                className="absolute inset-0 opacity-0 w-full cursor-pointer text-base" />
-            </div>
-            <button onClick={() => setDateFilter('')}
-              className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] dark:bg-blue-950/40 text-[#1E90FF] dark:text-blue-300 border-[#1E90FF] dark:border-blue-700' : 'text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
-              ทั้งหมด
-            </button>
-            <div className="relative min-w-[160px]">
-              <select value={searchDept} onChange={e => setSearchDept(e.target.value)}
-                className="w-full appearance-none pl-3 pr-7 py-1.5 border border-slate-300 dark:border-slate-600 rounded-xl text-sm text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]">
-                <option value="">-- ทุกหน่วยงาน --</option>
-                {allDepts.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-              <ChevronRight size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none rotate-90" />
-            </div>
-            <button onClick={() => exportReqExcel(filtered, auth)}
-              className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 rounded-xl px-3 py-1.5 text-sm font-medium transition-colors whitespace-nowrap">
-              <FileDown size={16}/> Excel
-            </button>
-          </div>
+            );
+          })}
         </div>
-        {/* Mobile expanded filters */}
-        {showFilters && (
-          <div className="sm:hidden mt-2 space-y-2">
-            <div className="flex gap-2">
-              <div className="relative flex-1 min-h-[36px] border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 flex items-center cursor-pointer hover:border-slate-400 transition-colors focus-within:ring-2 focus-within:ring-[#1E90FF]">
-                <span className={`px-2 py-1.5 text-sm pointer-events-none block w-full ${dateFilter ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'}`}>
-                  {dateFilter ? thaiDateFromIso(dateFilter) : 'dd/mm/yyyy'}
-                </span>
-                <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-48">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหน่วยงาน · เลขใบเบิก · ผู้เบิก" aria-label="ค้นใบเบิก"
+              className="w-full pl-8 pr-3 py-1.5 border border-slate-300 dark:border-slate-600 rounded-xl text-sm text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
+          </div>
+          {typeKeys.length > 1 && (
+            <select value={qType} onChange={e => setQType(e.target.value)} aria-label="ประเภทใบเบิก"
+              className="py-1.5 pl-2 pr-7 border border-slate-300 dark:border-slate-600 rounded-xl text-sm text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]">
+              <option value="">ทุกประเภทใบ</option>
+              {typeKeys.map(k => <option key={k} value={k}>ใบเบิก{reqTypeLabel(k)}</option>)}
+            </select>
+          )}
+          {tab === 'hist' && (
+            <div className="flex items-center gap-1.5">
+              <div className="relative w-32 min-h-[34px] border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 flex items-center cursor-pointer focus-within:ring-2 focus-within:ring-[#1E90FF]">
+                <span className={`px-2 text-sm pointer-events-none ${dateFilter ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400'}`}>{dateFilter ? thaiDateFromIso(dateFilter) : 'ทุกวันที่'}</span>
+                <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} aria-label="วันที่ส่งใบ"
                   onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* noop */ } }}
                   className="absolute inset-0 opacity-0 w-full cursor-pointer text-base" />
               </div>
               <button onClick={() => setDateFilter('')}
-                className={`text-xs px-2.5 py-1.5 rounded-xl border transition-colors whitespace-nowrap ${!dateFilter ? 'bg-[#F0F8FF] dark:bg-blue-950/40 text-[#1E90FF] dark:text-blue-300 border-[#1E90FF] dark:border-blue-700' : 'text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
-                ทั้งหมด
+                className={`text-xs px-2.5 py-1.5 rounded-xl border whitespace-nowrap ${!dateFilter ? 'bg-blue-50 dark:bg-blue-950/40 text-[#1E90FF] border-[#1E90FF]' : 'text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+                ทุกวันที่
               </button>
             </div>
-            <div className="relative">
-              <select value={searchDept} onChange={e => setSearchDept(e.target.value)}
-                className="w-full appearance-none pl-3 pr-7 py-1.5 border border-slate-300 dark:border-slate-600 rounded-xl text-sm text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]">
-                <option value="">-- ทุกหน่วยงาน --</option>
-                {allDepts.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-              <ChevronRight size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none rotate-90" />
-            </div>
-            <button onClick={() => exportReqExcel(filtered, auth)}
-              className="w-full flex items-center justify-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 rounded-xl py-2 text-sm font-medium transition-colors">
-              <FileDown size={16}/> Export Excel
+          )}
+          <button onClick={() => exportReqExcel(filtered, auth)}
+            className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 rounded-xl px-3 py-1.5 text-sm font-medium whitespace-nowrap">
+            <FileDown size={16}/> Excel
+          </button>
+        </div>
+
+        {/* แถบทำกับใบที่ติ๊ก ("เลือกทั้งหมด" อยู่ในแถบนี้ — user สั่ง 14/11/2569) */}
+        {visibleSelected.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl">
+            <span className="text-xs text-slate-500 dark:text-slate-400">เลือก {visibleSelected.length} ใบ</span>
+            <button onClick={toggleAll} disabled={bulkLoading}
+              className="flex items-center gap-1.5 border border-slate-300 dark:border-slate-600 hover:border-[#1E90FF] hover:text-[#1E90FF] text-slate-700 dark:text-slate-200 text-xs font-semibold px-3 py-1.5 rounded-xl">
+              <CheckSquare size={13}/> {visibleSelected.length === filtered.length ? 'ยกเลิกที่เลือกทั้งหมด' : `เลือกทั้งหมด (${filtered.length})`}
+            </button>
+            {visibleSelected.some(id => { const r = list.find(x => x.id === id); return r?.status === 'pending' && !awaitsSheetEntry(r); }) && (
+              <button onClick={bulkApprove} disabled={bulkLoading}
+                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-xl">
+                <Check size={13}/> อนุมัติที่เลือก
+              </button>
+            )}
+            <button onClick={bulkDelete} disabled={bulkLoading}
+              className="flex items-center gap-1.5 bg-red-500 hover:bg-red-600 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-xl">
+              <Trash2 size={13}/> ลบที่เลือก
             </button>
           </div>
         )}
-      </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 px-3 py-2.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 overflow-x-auto shadow-sm">
-        {tabs.map(tab => (
-          <button key={tab.key} onClick={() => {
-            setFilter(tab.key);
-            setDeleteId(null);
-            if (tab.key === 'all') {
-              setDateFilter('');
-            } else if (tab.key !== 'pending' && tab.key !== 'approved' && tab.key !== 'picking' && !dateFilter) {
-              setDateFilter(new Date().toISOString().slice(0, 10));
-            }
-          }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm whitespace-nowrap font-medium transition ${
-              filter === tab.key ? 'bg-[#F0F8FF] dark:bg-blue-950/40 text-[#1E90FF] dark:text-blue-300' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-            }`}>
-            {tab.label}
-            {tab.key === 'pending'  && pendingCount  > 0 && (
-              <span className="bg-amber-500  text-white text-xs font-bold rounded-full px-1.5">{pendingCount}</span>
-            )}
-            {tab.key === 'approved' && approvedCount > 0 && (
-              <span className="bg-green-500  text-white text-xs font-bold rounded-full px-1.5">{approvedCount}</span>
-            )}
-            {tab.key === 'picking'  && pickingCount  > 0 && (
-              <span className="bg-purple-500 text-white text-xs font-bold rounded-full px-1.5">{pickingCount}</span>
-            )}
-          </button>
-        ))}
-      </div>
+        <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+          {filtered.length} ใบ · {filtered.reduce((s, r) => s + (r.requisition_items?.length || 0), 0).toLocaleString()} รายการ
+        </p>
 
-      {/* Bulk action toolbar — แสดงเมื่อติ๊กใบใดใบหนึ่งแล้ว ("เลือกทั้งหมด" อยู่ในแถบนี้ ไม่โชว์ค้างบนรายการ — user สั่ง 14/11/2569) */}
-      {visibleSelected.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
-          <>
-              <span className="text-xs text-slate-400 dark:text-slate-500">({visibleSelected.length} รายการ)</span>
-              <button onClick={toggleAll} disabled={bulkLoading}
-                className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-[#1E90FF] hover:text-[#1E90FF] text-slate-700 dark:text-slate-200 text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
-                <CheckSquare size={13}/> {visibleSelected.length === filtered.length ? 'ยกเลิกที่เลือกทั้งหมด' : `เลือกทั้งหมด (${filtered.length})`}
-              </button>
-              {visibleSelected.some(id => { const r = list.find(x => x.id === id); return r?.status === 'pending' && !awaitsSheetEntry(r); }) && (
-                <button onClick={bulkApprove} disabled={bulkLoading}
-                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
-                  <Check size={13}/> อนุมัติที่เลือก
-                </button>
-              )}
-              <button onClick={bulkDelete} disabled={bulkLoading}
-                className="flex items-center gap-1.5 bg-red-500 hover:bg-red-600 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
-                <Trash2 size={13}/> ลบที่เลือก
-              </button>
-          </>
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
+          {wide && (
+            <div className={`${ROW_GRID} pl-4 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-500 dark:text-slate-400`}>
+              <span /><span>หน่วยงาน · ใบเบิก</span><span>ส่งเมื่อ</span><span>รายการ</span><span>ขั้นถัดไป</span><span />
+            </div>
+          )}
+          {loading && (
+            <div className="flex items-center justify-center gap-2 py-14 text-sm text-slate-400"><RefreshCcw size={18} className="animate-spin"/> กำลังโหลด...</div>
+          )}
+          {!loading && filtered.length === 0 && (
+            <div className="py-14 text-center">
+              <CheckCircle size={28} className="mx-auto text-emerald-500 mb-2"/>
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{tab === 'hist' ? 'ไม่พบใบเบิก' : 'ไม่มีใบในขั้นนี้'}</p>
+              <p className="text-xs text-slate-400 mt-0.5">{tab === 'hist' ? 'ลองเปลี่ยนวันที่ หรือกด "ทุกวันที่"' : 'ไม่มีงานค้าง'}</p>
+            </div>
+          )}
+          {!loading && filtered.map(r => {
+            const tone = TONE[nextStep(r).tone];
+            const open = () => onSelect(r);
+            return (
+              <div key={r.id} role="button" tabIndex={0} data-testid="req-row" onClick={open}
+                onKeyDown={e => { if (e.key === 'Enter') open(); }}
+                className={`relative pl-4 pr-3 py-2.5 border-b last:border-b-0 border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer ${wide ? ROW_GRID : 'grid grid-cols-[20px_minmax(0,1fr)_16px] gap-x-2.5 gap-y-2'}`}>
+                <span className={`absolute left-0 inset-y-2 w-1 rounded-r ${tone.bar}`} />
+                {wide ? (
+                  <>
+                    {checkBox(r)}{nameBlock(r)}{sentBlock(r)}{itemsBlock(r)}{nextBlock(r)}
+                    <ChevronRight size={16} className="text-slate-300 dark:text-slate-500 justify-self-end"/>
+                  </>
+                ) : (
+                  <>
+                    {checkBox(r)}
+                    <div className="min-w-0 space-y-2">
+                      {nameBlock(r)}
+                      <div className="grid grid-cols-2 gap-2">{sentBlock(r)}{itemsBlock(r)}</div>
+                      {nextBlock(r)}
+                    </div>
+                    <ChevronRight size={16} className="text-slate-300 dark:text-slate-500 self-center"/>
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
-      )}
-
-      {/* Requisition Cards */}
-      <div className="flex-1 p-3 space-y-3">
-        {loading && (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <RefreshCcw size={24} className="text-slate-300 dark:text-slate-500 animate-spin mb-2"/>
-            <p className="text-sm text-slate-400 dark:text-slate-500">กำลังโหลด...</p>
-          </div>
-        )}
-        {filtered.length === 0 && !loading && (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-950/60 rounded-2xl flex items-center justify-center mb-4">
-              <CheckCircle size={32} className="text-emerald-500"/>
-            </div>
-            <p className="text-base font-semibold text-slate-700 dark:text-slate-200">
-              {filter === 'pending'  ? 'ยอดเยี่ยม!' :
-               filter === 'approved' ? 'ไม่มีรายการรออนุมัติ' :
-               filter === 'picking'  ? 'ไม่มีรายการกำลังจัดยา' : 'ไม่พบรายการ'}
-            </p>
-            <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">
-              {filter === 'pending' ? 'ไม่มีใบเบิกตกค้าง ทำงานได้ดีมาก' : 'ลองปรับตัวกรองหรือเปลี่ยนวันที่'}
-            </p>
-          </div>
-        )}
-        {filtered.map(req => {
-          const cfg = STATUS_CONFIG[req.status] || STATUS_CONFIG.pending;
-          const confirming = deleteId === req.id;
-          const isPending = req.status === 'pending';
-          return (
-            <div key={req.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
-              {/* Card body — clickable to detail (div ไม่ใช่ button — ข้างในมี checkbox, input ใน button = invalid HTML) */}
-              <div role="button" tabIndex={0} onClick={() => onSelect(req)}
-                onKeyDown={e => { if (e.key === 'Enter') onSelect(req); }}
-                className="w-full text-left p-4 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">
-                <div className="flex items-start gap-3">
-                  <div className="pt-1 shrink-0" onClick={e => toggleSelect(e, req.id)}>
-                    <input type="checkbox" readOnly checked={selected.has(req.id)}
-                      className="w-4 h-4 accent-[#1E90FF] cursor-pointer" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="font-bold text-slate-800 dark:text-slate-100 truncate">{req.department}</p>
-                      <p className="text-xs text-slate-400 dark:text-slate-500 shrink-0">{timeAgo(req.created_at)}</p>
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      <p className="text-sm text-slate-500 dark:text-slate-400">ผู้เบิก: <span className="font-medium text-slate-700 dark:text-slate-200">{req.requester_name}</span></p>
-                      <span className="text-slate-300 dark:text-slate-500 text-xs">·</span>
-                      <p className="font-mono text-xs text-slate-400 dark:text-slate-500">{req.req_number}{req.req_type && <span className="font-sans font-semibold text-blue-600 dark:text-blue-300"> · ใบเบิก{reqTypeLabel(req.req_type)}</span>}</p>
-                      {req.receipt_no && <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded px-1.5 py-0.5">ลงชีทแล้ว {req.receipt_no}</span>}
-                      {awaitsSheetEntry(req) && <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded px-1.5 py-0.5">รอลงชีทเบิก</span>}
-                    </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 bg-slate-50 dark:bg-slate-800 rounded-xl px-2.5 py-1 truncate">
-                      {drugPreview(req.requisition_items)}
-                    </p>
-                  </div>
-                  <div className="shrink-0 flex flex-col items-end gap-1.5 pt-0.5">
-                    <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${cfg.badge}`}>{cfg.label}</span>
-                    <ChevronRight size={14} className="text-slate-300 dark:text-slate-500"/>
-                  </div>
-                </div>
-              </div>
-              {/* Card footer — action buttons */}
-              <div className="flex items-center justify-between px-4 py-2 bg-slate-50 dark:bg-slate-800 border-t border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-1">
-                  <button onClick={e => { e.stopPropagation(); setOutReq(req); }}
-                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-[#1E90FF] transition-colors px-2 py-1 rounded-xl hover:bg-white dark:hover:bg-slate-800">
-                    <Printer size={13}/> พิมพ์
-                  </button>
-                  <button onClick={e => { e.stopPropagation(); printLotControl(req, window.open('', '_blank')); }}
-                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-purple-600 transition-colors px-2 py-1 rounded-xl hover:bg-white dark:hover:bg-slate-800">
-                    <Printer size={13}/> ใบ lot คุม
-                  </button>
-                  <button onClick={e => { e.stopPropagation(); printCoverForm(req, window.open('', '_blank')); }}
-                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-indigo-600 transition-colors px-2 py-1 rounded-xl hover:bg-white dark:hover:bg-slate-800">
-                    <FileText size={13}/> ใบปะหน้า
-                  </button>
-                  <button onClick={e => { e.stopPropagation(); exportReqExcel([req], auth); }}
-                    className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-emerald-600 transition-colors px-2 py-1 rounded-xl hover:bg-white dark:hover:bg-slate-800">
-                    <FileDown size={13}/> Excel
-                  </button>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {filter === 'all' && (
-                    <button onClick={e => handleDelete(e, req.id)}
-                      className={`flex items-center gap-1 text-xs px-2 py-1 rounded-xl border transition-colors ${
-                        confirming ? 'bg-red-500 text-white border-red-500' : 'text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700 hover:text-red-500 hover:border-red-200 hover:bg-red-50 dark:hover:bg-red-950/50'
-                      }`}>
-                      <Trash2 size={12}/> {confirming ? 'ยืนยัน?' : 'ลบ'}
-                    </button>
-                  )}
-                  {isPending && !awaitsSheetEntry(req) && (
-                    <button onClick={e => approveOne(req, e)}
-                      className="flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors">
-                      <Check size={12}/> อนุมัติด่วน
-                    </button>
-                  )}
-                  {(req.status === 'approved' || req.status === 'partial') && (
-                    <button onClick={e => { e.stopPropagation(); setPickingModal(req); }}
-                      className="flex items-center gap-1 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors">
-                      <Package size={12}/> เริ่มจัดยา
-                    </button>
-                  )}
-                  {req.status === 'picking' && (
-                    <button onClick={e => { e.stopPropagation(); setVerifyModal(req); }}
-                      className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors">
-                      <CheckCircle size={12}/> ตรวจนับ
-                    </button>
-                  )}
-                  {req.status === 'ready' && (
-                    <button onClick={e => { e.stopPropagation(); setDispatchModal(req); }}
-                      className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-xl transition-colors bg-blue-600 hover:bg-blue-700 text-white">
-                      <Check size={12}/> จ่ายออก
-                    </button>
-                  )}
-                  <button onClick={() => onSelect(req)}
-                    className="flex items-center gap-1 bg-[#1E90FF] hover:bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors">
-                    ดูรายละเอียด <ChevronRight size={12}/>
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-        })}
       </div>
-
-      {pickingModal && (
-        <PickingModal req={pickingModal} auth={auth}
-          onClose={() => setPickingModal(null)}
-          onDone={() => { setPickingModal(null); load(); }} />
-      )}
-      {verifyModal && (
-        <VerifyModal req={verifyModal} auth={auth}
-          onClose={() => setVerifyModal(null)}
-          onDone={() => { setVerifyModal(null); load(); }} />
-      )}
-      {dispatchModal && (
-        <DispatchConfirmModal req={dispatchModal} loading={dispatching}
-          onConfirm={confirmDispatch}
-          onClose={() => setDispatchModal(null)} />
-      )}
-      {outReq && <ReqOutputModal req={outReq} auth={auth} defaultSort={SORT_BY_LOG} onClose={() => setOutReq(null)} />}
     </div>
   );
 }
 
-// ---- Requisition Detail ----
+// ---- แถว lot ที่จะจ่าย/ที่จัดจริง ของรายการหนึ่ง ----
+function LotLines({ v, unit, stage }) {
+  const u = unit && unit !== '-' ? unit : '';
+  if (!v.allocation.length) {
+    if (v.want <= 0) return <span className="text-xs text-slate-400">—</span>;
+    return <p className="text-xs font-semibold text-red-600 dark:text-red-400 flex items-center gap-1"><AlertCircle size={13}/> {stage === 'pending' || stage === 'pick' ? 'ไม่มีของในคลัง' : 'จ่าย 0'}</p>;
+  }
+  const picked = stage !== 'pending' && stage !== 'pick';
+  return (
+    <div>
+      {v.allocation.map((a, ai) => (
+        <div key={ai} className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-2.5 items-baseline py-1 ${ai ? 'border-t border-dashed border-slate-200 dark:border-slate-700' : ''}`}>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
+            <span className="font-mono text-[13px] text-slate-700 dark:text-slate-200">{a.lot || '-'}</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">Exp {fmtExp(a.exp)}</span>
+            {isNearExpiry(a.exp) && <Pill tone="amber"><Clock size={11}/> {expCountdown(a.exp)}</Pill>}
+            {isSupportedLot(a) && <Pill tone="green">สนับสนุน</Pill>}
+            {v.perLotLoc && a.locs.map(x => <span key={x} className="font-mono text-xs text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/60 rounded px-1.5">{x}</span>)}
+          </div>
+          <div className="text-right whitespace-nowrap tabular-nums">
+            {a.packSize > 1 && a.unit && <span className="text-xs text-slate-500 dark:text-slate-400 mr-2">{Number(a.packs).toLocaleString()} × {a.unit}</span>}
+            <span className="font-bold text-emerald-600 dark:text-emerald-400">{Number(a.base).toLocaleString()}</span> <span className="text-xs text-slate-500 dark:text-slate-400">{u}</span>
+          </div>
+        </div>
+      ))}
+      {v.over > 0 && <p className="text-xs font-semibold text-violet-700 dark:text-violet-300 flex items-center gap-1 mt-1"><Package size={12}/> ปัดเต็มกล่อง เกินที่ขอ {v.over.toLocaleString()} {u}</p>}
+      {v.want > 0 && v.short > 0 && <p className="text-xs font-semibold text-red-600 dark:text-red-400 flex items-center gap-1 mt-1"><AlertCircle size={12}/> {picked ? 'จัดไม่ครบ' : 'ของไม่พอ'} ขาด {v.short.toLocaleString()} {u}</p>}
+    </div>
+  );
+}
+
+// ---- ขั้นของใบ (แถบ 5 ขั้นบนหัวใบ) ----
+function SlipSteps({ req, stage }) {
+  const sheet = !!req.sheet_entered_at;
+  const steps = [
+    ['ส่งใบเบิก', fmtDT(req.created_at)],
+    [sheet || awaitsSheetEntry(req) ? 'ลงชีทเบิก' : 'อนุมัติ', sheet ? (req.receipt_no || 'ลงชีทแล้ว') : stage === 'pending' ? (awaitsSheetEntry(req) ? 'รอเลข บย.' : 'รออนุมัติ') : 'อนุมัติแล้ว'],
+    ['จัดเสร็จ', req.picker_name || ''],
+    ['ตรวจแล้ว จ่ายออก', req.verifier_name || ''],
+    ['ผู้เบิกรับของ', req.received_by || ''],
+  ];
+  const now = { pending: 1, pick: 2, check: 3, ready: 3, done: 4, recv: 5 }[stage] ?? 0;
+  return (
+    <ol className="grid grid-flow-col auto-cols-[minmax(96px,1fr)] gap-1.5 overflow-x-auto pb-0.5">
+      {steps.map(([b, s], i) => (
+        <li key={b} className={`pt-2 border-t-4 min-w-0 ${i < now ? 'border-emerald-500 text-slate-700 dark:text-slate-200' : i === now ? 'border-[#1E90FF] text-[#1E90FF] dark:text-blue-300' : 'border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500'}`}>
+          <p className="text-[13px] font-semibold">{b}</p>
+          <p className="text-[11px] truncate tabular-nums">{s}</p>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+// ---- Requisition Detail (หน้าใบเบิก) ----
 function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
+  const wide = useMinWidth(768);
   const [currentReq, setCurrentReq] = useState(req);
   const [outReq, setOutReq] = useState(null); // ReqOutputModal
-  const isPending    = currentReq.status==='pending';
-  const isApproved   = currentReq.status==='approved'||currentReq.status==='partial';
-  const isPicking    = currentReq.status==='picking';
-  const isReady      = currentReq.status==='ready';
-  const isRejected   = currentReq.status==='rejected';
+  const stage = stageOf(currentReq);
+  const isPending = stage === 'pending';
+  const sheetMode = !!currentReq.sheet_entered_at;
   // ใบ pilot ที่รอสคริปต์ลงชีท — อนุมัติตรงไม่ได้ ต้องเลือก "จัดจ่ายเอง (ก่อนลงชีท)" แล้วยืนยัน
-  const awaitsSheet  = awaitsSheetEntry(currentReq);
+  const awaitsSheet = awaitsSheetEntry(currentReq);
   const [selfDispenseOpen, setSelfDispenseOpen] = useState(false);
-
-  // workflow action ในหน้ารายละเอียด (จัดยา/ตรวจนับ/จ่ายออก) — reuse modal เดิม ไม่ทำ logic ซ้ำ
-  const [pickingModal, setPickingModal] = useState(false);
-  const [verifyModal, setVerifyModal]   = useState(false);
-  const [dispatchModal, setDispatchModal] = useState(false); // popup ยืนยันจ่ายออก
-  const [dispatching, setDispatching]   = useState(false);
-
-  const confirmDispatch = async () => {
-    setDispatching(true); setError('');
-    try {
-      await markRequisitionDispensed(currentReq.id, auth);
-      onDone();
-    } catch (e) { setError(e.message); setDispatching(false); setDispatchModal(false); }
-  };
+  const [dispatchModal, setDispatchModal] = useState(false); // ready (flow เดิม) → จ่ายออก
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [dispatching, setDispatching] = useState(false);
+  const [doneMsg, setDoneMsg] = useState('');
 
   const toItemState = (list) => (list||[]).map(item => ({
     ...item,
@@ -3556,65 +3112,102 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
   const requesterNote = req.note || '';
   const [items, setItems]         = useState(() => toItemState(req.requisition_items));
   const [staffNote, setStaffNote] = useState('');
-  const [editingItems, setEditingItems] = useState({}); // item.id → เปิดปรับรายตัว
+  const [editingItems, setEditingItems] = useState({}); // item.id → เปิดปรับรายตัว (ใบรออนุมัติ)
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
-  const [detailSearch, setDetailSearch] = useState('');
-  const [fefoMap, setFefoMap]     = useState({}); // drug_code → fefoLots (เรียง FEFO, base units) — preview allocation ตอนอนุมัติ
+  const [rejecting, setRejecting] = useState(false);
+  const [lots, setLots]           = useState({ ready: false, lotsByCode: {}, rowsByCode: {} });
+  const [iFilter, setIFilter]     = useState('all');
+  const [iq, setIq]               = useState('');
+  const [sort, setSort]           = useState(() => { try { return localStorage.getItem(SORT_PREF_KEY) === 'log' ? 'log' : 'doc'; } catch { return 'doc'; } });
+  const [pickRes, setPickRes]     = useState({});   // item.id → { st:'full'|'part', qty, why } ขั้นรอจัด
+  const [pickNotes, setPickNotes] = useState({});   // item.id → หมายเหตุคลัง (staff_note) ที่แก้ในขั้นรอจัด
+  const [openNote, setOpenNote]   = useState({});
+  const [issues, setIssues]       = useState({});   // item.id → { kind, text } ผู้ตรวจแจ้งแก้ (ไม่บังคับ)
+  const [openIssue, setOpenIssue] = useState({});
+  const [actor, setActor]         = useState(() => defaultActor(auth)); // ชื่อผู้จัด / ผู้ตรวจ
 
-  // โหลด inventory เพื่อ preview ว่าจะจ่ายจาก lot ไหน (FEFO) — แสดงตอนอนุมัติ
-  useEffect(() => {
+  const refresh = useCallback(async () => {
     if (!supabase) return;
-    const codes = [...new Set((req.requisition_items || []).map(i => i.drug_code).filter(Boolean))];
-    if (!codes.length) return;
-    fetchInventoryByCodes(codes).then(data => {
-      const map = {};
-      data.forEach(row => {
-        const code = String(row.code || '').trim();
-        const { packSize } = parseUnit(row.unit);
-        const packs = parseFloat(row.qty) || 0;
-        if (packs <= 0) return;
-        (map[code] = map[code] || []).push({ lot: row.lot, exp: row.exp, unit: row.unit, location: row.location, itemType: row.item_type || '', packSize: packSize || 1, packs, base: packs * (packSize || 1) });
-      });
-      // map นี้ใช้ preview allocation เท่านั้น → บวกรวมแถวซ้ำ + ตัด lot หมดอายุตั้งแต่ต้นทาง · ลำดับจ่าย = ยาสนับสนุนก่อน
-      Object.keys(map).forEach(c => { map[c] = sortLotsForDispense(mergeSameLotEntries(map[c]).filter(lotNotExpired), parseExp); });
-      setFefoMap(map);
-    }).catch(() => {});
+    const { data } = await supabase.from('requisitions').select('*, requisition_items(*)').eq('id', req.id).single();
+    if (data) { setCurrentReq(data); setItems(toItemState(data.requisition_items)); }
   }, [req.id]);
 
-  const filteredItems = useMemo(() => {
-    if (!detailSearch.trim()) return items;
-    const q = detailSearch.toLowerCase();
-    return items.filter(item => item.drug_name?.toLowerCase().includes(q));
-  }, [items, detailSearch]);
+  // lot พร้อมจ่าย (หัก lot ที่ใบอื่นหยิบไปแล้ว) + ที่เก็บ — ประมาณการตอนรออนุมัติ · FEFO ตอนจัดใบที่ยังไม่ลงชีท · ที่เก็บของ lot ทุกขั้น
+  useEffect(() => {
+    const codes = (req.requisition_items || []).map(i => i.drug_code);
+    let alive = true;
+    loadStaffLots(codes, { excludeReqId: req.id })
+      .then(r => { if (alive) setLots({ ready: true, ...r }); })
+      .catch(() => { if (alive) setLots(s => ({ ...s, ready: true })); });
+    return () => { alive = false; };
+  }, [req.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const detailDrugNames = useMemo(() =>
-    items.map(i => ({ name: i.drug_name, type: i.drug_type || '' })),
-    [items]
-  );
-
-  // Realtime: รับการแก้ไขจากหน้าผู้เบิก (แก้จำนวน/ลบรายการ)
+  // Realtime: รับการแก้ไขจากหน้าผู้เบิก (แก้จำนวน/ลบรายการ) + สคริปต์ลงชีท
   useEffect(() => {
     if (!supabase) return;
-    const refresh = async () => {
-      const { data } = await supabase.from('requisitions').select('*, requisition_items(*)')
-        .eq('id', req.id).single();
-      if (data) {
-        setCurrentReq(data);
-        setItems(toItemState(data.requisition_items));
-      }
-    };
     const ch = supabase.channel(`req-detail-${req.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'requisition_items' }, refresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'requisitions' }, refresh)
       .subscribe();
     return () => supabase.removeChannel(ch);
-  }, [req.id]);
+  }, [req.id, refresh]);
+
+  const views = useMemo(() => items.map((it, i) => {
+    const code = String(it.drug_code || '').trim();
+    const fefoLots = lots.lotsByCode[code] || [];
+    const rows = lots.rowsByCode[code] || [];
+    const wantQty = isPending ? (it.decision === 'reject' ? 0 : Number(it.approvedQty) || 0) : undefined;
+    const v = itemAllocation(it, { stage, sheetMode, fefoLots, wantQty, isNear: isNearExpiry });
+    const rowOf = (lot) => rows.find(r => String(r.lot || '').trim() === String(lot || '').trim());
+    const allocation = v.allocation.map(a => {
+      const row = rowOf(a.lot);
+      return { ...a, locs: splitLocs(a.location || row?.location || ''), mainLog: a.mainLog || row?.main_log || '', unit: a.unit || row?.unit || '' };
+    });
+    const locs = [...new Set(allocation.flatMap(a => a.locs))];
+    if (!locs.length && rows.length) splitLocs(rows[0].location).forEach(x => locs.push(x));
+    return {
+      ...v, i, item: it, allocation, locs,
+      perLotLoc: new Set(allocation.map(a => a.locs.join(','))).size > 1,
+      mainLog: allocation[0]?.mainLog || rows[0]?.main_log || '',
+      onhand: fefoLots.reduce((s, l) => s + (l.base || 0), 0),
+    };
+  }), [items, lots, stage, sheetMode, isPending]);
+
+  const resOf = (v) => pickRes[v.item.id] || defaultPickResult(v);
+  const noteOf = (v) => pickNotes[v.item.id] ?? v.item.staff_note ?? '';
+  const isPart = (v) => stage === 'pick' ? v.want > 0 && resOf(v).st === 'part'
+    : (stage === 'check' || stage === 'ready' || stage === 'done' || stage === 'recv') && v.want > 0 && v.short > 0;
+  const hasIssue = (v) => stage === 'check' ? !!issues[v.item.id]?.kind : !!v.item.verify_note;
+  const isBad = (v) => (isPending || stage === 'pick') && v.want > 0 && v.short > 0 && !(stage === 'pick' && resOf(v).st === 'full') || isPart(v) || hasIssue(v);
+
+  const filters = [
+    ['all', 'ทั้งหมด', views.length, ''],
+    ['near', 'ใกล้หมดอายุ', views.filter(v => v.near).length, 'text-amber-600 dark:text-amber-400'],
+    ...(isPending || stage === 'pick' ? [['short', 'ของไม่พอ', views.filter(v => v.want > 0 && v.short > 0).length, 'text-red-600 dark:text-red-400']] : []),
+    ['over', 'จ่ายเกิน (ปัดเต็มกล่อง)', views.filter(v => v.over > 0).length, 'text-violet-600 dark:text-violet-300'],
+    ...(['pick', 'check', 'ready', 'done', 'recv'].includes(stage) ? [['part', 'จัดไม่ครบ/ไม่ตรง', views.filter(isPart).length, 'text-red-600 dark:text-red-400']] : []),
+    ...(['check', 'done', 'recv'].includes(stage) ? [['issue', 'แจ้งแก้', views.filter(hasIssue).length, 'text-amber-600 dark:text-amber-400']] : []),
+  ];
+  const fKey = filters.some(f => f[0] === iFilter) ? iFilter : 'all';
+  const match = (v) => fKey === 'all' ? true : fKey === 'near' ? v.near : fKey === 'short' ? v.want > 0 && v.short > 0
+    : fKey === 'over' ? v.over > 0 : fKey === 'part' ? isPart(v) : hasIssue(v);
+  const iql = iq.trim().toLowerCase();
+  let shown = views.filter(v => match(v) && (!iql || `${v.item.drug_name || ''} ${v.item.drug_code || ''}`.toLowerCase().includes(iql)));
+  if (sort === 'log') shown = sortByLog(shown);
+  const groups = [];
+  shown.forEach(v => {
+    const z = sort === 'log' ? (v.allocation.length || v.locs.length ? (v.mainLog || 'ไม่ระบุ Log') : 'ไม่มีของในคลัง') : null;
+    if (!groups.length || groups[groups.length - 1].z !== z) groups.push({ z, rows: [] });
+    groups[groups.length - 1].rows.push(v);
+  });
+  const setSortPref = (s) => { setSort(s); try { localStorage.setItem(SORT_PREF_KEY, s); } catch { /* ignore */ } };
 
   const updateItem = (i,field,val) => setItems(p => { const u=[...p]; u[i]={...u[i],[field]:val}; return u; });
+  const setRes = (v, patch) => setPickRes(p => ({ ...p, [v.item.id]: { ...resOf(v), ...patch } }));
+  const setIssue = (v, patch) => setIssues(p => ({ ...p, [v.item.id]: { kind: '', text: '', ...p[v.item.id], ...patch } }));
 
   const [deleteConfirm, setDeleteConfirm] = useState(false);
-
   const handleDelete = async () => {
     setLoading(true); setError('');
     try {
@@ -3642,327 +3235,484 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
           status = allReject?'rejected':allApprove?'approved':'partial';
         }
         // เติมหมายเหตุอัตโนมัติเมื่อจ่ายเกินที่ขอ (จ่ายเต็มกล่อง ไม่แกะกล่อง) — 1 บรรทัดต่อรายการที่เกิน
-        const overLines = items.map(item => {
-          if (item.decision === 'reject') return null;
-          const wantQty = Number(item.approvedQty) || 0;
-          const lots = fefoMap[String(item.drug_code || '').trim()];
-          if (wantQty <= 0 || !lots) return null;
-          const a = allocateFefo(wantQty, lots);
-          if (a.overBase <= 0) return null;
-          const u = item.drug_unit && item.drug_unit !== '-' ? item.drug_unit : '';
-          return `${MARK_OVER} ${item.drug_name}: ขอ ${wantQty.toLocaleString()} จ่าย ${a.allocatedBase.toLocaleString()} ${u} เนื่องจากจ่ายเต็มกล่อง (ไม่แกะกล่อง เกิน ${a.overBase.toLocaleString()})`.trim();
+        const overLines = views.map(v => {
+          if (v.want <= 0 || v.over <= 0) return null;
+          const u = v.item.drug_unit && v.item.drug_unit !== '-' ? v.item.drug_unit : '';
+          return `${MARK_OVER} ${v.item.drug_name}: ขอ ${v.want.toLocaleString()} จ่าย ${v.got.toLocaleString()} ${u} เนื่องจากจ่ายเต็มกล่อง (ไม่แกะกล่อง เกิน ${v.over.toLocaleString()})`.trim();
         }).filter(Boolean);
         // ตัดบรรทัด auto เดิมออกก่อน กัน duplicate เมื่อ save ซ้ำ แล้วต่อบรรทัดใหม่
         const baseNote = (staffNote || requesterNote || '').split('\n').filter(l => !l.startsWith(MARK_OVER)).join('\n').trim();
-        const finalNote = [baseNote, ...overLines].filter(Boolean).join('\n') || null;
+        const finalNote = [baseNote, ...(status === 'rejected' ? [] : overLines)].filter(Boolean).join('\n') || null;
         await supabase.from('requisitions').update({ status, note:finalNote, updated_at:new Date().toISOString() }).eq('id',req.id);
         insertAuditLog({ action: 'update_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { req_number: req.req_number, requisition_id: req.id, status, ...(beforeSheet ? { action_detail: 'approve_before_sheet' } : {}) } });
       }
+      // จัดจ่ายเองก่อนลงชีท = จัดต่อในหน้านี้เลย (ขั้นรอจัด) · อนุมัติ/ไม่อนุมัติ = กลับคิว
+      if (beforeSheet) { await refresh(); setLoading(false); window.scrollTo({ top: 0 }); return; }
       onDone();
-    } catch(e) { setError(e.message); } finally { setLoading(false); }
+    } catch(e) { setError(e.message); setLoading(false); }
   };
 
+  const finishPick = async () => {
+    if (!actor.trim()) { setError('กรอกชื่อผู้จัดยา'); return; }
+    setLoading(true); setError('');
+    try {
+      const payload = views.filter(v => v.want > 0).map(v => {
+        const oh = {};
+        (lots.lotsByCode[String(v.item.drug_code || '').trim()] || []).forEach(l => { const k = String(l.lot || '').trim(); oh[k] = (oh[k] || 0) + (l.base || 0); });
+        return pickPayload(v.item, v, resOf(v), noteOf(v), oh);
+      });
+      await startPickingRequisition(currentReq.id, { pickerName: actor.trim(), items: payload }, auth);
+      await refresh();
+      setPickRes({}); setPickNotes({}); setOpenNote({}); setIFilter('all');
+      window.scrollTo({ top: 0 });
+    } catch (e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  const issueNotes = views.map(v => ({ v, t: verifyNoteText(issues[v.item.id]) })).filter(x => x.t);
+  const finishVerify = async () => {
+    setDispatching(true); setError('');
+    try {
+      const notes = issueNotes.map(({ v, t }) => ({ id: v.item.id, verify_note: t, drug_code: v.item.drug_code, drug_name: v.item.drug_name }));
+      const r = await verifyAndDispenseRequisition(currentReq.id, { verifierName: actor.trim(), notes }, auth);
+      setVerifyOpen(false);
+      await refresh();
+      setIssues({}); setOpenIssue({}); setIFilter('all');
+      setDoneMsg(notes.length && !r.notesSaved
+        ? 'จ่ายออกแล้ว แต่บันทึกหมายเหตุแจ้งแก้ลงรายการไม่สำเร็จ (ยังไม่ได้รัน verify_note_migration.sql) — หมายเหตุอยู่ในประวัติการใช้งาน (audit log)'
+        : 'จ่ายออกแล้ว — รอผู้เบิกกดรับของ');
+      window.scrollTo({ top: 0 });
+    } catch (e) { setError(e.message); setVerifyOpen(false); }
+    setDispatching(false);
+  };
+
+  const confirmDispatch = async () => {
+    setDispatching(true); setError('');
+    try {
+      await markRequisitionDispensed(currentReq.id, auth);
+      onDone();
+    } catch (e) { setError(e.message); setDispatching(false); setDispatchModal(false); }
+  };
+
+  const ns = nextStep(currentReq);
+  const unitOf = (it) => (it.drug_unit && it.drug_unit !== '-' ? it.drug_unit : '');
+  const callout = isPending
+    ? (awaitsSheet
+      ? ['amber', 'ยังไม่ลงชีทเบิก — lot ในตารางเป็นประมาณการตาม FEFO (ใกล้หมดอายุภายใน 6 เดือนก่อน → ยาสนับสนุน → exp ใกล้สุด) · lot จริงตามที่ลงชีท · ลงชีทแล้วใบย้ายไป "รอจัด" เอง ไม่ต้องกดอนุมัติในแอป']
+      : ['amber', 'รออนุมัติ — lot ในตารางเป็นประมาณการตาม FEFO · ปรับจำนวน/ไม่อนุมัติรายตัวได้ที่ "ปรับ" แล้วกดยืนยันอนุมัติ'])
+    : stage === 'pick'
+      ? ['blue', sheetMode
+        ? `ลงชีทแล้ว ${currentReq.receipt_no || ''} — จัดตาม lot ในชีท · ครบทุกรายการกด "จัดเสร็จ" ได้เลย · บันทึกเฉพาะรายการที่จัดไม่ครบหรือ lot ไม่ตรง`
+        : 'ยังไม่มี lot จากชีท ระบบเสนอ lot ตาม FEFO (หักของที่ใบอื่นหยิบไปแล้ว) · หยิบ lot อื่นหรือได้ไม่ครบ กด "ไม่ครบ/ไม่ตรง" แล้วระบุ · คลังลงชีทตามที่จ่ายจริงภายหลัง']
+      : stage === 'check'
+        ? ['violet', `จัดเสร็จแล้ว${currentReq.picker_name ? ` โดย ${currentReq.picker_name}` : ''} — ตรวจของกับตาราง ดูแถวที่ไฮไลต์ก่อน · เจอของผิดกด "แจ้งแก้" ที่แถวนั้น (ไม่บังคับ) แก้ของให้ถูกแล้วกด "ตรวจแล้ว จ่ายออก" · ไม่มีคนจัดยา คนจัดตรวจเองได้`]
+        : stage === 'ready' ? ['violet', `ตรวจแล้ว${currentReq.verifier_name ? ` โดย ${currentReq.verifier_name}` : ''} — กดจ่ายออก`]
+          : stage === 'done' ? ['teal', doneMsg || 'จ่ายออกแล้ว — รอผู้เบิกกดรับของ']
+            : stage === 'recv' ? ['green', `ผู้เบิกรับของแล้ว${currentReq.received_by ? ` (${currentReq.received_by}${currentReq.received_at ? ` · ${fmtDT(currentReq.received_at)}` : ''})` : ''}`]
+              : ['red', `ไม่อนุมัติทั้งใบ${currentReq.note ? ` — ${currentReq.note}` : ''}`];
+  const calloutCls = {
+    amber: 'text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/60',
+    blue: 'text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900/60',
+    violet: 'text-violet-800 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/40 border-violet-200 dark:border-violet-900/60',
+    teal: 'text-teal-800 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/40 border-teal-200 dark:border-teal-900/60',
+    green: 'text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/60',
+    red: 'text-red-800 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900/60',
+  }[callout[0]];
+
+  const inputCls = 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]';
+  const segBtn = (on, onCls) => `inline-flex items-center gap-1 px-2.5 py-1 text-[13px] font-medium whitespace-nowrap transition-colors ${on ? onCls : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`;
+
+  // คอลัมน์ "ประเมิน / ผลการจัด" ตามขั้นของใบ
+  const resultCell = (v) => {
+    const it = v.item, u = unitOf(it);
+    if (stage === 'rej') return <span className="text-sm font-semibold text-red-600 dark:text-red-400">ไม่อนุมัติ</span>;
+    if (isPending && !awaitsSheet) {
+      const realIdx = v.i;
+      if (!editingItems[it.id]) return (
+        <div className="flex flex-wrap items-center gap-2">
+          {it.decision === 'reject' ? <span className="inline-flex items-center gap-1 text-sm font-semibold text-red-500"><X size={14}/> ไม่อนุมัติ</span>
+            : Number(it.approvedQty) !== Number(it.requested_qty) ? <span className="inline-flex items-center gap-1 text-sm font-semibold text-amber-600"><Check size={14}/> อนุมัติ {Number(it.approvedQty).toLocaleString()} {u}</span>
+              : <span className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-600"><Check size={14}/> อนุมัติเต็มจำนวน</span>}
+          {v.want > 0 && v.short > 0 && <span className="text-xs text-red-600 dark:text-red-400 tabular-nums">ได้ {v.got.toLocaleString()} จาก {v.want.toLocaleString()}</span>}
+          <button onClick={() => setEditingItems(p => ({ ...p, [it.id]: true }))} className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-[#1E90FF]"><Pencil size={12}/> ปรับ</button>
+        </div>
+      );
+      return (
+        <div className="space-y-2">
+          <div className="inline-flex border border-slate-300 dark:border-slate-600 rounded-lg overflow-hidden divide-x divide-slate-300 dark:divide-slate-600">
+            <button onClick={() => updateItem(realIdx, 'decision', 'approve')} className={segBtn(it.decision === 'approve', 'bg-emerald-600 text-white')}><Check size={13}/> อนุมัติ</button>
+            <button onClick={() => updateItem(realIdx, 'decision', 'reject')} className={segBtn(it.decision === 'reject', 'bg-red-500 text-white')}><X size={13}/> ไม่อนุมัติ</button>
+          </div>
+          {it.decision === 'approve' && (
+            <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">อนุมัติ
+              <input type="number" min="0" inputMode="numeric" value={it.approvedQty} onChange={e => updateItem(realIdx, 'approvedQty', e.target.value)} className={`${inputCls} w-24 text-right tabular-nums`} /> {u}
+            </label>
+          )}
+          <input type="text" value={it.itemNote} onChange={e => updateItem(realIdx, 'itemNote', e.target.value)} placeholder="หมายเหตุรายการนี้..." aria-label={`หมายเหตุ ${it.drug_name}`} className={`${inputCls} w-full`} />
+          <button onClick={() => setEditingItems(p => { const n = { ...p }; delete n[it.id]; return n; })} className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-200">เสร็จ</button>
+        </div>
+      );
+    }
+    if (isPending) {
+      if (!v.allocation.length) return <Pill tone="red">ไม่มีของ</Pill>;
+      if (v.short > 0) return <div><Pill tone="red">จ่ายได้ไม่ครบ</Pill><p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">ได้ {v.got.toLocaleString()} จาก {v.want.toLocaleString()} {u}</p></div>;
+      return <div><span className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-600 dark:text-emerald-400"><Check size={14}/> พอจ่าย</span><p className="text-xs text-slate-500 dark:text-slate-400">ประมาณการ</p></div>;
+    }
+    if (stage === 'pick') {
+      if (v.want <= 0) return <span className="text-sm font-semibold text-red-600 dark:text-red-400">ไม่อนุมัติรายการนี้</span>;
+      const r = resOf(v), note = noteOf(v);
+      return (
+        <div className="space-y-2">
+          <div role="group" aria-label={`ผลการจัด ${it.drug_name}`} className="inline-flex border border-slate-300 dark:border-slate-600 rounded-lg overflow-hidden divide-x divide-slate-300 dark:divide-slate-600">
+            <button type="button" aria-pressed={r.st === 'full'} onClick={() => setRes(v, { st: 'full' })} className={segBtn(r.st === 'full', 'bg-emerald-600 text-white')}><Check size={13}/> ครบ</button>
+            <button type="button" aria-pressed={r.st === 'part'} onClick={() => setRes(v, { st: 'part', qty: r.qty === '' ? v.got : r.qty })} className={segBtn(r.st === 'part', 'bg-red-600 text-white')}>ไม่ครบ/ไม่ตรง</button>
+          </div>
+          {r.st === 'part' && (
+            <div className="grid gap-1.5">
+              <label className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">จัดได้
+                <input type="number" min="0" max={v.got} inputMode="numeric" value={r.qty} onChange={e => setRes(v, { qty: e.target.value })} className={`${inputCls} w-24 text-right tabular-nums`} /> {u}
+              </label>
+              <label className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">เหตุ
+                <select value={r.why} onChange={e => setRes(v, { why: e.target.value })} className={inputCls}>
+                  {PICK_REASONS.map(o => <option key={o}>{o}</option>)}
+                </select>
+              </label>
+            </div>
+          )}
+          {openNote[it.id] ? (
+            <div className="space-y-1">
+              <div className="flex flex-wrap gap-1">
+                {STAFF_NOTE_PRESETS.map(p => (
+                  <button key={p} type="button" onClick={() => setPickNotes(s => ({ ...s, [it.id]: note ? `${note} ${p}` : p }))}
+                    className="text-xs px-2 py-0.5 rounded-full border border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:border-[#1E90FF] hover:text-[#1E90FF]">{p}</button>
+                ))}
+              </div>
+              <input type="text" value={note} onChange={e => setPickNotes(s => ({ ...s, [it.id]: e.target.value }))} placeholder="หมายเหตุคลัง (ขึ้นใบ lot คุม)" aria-label={`หมายเหตุคลัง ${it.drug_name}`} className={`${inputCls} w-full`} />
+            </div>
+          ) : (
+            <button type="button" onClick={() => setOpenNote(s => ({ ...s, [it.id]: true }))} className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-[#1E90FF]">
+              <StickyNote size={12}/> {note ? `หมายเหตุคลัง: ${note}` : 'หมายเหตุคลัง'}
+            </button>
+          )}
+        </div>
+      );
+    }
+    const pickLine = v.want <= 0 ? <span className="text-sm font-semibold text-red-600 dark:text-red-400">ไม่อนุมัติรายการนี้</span>
+      : v.short > 0 ? <div><Pill tone="red">จัดไม่ครบ/ไม่ตรง</Pill><p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">ได้ {v.got.toLocaleString()} จาก {v.want.toLocaleString()} {u}</p></div>
+        : stage === 'check' ? <span className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-600 dark:text-emerald-400"><Check size={14}/> จัดครบ</span>
+          : <span className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums"><Check size={14}/> จ่าย {v.got.toLocaleString()} {u}</span>;
+    const staffLine = it.staff_note ? <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">หมายเหตุคลัง: {it.staff_note}</p> : null;
+    if (stage !== 'check') return (
+      <div>{pickLine}{staffLine}
+        {it.verify_note && <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mt-1 flex items-start gap-1"><AlertTriangle size={12} className="mt-0.5 shrink-0"/> แจ้งแก้: {it.verify_note}</p>}
+      </div>
+    );
+    const iss = issues[it.id] || { kind: '', text: '' };
+    return (
+      <div className="space-y-1.5">
+        {pickLine}{staffLine}
+        {openIssue[it.id] || iss.kind ? (
+          <div className="rounded-lg border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/30 p-2 space-y-1.5">
+            <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">แจ้งแก้ (ไม่บังคับ)</p>
+            <div className="flex flex-wrap gap-1">
+              {VERIFY_ISSUES.map(k => (
+                <button key={k} type="button" aria-pressed={iss.kind === k} onClick={() => setIssue(v, { kind: iss.kind === k ? '' : k })}
+                  className={`text-xs px-2 py-0.5 rounded-full border ${iss.kind === k ? 'bg-amber-500 border-amber-500 text-white' : 'border-amber-300 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/60'}`}>{k}</button>
+              ))}
+            </div>
+            <input type="text" value={iss.text} onChange={e => setIssue(v, { text: e.target.value })} placeholder="รายละเอียด เช่น หยิบ lot 25A01 แทน 24K03 แก้แล้ว" aria-label={`รายละเอียดแจ้งแก้ ${it.drug_name}`} className={`${inputCls} w-full`} />
+            <button type="button" onClick={() => { setIssues(p => { const n = { ...p }; delete n[it.id]; return n; }); setOpenIssue(p => ({ ...p, [it.id]: false })); }}
+              className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-200">ยกเลิกแจ้งแก้</button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => setOpenIssue(p => ({ ...p, [it.id]: true }))} className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-amber-600">
+            <AlertTriangle size={12}/> แจ้งแก้
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const lotHead = isPending ? 'จ่ายจาก lot (ประมาณการ FEFO)' : stage === 'pick' ? (sheetMode ? 'จ่ายจาก lot (ตามชีท)' : 'จ่ายจาก lot (ระบบเสนอ FEFO)') : 'จ่ายจาก lot (ที่จัดจริง)';
+  const nameCell = (v) => (
+    <>
+      <p className="font-semibold text-slate-800 dark:text-slate-100 break-words">{v.item.drug_name}</p>
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+        <span className="font-mono">{v.item.drug_code}</span>
+        <DrugTypeBadge type={v.item.drug_type} />
+      </div>
+      {v.item.item_note && <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">ผู้เบิก: {v.item.item_note}</p>}
+    </>
+  );
+  const locPills = (v) => v.locs.length
+    ? v.locs.map(x => <span key={x} className="inline-block font-mono text-xs text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/60 rounded px-1.5">{x}</span>)
+    : <span className="text-xs text-slate-400">-</span>;
+  const showOnhand = isPending || stage === 'pick';
+  const badRow = 'bg-red-50/70 dark:bg-red-950/20';
+
+  const partCount = views.filter(isPart).length;
+  const wantCount = views.filter(v => v.want > 0).length;
+  const sameAsPicker = stage === 'check' && actor.trim() && actor.trim() === (currentReq.picker_name || '').trim();
+  const barCls = 'no-print sticky bottom-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 px-4 py-3';
+  const actorInput = (label) => (
+    <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">{label}
+      <input type="text" value={actor} onChange={e => setActor(e.target.value)} className={`${inputCls} w-36`} aria-label={`ชื่อ${label}`} />
+    </label>
+  );
 
   return (
     <>
-      <style>{`@media print { .no-print{display:none!important} body{background:white;color:black;font-family:sans-serif} .print-card{background:white!important;border:1px solid #ccc!important;border-radius:8px;padding:12px;margin-bottom:8px} }`}</style>
       <div className="min-h-screen flex flex-col">
         <div className="no-print">
-          <PageHeader onBack={onBack} title={currentReq.req_number} subtitle={`${currentReq.department} · ${currentReq.requester_name}`}>
-            <button onClick={() => exportReqExcel([currentReq], auth)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-semibold transition-colors shadow-sm no-print">
-              <FileDown size={16}/> Excel
-            </button>
-            <button onClick={() => setOutReq(currentReq)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-[#1E90FF] text-sm font-semibold transition-colors shadow-sm no-print">
-              <Printer size={16}/> พิมพ์
-            </button>
-            <button onClick={() => printLotControl(currentReq, window.open('', '_blank'))}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-purple-600 text-sm font-semibold transition-colors shadow-sm no-print">
-              <Printer size={16}/> ใบ lot คุม
-            </button>
-            <button onClick={() => printCoverForm(currentReq, window.open('', '_blank'))}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-indigo-600 text-sm font-semibold transition-colors shadow-sm no-print">
-              <FileText size={16}/> ใบปะหน้า
-            </button>
-          </PageHeader>
+          <PageHeader onBack={onBack} title={currentReq.department} subtitle={currentReq.requester_name ? `ผู้เบิก ${currentReq.requester_name}` : ''} />
         </div>
 
-        {/* Print header */}
-        <div className="hidden print:block p-6 pb-2 text-black">
-          <h2 className="text-xl font-bold">ใบเบิกยา</h2>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-1 mt-3 text-sm">
-            <div>เลขที่: <strong>{currentReq.req_number}</strong></div>
-            <div>วันที่: <strong>{new Date(currentReq.created_at).toLocaleDateString('th-TH',{dateStyle:'long'})}</strong></div>
-            <div>หน่วยงาน: <strong>{currentReq.department}</strong></div>
-            <div>ผู้เบิก: <strong>{currentReq.requester_name}</strong></div>
-          </div>
-          <hr className="mt-4 border-slate-300 dark:border-slate-600"/>
-        </div>
+        <div className="flex-1 w-full max-w-7xl mx-auto px-3 sm:px-4 py-3 space-y-3">
+          {/* หัวใบ */}
+          <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-3.5 space-y-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-sm text-slate-500 dark:text-slate-400 tabular-nums">
+                <span className="font-mono text-slate-700 dark:text-slate-200">{currentReq.req_number}</span>
+                {currentReq.req_type && <span>ใบเบิก{reqTypeLabel(currentReq.req_type)}</span>}
+                <span>ส่ง {fmtDT(currentReq.created_at)}</span>
+                <span>{items.length} รายการ</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {currentReq.receipt_no && <Pill tone="green">ลงชีทแล้ว {currentReq.receipt_no}</Pill>}
+                {awaitsSheet && <Pill tone="amber">รอลงชีทเบิก</Pill>}
+                {!awaitsSheet && <Pill tone={ns.tone}>{ns.label}</Pill>}
+              </div>
+            </div>
+            {stage !== 'rej' && <SlipSteps req={currentReq} stage={stage} />}
+            <div className="flex flex-wrap gap-1 border-t border-slate-100 dark:border-slate-800 pt-2">
+              {[
+                [<Printer key="i" size={14}/>, 'พิมพ์ใบเบิก', () => setOutReq(currentReq)],
+                [<Printer key="i" size={14}/>, 'ใบ lot คุม', () => printLotControl(currentReq, window.open('', '_blank'))],
+                [<FileText key="i" size={14}/>, 'ใบปะหน้า', () => printCoverForm(currentReq, window.open('', '_blank'))],
+                [<FileDown key="i" size={14}/>, 'Excel', () => exportReqExcel([currentReq], auth)],
+              ].map(([icon, label, fn]) => (
+                <button key={label} type="button" onClick={fn}
+                  className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-600 dark:text-slate-300 hover:text-[#1E90FF] hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg px-2.5 py-1.5">
+                  {icon} {label}
+                </button>
+              ))}
+            </div>
+          </section>
 
-        <div className="flex-1 p-4 space-y-3 pb-40">
-          {/* อยู่ในเนื้อหา ไม่ใช่แถบล่าง — แถบล่าง fixed left-0 ถูก sidebar (lg:pl-60) บังต้นข้อความ */}
-          {isPending && awaitsSheet && (
-            <p className="no-print flex items-start gap-2 text-sm text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-3 py-2">
-              <AlertCircle size={16} className="shrink-0 mt-0.5"/>
-              <span>รอคลังลงชีทเบิก — เมื่อลงแล้วใบจะขึ้น "ลงชีทแล้ว บย." และพร้อมจัดยาตาม lot ในชีท</span>
+          <p className={`flex items-start gap-2 text-sm border rounded-xl px-3 py-2 ${calloutCls}`}>
+            <AlertCircle size={16} className="shrink-0 mt-0.5"/><span>{callout[1]}</span>
+          </p>
+          {isPending && requesterNote && (
+            <p className="text-sm text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-3 py-2">
+              <span className="font-semibold">หมายเหตุจากผู้เบิก:</span> {requesterNote}
             </p>
           )}
-          {/* Search bar — แสดงเมื่อมีรายการ > 3 */}
-          {items.length > 3 && (
-            <div className="no-print">
-              <DrugSearchBar
-                value={detailSearch}
-                onChange={setDetailSearch}
-                options={detailDrugNames}
-                placeholder="ค้นหารายการยาในใบเบิก..."
-                ringClass="focus:ring-[#1E90FF]"
-                hoverClass="hover:bg-blue-50 dark:hover:bg-blue-950/50"
-                maxResults={15}
-              />
-              {detailSearch && (
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                  พบ {filteredItems.length} / {items.length} รายการ
-                  {filteredItems.length === 0 && <span className="text-red-500"> — ไม่พบรายการที่ค้นหา</span>}
-                </p>
-              )}
+
+          {/* ตัวกรองในใบ */}
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="กรองรายการในใบ">
+            {filters.map(([k, label, c, cls]) => (
+              <button key={k} type="button" aria-pressed={fKey === k} onClick={() => setIFilter(k)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] ${fKey === k ? 'border-[#1E90FF] bg-blue-50 dark:bg-blue-950/40 text-[#1E90FF] dark:text-blue-300' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                {label} <b className={`tabular-nums ${fKey === k ? '' : cls || 'text-slate-700 dark:text-slate-200'}`}>{c}</b>
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-48">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input type="search" value={iq} onChange={e => setIq(e.target.value)} placeholder="ค้นชื่อยาหรือรหัสในใบนี้" aria-label="ค้นรายการในใบ"
+                className="w-full pl-8 pr-3 py-1.5 border border-slate-300 dark:border-slate-600 rounded-xl text-sm text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
             </div>
-          )}
-
-          {filteredItems.map((item) => {
-            const realIdx = items.findIndex(it => it.id === item.id);
-            return (
-            <div key={item.id} className="print-card bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-4 shadow-sm">
-              <div className="flex items-start gap-3">
-                <span className="shrink-0 w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-sm flex items-center justify-center mt-0.5">{realIdx+1}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start gap-2 flex-wrap">
-                    <p className="font-semibold text-slate-800 dark:text-slate-100 flex-1">{item.drug_name}</p>
-                    {item.drug_type && item.drug_type !== '-' && <DrugTypeBadge type={item.drug_type} />}
-                  </div>
-                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">รหัส: {item.drug_code}</p>
-                  <p className="text-sm mt-1 text-slate-600 dark:text-slate-300">ขอเบิก <span className="font-bold text-slate-800 dark:text-slate-100">{Number(item.requested_qty).toLocaleString()}</span> {item.drug_unit && item.drug_unit !== '-' ? item.drug_unit : ''}</p>
-                  {item.item_note && <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-md px-2 py-1 mt-1.5">หมายเหตุจากผู้เบิก: {item.item_note}</p>}
-
-                  {/* Preview: จะจ่ายจาก lot ไหน (FEFO) — คำนวณจากจำนวนที่จะอนุมัติ */}
-                  {(() => {
-                    const wantQty = item.decision === 'reject' ? 0 : Number(item.approvedQty) || 0;
-                    if (wantQty <= 0) return null;
-                    const lots = fefoMap[String(item.drug_code || '').trim()];
-                    if (!lots) return null;
-                    const a = allocateFefo(wantQty, lots);
-                    if (!a.allocation.length) return (
-                      <p className="no-print text-xs text-red-600 font-semibold mt-1.5 flex items-center gap-1"><AlertCircle size={12}/> ไม่มีของในคลัง</p>
-                    );
-                    return (
-                      <div className="no-print mt-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5">
-                        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1"><Package size={12}/> จะจ่ายจาก Lot (ใกล้หมดอายุก่อน)</p>
-                        <div className="space-y-1">
-                          {a.allocation.map((al, ai) => (
-                            <div key={ai} className="text-xs">
-                              <div className="grid grid-cols-[1fr_auto] gap-x-2 gap-y-1 items-start">
-                                <div className="flex items-center gap-x-2 gap-y-1 flex-wrap min-w-0">
-                                  <span className="font-mono font-semibold text-slate-700 dark:text-slate-200">{al.lot || '-'}</span>
-                                  <span className="text-slate-400 dark:text-slate-500">Exp {fmtExp(al.exp)}</span>
-                                  {isNearExpiry(al.exp) && (
-                                    <span className="inline-flex items-center gap-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 rounded px-1.5 py-0.5 font-semibold">
-                                      <Clock size={10}/> ใกล้หมดอายุ · {expCountdown(al.exp)}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="text-right whitespace-nowrap">
-                                  <span className="font-bold text-emerald-600">{al.base.toLocaleString()} {item.drug_unit||''}</span>
-                                  <span className="text-slate-400 dark:text-slate-500"> ({al.packs.toLocaleString()} × {al.unit})</span>
-                                </div>
-                              </div>
-                              {al.location && al.location !== '-' && (
-                                <p className="flex items-center gap-1 text-indigo-700 dark:text-indigo-300 font-semibold mt-0.5">
-                                  <MapPin size={11}/> ที่เก็บ: {al.location}
-                                </p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                        {a.overBase > 0 && (
-                          <p className="text-xs text-amber-600 font-semibold mt-1.5 pt-1.5 border-t border-amber-100 dark:border-amber-900/50 flex items-center gap-1">
-                            <AlertCircle size={12}/> จ่ายเต็มกล่อง — ได้ {a.allocatedBase.toLocaleString()} {item.drug_unit||''} (เกินที่ขอ {a.overBase.toLocaleString()})
-                          </p>
-                        )}
-                        {!a.fulfilled && (
-                          <p className="text-xs text-red-600 font-semibold mt-1.5 pt-1.5 border-t border-red-100 dark:border-red-900/50 flex items-center gap-1">
-                            <AlertCircle size={12}/> ของไม่พอเบิก — ขาดอีก {a.shortfallBase.toLocaleString()} {item.drug_unit||''} (จัดได้ {a.allocatedBase.toLocaleString()})
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })()}
-
-                  {/* สถานะการอนุมัติ (collapsed default = อนุมัติเต็ม) */}
-                  {isPending && !editingItems[item.id] && (
-                    <div className="no-print flex items-center gap-2 mt-2 flex-wrap">
-                      {item.decision === 'reject' ? (
-                        <span className="inline-flex items-center gap-1 text-sm font-semibold text-red-500"><X size={14}/> ไม่อนุมัติ</span>
-                      ) : Number(item.approvedQty) !== Number(item.requested_qty) ? (
-                        <span className="inline-flex items-center gap-1 text-sm font-semibold text-amber-600"><Check size={14}/> อนุมัติ {Number(item.approvedQty).toLocaleString()} {item.drug_unit||''}</span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-600"><Check size={14}/> อนุมัติเต็มจำนวน</span>
-                      )}
-                      <button onClick={() => setEditingItems(p => ({ ...p, [item.id]: true }))}
-                        className="inline-flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 hover:text-[#1E90FF] transition-colors ml-auto">
-                        <Pencil size={12}/> ปรับรายการนี้
-                      </button>
-                    </div>
-                  )}
-
-                  {/* ปรับรายตัว (เปิดเมื่อกด) */}
-                  {isPending && editingItems[item.id] && (
-                    <div className="no-print mt-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 space-y-2.5">
-                      <div className="flex gap-1.5">
-                        <button onClick={() => updateItem(realIdx,'decision','approve')}
-                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-sm font-medium transition border ${item.decision==='approve'?'bg-emerald-600 text-white border-emerald-600':'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-                          <Check size={14}/> อนุมัติ
-                        </button>
-                        <button onClick={() => updateItem(realIdx,'decision','reject')}
-                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-sm font-medium transition border ${item.decision==='reject'?'bg-red-500 text-white border-red-500':'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-                          <X size={14}/> ไม่อนุมัติ
-                        </button>
-                      </div>
-                      {item.decision==='approve' && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-slate-500 dark:text-slate-400">อนุมัติจำนวน</span>
-                          <input type="number" min="0" max={item.requested_qty} value={item.approvedQty} onChange={e => updateItem(realIdx,'approvedQty',e.target.value)}
-                            className="w-24 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-slate-800 dark:text-slate-100 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
-                          <span className="text-sm text-slate-500 dark:text-slate-400">{item.drug_unit||''}</span>
-                        </div>
-                      )}
-                      <input type="text" value={item.itemNote} onChange={e => updateItem(realIdx,'itemNote',e.target.value)} placeholder="หมายเหตุรายการนี้..."
-                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2.5 py-1.5 text-slate-800 dark:text-slate-100 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1E90FF]" />
-                      <button onClick={() => setEditingItems(p => { const n={...p}; delete n[item.id]; return n; })}
-                        className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">เสร็จ</button>
-                    </div>
-                  )}
-                </div>
-
-                {/* สรุปผลเมื่ออนุมัติแล้ว (read-only) */}
-                {!isPending && item.approved_qty!=null && (
-                  <div className="text-right shrink-0">
-                    <p className={`inline-flex items-center gap-1 text-sm font-bold ${item.approved_qty>0?'text-emerald-600':'text-red-500'}`}>
-                      {item.approved_qty>0 ? <><Check size={14}/> อนุมัติ {Number(item.approved_qty).toLocaleString()}</> : <><X size={14}/> ไม่อนุมัติ</>}
-                    </p>
-                    {item.note && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{item.note}</p>}
-                  </div>
-                )}
-              </div>
-            </div>
-            );
-          })}
-
-          {isPending && requesterNote && (
-            <div className="no-print bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
-              <span className="font-semibold">หมายเหตุจากผู้เบิก:</span> {requesterNote}
-            </div>
-          )}
-          {isPending && (
-            <textarea value={staffNote} onChange={e => setStaffNote(e.target.value)} placeholder="หมายเหตุโดยรวมจากเจ้าหน้าที่..." rows={2}
-              className="no-print w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-3 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF] resize-none shadow-sm" />
-          )}
-          {error && <p className="no-print text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2 flex items-center gap-2"><AlertCircle size={14}/>{error}</p>}
-
-          <div className="hidden print:block mt-12 text-sm text-black px-2">
-            <div className="grid grid-cols-2 gap-16">
-              <div className="text-center"><div className="border-t border-slate-400 pt-2 mt-16">ผู้เบิก<br/>({currentReq.requester_name})</div></div>
-              <div className="text-center"><div className="border-t border-slate-400 pt-2 mt-16">เจ้าหน้าที่คลังยา</div></div>
+            <div role="group" aria-label="เรียงรายการ" className="inline-flex border border-slate-300 dark:border-slate-600 rounded-xl overflow-hidden divide-x divide-slate-300 dark:divide-slate-600">
+              <button type="button" aria-pressed={sort === 'doc'} onClick={() => setSortPref('doc')} className={segBtn(sort === 'doc', 'bg-[#1E90FF] text-white')}><ListOrdered size={14}/> ตามลำดับใบ</button>
+              <button type="button" aria-pressed={sort === 'log'} onClick={() => setSortPref('log')} className={segBtn(sort === 'log', 'bg-[#1E90FF] text-white')}><MapPin size={14}/> ตามที่เก็บ (เดินจัด)</button>
             </div>
           </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+            แสดง {shown.length} จาก {views.length} รายการ{!lots.ready && ' · กำลังโหลด lot/ที่เก็บ…'}
+          </p>
+
+          {shown.length === 0 ? (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl py-10 text-center text-sm text-slate-500">ไม่พบรายการ</div>
+          ) : wide ? (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
+              <table className="w-full table-fixed text-sm">
+                <colgroup><col className="w-10"/><col className="w-[27%]"/><col className="w-[12%]"/><col className="w-[11%]"/><col/><col className="w-[22%]"/></colgroup>
+                <thead className="bg-slate-50 dark:bg-slate-800 text-xs text-slate-500 dark:text-slate-400">
+                  <tr>
+                    <th className="px-2 py-2 text-right font-semibold">#</th>
+                    <th className="px-2.5 py-2 text-left font-semibold">รายการยา</th>
+                    <th className="px-2.5 py-2 text-right font-semibold">ขอเบิก</th>
+                    <th className="px-2.5 py-2 text-left font-semibold">ที่เก็บ</th>
+                    <th className="px-2.5 py-2 text-left font-semibold">{lotHead}</th>
+                    <th className="px-2.5 py-2 text-left font-semibold">{isPending && awaitsSheet ? 'ประเมิน' : isPending ? 'อนุมัติ' : 'ผลการจัด'}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groups.map((g, gi) => (
+                    <React.Fragment key={gi}>
+                      {g.z && <tr><td colSpan={6} className="px-2.5 py-1.5 text-[13px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40">{g.z} · {g.rows.length} รายการ</td></tr>}
+                      {g.rows.map(v => (
+                        <tr key={v.item.id} className={`border-t border-slate-100 dark:border-slate-800 align-top ${isBad(v) ? badRow : ''}`}>
+                          <td className={`px-2 py-2.5 text-right text-slate-400 tabular-nums ${isBad(v) ? 'shadow-[inset_3px_0_0_#ef4444]' : ''}`}>{v.i + 1}</td>
+                          <td className="px-2.5 py-2.5">{nameCell(v)}</td>
+                          <td className="px-2.5 py-2.5 text-right tabular-nums">
+                            <p className="font-bold text-[15px] text-slate-800 dark:text-slate-100">{Number(v.item.requested_qty).toLocaleString()}</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{unitOf(v.item)}{showOnhand && lots.ready ? ` · มี ${v.onhand.toLocaleString()}` : ''}</p>
+                          </td>
+                          <td className="px-2.5 py-2.5"><div className="flex flex-col items-start gap-1">{locPills(v)}</div></td>
+                          <td className="px-2.5 py-2.5"><LotLines v={v} unit={v.item.drug_unit} stage={stage} /></td>
+                          <td className="px-2.5 py-2.5">{resultCell(v)}</td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {groups.map((g, gi) => (
+                <React.Fragment key={gi}>
+                  {g.z && <p className="text-[13px] font-semibold text-indigo-700 dark:text-indigo-300 px-0.5 pt-1">{g.z} · {g.rows.length} รายการ</p>}
+                  {g.rows.map(v => (
+                    <article key={v.item.id} className={`bg-white dark:bg-slate-900 border rounded-xl p-3 space-y-2 ${isBad(v) ? 'border-red-300 dark:border-red-800/60 shadow-[inset_3px_0_0_#ef4444]' : 'border-slate-200 dark:border-slate-700'}`}>
+                      <div className="grid grid-cols-[28px_minmax(0,1fr)] gap-2 items-start">
+                        <span className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs font-bold grid place-items-center tabular-nums">{v.i + 1}</span>
+                        <div className="min-w-0">{nameCell(v)}</div>
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[13px] text-slate-500 dark:text-slate-400 tabular-nums">
+                        <span>ขอ <b className="text-[15px] text-slate-800 dark:text-slate-100">{Number(v.item.requested_qty).toLocaleString()}</b> {unitOf(v.item)}</span>
+                        {showOnhand && lots.ready && <span>คงเหลือ {v.onhand.toLocaleString()}</span>}
+                        {!v.perLotLoc && v.locs.length > 0 && <span className="flex flex-wrap gap-1">{locPills(v)}</span>}
+                      </div>
+                      <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5">
+                        <p className="text-[11px] text-slate-400 dark:text-slate-500">{lotHead}</p>
+                        <LotLines v={v} unit={v.item.drug_unit} stage={stage} />
+                      </div>
+                      <div>{resultCell(v)}</div>
+                    </article>
+                  ))}
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+
+          {isPending && !awaitsSheet && (
+            <textarea value={staffNote} onChange={e => setStaffNote(e.target.value)} placeholder="หมายเหตุโดยรวมจากเจ้าหน้าที่..." rows={2} aria-label="หมายเหตุโดยรวมจากเจ้าหน้าที่"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-3 text-slate-800 dark:text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E90FF] resize-none" />
+          )}
+          {error && <p className="text-red-600 text-sm bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2 flex items-center gap-2"><AlertCircle size={14}/>{error}</p>}
         </div>
 
+        {/* แถบปุ่มล่างจอ — sticky ในคอลัมน์เนื้อหา (fixed left-0 ถูก sidebar บัง) */}
         {isPending && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 space-y-2">
-            <div className="grid grid-cols-[1fr_auto] gap-2">
-              {awaitsSheet ? (
-                <button onClick={() => setSelfDispenseOpen(true)} disabled={loading}
-                  className="bg-amber-500 hover:bg-amber-600 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
-                  <Package size={18}/>{loading?'กำลังบันทึก...':'จัดจ่ายเอง (ก่อนลงชีท)'}
-                </button>
-              ) : (
-                <button onClick={() => save(null)} disabled={loading}
-                  className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
-                  <CheckCircle size={18}/>{loading?'กำลังบันทึก...':'ยืนยันอนุมัติใบเบิก'}
-                </button>
-              )}
-              <button onClick={() => save('rejected')} disabled={loading}
-                className="bg-white dark:bg-slate-900 hover:bg-red-50 dark:hover:bg-red-950/50 border border-red-300 dark:border-red-800/60 text-red-600 disabled:opacity-40 rounded-xl px-4 py-3 font-semibold flex items-center justify-center gap-2 transition">
-                <XCircle size={18}/> ไม่อนุมัติทั้งใบ
-              </button>
+          <div className={barCls}>
+            {rejecting ? (
+              <div className="max-w-7xl mx-auto flex flex-wrap items-center gap-2">
+                <label className="flex-1 min-w-60 flex flex-wrap items-center gap-2 text-sm">
+                  <span className="font-semibold text-red-600 dark:text-red-400">ไม่อนุมัติทั้งใบ</span>
+                  <input type="text" value={staffNote} onChange={e => setStaffNote(e.target.value)} placeholder="แจ้งเหตุให้ผู้เบิก เช่น ส่งซ้ำกับใบเมื่อวาน" aria-label="เหตุที่ไม่อนุมัติ"
+                    className="flex-1 min-w-48 bg-white dark:bg-slate-900 border border-red-300 dark:border-red-800/60 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400" />
+                </label>
+                <div className="grid grid-cols-2 sm:flex gap-2 w-full sm:w-auto">
+                  <button onClick={() => setRejecting(false)} disabled={loading} className="rounded-xl border border-slate-300 dark:border-slate-600 px-4 py-2.5 font-semibold text-slate-700 dark:text-slate-200">ยกเลิก</button>
+                  <button onClick={() => save('rejected')} disabled={loading} className="rounded-xl border border-red-300 dark:border-red-800/60 bg-white dark:bg-slate-900 hover:bg-red-50 text-red-600 px-4 py-2.5 font-semibold flex items-center justify-center gap-1.5"><XCircle size={16}/> {loading ? 'กำลังบันทึก...' : 'ยืนยันไม่อนุมัติ'}</button>
+                </div>
+              </div>
+            ) : (
+              <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm min-w-0">
+                  <p className="font-semibold text-slate-800 dark:text-slate-100">{awaitsSheet ? 'รอลงชีทเบิก' : `อนุมัติ ${items.filter(i => i.decision !== 'reject').length} · ไม่อนุมัติ ${items.filter(i => i.decision === 'reject').length}`}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{awaitsSheet ? 'ลงชีทแล้วใบขึ้น "ลงชีทแล้ว บย." และย้ายไปรอจัดเอง' : `จาก ${items.length} รายการ`}</p>
+                </div>
+                <div className="grid grid-cols-2 sm:flex gap-2 w-full sm:w-auto">
+                  <button onClick={() => setRejecting(true)} disabled={loading}
+                    className="rounded-xl border border-red-300 dark:border-red-800/60 bg-white dark:bg-slate-900 hover:bg-red-50 dark:hover:bg-red-950/50 text-red-600 px-4 py-2.5 font-semibold flex items-center justify-center gap-1.5"><XCircle size={16}/> ไม่อนุมัติทั้งใบ</button>
+                  {awaitsSheet ? (
+                    <button onClick={() => setSelfDispenseOpen(true)} disabled={loading}
+                      className="rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 px-4 py-2.5 font-semibold flex items-center justify-center gap-1.5"><Package size={16}/> {loading ? 'กำลังบันทึก...' : 'จัดจ่ายเอง (ก่อนลงชีท)'}</button>
+                  ) : (
+                    <button onClick={() => save(null)} disabled={loading}
+                      className="rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white px-4 py-2.5 font-semibold flex items-center justify-center gap-1.5"><CheckCircle size={16}/> {loading ? 'กำลังบันทึก...' : 'ยืนยันอนุมัติใบเบิก'}</button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {stage === 'pick' && (
+          <div className={barCls}>
+            <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm min-w-0">
+                <p className="font-semibold text-slate-800 dark:text-slate-100 tabular-nums">ครบ {wantCount - partCount} · ไม่ครบ/ไม่ตรง {partCount}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">จาก {wantCount} รายการที่อนุมัติ</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                {actorInput('ผู้จัด')}
+                <button onClick={finishPick} disabled={loading || !lots.ready || !actor.trim()}
+                  className="flex-1 sm:flex-none rounded-xl bg-[#1E90FF] hover:bg-blue-600 disabled:bg-slate-300 text-white px-5 py-2.5 font-semibold flex items-center justify-center gap-1.5"><Check size={16}/> {loading ? 'กำลังบันทึก...' : 'จัดเสร็จ'}</button>
+              </div>
             </div>
           </div>
         )}
-        {isRejected && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 space-y-2">
-            {!deleteConfirm ? (
-              <button onClick={() => setDeleteConfirm(true)} disabled={loading}
-                className="w-full bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-950/70 border border-red-300 dark:border-red-800/60 text-red-600 rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
-                <Trash2 size={18}/> ลบใบเบิกนี้ออกจากระบบ
-              </button>
-            ) : (
-              <div className="flex gap-2">
-                <button onClick={() => setDeleteConfirm(false)} disabled={loading}
-                  className="flex-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
-                  <X size={16}/> ยกเลิก
-                </button>
-                <button onClick={handleDelete} disabled={loading}
-                  className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
-                  <Trash2 size={16}/> {loading ? 'กำลังลบ...' : 'ยืนยันลบ'}
-                </button>
+        {stage === 'check' && (
+          <div className={barCls}>
+            <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm min-w-0">
+                <p className="font-semibold text-slate-800 dark:text-slate-100 tabular-nums">{partCount ? `จัดไม่ครบ/ไม่ตรง ${partCount} รายการ` : 'จัดครบทุกรายการ'}{issueNotes.length ? ` · แจ้งแก้ ${issueNotes.length}` : ''}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{sameAsPicker ? 'ผู้ตรวจคนเดียวกับผู้จัด — ใช้ได้เมื่อไม่มีคนจัดยา' : partCount ? 'ตรวจแถวที่ไฮไลต์ก่อนจ่ายออก' : `${wantCount} รายการ`}</p>
               </div>
-            )}
-            {error && <p className="text-red-600 text-sm text-center">{error}</p>}
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                {actorInput('ผู้ตรวจ')}
+                <button onClick={() => setVerifyOpen(true)} disabled={dispatching || !actor.trim()}
+                  className="flex-1 sm:flex-none rounded-xl bg-[#1E90FF] hover:bg-blue-600 disabled:bg-slate-300 text-white px-5 py-2.5 font-semibold flex items-center justify-center gap-1.5"><CheckCircle size={16}/> ตรวจแล้ว จ่ายออก</button>
+              </div>
+            </div>
           </div>
         )}
-
-        {/* ── Workflow actions ตามสถานะ (จัดยา/ตรวจนับ/จ่ายออก) ── */}
-        {isApproved && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
-            <button onClick={() => setPickingModal(true)} disabled={loading}
-              className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
-              <Package size={18}/> เริ่มจัดยา
-            </button>
+        {stage === 'ready' && (
+          <div className={barCls}>
+            <div className="max-w-7xl mx-auto flex justify-end">
+              <button onClick={() => setDispatchModal(true)} disabled={dispatching}
+                className="w-full sm:w-auto rounded-xl bg-[#1E90FF] hover:bg-blue-600 disabled:bg-slate-300 text-white px-6 py-2.5 font-semibold flex items-center justify-center gap-1.5"><Check size={16}/> จ่ายออก</button>
+            </div>
           </div>
         )}
-        {isPicking && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700">
-            <button onClick={() => setVerifyModal(true)} disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition">
-              <CheckCircle size={18}/> ตรวจนับยา (Double Check)
-            </button>
-          </div>
-        )}
-        {isReady && (
-          <div className="no-print fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-700 space-y-2">
-            <button onClick={() => setDispatchModal(true)} disabled={loading}
-              className="w-full rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition bg-blue-600 hover:bg-blue-700 text-white disabled:bg-slate-200 disabled:text-slate-400">
-              <Check size={18}/> จ่ายออก
-            </button>
-            {error && <p className="text-red-600 text-sm text-center">{error}</p>}
+        {stage === 'rej' && (
+          <div className={barCls}>
+            <div className="max-w-7xl mx-auto">
+              {!deleteConfirm ? (
+                <button onClick={() => setDeleteConfirm(true)} disabled={loading}
+                  className="w-full bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-950/70 border border-red-300 dark:border-red-800/60 text-red-600 rounded-xl py-2.5 font-semibold flex items-center justify-center gap-2">
+                  <Trash2 size={16}/> ลบใบเบิกนี้ออกจากระบบ
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <button onClick={() => setDeleteConfirm(false)} disabled={loading}
+                    className="flex-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl py-2.5 font-semibold flex items-center justify-center gap-2"><X size={16}/> ยกเลิก</button>
+                  <button onClick={handleDelete} disabled={loading}
+                    className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-slate-300 text-white rounded-xl py-2.5 font-semibold flex items-center justify-center gap-2"><Trash2 size={16}/> {loading ? 'กำลังลบ...' : 'ยืนยันลบ'}</button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
 
-      {pickingModal && (
-        <PickingModal req={currentReq} auth={auth}
-          onClose={() => setPickingModal(false)}
-          onDone={() => { setPickingModal(false); onDone(); }} />
-      )}
-      {verifyModal && (
-        <VerifyModal req={currentReq} auth={auth}
-          onClose={() => setVerifyModal(false)}
-          onDone={() => { setVerifyModal(false); onDone(); }} />
-      )}
       {dispatchModal && (
         <DispatchConfirmModal req={currentReq} loading={dispatching}
           onConfirm={confirmDispatch}
           onClose={() => setDispatchModal(false)} />
       )}
+      <ConfirmModal open={verifyOpen} loading={dispatching}
+        title="ตรวจแล้ว จ่ายออก"
+        message={`จ่ายยาตามใบเบิก ${currentReq.department} ${wantCount} รายการ ออกจากคลัง · ผู้ตรวจ ${actor.trim() || '-'}`}
+        detail={issueNotes.length ? `แจ้งแก้ ${issueNotes.length} รายการ: ${issueNotes.map(x => `${x.v.item.drug_name} (${x.t})`).join(' · ')}` : 'ไม่มีรายการแจ้งแก้'}
+        warning={partCount ? `จัดไม่ครบ/ไม่ตรง ${partCount} รายการ — ผู้เบิกจะเห็นจำนวนที่จ่ายจริง` : undefined}
+        confirmText="จ่ายออก"
+        onConfirm={finishVerify}
+        onClose={() => setVerifyOpen(false)} />
       <ConfirmModal open={selfDispenseOpen} loading={loading}
         title="จัดจ่ายเองก่อนลงชีท"
         message={`ใบนี้ยังไม่ได้ลงชีทเบิก (ยังไม่มีเลข บย.) — ปกติรอคลังลงชีทก่อน แล้วจัดยาตาม lot ในชีท`}
@@ -3971,7 +3721,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         confirmText="จัดจ่ายเอง"
         onConfirm={() => { setSelfDispenseOpen(false); save(null, { beforeSheet: true }); }}
         onClose={() => setSelfDispenseOpen(false)} />
-      {outReq && <ReqOutputModal req={outReq} auth={auth} defaultSort={SORT_BY_LOG} onClose={() => setOutReq(null)} />}
+      {outReq && <ReqOutputModal req={outReq} auth={auth} defaultSort={sort === 'log' ? SORT_BY_LOG : SORT_BY_REQ} onClose={() => setOutReq(null)} />}
     </>
   );
 }
