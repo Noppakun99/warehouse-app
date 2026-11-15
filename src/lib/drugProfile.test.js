@@ -246,14 +246,17 @@ section('ประวัติเบิก: ทุกหน่วยงาน + 
     { dispense_date: '2026-10-01', department: 'ห้องยา1', qty_out: '10', drug_unit: '200เม็ด', lot: 'A', drug_name: 'Para 500mg' },
     { dispense_date: '2026-09-02', department: 'เบิกเพิ่มจากความผิดพลาด', qty_out: '3', drug_unit: '200เม็ด', lot: 'B' },
     { dispense_date: '2026-09-01', department: 'ห้องยา G', qty_out: '2', drug_unit: '200เม็ด', lot: 'B', drug_name: 'Para 500' },
+    { dispense_date: '2026-08-30', department: 'ห้องยา1', qty_out: '0.00', drug_unit: '200เม็ด', lot: 'B', drug_name: 'Para 500mg' },
+    { dispense_date: '2026-08-29', department: 'ห้องยา1', qty_out: null, drug_unit: '200เม็ด', lot: 'B', drug_name: 'Para 500mg' },
   ]
   const h = dispenseHistory(rows)
-  assertEq(h.total, 5, 'เห็นทุกหน่วยงาน รวมแถวที่ไม่ใช่หน่วยงาน')
+  assertEq(h.total, 5, 'เห็นทุกหน่วยงาน รวมแถวที่ไม่ใช่หน่วยงาน · ไม่นับแถว qty 0/ว่าง (ตรงหน้าประวัติเบิกจ่าย)')
+  assertEq(h.rows.some(r => r.qty <= 0), false, 'รายการล่าสุดไม่มีแถว qty 0')
   assertDeep(h.topDept, { department: 'ห้องยาG', count: 2, of: 3 }, 'บ่อยสุด = ห้องยาG 2 ครั้ง (รวม "ห้องยา G") · ไม่นับคืนยา/เบิกเพิ่มจากความผิดพลาด · ชื่อลงเท่ากันเลือกตาม localeCompare th')
   assertEq(h.logName, 'Para 500', 'ชื่อใน log ที่ลงบ่อยสุด (ลิงก์ ดูทั้งหมด)')
   assertEq(dispenseHistory([]).topDept, null, 'ไม่มีประวัติ = ไม่มีเบิกบ่อยสุด')
   assertEq(dispenseHistory([{ department: 'คืนยา', qty_out: 1 }]).topDept, null, 'มีแต่คืนยา = ไม่มีเบิกบ่อยสุด')
-  const many = Array.from({ length: 25 }, (_, i) => ({ dispense_date: '2026-09-01', department: 'ER', qty_out: i }))
+  const many = Array.from({ length: 25 }, (_, i) => ({ dispense_date: '2026-09-01', department: 'ER', qty_out: i + 1 }))
   const e = dispenseHistory(many)
   assertEq(e.rows.length, HISTORY_LIMIT, `แสดงล่าสุด ${HISTORY_LIMIT} แถว`)
   assertEq(e.total, 25, 'แต่บอกจำนวนทั้งหมด')

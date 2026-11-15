@@ -452,7 +452,10 @@ export function logDrugName(rows = []) {
 // ประวัติเบิก: ทุกหน่วยงานทุก role (user ตัดสิน 15/11/2569 — เดิมผู้เบิกเห็นเฉพาะหน่วยงานตัวเอง)
 // topDept = หน่วยงานที่เบิกบ่อยสุด (ครั้ง) · นับเฉพาะแถวที่เป็นการใช้ (isUsageRow) และไม่ใช่ NON_DEPARTMENT_NAMES
 // จับกลุ่มด้วย normDept ชื่อที่แสดง = ชื่อที่ลงบ่อยสุด (กฎเดียวกับ summarizeUsage)
-export function dispenseHistory(sortedRows = []) {
+// เฉพาะ qty_out > 0 — กฎเดียวกับหน้าประวัติเบิกจ่าย (withRealRowFilter · Rule #6) ไม่งั้น "จาก N รายการ" ไม่ตรงหน้าที่ลิงก์ไป
+// (แถว 0 = ใบเบิกที่ไม่ได้จ่าย ~200 แถว · 75 รหัสเคยนับเกิน — scrutinize 15/11/2569)
+export function dispenseHistory(allRows = []) {
+  const sortedRows = allRows.filter(r => toNum(r.qty_out) > 0)
   const depts = new Map()
   let usageCount = 0
   for (const r of sortedRows) {
