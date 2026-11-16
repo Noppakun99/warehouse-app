@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { fetchInventory, fetchDrugDetails, fetchUploadMeta, normalizeLotSearch, fetchConsistencyReport, fetchSwapPolicies, flagSwapReturn, fetchDrugReorderConfig } from './lib/db';
 import { isBelowSafetyStock } from './lib/drugProfile';
 import { computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './lib/swapPolicy';
@@ -807,6 +808,15 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
   };
 
   const Slot = ({ id }) => {
+    const [tip, setTip] = useState(null);
+    // กล่องเป็น fixed — เลื่อนจอแล้วตำแหน่งค้าง จึงปิดทิ้ง
+    useEffect(() => {
+      if (!tip) return;
+      const close = () => setTip(null);
+      window.addEventListener('scroll', close, true);
+      window.addEventListener('resize', close);
+      return () => { window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close); };
+    }, [tip]);
     // ซ่อน qty=0 จากแผนผัง — ข้อมูลยังอยู่ใน inventory state เพื่อคำนวณ low-stock alert
     const visibleItems = itemsAt(id).filter(item => {
       const qty = parseFloat(String(item.qty || '0').replace(/,/g, '')) || 0;
@@ -844,13 +854,35 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
       StatusIcon = <Clock size={11} className="shrink-0 text-amber-600 dark:text-amber-400" />;
     }
 
-    // รายการยาสำหรับ tooltip (สูงสุด 4 รายการ)
-    const previewItems = visibleItems.slice(0, 4);
+    // tooltip แสดงชื่อยาครบทุกตัว (user สั่ง 16/11/2569 — เดิมตัดที่ 4 + "อีก N รายการ")
+    // ยาเดียวกันหลาย lot รวมเป็นแถวเดียว · ยาเยอะแบ่ง 2 คอลัมน์
+    const tipNames = [];
+    const lotsByName = new Map();
+    visibleItems.forEach(it => {
+      const n = it.name || it.code || '-';
+      if (!lotsByName.has(n)) tipNames.push(n);
+      lotsByName.set(n, (lotsByName.get(n) || 0) + 1);
+    });
+    const twoCols = tipNames.length > 8;
+    const tipWidth = twoCols ? 440 : 260;
+
+    // วางแบบ fixed ผ่าน portal — การ์ดตู้เป็น overflow-hidden กล่องที่ลอยเหนือช่องจึงโดนตัดขอบบน
+    // เปิดขึ้นหรือลงตามที่ว่างในจอ · เฉพาะอุปกรณ์ที่ชี้เมาส์ได้ (มือถือกดแล้วเปิดโมดอลรายการแทน)
+    const showTip = (e) => {
+      if (!window.matchMedia?.('(hover: hover)').matches) return;
+      const r = e.currentTarget.getBoundingClientRect();
+      const above = r.top - 12;
+      const below = window.innerHeight - r.bottom - 12;
+      const left = Math.min(Math.max(r.left + r.width / 2 - tipWidth / 2, 8), window.innerWidth - tipWidth - 8);
+      setTip(below > above
+        ? { left, top: r.bottom + 8, maxHeight: below }
+        : { left, bottom: window.innerHeight - r.top + 8, maxHeight: above });
+    };
 
     return (
-      <div className="relative group/slot">
+      <div className="relative" onMouseEnter={showTip} onMouseLeave={() => setTip(null)}>
         <button
-          onClick={() => handleLocationClick(id)}
+          onClick={() => { setTip(null); handleLocationClick(id); }}
           data-slot-hit={highlighted ? 'true' : undefined}
           aria-label={`ตำแหน่ง ${id} — ${isEmpty ? 'ว่าง' : `${itemCount} รายการ`}`}
           className={`flex flex-col items-start justify-center min-w-16 h-11 px-2 rounded-lg border text-left transition duration-150 ${tone}
@@ -862,29 +894,32 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           </span>
         </button>
 
-        {/* Hover tooltip — รหัสตำแหน่ง + รายการยา */}
-        <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-30 w-max max-w-[220px]
-          opacity-0 group-hover/slot:opacity-100 transition-opacity duration-150">
-          <div className="bg-indigo-600 text-white rounded-xl shadow-xl px-3 py-2 text-left">
+        {/* Hover tooltip — รหัสตำแหน่ง + รายการยาครบทุกตัว */}
+        {tip && createPortal(
+          <div
+            className="pointer-events-none fixed z-50 bg-indigo-600 text-white rounded-xl shadow-xl px-3 py-2 text-left overflow-hidden"
+            style={{ left: tip.left, top: tip.top, bottom: tip.bottom, maxHeight: tip.maxHeight, width: tipWidth }}
+          >
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm font-bold tracking-wide">{id}</span>
-              <span className="text-[10px] font-semibold bg-white/20 rounded-full px-2 py-0.5">{itemCount} รายการ</span>
+              <span className="text-xs font-semibold bg-white/20 rounded-full px-2 py-0.5 whitespace-nowrap">
+                {isEmpty ? 'ว่าง' : `${tipNames.length} ยา · ${itemCount} lot`}
+              </span>
             </div>
             {isEmpty ? (
-              <p className="text-[11px] text-indigo-100 mt-1">ช่องว่าง</p>
+              <p className="text-xs text-indigo-100 mt-1">ช่องว่าง</p>
             ) : (
-              <div className="mt-1.5 space-y-0.5">
-                {previewItems.map((it, i) => (
-                  <p key={i} className="text-[11px] text-indigo-50 leading-tight truncate">• {it.name || it.code || '-'}</p>
+              <ul className={`mt-1.5 ${twoCols ? 'columns-2 gap-4' : ''}`}>
+                {tipNames.map(n => (
+                  <li key={n} className="text-xs text-white leading-snug break-words break-inside-avoid pb-0.5">
+                    • {n}{lotsByName.get(n) > 1 && <span className="text-indigo-200"> ({lotsByName.get(n)} lot)</span>}
+                  </li>
                 ))}
-                {itemCount > previewItems.length && (
-                  <p className="text-[10px] text-indigo-200 mt-0.5">+ อีก {itemCount - previewItems.length} รายการ</p>
-                )}
-              </div>
+              </ul>
             )}
-          </div>
-          <div className="w-2 h-2 bg-indigo-600 rotate-45 mx-auto -mt-1" />
-        </div>
+          </div>,
+          document.body
+        )}
       </div>
     );
   };
