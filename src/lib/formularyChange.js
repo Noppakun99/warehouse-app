@@ -129,6 +129,47 @@ export function buildNewDrugs({ windowRows = [], priorCodes = new Set(), firstDi
   return [...out, ...waiting]
 }
 
+/**
+ * ตัวกรองแท็บยาเข้าใหม่ (เลือกได้ทีละตัว · ซ้อนกันได้ เช่น ยาซื้อที่มีมติ อยู่ทั้ง "ยาซื้อ" และ "มีมติ PTC")
+ * "ยาซื้อ ไม่มีมติ PTC" = ยาที่ซื้อเข้ามาโดยไม่มีมติเข้าบัญชีรองรับ — ต้องตามดูว่าเป็นยานอกบัญชี/เปลี่ยนรหัส/ผิดพลาด
+ */
+export const NEW_DRUG_FILTERS = [
+  { key: 'all',      label: 'ทั้งหมด',              test: () => true },
+  { key: 'purchase', label: 'ยาซื้อ',               test: d => d.types.includes('การซื้อ') },
+  { key: 'support',  label: 'ยาสนับสนุน/บริจาค',     test: d => d.types.some(t => t !== 'การซื้อ') },
+  { key: 'ptc',      label: 'มีมติ PTC',            test: d => !!d.ptc },
+  { key: 'noPtc',    label: 'ยาซื้อ ไม่มีมติ PTC',    test: d => !d.ptc && d.types.includes('การซื้อ') },
+  { key: 'pending',  label: 'รอตรวจรับ',            test: d => d.status === 'pending' },
+  { key: 'waiting',  label: 'มติแล้ว รอของ',         test: d => d.status === 'noStock' || d.status === 'noCode' },
+]
+
+/** จำนวนต่อตัวกรอง { key: n } */
+export const countNewDrugFilters = (list = []) =>
+  Object.fromEntries(NEW_DRUG_FILTERS.map(f => [f.key, list.filter(f.test).length]))
+
+/**
+ * ประวัติเบิกของยาเข้าใหม่ (กางแถว) — ใครเบิก · เหลือหลังเบิก (ราย lot ตามชีทเบิก qty_after)
+ * แถว "บันทึกเท่านั้น" แสดงแต่ไม่นับยอดเบิก (ไม่ได้ตัดสต็อก)
+ * @returns {{ rows, total, count, byDept: Array<{dept, qty, times}> }}
+ */
+export function summarizeNewDrugDispense(rows = []) {
+  const sorted = [...rows].sort((a, b) => (a.dispense_date < b.dispense_date ? -1 : a.dispense_date > b.dispense_date ? 1 : (a.id || 0) - (b.id || 0)))
+  const counted = sorted.filter(r => !String(r.item_type || '').includes('บันทึกเท่านั้น') && num(r.qty_out) !== 0)
+  const dept = new Map()
+  for (const r of counted) {
+    const k = String(r.department || '').trim() || '-'
+    const g = dept.get(k) || { dept: k, qty: 0, times: 0 }
+    g.qty += num(r.qty_out); g.times += 1
+    dept.set(k, g)
+  }
+  return {
+    rows: sorted,
+    total: counted.reduce((s, r) => s + num(r.qty_out), 0),
+    count: counted.length,
+    byDept: [...dept.values()].sort((a, b) => b.qty - a.qty || a.dept.localeCompare(b.dept)),
+  }
+}
+
 /** นับเฉพาะที่ของเข้าคลังแล้ว (ไม่รวมมติที่ยังรอของ) — ใช้เป็นตัวเลขในคิวงาน */
 export const countReceivedNew = (list = []) => list.filter(d => d.status === 'inspected' || d.status === 'pending').length
 

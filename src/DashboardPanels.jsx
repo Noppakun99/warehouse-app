@@ -11,14 +11,14 @@ import {
   TrendingUp, TrendingDown, ChevronDown, CalendarDays, Database, Hourglass, Search, RotateCcw, Lightbulb, Copy, Check,
   BookOpenCheck, Pencil, Trash2, Plus, Package, ShoppingBag, FileSpreadsheet, Loader2,
 } from 'lucide-react';
-import { SWAP_ACTION_STATUS, insertFormularyChange, updateFormularyChange, deleteFormularyChange, fetchCartDraft, deleteCartDraft, fetchPurchaseArrivals } from './lib/db';
+import { SWAP_ACTION_STATUS, insertFormularyChange, updateFormularyChange, deleteFormularyChange, fetchCartDraft, deleteCartDraft, fetchPurchaseArrivals, fetchNewDrugDispense } from './lib/db';
 import { reqTypeLabel, clearLocalCart } from './lib/reqType';
 import { openDrugSearch } from './lib/drugSearchEvent';
 import { isSwapRed, fmtYmdBE } from './lib/workQueue';
 import { parseExpDate } from './lib/drugProfile';
 import {
   NEW_DRUG_DAYS, CHANGE_TYPE_LABEL, buildNewDrugs, buildFormularyOut, buildNewDrugLine, countReceivedNew,
-  sortRegistry, validateFormularyEntry, windowFromYmd,
+  sortRegistry, validateFormularyEntry, windowFromYmd, NEW_DRUG_FILTERS, countNewDrugFilters, summarizeNewDrugDispense,
 } from './lib/formularyChange';
 import ConfirmModal from './ConfirmModal';
 
@@ -461,6 +461,99 @@ function PurchaseArrivals({ row }) {
   );
 }
 
+// กางแถวยาเข้าใหม่ — มติ PTC + รับเข้าเมื่อไร (แถวรับที่โหลดมาแล้ว) + ใครเบิก/เหลือหลังเบิก (โหลดตอนกาง)
+const subHead = 'text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400';
+function NewDrugDetail({ row }) {
+  const hasStock = row.status === 'inspected' || row.status === 'pending';
+  const [state, setState] = useState({ loading: hasStock, error: '', rows: [] });
+  useEffect(() => {
+    if (!hasStock) return undefined;
+    let alive = true;
+    fetchNewDrugDispense(row.code, row.firstReceive)
+      .then(rows => { if (alive) setState({ loading: false, error: '', rows }); })
+      .catch(e => { if (alive) setState({ loading: false, error: e.message || 'โหลดไม่สำเร็จ', rows: [] }); });
+    return () => { alive = false; };
+  }, [hasStock, row.code, row.firstReceive]);
+
+  if (!hasStock) return <PtcDetail e={row.ptc} />;
+  const receipts = [...row.rows].reverse();
+  const disp = summarizeNewDrugDispense(state.rows);
+  const dispUnit = (disp.rows.find(r => r.drug_unit)?.drug_unit) || row.unit;
+  return (
+    <div className="space-y-3">
+      <PtcDetail e={row.ptc} />
+      <div>
+        <p className={subHead}>รับเข้า {fmtNum(receipts.length)} ครั้ง</p>
+        <ul className="mt-1 space-y-1.5">
+          {receipts.map(b => (
+            <li key={b.id} className="rounded-lg bg-slate-50 dark:bg-slate-800/60 px-3 py-2 text-xs">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span className="font-semibold text-slate-800 dark:text-slate-100 tabular-nums">รับ {fmtYmdBE(b.receive_date)}</span>
+                <span className="text-slate-600 dark:text-slate-300">บิล {b.bill_number || '-'}</span>
+                <span className="text-slate-500 dark:text-slate-400 min-w-0 break-words">{b.supplier_current || '-'}</span>
+              </div>
+              <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-slate-600 dark:text-slate-300 tabular-nums">
+                <span>Lot {b.lot || '-'}</span>
+                <span>EXP {b.exp || '-'}</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-100">{fmtNum(b.qty_received)} {b.drug_unit || ''}</span>
+                {b.purchase_type && b.purchase_type !== 'การซื้อ' && <span>{NON_PURCHASE_TAG[b.purchase_type] || b.purchase_type}</span>}
+                {b.receive_status && <span className={b.receive_status === 'รอตรวจรับ' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}>{b.receive_status}</span>}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div>
+        <p className={subHead}>เบิกจ่าย</p>
+        {state.loading && <p className="mt-1 text-xs text-slate-400 dark:text-slate-500 inline-flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> กำลังโหลดประวัติเบิก…</p>}
+        {state.error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">โหลดประวัติเบิกไม่สำเร็จ: {state.error}</p>}
+        {!state.loading && !state.error && disp.rows.length === 0 && (
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">ยังไม่มีการเบิก · คงเหลือ {row.total == null ? '-' : fmtNum(row.total)} {row.unit}</p>
+        )}
+        {!state.loading && !state.error && disp.rows.length > 0 && (
+          <>
+            <p className="mt-1 text-xs text-slate-700 dark:text-slate-200">
+              เบิก <span className="font-semibold tabular-nums">{fmtNum(disp.count)}</span> ครั้ง รวม <span className="font-semibold tabular-nums">{fmtNum(disp.total)}</span> {dispUnit}
+              {' · '}คงเหลือตอนนี้ <span className="font-semibold tabular-nums">{row.total == null ? '-' : fmtNum(row.total)}</span> {row.unit}
+            </p>
+            {disp.byDept.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {disp.byDept.map(d => (
+                  <span key={d.dept} className="inline-flex items-center gap-1 rounded-full bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 px-2 py-0.5 text-xs">
+                    <span className="min-w-0 break-words">{d.dept}</span>
+                    <span className="font-semibold tabular-nums">{fmtNum(d.qty)}</span>
+                    {d.times > 1 && <span className="opacity-70">({fmtNum(d.times)} ครั้ง)</span>}
+                  </span>
+                ))}
+              </div>
+            )}
+            <ul className="mt-1.5 space-y-1.5">
+              {disp.rows.map(r => {
+                const recordOnly = String(r.item_type || '').includes('บันทึกเท่านั้น');
+                return (
+                  <li key={r.id} className="rounded-lg bg-slate-50 dark:bg-slate-800/60 px-3 py-2 text-xs">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <span className="font-semibold text-slate-800 dark:text-slate-100 tabular-nums">{fmtYmdBE(r.dispense_date)}</span>
+                      <span className="text-slate-700 dark:text-slate-200 min-w-0 break-words">{r.department || '-'}</span>
+                      {recordOnly && <span className="text-amber-600 dark:text-amber-400">บันทึกเท่านั้น (ไม่ตัดยอด)</span>}
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-slate-600 dark:text-slate-300 tabular-nums">
+                      <span>เบิก <span className="font-semibold text-slate-800 dark:text-slate-100">{fmtNum(r.qty_out)}</span> {r.drug_unit || ''}</span>
+                      <span>Lot {r.lot || '-'}</span>
+                      {r.qty_after != null && <span>เหลือใน lot {fmtNum(r.qty_after)}</span>}
+                    </div>
+                    {r.note && <p className="mt-0.5 text-slate-500 dark:text-slate-400 break-words">{r.note}</p>}
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── โมดอลยาเข้าใหม่ / ตัดออกจากบัญชี / ทะเบียนมติ PTC — 3 แท็บ ครอบ QueueDetailModal ─────────
 // ตรรกะอยู่ lib/formularyChange.js · รายการคำนวณจากข้อมูลที่ AppRoot โหลดไว้ ไม่ query ใหม่
 // นิยาม CONTEXT.md §ยาเข้าใหม่ · §ยาตัดออกจากบัญชี
@@ -544,6 +637,7 @@ export function FormularyModal({ raw, discontinued = [], today, auth, onChanged,
   const [tab, setTab] = useState('newDrug');
   const [days, setDays] = useState(NEW_DRUG_DAYS[0]);
   const [outAll, setOutAll] = useState(false);
+  const [newFilter, setNewFilter] = useState('all');
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState(null);   // null | { row: null (เพิ่ม) | entry (แก้) }
   const [saving, setSaving] = useState(false);
@@ -566,7 +660,9 @@ export function FormularyModal({ raw, discontinued = [], today, auth, onChanged,
 
   const s = q.trim().toLowerCase();
   const match = (r) => !s || [r.name, r.drug_name, r.code, r.drug_code, r.ptc_ref, r.note, r.supplier].some(v => String(v || '').toLowerCase().includes(s));
-  const all = { newDrug: newDrugs, formularyOut: outAll ? outEvery : outWithStock, ptcRegister: registry }[tab];
+  const newFilterCount = useMemo(() => countNewDrugFilters(newDrugs), [newDrugs]);
+  const newFilterTest = (NEW_DRUG_FILTERS.find(f => f.key === newFilter) || NEW_DRUG_FILTERS[0]).test;
+  const all = { newDrug: newDrugs.filter(newFilterTest), formularyOut: outAll ? outEvery : outWithStock, ptcRegister: registry }[tab];
   const rows = all.filter(match);
   const tabCount = { newDrug: received, formularyOut: outWithStock.length, ptcRegister: registry.length };
 
@@ -664,6 +760,22 @@ export function FormularyModal({ raw, discontinued = [], today, auth, onChanged,
             className="w-full border border-slate-300 dark:border-slate-600 rounded-xl pl-9 pr-3 py-1.5 text-base sm:text-sm text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500" />
         </div>
       </div>
+      {/* ตัวกรองยาเข้าใหม่ — ซ่อนตัวที่ไม่มีรายการในช่วงวันนี้ (ยกเว้นตัวที่เลือกอยู่) */}
+      {tab === 'newDrug' && (
+        <div role="group" aria-label="กรองยาเข้าใหม่" className="px-4 py-2 border-b border-slate-100 dark:border-slate-800 flex flex-wrap gap-1.5">
+          {NEW_DRUG_FILTERS.filter(f => f.key === 'all' || f.key === newFilter || newFilterCount[f.key] > 0).map(f => {
+            const active = newFilter === f.key;
+            return (
+              <button key={f.key} type="button" onClick={() => setNewFilter(f.key)} aria-pressed={active}
+                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${active
+                  ? 'bg-sky-600 border-sky-600 text-white'
+                  : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-sky-400'}`}>
+                {f.label} <span className="tabular-nums opacity-80">({fmtNum(newFilterCount[f.key])})</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </>
   );
   const bodyTop = tab !== 'ptcRegister' ? null : editing ? (
@@ -694,7 +806,7 @@ export function FormularyModal({ raw, discontinued = [], today, auth, onChanged,
         item={{ key: tab, label: 'ยาเข้าใหม่ / ตัดออกจากบัญชี', note: NOTE[tab], rows }}
         columns={columns}
         bodyTop={bodyTop}
-        rowDetail={tab === 'ptcRegister' ? null : (r) => <PtcDetail e={r.ptc} />}
+        rowDetail={tab === 'ptcRegister' ? null : tab === 'newDrug' ? (r) => <NewDrugDetail row={r} /> : (r) => <PtcDetail e={r.ptc} />}
         statusLabel={tab === 'newDrug' ? 'ตรวจรับ' : 'สถานะ'}
         onClose={onClose}
         toolbar={toolbar}

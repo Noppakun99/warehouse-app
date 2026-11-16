@@ -3232,6 +3232,18 @@ export async function fetchPurchaseArrivals(code, since) {
   return data || []
 }
 
+// กางแถวยาเข้าใหม่ (FormularyModal): ประวัติเบิกตั้งแต่รับครั้งแรก — qty_after = เหลือหลังเบิกราย lot ตามชีทเบิก
+export async function fetchNewDrugDispense(code, since) {
+  if (!supabase || !code) return []
+  return _pagedSelect(() => {
+    let q = supabase.from('dispense_logs')
+      .select('id, dispense_date, department, lot, qty_before, qty_out, qty_after, drug_unit, item_type, note')
+      .eq('drug_code', code)
+    if (since) q = q.gte('dispense_date', since)
+    return q.order('dispense_date').order('id')
+  })
+}
+
 // หน้านโยบายคืนบริษัท: ทุกอย่างที่ buildCompanyPolicyIndex ต้องใช้ · paginate ตาม Rule #2
 export async function fetchCompanyPolicyData() {
   if (!supabase) return { inventoryRows: [], receiveRows: [], companyPolicies: {} }

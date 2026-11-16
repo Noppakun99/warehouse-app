@@ -155,7 +155,12 @@ test.describe('Permissions — staff', () => {
         await toggle.click();
         await expect(toggle).toHaveAttribute('aria-expanded', 'true');
         await expect(dialog.getByText(/^(มติ PTC|ไม่มีมติในทะเบียน PTC)$/).locator('visible=true').first()).toBeVisible();
+        // ยาที่มีของ: รับเข้าเมื่อไร + ใครเบิก/เหลือหลังเบิก (โหลดตอนกาง — 16/11/2569)
+        if (await dialog.getByText(/^รับเข้า \d+ ครั้ง$/).locator('visible=true').count()) {
+          await expect(dialog.getByText(/^(เบิก \d|ยังไม่มีการเบิก)/).locator('visible=true').first()).toBeVisible({ timeout: 15_000 });
+        }
         await noOverflow();
+        await page.screenshot({ path: `test-results/formulary-new-open-${viewport.width}x${viewport.height}.png` });
         await toggle.click();
         await expect(toggle).toHaveAttribute('aria-expanded', 'false');
       }
@@ -163,6 +168,23 @@ test.describe('Permissions — staff', () => {
       // 90 วัน ต้องไม่น้อยกว่า 30 วัน
       await dialog.getByRole('button', { name: '90 วัน' }).click();
       expect(await tabNum('ยาเข้าใหม่')).toBeGreaterThanOrEqual(queueNew);
+
+      // ตัวกรองยาเข้าใหม่ — "ทั้งหมด" = ตัวเลขแท็บ · กดตัวกรองแล้วหัวโมดอลนับเท่าตัวเลขบนปุ่ม
+      const filters = dialog.getByRole('group', { name: 'กรองยาเข้าใหม่' });
+      const chipNum = async (loc) => Number((await loc.innerText()).match(/\(([\d,]+)\)\s*$/)[1].replace(/,/g, ''));
+      const allChip = filters.getByRole('button', { name: /^ทั้งหมด/ });
+      await expect(allChip).toHaveAttribute('aria-pressed', 'true');
+      const headNum = async () => Number((await dialog.locator('h3').innerText()).match(/\(([\d,]+)\)/)[1].replace(/,/g, ''));
+      expect(await chipNum(allChip)).toBe(await headNum());
+      const other = filters.getByRole('button').nth(1);
+      if (await other.count()) {
+        const n = await chipNum(other);
+        await other.click();
+        await expect(other).toHaveAttribute('aria-pressed', 'true');
+        expect(await headNum()).toBe(n);
+        await noOverflow();
+        await allChip.click();
+      }
 
       const copyBtn = dialog.getByRole('button', { name: /คัดลอกข้อความไลน์/ });
       if (await copyBtn.isEnabled()) {

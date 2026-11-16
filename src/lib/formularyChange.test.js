@@ -6,6 +6,7 @@
 import {
   buildNewDrugs, countReceivedNew, buildNewDrugLine, buildFormularyOut, sortRegistry,
   validateFormularyEntry, normalizeFormularyEntry, windowFromYmd, ptcByCode, receiveSummary,
+  countNewDrugFilters, summarizeNewDrugDispense,
 } from './formularyChange.js'
 
 let pass = 0, fail = 0
@@ -179,6 +180,27 @@ section('ทะเบียน + ฟอร์ม')
   assertEq(validateFormularyEntry({ ...ok, change_type: 'out', drug_code: '-' }), 'ยาตัดออกต้องมีรหัสยา (ยาที่มีในคลัง)', 'ตัดออกต้องมีรหัส')
   assertDeep(normalizeFormularyEntry({ change_type: 'in', drug_code: ' - ', drug_name: ' Vanco ', ptc_date: '2026-10-09', ptc_ref: ' ', note: ' PO 1 ' }),
     { change_type: 'in', drug_code: null, drug_name: 'Vanco', ptc_date: '2026-10-09', ptc_ref: null, note: 'PO 1' }, 'normalize: trim · ว่างเป็น null')
+}
+
+section('ตัวกรองยาเข้าใหม่ + สรุปเบิก')
+{
+  const list = [
+    { types: ['การซื้อ'], ptc: { id: 1 }, status: 'inspected' },
+    { types: ['การซื้อ'], ptc: null, status: 'pending' },
+    { types: ['การสนับสนุน'], ptc: null, status: 'inspected' },
+    { types: [], ptc: { id: 3 }, status: 'noCode' },
+  ]
+  assertDeep(countNewDrugFilters(list), { all: 4, purchase: 2, support: 1, ptc: 2, noPtc: 1, pending: 1, waiting: 1 }, 'นับต่อตัวกรอง · ยาสนับสนุนไม่นับเป็น "ยาซื้อ ไม่มีมติ"')
+
+  const s = summarizeNewDrugDispense([
+    { id: 3, dispense_date: '2026-10-20', department: 'ศบส.1', qty_out: 60, qty_after: 440 },
+    { id: 1, dispense_date: '2026-10-10', department: 'เทศบาล', qty_out: 300, qty_after: 500, item_type: 'บันทึกเท่านั้น' },
+    { id: 4, dispense_date: '2026-10-25', department: 'ศบส.1', qty_out: 40, qty_after: 400 },
+    { id: 2, dispense_date: '2026-10-15', department: 'ห้องยาG', qty_out: 0, qty_after: 500 },
+  ])
+  assertDeep(s.rows.map(r => r.id), [1, 2, 3, 4], 'เรียงตามวันเบิก')
+  assertDeep([s.count, s.total], [2, 100], 'ไม่นับ บันทึกเท่านั้น และ qty 0')
+  assertDeep(s.byDept, [{ dept: 'ศบส.1', qty: 100, times: 2 }], 'รวมต่อหน่วยงาน')
 }
 
 console.log('\n' + '─'.repeat(50))
