@@ -69,6 +69,9 @@ section('ยาเข้าใหม่ — คำนวณจากการร
 
   const pendingOnly = buildNewDrugs({ ...p, windowRows: [R(1, 'P', '2026-11-01', { receive_status: 'รอตรวจรับ' })] })
   assertEq(pendingOnly[0].status, 'pending', 'รอตรวจรับทั้งหมด')
+
+  const excluded = buildNewDrugs({ ...p, windowRows: [R(1, '92', '2026-11-01'), R(2, '920', '2026-11-01')] })
+  assertDeep(codes(excluded), ['920'], 'NOT_NEW_DRUG ตัดเฉพาะรหัสตรงตัว (92) ไม่ลามรหัสคล้าย')
 }
 
 section('มติ PTC เข้าบัญชี — ผูกกับยาที่รับ + รอของ')
@@ -191,6 +194,9 @@ section('ตัวกรองยาเข้าใหม่ + สรุปเ�
     { types: [], ptc: { id: 3 }, status: 'noCode' },
   ]
   assertDeep(countNewDrugFilters(list), { all: 4, purchase: 2, support: 1, ptc: 2, noPtc: 1, pending: 1, waiting: 1 }, 'นับต่อตัวกรอง · ยาสนับสนุนไม่นับเป็น "ยาซื้อ ไม่มีมติ"')
+  const off = [...list, { name: 'Acyclovir 500mg inj (ยานอกบัญชี)', types: ['การซื้อ'], ptc: null, status: 'pending' }]
+  const offCount = countNewDrugFilters(off)
+  assertDeep([offCount.purchase, offCount.noPtc], [3, 1], 'ยานอกบัญชีอยู่ใน "ยาซื้อ" แต่ไม่ขึ้นใน "ยาซื้อ ไม่มีมติ PTC"')
 
   const s = summarizeNewDrugDispense([
     { id: 3, dispense_date: '2026-10-20', department: 'ศบส.1', qty_out: 60, qty_after: 440 },

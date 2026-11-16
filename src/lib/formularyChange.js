@@ -16,6 +16,11 @@ export const RECEIVE_STATUS = { inspected: 'ตรวจรับแล้ว', 
 export const CHANGE_TYPE_LABEL = { in: 'เข้าบัญชี', out: 'ตัดออก' }
 const TYPE_TAG = { 'การสนับสนุน': 'ยาสนับสนุน', 'การบริจาค': 'ยาบริจาค' }
 
+// ไม่ใช่ยาเข้าใหม่จริง — user ยืนยันทีละรหัส (ยังไม่ตั้งกฎทั่วไป เช่น "คืนบริษัทหมด" จนกว่าจะคุยกัน) · รหัส → เหตุผล
+export const NOT_NEW_DRUG = new Map([
+  ['92', 'Kenalog oral base คืนบริษัทแล้ว เพราะส่งผิดขนาด (user 16/11/2569)'],
+])
+
 // 'N วันล่าสุด' นับวันนี้เป็นวันแรก
 export const windowFromYmd = (today, days) => addDaysYmd(today, 1 - days)
 
@@ -86,7 +91,7 @@ export function buildNewDrugs({ windowRows = [], priorCodes = new Set(), firstDi
 
   const out = []
   for (const g of byCode.values()) {
-    if (priorCodes.has(g.code)) continue
+    if (priorCodes.has(g.code) || NOT_NEW_DRUG.has(g.code)) continue
     const dispensed = firstDispense.get(g.code)
     if (dispensed && dispensed < g.firstAny) continue
     const rows = g.rows.filter(r => NEW_DRUG_TYPES.includes(r.purchase_type))
@@ -131,14 +136,17 @@ export function buildNewDrugs({ windowRows = [], priorCodes = new Set(), firstDi
 
 /**
  * ตัวกรองแท็บยาเข้าใหม่ (เลือกได้ทีละตัว · ซ้อนกันได้ เช่น ยาซื้อที่มีมติ อยู่ทั้ง "ยาซื้อ" และ "มีมติ PTC")
- * "ยาซื้อ ไม่มีมติ PTC" = ยาที่ซื้อเข้ามาโดยไม่มีมติเข้าบัญชีรองรับ — ต้องตามดูว่าเป็นยานอกบัญชี/เปลี่ยนรหัส/ผิดพลาด
+ * "ยาซื้อ ไม่มีมติ PTC" = ยาที่ซื้อเข้ามาโดยไม่มีมติเข้าบัญชีรองรับ — ต้องตามดูว่าเปลี่ยนรหัส/ผิดพลาด
+ *   ยานอกบัญชี (ชื่อใน Master มี "นอกบัญชี") ไม่มีมติ PTC อยู่แล้ว (ผอ.อนุมัติรายครั้ง) จึงไม่นับ — user 16/11/2569
  */
+export const isOffFormulary = (d) => String(d.name || '').includes('นอกบัญชี')
+
 export const NEW_DRUG_FILTERS = [
   { key: 'all',      label: 'ทั้งหมด',              test: () => true },
   { key: 'purchase', label: 'ยาซื้อ',               test: d => d.types.includes('การซื้อ') },
   { key: 'support',  label: 'ยาสนับสนุน/บริจาค',     test: d => d.types.some(t => t !== 'การซื้อ') },
   { key: 'ptc',      label: 'มีมติ PTC',            test: d => !!d.ptc },
-  { key: 'noPtc',    label: 'ยาซื้อ ไม่มีมติ PTC',    test: d => !d.ptc && d.types.includes('การซื้อ') },
+  { key: 'noPtc',    label: 'ยาซื้อ ไม่มีมติ PTC',    test: d => !d.ptc && d.types.includes('การซื้อ') && !isOffFormulary(d) },
   { key: 'pending',  label: 'รอตรวจรับ',            test: d => d.status === 'pending' },
   { key: 'waiting',  label: 'มติแล้ว รอของ',         test: d => d.status === 'noStock' || d.status === 'noCode' },
 ]
