@@ -70,7 +70,8 @@ test.describe('Permissions — staff', () => {
     if (!page) test.skip();
     await page.goto('/');
     await waitForDashboard(page);
-    await menu(page, 'วิเคราะห์').click(); // staff: อยู่ใต้เมนูแม่ "วิเคราะห์" (ผู้เบิกเห็นข้อเดียว = ไม่มีเมนูแม่)
+    await dismissStartupPopup(page, 15_000); // popup คืนบริษัทของ staff บังเมนู
+    // เมนูแม่ "วิเคราะห์" ถูกยุบแล้ว — วิเคราะห์การเบิกอยู่ในกลุ่มรายงานตรงๆ (navConfig)
     await expect(menu(page, 'วิเคราะห์การเบิก')).toBeVisible({ timeout: 5_000 });
   });
 
@@ -91,7 +92,7 @@ test.describe('Permissions — staff', () => {
     if (!page) test.skip();
     await page.goto('/');
     await waitForDashboard(page);
-    await menu(page, 'วิเคราะห์').click();
+    await dismissStartupPopup(page, 15_000);
     await menu(page, 'วิเคราะห์การเบิก').click();
     await expect(
       page.getByText(/วิเคราะห์|ช่วงเวลา|แนวโน้ม/i).first()
