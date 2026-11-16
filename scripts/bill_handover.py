@@ -198,7 +198,7 @@ h1 {{ font-size: 21px; margin: 0; }}
 .no b {{ font-size: 18px; }}
 .lead {{ margin: 10px 0 8px; line-height: 1.7; }}
 table {{ width: 100%; border-collapse: collapse; }}
-th, td {{ border: 1px solid #000; padding: 4px 5px; vertical-align: top; }}
+th, td {{ border: 1px solid #000; padding: {'2px 5px' if nrows > 10 else '4px 5px'}; vertical-align: top; }}
 th {{ background: #fff; font-weight: 700; text-align: center; }}
 td.c {{ text-align: center; }} td.r {{ text-align: right; white-space: nowrap; }}
 .sm {{ font-size: 12px; }}
