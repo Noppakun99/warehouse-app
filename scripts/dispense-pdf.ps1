@@ -45,6 +45,8 @@ try {
   $n = $RowList.Count
   # ตั้งก่อน AutoFit ความสูงแถวจึงรองรับตัวใหญ่ · ชีทเดิมตัว 20 ≈ 10 พอยท์บนกระดาษ → 28 ≈ 14 พอยท์
   Invoke-Retry { $ns.Range("C2:C$($n + 1)").Font.Size = 28 } 'DetailedLog font'
+  # user สั่ง 16/11/2569: lot ยาว (≥10 ตัว เช่น Speeda 202508212AY) ล้นคอลัมน์ Lot Number จนตัวหน้า/ท้ายหาย — ย่อตัวอักษรเฉพาะช่องที่ยาวเกิน ไม่ขยายคอลัมน์ (ความกว้างรวมต้องเท่าเดิม)
+  Invoke-Retry { $lotR = $ns.Range("I2:I$($n + 1)"); $lotR.WrapText = $false; $lotR.ShrinkToFit = $true } 'lot shrink'
   if ($SortLog) {
     # Excel sort ไม่สนขีด: E-10 < E-11 < E-1-3 · ห้องประชุม/ตู้เย็นอยู่ท้าย
     $mis = [System.Reflection.Missing]::Value
