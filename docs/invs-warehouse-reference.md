@@ -19,6 +19,8 @@
 
 ## 2. วิธีเข้าถึงเอกสารต้นฉบับ (ทำซ้ำได้)
 
+> ⚠️ **17/11/2569: หน้า `/inv-s/` ว่างแล้ว** (Apache "Index of" ไม่มีไฟล์ · `INVS_MANUAL.pdf`/`invs_download.php` ตอบ 404 ทั้งเข้าด้วย IP `164.115.40.125` และชื่อโดเมน) — เข้าทางหน้าแรก http://inv.dmsic.moph.go.th/ → เมนู **INV-C** (`/inv-c/` ยังมีคู่มือ · คู่มือส่ง Dataset ส.ค.2568 · Template) · ไฟล์ที่ดาวน์โหลดไว้ + ไฟล์รายงาน 5 แฟ้มรวมอยู่ `Desktop\ยอดคงคลัง\INVS\` (ดู `_อ่านก่อน.md`) · ส่งแฟ้มผ่าน API `https://dmsicapi.moph.go.th/api/v2` ด้วย Token จาก https://dmsic.moph.go.th
+
 หน้าเว็บ `http://inv.dmsic.moph.go.th/inv-s/` **บล็อกการยิง URL ตรงด้วย WAF ของ GDCC (ตอบ HTTP 500)** ต้องเปิดหน้าแรกก่อนแล้วค่อยตามลิงก์ ใช้ Playwright ที่มีใน repo (รันสคริปต์จาก root ของ repo เพื่อให้ resolve `playwright` เจอ)
 
 ลิงก์ดาวน์โหลดเป็น JS redirect — `invs_download.php?invs_item=<key>` คืน HTML ที่มี `window.location` ชี้ไฟล์จริง จึงต้องยิงตรงที่ `http://inv.dmsic.moph.go.th/inv-s/<file>.pdf` พร้อม header `referer` เป็นหน้า `/inv-s/` ผ่าน `ctx.request.get()` หลังเปิดหน้าแรกแล้ว
