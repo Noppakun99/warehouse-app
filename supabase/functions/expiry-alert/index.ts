@@ -412,6 +412,53 @@ function computeReturnStatusV2(policy: PolicyV2, exp: Date, receiveDate: Date | 
 }
 
 // ============================================================
+// ป้าย "บริษัทไม่รับคืน" ราย lot — ตรรกะเดียวกับ buildLotReturnPolicies (src/lib/drugProfile.js) → ตรงบัตรยา/หน้านโยบายคืนบริษัท
+// แก้ที่นั่นต้อง copy มาที่นี่ด้วย · ตรวจว่าตรงกัน: scripts/return-policy-check.mjs เทียบกับ body {"dryRun":true}
+// ============================================================
+interface CompanyPolicy { returnMonths: number | null; canReturn: boolean | null; differsByItem: boolean; }
+interface PolicyLot { supplier: string | null | undefined; row: any; receiveDate: string | null; }
+const cleanText = (v: unknown): string | null => { const s = String(v ?? "").trim(); return s && s !== "-" ? s : null; };
+const policyLotKey = (code: unknown, lot: unknown) =>
+  `${String(code || "").trim().toLowerCase()}|${String(lot || "-").trim().toLowerCase() || "-"}`;
+
+// recRows เรียงวันรับใหม่สุดก่อน · บริษัท = แถวใหม่สุดที่มีบริษัท · lot เดียวกันคนละบริษัท = null (กำกวม ADR-0012)
+function buildPolicyLotIndex(recRows: any[]): Map<string, PolicyLot> {
+  const idx = new Map<string, PolicyLot>();
+  for (const r of recRows) {
+    const code = String(r.drug_code || "").trim();
+    if (!code) continue;
+    const k = policyLotKey(code, r.lot);
+    let e = idx.get(k);
+    if (!e) { e = { supplier: undefined, row: null, receiveDate: r.receive_date || null }; idx.set(k, e); }
+    const co = cleanText(r.supplier_current);
+    if (!co) continue;
+    if (e.supplier === undefined) { e.supplier = co; e.row = r; }
+    else if (e.supplier !== null && e.supplier !== co) e.supplier = null;
+  }
+  return idx;
+}
+
+// → ข้อความป้าย หรือ null — คืนได้ / ต้องเช็กเอกสาร / ไม่รู้บริษัท = ไม่ติดป้าย (ไม่เดา)
+function noReturnNote(row: InvRow, exp: Date, idx: Map<string, PolicyLot>, companyPolicies: Record<string, CompanyPolicy>, today: Date): string | null {
+  const e = idx.get(policyLotKey(row.code, row.lot));
+  if (!e || !e.supplier) return null;
+  const tierDetail = cleanText(e.row.swap_tier_detail);
+  const policyV2 = tierDetail ? parseReturnPolicyV2(tierDetail) : null;
+  const explicit = !!policyV2 && policyV2.shape !== "ambiguous" && !policyV2.needsReview;
+  if (/แตกต่าง|แล้วแต่รายการ/.test(cleanText(e.row.swap_condition_am) || "") && !explicit) return null;
+  if (explicit) {
+    const [y, m, d] = String(e.receiveDate || "").split("T")[0].split("-").map(Number);
+    const rDate = y && m && d ? new Date(y, m - 1, d) : null;   // วันที่ local เหมือนแอป (ไม่ใช่ UTC)
+    const r = computeReturnStatusV2(policyV2!, exp, rDate, today);
+    return r.status === "no_return" ? (r.note || "บริษัทไม่รับคืน") : null;
+  }
+  if (tierDetail) return null;
+  const table = companyPolicies[e.supplier];
+  if (!table || table.differsByItem) return null;
+  return table.returnMonths == null && table.canReturn === false ? "บริษัทไม่รับคืน" : null;
+}
+
+// ============================================================
 // สร้าง HTML email
 // ============================================================
 interface InvRow {
@@ -427,7 +474,8 @@ interface DetailEntry {
   receive_date?: string;       // สำหรับ receive_threshold (Diltiazem)
   swap_condition_am?: string;  // finding #2 — flag แตกต่างกัน/เดียวกัน
 }
-interface AlertItem { r: InvRow; expDate: Date; }
+interface AlertItem { r: InvRow; expDate: Date; noReturn?: string | null; }
+const noReturnBadge = (item: AlertItem) => item.noReturn ? ` · <b style="color:#b91c1c;">${item.noReturn}</b>` : "";
 const isDiscontinued = (row: InvRow) => String(row.receive_status || "").includes("ตัดออก");
 
 /**
@@ -474,7 +522,7 @@ function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMa
     html += `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;margin:0 0 12px;background:${bg};border:1px solid ${bd};border-radius:8px;">
       <tr><td style="padding:12px 14px;">
         <div style="font-size:16px;font-weight:bold;color:#1e293b;line-height:1.4;word-break:break-word;">${row.name || "-"}</div>
-        <div style="font-size:12px;color:#94a3b8;margin:2px 0 8px;">${row.code || "-"}${row.type ? ` · ${row.type}` : ""}${isDiscontinued(row) ? ` · <b style="color:#475569;">ตัดออกจากบัญชี</b>` : ""}</div>
+        <div style="font-size:12px;color:#94a3b8;margin:2px 0 8px;">${row.code || "-"}${row.type ? ` · ${row.type}` : ""}${isDiscontinued(row) ? ` · <b style="color:#475569;">ตัดออกจากบัญชี</b>` : ""}${noReturnBadge(item)}</div>
         <div style="display:inline-block;background:${dc};color:#ffffff;font-size:13px;font-weight:bold;padding:4px 10px;border-radius:999px;margin-bottom:10px;">
           ${isExpired ? "หมดอายุแล้ว" : "เหลืออีก"} ${Math.abs(days)} วัน
         </div>
@@ -576,7 +624,7 @@ function buildExpiredEmail(expired: AlertItem[], today: Date, detailMap: Record<
     html += `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;margin:0 0 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;">
       <tr><td style="padding:12px 14px;">
         <div style="font-size:16px;font-weight:bold;color:#1e293b;line-height:1.4;word-break:break-word;">${row.name || "-"}</div>
-        <div style="font-size:12px;color:#94a3b8;margin:2px 0 8px;">${row.code || "-"}${row.type ? ` · ${row.type}` : ""}</div>
+        <div style="font-size:12px;color:#94a3b8;margin:2px 0 8px;">${row.code || "-"}${row.type ? ` · ${row.type}` : ""}${noReturnBadge(item)}</div>
         <div style="display:inline-block;background:#dc2626;color:#ffffff;font-size:13px;font-weight:bold;padding:4px 10px;border-radius:999px;margin-bottom:10px;">
           หมดอายุแล้ว ${over} วัน
         </div>
@@ -663,7 +711,7 @@ function lineBucket(items: AlertItem[], today: Date, isExpired: boolean, detailM
     const d = detailMap[`${code}|${lot}`] || ({} as DetailEntry);
     const supplier = d.supplier_current || "-";
     const daysLabel = isExpired ? `เกิน ${Math.abs(days)} วัน` : `เหลือ ${days} วัน`;
-    let l = `• ${row.name || "-"}${isDiscontinued(row) ? " [ตัดออกจากบัญชี]" : ""} (${row.qty || "-"} ${row.unit || ""}) exp ${fmtDate(item.expDate)} — ${daysLabel} · ${supplier}`;
+    let l = `• ${row.name || "-"}${isDiscontinued(row) ? " [ตัดออกจากบัญชี]" : ""}${item.noReturn ? " [บริษัทไม่รับคืน]" : ""} (${row.qty || "-"} ${row.unit || ""}) exp ${fmtDate(item.expDate)} — ${daysLabel} · ${supplier}`;
     const pol = policyText(row, detailMap);
     if (pol) l += `\n   ↳ นโยบาย: ${pol}`;
     return l;
@@ -768,11 +816,13 @@ Deno.serve(async (req) => {
     let channel = "email";
     let force = false;
     let dateOverride = "";
+    let dryRun = false;
     try {
       const body = await req.json();
       if (body && typeof body.channel === "string") channel = body.channel;
       if (body && body.force === true) force = true;              // ข้ามการเช็ควันทำการ (ทดสอบ/ส่งย้อน)
       if (body && typeof body.date === "string") dateOverride = body.date;  // ทดสอบวันอื่น
+      if (body && body.dryRun === true) dryRun = true;            // คืนผลคำนวณ ไม่ส่งอีเมล/LINE ไม่ลง audit
     } catch { /* body ว่าง/ไม่ใช่ JSON → email ตาม default */ }
     const doEmail = channel === "email" || channel === "both";
     let   doLine  = channel === "line"  || channel === "both";
@@ -828,11 +878,21 @@ Deno.serve(async (req) => {
     const usageFrom = new Date();
     usageFrom.setMonth(usageFrom.getMonth() - 6);
     const usageFromStr = usageFrom.toISOString().slice(0, 10);
-    const [invRows, recRows, dispRows] = await Promise.all([
+    const [invRows, recRows, dispRows, policyRows] = await Promise.all([
       fetchTable("inventory", "code,location,type,name,lot,exp,qty,unit,supplier,receive_status", "order=location"),
       fetchTable("receive_logs", "drug_code,lot,bill_number,supplier_current,drug_swap_policy,swap_tier_detail,swap_condition_am,supplier_changed,receive_date", "order=receive_date.desc.nullslast"),
       fetchTable("dispense_logs", "drug_code,qty_out,dispense_date,item_type,department", `dispense_date=gte.${usageFromStr}`),
+      fetchTable("swap_return_policy", "company,return_months,can_return,differs_by_item"),
     ]);
+    // ตารางนโยบายบริษัท (V1) — แปลงแบบเดียวกับ fetchSwapPolicies ในแอป
+    const companyPolicies: Record<string, CompanyPolicy> = {};
+    for (const p of policyRows) {
+      companyPolicies[p.company] = {
+        returnMonths: p.return_months == null ? null : Number(p.return_months),
+        canReturn: p.can_return, differsByItem: !!p.differs_by_item,
+      };
+    }
+    const policyLotIdx = buildPolicyLotIndex(recRows);
 
     // 2. สร้าง detailMap key="code|lot" + fallback "code|"
     // lot ว่าง → '-' ให้ตรง lotKey ใน db.js (fetchSwapReturnDue) ไม่งั้น email กับแอปชี้คนละ entry
@@ -914,8 +974,9 @@ Deno.serve(async (req) => {
 
       // expired = "ยาหมดอายุค้างคลัง" (CONTEXT §Expired-On-Shelf) — qty>0 ถูกกรองไว้ข้างบนแล้ว
       // แถวหมดอายุที่ qty=0 คือประวัติ (เก็บออก/จ่ายหมดแล้ว) ไม่ใช่ของค้าง → ไม่เตือน
-      if (exp < today) expired.push({ r: row, expDate: exp });
-      else if (exp <= warnDate) nearExpiry.push({ r: row, expDate: exp });
+      const noReturn = noReturnNote(row, exp, policyLotIdx, companyPolicies, today);
+      if (exp < today) expired.push({ r: row, expDate: exp, noReturn });
+      else if (exp <= warnDate) nearExpiry.push({ r: row, expDate: exp, noReturn });
     }
 
     expired.sort((a, b) => a.expDate.getTime() - b.expDate.getTime());
@@ -982,6 +1043,26 @@ Deno.serve(async (req) => {
     // LINE ใช้ threshold แคบกว่า (365) = subset ของ nearExpiry email (400) — filter ไม่ต้อง re-loop
     const lineNear = nearExpiry.filter(it => daysLeft(it.expDate, today) <= LINE_WARNING_DAYS);
     const lineTotal = expired.length + lineNear.length;
+
+    // dryRun = ดูผลก่อนส่งจริง (ตรวจป้ายไม่รับคืนเทียบ scripts/return-policy-check.mjs) — ไม่ส่ง ไม่ลง audit
+    if (dryRun) {
+      // ป้ายทุก lot คงเหลือ (ไม่จำกัดเฉพาะใกล้หมดอายุ) ไว้เทียบกับสคริปต์ทีละ lot
+      const allNoReturn: { code: string; lot: string; note: string }[] = [];
+      for (const row of invRows) {
+        const qty = parseFloat(String(row.qty || "0").replace(/,/g, ""));
+        const exp = parseExpDate(row.exp);
+        if (isNaN(qty) || qty <= 0 || !exp) continue;
+        const note = noReturnNote(row, exp, policyLotIdx, companyPolicies, today);
+        if (note) allNoReturn.push({ code: row.code, lot: row.lot || "-", note });
+      }
+      return new Response(JSON.stringify({
+        ...result, dryRun: true,
+        expired: expired.length, nearExpiry: nearExpiry.length, lineNear: lineNear.length, returnDue: returnDue.length,
+        noReturnInAlerts: [...expired, ...nearExpiry].filter(it => it.noReturn).map(it => ({ code: it.r.code, lot: it.r.lot, note: it.noReturn })),
+        allNoReturn,
+        lineText: buildLineText(expired, lineNear, today, detailMap),
+      }), { headers: { ...CORS, "Content-Type": "application/json" } });
+    }
 
     // 4. ส่งตาม channel
     result.expired = expired.length;
