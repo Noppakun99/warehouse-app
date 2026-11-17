@@ -1,6 +1,6 @@
 """จับคู่ PO ในระบบติดตามการสั่งซื้อ (Apps Script ของจัดซื้อ) กับบิลในชีท 'รับยา' (read-only)
 usage: python scripts/po_match.py [--file <recv.xlsm>] [--short-ok "45.05/2570,..."] [--commit]
-- PO ส่งหลายบิล: ลงครั้งเดียวเมื่อยอดบิลรวม = ยอด PO → เลขบิล "A, B" วันที่ = วันรับบิลสุดท้าย · ยังไม่ครบ = "ส่งบางส่วน" รอ
+- PO ส่งหลายบิล: ลงครั้งเดียวเมื่อยอดบิลรวม = ยอด PO → เลขบิล "A (1,234.50), B (567.00)" (ยอดรวม VAT ต่อบิล — หัวหน้าสั่ง 16/11/2569) วันที่ = วันรับบิลสุดท้าย · ยังไม่ครบ = "ส่งบางส่วน" รอ
 - --short-ok = PO ที่จัดซื้อยืนยันว่าบริษัทไม่ส่งส่วนที่เหลือแล้ว → ลงด้วยบิลที่ได้จริง (ห้ามใส่เองโดยไม่มีคำยืนยันจากจัดซื้อ)
 - ดึง PO ทุกใบจากระบบ → จับคู่บิลด้วยเลข PO ในคอลัมน์ I (7.05/2570 = PO 007.05/2570)
   บิลที่ช่อง PO ว่าง/'-' → ลองจับคู่จากยอด (ยอดบิล = ยอด PO และรับหลังวันออก PO, เจอใบเดียว) แล้ว flag ให้แก้ PO ในชีท
@@ -140,8 +140,11 @@ def match(pos, bills, short_ok=None):
         po_total = float(p['Total_Amount_VAT'] or 0)
         diff = round(bill_total - po_total, 2) if ms else ''
         st = p['Current_Status']
-        # PO ส่งหลายบิล → ลงระบบครั้งเดียวเมื่อครบ: เลขบิล "A, B" · วันที่ = วันรับบิลสุดท้าย (CONTEXT §ยามาส่ง)
-        bill_str = ', '.join(b['bill'] for b, _ in ms)
+        # PO ส่งหลายบิล → ลงระบบครั้งเดียวเมื่อครบ: เลขบิล "A (ยอดรวม VAT), B (ยอดรวม VAT)" · วันที่ = วันรับบิลสุดท้าย (CONTEXT §ยามาส่ง)
+        # หัวหน้าสั่ง 16/11/2569 ให้วงเล็บยอดแต่ละบิล · PO ที่ลงก่อนหน้าเป็น "A, B" (ระบบแก้ย้อนไม่ได้) → legacy_str ยังนับว่าตรง
+        bill_str = ', '.join(f"{b['bill']} ({b['total']:,.2f})" for b, _ in ms) if len(ms) > 1 else \
+            ''.join(b['bill'] for b, _ in ms)
+        legacy_str = ', '.join(b['bill'] for b, _ in ms)
         last_date = ms[-1][0]['date'] if ms else ''
         how_ok = all(h == 'เลข PO' for _, h in ms)
         how = ' / '.join(sorted({h for _, h in ms}))
@@ -161,7 +164,7 @@ def match(pos, bills, short_ok=None):
             else:
                 res = 'ต้องลงระบบ' + (' (ส่งไม่ครบ — จัดซื้อยืนยันไม่มีส่วนที่เหลือ)' if short_left else '')
                 todo.append((p, {'bill': bill_str, 'date': last_date, 'total': bill_total}))
-        elif p['Bill_Number'] != bill_str or p['Delivery_Date'] != last_date:
+        elif p['Bill_Number'] not in (bill_str, legacy_str) or p['Delivery_Date'] != last_date:
             res = 'ระบบไม่ตรงชีท (บิล/วันที่)'
         else:
             res = 'ตรงกัน' + (f' — ส่งไม่ครบ ได้ {bill_total:,.2f} จาก {po_total:,.2f}' if diff < -0.005 else '') \
