@@ -1817,9 +1817,20 @@ export async function bulkDeleteAuditLogs(ids) {
 }
 
 // --- Requester self-edit/delete requisition (pending only) ---
+// แก้/ลบได้เฉพาะใบ pending ที่คลังยังไม่ลงชีท (sheet_entered_at ว่าง) — เช็คที่ DB ด้วย ไม่พึ่งแค่ปุ่มบนจอ
+// (จอค้างจากก่อนคลังรับใบ/อนุมัติ ยังกดได้ → ยอดในแอปไม่ตรงชีทเบิกแบบเงียบ)
+export const REQUESTER_LOCKED_MSG = 'คลังยารับใบเบิกนี้แล้ว แก้ไข/ลบไม่ได้ — กรุณาติดต่อคลังยา'
+const requesterEditable = (q) => q.eq('status', 'pending').is('sheet_entered_at', null)
+
+async function assertRequesterEditable(id) {
+  const { data, error } = await requesterEditable(supabase.from('requisitions').select('id').eq('id', id))
+  if (error) throw error
+  if (!data?.length) throw new Error(REQUESTER_LOCKED_MSG)
+}
 
 export async function deleteRequesterRequisition(id, auth = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  await assertRequesterEditable(id)
   const { error: itemErr } = await supabase.from('requisition_items').delete().eq('requisition_id', id)
   if (itemErr) throw itemErr
   const { error } = await supabase.from('requisitions').delete().eq('id', id)
@@ -1830,13 +1841,25 @@ export async function deleteRequesterRequisition(id, auth = {}) {
 // audit:false = ผู้เรียกเขียน audit เองหลังตรวจยอดจองซ้ำผ่าน หรือใช้คืนค่าเดิมตอนชนกัน (ADR-0028)
 export async function updateRequesterRequisition(id, { note, items }, auth = {}, { audit = true } = {}) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
-  const { error } = await supabase.from('requisitions').update({ note: note || null, updated_at: new Date().toISOString() }).eq('id', id)
+  const { data: hit, error } = await requesterEditable(
+    supabase.from('requisitions').update({ note: note || null, updated_at: new Date().toISOString() }).eq('id', id)
+  ).select('id')
   if (error) throw error
+  if (!hit?.length) throw new Error(REQUESTER_LOCKED_MSG)
   for (const item of items) {
     const { error: itemErr } = await supabase.from('requisition_items').update({ requested_qty: item.requested_qty, note: item.note || null }).eq('id', item.id)
     if (itemErr) throw itemErr
   }
   if (audit) await insertAuditLog({ action: 'requester_edit_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id } })
+}
+
+// ผู้เบิกใส่จำนวน 0 = ตัดรายการออกจากใบ — เรียกหลังตรวจยอดจองซ้ำผ่านแล้ว (ก่อนหน้านั้นเก็บเป็น 0 ไว้ คืนค่าเดิมได้ครบ)
+export async function deleteRequesterRequisitionItems(id, itemIds) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  if (!itemIds?.length) return
+  await assertRequesterEditable(id)
+  const { error } = await supabase.from('requisition_items').delete().eq('requisition_id', id).in('id', itemIds)
+  if (error) throw error
 }
 
 // ส่งใบเบิก: หัวใบ+รายการในธุรกรรมเดียวผ่าน RPC (ADR-0028 — เดิม insert 2 ครั้ง เน็ตหลุดกลางทาง = หัวใบเปล่า)

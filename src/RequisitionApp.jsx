@@ -7,7 +7,7 @@ import {
   Printer, RefreshCcw, ChevronRight, ChevronDown, ChevronUp, Bell,
   Check, X, AlertCircle, Clock, FileDown,
   MapPin, Share2, Loader2, ClipboardList, CheckSquare,
-  ListOrdered, AlertTriangle, StickyNote,
+  ListOrdered, AlertTriangle, StickyNote, Lock,
 } from 'lucide-react';
 import { parseUnit } from './lib/unitParser';
 import { allocateFefo, sortLotsForDispense, lotOrderNote, isSupportedLot } from './lib/lotAllocation';
@@ -20,7 +20,7 @@ import { rankDrugs, matchDrugQuery } from './lib/drugSearchText';
 import { SORT_BY_LOG, SORT_BY_REQ, sortRowsByLog, sheetTitle, fmtDateCE, buildSheetHtml, toPackQty, fmtPackNote } from './lib/reqSheetFormat';
 import { buildSheetXlsxBlob, htmlToPdfBlob, shareOrDownload, safeFileName } from './lib/reqSheetExport';
 import ConfirmModal from './ConfirmModal';
-import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, updateRequesterRequisition, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyAndDispenseRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows } from './lib/db';
+import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, updateRequesterRequisition, deleteRequesterRequisitionItems, REQUESTER_LOCKED_MSG, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyAndDispenseRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 
 // ============================================================
@@ -2142,7 +2142,10 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
       setActionMsg('ลบใบเบิกสำเร็จ — เจ้าหน้าที่คลังยารับทราบแล้ว');
       setConfirmModal(null);
       load();
-    } catch (e) { setActionMsg('เกิดข้อผิดพลาด: ' + e.message); }
+    } catch (e) {
+      setActionMsg(e.message === REQUESTER_LOCKED_MSG ? e.message : 'เกิดข้อผิดพลาด: ' + e.message);
+      if (e.message === REQUESTER_LOCKED_MSG) { setConfirmModal(null); load(); }
+    }
     setSaving(false);
     setTimeout(() => setActionMsg(''), 4000);
   };
@@ -2158,10 +2161,23 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
   };
 
   const handleEdit = async () => {
-    setSaving(true); setEditError('');
+    setEditError('');
+    // ช่องจำนวนพิมพ์ได้ → ค่าว่างระหว่างพิมพ์ได้ · 0 = ตัดรายการ (ลบหลังผ่านด่านยอดจองซ้ำ)
+    const rawItems = editDraft?.items || [];
+    if (rawItems.some(it => it.requested_qty === '' || !Number.isInteger(Number(it.requested_qty)) || Number(it.requested_qty) < 0)) {
+      setEditError('กรอกจำนวนให้ครบทุกรายการ (ใส่ 0 = ตัดรายการนั้นออก)');
+      return;
+    }
+    if (rawItems.length > 0 && rawItems.every(it => Number(it.requested_qty) === 0)) {
+      setEditError('ทุกรายการเป็น 0 — ถ้าไม่ต้องการเบิกแล้ว ให้กดปุ่มลบใบเบิกแทน');
+      return;
+    }
+    const draft = { ...editDraft, items: rawItems.map(it => ({ ...it, requested_qty: Number(it.requested_qty) })) };
+    const removed = draft.items.filter(it => it.requested_qty === 0);
+    setSaving(true);
     try {
       // re-validate คงเหลือ−จอง ก่อนบันทึก (ปุ่ม +/− ในโมดอลไม่มี cap) — ไม่นับยอดจองของใบตัวเอง
-      const codes = [...new Set((editDraft?.items || []).map(i => i.drug_code).filter(Boolean))];
+      const codes = [...new Set(draft.items.map(i => i.drug_code).filter(Boolean))];
       let invBaseMap = {};
       if (supabase && codes.length > 0) {
         const [invNow, reservedOther] = await Promise.all([
@@ -2173,7 +2189,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
           const k = codeKey(it.drug_code);
           return Math.max(0, (invBaseMap[k] ?? 0) - (reservedOther[k] ?? 0));
         };
-        const conflicts = (editDraft?.items || []).filter(it => (Number(it.requested_qty) || 0) > effectiveOf(it));
+        const conflicts = draft.items.filter(it => (Number(it.requested_qty) || 0) > effectiveOf(it));
         if (conflicts.length > 0) {
           setEditError('บันทึกไม่ได้ — เกินคงเหลือในคลัง: ' + conflicts.map(it =>
             `${it.drug_name} ขอ ${Number(it.requested_qty).toLocaleString()} แต่เบิกได้ ${effectiveOf(it).toLocaleString()} ${it.drug_unit || ''}`.trim()
@@ -2184,17 +2200,17 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
       }
       const req = confirmModal.req;
       const original = req.requisition_items || [];
-      await updateRequesterRequisition(req.id, editDraft, auth, { audit: false });
+      await updateRequesterRequisition(req.id, draft, auth, { audit: false });
 
       // ตรวจซ้ำหลังบันทึก (ADR-0028) เฉพาะรหัสที่จำนวนเพิ่มขึ้น (ลดลงทำให้จองเกินไม่ได้)
       // ชนกับหน่วยงานอื่น → คืนจำนวน/หมายเหตุเดิมทั้งใบ โมดอลยังเปิดพร้อมค่าที่ผู้เบิกแก้ไว้
       const incKeys = increasedCodes(
         original.map(i => ({ code: i.drug_code, qty: i.requested_qty })),
-        (editDraft?.items || []).map(i => ({ code: i.drug_code, qty: i.requested_qty })),
+        draft.items.map(i => ({ code: i.drug_code, qty: i.requested_qty })),
         codeKey,
       );
       if (supabase && incKeys.length > 0) {
-        const incCodes = [...new Set((editDraft?.items || []).map(i => i.drug_code).filter(c => incKeys.includes(codeKey(c))))];
+        const incCodes = [...new Set(draft.items.map(i => i.drug_code).filter(c => incKeys.includes(codeKey(c))))];
         const reservedAfter = await fetchReservedBase(incCodes); // คงเหลือใช้ชุดก่อนบันทึก (เหตุผลเดียวกับตอนส่งใบ)
         const over = findOverReserved({ invBase: invBaseMap, reserved: reservedAfter, codes: incKeys });
         if (over.length > 0) {
@@ -2203,7 +2219,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
             items: original.map(i => ({ id: i.id, requested_qty: i.requested_qty, note: i.note })),
           }, auth, { audit: false });
           const conflicts = over.flatMap(o => {
-            const lines = (editDraft?.items || []).filter(it => codeKey(it.drug_code) === o.code);
+            const lines = draft.items.filter(it => codeKey(it.drug_code) === o.code);
             const own = lines.reduce((s, it) => s + (Number(it.requested_qty) || 0), 0);
             const available = availableForOwn({ inv: o.inv, reserved: o.reserved, own });
             return lines.map(it => ({ drug_code: it.drug_code, drug_name: it.drug_name, unit: it.drug_unit || '', requested: Number(it.requested_qty) || 0, available }));
@@ -2222,11 +2238,18 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
           return;
         }
       }
-      insertAuditLog({ action: 'requester_edit_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { requisition_id: req.id } });
-      setActionMsg('แก้ไขใบเบิกสำเร็จ — เจ้าหน้าที่คลังยารับทราบแล้ว');
+      await deleteRequesterRequisitionItems(req.id, removed.map(it => it.id));
+      insertAuditLog({ action: 'requester_edit_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { requisition_id: req.id, ...(removed.length ? { removed_items: removed.map(it => it.drug_name) } : {}) } });
+      setActionMsg(removed.length
+        ? `แก้ไขใบเบิกสำเร็จ (ตัดออก ${removed.length} รายการ) — เจ้าหน้าที่คลังยารับทราบแล้ว`
+        : 'แก้ไขใบเบิกสำเร็จ — เจ้าหน้าที่คลังยารับทราบแล้ว');
       setConfirmModal(null);
       load();
-    } catch (e) { setActionMsg('เกิดข้อผิดพลาด: ' + e.message); }
+    } catch (e) {
+      // คลังรับใบไปแล้วระหว่างที่โมดอลเปิด → บอกในโมดอล + โหลดรายการใหม่ให้ปุ่มแก้/ลบหายไป
+      setEditError(e.message === REQUESTER_LOCKED_MSG ? e.message : 'เกิดข้อผิดพลาด: ' + e.message);
+      if (e.message === REQUESTER_LOCKED_MSG) load();
+    }
     setSaving(false);
     setTimeout(() => setActionMsg(''), 4000);
   };
@@ -2303,6 +2326,8 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
         {filteredList.map(req => {
           const cfg = STATUS_CONFIG[req.status] || STATUS_CONFIG.pending;
           const isPending = req.status === 'pending';
+          // คลังลงชีทแล้ว (รับใบ) = ล็อก แม้สถานะยัง pending — db.js เช็คซ้ำฝั่ง DB
+          const canModify = isPending && !req.sheet_entered_at;
           return (
             <div key={req.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm">
               {/* div ไม่ใช่ button — ข้างในมีปุ่มพิมพ์/แก้/ลบ (button ซ้อน button = invalid HTML, hydration error) */}
@@ -2320,6 +2345,11 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                   {req.updated_at && req.updated_at !== req.created_at && (
                     <p className="text-xs text-amber-600 mt-0.5">
                       แก้ไขล่าสุด: {new Date(req.updated_at).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'})}
+                    </p>
+                  )}
+                  {isPending && !canModify && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
+                      <Lock size={11} className="shrink-0" /> คลังยารับใบแล้ว — ต้องการแก้ไขให้ติดต่อคลังยา
                     </p>
                   )}
                 </div>
@@ -2346,7 +2376,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                     className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded-lg transition-colors" title="Export Excel">
                     <FileDown size={15} />
                   </button>
-                  {isPending && (<>
+                  {canModify && (<>
                     <button onClick={e => { e.stopPropagation(); openEdit(req); }}
                       className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-lg transition-colors" title="แก้ไขใบเบิก">
                       <Pencil size={15} />
@@ -2437,9 +2467,10 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
       {/* ===== Confirmation / Edit Modal ===== */}
       {confirmModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+          {/* max-h-full + เนื้อหา overflow-y-auto: ใบ 40 รายการเดิมสูงเกินจอ หัว/ปุ่มบันทึกตกขอบ กดไม่ได้ */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-md max-h-full flex flex-col overflow-hidden">
             {/* Header */}
-            <div className={`px-5 py-4 border-b flex items-center gap-3 ${confirmModal.type==='delete' ? 'bg-red-50 dark:bg-red-950/40 border-red-100 dark:border-red-900/50' : 'bg-blue-50 dark:bg-blue-950/40 border-blue-100 dark:border-blue-900/50'}`}>
+            <div className={`shrink-0 px-5 py-4 border-b flex items-center gap-3 ${confirmModal.type==='delete' ? 'bg-red-50 dark:bg-red-950/40 border-red-100 dark:border-red-900/50' : 'bg-blue-50 dark:bg-blue-950/40 border-blue-100 dark:border-blue-900/50'}`}>
               <AlertCircle size={20} className={confirmModal.type==='delete' ? 'text-red-500' : 'text-blue-500'} />
               <div>
                 <p className={`font-bold text-sm ${confirmModal.type==='delete' ? 'text-red-800 dark:text-red-300' : 'text-blue-800 dark:text-blue-300'}`}>
@@ -2449,7 +2480,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
               </div>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="p-5 space-y-4 flex-1 min-h-0 overflow-y-auto">
               {/* Staff notification warning */}
               <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-3 py-2.5">
                 <Bell size={15} className="text-amber-500 shrink-0 mt-0.5" />
@@ -2477,17 +2508,23 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                     .filter(item => !itemSearch.trim() || item.drug_name.toLowerCase().includes(itemSearch.toLowerCase()))
                     .map((item, idx) => {
                     const realIdx = editDraft.items.findIndex(i => i.id === item.id);
+                    const setQty = (q) => setEditDraft(d => ({ ...d, items: d.items.map((it,i) => i===realIdx ? { ...it, requested_qty: q } : it) }));
+                    const removedRow = item.requested_qty !== '' && Number(item.requested_qty) === 0;
                     return (
-                    <div key={item.id} className="flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800 rounded-xl px-3 py-2 border border-slate-200 dark:border-slate-700">
+                    <div key={item.id} className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2 border ${removedRow ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900/60' : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{item.drug_name}</p>
-                        <p className="text-xs text-slate-400 dark:text-slate-500">{item.drug_unit||'-'}</p>
+                        <p className={`text-sm font-medium truncate ${removedRow ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-100'}`}>{item.drug_name}</p>
+                        <p className={`text-xs ${removedRow ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-slate-400 dark:text-slate-500'}`}>{removedRow ? 'ตัดรายการนี้ออก' : (item.drug_unit||'-')}</p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <button onClick={() => setEditDraft(d => ({ ...d, items: d.items.map((it,i) => i===realIdx ? { ...it, requested_qty: Math.max(1, it.requested_qty-1) } : it) }))}
+                        <button onClick={() => setQty(Math.max(0, (Number(item.requested_qty) || 0) - 1))} aria-label="ลดจำนวน"
                           className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-200 font-bold transition-colors">−</button>
-                        <span className="w-8 text-center font-bold text-slate-800 dark:text-slate-100">{item.requested_qty}</span>
-                        <button onClick={() => setEditDraft(d => ({ ...d, items: d.items.map((it,i) => i===realIdx ? { ...it, requested_qty: it.requested_qty+1 } : it) }))}
+                        {/* พิมพ์ได้ (เดิมกดได้ทีละ 1 · เลข 5 หลักล้นใต้ปุ่ม +) · 0 = ตัดรายการ */}
+                        {/* type=text: ลูกศรของ type=number กินที่จนเลข 6 หลักโดนบัง */}
+                        <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={7} value={item.requested_qty} aria-label={`จำนวน ${item.drug_name}`}
+                          onChange={e => { const v = e.target.value.replace(/\D/g, ''); setQty(v === '' ? '' : Number(v)); }}
+                          className="w-20 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 rounded-lg px-1.5 py-1 text-center text-base font-bold tabular-nums text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        <button onClick={() => setQty((Number(item.requested_qty) || 0) + 1)} aria-label="เพิ่มจำนวน"
                           className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-200 font-bold transition-colors">+</button>
                       </div>
                     </div>
@@ -2500,17 +2537,19 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                       placeholder="หมายเหตุ (ถ้ามี)"
                       className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
-                  {editError && (
-                    <p className="text-xs text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2 flex items-start gap-1.5">
-                      <AlertCircle size={13} className="shrink-0 mt-0.5"/> {editError}
-                    </p>
-                  )}
                 </div>
               )}
             </div>
 
+            {/* error อยู่นอกส่วนเลื่อน — ใบยาวกดบันทึกแล้วต้องเห็นทันที */}
+            {confirmModal.type !== 'delete' && editError && (
+              <p className="shrink-0 mx-5 mt-3 text-xs text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2 flex items-start gap-1.5 max-h-24 overflow-y-auto">
+                <AlertCircle size={13} className="shrink-0 mt-0.5"/> {editError}
+              </p>
+            )}
+
             {/* Actions */}
-            <div className="px-5 pb-5 flex gap-2">
+            <div className="shrink-0 px-5 pb-5 pt-3 flex gap-2 border-t border-slate-100 dark:border-slate-800">
               <button onClick={() => setConfirmModal(null)} disabled={saving}
                 className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200 rounded-xl py-2.5 font-medium text-sm transition-colors">
                 ยกเลิก
