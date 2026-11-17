@@ -188,9 +188,9 @@ def main():
 <title>ใบส่งบิลจัดซื้อ {doc_no}</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
 <style>
-@page {{ size: A4 portrait; margin: 12mm 11mm 12mm 11mm; }}
+@page {{ size: A4 portrait; margin: {'8mm 11mm 8mm 11mm' if nrows > 12 else '12mm 11mm 12mm 11mm'}; }}
 * {{ box-sizing: border-box; }}
-body {{ font-family: 'Sarabun', 'TH Sarabun New', Tahoma, sans-serif; font-size: 13.5px; color: #000; background: #fff; margin: 0; }}
+body {{ font-family: 'Sarabun', 'TH Sarabun New', Tahoma, sans-serif; font-size: {'12.5px' if nrows > 12 else '13.5px'}; color: #000; background: #fff; margin: 0; }}
 .top {{ display: flex; justify-content: space-between; align-items: flex-start; }}
 h1 {{ font-size: 21px; margin: 0; }}
 .hosp {{ font-size: 15px; font-weight: 700; }}
@@ -206,15 +206,15 @@ tr {{ page-break-inside: avoid; }}
 tr.first td {{ border-top: 2px solid #000; }}
 tfoot td {{ font-weight: 700; border-top: 2px solid #000; }}
 .words {{ margin-top: 6px; }}
-.remark {{ margin-top: 10px; padding: 6px 8px; border: 1px solid #000; line-height: 1.6; }}
-.ack {{ margin-top: 18px; line-height: 1.8; }}
-.sig {{ display: flex; gap: 24px; margin-top: 22px; page-break-inside: avoid; }}
+.remark {{ margin-top: {'6px' if nrows > 12 else '10px'}; padding: {'4px 8px' if nrows > 12 else '6px 8px'}; border: 1px solid #000; line-height: 1.6; }}
+.ack {{ margin-top: {'8px' if nrows > 12 else '18px'}; line-height: 1.8; }}
+.sig {{ display: flex; gap: 24px; margin-top: {'10px' if nrows > 12 else '22px'}; page-break-inside: avoid; }}
 .sig > div {{ flex: 1; border: 1px solid #000; padding: 10px 14px; }}
 .sig .t {{ font-weight: 700; text-align: center; margin-bottom: 6px; }}
-.ln {{ display: flex; align-items: baseline; gap: 6px; margin-top: 16px; }}
+.ln {{ display: flex; align-items: baseline; gap: 6px; margin-top: {'10px' if nrows > 12 else '16px'}; }}
 .fl {{ display: inline-block; flex: 1; height: 1.5em; vertical-align: bottom; border-bottom: 1px dotted #000; text-align: center; }}
 .fl.w {{ flex: 0 0 auto; width: 34px; }}
-.foot {{ margin-top: 12px; font-size: 11px; }}
+.foot {{ margin-top: {'4px' if nrows > 12 else '12px'}; font-size: 11px; }}
 </style></head><body>
 <div class="top">
   <div><div class="hosp">โรงพยาบาลประชาธิปัตย์ · คลังยา</div><h1>ใบส่งบิลซื้อยาให้งานจัดซื้อ</h1></div>
