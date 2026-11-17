@@ -19,6 +19,7 @@ OUT_DIR = r'C:\Users\PRH0000484\Desktop\ยอดคงคลัง\ส่งบ
 OUT_CSV = os.path.join(OUT_DIR, '_POจัดซื้อ_จับคู่บิล.csv')
 ENV_LOCAL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env.local')
 WAIT_DELIVERY = 'รอยามาส่ง'
+WAIT_EGP = 'รอจัดทำ PO eGP'
 OVERDUE_DAYS = 10
 PO_RE = re.compile(r'(\d+)\.(\d+)/(\d{4})')
 
@@ -153,6 +154,10 @@ def match(pos, bills, short_ok=None):
                 (today - datetime.date.fromisoformat(p['PO_Issued_Date'])).days > OVERDUE_DAYS
             res = ('รอยามาส่ง — เกินกำหนด' if late else 'รอยามาส่ง') if st == WAIT_DELIVERY else \
                   ('ยังไม่ออก PO' if not p['PO_Issued_Date'] else 'ระบบมีบิลแต่ชีทไม่พบ' if p['Bill_Number'] else '-')
+        elif st == WAIT_EGP and not p['Bill_Number']:
+            # จัดซื้อทำชุด PO ใหม่ (แก้ราคา/จำนวน) ระบบถอยสถานะกลับ — ชีทไม่ได้ผิด คลังรอจน PO ใหม่ถึง "รอยามาส่ง" แล้วค่อยลง
+            # (หัวหน้า 17/11/2569 PO 033.05 · 142.05 — เดิมขึ้น "ระบบไม่ตรงชีท" ชวนเข้าใจผิดว่าชีทผิด)
+            res = f'รอ PO ใหม่ — จัดซื้อถอยไป "{WAIT_EGP}" ยังลงยามาส่งไม่ได้' +                 (f' (ยอดบิลต่างจาก PO เดิม {diff:+,.2f})' if abs(diff) > 0.005 else '')
         elif diff > 0.005:
             res = f'ยอดบิลเกินยอด PO ({diff:+,.2f})'
         elif st == WAIT_DELIVERY:
@@ -189,7 +194,7 @@ def match(pos, bills, short_ok=None):
 
 def is_problem(res):
     """ผลที่คลังต้องลงมือ (ใช้ร่วมกับ check-complete.py)"""
-    return not res.startswith(('ตรงกัน', 'ยังไม่ออก PO', 'รอยามาส่ง', 'ส่งบางส่วน')) and 'ก่อนเริ่มใช้ระบบ' not in res \
+    return not res.startswith(('ตรงกัน', 'ยังไม่ออก PO', 'รอยามาส่ง', 'ส่งบางส่วน', 'รอ PO ใหม่')) and 'ก่อนเริ่มใช้ระบบ' not in res \
         or 'แก้ PO' in res
 
 

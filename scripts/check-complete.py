@@ -320,7 +320,7 @@ if po_rows is not None:
     # ส่งบางส่วน = ยังไม่ลงระบบโดยเจตนา (ลงครั้งเดียวเมื่อครบ PO) — ไม่ใช่ปัญหา แต่ต้องรู้ว่ารอบิลที่เหลือ
     #   บริษัทไม่ส่งส่วนที่เหลือแล้ว (จัดซื้อยืนยัน) → python scripts/po_match.py --short-ok "<เลข PO>" --commit
     for r in po_out:
-        if r['ผล'].startswith('ส่งบางส่วน'):
+        if r['ผล'].startswith(('ส่งบางส่วน', 'รอ PO ใหม่')):
             print(f"  … {r['เลขที่PO']} {r['ผล']} · บิล {r['บิล(ชีท)']}")
     n_done = sum(1 for r in po_out if r['ผล'].startswith('ตรงกัน'))
     n_wait = sum(1 for r in po_out if r['ผล'].startswith('รอยามาส่ง'))
