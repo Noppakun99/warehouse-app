@@ -8,6 +8,9 @@
 # ไม่ทำ: เปิดไฟล์ใน OneDrive (ปฏิเสธ) · วางกลับ · diff · PDF · ทะเบียน — ทำต่อตาม /excel-com ขั้น 7–10
 # แถว Master เดียวกันใช้หลายแถวเบิกได้ (หลายใบ): ครั้งแรกเทียบ U จริง ครั้งถัดไปเทียบ U หลังครั้งก่อน · M = U ก่อนเบิกของแถวนั้น
 # แถวจ่าย 0 (zero = ของไม่มีให้จ่าย): N = 0 · M = O = U · อ้างแถวรอตรวจรับได้ (แถวอื่นห้ามรอตรวจรับ)
+# แถว recordOnly: true (อินซูลินจ่ายจากตู้ substock — memory ri-fridge-substock): L = บันทึกเท่านั้น · N = q · M = O = U · ไม่ตัดคลัง
+#   ไม่เข้าด่าน T/U ลดตาม Σq · ด่าน "แถวนอกแผน T ต้องไม่เปลี่ยน" ยืนยันว่าไม่ตัดจริง (เพิ่ม 18/11/2569 ใบ IPD)
+#   recordOnly + unit/unitPrice (ไม่บังคับ): H/I เป็นหน่วยย่อยแทนหน่วย Master เช่นใบ ALS เทศบาลนับ amp (แบบ บย.70/0022 แถว 8647–8648)
 param([Parameter(Mandatory)][string]$StockPath, [Parameter(Mandatory)][string]$PlanPath, [Parameter(Mandatory)][string]$LogPath)
 $ErrorActionPreference = 'Stop'
 $PLACEHOLDER = '[วันแจ้งสั่งซื้อ?]'
@@ -100,6 +103,13 @@ try {
     $q = [double]$p.q
     $zero = ($q -eq 0)
     if (-not $zero -and "$($ws.Range("C$m").Value2)" -match 'รอตรวจรับ') { throw "Master แถว $m รอตรวจรับ — จ่ายไม่ได้" }
+    if ($p.recordOnly -eq $true) {
+      $uNow = [double]$ws.Range("U$m").Value2
+      if ($base.ContainsKey($m)) { $uNow = $base[$m].u0 - $base[$m].sumQ }
+      if ($uNow -ne [double]$p.u) { throw "Master แถว $m [$($p.key)] U คาด $($p.u) เจอ $uNow" }
+      $its += @{ r = $r; m = $m; q = $q; uB = $uNow; rec = $true; unit = $p.unit; unitPrice = $p.unitPrice; note = [string]$p.note; no = [string]$p.no; dept = [string]$p.dept; key = $p.key; w = $p.w; x = $p.x }
+      $r++; continue
+    }
     if (-not $base.ContainsKey($m)) { $base[$m] = @{ u0 = [double]$ws.Range("U$m").Value2; t0 = [double]$ws.Range("T$m").Value2; sumQ = 0.0 } }
     $uBefore = $base[$m].u0 - $base[$m].sumQ
     if ($uBefore -ne [double]$p.u) { throw "Master แถว $m [$($p.key)] U ก่อนเบิกคาด $($p.u) เจอ $uBefore" }
@@ -118,14 +128,14 @@ try {
     Set-CellFmt ($wsB.Range("E$r")) '@'; Set-CellV ($wsB.Range("E$r")) ("$($ws.Range("F$m").Value2)")
     Set-CellV ($wsB.Range("F$r")) ("$($ws.Range("G$m").Value2)")
     Set-CellV ($wsB.Range("G$r")) ("$($ws.Range("H$m").Value2)")
-    Set-CellV ($wsB.Range("H$r")) ("$($ws.Range("I$m").Value2)")
-    Set-CellV ($wsB.Range("I$r")) ([double]$ws.Range("J$m").Value2)
+    if ($it.rec -and "$($it.unit)" -ne '') { Set-CellV ($wsB.Range("H$r")) ([string]$it.unit) } else { Set-CellV ($wsB.Range("H$r")) ("$($ws.Range("I$m").Value2)") }
+    if ($it.rec -and $null -ne $it.unitPrice) { Set-CellV ($wsB.Range("I$r")) ([double]$it.unitPrice) } else { Set-CellV ($wsB.Range("I$r")) ([double]$ws.Range("J$m").Value2) }
     Set-CellFmt ($wsB.Range("J$r")) '@'; Set-CellV ($wsB.Range("J$r")) ("$($ws.Range("K$m").Value2)")
     $ex = $ws.Range("L$m").Value2
     if ($ex -is [double]) { Set-CellV ($wsB.Range("K$r")) ([double]$ex); Set-CellFmt ($wsB.Range("K$r")) ($wsB.Range("K$EXPECT_LAST").NumberFormat) } else { Set-CellV ($wsB.Range("K$r")) ("$ex") }
-    Set-CellV ($wsB.Range("L$r")) ("$($ws.Range("M$m").Value2)")
+    if ($it.rec) { Set-CellV ($wsB.Range("L$r")) ('บันทึกเท่านั้น') } else { Set-CellV ($wsB.Range("L$r")) ("$($ws.Range("M$m").Value2)") }
     Set-CellV ($wsB.Range("M$r")) ([double]$it.uB); Set-CellV ($wsB.Range("N$r")) ([double]$it.q)
-    Set-CellV ($wsB.Range("O$r")) ([double]($it.uB - $it.q))
+    if ($it.rec) { Set-CellV ($wsB.Range("O$r")) ([double]$it.uB) } else { Set-CellV ($wsB.Range("O$r")) ([double]($it.uB - $it.q)) }
     Set-CellV ($wsB.Range("P$r")) ([string]$it.dept)
     if ($it.note -ne '') { Set-CellV ($wsB.Range("Q$r")) ([string]$it.note) }
     if ($null -ne $it.w) { Set-CellV ($wsB.Range("W$r")) ([double]$it.w) }
