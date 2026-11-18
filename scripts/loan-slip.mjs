@@ -1,5 +1,6 @@
 // loan-slip.mjs — ใบยืมยา / ใบคืนยา ระหว่างหน่วยงาน แบบกรอกข้อมูลให้ล่วงหน้า (พร้อมเซ็น)
 //   node scripts/loan-slip.mjs --next-ln                 ← เลขที่ใบยืมถัดไป (ทะเบียน รพ.ยืมยา "เลขที่ใบยืม" + เลขที่แอปออกใน drug_loan_slip)
+//   node scripts/loan-slip.mjs --open [--json]           ← ใบแจ้งยืม/รับคืนจากแอปที่ยังไม่ลงทะเบียน (pending/conflict · อ่านอย่างเดียว)
 //   node scripts/loan-slip.mjs <job.json> --preview      ← PDF ใน temp อย่างเดียว
 //   node scripts/loan-slip.mjs <job.json>                ← PDF ลง รวมเบิกยา\PDF\ยืม-คืนยา\ + _สถานะพิมพ์.csv + print-queue
 //   node scripts/loan-slip.mjs <job.json> --replace      ← ทับไฟล์เดิม (แก้ก่อนพิมพ์)
@@ -26,7 +27,7 @@ import { execFileSync } from 'child_process'
 import { fileURLToPath, pathToFileURL } from 'url'
 import XLSX from 'xlsx'
 import { fillLoanSlip, money } from '../src/lib/loanSlipFill.js'
-import { nextLoanNumber } from '../src/lib/loanSlip.js'
+import { nextLoanNumber, SLIP_KIND } from '../src/lib/loanSlip.js'
 import { loadEnv } from './_shared.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -103,6 +104,27 @@ function makeSlip() {
   execFileSync('python', [path.join(ROOT, 'scripts/print-queue.py')], { stdio: 'inherit' })
 }
 
-// --next-ln ห้าม process.exit — ปิดขณะ fetch ของ supabase ยังค้าง Node บน Windows ล่ม (libuv assertion · exit 127)
+// ใบที่แอปออกแล้วยังไม่ลงทะเบียน (pending/conflict) — check-complete.py ข้อ 12 อ่าน --json
+async function openSlips(json) {
+  loadEnv()
+  const { supabase } = await import('../src/lib/supabase.js')
+  if (!supabase) die('ไม่พบค่า Supabase ใน .env.local')
+  const { data, error } = await supabase.from('drug_loan_slip')
+    .select('id, kind, direction, counterparty, ln, slip_date, job, status, note, created_by, created_at')
+    .in('status', ['pending', 'conflict']).order('id')
+  if (error) die('อ่าน drug_loan_slip ไม่ได้: ' + error.message)
+  const rows = (data || []).map(r => ({
+    id: r.id, kind: r.kind, kindLabel: SLIP_KIND[r.kind] || r.kind, status: r.status, note: r.note || '',
+    doc: r.ln || r.job?.loanDoc || '', counterparty: r.counterparty, slipDate: r.slip_date,
+    createdBy: r.created_by || '', createdAt: r.created_at,
+    items: (r.job?.items || []).map(i => `${i.name || i.drugCode || '-'} lot ${i.lotReturned || i.lot || '-'} × ${i.qty ?? '-'} ${i.unit || ''}`.trim()),
+  }))
+  if (json) { console.log(JSON.stringify(rows)); return }
+  console.log(rows.length ? `ใบยืม-คืนจากแอปที่ยังไม่ลงทะเบียน ${rows.length} ใบ:` : 'ไม่มีใบยืม-คืนค้าง')
+  for (const r of rows) console.log(`  #${r.id} [${r.status}] ${r.kindLabel} ${r.doc} · ${r.counterparty} · ${r.items.join(' / ')} · ${r.createdBy} ${String(r.createdAt).slice(0, 10)}${r.note ? ` · ${r.note}` : ''}`)
+}
+
+// --next-ln / --open ห้าม process.exit — ปิดขณะ fetch ของ supabase ยังค้าง Node บน Windows ล่ม (libuv assertion · exit 127)
 if (args.includes('--next-ln')) console.log(await nextLn())
+else if (args.includes('--open')) await openSlips(args.includes('--json'))
 else makeSlip()

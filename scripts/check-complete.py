@@ -1,11 +1,12 @@
 # เช็คครบ — งานเอกสารคลังที่ทำค้างไว้ครบหรือยัง (อ่านอย่างเดียว ไม่เขียนไฟล์ใด)
 # ใช้: python scripts/check-complete.py
-# ตรวจ 11 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
+# ตรวจ 12 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
 #            · รูปบิลมีแถวดัชนี / แถวดัชนีมีไฟล์จริง · รูปตรวจรับรอถ่ายซ้ำ · แถวรับยามีแถว Master · บิลซื้อยังไม่ส่งจัดซื้อ
 #            · รายการตรวจรับที่มีรูปอยู่ในเอกสารสรุปตรวจรับ (ตร.) + ผู้ตรวจรับเซ็นภายใน 7 วัน
 #            · บิลซื้อลง "ยามาส่ง" ในระบบติดตามการสั่งซื้อของจัดซื้อแล้ว (อ่านระบบผ่านเน็ต — scripts/po_match.py)
 #            · ใบเบิกศูนย์/รพ.สต. มีชีทในไฟล์สรุปเบิกยา · นัดเตือน (_นัดเตือน.csv)
 #            · รายงานแจ้งซื้อยารอบล่าสุดมีสำเนาส่งหัวหน้า · ใบแจ้งย้ายที่เก็บ (แผนผัง) ลง Excel แล้ว
+#            · ใบแจ้งยืม/รับคืนที่ออกในแอปลงทะเบียน รพ.ยืมยา แล้ว
 #            · วิเคราะห์สั่งซื้อ!P2 ตรงสำเนางวดล่าสุด + ชีทเบิก AA:AC แถวงวดปิดว่าง (ขั้นมือตอนขึ้นเดือน)
 import csv, datetime, glob, os, re, sys, warnings
 
@@ -453,5 +454,35 @@ else:
             bad(f"conflict {what} · {m.get('note') or ''} — ถาม user ว่าที่ไหนถูก")
     if not moves:
         ok('ไม่มีใบแจ้งย้ายค้าง')
+
+# 12) ใบแจ้งยืม/ใบแจ้งรับคืนที่ออกในแอป (drug_loan_slip) ยังไม่ลงทะเบียน รพ.ยืมยา (user สั่ง 18/11/2569)
+#     แอปไม่เขียน drug_loan ตรง → Claude ลง Excel ตาม memory loan-slip-print → import:loan แล้วใบปิดเอง (applied)
+#     ยังไม่มีอนุญาตถาวร: เจอ pending = แจ้ง user ก่อนลง · conflict = ถาม user
+head('ใบแจ้งยืม/รับคืน (หน้ายืม-คืนยาในแอป) ↔ ทะเบียน รพ.ยืมยา')
+SLIP_PHOTO_DAYS = 3   # ออกใบแล้วเกินนี้ยังไม่มีรูปใบเซ็นในโฟลเดอร์พัก ใบคืนยา\ = เตือนให้ถ่ายรูป
+try:
+    import json, subprocess
+    out = subprocess.run(['node', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'loan-slip.mjs'), '--open', '--json'],
+                         capture_output=True, text=True, encoding='utf-8', timeout=120)
+    slips = json.loads(out.stdout.strip().splitlines()[-1]) if out.returncode == 0 and out.stdout.strip() else None
+except Exception:
+    slips = None
+if slips is None:
+    bad('อ่านใบยืม-คืนจากแอปไม่ได้ (เน็ต/Supabase) — ตรวจข้อนี้ไม่ได้')
+else:
+    inbox_photos = [p for p in glob.glob(os.path.join(INBOX, 'ใบคืนยา', '*')) if os.path.isfile(p)]
+    today = datetime.date.today()
+    for s in slips:
+        made = datetime.datetime.fromisoformat(str(s['createdAt'])).astimezone().date()   # created_at เป็น UTC
+        age = (today - made).days
+        what = (f"#{s['id']} {s['kindLabel']} {s['doc'] or '-'} · {s['counterparty']} · "
+                f"{' / '.join(s['items']) or '-'} · ออก {be(made)} ({s['createdBy'] or '-'})")
+        if s['status'] == 'conflict':
+            bad(f"ทะเบียนไม่ตรงใบ {what} · {s['note']} — ถาม user ว่าอันไหนถูก")
+            continue
+        photo = '' if inbox_photos or age < SLIP_PHOTO_DAYS else f' · ออกมา {age} วันยังไม่มีรูปใบเซ็นในโฟลเดอร์พัก ใบคืนยา\\'
+        bad(f'รอลง Excel {what} — ลงทะเบียน+รับยา/Master หรือเบิก แล้ว import:loan (memory loan-slip-print){photo}')
+    if not slips:
+        ok('ไม่มีใบยืม-คืนจากแอปค้าง')
 
 print(f'\n{"ครบทุกข้อ" if problems == 0 else f"ไม่ครบ {problems} จุด"}')
