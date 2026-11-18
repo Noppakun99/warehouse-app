@@ -82,6 +82,7 @@ export function buildDeadStock({ stockLots = [], dispenses = [], firstReceive = 
   const lastCompleteIdx = ymIndex(currentYm) - 1
   const lastUse = new Map()
   const usedThisMonth = new Set()
+  const deptUse = new Map() // drugKey → Map(หน่วยงาน → { count, lastYm }) ให้หัวหน้าเห็นว่าใครเคยใช้ (user สั่ง 18/11/2569)
   for (const d of dispenses) {
     if (!(Number(d.qty_out) > 0) || !isRealUsage(d.department)) continue
     const ym = ymOf(d.dispense_date)
@@ -89,6 +90,12 @@ export function buildDeadStock({ stockLots = [], dispenses = [], firstReceive = 
     const k = drugKey(d.drug_code, d.drug_name)
     if (ym === currentYm) usedThisMonth.add(k)
     if (!lastUse.has(k) || ym > lastUse.get(k)) lastUse.set(k, ym)
+    if (!deptUse.has(k)) deptUse.set(k, new Map())
+    const dm = deptUse.get(k), dept = s(d.department)
+    const u = dm.get(dept) || { dept, count: 0, lastYm: ym }
+    u.count += 1
+    if (ym > u.lastYm) u.lastYm = ym
+    dm.set(dept, u)
   }
 
   const byDrug = new Map()
@@ -151,6 +158,8 @@ export function buildDeadStock({ stockLots = [], dispenses = [], firstReceive = 
       nearestExp, returnableLots: returnable.length, returnDeadline: deadline,
       group, ptc, suggestion, excluded: g.excluded, allSupported,
       locations: [...g.locations], suppliers: [...g.suppliers], lots: g.lots,
+      // เบิกล่าสุดก่อน แล้วเบิกบ่อยก่อน
+      usedBy: [...(deptUse.get(g.key)?.values() || [])].sort((a, b) => b.lastYm.localeCompare(a.lastYm) || b.count - a.count),
     })
   }
   rows.sort((a, b) => b.idleMonths - a.idleMonths || b.value - a.value)
