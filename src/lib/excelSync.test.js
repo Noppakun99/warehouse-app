@@ -22,7 +22,7 @@ const section = (t) => console.log(`\n=== ${t} ===`)
 const inv = (o = {}) => ({
   location: 'C-4-4', code: '1540029', name: 'Adenosine 6mg/2ml', type: 'Injection', unit: 'amp',
   lot: '2F24005', exp: '31/10/2027', qty: '10', invoice: 'IV6870281', main_log: 'C', item_type: 'ยกยอด',
-  receive_status: 'ตรวจรับแล้ว|คงไว้', safety_stock: 13, ...o,
+  receive_status: 'ตรวจรับแล้ว|คงไว้', safety_stock: 13, price: 300, ...o,
 })
 const disp = (o = {}) => ({
   dispense_date: '2026-09-28', main_log: 'C', detail_log: 'C-4-4', department: 'ห้องยาG', note: null,
@@ -45,8 +45,9 @@ const flat = flattenInventory({
   'E-10': [{ name: 'Aspirin' }],
 })
 eq(flat.length, 2, '2 ที่เก็บ → 2 แถว')
-eq(flat[0], { location: 'C-4-4', code: '1540029', name: 'Adenosine', type: '-', unit: '-', lot: '2F24005', exp: '-', qty: '10', invoice: 'IV1', main_log: 'C', item_type: 'ยกยอด', receive_status: 'ตรวจรับแล้ว', safety_stock: 13, case_size: null }, 'map ฟิลด์ครบ + ค่าว่างเป็น -')
+eq(flat[0], { location: 'C-4-4', code: '1540029', name: 'Adenosine', type: '-', unit: '-', lot: '2F24005', exp: '-', qty: '10', invoice: 'IV1', main_log: 'C', item_type: 'ยกยอด', receive_status: 'ตรวจรับแล้ว', safety_stock: 13, case_size: null, price: null }, 'map ฟิลด์ครบ + ค่าว่างเป็น -')
 eq(flattenInventory({ X: [{ name: 'D5S', caseSize: 10 }] })[0].case_size, 10, 'caseSize → case_size')
+eq(flattenInventory({ X: [{ name: 'D5S', price: 12.5 }] })[0].price, 12.5, 'price → price')
 eq([flat[1].code, flat[1].qty, flat[1].receive_status, flat[1].safety_stock, flat[1].main_log], ['-', '0', 'ไม่มีการดำเนินการ', null, null], 'ค่า default')
 eq('updated_at' in flat[0], false, 'ไม่ใส่ updated_at (db.js เติมเอง — ไม่งั้นส่วนต่างไม่มีวันเป็น 0)')
 
@@ -200,6 +201,8 @@ eq(caseGrids.caseGrid?.length, 2, 'มีชีทขนาดลัง → อ�
 plan = buildSyncPlan({ ...base, ...caseGrids })
 eq(plan.inventory.rows.map(r => r.case_size), [50, null], 'บริษัทตรง = 50 · คนละบริษัท = null')
 eq(plan.inventory.changedFields.map(f => f.label), ['ขนาดลัง'], 'DB ยังไม่มีขนาดลัง → ส่วนต่างบอกช่อง ขนาดลัง')
+plan = buildSyncPlan({ ...base, prevInventory: base.prevInventory.map(r => ({ ...r, qty: '0', price: null })) })
+eq(plan.inventory.changedFields.map(f => f.label), ['ราคา/หน่วย'], 'DB ยังไม่มีราคา (นำเข้าครั้งแรกหลังเพิ่มคอลัมน์) → ส่วนต่างช่อง ราคา/หน่วย')
 
 // ไฟล์ที่ไม่ได้แก้อะไร → ไม่มีส่วนต่าง (ต้องเป็นจริงไม่งั้นทุกรอบจะโชว์ว่าเปลี่ยน)
 const same = buildSyncPlan(base)

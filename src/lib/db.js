@@ -3278,6 +3278,35 @@ export async function fetchCompanyPolicyData() {
   return { inventoryRows, receiveRows, companyPolicies }
 }
 
+/**
+ * ข้อมูลดิบหน้ายาไม่เคลื่อนไหว (DeadStockApp — ประกอบด้วย buildDeadStock ใน deadStock.js ตัวเดียวกับ scripts/dead-stock.mjs)
+ * inventory มี price (ราคา/หน่วยของแถว Master) → มูลค่า = qty × price รายแถว · receiveRows ใช้ทั้งนโยบายคืน + วันรับครั้งแรก
+ * dispenses = แถวเบิกทุกแถวที่ qty_out > 0 (buildDeadStock ตัดแถวที่ไม่ใช่การใช้จริงเอง)
+ */
+export async function fetchDeadStockData() {
+  if (!supabase) return { inventoryRows: [], receiveRows: [], companyPolicies: {}, dispenses: [], venRows: [] }
+  const [inventoryRows, receiveRows, companyPolicies, dispenses, venRows] = await Promise.all([
+    fetchAllInventoryRows('code, name, type, unit, lot, exp, qty, price, location, item_type, receive_status'),
+    fetchPolicyReceiveRows(),
+    fetchSwapPolicies(),
+    _pagedParallel('dispense_logs', 'drug_code, drug_name, dispense_date, department, qty_out', (q) => q.gt('qty_out', 0)),
+    _pagedSelect(() => supabase.from('drug_reorder_config').select('code, risk_group').order('code')),
+  ])
+  return { inventoryRows, receiveRows, companyPolicies, dispenses, venRows }
+}
+
+// select ทั้งตารางแบบนับก่อนแล้วยิงทุกหน้าพร้อมกัน (Rule #2) — filter(q) เติมเงื่อนไขเดียวกันทั้งตอนนับและตอนดึง
+async function _pagedParallel(table, cols, filter = (q) => q) {
+  const PAGE = 1000
+  const page = (from) => filter(supabase.from(table).select(cols)).order('id').range(from, from + PAGE - 1)
+    .then(({ data, error }) => { if (error) throw error; return data || [] })
+  const { count, error } = await filter(supabase.from(table).select('id', { count: 'exact', head: true }))
+  if (error) throw error
+  const pages = await Promise.all(Array.from({ length: Math.max(1, Math.ceil((count || 0) / PAGE)) }, (_, i) => page(i * PAGE)))
+  for (let from = pages.length * PAGE; pages[pages.length - 1].length === PAGE; from += PAGE) pages.push(await page(from))
+  return pages.flat()
+}
+
 // นับแถวก่อนแล้วยิงทุกหน้าพร้อมกัน (เดิมทีละหน้า ~7 วิผ่าน hotspot)
 // หน้าสุดท้ายเต็ม = มีแถวเพิ่มหลังนับ → ไล่ต่อทีละหน้าจนหมด กันแถวหาย
 async function fetchPolicyReceiveRows() {

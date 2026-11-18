@@ -68,6 +68,31 @@ export function essentialGroup({ type, name, ven }) {
 
 const SUPPORTED = /(สนับสนุน|บริจาค|โครงการ)/
 
+// ── แปลงข้อมูลจาก DB → input ของ buildDeadStock (หน้าแอป DeadStockApp · CLI อ่าน Master ตรงจึงไม่ใช้) ──
+
+/** แถว inventory (มี price) → stockLots · parseExp = parseExpDate ของ drugProfile.js */
+export function stockLotsFromInventory(rows = [], parseExp) {
+  return rows.map((r) => ({
+    code: s(r.code), name: s(r.name), type: s(r.type), unit: s(r.unit), lot: s(r.lot),
+    expDate: parseExp ? parseExp(r.exp) : null,
+    qty: parseFloat(String(r.qty ?? '').replace(/,/g, '')) || 0,
+    price: Number(r.price) || 0,
+    location: s(r.location), itemType: s(r.item_type), result: s(r.receive_status), supplier: '',
+  }))
+}
+
+/** แถวรับ → Map(drugKey → วันรับครั้งแรก 'YYYY-MM-DD') */
+export function firstReceiveMap(receiveRows = []) {
+  const out = new Map()
+  for (const r of receiveRows) {
+    const d = s(r.receive_date).slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue
+    const k = drugKey(r.drug_code, r.drug_name)
+    if (!out.has(k) || d < out.get(k)) out.set(k, d)
+  }
+  return out
+}
+
 /**
  * @param stockLots   [{ code, name, type, unit, lot, expDate: Date|null, qty, price, location, itemType, result, supplier }] (Master แถวคงเหลือ > 0)
  * @param dispenses   [{ drug_code, drug_name, dispense_date: 'YYYY-MM-DD', department, qty_out }]
@@ -115,7 +140,9 @@ export function buildDeadStock({ stockLots = [], dispenses = [], firstReceive = 
     g.value += value
     g.units.add(s(l.unit))
     if (s(l.location)) g.locations.add(s(l.location))
-    if (s(l.supplier) && s(l.supplier) !== '-') g.suppliers.add(s(l.supplier))
+    // inventory ในแอปไม่มีบริษัท (ทุกแถว "-") → ใช้บริษัทของนโยบายคืน lot นั้นแทน
+    const sup = s(l.supplier) && s(l.supplier) !== '-' ? s(l.supplier) : s(pol?.company)
+    if (sup) g.suppliers.add(sup)
     if (s(l.result).includes('ตัดออก')) g.excluded = true
   }
 

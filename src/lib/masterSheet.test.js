@@ -85,6 +85,12 @@ eq(r.item.qty, '550', 'qty จาก "คงเหลือหลังจ่า
 eq(r.item.safetyStock, 1743, 'safety stock')
 eq(r.item.receiveStatus, 'ตรวจรับแล้ว|คงไว้', 'รวมสถานะ + ผลการพิจารณา ด้วย |')
 eq(r.item.mainLog, 'E', 'MainLog')
+eq(C.price, 9, 'ราคา/หน่วย (ไม่ใช่ มูลค่าคงเหลือ)')
+eq(r.item.price, null, 'ราคาว่าง → null')
+const priced = [...row]; priced[9] = 3.4175
+eq(rowToInventoryItem(priced, C, s2t).item.price, 3.4175, 'ราคา/หน่วย → number')
+const naPrice = [...row]; naPrice[9] = '#N/A'
+eq(rowToInventoryItem(naPrice, C, s2t).item.price, null, 'ราคาไม่ใช่ตัวเลข → null')
 
 const noLoc = [...row]; noLoc[4] = ''
 eq(rowToInventoryItem(noLoc, C, s2t), null, 'ไม่มีที่เก็บ → ข้าม')

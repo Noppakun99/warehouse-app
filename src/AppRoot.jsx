@@ -46,6 +46,7 @@ import DashboardV2Preview from './DashboardV2Preview'; // prototype ชั่ว
 import AppShell           from './AppShell';
 import DrugProfileModal   from './DrugProfileModal';
 import CompanyPolicyApp   from './CompanyPolicyApp';
+import DeadStockApp       from './DeadStockApp';
 import { printInspectWorksheet } from './lib/inspectWorksheet';
 import { printReturnForm, printVendorExchangeForm } from './lib/returnForm';
 import { printExchangeOutForm, printExchangeInForm, printExchangePair } from './lib/vendorExchangeCycle';
@@ -306,6 +307,9 @@ export default function AppRoot() {
         break;
       case 'return-policy':
         content = <CompanyPolicyApp key={subKey} selection={policySelection} onSelectionChange={setPolicySelection} onOpenDrug={openDrug} onRefresh={refreshPage} onGoBack={goBack} canGoBack={canGoBack} />;
+        break;
+      case 'dead-stock':
+        content = <DeadStockApp key={subKey} onOpenDrug={openDrug} onRefresh={refreshPage} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'temperature':
         content = <TemperatureLogApp key={subKey} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;

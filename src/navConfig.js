@@ -8,7 +8,7 @@ import {
   Activity, ShoppingCart, ClipboardList, Users, BarChart3, Layers,
   FileText, ClipboardCheck, Send, ScanLine, ListChecks, Building2,
   Undo2, CalendarClock, Trash2, HandCoins, ScrollText, ArrowLeftRight, CalendarDays, Thermometer,
-  MessageSquare, Settings2, Clock, Droplet, Pill,
+  MessageSquare, Settings2, Clock, Droplet, Pill, Hourglass,
 } from 'lucide-react';
 
 // โครงสร้างเมนู — รองรับ 3 แบบใน group.items / children:
@@ -48,6 +48,7 @@ export const NAV_GROUPS = [
       { page: 'dispense', icon: TrendingDown, title: 'ประวัติเบิกจ่าย', c: 'rose', roles: ['requester', 'staff', 'admin'] },
       { page: 'stockcard', icon: ScrollText, title: 'การ์ดคลัง (Stockcard)', c: 'teal', roles: ['requester', 'staff', 'admin'] },
       { page: 'return-policy', icon: Building2, title: 'นโยบายคืนบริษัท', c: 'violet', roles: ['staff', 'admin'] },
+      { page: 'dead-stock', icon: Hourglass, title: 'ยาไม่เคลื่อนไหว', c: 'rose', roles: ['staff', 'admin'] },
       { page: 'analytics', icon: Activity, title: 'วิเคราะห์การเบิก', c: 'cyan', roles: ['requester', 'staff', 'admin'] },
       {
         key: 'forms', icon: FileText, title: 'แบบฟอร์มต่างๆ', c: 'slate', roles: ['requester', 'staff', 'admin'],

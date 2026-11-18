@@ -50,7 +50,17 @@ export function mapMasterColumns(header) {
     status: findCol(h, (s) => s.includes('สถานะตรวจรับ')),
     result: findCol(h, (s) => s.includes('ผลการพิจารณา')),
     supplier: findCol(h, (s) => s === 'บริษัท'),
+    // เจาะจงชื่อเต็ม — Master มีคอลัมน์ "ราคา…" หลายตัว · ราคาต่อหน่วยของแถวนั้น (มูลค่าหน้ายาไม่เคลื่อนไหว)
+    price: findCol(h, (s) => s.replace(/\s+/g, '') === 'ราคา/หน่วย'),
   }
+}
+
+/** ราคา/หน่วย → number · ว่าง/ไม่ใช่ตัวเลข (เช่น #N/A) = null */
+const toPrice = (v) => {
+  const t = txt(v).replace(/,/g, '')
+  if (!t) return null
+  const n = Number(t)
+  return Number.isFinite(n) ? n : null
 }
 
 const caseKey = (code, supplier, unit) => [code, supplier, unit].map((x) => txt(x).replace(/\s+/g, ' ')).join('|')
@@ -134,6 +144,7 @@ export function rowToInventoryItem(row, C, serialToThai, caseSizes = null) {
       safetyStock: parseFloat(numText(at('safetyStock'))) || 0,
       receiveStatus: [txt(at('status')), txt(at('result'))].filter(Boolean).join('|') || 'ไม่มีการดำเนินการ',
       caseSize: caseSizes?.get(caseKey(code, at('supplier'), unit)) ?? null,
+      price: toPrice(at('price')),
     },
   }
 }

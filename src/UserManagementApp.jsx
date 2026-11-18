@@ -42,6 +42,7 @@ const GRANTABLE_SYSTEMS = [
   { key: 'linetask',   label: 'งานค้างจากไลน์',     color: 'bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300',    defaultRoles: ['admin'] },
   { key: 'temperature', label: 'อุณหภูมิตู้เย็น',    color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300',       defaultRoles: ['staff','admin'] },
   { key: 'holiday',    label: 'ปฏิทินคลังยา',       color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300',       defaultRoles: ['admin'] },
+  { key: 'dead-stock', label: 'ยาไม่เคลื่อนไหว',    color: 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300',    defaultRoles: ['staff','admin'] },
 ];
 
 // สรุปสิทธิ์ต่อ user — นับจาก GRANTABLE_SYSTEMS (แหล่งเดียวกับโมดอลสิทธิ์) ไม่ใช่ลิสต์แยก
