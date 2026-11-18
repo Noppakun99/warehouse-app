@@ -13,7 +13,7 @@ import { parseUnit } from './lib/unitParser';
 import { allocateFefo, sortLotsForDispense, lotOrderNote, isSupportedLot } from './lib/lotAllocation';
 import { findOverReserved, availableForOwn, increasedCodes } from './lib/reservationCheck';
 import { RESERVING_STATUSES, summarizeHolds, applyHolds } from './lib/reservation';
-import { REQ_TYPES, reqTypeLabel, reqTypeOfRows, entryUnitOf, CART_KEY, CART_TYPE_KEY } from './lib/reqType';
+import { REQ_TYPES, reqTypeLabel, reqTypeOfRows, entryUnitOf, entryQtyText, packWord, CART_KEY, CART_TYPE_KEY } from './lib/reqType';
 import { awaitsSheetEntry } from './lib/onlineReqPlan';
 import { QUEUE_TABS, stageOf, tabOf, nextStep, waitText, itemAllocation, defaultPickResult, pickPayload, verifyNoteText, sortByLog, reqFlags, PICK_REASONS, VERIFY_ISSUES } from './lib/reqStaffView';
 import { rankDrugs, matchDrugQuery } from './lib/drugSearchText';
@@ -729,6 +729,8 @@ const lotPackLabel = (l) => {
 
 // หน่วยคีย์บนจอ: หน่วยซื้อที่มีขนาด (1000เม็ด/450ml) อ่านเป็น "5 × 1000เม็ด" — Master ไม่บอกชื่อภาชนะ (กล่อง/ขวด/กระป๋อง)
 const entryText = (label, pack) => (pack > 1 ? `× ${label}` : label);
+// หน่วยของรายการในตะกร้า — เลือกขนาดกล่องไว้ (entryUnit) ป้ายเป็น "กล่อง (400เม็ด)" อยู่แล้ว ไม่ต้องนำด้วย ×
+const cartUnitText = (item) => (item.entryUnit ? item.entryLabel : entryText(item.entryLabel || item.unit || '', item.entryPack || 1));
 
 // สรุปกล่องคงเหลือ แยกตาม packsize เช่น "105 กล่อง × 1000เม็ด" หรือ "5 × 1000เม็ด + 2 × 500เม็ด"
 const packSummary = (fefoLots) => {
@@ -780,10 +782,16 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
       const { lots: availLots } = applyHolds(fefoUnique, hold);
       // หน่วยคีย์ = หน่วยซื้อตาม Master ทุกประเภทใบ (CONTEXT §หน่วยคีย์ · ใบยาเปลี่ยน 13/11/2569 — คลังจ่ายเต็มกล่อง
       // คีย์หน่วยย่อยแล้ว "ขอ 1 เม็ด ได้ 1000") · lot ต่างขนาดแพ็ค = คีย์หน่วยย่อย (entryUnitOf)
-      const entry = entryUnitOf({ unit: drug.unit, baseUnit, packSizes });
+      // ขนาดแพ็คให้เลือก: lot ที่จ่ายได้ตามลำดับจ่ายก่อน แล้ว lot รอตรวจรับ (ค่าเริ่ม = lot ที่จะจ่ายก่อน)
+      const packUnits = [
+        ...fefoUnique.map(l => ({ packSize: l.packSize, unit: l.unit })),
+        ...drug.lots.filter(l => !l.expired).map(l => ({ packSize: parseUnit(l.unit).packSize, unit: l.unit })),
+      ];
+      const entry = entryUnitOf({ unit: drug.unit, baseUnit, packSizes, packUnits });
       return { ...drug, totalBaseRaw, baseUnit, reservedBase, availableBase, pendingBase, entry, fefoLots: availLots };
     }), [rawResults, reservedMap]);
   const [qtyMap, setQtyMap]    = useState({});   // key = code+name+lot
+  const [packChoice, setPackChoice] = useState({}); // drugKey → packSize ที่ผู้เบิกเลือก (ยาที่ lot ต่างขนาดกล่อง)
   const [warnMap, setWarnMap]  = useState({});   // key = lotKey → warning msg
   const [expandedMap, setExpandedMap] = useState({}); // drugKey → กางรายละเอียด lot ไหม
   const [drugNames, setDrugNames]   = useState([]);
@@ -1006,9 +1014,12 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
   // เบิกระดับยา (B-base, ADR-0004): ขอเป็นหน่วยย่อยสุด, lot=null — คลังเลือก FEFO ตอน picking
   // qty = จำนวนในหน่วยคีย์ (drug.entry) → เก็บ requestedQty เป็นหน่วยย่อยสุดเหมือนเดิม (CONTEXT §หน่วยคีย์)
   // ขอเกินคงเหลือ/ยาหมด/รอตรวจรับได้ — เตือนแต่ไม่ห้าม คลังจ่ายเท่าที่มี (CONTEXT §ใบเบิกออนไลน์ "ขอได้เสมอ")
-  const addToCart = (drug, qty) => {
+  // chosen = ขนาดที่ผู้เบิกเลือก (drug.entry.options) — ยาขนาดเดียวไม่มี
+  const addToCart = (drug, qty, chosen = null) => {
     const drugKey = drug.code + drug.name;
-    const pack = drug.entry?.packSize || 1;
+    const pack = chosen ? chosen.packSize : (drug.entry?.packSize || 1);
+    const label = chosen ? chosen.label : (drug.entry?.label || drug.baseUnit);
+    const entryUnit = chosen && chosen.packSize > 1 ? chosen.unit : null;
     const safeQty = Math.max(1, parseInt(qty) || 1) * pack;
     const inCartQty = cart.find(i => i.code === drug.code && i.name === drug.name)?.requestedQty || 0;
     const total = inCartQty + safeQty;
@@ -1022,12 +1033,17 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
     setCart(prev => {
       const idx = prev.findIndex(i => i.code === drug.code && i.name === drug.name);
       if (idx >= 0) {
-        const u = [...prev]; u[idx] = { ...u[idx], requestedQty: u[idx].requestedQty + safeQty }; return u;
+        // เพิ่มซ้ำคนละขนาดกล่อง → รวมยอดแล้วแสดงเป็นหน่วยย่อย (ไม่เดาว่าเป็นกล่องขนาดไหน)
+        const same = (u => (u.entryPack || 1) === pack && (u.entryUnit || null) === entryUnit)(prev[idx]);
+        const u = [...prev];
+        u[idx] = same ? { ...u[idx], requestedQty: u[idx].requestedQty + safeQty }
+          : { ...u[idx], requestedQty: u[idx].requestedQty + safeQty, entryPack: 1, entryLabel: drug.baseUnit, entryUnit: null, entryHint: null };
+        return u;
       }
-      return [...prev, { code: drug.code, name: drug.name, unit: drug.baseUnit, lot: null, drugType: drug.type || '', availableBase: drug.availableBase, fefoLots: drug.fefoLots || [], requestedQty: safeQty, entryPack: pack, entryLabel: drug.entry?.label || drug.baseUnit, entryHint: drug.entry?.hint || null, note: '', addedAt: new Date().toISOString() }];
+      return [...prev, { code: drug.code, name: drug.name, unit: drug.baseUnit, lot: null, drugType: drug.type || '', availableBase: drug.availableBase, fefoLots: drug.fefoLots || [], requestedQty: safeQty, entryPack: pack, entryLabel: label, entryUnit, entryHint: chosen ? null : (drug.entry?.hint || null), note: '', addedAt: new Date().toISOString() }];
     });
     setQtyMap(p => ({ ...p, [drugKey]: 1 }));
-    setToast({ name: drug.name, type: drug.type || '', qty: safeQty / pack, unit: entryText(drug.entry?.label || drug.baseUnit, pack) });
+    setToast({ name: drug.name, type: drug.type || '', qty: safeQty / pack, unit: chosen ? label : entryText(label, pack) });
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -1177,7 +1193,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
                   </div>
                   <div className="flex items-center gap-3 mt-1 flex-wrap">
                     <span className="text-sm text-slate-400 dark:text-slate-500">รหัส: {drug.code}</span>
-                    {inCart && <span className="text-sm text-[#1E90FF] font-bold bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-full">ในตะกร้า: {(inCart.requestedQty / (inCart.entryPack || 1)).toLocaleString()} {entryText(inCart.entryLabel || inCart.unit || '', inCart.entryPack || 1)}</span>}
+                    {inCart && <span className="text-sm text-[#1E90FF] font-bold bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-full">ในตะกร้า: {(inCart.requestedQty / (inCart.entryPack || 1)).toLocaleString()} {cartUnitText(inCart)}</span>}
                   </div>
 
                   {/* คงเหลือรวมระดับยา — base unit เด่น + สรุปกล่องแยก packsize */}
@@ -1247,10 +1263,26 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
 
                   {/* Add to cart — ยาหมดก็ขอได้ (เตือน ไม่ห้าม) · คีย์เป็นหน่วยคีย์ แสดงผลแปลงเป็นหน่วยย่อย */}
                   {(() => {
-                    const pack = drug.entry?.packSize || 1;
+                    const opts = drug.entry?.options;
+                    const chosen = opts ? (opts.find(o => o.packSize === packChoice[drugKey]) || opts.find(o => o.packSize === drug.entry.defaultPack)) : null;
+                    const pack = chosen ? chosen.packSize : (drug.entry?.packSize || 1);
                     const keyed = Math.max(1, parseInt(qtyMap[drugKey] ?? 1) || 1);
                     return (
                     <div className="flex items-center gap-2 flex-wrap mt-3">
+                      {opts && (
+                        <div className="w-full flex items-center gap-1.5 flex-wrap" role="radiogroup" aria-label="ขนาดที่ขอเบิก">
+                          <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">ขนาด</span>
+                          {opts.map(o => (
+                            <button key={o.packSize} type="button" role="radio" aria-checked={o === chosen}
+                              onClick={() => setPackChoice(p => ({ ...p, [drugKey]: o.packSize }))}
+                              className={`px-3 py-1.5 rounded-lg border text-sm font-semibold transition-colors ${o === chosen
+                                ? 'bg-[#1E90FF] border-[#1E90FF] text-white'
+                                : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:border-[#1E90FF]'}`}>
+                              {o.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">ขอเบิก</span>
                       <input type="number" min="1"
                         value={qtyMap[drugKey] ?? 1}
@@ -1260,10 +1292,10 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
                         }}
                         className={`w-24 bg-white dark:bg-slate-900 border rounded-lg px-2 py-2 text-slate-800 dark:text-slate-100 text-center text-base font-semibold focus:outline-none focus:ring-2 focus:ring-[#1E90FF] ${warnMap[drugKey] ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/40' : 'border-slate-300 dark:border-slate-600'}`} />
                       <span className="text-sm text-slate-500 dark:text-slate-400">
-                        {entryText(drug.entry?.label || drug.baseUnit, pack)}
+                        {chosen ? chosen.label : entryText(drug.entry?.label || drug.baseUnit, pack)}
                         {pack > 1 && <span className="text-xs text-slate-400 dark:text-slate-500"> (= {(keyed * pack).toLocaleString()} {drug.baseUnit})</span>}
                       </span>
-                      <button onClick={() => addToCart(drug, qtyMap[drugKey] ?? 1)}
+                      <button onClick={() => addToCart(drug, qtyMap[drugKey] ?? 1, chosen)}
                         className="bg-[#1E90FF] hover:bg-[#1a7fe0] text-white rounded-lg px-4 py-2 text-sm font-bold flex items-center gap-1.5 transition-colors shadow-sm ml-auto">
                         <Plus size={15} /> เพิ่มเข้าตะกร้า
                       </button>
@@ -1344,6 +1376,9 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
             drug_type:     item.drugType || null,
             requested_qty: item.requestedQty,
             item_note:     item.note?.trim() || null,
+            // ขนาดกล่องที่ผู้เบิกเลือก → ใบขอเบิก/หน้าจัดยาแสดง "2 กล่อง (400เม็ด)" (requisition_entry_pack_migration.sql)
+            entry_pack:    item.entryUnit ? item.entryPack : null,
+            entry_unit:    item.entryUnit || null,
           })),
           genReqNumber,
         );
@@ -1493,7 +1528,7 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
                     <button onClick={() => updateQty(i, keyed + 1)}
                       className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg p-2 transition-colors"><Plus size={16} /></button>
                     <span className="text-sm text-slate-500 dark:text-slate-400">
-                      {entryText(item.entryLabel || item.unit || '', pack)}
+                      {cartUnitText(item)}
                       {pack > 1 && <span className="text-xs text-slate-400 dark:text-slate-500"> (= {item.requestedQty.toLocaleString()} {item.unit || ''})</span>}
                     </span>
                     {item.entryHint && <p className="w-full text-xs text-blue-700 dark:text-blue-300 font-medium">{item.entryHint}</p>}
@@ -2018,7 +2053,11 @@ async function printRequestForm(req, preopenedWin) {
   const edited = req.updated_at && req.updated_at !== req.created_at;
   const rows = items.map((item, i) => {
     const want = Number(item.requested_qty) || 0;
-    const { packSize, label } = packOf(String(item.drug_code || '').trim());
+    // ผู้เบิกเลือกขนาดกล่องไว้ (entry_pack) → "2 กล่อง (400เม็ด)" ตามที่ขอ · ไม่ได้เลือก = กฎเดิม
+    const picked = Number(item.entry_pack) > 1 && item.entry_unit;
+    const { packSize, label } = picked
+      ? { packSize: Number(item.entry_pack), label: `${packWord(item.drug_unit)} (${item.entry_unit})` }
+      : packOf(String(item.drug_code || '').trim());
     const qty = packSize > 1 ? fmtPackNote(want, packSize, item.drug_unit || '') : want.toLocaleString();
     const unit = packSize > 1 ? label : (item.drug_unit || '-');
     return `<tr>
@@ -2431,7 +2470,8 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                         ) : null}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-slate-500 dark:text-slate-400 text-xs">ขอ <b>{item.requested_qty}</b>{item.drug_unit && item.drug_unit !== '-' && <span> × {item.drug_unit}</span>}</span>
+                        <span className="text-slate-500 dark:text-slate-400 text-xs">ขอ <b>{item.requested_qty}</b>{item.drug_unit && item.drug_unit !== '-' && <span> × {item.drug_unit}</span>}
+                          {entryQtyText(item.requested_qty, item.entry_pack, item.entry_unit, item.drug_unit) && <span> (= {entryQtyText(item.requested_qty, item.entry_pack, item.entry_unit, item.drug_unit)})</span>}</span>
                       </div>
                     </div>
                   ))}
@@ -3598,6 +3638,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                           <td className="px-2.5 py-2.5 text-right tabular-nums">
                             <p className="font-bold text-[15px] text-slate-800 dark:text-slate-100">{Number(v.item.requested_qty).toLocaleString()}</p>
                             <p className="text-xs text-slate-500 dark:text-slate-400">{unitOf(v.item)}{showOnhand && lots.ready ? ` · มี ${v.onhand.toLocaleString()}` : ''}</p>
+                            {entryQtyText(v.item.requested_qty, v.item.entry_pack, v.item.entry_unit, v.item.drug_unit) && <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">= {entryQtyText(v.item.requested_qty, v.item.entry_pack, v.item.entry_unit, v.item.drug_unit)}</p>}
                           </td>
                           <td className="px-2.5 py-2.5"><div className="flex flex-col items-start gap-1">{locPills(v)}</div></td>
                           <td className="px-2.5 py-2.5"><LotLines v={v} unit={v.item.drug_unit} stage={stage} /></td>
@@ -3621,7 +3662,8 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                         <div className="min-w-0">{nameCell(v)}</div>
                       </div>
                       <div className="flex flex-wrap gap-x-3 gap-y-1 text-[13px] text-slate-500 dark:text-slate-400 tabular-nums">
-                        <span>ขอ <b className="text-[15px] text-slate-800 dark:text-slate-100">{Number(v.item.requested_qty).toLocaleString()}</b> {unitOf(v.item)}</span>
+                        <span>ขอ <b className="text-[15px] text-slate-800 dark:text-slate-100">{Number(v.item.requested_qty).toLocaleString()}</b> {unitOf(v.item)}
+                          {entryQtyText(v.item.requested_qty, v.item.entry_pack, v.item.entry_unit, v.item.drug_unit) && <b className="text-blue-700 dark:text-blue-300"> = {entryQtyText(v.item.requested_qty, v.item.entry_pack, v.item.entry_unit, v.item.drug_unit)}</b>}</span>
                         {showOnhand && lots.ready && <span>คงเหลือ {v.onhand.toLocaleString()}</span>}
                         {!v.perLotLoc && v.locs.length > 0 && <span className="flex flex-wrap gap-1">{locPills(v)}</span>}
                       </div>

@@ -104,3 +104,14 @@ MainLog | ตำแหน่งจัดเก็บ | รหัสยา | ช�
 ### ReorderApp (วิเคราะห์สั่งซื้อ — inline ใน `exportCsv`)
 รหัส | ชนิด | ชื่อยา | VEN | หน่วยซื้อ | บริษัทล่าสุด | วันรับล่าสุด | **เบิก \<เดือน\>… (dynamic ตาม `months`)** | รวมทุกเดือน | Max | Avg/mo | Avg/d | คงเหลือ | คงอยู่ได้อีก | SS | ROP | คงเหลือ−ROP | Lead Time | ต้องซื้อ(หน่วยซื้อ) | ต้องซื้อ(เม็ด) | ราคา/หน่วยซื้อ | มูลค่า | สถานะ | หมดอายุ (วัน)
 — คอลัมน์ `เบิก <เดือน>` สร้าง dynamic จาก prop `months` (= `monthsInRange` ตัด `excludedMonth`) index ตรงกับ `r.monthlyUsage`
+
+## requisition_items — คอลัมน์ขนาดกล่องที่ผู้เบิกเลือก (18/11/2569)
+
+migration: [requisition_entry_pack_migration.sql](../requisition_entry_pack_migration.sql) (เพิ่มคอลัมน์ + `submit_requisition` บันทึกค่า · รันก่อน/หลัง deploy ก็ได้)
+
+| คอลัมน์ | ชนิด | ความหมาย |
+|---|---|---|
+| `entry_pack` | INTEGER | หน่วยย่อยต่อกล่องที่ผู้เบิกเลือก (เช่น 400) · NULL = ไม่ได้เลือก (ยาขนาดเดียว/คีย์หน่วยย่อย) |
+| `entry_unit` | TEXT | หน่วย Master ของกล่องนั้น (`400เม็ด`) |
+
+`requested_qty` ยังเป็นหน่วยย่อยสุด (ADR-0004) · แสดงผลด้วย `entryQtyText` ([reqType.js](../src/lib/reqType.js)) → "2 กล่อง (400เม็ด)" · CONTEXT §หน่วยคีย์
