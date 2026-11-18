@@ -35,6 +35,9 @@ try {
   Invoke-Retry { $null = $ws.Range('B6:Q6').Copy($ns.Range('A1')) } 'copy header'
   $dr = 2
   foreach ($rr in $RowList) { Invoke-Retry { $null = $ws.Range("B${rr}:Q$rr").Copy($ns.Range("A$dr")) } "copy row $rr"; $dr++ }
+  # ตัวควบคุมบนชีท (cboSearch ช่องค้นหาของแมโคร) ค้างทับแถวที่พิมพ์ → Range.Copy พามาด้วยแล้วทับข้อมูลใน PDF (บย.70/0080 18/11/2569) · ลบทุก shape ยกเว้น comment
+  $gone = @(); for ($k = $ns.Shapes.Count; $k -ge 1; $k--) { $sh = $ns.Shapes.Item($k); if ($sh.Type -ne 4) { $gone += $sh.Name; $sh.Delete() } }
+  if ($gone.Count) { Say ("removed shapes: " + ($gone -join ', ')) }
   # user ตกลง 05/11/2569: ตัวอักษรบนกระดาษ 10 พอยท์ (เดิม 8) — ตั้งความกว้างเองไม่ใช้ของชีท ให้รวมแล้ว Excel ย่อเหลือ 50% (ชีทตัวอักษร 20) · ปัดเป็น 49% = 9.8 พอยท์
   # user สั่ง 09/11/2569: DetailedLog (คอลัมน์ C) ตัวใหญ่กว่าตาราง — เพิ่มกว้าง 3 โดยลดรหัส/ชนิดรายการอย่างละ 1.5 ความกว้างรวมต้องเท่าเดิม ไม่งั้นสเกลหน้าตก
   $pdfW = @(18.75,18.13,20.5,13.5,17,35,15,13,18.5,19,16.5,13.5,12,13.5,15,52)
