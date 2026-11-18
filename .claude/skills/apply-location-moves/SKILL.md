@@ -24,6 +24,7 @@ SP=<scratchpad>/xl ; S="/c/Users/PRH0000484/OneDrive/ยอดคลังยา
    - `list ข้าม` = รหัสนั้นหลังย้ายอยู่หลายที่เก็บ (ตกลง 27/10/2569: ไม่แก้ list) → รายงาน user
 4. **เขียนสำเนา**: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/apply-location-moves.ps1 -StockPath "<work>" -PlanPath "<plan>" -LogPath "<log>"` แล้ว `cat` log — ต้องจบ `SAVED` + `DONE` (มี `ERROR` = ไม่ได้ Save ห้ามไปต่อ)
 5. **ตรวจ**: `python -B scripts/xlsm_verify.py $SP/stock_orig.xlsm $SP/stock_work.xlsm --plan $SP/lm_plan.json` → ต้อง `✓ ผ่าน` (ต่างเฉพาะ D/E แถวในแผน + VBA codepage/โมดูลเท่าเดิม)
+   - **ยอมได้ไม่ต้องถาม (user อนุญาต 18/11/2569)**: เซลล์นอกแผนที่สูตรมี `TODAY()`/`NOW()` แล้วค่าเปลี่ยนเพราะไฟล์เซฟคนละวัน (เช่น `ติดตาม PO ค้างนาน!K211` = `TODAY()-$D211` 1→2) — ต้องเช็คสูตรเซลล์นั้นจริงทุกตัว และส่วนต่างต้องเท่ากับจำนวนวันที่ห่างจากวันเซฟล่าสุด · บอกในรายงานข้อ 8 ว่ายอมเซลล์ไหน · เซลล์นอกแผนอื่น (ไม่มี TODAY/NOW) = ด่านไม่ผ่าน หยุดบอก user เหมือนเดิม
 6. **วางกลับ**: `tasklist` ว่าง → `cmp "$S" $SP/stock_orig.xlsm && cp $SP/stock_work.xlsm "$S" && cmp "$S" $SP/stock_work.xlsm`
 7. **นำเข้า**: `node scripts/import-master.mjs` (dry-run แถวเท่าเดิม) → `--commit` — `saveInventory` เรียก `reconcileLocationMoves` ใบจะเป็น `applied` เอง
 8. **ยืนยัน**: `node scripts/location-moves.mjs` ต้องไม่เหลือใบที่ลงแล้ว · รายงาน user: ใบไหน ยาอะไร lot ไหน จาก → ไป · ใครแจ้ง · list แก้/ข้าม
