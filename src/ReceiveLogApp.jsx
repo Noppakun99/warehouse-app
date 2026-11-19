@@ -199,7 +199,7 @@ const RECEIVE_EXCEL_COLS = [
 // Root
 // ============================================================
 // initialDrug = เลือกยาไว้ก่อน (ลิงก์ "ดูทั้งหมด" บนบัตรยา) · onInitialDrugUsed = ให้ AppRoot ล้างหลังอ่านแล้ว
-export default function ReceiveLogApp({ onRefresh, auth = {}, initialTab = 'view', onGoBack, canGoBack, initialDrug = null, onInitialDrugUsed }) {
+export default function ReceiveLogApp({ onRefresh, auth = {}, initialTab = 'view', onGoBack, canGoBack, initialDrug = null, initialSearch = null, onInitialDrugUsed }) {
   const [tab, setTab]                 = useState(initialTab);
   const [showSummary, setShowSummary] = useState(false);
   const isStaff = auth.role === 'staff' || auth.role === 'admin';
@@ -215,7 +215,7 @@ export default function ReceiveLogApp({ onRefresh, auth = {}, initialTab = 'view
     <div className="min-h-screen bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100 font-sans">
       {tab === 'view' ? (
         <ReceiveView auth={auth} isStaff={isStaff} onRefresh={onRefresh} onGoBack={onGoBack} canGoBack={canGoBack}
-          initialDrug={initialDrug} onInitialDrugUsed={onInitialDrugUsed}
+          initialDrug={initialDrug} initialSearch={initialSearch} onInitialDrugUsed={onInitialDrugUsed}
           onOpenSummary={() => setShowSummary(true)} />
       ) : (
         <>
@@ -1349,10 +1349,10 @@ function groupByDayBill(rows, supplierOf) {
   }));
 }
 
-function ReceiveView({ auth = {}, isStaff = false, onRefresh, onGoBack, canGoBack, onOpenSummary, initialDrug = null, onInitialDrugUsed }) {
+function ReceiveView({ auth = {}, isStaff = false, onRefresh, onGoBack, canGoBack, onOpenSummary, initialDrug = null, initialSearch = null, onInitialDrugUsed }) {
   const [rows, setRows]               = useState([]);
   const [loading, setLoading]         = useState(true);
-  const [search, setSearch]           = useState(initialDrug || '');
+  const [search, setSearch]           = useState(initialDrug || initialSearch || '');   // initialSearch = เลขบิล/PO จากช่องค้นหารวม
   const [supplierFilter, setSupplier] = useState('');
   const [typeFilter, setTypeFilter]   = useState('');   // '' = ทุกชนิดยา (receive_logs.drug_type เช่น Tablet/Herb)
   const [drugTypes, setDrugTypes]     = useState([]);
@@ -1558,7 +1558,7 @@ function ReceiveView({ auth = {}, isStaff = false, onRefresh, onGoBack, canGoBac
 
   // โหลดทุก row ของยาที่เลือก
   // เปิดจากบัตรยา ("ดูทั้งหมด") — ค่าเริ่มต้นของ search/selectedDrug มาจาก initialDrug แล้วให้ AppRoot ล้าง
-  useEffect(() => { if (initialDrug) onInitialDrugUsed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (initialDrug || initialSearch) onInitialDrugUsed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!selectedDrug || !supabase) { setDrugRows([]); return; }

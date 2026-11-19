@@ -55,7 +55,7 @@ const readDark = () => {
   try { return localStorage.getItem(THEME_KEY) === 'dark'; } catch { return false; }
 };
 
-export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, onOpenCompany, onRefresh, displayName, role, permissions, auth, onLogout, children, badges = {} }) {
+export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, onOpenCompany, onOpenBill, onRefresh, displayName, role, permissions, auth, onLogout, children, badges = {} }) {
   const isStaff = role === 'staff' || role === 'admin';
   // เมนูแสดงเมื่อ role อนุญาต หรือ admin grant permission รายคน (key = item.page)
   const canSee = (it) => it.roles.includes(role) || (it.page && (permissions || []).includes(it.page));
@@ -419,6 +419,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
           onFormAction={doAction}
           onOpenDrug={(code) => { setDrawerOpen(false); onOpenDrug?.(code); }}
           onOpenCompany={(name) => { setDrawerOpen(false); onOpenCompany?.(name); }}
+          onOpenBill={(q) => { setDrawerOpen(false); onOpenBill?.(q); }}
           role={role}
           permissions={permissions}
         />

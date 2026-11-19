@@ -145,13 +145,16 @@ export default function AppRoot() {
     setPage('stockcard');
   };
   // อยู่หน้านั้นอยู่แล้ว setPage ไม่ทำอะไร (กัน push ซ้ำ) → ปิดบัตรเอง แล้ว remount หน้าให้อ่านยาใหม่
-  const openHistoryFor = (target, name) => {
-    setHistoryTarget({ page: target, name });
+  const openHistoryFor = (target, name, search = null) => {
+    setHistoryTarget({ page: target, name, search });
     const s = stackRef.current;
     if (s[s.length - 1] === target) { closeDrug(); setSubKey(k => k + 1); }
     else setPage(target);
   };
   const historyDrugFor = (target) => (historyTarget?.page === target ? historyTarget.name : null);
+  // ช่องค้นหารวม → บิล/PO: เปิดประวัติรับยาพร้อมคำค้น (ช่องค้นหาอย่างเดียว ไม่เลือกยา — initialDrug จะเข้าโหมดยาเดียว)
+  const openBillSearch = (q) => openHistoryFor('receive', null, q);
+  const historySearchFor = (target) => (historyTarget?.page === target ? historyTarget.search || null : null);
   const clearHistoryTarget = () => setHistoryTarget(null);
 
   const dismissToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
@@ -260,7 +263,7 @@ export default function AppRoot() {
         break;
       case 'receive':
         content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack}
-          initialDrug={historyDrugFor('receive')} onInitialDrugUsed={clearHistoryTarget} />;
+          initialDrug={historyDrugFor('receive')} initialSearch={historySearchFor('receive')} onInitialDrugUsed={clearHistoryTarget} />;
         break;
       case 'receive-ap':
         content = <ReceiveLogApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} initialTab="ap" onGoBack={goBack} canGoBack={canGoBack} />;
@@ -325,7 +328,7 @@ export default function AppRoot() {
   if (auth) {
     const displayName = (auth.name && auth.name.trim() && auth.name.trim() !== '-') ? auth.name : auth.username;
     content = (
-      <AppShell page={page} onNavigate={setPage} onFormAction={runFormAction} onOpenDrug={openDrug} onOpenCompany={openCompanyPolicy} onRefresh={refreshPage} displayName={displayName} role={auth.role} permissions={auth.permissions} auth={auth} onLogout={logout} badges={{ return: pendingReturns, requisition: pendingRequisitions }}>
+      <AppShell page={page} onNavigate={setPage} onFormAction={runFormAction} onOpenDrug={openDrug} onOpenCompany={openCompanyPolicy} onOpenBill={openBillSearch} onRefresh={refreshPage} displayName={displayName} role={auth.role} permissions={auth.permissions} auth={auth} onLogout={logout} badges={{ return: pendingReturns, requisition: pendingRequisitions }}>
         {content}
       </AppShell>
     );

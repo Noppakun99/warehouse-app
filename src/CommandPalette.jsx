@@ -1,6 +1,8 @@
 // ============================================================
 // CommandPalette — ช่องค้นหาเดียว (⌘K / Ctrl+K / ช่องใหญ่บนหน้าหลัก)
-// ผล 3 กลุ่ม: "ยา" (ชื่อ/รหัส/lot → เปิดบัตรยา) · "บริษัท" (→ หน้านโยบายคืนบริษัท เฉพาะคนที่เห็นเมนูนั้น) · "เมนู" (หน้า/แบบฟอร์มจาก NAV_GROUPS)
+// ผล 4 กลุ่ม: "ยา" (ชื่อ/รหัส/lot → เปิดบัตรยา) · "บิล / PO" (→ หน้าประวัติรับยาค้นเลขนั้น เฉพาะคนที่เห็นเมนูนั้น)
+//   · "บริษัท" (→ หน้านโยบายคืนบริษัท เฉพาะคนที่เห็นเมนูนั้น) · "เมนู" (หน้า/แบบฟอร์มจาก NAV_GROUPS)
+// บิล/PO มาจาก receive_logs = มีเฉพาะ PO ที่ของมาส่งแล้ว (PO ที่ยังไม่มีบิลอยู่ในเว็บติดตาม PO ของจัดซื้อ)
 // ตรรกะค้นยาอยู่ src/lib/drugProfile.js (searchDrugs) · รายการยาโหลดใหม่ทุกครั้งที่เปิด
 //   (component นี้อยู่ใน AppShell ไม่ remount ตอนนำเข้า Excel — cache ข้ามรอบจะค้างยอดเก่า)
 //
@@ -8,20 +10,21 @@
 // ยา: ทุก role ค้นได้ (บัตรยาเลือกเองว่าแต่ละ role เห็นอะไร — CONTEXT §บัตรยา)
 // ============================================================
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, CornerDownLeft, ArrowUp, ArrowDown, X, Pill, Loader2, Building2 } from 'lucide-react';
+import { Search, CornerDownLeft, ArrowUp, ArrowDown, X, Pill, Loader2, Building2, FileText } from 'lucide-react';
 import { NAV_GROUPS, COLOR } from './navConfig';
-import { fetchDrugSearchIndex, fetchCompanyNames } from './lib/db';
-import { searchDrugs, searchCompanies } from './lib/drugProfile';
+import { fetchDrugSearchIndex, fetchReceiveSearchIndex } from './lib/db';
+import { searchDrugs, searchCompanies, searchBills } from './lib/drugProfile';
+import { fmtThaiDate } from './lib/usageReport';
 
 // normalize สำหรับ match: ตัดช่องว่าง + lowercase (ไทยไม่มี case แต่ชื่อระบบมีอังกฤษปน เช่น Stockcard)
 const norm = (s) => (s || '').toLowerCase().replace(/\s+/g, '');
 
-export default function CommandPalette({ open, onClose, onNavigate, onFormAction, onOpenDrug, onOpenCompany, role, permissions }) {
+export default function CommandPalette({ open, onClose, onNavigate, onFormAction, onOpenDrug, onOpenCompany, onOpenBill, role, permissions }) {
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const [drugIndex, setDrugIndex] = useState(null);   // null = ยังไม่ได้โหลด/กำลังโหลด
   const [drugError, setDrugError] = useState(false);
-  const [companyNames, setCompanyNames] = useState(null);   // null = ยังไม่ได้โหลด
+  const [receiveIndex, setReceiveIndex] = useState(null);   // { companies, bills } · null = ยังไม่ได้โหลด
   const inputRef = useRef(null);
   const listRef = useRef(null);
 
@@ -66,14 +69,17 @@ export default function CommandPalette({ open, onClose, onNavigate, onFormAction
 
   const drugResults = useMemo(() => (drugIndex ? searchDrugs(drugIndex, q, 8) : []), [drugIndex, q]);
   const canSearchCompany = items.some(it => it.page === 'return-policy');
-  const companyResults = useMemo(() => (canSearchCompany && companyNames ? searchCompanies(companyNames, q, 5) : []), [canSearchCompany, companyNames, q]);
+  const canSearchBill = items.some(it => it.page === 'receive');
+  const billResults = useMemo(() => (canSearchBill && receiveIndex ? searchBills(receiveIndex.bills, q, 6) : []), [canSearchBill, receiveIndex, q]);
+  const companyResults = useMemo(() => (canSearchCompany && receiveIndex ? searchCompanies(receiveIndex.companies, q, 5) : []), [canSearchCompany, receiveIndex, q]);
 
-  // รายการเดียวสำหรับลูกศรขึ้น/ลง — ยา → บริษัท → เมนู
+  // รายการเดียวสำหรับลูกศรขึ้น/ลง — ยา → บิล/PO → บริษัท → เมนู
   const entries = useMemo(() => [
     ...drugResults.map(d => ({ kind: 'drug', key: `drug:${d.code}`, d })),
+    ...billResults.map(b => ({ kind: 'bill', key: `bill:${b.key}`, b })),
     ...companyResults.map(name => ({ kind: 'company', key: `company:${name}`, name })),
     ...menuResults.map(it => ({ kind: 'menu', key: `menu:${it.page || it.action}`, it })),
-  ], [drugResults, companyResults, menuResults]);
+  ], [drugResults, billResults, companyResults, menuResults]);
 
   // เปิดใหม่ทุกครั้ง = เริ่มจากศูนย์ + โหลดรายการยาสด
   useEffect(() => {
@@ -87,13 +93,14 @@ export default function CommandPalette({ open, onClose, onNavigate, onFormAction
     return () => { alive = false; };
   }, [open]);
 
-  // ชื่อบริษัทเปลี่ยนนานๆ ครั้ง + ต้องไล่ receive_logs ทั้งตาราง → โหลดครั้งเดียวต่อรอบเปิดแอป (โหลดล้ม = เปิดครั้งหน้าลองใหม่)
+  // ชื่อบริษัท + บิล/PO ต้องไล่ receive_logs ทั้งตาราง → โหลดรอบเดียวต่อการเปิดแอป (โหลดล้ม = เปิดครั้งหน้าลองใหม่)
+  // บิลที่ลงระหว่างเปิดแอปค้างอยู่จน reload — ยอมรับได้ (ค้นบิลใหม่ล่าสุดหน้าประวัติรับยาได้เสมอ)
   useEffect(() => {
-    if (!open || !canSearchCompany || companyNames) return undefined;
+    if (!open || !(canSearchCompany || canSearchBill) || receiveIndex) return undefined;
     let alive = true;
-    fetchCompanyNames().then(names => { if (alive) setCompanyNames(names); }).catch(() => {});
+    fetchReceiveSearchIndex().then(ix => { if (alive) setReceiveIndex(ix); }).catch(() => {});
     return () => { alive = false; };
-  }, [open, canSearchCompany, companyNames]);
+  }, [open, canSearchCompany, canSearchBill, receiveIndex]);
 
   useEffect(() => { setActive(0); }, [q]);
 
@@ -101,6 +108,7 @@ export default function CommandPalette({ open, onClose, onNavigate, onFormAction
     if (!entry) return;
     onClose();
     if (entry.kind === 'drug') { onOpenDrug?.(entry.d.code); return; }
+    if (entry.kind === 'bill') { onOpenBill?.(entry.b.matchedPo || entry.b.bill); return; }
     if (entry.kind === 'company') { onOpenCompany?.(entry.name); return; }
     if (entry.it.action) onFormAction?.(entry.it.action);
     else onNavigate(entry.it.page);
@@ -141,7 +149,7 @@ export default function CommandPalette({ open, onClose, onNavigate, onFormAction
             value={q}
             onChange={e => setQ(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={canSearchCompany ? 'ค้นหายา (ชื่อ / รหัส / lot) บริษัท หรือเมนู...' : 'ค้นหายา (ชื่อ / รหัส / lot) หรือเมนู...'}
+            placeholder={canSearchCompany ? 'ค้นหายา (ชื่อ / รหัส / lot) เลขบิล / PO บริษัท หรือเมนู...' : canSearchBill ? 'ค้นหายา (ชื่อ / รหัส / lot) เลขบิล / PO หรือเมนู...' : 'ค้นหายา (ชื่อ / รหัส / lot) หรือเมนู...'}
             aria-label="ค้นหายาหรือเมนู"
             className="flex-1 bg-transparent text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none"
           />
@@ -180,9 +188,27 @@ export default function CommandPalette({ open, onClose, onNavigate, onFormAction
                   );
                 })
               )}
+              {billResults.length > 0 && groupLabel('บิล / PO')}
+              {billResults.map((b, j) => {
+                const i = drugResults.length + j;
+                const on = i === active;
+                return (
+                  <button key={`bill:${b.key}`} data-active={on} onMouseEnter={() => setActive(i)} onClick={() => run(entries[i])} className={rowCls(on)}>
+                    <span className="p-1 rounded-md shrink-0 bg-emerald-100 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-300"><FileText size={15} /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-slate-700 dark:text-slate-200">
+                        {b.bill ? `บิล ${b.bill}` : 'ไม่มีเลขบิล'}{b.pos.length ? ` · PO ${b.matchedPo || b.pos.join(', ')}` : ''}
+                      </span>
+                      <span className="block truncate text-[11px] text-slate-400 dark:text-slate-500">
+                        {b.supplier || '-'} · รับ {fmtThaiDate(b.date)} · {b.items} รายการ
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
               {companyResults.length > 0 && groupLabel('บริษัท')}
               {companyResults.map((name, j) => {
-                const i = drugResults.length + j;
+                const i = drugResults.length + billResults.length + j;
                 const on = i === active;
                 return (
                   <button key={`company:${name}`} data-active={on} onMouseEnter={() => setActive(i)} onClick={() => run(entries[i])} className={rowCls(on)}>
@@ -199,7 +225,7 @@ export default function CommandPalette({ open, onClose, onNavigate, onFormAction
           )}
           {/* ค้นแล้วไม่เจอเมนู = ซ่อนกลุ่มเมนูทั้งกลุ่ม (กลุ่มยาบอกผลการค้นอยู่แล้ว ไม่ต้องมี "ไม่พบ" ซ้ำ 2 บรรทัด) */}
           {menuResults.map((it, j) => {
-            const i = drugResults.length + companyResults.length + j;
+            const i = drugResults.length + billResults.length + companyResults.length + j;
             const Icon = it.icon;
             const col = COLOR[it.c] || COLOR.slate;
             const on = i === active;

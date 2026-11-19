@@ -11,7 +11,7 @@ import { isUsageRow, localYmd } from '../../supabase/functions/_shared/usageRow.
 import {
   parseUnitFactor, parseExpDate as _parseExpDate, waitDaysSince, isBelowSafetyStock, isPurchaseReceipt,
   pickMainUnit, stockTotalInMainUnit, latestPurchaseUnit, buildSearchIndex, buildDrugProfile, normDept,
-  latestPolicyByCompany, COMPANY_WIDE_POLICY_PREFIX, usageBaseQty,
+  latestPolicyByCompany, COMPANY_WIDE_POLICY_PREFIX, usageBaseQty, buildBillIndex,
 } from './drugProfile.js'
 import { buildDrugUsageReport } from './usageReport.js'
 import { isoMonthsAgo, isoPrevMonthEnd, listMonthYM } from './reorder.js'
@@ -3322,17 +3322,23 @@ async function fetchPolicyReceiveRows() {
   return pages.flat()
 }
 
-// ชื่อบริษัททั้งหมดที่เคยรับยา (ไม่ซ้ำ) สำหรับช่องค้นหา
-export async function fetchCompanyNames() {
-  if (!supabase) return []
+// ช่องค้นหารวม: ชื่อบริษัท (ไม่ซ้ำ) + รายการบิล/PO จาก receive_logs ในการไล่ตารางรอบเดียว
+// บิลสแกน AI ไม่นับ (อยู่หน้าสแกนบิล — ตัวกรองเดียวกับหน้าประวัติรับยา ADR-0006)
+export async function fetchReceiveSearchIndex() {
+  if (!supabase) return { companies: [], bills: [] }
   const names = new Set()
+  const rows = []
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from('receive_logs').select('supplier_current').order('id').range(from, from + 999)
+    const { data, error } = await supabase.from('receive_logs')
+      .select('supplier_current, bill_number, po_number, receive_date, receive_status').order('id').range(from, from + 999)
     if (error) throw error
-    for (const r of data || []) { const n = String(r.supplier_current || '').trim(); if (n && n !== '-') names.add(n) }
+    for (const r of data || []) {
+      const n = String(r.supplier_current || '').trim(); if (n && n !== '-') names.add(n)
+      if (r.receive_status !== 'สแกนบิล AI') rows.push(r)
+    }
     if (!data || data.length < 1000) break
   }
-  return [...names].sort((a, b) => a.localeCompare(b, 'th'))
+  return { companies: [...names].sort((a, b) => a.localeCompare(b, 'th')), bills: buildBillIndex(rows) }
 }
 
 // --- Reorder: หน่วย/ราคา/บริษัท/วันรับ/lead time ต่อรหัสยา (จาก receive_logs) ---

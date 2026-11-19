@@ -691,6 +691,63 @@ export function searchCompanies(names = [], q, limit = 8) {
     .map(x => x.name)
 }
 
+// ── ช่องค้นหา: เลขบิล / เลข PO (จาก receive_logs — มีเฉพาะ PO ที่ของมาส่งแล้ว) ──────
+// บิล 1 ใบ = bill_number + บริษัท + วันรับ (เลขบิลไม่ unique — Critical Rule #19)
+export function buildBillIndex(rows = []) {
+  const byKey = new Map()
+  for (const r of rows) {
+    const bill = String(r.bill_number || '').trim()
+    const po = String(r.po_number || '').trim()
+    if ((!bill || bill === '-') && (!po || po === '-')) continue
+    const supplier = String(r.supplier_current || '').trim()
+    const k = `${bill}|${supplier}|${r.receive_date || ''}`
+    let b = byKey.get(k)
+    if (!b) { b = { key: k, bill: bill === '-' ? '' : bill, supplier, date: r.receive_date || '', pos: [], items: 0 }; byKey.set(k, b) }
+    if (po && po !== '-' && !b.pos.includes(po)) b.pos.push(po)
+    b.items++
+  }
+  return [...byKey.values()].map(b => ({ ...b, _bill: normSearch(b.bill), _pos: b.pos.map(p => ({ raw: p, n: normSearch(p), key: poKey(p) })) }))
+}
+
+// เลข PO ในระบบเขียนไม่เหมือนกัน (086.05/2570 · 99.05/2570 · 98/2569) → เทียบเป็น "ลำดับ + ปี"
+// ห้ามเทียบแบบมีคำ: 86.05 จะไปติด 886.05 / 686.05
+const PO_RE = /^0*(\d+)(?:\.\d+)?(?:\/(\d{2}|\d{4}))?$/
+function poKey(s) {
+  const m = PO_RE.exec(normSearch(s))
+  if (!m) return null
+  const y = m[2] ? (m[2].length === 2 ? `25${m[2]}` : m[2]) : null
+  return { n: m[1], y }
+}
+
+// อันดับ: เลขบิลตรงตัว > PO ตรง (ลำดับ+ปี) > PO ลำดับตรง (ไม่ระบุปี) > เลขบิลขึ้นต้น > เลขบิลมีคำ/PO รูปแบบแปลก
+// เลขบิล "มีคำ" ต้องพิมพ์ ≥ 4 ตัว (เลขสั้นติดบิลแทบทุกใบ) · ในอันดับเดียวกัน บิลใหม่ก่อน
+export function searchBills(index = [], q, limit = 6) {
+  const nq = normSearch(q)
+  if (!nq) return []
+  const qPo = poKey(nq)
+  const out = []
+  for (const b of index) {
+    let score = -1, matchedPo = null
+    if (b._bill && b._bill === nq) score = 0
+    if (score < 0 && qPo) {
+      for (const p of b._pos) {
+        if (p.key && p.key.n === qPo.n && (!qPo.y || p.key.y === qPo.y)) { score = qPo.y ? 1 : 2; matchedPo = p.raw; break }
+      }
+    }
+    if (score < 0 && b._bill && nq.length >= 4) {
+      if (b._bill.startsWith(nq)) score = 3
+      else if (b._bill.includes(nq)) score = 4
+    }
+    if (score < 0 && nq.length >= 4) {
+      const p = b._pos.find(x => !x.key && x.n.includes(nq))
+      if (p) { score = 4; matchedPo = p.raw }
+    }
+    if (score >= 0) out.push({ key: b.key, bill: b.bill, supplier: b.supplier, date: b.date, pos: b.pos, items: b.items, matchedPo, score })
+  }
+  out.sort((a, b) => (a.score - b.score) || String(b.date).localeCompare(String(a.date)))
+  return out.slice(0, limit)
+}
+
 // inventory + receive_logs → lot คงเหลือทุกบรรทัดพร้อมนโยบาย · รวมแถวซ้ำรหัส+lot+exp+หน่วยด้วยการบวก (ห้ามทับ — ตารางมีแถวซ้ำจริง)
 // → { lines, companies: [{ name, lots }] (ทุกบริษัทที่เคยรับยา), unresolvedLots: จำนวน lot ที่ระบุบริษัทไม่ได้,
 //     latestPolicyByName: ข้อความจากบิลล่าสุดของแต่ละบริษัท — บริษัทไม่มีของยังดูนโยบายก่อนสั่งซื้อได้ }

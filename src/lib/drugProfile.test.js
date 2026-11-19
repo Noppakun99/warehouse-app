@@ -9,6 +9,7 @@ import {
   ssAggregate, isBelowSafetyStock, buildSearchIndex, searchDrugs, buildDrugProfile,
   waitDaysSince, lotBills, usageRate, normDept, dispenseHistory, HISTORY_LIMIT,
   buildLotReturnPolicies, latestPolicyByCompany, searchCompanies, buildCompanyPolicyIndex, groupCompanyLots,
+  buildBillIndex, searchBills,
   returnPolicyLabel, searchPolicyDrugs, drugPolicyView, searchPolicyLots, policyNextAction, policyCategory,
 } from './drugProfile.js'
 
@@ -91,6 +92,28 @@ section('ค้นหายา')
   assertEq(searchDrugs(index, '26').length, 0, 'lot ต้องพิมพ์ ≥ 3 ตัว')
   assertEq(searchDrugs(index, 'para cet')[0]?.code, '1001', 'ไม่สนช่องว่าง')
   assertEq(searchDrugs(index, '   ').length, 0, 'คำค้นว่าง = ไม่มีผล')
+}
+
+section('ช่องค้นหา: เลขบิล / PO')
+{
+  const ix = buildBillIndex([
+    { bill_number: 'IV6911583', po_number: '086.05/2570', supplier_current: 'แอปคาร์', receive_date: '2026-11-19' },
+    { bill_number: '3-2600621', po_number: '886.05/2569', supplier_current: 'วิทยาศรม', receive_date: '2026-09-15' },
+    { bill_number: 'INV-1', po_number: '686.05/2569', supplier_current: 'พรอส', receive_date: '2026-06-24' },
+    { bill_number: 'INV-1', po_number: '686.05/2569', supplier_current: 'พรอส', receive_date: '2026-06-24' },
+    { bill_number: 'INV-1', po_number: '-', supplier_current: 'อื่น', receive_date: '2025-01-02' },
+    { bill_number: 'B86', po_number: '86/2569', supplier_current: 'เก่า', receive_date: '2025-12-01' },
+    { bill_number: '-', po_number: '-', supplier_current: 'x', receive_date: '2025-01-01' },
+  ])
+  assertEq(ix.length, 5, 'บิล = เลข+บริษัท+วันรับ · เลขบิลซ้ำคนละบริษัทแยกใบ · ไม่มีทั้งบิลและ PO ไม่เอา')
+  assertEq(ix.find(b => b.supplier === 'พรอส').items, 2, 'นับรายการในบิล')
+  assertDeep(searchBills(ix, '86.05').map(b => b.bill), ['IV6911583', 'B86'], 'PO เทียบลำดับ ไม่ติด 886/686 · 0 นำหน้าไม่สน')
+  assertDeep(searchBills(ix, '086.05/2570').map(b => b.bill), ['IV6911583'], 'ระบุปี = ปีต้องตรง')
+  assertDeep(searchBills(ix, '86/69').map(b => b.bill), ['B86'], 'ปี 2 หลัก = 25xx')
+  assertEq(searchBills(ix, '86.05')[0].matchedPo, '086.05/2570', 'บอก PO ที่ตรง')
+  assertDeep(searchBills(ix, 'inv-1').map(b => b.supplier), ['พรอส', 'อื่น'], 'เลขบิลซ้ำ = หลายใบ ใหม่ก่อน')
+  assertDeep(searchBills(ix, '6911').map(b => b.bill), ['IV6911583'], 'เลขบิลมีคำ ≥ 4 ตัว')
+  assertEq(searchBills(ix, '691').length, 0, 'เลขบิลมีคำ < 4 ตัว = ไม่ค้น')
 }
 
 section('บัตรยา')

@@ -70,7 +70,7 @@ export function DrugSearchLauncher() {
     <button type="button" onClick={openDrugSearch}
       className="mt-5 w-full flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:border-sky-400 dark:hover:border-sky-600 rounded-2xl px-4 h-14 shadow-sm text-left transition-colors">
       <Search size={20} className="text-sky-500 shrink-0" />
-      <span className="flex-1 min-w-0 truncate text-sm sm:text-base text-slate-400 dark:text-slate-500">ค้นหายา — ชื่อ, รหัส หรือ lot</span>
+      <span className="flex-1 min-w-0 truncate text-sm sm:text-base text-slate-400 dark:text-slate-500">ค้นหายา — ชื่อ, รหัส, lot, เลขบิล หรือ PO</span>
       <kbd className="hidden sm:inline text-[11px] font-sans font-semibold px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 shrink-0">Ctrl K</kbd>
     </button>
   );

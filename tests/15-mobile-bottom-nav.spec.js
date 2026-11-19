@@ -196,7 +196,7 @@ test.describe('แถบปุ่มล่างจอ — ผู้เบิก
 
   test('บัตรยาเต็มจอ: กดย้อน = ปิดบัตร อยู่หน้าเดิม · ปิดด้วย X แล้วกดย้อนไม่เด้งบัตรกลับ', async ({ page }) => {
     const open = async () => {
-      await page.getByRole('button', { name: /ค้นหายา — ชื่อ, รหัส หรือ lot/ }).click();
+      await page.getByRole('button', { name: /ค้นหายา — ชื่อ, รหัส/ }).click();
       await page.getByLabel('ค้นหายาหรือเมนู').fill('baclofen');
       await page.getByText('Baclofen 10mg').first().waitFor({ timeout: 30_000 });
       await page.getByLabel('ค้นหายาหรือเมนู').press('Enter');
