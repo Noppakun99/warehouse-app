@@ -10,6 +10,7 @@
 # แถวจ่าย 0 (zero = ของไม่มีให้จ่าย): N = 0 · M = O = U · อ้างแถวรอตรวจรับได้ (แถวอื่นห้ามรอตรวจรับ)
 # แถว recordOnly: true (อินซูลินจ่ายจากตู้ substock — memory ri-fridge-substock): L = บันทึกเท่านั้น · N = q · M = O = U · ไม่ตัดคลัง
 #   ไม่เข้าด่าน T/U ลดตาม Σq · ด่าน "แถวนอกแผน T ต้องไม่เปลี่ยน" ยืนยันว่าไม่ตัดจริง (เพิ่ม 18/11/2569 ใบ IPD)
+# แถว noNumber: true + no ว่าง = แถวแก้ไขที่ไม่ออกเลข บย. (AD ว่าง → ไม่เข้า PDF) เช่นแก้หยิบผิดของใบรอบก่อน (/dispense-entry · บย.70/0085 19/11/2569)
 #   recordOnly + unit/unitPrice (ไม่บังคับ): H/I เป็นหน่วยย่อยแทนหน่วย Master เช่นใบ ALS เทศบาลนับ amp (แบบ บย.70/0022 แถว 8647–8648)
 param([Parameter(Mandatory)][string]$StockPath, [Parameter(Mandatory)][string]$PlanPath, [Parameter(Mandatory)][string]$LogPath)
 $ErrorActionPreference = 'Stop'
@@ -51,7 +52,8 @@ try {
   $dDate = (New-Object DateTime([int]$dp[0], [int]$dp[1], [int]$dp[2])).ToOADate()
   foreach ($p in $rows) {
     if ("$($p.note)".Contains($PLACEHOLDER)) { throw "แถวเบิก $($p.sheetRow) [$($p.key)] ยังมี $PLACEHOLDER — เติมวันแจ้งสั่งซื้อในแผนก่อน" }
-    if ("$($p.no)" -notmatch '^บย\.70/\d{4}$') { throw "แถวเบิก $($p.sheetRow) เลข บย. ผิดรูป [$($p.no)]" }
+    if ($p.noNumber -eq $true) { if ("$($p.no)" -ne '') { throw "แถวเบิก $($p.sheetRow) noNumber แต่มีเลข บย. [$($p.no)]" } }
+    elseif ("$($p.no)" -notmatch '^บย\.70/\d{4}$') { throw "แถวเบิก $($p.sheetRow) เลข บย. ผิดรูป [$($p.no)]" }
   }
 }
 catch { Write-Log "ERROR (ก่อนเปิด Excel): $($_.Exception.Message)"; Write-Log 'DONE'; exit 1 }
@@ -140,7 +142,7 @@ try {
     if ($it.note -ne '') { Set-CellV ($wsB.Range("Q$r")) ([string]$it.note) }
     if ($null -ne $it.w) { Set-CellV ($wsB.Range("W$r")) ([double]$it.w) }
     if ($null -ne $it.x -and "$($it.x)" -ne '') { Set-CellV ($wsB.Range("X$r")) ([string]$it.x) }
-    Set-CellFmt ($wsB.Range("AD$r")) '@'; Set-CellV ($wsB.Range("AD$r")) ([string]$it.no)
+    if ([string]$it.no -ne '') { Set-CellFmt ($wsB.Range("AD$r")) '@'; Set-CellV ($wsB.Range("AD$r")) ([string]$it.no) }
   }
   Write-Log "เขียนแถว $r0-$lastNew"
   # manual จนจบ: เขียนทุกแถว → Calculate → แช่ค่า R–V → Calculate (/excel-com กับดักแช่ค่า 03/11/2569)
