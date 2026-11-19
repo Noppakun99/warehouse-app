@@ -55,7 +55,8 @@
     "test:usagereport": "node src/lib/usageReport.test.js",
     "test:tempreport": "node src/lib/temperatureReport.test.js",
     "test:reqstaff": "node src/lib/reqStaffView.test.js",
-    "test:deadstock": "node src/lib/deadStock.test.js"
+    "test:deadstock": "node src/lib/deadStock.test.js",
+    "test:dmsic": "node src/lib/dmsicReport.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",
