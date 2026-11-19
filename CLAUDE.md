@@ -271,6 +271,7 @@ Single-page React (ไม่มี React Router) — ทุก Supabase query �
 - **Tailwind**: 3.x — เลี่ยง arbitrary values (`w-[123px]`) ถ้าทำได้
 - **React**: 19.x — functional components + hooks เท่านั้น
 - **เปิดเว็บที่ต้องล็อกอิน (Supabase Dashboard · Google · GitHub) ให้ user ล็อกอินแล้ว Claude กดต่อ** (user สั่ง 19/11/2569): **ห้ามใช้ Chromium ของ Playwright** (`launch`/`launchPersistentContext`) — มีธง automation หน้า Sign in ขึ้น "เบราว์เซอร์ไม่ปลอดภัย" → `powershell -File scripts/open-chrome.ps1 -Url <url>` เปิด **Google Chrome ตัวจริง** โปรไฟล์ถาวร `%LOCALAPPDATA%\claude-chrome` (แยกจาก Chrome ประจำ · ล็อกอินครั้งเดียวใช้ต่อได้) → user ล็อกอินเอง → Claude ทำทีละขั้น `node scripts/chrome-cdp.cjs "<โค้ด page>" <ภาพ.png> <คำใน URL>` · ปุ่มสร้างความลับ (เช่น Create token ของ Supabase) ไม่รับคลิกจากสคริปต์ → ให้ user กดเอง · token/รหัสผ่านอ่านในสคริปต์แล้วส่งต่อตรง ห้ามพิมพ์ลงแชท/ถ่ายภาพหน้าที่มี token
+- **MCP supabase (ให้ Claude รัน SQL/migration เอง) — ใช้ได้แล้ว 19/11/2569**: token แบบ scoped ชื่อ `claude-code` · โปรเจกต์ Project_warehouseapp · RW Database/Migrations/Edge Functions · R Project Settings/Advisors/Logs · **หมดอายุ 30/06/2570** · ตั้งที่ user scope (`claude mcp list` → `supabase … ✓ Connected`) · หลังเปลี่ยน token ต้อง **Reload Window** ถึงจะใช้ใน session ได้ · `execute_sql` ตอบ Unauthorized = token หมดอายุ → ต่ออายุด้วย [scripts/supabase-token-capture.cjs](scripts/supabase-token-capture.cjs) (วิธีใช้อยู่หัวไฟล์ · **Expires ต้องไม่เกิน 1 ปีจากวันนี้** ตั้ง 1 ปีพอดีแล้ว Supabase ไม่รับ)
 
 ### Key shared functions
 
