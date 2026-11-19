@@ -8,7 +8,7 @@ import {
   Activity, ShoppingCart, ClipboardList, Users, BarChart3, Layers,
   FileText, ClipboardCheck, Send, ScanLine, ListChecks, Building2,
   Undo2, CalendarClock, Trash2, HandCoins, ScrollText, ArrowLeftRight, CalendarDays, Thermometer,
-  MessageSquare, Settings2, Clock, Droplet, Pill, Hourglass,
+  MessageSquare, Settings2, Clock, Droplet, Pill, Hourglass, BookOpen,
 } from 'lucide-react';
 
 // โครงสร้างเมนู — รองรับ 3 แบบใน group.items / children:
@@ -84,6 +84,13 @@ export const NAV_GROUPS = [
           { page: 'users',    icon: Users,          title: 'จัดการผู้ใช้งาน', c: 'slate', roles: ['admin'] },
         ],
       },
+    ],
+  },
+  {
+    // คู่มือการใช้แอป (หัวข้อตาม role) + ตารางการทำงาน (ทุกคนเห็น · admin แก้) — ManualApp.jsx (19/11/2569)
+    label: 'ช่วยเหลือ', dot: 'bg-sky-500',
+    items: [
+      { page: 'manual', icon: BookOpen, title: 'คู่มือและตารางงาน', c: 'sky', roles: ['requester', 'staff', 'admin'] },
     ],
   },
 ];

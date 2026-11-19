@@ -80,6 +80,9 @@ const NOTIF_LABELS = {
   clear_stock_count_item:       { label: 'ล้างผลนับรายการ',       color: 'text-amber-600',   dot: 'bg-amber-400' },
   refresh_annual_count_qty:     { label: 'รีเฟรชยอดระบบรอบนับ',   color: 'text-sky-600',     dot: 'bg-sky-400' },
   delete_stock_count:           { label: 'ลบรอบตรวจนับ',          color: 'text-red-600',     dot: 'bg-red-400' },
+  add_work_schedule:            { label: 'เพิ่มตารางการทำงาน',     color: 'text-sky-600',     dot: 'bg-sky-400' },
+  edit_work_schedule:           { label: 'แก้ตารางการทำงาน',       color: 'text-sky-600',     dot: 'bg-sky-400' },
+  delete_work_schedule:         { label: 'ลบแถวตารางการทำงาน',    color: 'text-red-600',     dot: 'bg-red-400' },
 };
 
 const NOTIFY_ACTIONS = Object.keys(NOTIF_LABELS);
@@ -195,6 +198,12 @@ function notifMessage(n) {
       const verb = n.action === 'add_formulary_change' ? 'เพิ่ม' : n.action === 'update_formulary_change' ? 'แก้ไข' : 'ลบ';
       const kind = d.change_type === 'out' ? 'ตัดออก' : 'เข้าบัญชี';
       return `${who} ${verb}มติ PTC ${kind}${d.drug_name ? ` "${d.drug_name}"` : ''}`;
+    }
+    case 'add_work_schedule':
+    case 'edit_work_schedule':
+    case 'delete_work_schedule': {
+      const verb = n.action === 'add_work_schedule' ? 'เพิ่ม' : n.action === 'edit_work_schedule' ? 'แก้' : 'ลบ';
+      return `${who} ${verb}ตารางการทำงาน${d.person ? ` ของ ${d.person}` : ''}`;
     }
     default:
       return `${who} · ${n.department}`;

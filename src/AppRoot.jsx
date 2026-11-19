@@ -33,6 +33,7 @@ import ReturnApp          from './ReturnApp';
 import AuditLogApp        from './AuditLogApp';
 import UserManagementApp  from './UserManagementApp';
 import HolidayCalendarApp from './HolidayCalendarApp';
+import ManualApp from './ManualApp';
 import AnalyticsApp       from './AnalyticsApp';
 import ReorderApp         from './ReorderApp';
 import StockLedgerApp     from './StockLedgerApp';
@@ -282,6 +283,9 @@ export default function AppRoot() {
         break;
       case 'holiday':
         content = <HolidayCalendarApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
+        break;
+      case 'manual':
+        content = <ManualApp key={subKey} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
         break;
       case 'analytics':
         content = <AnalyticsApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;

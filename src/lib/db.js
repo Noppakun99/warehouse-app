@@ -2018,6 +2018,10 @@ export async function fetchNotifications(scope = null) {
     'add_formulary_change',
     'update_formulary_change',
     'delete_formulary_change',
+    // ── ตารางการทำงานคลัง ──
+    'add_work_schedule',
+    'edit_work_schedule',
+    'delete_work_schedule',
   ]
   let query = supabase
     .from('audit_logs')
@@ -5195,6 +5199,73 @@ export async function deletePublicHoliday(holiday_date, auth = {}) {
     user_name: resolveAuditUserName(auth), department: auth?.department || '-',
     record_count: 1,
     details: { holiday_date, name: before?.name || null },
+  })
+}
+
+// --- ตารางการทำงานเจ้าหน้าที่คลัง (work_schedule) — หน้า "คู่มือและตารางงาน" ---
+// 1 แถว = 1 คน · งานจันทร์–ศุกร์ · ทุก role ดู · admin แก้ (คุมที่ UI) · migration: work_schedule_migration.sql
+export const WORK_SCHEDULE_DAYS = [
+  { key: 'mon', label: 'จันทร์' },
+  { key: 'tue', label: 'อังคาร' },
+  { key: 'wed', label: 'พุธ' },
+  { key: 'thu', label: 'พฤหัสบดี' },
+  { key: 'fri', label: 'ศุกร์' },
+]
+const WORK_SCHEDULE_FIELDS = ['person', 'role_note', ...WORK_SCHEDULE_DAYS.map(d => d.key), 'note', 'sort_order']
+
+export async function fetchWorkSchedule() {
+  if (!supabase) return []
+  const { data, error } = await supabase.from('work_schedule')
+    .select('*').order('sort_order').order('id')
+  if (error) throw error
+  return data || []
+}
+
+/** เพิ่ม (ไม่มี id) หรือแก้ (มี id) 1 แถว — คืนแถวที่บันทึก */
+export async function upsertWorkScheduleRow(row, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const person = String(row?.person || '').trim()
+  if (!person) throw new Error('ต้องระบุชื่อเจ้าหน้าที่')
+  const payload = { updated_by: resolveAuditUserName(auth), updated_at: new Date().toISOString() }
+  for (const f of WORK_SCHEDULE_FIELDS) {
+    if (f === 'sort_order') payload.sort_order = Number(row.sort_order) || 0
+    else payload[f] = String(row[f] ?? '').trim() || null
+  }
+  payload.person = person
+
+  let saved, before = null
+  if (row.id) {
+    const { data: b } = await supabase.from('work_schedule').select('*').eq('id', row.id).maybeSingle()
+    before = b
+    const { data, error } = await supabase.from('work_schedule').update(payload).eq('id', row.id).select().single()
+    if (error) throw error
+    saved = data
+  } else {
+    const { data, error } = await supabase.from('work_schedule').insert([payload]).select().single()
+    if (error) throw error
+    saved = data
+  }
+
+  await insertAuditLog({
+    action: before ? 'edit_work_schedule' : 'add_work_schedule',
+    table_name: 'work_schedule',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: 1,
+    details: { id: saved.id, person, before },
+  })
+  return saved
+}
+
+export async function deleteWorkScheduleRow(id, auth = {}) {
+  if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
+  const { data: before } = await supabase.from('work_schedule').select('*').eq('id', id).maybeSingle()
+  const { error } = await supabase.from('work_schedule').delete().eq('id', id)
+  if (error) throw error
+  await insertAuditLog({
+    action: 'delete_work_schedule', table_name: 'work_schedule',
+    user_name: resolveAuditUserName(auth), department: auth?.department || '-',
+    record_count: 1,
+    details: { id, person: before?.person || null, before },
   })
 }
 

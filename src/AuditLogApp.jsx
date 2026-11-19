@@ -177,6 +177,9 @@ const ACTION_LABELS = {
   add_holiday:                  { label: 'เพิ่มวันหยุดราชการ',       color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
   edit_holiday:                 { label: 'แก้ไขวันหยุดราชการ',       color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
   delete_holiday:               { label: 'ลบวันหยุดราชการ',          color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'       },
+  add_work_schedule:            { label: 'เพิ่มตารางการทำงาน',       color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
+  edit_work_schedule:           { label: 'แก้ตารางการทำงาน',         color: 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'           },
+  delete_work_schedule:         { label: 'ลบแถวตารางการทำงาน',      color: 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300'       },
   line_announce:                { label: 'ประกาศรอบเบิก-รับ (LINE)', color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
   line_expiry_alert:            { label: 'แจ้งเตือนยาใกล้หมดอายุ (LINE)', color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
   email_expiry_alert:           { label: 'แจ้งเตือนยาใกล้หมดอายุ (Email)', color: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'},
@@ -592,7 +595,7 @@ export default function AuditLogApp({ onRefresh, auth, onGoBack, canGoBack }) {
     { label: 'ส่งบัญชี (AP)', keys: ['ap_acknowledge', 'ap_unacknowledge', 'ap_mark_inspected', 'ap_uninspect', 'ap_send_batch', 'ap_unsend_batch', 'ap_mark_posted', 'ap_unpost', 'ap_reset_batch', 'print_ap_batch', 'print_ack_batch', 'export_ap_batch'] },
     { label: 'วิเคราะห์สั่งซื้อ', keys: ['analysis_run', 'analysis_view', 'delete_analysis_run', 'update_reorder_config', 'import_reorder_config', 'import_purchase_request', 'mark_ordered', 'unmark_ordered', 'print_po', 'reconcile_excel'] },
     { label: 'บัญชียา (PTC)', keys: ['add_formulary_change', 'update_formulary_change', 'delete_formulary_change'] },
-    { label: 'อื่นๆ',      keys: ['export_excel', 'export_pdf', 'login'] },
+    { label: 'อื่นๆ',      keys: ['export_excel', 'export_pdf', 'login', 'add_work_schedule', 'edit_work_schedule', 'delete_work_schedule'] },
   ];
 
   return (
