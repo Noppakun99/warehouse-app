@@ -270,6 +270,7 @@ Single-page React (ไม่มี React Router) — ทุก Supabase query �
 - **Env vars**: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` ต้องมาจาก `.env`
 - **Tailwind**: 3.x — เลี่ยง arbitrary values (`w-[123px]`) ถ้าทำได้
 - **React**: 19.x — functional components + hooks เท่านั้น
+- **เปิดเว็บที่ต้องล็อกอิน (Supabase Dashboard · Google · GitHub) ให้ user ล็อกอินแล้ว Claude กดต่อ** (user สั่ง 19/11/2569): **ห้ามใช้ Chromium ของ Playwright** (`launch`/`launchPersistentContext`) — มีธง automation หน้า Sign in ขึ้น "เบราว์เซอร์ไม่ปลอดภัย" → `powershell -File scripts/open-chrome.ps1 -Url <url>` เปิด **Google Chrome ตัวจริง** โปรไฟล์ถาวร `%LOCALAPPDATA%\claude-chrome` (แยกจาก Chrome ประจำ · ล็อกอินครั้งเดียวใช้ต่อได้) → user ล็อกอินเอง → Claude ทำทีละขั้น `node scripts/chrome-cdp.cjs "<โค้ด page>" <ภาพ.png> <คำใน URL>` · ปุ่มสร้างความลับ (เช่น Create token ของ Supabase) ไม่รับคลิกจากสคริปต์ → ให้ user กดเอง · token/รหัสผ่านอ่านในสคริปต์แล้วส่งต่อตรง ห้ามพิมพ์ลงแชท/ถ่ายภาพหน้าที่มี token
 
 ### Key shared functions
 
