@@ -61,6 +61,12 @@ try {
   } else {
     for ($k = 2; $k -le $n + 1; $k++) { $null = $ns.Rows.Item($k).AutoFit(); if ($ns.Rows.Item($k).RowHeight -lt $rowMin) { $ns.Rows.Item($k).RowHeight = $rowMin } }
   }
+  # ชีทเบิกมีแต่เส้นบนของแต่ละแถว (เส้นล่างได้จากเส้นบนของแถวถัดไป) → แถวท้ายที่ copy มาไม่มีเส้นปิดตาราง (user แจ้ง 19/11/2569 บย.70/0085 · เจอครั้งที่ 2) · ปิดด้วยเส้นแบบเดียวกับเส้นบนของแถวท้าย
+  Invoke-Retry {
+    $top = $ns.Range("A$($n + 1)").Borders.Item(8); $bot = $ns.Range("A$($n + 1):P$($n + 1)").Borders.Item(9)
+    $bot.LineStyle = 1
+    if ($top.LineStyle -eq 1) { $bot.Weight = $top.Weight; $bot.Color = $top.Color } else { $bot.Weight = 2 }
+  } 'bottom border'
   $ns.Columns.Item(2).Hidden = $true; $ns.Columns.Item(5).Hidden = $true
   $ps = $ns.PageSetup
   Invoke-Retry {
