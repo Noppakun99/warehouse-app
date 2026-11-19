@@ -115,13 +115,10 @@ export function buildWorkQueue({
     })
   }
 
-  // รายงานแจ้งซื้อยา (ADR-0030) — งานของคลัง: บิลซื้อเข้าแล้วแต่ไฟล์ยังไม่ติ๊ก/ย้ายไป Sheet1
+  // รายงานแจ้งซื้อยา (ADR-0030)
+  // แถว "ของมาแล้วแต่ไฟล์ยังไม่ย้าย" ถอดออกจากคิว 19/11/2569 (user สั่ง — งานย้ายไฟล์ทำในรอบ /purchase-request-report อยู่แล้ว
+  // ขึ้นบนหน้าหลักทุกวันเป็นแค่เสียงรบกวน) · แถบเตือนในแท็บแจ้งซื้อแล้วของ ReorderApp ยังอยู่
   if (purchase) {
-    push({
-      key: 'purchaseNotMoved', label: 'รายงานซื้อยา: ของมาแล้วแต่ไฟล์ยังไม่ย้าย', count: purchase.notMoved.length,
-      severity: 'amber', note: 'ติ๊กมาส่งแล้ว + ย้ายไป Sheet1 ในรายงานการซื้อยา_69.xlsx แล้วนำเข้าใหม่',
-      rows: purchase.notMoved,
-    })
     // รอจัดซื้อ/บริษัท ไม่ใช่งานค้างของคลัง → informational · ซ่อนเมื่อ 0
     const w = purchase.waiting
     const over60 = w.filter(r => r.waitDays > 60).length
