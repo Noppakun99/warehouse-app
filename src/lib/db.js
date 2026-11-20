@@ -499,18 +499,23 @@ export async function fetchDashboardAlerts() {
   if (!data) return { expiring: [], lowStock: [], pendingReceive: [], drugCount: null, discontinued: [] }
 
   // ดึง receive_date จาก receive_logs เพื่อคำนวณ waitDays (รอตรวจรับมา X วัน) — ใช้ logic เดียวกับระบบแผนผัง
+  // + PO/บริษัทของแถวรับล่าสุด (code+lot เป๊ะ — PO เป็นข้อมูลระดับ lot เหมือน lookupPo ใน App.jsx)
+  //   ให้ใบพิมพ์/Excel/ข้อความไลน์ของโมดอลรอตรวจรับบน Dashboard มีครบเท่าโมดอลแผนผัง
   // ข้าม 1000-row limit ของ Supabase ด้วย pagination
-  const receiveDateMap = new Map() // key: `${code}|${lot}` → receive_date ล่าสุด
+  const receiveMetaMap = new Map() // key: `${code}|${lot}` → { date, po, supplier } ของแถวรับล่าสุด
+  const dashVal = (v) => { const s = String(v ?? '').trim(); return s === '-' ? '' : s }
   try {
     const PAGE = 1000
     let from = 0
     while (true) {
-      const { data: rl } = await supabase.from('receive_logs').select('drug_code, lot, receive_date').range(from, from + PAGE - 1)
+      const { data: rl } = await supabase.from('receive_logs').select('drug_code, lot, receive_date, po_number, supplier_current').range(from, from + PAGE - 1)
       if (!rl || rl.length === 0) break
       for (const r of rl) {
         const key = `${(r.drug_code || '').toLowerCase()}|${(r.lot || '').toLowerCase()}`
-        const cur = receiveDateMap.get(key)
-        if (!cur || (r.receive_date && r.receive_date > cur)) receiveDateMap.set(key, r.receive_date)
+        const cur = receiveMetaMap.get(key)
+        if (!cur || (r.receive_date && r.receive_date > cur.date)) {
+          receiveMetaMap.set(key, { date: r.receive_date, po: dashVal(r.po_number), supplier: dashVal(r.supplier_current) })
+        }
       }
       if (rl.length < PAGE) break
       from += PAGE
@@ -589,7 +594,8 @@ export async function fetchDashboardAlerts() {
     // --- รอตรวจรับ (อ้างอิงสถานะจาก inventory.receive_status — logic เดียวกับ App.jsx) ---
     if (isPendingReceive) {
       const key = `${(row.code || '').toLowerCase()}|${(row.lot || '').toLowerCase()}`
-      const recvIso = receiveDateMap.get(key) || null
+      const meta = receiveMetaMap.get(key)
+      const recvIso = meta?.date || null
       const waitDays = waitDaysSince(recvIso, today)   // สูตรเดียวกับบัตรยา (drugProfile.js)
       pendingReceive.push({
         name:           row.name,
@@ -602,6 +608,8 @@ export async function fetchDashboardAlerts() {
         unit:           row.unit,
         receive_status: row.receive_status,
         invoice:        row.invoice,      // การ์ดรอตรวจรับบน Dashboard (PendingLotCard)
+        po:             meta?.po || '',
+        supplier:       meta?.supplier || '',
         receive_date:   recvIso,
         waitDays,
       })

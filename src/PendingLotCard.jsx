@@ -1,9 +1,14 @@
 // การ์ด lot รอตรวจรับ — ใช้ร่วม 2 ที่ ให้หน้าตา/ความหมายตรงกัน (user สั่ง 14/11/2569 เปลี่ยนตารางเลื่อนแนวนอนเป็นการ์ด):
 //   1. โมดอลรอตรวจรับของแผนผังคลังยา (App.jsx — มีบิล/PO/บริษัทจาก receive_logs)
-//   2. โมดอลรอตรวจรับบน Dashboard (PendingReceiveModal — มีเลขบิลจาก inventory ไม่มี PO/บริษัท)
+//   2. โมดอลรอตรวจรับบน Dashboard (PendingReceiveModal — เลขบิลจาก inventory · PO/บริษัท/วันรับจาก receive_logs ใน fetchDashboardAlerts)
+//      ปุ่มพิมพ์ / Excel / คัดลอกข้อความไลน์ ใช้ rows ชุดที่การ์ดแสดงอยู่ (หลังค้นหา — Rule #6) — user สั่ง 20/11/2569
 import { useEffect, useMemo, useState } from 'react';
-import { Clock, FileText, MapPin, Package, Search, X, ArrowRight } from 'lucide-react';
+import { Check, Clock, Copy, FileDown, FileText, MapPin, Package, Printer, RefreshCcw, Search, X, ArrowRight } from 'lucide-react';
 import { DrugTypeBadge } from './DrugSearchBar';
+import { printTrackingList } from './lib/trackingPrint';
+import { exportToExcel } from './lib/exportExcel';
+import { copyText } from './lib/clipboard';
+import { pendingReceiveLineText } from './lib/pendingReceiveLine';
 
 // ข้อความ/สีเดียวกับคอลัมน์ "รอตรวจรับมา" เดิม และใบพิมพ์ (trackingPrint fmtWaitDays)
 function waitBadge(d) {
@@ -99,9 +104,37 @@ export default function PendingLotCard({ r, onOpenDrug }) {
 
 const norm = (s) => String(s ?? '').toLowerCase();
 
+const fmtThaiIso = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d) ? '' : `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear() + 543}`;
+};
+
+// คอลัมน์เดียวกับใบพิมพ์รอตรวจรับ (trackingPrint pendingTableHtml) + ชื่อบริษัทเต็ม
+const PENDING_EXCEL_COLS = [
+  { header: 'ชื่อยา', key: 'name' },
+  { header: 'รหัสยา', key: 'code' },
+  { header: 'ชนิด', key: 'type' },
+  { header: 'ตำแหน่ง', key: 'location' },
+  { header: 'Lot', key: 'lot' },
+  { header: 'วันหมดอายุ', key: 'exp' },
+  { header: 'คงเหลือ', key: 'qty' },
+  { header: 'หน่วย', key: 'unit' },
+  { header: 'บิลยา', key: 'invoice' },
+  { header: 'PO', key: 'po' },
+  { header: 'วันที่รับเข้า', value: r => fmtThaiIso(r.receive_date) },
+  { header: 'รอตรวจรับมาแล้ว (วัน)', value: r => r.waitDays ?? '' },
+  { header: 'บริษัท', key: 'supplier' },
+  { header: 'สถานะ', value: r => String(r.receive_status ?? '').split('|').map(s => s.trim()).filter(Boolean).join(' · ') },
+];
+
+const toolBtn = 'inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium border transition-colors disabled:opacity-40';
+
 // โมดอลรายการรอตรวจรับบน Dashboard — rows = alerts.pendingReceive ชุดเดียวกับตัวเลขบนการ์ด (Rule #6)
-export function PendingReceiveModal({ rows, onClose, onOpenDrug, onGoMap }) {
+export function PendingReceiveModal({ rows, onClose, onOpenDrug, onGoMap, auth }) {
   const [q, setQ] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [copied, setCopied] = useState(null);   // 'ok' | 'fail' | null
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
     window.addEventListener('keydown', onKey);
@@ -113,6 +146,27 @@ export function PendingReceiveModal({ rows, onClose, onOpenDrug, onGoMap }) {
     return rows.filter(r => [r.name, r.code, r.lot, r.location, r.invoice].some(v => norm(v).includes(t)));
   }, [rows, q]);
   const over7 = rows.filter(r => r.waitDays != null && r.waitDays > 7).length;
+  const qText = q.trim();
+
+  const handlePrint = () => {
+    printTrackingList(shown.map(r => ({ ...r, _receiveDate: r.receive_date, receiveStatus: r.receive_status })), {
+      title: 'รายการยารอตรวจรับ',
+      filterNote: qText ? `ตัวกรอง: คำค้น "${qText}" · เรียงรอนานสุดก่อน` : 'แสดงทุกรายการ · เรียงรอนานสุดก่อน',
+      printedBy: auth?.name || auth?.username || '',
+    });
+  };
+  const handleExcel = async () => {
+    setExporting(true);
+    try {
+      await exportToExcel(shown, PENDING_EXCEL_COLS, 'รอตรวจรับ', `รอตรวจรับ_${new Date().toISOString().slice(0, 10)}.xlsx`, auth);
+    } finally { setExporting(false); }
+  };
+  const handleCopy = async () => {
+    const ok = await copyText(pendingReceiveLineText(shown, { filterNote: qText ? `คำค้น "${qText}"` : '' }));
+    setCopied(ok ? 'ok' : 'fail');
+    setTimeout(() => setCopied(null), 2500);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm sm:p-4" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-labelledby="pending-recv-title" onClick={e => e.stopPropagation()}
@@ -145,15 +199,32 @@ export function PendingReceiveModal({ rows, onClose, onOpenDrug, onGoMap }) {
                 {shown.map((r, i) => <PendingLotCard key={`${r.code}|${r.lot}|${r.location}|${i}`} r={r} onOpenDrug={onOpenDrug} />)}
               </div>}
         </div>
-        {onGoMap && (
-          <div className="shrink-0 bg-white dark:bg-slate-900 px-4 sm:px-5 py-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3">
-            <p className="text-xs text-slate-500 dark:text-slate-400 min-w-0">พิมพ์ / Excel / บิลและบริษัท อยู่ที่แผนผังคลังยา</p>
+        <div className="shrink-0 bg-white dark:bg-slate-900 px-4 sm:px-5 py-3 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center gap-2">
+          <button type="button" onClick={handlePrint} disabled={shown.length === 0} title="พิมพ์รายการที่แสดงอยู่"
+            className={`${toolBtn} bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200`}>
+            <Printer size={15} />พิมพ์
+          </button>
+          <button type="button" onClick={handleExcel} disabled={exporting || shown.length === 0}
+            className={`${toolBtn} bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300`}>
+            {exporting ? <RefreshCcw size={15} className="animate-spin" /> : <FileDown size={15} />}
+            {exporting ? 'กำลังส่งออก…' : 'Excel'}
+          </button>
+          <button type="button" onClick={handleCopy} disabled={shown.length === 0} title="คัดลอกข้อความ จัดตามบิล ไปวางในไลน์"
+            className={`${toolBtn} ${copied === 'ok'
+              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+              : copied === 'fail'
+              ? 'bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-800 text-red-700 dark:text-red-300'
+              : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200'}`}>
+            {copied === 'ok' ? <Check size={15} /> : <Copy size={15} />}
+            {copied === 'ok' ? 'คัดลอกแล้ว' : copied === 'fail' ? 'คัดลอกไม่ได้' : 'คัดลอกข้อความไลน์'}
+          </button>
+          {onGoMap && (
             <button type="button" onClick={onGoMap}
-              className="inline-flex items-center gap-1.5 shrink-0 bg-sky-600 hover:bg-sky-700 text-white rounded-xl px-4 py-2 text-sm font-semibold transition-colors">
+              className="ml-auto inline-flex items-center gap-1.5 shrink-0 bg-sky-600 hover:bg-sky-700 text-white rounded-xl px-4 py-2 text-sm font-semibold transition-colors">
               ไปแผนผังคลังยา <ArrowRight size={15} />
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

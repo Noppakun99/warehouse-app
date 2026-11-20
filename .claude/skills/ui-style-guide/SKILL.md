@@ -284,6 +284,26 @@ card ที่แสดงรายละเอียด 1 รายการ (d
 </button>
 ```
 
+### แถบส่งต่อรายการ: พิมพ์ · Excel · คัดลอกข้อความไลน์ (user สั่ง 20/11/2569)
+
+โมดอล/หน้ารายการที่คนต้องเอาไปรายงานหรือส่งต่อ (รอตรวจรับ · ใกล้หมดอายุ · ค้างจ่าย ฯลฯ) **ต้องมีครบ 3 ปุ่มในแถบเดียว** — ห้ามมีแค่ข้อความ "ไปทำที่หน้าอื่น" (เดิมโมดอลรอตรวจรับบน Dashboard บอก "พิมพ์ / Excel อยู่ที่แผนผังคลังยา" user ต้องเปลี่ยนหน้า)
+
+- **ทั้ง 3 ปุ่มใช้ rows ชุดที่จอแสดงอยู่** (หลังค้นหา/กรอง — Critical Rule #6) และบอกตัวกรองบนกระดาษ/ข้อความ (`filterNote`) ไม่งั้นกระดาษตอนกรองดูเหมือนรายการทั้งหมด
+- พิมพ์ = helper เดิม (`printTrackingList` / `openPrintView` Blob URL) · Excel = `exportToExcel(..., auth)` ส่ง `auth` เสมอ (Rule #1) · คอลัมน์ Excel ล้อใบพิมพ์ของรายการเดียวกัน
+- ข้อความไลน์ = **pure function ใน `src/lib/`** (ไม่ใช่ใน component) · ใช้ `copyText` (`lib/clipboard.js` — มีทางสำรองของ WebView LINE) · **จัดกลุ่มตามหน่วยที่คนอ่านจะทำงาน** (รอตรวจรับ = ตามบิล) · บรรทัดแรก = หัวเรื่อง + วันที่ · บรรทัดสอง = ยอดรวม + เรื่องด่วน
+- ปุ่มคัดลอกต้องมี feedback 2.5 วิ: `คัดลอกแล้ว` (เขียว + `Check`) / `คัดลอกไม่ได้` (แดง)
+- ไม่มีรายการ → `disabled` ทั้ง 3 ปุ่ม · Excel ระหว่างส่งออก = `RefreshCcw animate-spin` + `กำลังส่งออก…`
+- วาง: แถบล่างโมดอล `flex flex-wrap items-center gap-2` (375px ขึ้นบรรทัดใหม่ได้) · ปุ่มนำทางหลัก (เช่น ไปแผนผัง) `ml-auto` อยู่ขวาสุด · ตัวอย่าง `PendingReceiveModal` ใน [PendingLotCard.jsx](src/PendingLotCard.jsx)
+
+```jsx
+<div className="shrink-0 px-4 py-3 border-t border-slate-200 flex flex-wrap items-center gap-2">
+  <button className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium border bg-white border-slate-300 hover:border-slate-400 text-slate-700 transition-colors disabled:opacity-40"><Printer size={15}/>พิมพ์</button>
+  <button className="… bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-700"><FileDown size={15}/>Excel</button>
+  <button className="… bg-white border-slate-300 text-slate-700"><Copy size={15}/>คัดลอกข้อความไลน์</button>
+  <button className="ml-auto … bg-sky-600 hover:bg-sky-700 text-white font-semibold">ไปแผนผังคลังยา <ArrowRight size={15}/></button>
+</div>
+```
+
 ---
 
 ## Inputs
@@ -496,3 +516,4 @@ card ที่แสดงรายละเอียด 1 รายการ (d
 - ห้ามทำป้ายที่กดไม่ได้ให้มีเงา/hover/`cursor-pointer` เหมือนปุ่ม
 - ห้ามใช้ข้อความดิบจาก Excel/บิลเป็นหัวกลุ่ม · ห้ามกางทุกกลุ่มเมื่อมีหลายกลุ่ม (§หลักจัดวาง ข้อ 7)
 - ห้ามบอกว่า UI เสร็จโดยไม่ผ่าน §ก่อนส่งงาน (หรือระบุว่า `ยังไม่ได้ตรวจ`)
+- ห้ามทำโมดอลรายการที่ต้องรายงาน/ส่งต่อ โดยไม่มีปุ่ม พิมพ์ · Excel · คัดลอกข้อความไลน์ ในตัว (§Buttons แถบส่งต่อรายการ)

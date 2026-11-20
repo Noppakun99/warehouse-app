@@ -965,7 +965,7 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
           onOpenReorder={() => { setAlertModal(null); onNavigate('reorder-analysis'); }} />
       )}
       {alertModal === 'pending' && (
-        <PendingReceiveModal rows={alerts.pendingReceive} onClose={() => setAlertModal(null)} onOpenDrug={onOpenDrug}
+        <PendingReceiveModal rows={alerts.pendingReceive} auth={auth} onClose={() => setAlertModal(null)} onOpenDrug={onOpenDrug}
           onGoMap={() => { setAlertModal(null); onNavigate('inventory'); }} />
       )}
       {alertModal === 'stock' && (
