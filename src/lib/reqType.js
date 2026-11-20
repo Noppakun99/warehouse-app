@@ -73,6 +73,14 @@ export function entryUnitOf({ unit = '', baseUnit = '', packSizes = [], packUnit
   return { packSize: 1, label: unit, hint };
 }
 
+// หน่วยคีย์ของยา 1 ตัวจาก lot ในคลัง: ขนาดให้เลือกมาจาก lot ที่จ่ายได้ตอนนี้ (dispensable — ตรวจรับแล้ว มีของ เรียงลำดับจ่าย) เท่านั้น
+// others (lot รอตรวจรับ / คงเหลือ 0) ใช้เมื่อไม่มี lot จ่ายได้เลย — เดิมรวมกัน ผู้เบิกเลือก "กล่อง (400เม็ด)" ของ lot ที่ยังรอตรวจรับ
+// แล้วคลังจ่ายกล่อง 500 ขึ้นว่าเกินที่ขอ (Dicloxacillin user 20/11/2569)
+export function entryUnitForLots({ unit = '', baseUnit = '', dispensable = [], others = [] } = {}) {
+  const src = dispensable.length ? dispensable : others;
+  return entryUnitOf({ unit: src[0]?.unit || unit, baseUnit, packSizes: src.map(p => p.packSize), packUnits: src });
+}
+
 // จำนวนที่ผู้เบิกขอตามขนาดที่เลือก (requisition_items.entry_pack/entry_unit) → "2 กล่อง (400เม็ด)"
 // ไม่ได้เลือกขนาด → null (ผู้เรียกแสดงแบบเดิม) · แก้จำนวนทีหลังจนไม่เต็มกล่อง → ทศนิยม เช่น "2.5 กล่อง (400เม็ด)"
 export function entryQtyText(base, entryPack, entryUnit, baseUnit = '') {

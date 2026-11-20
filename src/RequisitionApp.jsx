@@ -13,7 +13,7 @@ import { parseUnit } from './lib/unitParser';
 import { allocateFefo, sortLotsForDispense, lotOrderNote, isSupportedLot } from './lib/lotAllocation';
 import { findOverReserved, availableForOwn, increasedCodes } from './lib/reservationCheck';
 import { RESERVING_STATUSES, summarizeHolds, applyHolds } from './lib/reservation';
-import { REQ_TYPES, reqTypeLabel, reqTypeOfRows, entryUnitOf, entryQtyText, packWord, CART_KEY, CART_TYPE_KEY } from './lib/reqType';
+import { REQ_TYPES, reqTypeLabel, reqTypeOfRows, entryUnitOf, entryUnitForLots, entryQtyText, packWord, CART_KEY, CART_TYPE_KEY } from './lib/reqType';
 import { awaitsSheetEntry } from './lib/onlineReqPlan';
 import { QUEUE_TABS, stageOf, tabOf, nextStep, waitText, itemAllocation, defaultPickResult, pickPayload, verifyNoteText, sortByLog, reqFlags, PICK_REASONS, VERIFY_ISSUES } from './lib/reqStaffView';
 import { rankDrugs, matchDrugQuery } from './lib/drugSearchText';
@@ -757,12 +757,10 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
       const baseUnitCount = {};
       let totalBaseRaw = 0;
       let pendingBase = 0; // ของรอตรวจรับ — ยังจ่ายไม่ได้ แต่ผู้เบิกขอได้ (CONTEXT §ใบเบิกออนไลน์ "ขอได้เสมอ")
-      const packSizes = [];
       const fefoLots = [];
       drug.lots.forEach(lot => {
         if (lot.expired) return;
         const { packSize, baseUnit } = parseUnit(lot.unit);
-        packSizes.push(packSize);
         if (lot.pending) { pendingBase += (parseFloat(lot.rawQty) || 0) * (packSize || 1); return; }
         const packs = parseFloat(lot.rawQty) || 0;
         const base = packs * (packSize || 1);
@@ -781,13 +779,14 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
       // เพื่อให้ allocation preview ในตะกร้าตรงกับ availableBase (ไม่ preview ของที่ถูกจอง)
       const { lots: availLots } = applyHolds(fefoUnique, hold);
       // หน่วยคีย์ = หน่วยซื้อตาม Master ทุกประเภทใบ (CONTEXT §หน่วยคีย์ · ใบยาเปลี่ยน 13/11/2569 — คลังจ่ายเต็มกล่อง
-      // คีย์หน่วยย่อยแล้ว "ขอ 1 เม็ด ได้ 1000") · lot ต่างขนาดแพ็ค = คีย์หน่วยย่อย (entryUnitOf)
-      // ขนาดแพ็คให้เลือก: lot ที่จ่ายได้ตามลำดับจ่ายก่อน แล้ว lot รอตรวจรับ (ค่าเริ่ม = lot ที่จะจ่ายก่อน)
-      const packUnits = [
-        ...fefoUnique.map(l => ({ packSize: l.packSize, unit: l.unit })),
-        ...drug.lots.filter(l => !l.expired).map(l => ({ packSize: parseUnit(l.unit).packSize, unit: l.unit })),
-      ];
-      const entry = entryUnitOf({ unit: drug.unit, baseUnit, packSizes, packUnits });
+      // คีย์หน่วยย่อยแล้ว "ขอ 1 เม็ด ได้ 1000") · lot ต่างขนาดแพ็ค = ให้เลือกขนาด (entryUnitForLots)
+      // ขนาดให้เลือกมาจาก lot ที่จ่ายได้ตอนนี้เท่านั้น (ค่าเริ่ม = lot ที่จะจ่ายก่อน) · lot รอตรวจรับใช้เมื่อไม่มีของจ่ายได้เลย
+      // หลังหักยอดจอง (availLots) = ชุดเดียวกับที่ตะกร้าคาดว่าจะจ่าย · ถูกจองหมดทุก lot ค่อยใช้ fefoUnique
+      const entry = entryUnitForLots({
+        unit: drug.unit, baseUnit,
+        dispensable: (availLots.length ? availLots : fefoUnique).map(l => ({ packSize: l.packSize, unit: l.unit })),
+        others: drug.lots.filter(l => !l.expired).map(l => ({ packSize: parseUnit(l.unit).packSize, unit: l.unit })),
+      });
       return { ...drug, totalBaseRaw, baseUnit, reservedBase, availableBase, pendingBase, entry, fefoLots: availLots };
     }), [rawResults, reservedMap]);
   const [qtyMap, setQtyMap]    = useState({});   // key = code+name+lot
@@ -1491,6 +1490,10 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
               const noteOpen = openNotes[i] || !!item.note;
               // preview: คาดว่าจะได้ lot อะไรบ้าง ตาม FEFO (lot ตรวจรับแล้ว) — authoritative recompute ตอน picking
               const alloc = item.fefoLots ? allocateFefo(item.requestedQty, item.fefoLots) : null;
+              // ขนาดกล่องที่เลือกไม่ตรง lot ที่จะจ่าย → บอกเป็นกล่องจริง เช่น "2 กล่อง (500เม็ด)" แทน "เกินที่ขอ"
+              const packMismatch = alloc && item.entryUnit && item.entryPack > 1 && alloc.allocation.some(a => a.packSize !== item.entryPack)
+                ? alloc.allocation.map(a => `${a.packs.toLocaleString()} ${packWord(item.unit)} (${a.unit})`).join(' + ')
+                : null;
               return (
             <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm overflow-hidden">
               <div className="p-4">
@@ -1564,7 +1567,11 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
                         </div>
                       ))}
                     </div>
-                    {alloc.overBase > 0 && (
+                    {packMismatch ? (
+                      <p className="text-xs text-amber-600 font-semibold mt-2 pt-2 border-t border-amber-100 dark:border-amber-900/50 flex items-start gap-1">
+                        <AlertCircle size={12} className="mt-0.5 shrink-0" /> กล่องที่จะจ่ายไม่ใช่ขนาด {item.entryUnit} ที่เลือก — ได้ {packMismatch} = {alloc.allocatedBase.toLocaleString()} {item.unit || ''}
+                      </p>
+                    ) : alloc.overBase > 0 && (
                       <p className="text-xs text-amber-600 font-semibold mt-2 pt-2 border-t border-amber-100 dark:border-amber-900/50 flex items-center gap-1">
                         <AlertCircle size={12} /> จ่ายเต็มกล่อง — ได้ {alloc.allocatedBase.toLocaleString()} {item.unit || ''} (เกินที่ขอ {alloc.overBase.toLocaleString()})
                       </p>
