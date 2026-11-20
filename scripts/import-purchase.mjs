@@ -6,7 +6,7 @@
 //   npm run import:purchase -- --file "<path>"    ← เครื่องอื่น (path default เป็นของเครื่องคลัง)
 //
 // 🔴 แทนทั้งตาราง (DELETE ALL แล้ว INSERT) — Excel เป็นตัวจริง (ADR-0030) · สำรองก่อนเขียนเสมอ
-// ชีท "รายงานซื้อยา" (รอของ) + "Sheet1" (☑ มาส่งแล้ว · ☐ ยกเลิก)
+// ชีท "รายงานซื้อยา" (รอของ) + "ประวัติแจ้งซื้อ" (☑ มาส่งแล้ว · ☐ ยกเลิก)
 
 import XLSX from 'xlsx'
 import path from 'path'

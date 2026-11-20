@@ -24,9 +24,9 @@ TH_MONTH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', '�
 MONTH_COLS = ['E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P']
 
 # รายงานซื้อยา: ชื่อคอลัมน์ในโค้ด/plan.json = ตำแหน่งเดิม (Avg/วัน = 'T', หมายเหตุ = 'S')
-# 14/10/2569 ย้าย Avg/วัน มาต่อ Avg/เดือน (N) → ตำแหน่งจริง O, ของเดิม O–S เลื่อนเป็น P–T · Sheet1 = ตำแหน่งจริง +1 คอลัมน์
+# 14/10/2569 ย้าย Avg/วัน มาต่อ Avg/เดือน (N) → ตำแหน่งจริง O, ของเดิม O–S เลื่อนเป็น P–T · ประวัติแจ้งซื้อ = ตำแหน่งจริง +1 คอลัมน์
 # 22/10/2569 (/grill-with-docs) แทรก 4 คอลัมน์ — migrate_layout.ps1: Q จุดสั่งซื้อ (ROP) · R เหตุผลที่แจ้ง · S คงอยู่ได้อีก (วัน)
-#   · W มูลค่าสั่ง (บาท) → ยอดเบิกรวม T · 3 เดือน U · จำนวนแนะนำ V · หมายเหตุ X (รายงาน A–X · Sheet1 B–Y)
+#   · W มูลค่าสั่ง (บาท) → ยอดเบิกรวม T · 3 เดือน U · จำนวนแนะนำ V · หมายเหตุ X (รายงาน A–X · ประวัติแจ้งซื้อ B–Y)
 # apply.ps1 มีตารางเดียวกัน ($PHYS) — แก้ตำแหน่งคอลัมน์ต้องแก้ทั้ง 2 ไฟล์
 PHYS_MAP = {'O': 'P', 'P': 'T', 'Q': 'U', 'R': 'V', 'S': 'X', 'T': 'O',
             'ROP': 'Q', 'WHY': 'R', 'COV': 'S', 'VAL': 'W'}
@@ -155,7 +155,7 @@ def po_text(p, today):
     co = re.sub(r'^บริษัท\s*', '', p['บริษัท(ระบบ)']).strip().replace('จ ากัด', 'จำกัด').replace('จํากัด', 'จำกัด')
     if p['issued'] is None:
         req = f"สั่งทำ {ce(p['requested'])} · " if p['requested'] else ''
-        return f"มี {p['เลขที่PO']} ({req}{co}) ยังไม่ออก PO"
+        return f"มี {p['เลขที่PO']} ({req}{co}) อยู่ขั้นแผนกจัดทำเอกสาร eGP ยังไม่ออก PO"   # คำตามหัวแท็บในระบบจัดซื้อ (user สั่ง 20/11/2569)
     part = ' ส่งมาบางส่วนแล้ว' if p['ผล'].startswith('ส่งบางส่วน') else ''
     return f"มี {p['เลขที่PO']} (ออก {ce(p['issued'])} · {co}){part} ยังไม่มาส่ง {(today - p['issued']).days} วัน"
 
@@ -470,7 +470,7 @@ def is_urgent(d, code, today, last, unmet):
 
 def load_report(path):
     wb = openpyxl.load_workbook(path, data_only=True)
-    rp, s1 = wb['รายงานซื้อยา'], wb['Sheet1']
+    rp, s1 = wb['รายงานซื้อยา'], wb['ประวัติแจ้งซื้อ']
     if str(rp['E4'].value).strip() != 'รหัสHosxp':
         raise SystemExit(f'หัวคอลัมน์ E4 ของรายงานไม่ใช่ "รหัสHosxp" (เจอ {rp["E4"].value!r}) — โครงสร้างไฟล์เปลี่ยน หยุดก่อน')
     for key, want in (('N', 'Avg/เดือน'), ('T', 'Avg/วัน'), ('O', 'คงเหลือ'), ('S', 'หมายเหตุ'), ('ROP', 'จุดสั่งซื้อ'),
@@ -647,7 +647,7 @@ def cmd_plan(a):
     dup = [k for k, n in Counter(x['code'] for x in rows).items() if n > 1]
     if dup:
         warn.append(f'รหัสซ้ำในรายงาน: {dup}')
-    # 0) ยกเลิกแจ้ง (--cancel CODE=เหตุผล) → ย้ายไป Sheet1 แบบ ☐ + หมายเหตุ ตามธรรมเนียมเดิมของ Sheet1
+    # 0) ยกเลิกแจ้ง (--cancel CODE=เหตุผล) → ย้ายไป ประวัติแจ้งซื้อ แบบ ☐ + หมายเหตุ ตามธรรมเนียมเดิมของ ประวัติแจ้งซื้อ
     cancel = dict(n.split('=', 1) for n in (a.cancel or []))
     unknown = [k for k in cancel if k not in {x['code'] for x in rows}]
     if unknown:
@@ -677,7 +677,7 @@ def cmd_plan(a):
             continue
         after = [t for t in d.buy.get(x['code'], []) if t >= b]
         # แถว "แจ้งซ้ำ: ของมาแล้ว d/m/yy" ถูกสร้างเพราะการรับวันนั้นเอง — การรับวันเดียวกับวันแจ้งไม่ใช่ของรอบใหม่
-        # (เดิมรอบที่ 2 ในวันเดียวกันย้ายแถวแจ้งซ้ำไป Sheet1 แล้วเพิ่มกลับเป็นรายการใหม่วนซ้ำ — 14/10/2569)
+        # (เดิมรอบที่ 2 ในวันเดียวกันย้ายแถวแจ้งซ้ำไป ประวัติแจ้งซื้อ แล้วเพิ่มกลับเป็นรายการใหม่วนซ้ำ — 14/10/2569)
         if f"แจ้งซ้ำ: ของมาแล้ว {be(b)}" in str(x['S'] or ''):
             after = [t for t in after if t.date() > b.date()]
         if after:
@@ -766,12 +766,12 @@ def cmd_plan(a):
     # preview
     out(f"วันที่แจ้งรอบนี้: {dstr} | รายงานเดิม {len(rows)} แถว")
     dl = [m for m in moves if m['kind'] == 'delivered']
-    out(f"\n[1] มาส่งแล้ว → ย้ายไป Sheet1 (☑): {len(dl)} รายการ (ยังไม่ติ๊ก {sum(m['tick'] for m in dl)})")
+    out(f"\n[1] มาส่งแล้ว → ย้ายไป ประวัติแจ้งซื้อ (☑): {len(dl)} รายการ (ยังไม่ติ๊ก {sum(m['tick'] for m in dl)})")
     for m in dl:
         out(f"   {m['code']:>9} {str(m['name'])[:34]:34} แจ้ง {m['notified']} รับ {m['delivered']}{'  ← ยังไม่ติ๊ก' if m['tick'] else ''}")
     cn = [m for m in moves if m['kind'] == 'cancel']
     if cn:
-        out(f"[1b] ยกเลิกแจ้ง → ย้ายไป Sheet1 (☐ + หมายเหตุ): {len(cn)} รายการ")
+        out(f"[1b] ยกเลิกแจ้ง → ย้ายไป ประวัติแจ้งซื้อ (☐ + หมายเหตุ): {len(cn)} รายการ")
         for m in cn:
             out(f"   {m['code']:>9} {str(m['name'])[:34]:34} แจ้ง {m['notified']} | S: {m['S']}")
     out(f"\n[2] อัพเดตคอลัมน์ C (วันที่ยาส่งล่าสุด): {len(c_upd)} แถว")
@@ -872,24 +872,24 @@ def cmd_verify(a):
         red = [str(getattr(dp[f'{L}{r}'].font.color, 'rgb', '') or '').upper().endswith('FF0000') for L in ('E', 'G', 'P')]
         if (code in plan['urgent']) != all(red) or any(red) != all(red):
             errs.append(f'{code} แถว {r}: สีอักษร {red} ไม่ตรงสถานะด่วน ({code in plan["urgent"]})')
-    # Sheet1
-    s1 = dst['Sheet1']
+    # ประวัติแจ้งซื้อ
+    s1 = dst['ประวัติแจ้งซื้อ']
     start = plan['sheet1_last'] + 1
     got = [str(s1.cell(r, 6).value).strip() for r in range(start, start + len(moved))]
     if got != moved:
-        errs.append(f'Sheet1 แถว {start}+ ไม่ตรงกับรายการที่ย้าย')
+        errs.append(f'ประวัติแจ้งซื้อ แถว {start}+ ไม่ตรงกับรายการที่ย้าย')
     for i, m in enumerate(plan['moves']):
         r = start + i
         if m['kind'] == 'delivered' and s1.cell(r, 2).value != CHECKED:
-            errs.append(f'Sheet1 แถว {r} {m["code"]}: มาส่งแล้วแต่ไม่ได้ติ๊ก ☑')
+            errs.append(f'ประวัติแจ้งซื้อ แถว {r} {m["code"]}: มาส่งแล้วแต่ไม่ได้ติ๊ก ☑')
         if m['kind'] == 'cancel':
             if s1.cell(r, 2).value == CHECKED:
-                errs.append(f'Sheet1 แถว {r} {m["code"]}: ยกเลิกแจ้งต้องเป็น ☐ ไม่ใช่ ☑')
-            s_col = col_idx(phys('S')) + 2   # Sheet1 = ตำแหน่งในรายงาน +1 คอลัมน์ (col_idx เริ่ม 0)
+                errs.append(f'ประวัติแจ้งซื้อ แถว {r} {m["code"]}: ยกเลิกแจ้งต้องเป็น ☐ ไม่ใช่ ☑')
+            s_col = col_idx(phys('S')) + 2   # ประวัติแจ้งซื้อ = ตำแหน่งในรายงาน +1 คอลัมน์ (col_idx เริ่ม 0)
             if str(s1.cell(r, s_col).value or '').strip() != m['S'].strip():
-                errs.append(f'Sheet1 แถว {r} {m["code"]}: หมายเหตุไม่ตรง ({s1.cell(r, s_col).value!r})')
+                errs.append(f'ประวัติแจ้งซื้อ แถว {r} {m["code"]}: หมายเหตุไม่ตรง ({s1.cell(r, s_col).value!r})')
     if s1.cell(start + len(moved), 6).value not in (None, ''):
-        errs.append('Sheet1: มีแถวเกินจากที่ย้าย (ซ้ำ?)')
+        errs.append('ประวัติแจ้งซื้อ: มีแถวเกินจากที่ย้าย (ซ้ำ?)')
     if CRIT_SHEET not in dst.sheetnames:
         errs.append(f'ไม่มีชีท {CRIT_SHEET} — รัน migrate_criteria.ps1 ก่อน')
     for k, v in plan['headers'].items():
@@ -910,7 +910,7 @@ def cmd_verify(a):
     a1 = str(dp['A1'].value)
     if 'เพดานพื้นที่ (' in a1 or 'เกณฑ์:' in a1:
         errs.append('หัว A1: ยังมีข้อความเกณฑ์ (ต้องอยู่ชีทเกณฑ์อย่างเดียว)')
-    out(f'รายงาน: {len(drows)} แถว (คาด {len(exp_codes)}) | Sheet1 เพิ่ม {len(moved)} แถวที่ {start}–{start + len(moved) - 1} | ตาราง {tref}')
+    out(f'รายงาน: {len(drows)} แถว (คาด {len(exp_codes)}) | ประวัติแจ้งซื้อ เพิ่ม {len(moved)} แถวที่ {start}–{start + len(moved) - 1} | ตาราง {tref}')
     if dpv['D5'].value is None and drows:
         out('หมายเหตุ: ค่าแคชของสูตร D ว่าง (ไฟล์ยังไม่ได้คำนวณ) — ปกติถ้า apply.ps1 เซฟผ่าน Excel จะมีค่า')
     if errs:
@@ -1034,7 +1034,7 @@ def cmd_line(a):
         cov = coverage_days(d, code)
         arrived = pend and opened and code not in NOT_URGENT and cov != 0 and (cov == '-' or cov > num(r[ac['lt']]))
         items.append((1 if arrived else 0 if urgent else 2, grp, s))
-        audit.append((code, r[ac['status']], 'แจ้ง' if n else ('Sheet1' if prev else 'ไม่มี')))
+        audit.append((code, r[ac['status']], 'แจ้ง' if n else ('ประวัติแจ้งซื้อ' if prev else 'ไม่มี')))
     # PO ออกเกิน 10 วันยังไม่มีของเลย ที่ไม่ตรงกับข้อไหน → ข้อในติดตามทั่วไป (user สั่ง 29/10/2569: ไม่ส่งไลน์ตาม PO แยก)
     for p in (pos or []):
         if p['เลขที่PO'] in po_used or 'เกินกำหนด' not in p['ผล']:
@@ -1110,7 +1110,7 @@ def main():
     ap.add_argument('--workdir', default=os.path.join(tempfile.gettempdir(), 'purchase-request-report'))
     ap.add_argument('--date', help='วันที่แจ้ง YYYY-MM-DD (ค่าเริ่มต้น = วันนี้)')
     ap.add_argument('--note', action='append', help='เหตุผลเพิ่มจากผู้ใช้ รูปแบบ CODE=ข้อความ (ใช้ซ้ำได้)')
-    ap.add_argument('--cancel', action='append', help='plan: ยกเลิกแจ้ง รูปแบบ CODE=เหตุผล → ย้ายไป Sheet1 แบบ ☐ + หมายเหตุ')
+    ap.add_argument('--cancel', action='append', help='plan: ยกเลิกแจ้ง รูปแบบ CODE=เหตุผล → ย้ายไป ประวัติแจ้งซื้อ แบบ ☐ + หมายเหตุ')
     ap.add_argument('--po', action='append', help='line: กำหนด PO เอง รูปแบบ CODE=PO 076.05/2570 หรือ CODE=- (ไม่มี PO)')
     ap.add_argument('--to', default='พี่', help='ชื่อผู้รับในคำขึ้นต้น เช่น "พี่หัวหน้า"')
     a = ap.parse_args()

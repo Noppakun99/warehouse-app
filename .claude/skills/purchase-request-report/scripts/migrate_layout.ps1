@@ -1,7 +1,7 @@
 ﻿# ย้ายโครงรายงานจาก 20 คอลัมน์ (A–T) เป็น 24 คอลัมน์ (A–X) ครั้งเดียว — ข้อตกลง /grill-with-docs 22/10/2569
 # ทำบน report.xlsx ใน WorkDir (สำเนาจาก snapshot.ps1) ก่อน pr.py plan · รันซ้ำบนไฟล์ที่ย้ายแล้ว = ไม่ทำอะไร
 #   รายงาน: แทรก Q จุดสั่งซื้อ (ROP) · R เหตุผลที่แจ้ง · S คงอยู่ได้อีก (วัน) หลัง P คงเหลือ + W มูลค่าสั่ง (บาท) ก่อนหมายเหตุ
-#   Sheet1: แทรกตำแหน่งเดียวกัน +1 คอลัมน์ (R:T และ X) ให้ copy แถวรายงาน A:X → Sheet1 B:Y ตรงกัน
+#   ประวัติแจ้งซื้อ: แทรกตำแหน่งเดียวกัน +1 คอลัมน์ (R:T และ X) ให้ copy แถวรายงาน A:X → ประวัติแจ้งซื้อ B:Y ตรงกัน
 #   A1 (เซลล์รวม A1:X3): ต่อท้ายกล่องเกณฑ์การแจ้งซื้อ
 param([string]$WorkDir = (Join-Path $env:TEMP 'purchase-request-report'))
 $ErrorActionPreference = 'Stop'
@@ -14,7 +14,7 @@ $CRITERIA = @(
 
 $xl = New-Object -ComObject Excel.Application; $xl.Visible = $false; $xl.DisplayAlerts = $false; $xl.EnableEvents = $false
 try {
-  $wb = $xl.Workbooks.Open($path); $rp = $wb.Worksheets.Item('รายงานซื้อยา'); $s1 = $wb.Worksheets.Item('Sheet1')
+  $wb = $xl.Workbooks.Open($path); $rp = $wb.Worksheets.Item('รายงานซื้อยา'); $s1 = $wb.Worksheets.Item('ประวัติแจ้งซื้อ')
   $q4 = ([string]$rp.Range('Q4').Text).Trim()
   if ($q4.StartsWith('จุดสั่งซื้อ')) { 'ย้ายโครงแล้ว — ไม่ทำอะไร'; $wb.Close($false); return }
   if (-not ([string]$rp.Range('P4').Text).Trim().StartsWith('คงเหลือ') -or -not $q4.StartsWith('ยอดเบิก รวม') -or
@@ -50,9 +50,9 @@ try {
   if ($lo.ListRows.Count -ne $n0) { throw 'จำนวนแถวตารางเปลี่ยน' }
   if (-not ([string]$lo.Range.Address()).EndsWith("`$X`$$(4 + $n0)")) { throw "ตารางไม่ครอบ A:X ($($lo.Range.Address()))" }
   if ([string]$rp.Range('A1').MergeArea.Address() -ne '$A$1:$X$3') { throw "เซลล์รวมหัว = $($rp.Range('A1').MergeArea.Address())" }
-  if ($s1.Cells($s1.Rows.Count, 6).End(-4162).Row -ne $s1last) { throw 'Sheet1 แถวสุดท้ายเปลี่ยน' }
+  if ($s1.Cells($s1.Rows.Count, 6).End(-4162).Row -ne $s1last) { throw 'ประวัติแจ้งซื้อ แถวสุดท้ายเปลี่ยน' }
   $wb.Save()
-  "MIGRATED: รายงาน $n0 แถว ตาราง $($lo.Range.Address()) · Sheet1 ถึงแถว $s1last"
+  "MIGRATED: รายงาน $n0 แถว ตาราง $($lo.Range.Address()) · ประวัติแจ้งซื้อ ถึงแถว $s1last"
 } catch {
   "ERROR บรรทัด $($_.InvocationInfo.ScriptLineNumber): $($_.Exception.Message)"; throw
 } finally {

@@ -122,7 +122,7 @@ for (const c in recv) recv[c].sort((a, b) => a.n.k - b.n.k);
 
 // ---------- 4) รายงานสั่งซื้อ (checkbox) ----------
 const po = {}, poName = {}, poUnit = {};
-for (const [sn, off] of [['รายงานซื้อยา', 4], ['Sheet1', 0]]) {
+for (const [sn, off] of [['รายงานซื้อยา', 4], ['ประวัติแจ้งซื้อ', 0]]) {
   let rows;
   try { rows = sh(F_PO, sn).slice(off); } catch (e) { continue; }
   for (const r of rows) {

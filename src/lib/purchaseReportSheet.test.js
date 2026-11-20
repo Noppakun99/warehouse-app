@@ -1,6 +1,6 @@
 // Golden tests — src/lib/purchaseReportSheet.js (รายงานแจ้งการสั่งซื้อยา → purchase_request)
 // รัน: npm run test:purchase
-// ไฟล์จริง 14/11/2569: ชีทหลัก 128 แถว (รอทั้งหมด) · Sheet1 581 แถว (☑ 551 · ☐ 30) — ตรวจด้วย CLI dry-run
+// ไฟล์จริง 14/11/2569: ชีทหลัก 128 แถว (รอทั้งหมด) · ประวัติแจ้งซื้อ 581 แถว (☑ 551 · ☐ 30) — ตรวจด้วย CLI dry-run
 
 import {
   toIsoDate, findHeaderRow, findCheckColumn, checkHeader, parseSheetGrid, summarize,
@@ -46,14 +46,14 @@ eq(findHeaderRow([['a'], ['b']]), -1, 'ไม่มีหัว → -1')
 eq(checkHeader(HEAD, 0), [], 'หัวคอลัมน์อยู่ที่เดิม')
 const moved = [...HEAD]; moved.splice(5, 0, 'คอลัมน์แทรก')
 eq(checkHeader(moved, 0).length > 0, true, 'มีคนแทรกคอลัมน์ → ไม่ผ่าน')
-// Sheet1: ไม่มีหัว ข้อมูลเริ่มคอลัมน์ B (grid บังคับเริ่มคอลัมน์ A → index 1)
+// ประวัติแจ้งซื้อ: ไม่มีหัว ข้อมูลเริ่มคอลัมน์ B (grid บังคับเริ่มคอลัมน์ A → index 1)
 const shift = (r) => ['', ...r]
 const hist = [[], [],
   shift(dataRow('☑', 46185, 1460192, 'Regular Insulin', 'vial')),
   shift(dataRow('☐', 46190, 1520048, 'VitaminB6 50mg', '1000เม็ด')),
   shift(dataRow('☑', 46331, 1460055, 'Amiodarone', 'amp', 'สั่งเพิ่ม', 'แจ้งซ้ำ: ของมาแล้ว 27/10/69')),
 ]
-eq(findCheckColumn(hist), 1, 'Sheet1 ช่องติ๊กอยู่คอลัมน์ B')
+eq(findCheckColumn(hist), 1, 'ประวัติแจ้งซื้อ ช่องติ๊กอยู่คอลัมน์ B')
 eq(findCheckColumn(main), 0, 'ชีทหลักช่องติ๊กอยู่คอลัมน์ A')
 eq(findCheckColumn([['x']]), -1, 'ไม่มีช่องติ๊ก → -1')
 
@@ -64,7 +64,7 @@ section('parseSheetGrid — ชีทหลัก')
   eq(skipped.length, 0, 'ไม่มีแถวเสีย')
   eq(rows[0], { code: '1000258', name: 'Pyrazinamide 500mg', unit: '500เม็ด', drug_type: 'Tablet', notified_on: '2025-11-28',
     status: PR_STATUS.WAITING, reason: 'หมดสต็อค', note: null, source_sheet: MAIN_SHEET, source_row: 5 }, 'แถวแรกครบทุกช่อง + เลขแถวจริง 5')
-  eq(rows[1].status, PR_STATUS.ARRIVED, '☑ ในชีทหลัก = มาส่งแล้ว (ยังไม่ย้ายไป Sheet1)')
+  eq(rows[1].status, PR_STATUS.ARRIVED, '☑ ในชีทหลัก = มาส่งแล้ว (ยังไม่ย้ายไป ประวัติแจ้งซื้อ)')
   eq(rows[2].code, 'S004', 'รหัสเวชภัณฑ์ตัวอักษร')
   eq(rows[2].source_row, 8, 'เลขแถวนับแถวว่างด้วย')
 }
@@ -83,7 +83,7 @@ section('parseSheetGrid — ชีทหลัก')
   eq(msg.includes('คอลัมน์ไม่อยู่ที่เดิม'), true, 'คอลัมน์ถูกแทรก → throw ไม่อ่านผิดช่องเงียบ')
 }
 
-section('parseSheetGrid — Sheet1')
+section('parseSheetGrid — ประวัติแจ้งซื้อ')
 {
   const { rows } = parseSheetGrid(hist, HISTORY_SHEET)
   eq(rows.map(r => r.status), [PR_STATUS.ARRIVED, PR_STATUS.CANCELLED, PR_STATUS.ARRIVED], '☑ = มาส่งแล้ว · ☐ = ยกเลิก')
@@ -135,7 +135,7 @@ section('summarizePurchaseStatus — Dashboard')
     req({ id: 2, code: 'A', notified_on: '2026-11-05' }),
     req({ id: 3, code: 'B', notified_on: '2026-11-10' }),
     req({ id: 4, code: 'C', notified_on: '2026-10-20' }),                              // Excel รอ แต่บิลเข้าแล้ว
-    req({ id: 5, code: 'D', notified_on: '2026-09-01', status: PR_STATUS.ARRIVED }),  // Sheet1 ติ๊กแล้ว
+    req({ id: 5, code: 'D', notified_on: '2026-09-01', status: PR_STATUS.ARRIVED }),  // ประวัติแจ้งซื้อ ติ๊กแล้ว
     req({ id: 6, code: 'E', notified_on: '2026-09-01', status: PR_STATUS.CANCELLED }),
   ]
   const s = summarizePurchaseStatus(reqs, { C: ['2026-11-01'], D: ['2026-09-10'] }, TODAY)

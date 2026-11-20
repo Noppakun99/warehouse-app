@@ -28,7 +28,7 @@ function CodeAt($ws, [int]$r) { ([string]$ws.Range("E$r").Text).Trim() }
 
 $xl = New-Object -ComObject Excel.Application; $xl.Visible = $false; $xl.DisplayAlerts = $false
 try {
-  $wb = $xl.Workbooks.Open($out); $rp = $wb.Worksheets.Item('รายงานซื้อยา'); $s1 = $wb.Worksheets.Item('Sheet1')
+  $wb = $xl.Workbooks.Open($out); $rp = $wb.Worksheets.Item('รายงานซื้อยา'); $s1 = $wb.Worksheets.Item('ประวัติแจ้งซื้อ')
   $lo = $rp.ListObjects.Item(1)
   function Index { $h = @{}; for ($r = 5; $r -le 4 + $lo.ListRows.Count; $r++) { $h[(CodeAt $rp $r)] = $r }; $h }
   $n0 = $lo.ListRows.Count
@@ -41,21 +41,21 @@ try {
 
   if (-not ([string]$rp.Range("Q4").Text).Trim().StartsWith('จุดสั่งซื้อ')) { throw 'รายงานยังเป็นโครงเดิม 20 คอลัมน์ — รัน migrate_layout.ps1 ก่อน' }
   if (-not (@($wb.Worksheets | ForEach-Object { $_.Name }) -contains 'เกณฑ์การสั่งซื้อ')) { throw 'ยังไม่มีชีทเกณฑ์การสั่งซื้อ — รัน migrate_criteria.ps1 ก่อน' }
-  # 2) ย้ายรายการที่มาส่งแล้วไปต่อท้าย Sheet1 (Sheet1 = คอลัมน์ B–Y ตรงกับรายงาน A–X)
+  # 2) ย้ายรายการที่มาส่งแล้วไปต่อท้าย ประวัติแจ้งซื้อ (ประวัติแจ้งซื้อ = คอลัมน์ B–Y ตรงกับรายงาน A–X)
   $next = $s1.Cells($s1.Rows.Count, 6).End(-4162).Row + 1
-  if ($next -ne [int]$plan.sheet1_last + 1) { throw "Sheet1 แถวสุดท้ายไม่ตรงกับตอนทำแผน" }
+  if ($next -ne [int]$plan.sheet1_last + 1) { throw "ประวัติแจ้งซื้อ แถวสุดท้ายไม่ตรงกับตอนทำแผน" }
   foreach ($m in $plan.moves) {
     $r = [int]$m.row
     if ((CodeAt $rp $r) -ne $m.code) { throw "แถว $r ไม่ใช่รหัส $($m.code)" }
     if ($m.tick) { $rp.Range("A$r").Formula = $CHECKED }
     if ($m.S) { $rp.Range("$(Phys 'S')$r").Formula = [string]$m.S }          # ยกเลิกแจ้ง: เหตุผลไปกับแถว
     $null = $rp.Range("A${r}:${LASTCOL}${r}").Copy($s1.Range("B$next"))
-    $e = $s1.Range("E$next"); $v = $e.Value2; $e.Value2 = $v      # ระยะเวลา: สูตร → ค่า ให้เหมือนแถวเก่าใน Sheet1
+    $e = $s1.Range("E$next"); $v = $e.Value2; $e.Value2 = $v      # ระยะเวลา: สูตร → ค่า ให้เหมือนแถวเก่าใน ประวัติแจ้งซื้อ
     $s1.Range("B${next}:Y${next}").Font.ColorIndex = -4105        # สีแดง (ด่วน) เป็นของรายงาน ไม่ติดไปประวัติ
     $next++
   }
   foreach ($m in ($plan.moves | Sort-Object { [int]$_.row } -Descending)) { $null = $rp.Rows([int]$m.row).Delete() }
-  "moved: $(@($plan.moves).Count) → Sheet1 ถึงแถว $($next - 1)"
+  "moved: $(@($plan.moves).Count) → ประวัติแจ้งซื้อ ถึงแถว $($next - 1)"
 
   # 3) อัพเดตตัวเลขแถวที่ยังรอของ
   $idx = Index

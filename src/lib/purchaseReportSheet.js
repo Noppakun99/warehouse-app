@@ -8,11 +8,11 @@
 // โครงไฟล์ (สำรวจ 14/11/2569):
 //   ชีท "รายงานซื้อยา" = รายการที่แจ้งแล้วรอของ — หัวตารางแถว 4 · A ☐/☑ · B วันที่แจ้งสั่ง · E รหัสHosxp
 //                         G รายการยา · H หน่วย · R เหตุผลที่แจ้ง · X หมายเหตุ
-//   ชีท "Sheet1"       = ประวัติที่ย้ายออกแล้ว — ไม่มีหัวตาราง · ข้อมูลเริ่มคอลัมน์ B (เลื่อนจากชีทหลัก 1 คอลัมน์)
+//   ชีท "ประวัติแจ้งซื้อ" (ชื่อเดิม "Sheet1" ถึง 20/11/2569) = ประวัติที่ย้ายออกแล้ว — ไม่มีหัวตาราง · ข้อมูลเริ่มคอลัมน์ B (เลื่อนจากชีทหลัก 1 คอลัมน์)
 //                         ☑ = มาส่งแล้ว · ☐ = ยกเลิก (ย้ายออกโดยไม่ได้ของ)
 
 export const MAIN_SHEET = 'รายงานซื้อยา'
-export const HISTORY_SHEET = 'Sheet1'
+export const HISTORY_SHEET = 'ประวัติแจ้งซื้อ'
 
 export const PR_STATUS = { WAITING: 'รอ', ARRIVED: 'มาส่งแล้ว', CANCELLED: 'ยกเลิก' }
 
@@ -52,7 +52,7 @@ export function findHeaderRow(grid) {
     && row.some(c => txt(c).startsWith(EXPECT_HEADER.code)))
 }
 
-/** คอลัมน์ช่องติ๊ก = คอลัมน์ที่มี ☑/☐ มากที่สุด (Sheet1 เริ่มคอลัมน์ B ไม่ใช่ A) */
+/** คอลัมน์ช่องติ๊ก = คอลัมน์ที่มี ☑/☐ มากที่สุด (ประวัติแจ้งซื้อ เริ่มคอลัมน์ B ไม่ใช่ A) */
 export function findCheckColumn(grid) {
   const count = {}
   for (const row of grid || []) {
@@ -142,7 +142,7 @@ export function readPurchaseReportWorkbook(XLSX, file) {
   for (const sheet of [MAIN_SHEET, HISTORY_SHEET]) {
     const ws = wb.Sheets[sheet]
     if (!ws) throw new Error(`ไม่พบชีท "${sheet}"`)
-    // บังคับเริ่มคอลัมน์ A + แถว 1 — Sheet1 มี !ref เริ่ม B3 ถ้าปล่อยตาม !ref เลขแถว/คอลัมน์จะเลื่อน
+    // บังคับเริ่มคอลัมน์ A + แถว 1 — ประวัติแจ้งซื้อ มี !ref เริ่ม B3 ถ้าปล่อยตาม !ref เลขแถว/คอลัมน์จะเลื่อน
     const ref = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1')
     ref.s.c = 0; ref.s.r = 0
     const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true, blankrows: true, range: ref })
