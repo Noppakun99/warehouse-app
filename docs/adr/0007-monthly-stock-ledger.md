@@ -103,7 +103,7 @@
 
 ## Implementation (เฟส 2.2–2.3 — db insert + UI, เสร็จ)
 
-- **db.js:** `bulkInsertLedgerRows(rows, auth)` — chunk insert (กัน seed ซ้ำถ้างวดมีข้อมูล) + audit `seed_ledger`.
+- **db.js:** `bulkInsertLedgerRows(rows, auth, { replaceClosedReason })` — chunk insert (กัน seed ซ้ำถ้างวดมีข้อมูล) + audit `seed_ledger` (details มี `status` · ทับงวดปิดแล้วมี `replaced_closed` + `reason`). `status` มาจาก rows — CLI `scripts/import-ledger.mjs` (ADR-0031) เขียนงวด `closed` จากชีท `Master_<เดือน>` · งวด closed ทับได้เฉพาะเมื่อส่ง `replaceClosedReason` (19/11/2569).
 - **UI:** `src/StockLedgerApp.jsx` (admin, สี teal) — title bar + งวด/สถานะ + tie-out summary (ยา/มิใช่ยา/รวม) + ตาราง ledger (sticky, search, ค่าติดลบสีแดง) + `SeedModal` (เลือก master CSV → preview tie-out 4 ตัวเลข → ยืนยัน → `bulkInsertLedgerRows`) + ปุ่มปิด/เปิดงวด. wire: `navConfig.js` (เมนู "ทะเบียนคงคลัง" admin-only + `COLOR.teal`), `AppRoot.jsx` (`case 'ledger'`).
 - **Audit labels:** เพิ่ม `seed_ledger`/`close_ledger_period`/`reopen_ledger_period` ครบใน `ACTION_LABELS` ([AuditLogApp.jsx](../../src/AuditLogApp.jsx)) — ไม่เข้า notification bell.
 - **Seed มิ.ย.69 จริงแล้ว (2026-06-28):** 993 ledger rows ใน DB — tie-out ยืนยันใน DB: ยา=3,770,433.26 / มิใช่ยา=223,529.10 / รวม=3,993,962.36 (distinct cost-layer keys = 993 = ไม่มี key ซ้ำ). audit_logs id 417.

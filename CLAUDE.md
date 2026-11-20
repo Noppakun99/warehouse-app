@@ -64,6 +64,7 @@ npm run import:dispense  # ชีท 'เบิก '          → dispense_logs 
 npm run import:reorder   # ชีท วิเคราะห์สั่งซื้อ → drug_reorder_config 🟢 UPSERT
 npm run import:loan      # ชีท 'รพ.ยืมยา'       → drug_loan         🟢 diff insert/update
 npm run import:purchase  # รายงานการซื้อยา_69.xlsx → purchase_request 🔴 DELETE ALL (ADR-0030)
+npm run import:ledger -- --sheet Master_ต.ค.69  # ชีท snapshot ปิดงวด → stock_ledger งวด closed 🟡 แทนทั้งงวด (ADR-0031 · ทุกเดือนหลังปิดยอด)
 npm run export:csv       # ทุกชีท → csv_file/*.csv (ไม่แตะ DB)
 npm run import:restore   # กู้คืนจาก backup/*.json
 node scripts/stock.mjs <คำค้น> [--all]  # เช็คคงเหลือยาจากชีท Master (อ่านอย่างเดียว — สกิล /stock-check)

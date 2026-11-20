@@ -7,7 +7,7 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { parseCsv, mapMasterRow, seedFromMasterCsv, assertMasterStructure, dedupeCostLayers } from './lib/ledgerSeed.js'
+import { parseCsv, mapMasterRow, seedFromMasterCsv, assertMasterStructure, dedupeCostLayers, expToIso, seedFromMasterGrid } from './lib/ledgerSeed.js'
 
 let pass = 0, fail = 0
 function check(label, cond) {
@@ -189,6 +189,82 @@ const badDon = [...goodHeader]; badDon[29] = 'มูลค่าคงคลั�
 let threwDon = false
 try { assertMasterStructure(badDon) } catch { threwDon = true }
 check('คอลัมน์มูลค่าคงคลังบริจาคเลื่อน → throw', threwDon === true)
+
+// ============================================================
+// 5. expToIso — วันหมดอายุในชีท snapshot → ISO (DMSIC แฟ้ม 5 · ADR-0031)
+// ============================================================
+console.log('\n=== expToIso ===\n')
+
+check('serial 46023 → 2026-01-01', expToIso(46023) === '2026-01-01')
+check('serial 46600 → 2027-08-01', expToIso(46600) === '2027-08-01')
+check('serial มีเศษเวลา floor ไม่ปัดขึ้น: 46023.9 → 2026-01-01', expToIso(46023.9) === '2026-01-01')
+check('serial ปี พ.ศ. 244980 → 2027-09-23', expToIso(244980) === '2027-09-23')
+check('"-" → null (ไม่เดา)', expToIso('-') === null)
+check('ว่าง → null', expToIso('') === null && expToIso(null) === null && expToIso(undefined) === null)
+check('ข้อความ d/m/yyyy → ISO เติม 0: 5/3/2028 → 2028-03-05', expToIso('5/3/2028') === '2028-03-05')
+check('ข้อความปี พ.ศ.: 05/03/2571 → 2028-03-05', expToIso('05/03/2571') === '2028-03-05')
+check('ข้อความเสีย "648/2569" → null', expToIso('648/2569') === null)
+check('serial นอกช่วง (ปี 2119) → null', expToIso(80110) === null)
+
+// ============================================================
+// 6. seedFromMasterGrid — ชีท Master_<เดือน> ผ่าน SheetJS (raw: true → ตัวเลขเป็น number)
+// ============================================================
+console.log('\n=== seedFromMasterGrid ===\n')
+
+const gridHeader = [...goodHeader]
+gridHeader[11] = 'Exp'; gridHeader[42] = 'packsize'; gridHeader[43] = 'หน่วยย่อย'
+const gRow = (o) => {
+  const r = Array(45).fill('')
+  r[5] = '1000028'; r[6] = 'Tablet'; r[7] = 'Amoxicillin 250mg'; r[8] = 'กระปุก'; r[9] = 485
+  r[10] = 'N670219'; r[11] = 46600; r[12] = 'ยกยอด'; r[16] = 'บริษัท ก'; r[20] = 1; r[27] = 485
+  r[42] = 500; r[43] = 'เม็ด'
+  for (const [k, v] of Object.entries(o)) r[k] = v
+  return r
+}
+const grid = [
+  gridHeader,
+  gRow({}),
+  gRow({ 11: 46601, 20: 2, 27: 970 }),                                  // key เดียวกับแถวบน แต่ exp ต่าง → ยุบ + expConflicts
+  gRow({ 5: '2000001', 6: 'เวชภัณฑ์มิใช่ยา', 10: '-', 11: '-', 9: 12.5, 27: 125, 42: '', 43: '' }),
+  gRow({ 5: '' }),                                                      // แถวสรุป → skipped
+  gRow({ 5: '1000099', 10: 260301, 9: 10, 27: 300 }),                   // lot เป็นตัวเลขในชีท
+  gRow({ 5: '1000100', 12: 'บริจาค', 9: 2, 27: 0, 29: 50 }),            // บริจาค → มูลค่าจาก idx29
+]
+const sg = seedFromMasterGrid(grid, '2026-10', { status: 'closed' })
+const byCode = (c) => sg.rows.find((r) => r.drug_code === c)
+check('5 แถวมีรหัส − 1 ยุบ = 4 ledger rows', sg.rows.length === 4)
+check('skipped 1 แถวสรุป', sg.skipped === 1)
+check('merged 1', sg.merged === 1)
+check('expConflicts 1 (key เดียว exp 2 ค่า)', sg.expConflicts === 1)
+check('แถวที่ยุบ: exp ของแถวแรก 2027-08-01', byCode('1000028').exp === '2027-08-01')
+check('แถวที่ยุบ: closing_qty รวม 3 · closing_value รวม 1455', byCode('1000028').closing_qty === 3 && byCode('1000028').closing_value === 1455)
+check('pack_size 500 · sub_unit เม็ด', byCode('1000028').pack_size === 500 && byCode('1000028').sub_unit === 'เม็ด')
+check('exp "-" → null · noExp นับ 1', byCode('2000001').exp === null && sg.noExp === 1)
+check('packsize/หน่วยย่อย ว่าง → null', byCode('2000001').pack_size === null && byCode('2000001').sub_unit === null)
+check('lot ตัวเลข 260301 → "260301"', byCode('1000099').lot === '260301')
+check('status closed ทุกแถว', sg.rows.every((r) => r.status === 'closed'))
+check('status ค่าเริ่มต้น open', seedFromMasterGrid(grid, '2026-10').rows.every((r) => r.status === 'open'))
+check('ไม่มี cost-layer key ซ้ำ', new Set(sg.rows.map((r) => `${r.drug_code}|${r.lot}|${r.item_type}|${r.price_per_unit}`)).size === sg.rows.length)
+check('tieOut ยา 1755 · มิใช่ยา 125 · บริจาค 50 · รวม 1930',
+  sg.tieOut.drug === 1755 && sg.tieOut.nonDrug === 125 && sg.tieOut.donation === 50 && sg.tieOut.total === 1930)
+
+const badGrid = [[...gridHeader], gRow({})]; badGrid[0][42] = 'ราคา/กล่อง'
+let threwExt = false
+try { seedFromMasterGrid(badGrid, '2026-10') } catch { threwExt = true }
+check('ไม่มีหัว packsize → throw (กัน pack_size เพี้ยนเงียบ)', threwExt === true)
+// โครงชีท ก.ย.69: packsize/หน่วยย่อย อยู่ AP/AQ (41/42) + มี "_key_packsize" ชื่อคล้าย → หาจากชื่อตรงตัว
+const sepHeader = [...gridHeader]; sepHeader[41] = 'packsize'; sepHeader[42] = 'หน่วยย่อย'; sepHeader[43] = 'รหัส_txt'; sepHeader[44] = '_key_packsize'
+const sepRow = gRow({ 41: 100, 42: 'ขวด', 43: '1000028', 44: '1000028|100' })
+const sepOut = seedFromMasterGrid([sepHeader, sepRow], '2026-09')
+check('ชีท ก.ย.69 (คอลัมน์เลื่อน): pack_size 100 · sub_unit ขวด', sepOut.rows[0].pack_size === 100 && sepOut.rows[0].sub_unit === 'ขวด')
+const dupHeader = [...gridHeader]; dupHeader[44] = 'packsize'
+let threwDup = false
+try { seedFromMasterGrid([dupHeader, gRow({})], '2026-10') } catch { threwDup = true }
+check('หัว packsize ซ้ำ 2 คอลัมน์ → throw (ไม่เดาว่าตัวไหน)', threwDup === true)
+const badGrid2 = [[...gridHeader], gRow({})]; badGrid2[0][5] = 'อื่น'
+let threwBase = false
+try { seedFromMasterGrid(badGrid2, '2026-10') } catch { threwBase = true }
+check('คอลัมน์รหัสเลื่อน → throw (guard เดิมยังทำงาน)', threwBase === true)
 
 // ============================================================
 console.log(`\nผล: ${pass} ผ่าน, ${fail} ไม่ผ่าน`)

@@ -4070,18 +4070,21 @@ export async function fetchLatestLedgerPeriod() {
   return data?.[0] || null
 }
 
-// นำเข้างวดจาก master sheet (rows มาจาก ledgerSeed.seedFromMasterCsv) — ADR-0007 (upload รายเดือน)
-// upload ได้ทุกงวด: งวด open ที่มีข้อมูลอยู่แล้ว → replace (ลบก่อน insert); งวด closed → กัน (freeze).
-// rows ต้อง map ครบ schema แล้ว (period เดียวกันทุกแถว)
-export async function bulkInsertLedgerRows(rows, auth = {}) {
+// นำเข้างวดจาก master sheet (rows มาจาก ledgerSeed.seedFromMasterCsv / seedFromMasterGrid) — ADR-0007 (upload รายเดือน)
+// upload ได้ทุกงวด: งวด open ที่มีข้อมูลอยู่แล้ว → replace (ลบก่อน insert); งวด closed → กัน (freeze)
+// ยกเว้นส่ง replaceClosedReason (ADR-0031: นำเข้าชีท snapshot Master_<เดือน> ซ้ำหลังแก้ยอดงวดที่ส่งบัญชีแล้ว) → ลงเหตุผลใน audit
+// rows ต้อง map ครบ schema แล้ว (period เดียวกันทุกแถว) · status มาจาก rows (snapshot = 'closed')
+export async function bulkInsertLedgerRows(rows, auth = {}, { replaceClosedReason = '' } = {}) {
   if (!supabase) throw new Error('Supabase not configured')
   if (!rows?.length) return 0
 
   const period = rows[0].period
   const existing = await fetchLedgerPeriod(period)
   const replaced = existing.length
-  if (existing.some(r => r.status === 'closed')) {
-    throw new Error(`งวด ${period} ปิดแล้ว (freeze) — นำเข้าทับไม่ได้ ต้องเปิดงวดก่อน`)
+  const wasClosed = existing.some(r => r.status === 'closed')
+  const reason = String(replaceClosedReason || '').trim()
+  if (wasClosed && !reason) {
+    throw new Error(`งวด ${period} ปิดแล้ว (freeze) — นำเข้าทับไม่ได้ ต้องเปิดงวดก่อน หรือระบุเหตุผลการนำเข้าทับ`)
   }
   // งวด open ที่มีข้อมูล → ลบทิ้งก่อน insert ชุดใหม่ (re-upload = replace ทั้งงวด)
   if (replaced > 0) {
@@ -4097,7 +4100,8 @@ export async function bulkInsertLedgerRows(rows, auth = {}) {
   await insertAuditLog({
     action: 'seed_ledger', table_name: 'stock_ledger',
     user_name: resolveAuditUserName(auth), department: auth?.department || '-',
-    record_count: rows.length, details: { period, rows: rows.length, replaced },
+    record_count: rows.length,
+    details: { period, rows: rows.length, replaced, status: rows[0].status, ...(wasClosed ? { replaced_closed: true, reason } : {}) },
   })
 
   return rows.length

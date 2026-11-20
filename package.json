@@ -47,6 +47,7 @@
     "import:purchase": "node scripts/import-purchase.mjs",
     "import:master": "node scripts/import-master.mjs",
     "import:dispense": "node scripts/import-dispense.mjs",
+    "import:ledger": "node scripts/import-ledger.mjs",
     "export:csv": "node scripts/export-csv.mjs",
     "import:restore": "node scripts/restore.mjs",
     "test:linechat": "node src/lib/lineChatImport.test.js",

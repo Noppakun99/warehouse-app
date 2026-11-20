@@ -13,6 +13,8 @@
 // master CSV มี comma ในค่า (ชื่อยา + quoted) → ต้องใช้ RFC-4180 parser
 // (XLSX.read parse ไฟล์นี้ไม่ได้ — misdetect format)
 
+import { serialToThai } from './excelSerial.js'
+
 // --- RFC-4180 CSV parser (รองรับ quoted field ที่มี comma/newline) ---
 export function parseCsv(text) {
   // strip BOM (U+FEFF) ถ้ามี — เลี่ยง char ตรงๆ ใน regex (lint: no-irregular-whitespace)
@@ -203,4 +205,86 @@ export function seedFromMasterCsv(text, period) {
   }
   drug = round4(drug); nonDrug = round4(nonDrug); donation = round4(donation); project = round4(project)
   return { rows, skipped, merged, tieOut: { drug, nonDrug, donation, project, total: round4(drug + nonDrug + donation + project) } }
+}
+
+// --- อ่านชีท snapshot ปิดงวด (Master_<เดือน>) ตรงด้วย SheetJS — รายงาน 5 แฟ้ม DMSIC (ADR-0031) ---
+// โครงคอลัมน์ 0–35 เดียวกับ Master (COL) + 3 คอลัมน์ที่แฟ้ม 5 ต้องใช้ (dmsic_migration.sql)
+// 3 ตัวนี้หาจากชื่อหัวคอลัมน์ (ตรงตัว ไม่ใช่ includes — มี "_key_packsize") เพราะตำแหน่งต่างกันแต่ละชีท:
+// Master_ต.ค.69 packsize = AQ (42) แต่ Master_ก.ย.69 = AP (41) — ชีท ต.ค. แทรกมูลค่ายาโครงการเดือนก่อนที่ AK
+const EXT_HEADERS = { exp: 'Exp', packSize: 'packsize', subUnit: 'หน่วยย่อย' }
+
+function findExtColumns(header) {
+  const norm = (v) => String(v ?? '').trim().toLowerCase()
+  const cols = {}
+  const bad = []
+  for (const [key, name] of Object.entries(EXT_HEADERS)) {
+    const hits = header.map((h, i) => (norm(h) === name.toLowerCase() ? i : -1)).filter((i) => i >= 0)
+    if (hits.length !== 1) bad.push(`"${name}" พบ ${hits.length} คอลัมน์ (ต้องมี 1)`)
+    cols[key] = hits[0]
+  }
+  if (bad.length) throw new Error(`โครงสร้างชีทไม่ตรง — ${bad.join('; ')}`)
+  return cols
+}
+
+const pad2 = (n) => String(n).padStart(2, '0')
+
+/** วันหมดอายุในชีท → ISO 'YYYY-MM-DD' · ว่าง/'-'/อ่านไม่ได้ = null (dmsicReport ขึ้นเป็นปัญหาให้แก้ ไม่เดา)
+ *  serial ใช้กฎเดียวกับ serialToThai (floor เศษเวลา · ปี พ.ศ. → ค.ศ.) */
+export function expToIso(v) {
+  if (typeof v === 'number') {
+    const t = serialToThai(v)
+    if (!t) return null
+    const [d, m, y] = t.split('/')
+    return `${y}-${m}-${d}`
+  }
+  const m = String(v ?? '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (!m) return null
+  let y = Number(m[3])
+  if (y > 2500) y -= 543
+  return `${y}-${pad2(m[2])}-${pad2(m[1])}`
+}
+
+/**
+ * grid จาก XLSX.utils.sheet_to_json(ws, { header: 1, raw: true }) ของชีท snapshot → ledger rows ของงวด
+ * ใช้ mapMasterRow ตัวเดียวกับ seed CSV (มูลค่า/ชนิด/หมวด กฎเดียว) + เติม exp · pack_size · sub_unit
+ * cost-layer key ไม่มี exp → แถวที่ยุบรวมกันแต่ exp ต่างกัน นับเป็น expConflicts (เก็บ exp ของแถวแรก) ให้คนดูก่อนนำเข้า
+ * @param status 'open' | 'closed' — snapshot ที่ส่งบัญชีแล้วคืองวดที่ปิดแล้ว
+ * @returns { rows, skipped, merged, expConflicts, noExp, tieOut }
+ */
+export function seedFromMasterGrid(grid, period, { status = 'open' } = {}) {
+  const header = grid?.[0] || []
+  assertMasterStructure(header)
+  const ext = findExtColumns(header)
+  const mapped = []
+  let skipped = 0
+  for (const cells of grid.slice(1)) {
+    const r = cells && mapMasterRow(cells, period)
+    if (!r) { skipped++; continue }
+    const ps = num(cells[ext.packSize])
+    mapped.push({
+      ...r,
+      status,
+      exp: expToIso(cells[ext.exp]),
+      pack_size: ps > 0 ? ps : null,
+      sub_unit: String(cells[ext.subUnit] ?? '').trim() || null,
+    })
+  }
+  const expByKey = new Map()
+  for (const r of mapped) {
+    const k = ledgerKey(r)
+    if (!expByKey.has(k)) expByKey.set(k, new Set())
+    expByKey.get(k).add(r.exp)
+  }
+  const expConflicts = [...expByKey.values()].filter((s) => s.size > 1).length
+  const { rows, merged } = dedupeCostLayers(mapped)
+  const noExp = rows.filter((r) => !r.exp).length
+  let drug = 0, nonDrug = 0, donation = 0, project = 0
+  for (const r of rows) {
+    if (r.med_category === 'เวชภัณฑ์มิใช่ยา') nonDrug += r.closing_value
+    else if (r.med_category === 'บริจาค+สนับสนุน') donation += r.closing_value
+    else if (r.med_category === 'ยาโครงการ') project += r.closing_value
+    else drug += r.closing_value
+  }
+  drug = round4(drug); nonDrug = round4(nonDrug); donation = round4(donation); project = round4(project)
+  return { rows, skipped, merged, expConflicts, noExp, tieOut: { drug, nonDrug, donation, project, total: round4(drug + nonDrug + donation + project) } }
 }
