@@ -125,6 +125,7 @@ Single-page React (ไม่มี React Router) — ทุก Supabase query �
 | แจ้งซื้อแล้ว (รายงานซื้อยาเข้าแอป) | [docs/features/purchase-request.md](docs/features/purchase-request.md) · [ADR-0030](docs/adr/0030-purchase-request-from-excel-report.md) | แก้ `purchaseReportSheet.js` / แท็บแจ้งซื้อแล้ว / ป้ายบัตรยา |
 | ส่งต่อ 13/11 ใบพิมพ์ใบเบิก + ตะกร้าค้าง | [handoff](docs/handoff-2026-11-13-req-print-cart.md) | **เริ่มงานต่อจากเครื่องอื่น** |
 | ส่งต่อ 15/11 บัตรยา + E2E push แล้ว — **ค้างบันทึกการทำงาน 15/11** | [handoff](docs/handoff-2026-11-15-drug-card-push.md) | **เริ่มงานต่อจากเครื่องอื่น** (เครื่องคลัง 16/11) |
+| ส่งต่อ 20/11 ใบพิมพ์ใบเบิก + โมดอลรอตรวจรับ push แล้ว — **ยังไม่ verify + ค้าง 5 กลุ่ม/ยาไม่เคลื่อนไหวแบบ ข/deploy** | [handoff](docs/handoff-2026-11-20-print-pending-modal.md) | **เริ่มงานต่อจากเครื่องอื่น** |
 | ผู้ทำงานคนที่ 2 (Claude Pro อีกบัญชี เครื่องคลัง) | [docs/second-operator.md](docs/second-operator.md) | **user พิมพ์ "รับช่วงงานต่อ"** / สลับบัญชี Claude / โควตาใกล้หมด |
 | Navigation + Sub-apps | [navigation-shell.md](docs/architecture/navigation-shell.md) · [sub-apps.md](docs/architecture/sub-apps.md) | แก้เมนู/แถบล่างจอ · แก้ sub-app หรือฟอร์มพิมพ์ |
 | Roadmap | [docs/roadmap.md](docs/roadmap.md) | วางแผน feature ใหม่ |
