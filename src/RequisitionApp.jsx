@@ -18,6 +18,7 @@ import { awaitsSheetEntry } from './lib/onlineReqPlan';
 import { QUEUE_TABS, stageOf, tabOf, nextStep, waitText, itemAllocation, defaultPickResult, pickPayload, verifyNoteText, sortByLog, reqFlags, PICK_REASONS, VERIFY_ISSUES } from './lib/reqStaffView';
 import { rankDrugs, matchDrugQuery } from './lib/drugSearchText';
 import { SORT_BY_LOG, SORT_BY_REQ, sortRowsByLog, sheetTitle, fmtDateCE, buildSheetHtml, toPackQty, fmtPackNote } from './lib/reqSheetFormat';
+import { buildPaginatedHtml } from './lib/paginatedPrint';
 import { buildSheetXlsxBlob, htmlToPdfBlob, shareOrDownload, safeFileName } from './lib/reqSheetExport';
 import ConfirmModal from './ConfirmModal';
 import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, updateRequesterRequisition, deleteRequesterRequisitionItems, REQUESTER_LOCKED_MSG, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyAndDispenseRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows } from './lib/db';
@@ -1871,11 +1872,32 @@ async function printLotControl(req, preopenedWin) {
 }
 
 // ============================================================
-// ใบปะหน้า "ใบเบิกเวชภัณฑ์ยา" (ฟอร์มราชการ) — replica ฟอร์มกระดาษ พิมพ์แทนเขียนมือ
-// ตารางระดับรายการยา (ไม่ลง lot) + สายลายเซ็น: ผู้เขียนคำขอ/ผู้จ่ายยา/ผู้รับยา/ผู้เบิก/ผู้อนุมัติเบิกจ่าย
+// หน่วยนับของรายการในใบพิมพ์ = หน่วยซื้อตาม Master แบบใบตัดเบิก (6,000 เม็ด → 6 × 1000เม็ด · user สั่ง 14/11/2569)
+// กฎเดียวกับหน้าคีย์ (entryUnitOf): lot ต่างขนาดแพ็ค / ไม่มีขนาด = คงหน่วยย่อยที่ DB เก็บ
+// ผู้เบิกเลือกขนาดกล่องไว้ (entry_pack) → "กล่อง (400เม็ด)" ตามที่ขอ
+// ============================================================
+const makeItemPack = (fefoByCode, unitByCode) => (item) => {
+  if (Number(item.entry_pack) > 1 && item.entry_unit) {
+    return { packSize: Number(item.entry_pack), label: `${packWord(item.drug_unit)} (${item.entry_unit})` };
+  }
+  const code = String(item.drug_code || '').trim();
+  const lots = fefoByCode[code] || [];
+  const unit = unitByCode[code] || '';
+  const packSizes = lots.length ? lots.map(l => l.packSize) : [parseUnit(unit).packSize];
+  const r = entryUnitOf({ unit, baseUnit: parseUnit(unit).baseUnit || '', packSizes });
+  return r.packSize > 1 ? r : { packSize: 1, label: item.drug_unit || '-' };
+};
+const fmtPack = (base, packSize) => toPackQty(base, packSize).toLocaleString('en-US', { maximumFractionDigits: 2 });
+
+// ============================================================
+// ใบเบิกเวชภัณฑ์ยา (ฟอร์มราชการ) — รวมใบปะหน้ากับรายการเป็นใบเดียว (user เห็นชอบแบบ 20/11/2569)
+// เดิม >12 รายการพิมพ์ "ตามเอกสารแนบท้าย" แล้วแนบใบขอเบิก → เอกสารแนบไม่มีลายเซ็น สลับแผ่นได้ + ใบปะหน้าล้น 2 หน้า
+// ตอนนี้ลงทุกรายการในตาราง คอลัมน์ครบตามฟอร์ม + รหัส/หมายเหตุ · แบ่งหน้าเอง (buildPaginatedHtml) หัวตารางทุกหน้า
+// สายลายเซ็นชุดเดียวท้ายใบ เลข ①–⑤ = ลำดับการเซ็น (CONTEXT §ใบเบิกฟอร์มรายการ: ผู้ขอเบิก → ผู้เบิก → ผู้จ่าย → ผู้รับ → ผู้อนุมัติ)
+// หลายหน้า: เลขที่เบิก + หน้า n/N ทุกหน้า + ผู้เบิกลงชื่อกำกับหน้าที่ไม่มีลายเซ็น
 // ============================================================
 async function printCoverForm(req, preopenedWin) {
-  const { allocByItem, onHandByCode } = await computeReqAllocations([req]);
+  const { allocByItem, onHandByCode, fefoByCode, unitByCode } = await computeReqAllocations([req]);
   const lastImportAt = await fetchLastInventoryImportAt();
   const post = qtyIsPostDispense(req, lastImportAt);
   const isPicked = !['pending', 'approved', 'partial', 'rejected'].includes(req.status);
@@ -1884,127 +1906,81 @@ async function printCoverForm(req, preopenedWin) {
     ? allItems.filter(item => item.approved_qty != null && item.approved_qty > 0)
     : allItems;
   const thaiDate = new Date(req.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+  const packOf = makeItemPack(fefoByCode, unitByCode);
 
-  // แถวตาราง: ≤12 รายการพิมพ์ตรง, เกินนั้นใช้ "ตามเอกสารแนบท้าย" ตามธรรมเนียมฟอร์ม
   // จำนวนที่จ่าย/คงเหลือหลังจ่าย เติมเมื่อจัดยาแล้วเท่านั้น — ยังไม่จัดเว้นว่างให้คลังเขียน
-  const MAX_INLINE = 12, MIN_ROWS = 7;
-  let bodyRows;
-  if (items.length > MAX_INLINE) {
-    bodyRows = `<tr><td class="c">-</td><td>ตามเอกสารแนบท้าย จำนวน ${items.length} รายการ</td><td></td><td></td><td></td><td></td><td></td></tr>`
-      + Array.from({ length: MIN_ROWS - 1 }, () => '<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>').join('');
-  } else {
-    const filled = items.map((item, i) => {
-      const code = String(item.drug_code || '').trim();
-      const want = Number(item.approved_qty ?? item.requested_qty) || 0;
-      const alloc = allocByItem[item.id] || (Array.isArray(item.picked_allocation) ? item.picked_allocation : null);
-      const out = !isPicked ? null
-        : (alloc && alloc.length) ? alloc.reduce((s, a) => s + (Number(a.base) || 0), 0)
-        : item.picked_lot ? (Number(item.picked_qty ?? want) || 0)
-        : 0;
-      const live = onHandByCode[code] ?? 0;
-      const before = (post && out != null) ? live + out : live;
-      const after = out != null ? Math.max(0, before - out) : null;
-      return `<tr>
-        <td class="c">${i + 1}</td>
-        <td>${escHtml(item.drug_name || '-')}</td>
-        <td class="c">${escHtml(item.drug_unit || '-')}</td>
-        <td class="r">${before.toLocaleString()}</td>
-        <td class="r">${want.toLocaleString()}</td>
-        <td class="r">${out != null ? out.toLocaleString() : ''}</td>
-        <td class="r">${after != null ? after.toLocaleString() : ''}</td>
-      </tr>`;
-    });
-    const blanks = Array.from({ length: Math.max(0, MIN_ROWS - items.length) },
-      () => '<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>');
-    bodyRows = [...filled, ...blanks].join('');
-  }
+  const rows = items.map((item, i) => {
+    const code = String(item.drug_code || '').trim();
+    const want = Number(item.approved_qty ?? item.requested_qty) || 0;
+    const alloc = allocByItem[item.id] || (Array.isArray(item.picked_allocation) ? item.picked_allocation : null);
+    const out = !isPicked ? null
+      : (alloc && alloc.length) ? alloc.reduce((s, a) => s + (Number(a.base) || 0), 0)
+      : item.picked_lot ? (Number(item.picked_qty ?? want) || 0)
+      : 0;
+    const live = onHandByCode[code] ?? 0;
+    const before = (post && out != null) ? live + out : live;
+    const after = out != null ? Math.max(0, before - out) : null;
+    const { packSize, label } = packOf(item);
+    return `<tr><td class="c">${i + 1}</td><td class="mono">${escHtml(code || '-')}</td>
+      <td>${escHtml(item.drug_name || '-')}</td><td class="c">${escHtml(label)}</td>
+      <td class="r">${fmtPack(before, packSize)}</td><td class="r b">${fmtPack(want, packSize)}</td>
+      <td class="r">${out != null ? fmtPack(out, packSize) : ''}</td><td class="r">${after != null ? fmtPack(after, packSize) : ''}</td>
+      <td>${escHtml(item.item_note || '')}</td></tr>`;
+  });
 
-  // ช่องกรอกแบบฟอร์มกระดาษ: ค่าวางบนเส้นจุด (เดิม height:1em ทำเส้นวิ่งทับกลางตัวหนังสือ) · ไม่ใส่ width = ยืดเต็มบรรทัด
+  // ช่องกรอกแบบฟอร์มกระดาษ: ค่าวางบนเส้นจุด · ไม่ใส่ width = ยืดเต็มบรรทัด
   // flex-basis auto (ไม่ใช่ 0) — ชื่อหน่วยงานยาว (ศบส.4 …) ดันข้อความท้ายขึ้นบรรทัดใหม่แทนการล้นทับ
   // ช่องว่างต้องมี &nbsp; ไม่งั้น flex หา baseline ไม่ได้ เส้นจะลอยไม่ตรงช่องที่มีค่า
   const fill = (val = '', style = '') => `<span class="f"${style ? ` style="${style}"` : ''}>${val ? escHtml(val) : '&nbsp;'}</span>`;
   const row = (cls, parts) => `<div class="ln${cls}">${parts.map(p => p.startsWith('<span class="f"') ? p : `<span>${p}</span>`).join('')}</div>`;
   const line = (...parts) => row('', parts);
   const lineRight = (...parts) => row(' right', parts);
-  const dateLine = line('วันที่', fill('', 'min-width:24px'), '/', fill('', 'min-width:24px'), '/', fill('', 'min-width:24px'));
-  // บล็อกลายเซ็น = grid [ป้าย | เส้นเซ็น | บทบาท] — ชื่อ/ตำแหน่งอยู่คอลัมน์กลาง จึงกึ่งกลางใต้เส้นเซ็นพอดี
-  // ข้อความยาวกว่าเส้น (ที่ความกว้าง A4) → safe center ชิดต้นเส้นแล้วล้นไปทางขวา แทนล้นออกนอกคอลัมน์ทางซ้าย
+  const dateLine = line('วันที่', fill('', 'min-width:20px'), '/', fill('', 'min-width:20px'), '/', fill('', 'min-width:20px'));
+  const step = (n) => `<span class="step">${n}</span>`;
+  // บล็อกลายเซ็น = grid [ป้าย | เส้นเซ็น | บทบาท] · ชื่อ/ตำแหน่งกินเต็มความกว้างคอลัมน์ (เดิมอยู่คอลัมน์กลาง ข้อความยาวล้นทับคอลัมน์ข้าง)
   const nm = (text) => `<span class="nm">${escHtml(text)}</span>`;
   // ชื่อบุคคลในวงเล็บ — ชื่อกับนามสกุลเว้น 3 ช่อง (ช่องเดียวดูติดกัน · user สั่ง 14/11/2569)
   const person = (name) => `<span class="nm">(${escHtml(name).replace(/ +/g, '&nbsp;&nbsp;&nbsp;')})</span>`;
-  const blankName = '<span class="pl">(</span><span class="f">&nbsp;</span><span class="pr">)</span>';
-  const sig = (label, role, rows) => `<div class="sig"><span>${label}</span>${fill()}<span>${role}</span>${rows.join('')}</div>`;
+  const blankName = '<span class="nm">(..........................................................)</span>';
+  const sig = (role, rows) => `<div class="sig"><span>(ลงชื่อ)</span>${fill()}<span>${role}</span>${rows.join('')}</div>`;
   const head = COVER_FORM.requesterHead;
   const headName = head.depts.includes(String(req.department || '').replace(/\s+/g, '')) ? head.name : '';
 
-  const html = `<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
-    <title>ใบเบิกเวชภัณฑ์ยา ${req.req_number}</title>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
-      @page { size: A4 portrait; margin: 14mm 14mm 10mm; }
-      body { font-family: 'Sarabun', sans-serif; font-size: 14.5px; color: #111; margin: 16px; line-height: 1.7; }
-      h2 { text-align: center; font-size: 19px; margin: 2px 0 4px; text-decoration: underline; text-underline-offset: 5px; }
-      .hosp { text-align: right; line-height: 1.6; margin-bottom: 6px; }
-      .ln { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; margin: 0 0 6px; }
-      .ln > span { white-space: nowrap; }
-      .ln.right { justify-content: flex-end; }
-      body > .ln { margin-bottom: 12px; }
-      .f { border-bottom: 1px dotted #333; text-align: center; line-height: 1.35; padding: 0 4px; }
-      .ln .f { flex: 1 1 auto; min-width: 40px; }
-      .sig { display: grid; grid-template-columns: auto minmax(40px, 1fr) auto; column-gap: 6px; row-gap: 6px; align-items: baseline; margin: 0 0 6px; }
-      .sig > span { white-space: nowrap; }
-      .sig .nm { grid-column: 2; display: flex; justify-content: center; justify-content: safe center; }
-      .sig .pl { justify-self: end; } .sig .pr { justify-self: start; }
-      @media (max-width: 600px) { .cols { flex-direction: column; } }
-      /* บนจอ: จำกัดกว้างเท่าพื้นที่พิมพ์ A4 แนวตั้ง (210 − 14×2 มม.) — ไม่งั้นหน้าต่างกว้างยืดฟอร์มจนดูเป็นแนวนอน ไม่ตรงกระดาษ */
-      @media screen { body { max-width: 182mm; margin: 16px auto; padding: 0 16px; } }
-      table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; }
-      th, td { border: 1px solid #333; padding: 4px 6px; font-size: 13.5px; }
-      th { font-weight: 600; text-align: center; }
-      td.c { text-align: center; } td.r { text-align: right; }
-      .cols { display: flex; gap: 24px; margin-top: 6px; }
-      .col { flex: 1; font-size: 14px; }
-      .blk { margin-bottom: 22px; page-break-inside: avoid; }
-      .blk p { margin: 0 0 6px; }
-      .indent { margin-left: 16px; }
-      .sig-center { text-align: center; }
-    </style></head><body>
-    ${lineRight('เลขที่เบิก', fill(req.req_number, 'flex:none;width:180px;font-weight:600'))}
+  const firstHead = `
+    ${lineRight('เลขที่เบิก', fill(req.req_number, 'flex:none;width:52mm;font-weight:600'))}
     <h2>ใบเบิกเวชภัณฑ์ยา</h2>
-    <div class="hosp"><strong>${COVER_FORM.hospital}</strong></div>
-    ${lineRight('วันที่', fill(thaiDate, 'flex:none;width:150px'))}
+    <div class="hosp">${COVER_FORM.hospital}</div>
+    ${lineRight('วันที่', fill(thaiDate, 'flex:none;width:40mm'))}
     <p>เรียน ผู้อำนวยการ${COVER_FORM.hospital}</p>
     ${line('ข้าพเจ้า', fill(headName || req.requester_name || ''), 'ตำแหน่ง', fill(headName ? head.position : ''))}
-    ${line('หน่วยงานผู้เบิก(ฝ่าย)', fill(req.department || ''), 'มีความประสงค์จะขอเบิกวัสดุเพื่อใช้ในรายการต่อไปนี้')}
-    <table>
-      <thead><tr>
-        <th style="width:52px">ลำดับที่</th><th>รายการ</th><th style="width:70px">หน่วยนับ</th>
-        <th style="width:80px">คงเหลือ<br>ก่อนจ่าย</th><th style="width:85px">จำนวนที่เบิก</th>
-        <th style="width:85px">จำนวนที่จ่าย</th><th style="width:80px">คงเหลือ<br>หลังจ่าย</th>
-      </tr></thead>
-      <tbody>${bodyRows}</tbody>
-    </table>
+    ${line('หน่วยงานผู้เบิก(ฝ่าย)', fill(req.department || ''), 'มีความประสงค์จะขอเบิกวัสดุเพื่อใช้ในรายการต่อไปนี้')}`;
+  const contHead = `<div class="cont"><b>ใบเบิกเวชภัณฑ์ยา (ต่อ)</b><span>เลขที่เบิก <b>${escHtml(req.req_number)}</b> · ${escHtml(req.department || '')} · วันที่ ${thaiDate}</span></div>`;
+  const table = `<colgroup><col style="width:10mm"><col style="width:17mm"><col><col style="width:19mm">
+      <col style="width:16mm"><col style="width:15mm"><col style="width:15mm"><col style="width:16mm"><col style="width:20mm"></colgroup>
+    <thead><tr><th>ลำดับ</th><th>รหัส</th><th>รายการ</th><th>หน่วยนับ</th>
+      <th>คงเหลือ<br>ก่อนจ่าย</th><th>จำนวน<br>ที่เบิก</th><th>จำนวน<br>ที่จ่าย</th><th>คงเหลือ<br>หลังจ่าย</th><th>หมายเหตุ</th></tr></thead>`;
+  const tail = `
+    <p class="sum">รวม ${items.length} รายการ · ตัวเลขทุกช่องเป็นหน่วยตามช่อง "หน่วยนับ"${req.note ? ` · หมายเหตุใบเบิก: ${escHtml(req.note)}` : ''}</p>
     <div class="cols">
       <div class="col">
         <div class="blk">
           <p><strong>เรียน หัวหน้ากลุ่มงาน / หน่วยงาน</strong></p>
           <p class="indent">- เพื่อเห็นชอบให้เบิกวัสดุเพื่อใช้ในงานราชการ</p>
           ${line('ในหน่วยงาน', fill(req.department || ''))}
-          ${line('ลงชื่อ', fill(), '(ผู้เขียนคำขอ)')}
+          ${line(`${step('1')}ลงชื่อ`, fill(), '(ผู้เขียนคำขอ)')}
           ${line('ตำแหน่ง', fill())}
           ${dateLine}
         </div>
         <div class="blk">
-          ${line('(ลงชื่อ)', fill(), '(ผู้รับยา)')}
-          ${line('ตำแหน่ง', fill())}
+          ${sig(`${step('2')}(ผู้เบิก)`, headName
+            ? [person(headName), nm(`ตำแหน่ง ${head.position}`), nm(head.group)]
+            : [blankName])}
+          ${headName ? '' : line('ตำแหน่ง', fill())}
           ${dateLine}
         </div>
         <div class="blk">
-          ${sig('(ลงชื่อ)', '(ผู้เบิก)', [
-            headName ? person(headName) : blankName,
-            nm(`ตำแหน่ง ${head.position}`),
-            nm(head.group),
-          ])}
+          ${sig(`${step('4')}(ผู้รับยา)`, [blankName])}
+          ${line('ตำแหน่ง', fill())}
           ${dateLine}
         </div>
       </div>
@@ -2012,17 +1988,17 @@ async function printCoverForm(req, preopenedWin) {
         <div class="blk">
           <p><strong>เรียน ${COVER_FORM.approver.role}</strong></p>
           <p class="indent">- เพื่ออนุมัติเบิกจ่ายวัสดุตามคำขอข้างต้น</p>
-          ${sig('(ลงชื่อ)', '(ผู้จ่ายยาและลงทะเบียน)', [
+          ${sig(`${step('3')}(ผู้จ่ายยาและลงทะเบียน)`, [
             person(COVER_FORM.dispenser.name),
             nm(COVER_FORM.dispenser.role),
             nm(`ตำแหน่ง ${COVER_FORM.dispenser.position}`),
           ])}
           ${dateLine}
-          <p class="indent">- อนุมัติ</p>
-          <p class="indent">- รับทราบการเบิกจ่าย</p>
         </div>
         <div class="blk">
-          ${sig('(ลงชื่อ)', '(ผู้อนุมัติเบิกจ่าย)', [
+          <p class="indent">- อนุมัติ</p>
+          <p class="indent">- รับทราบการเบิกจ่าย</p>
+          ${sig(`${step('5')}(ผู้อนุมัติเบิกจ่าย)`, [
             person(COVER_FORM.approver.name),
             nm(COVER_FORM.approver.role),
             nm(`ตำแหน่ง ${COVER_FORM.approver.position}`),
@@ -2030,10 +2006,34 @@ async function printCoverForm(req, preopenedWin) {
           ${dateLine}
         </div>
       </div>
-    </div>
-    <script>window.onload=()=>{window.print();}</script>
-    </body></html>`;
+    </div>`;
+  const css = `
+    h2 { text-align: center; font-size: 19px; margin: 0 0 2px; text-decoration: underline; text-underline-offset: 5px; }
+    .hosp { text-align: right; font-weight: 700; margin-bottom: 2px; }
+    p { margin: 0 0 6px; }
+    .ln { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; margin: 0 0 6px; }
+    .ln > span { white-space: nowrap; }
+    .ln.right { justify-content: flex-end; }
+    .f { border-bottom: 1px dotted #333; text-align: center; line-height: 1.3; padding: 0 4px; }
+    .ln .f { flex: 1 1 auto; min-width: 40px; }
+    .sum { font-size: 12.5px; margin: 4px 0 0; }
+    .cols { display: flex; gap: 8mm; margin-top: 10px; }
+    .col { flex: 1 1 0; min-width: 0; font-size: 13.5px; }
+    .blk { margin-bottom: 12px; }
+    .indent { margin-left: 14px; }
+    .sig { display: grid; grid-template-columns: auto minmax(30px, 1fr) auto; column-gap: 6px; row-gap: 3px; align-items: baseline; margin: 0 0 4px; }
+    .sig > span { white-space: nowrap; }
+    .sig .nm { grid-column: 1 / -1; text-align: center; white-space: normal; }
+    .step { display: inline-block; min-width: 1.35em; height: 1.35em; line-height: 1.3em; border: 1px solid #000; border-radius: 50%; text-align: center; font-size: 11px; font-weight: 700; margin-right: 3px; }`;
 
+  const html = buildPaginatedHtml({
+    title: `ใบเบิกเวชภัณฑ์ยา ${escHtml(req.req_number)}`,
+    css, firstHead, contHead, table, rows,
+    blankRow: '<tr class="blank"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>',
+    minRows: 7, tail,
+    footLeft: `${req.req_number} · ${req.department || ''}`,
+    initials: 'ผู้เบิกลงชื่อกำกับหน้า',
+  });
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
   openPrintUrl(url, preopenedWin);
@@ -2042,70 +2042,27 @@ async function printCoverForm(req, preopenedWin) {
 
 // ============================================================
 // ใบขอเบิก — สิ่งที่ผู้เบิกกรอกส่งมา (requested_qty + หมายเหตุผู้เบิก) ไม่มี lot/คงเหลือ
-// คู่กับ "ใบตัดเบิก" (printReq — ระบบ/คลังจัด lot ให้) และใบปะหน้า (user ขอ 14/11/2569 ให้ผู้เบิกพิมพ์ได้ครบ 3 แบบ)
+// คู่กับ "ใบตัดเบิก" (printReq — ระบบ/คลังจัด lot ให้) และใบเบิกเวชภัณฑ์ยา (user ขอ 14/11/2569 ให้ผู้เบิกพิมพ์ได้ครบ 3 แบบ)
 // จำนวน = requested_qty เสมอ (ไม่ใช่ approved_qty) — ใบนี้เป็นหลักฐานว่าหน่วยงานขออะไร
+// แบ่งหน้าเอง (buildPaginatedHtml) — หัวคอลัมน์ทุกหน้า เส้นตารางปิดครบ (เดิม Safari ตัดแถวครึ่งตัว หน้า 2 ไม่มีหัวตาราง)
 // ============================================================
 async function printRequestForm(req, preopenedWin) {
   const items = req.requisition_items || [];
-  // จำนวน/หน่วยนับ = หน่วยซื้อตาม Master แบบใบตัดเบิก (6,000 เม็ด → 6 × 1000เม็ด · user สั่ง 14/11/2569)
-  // กฎเดียวกับหน้าคีย์ (entryUnitOf): lot ต่างขนาดแพ็ค / ไม่มีขนาด = คงหน่วยย่อยที่ DB เก็บ
   const { fefoByCode, unitByCode } = await computeReqAllocations([req]);
-  const packOf = (code) => {
-    const lots = fefoByCode[code] || [];
-    const unit = unitByCode[code] || '';
-    const packSizes = lots.length ? lots.map(l => l.packSize) : [parseUnit(unit).packSize];
-    return entryUnitOf({ unit, baseUnit: parseUnit(unit).baseUnit || '', packSizes });
-  };
+  const packOf = makeItemPack(fefoByCode, unitByCode);
   const dt = (v) => new Date(v).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
   const edited = req.updated_at && req.updated_at !== req.created_at;
   const rows = items.map((item, i) => {
     const want = Number(item.requested_qty) || 0;
-    // ผู้เบิกเลือกขนาดกล่องไว้ (entry_pack) → "2 กล่อง (400เม็ด)" ตามที่ขอ · ไม่ได้เลือก = กฎเดิม
-    const picked = Number(item.entry_pack) > 1 && item.entry_unit;
-    const { packSize, label } = picked
-      ? { packSize: Number(item.entry_pack), label: `${packWord(item.drug_unit)} (${item.entry_unit})` }
-      : packOf(String(item.drug_code || '').trim());
+    const { packSize, label } = packOf(item);
     const qty = packSize > 1 ? fmtPackNote(want, packSize, item.drug_unit || '') : want.toLocaleString();
-    const unit = packSize > 1 ? label : (item.drug_unit || '-');
-    return `<tr>
-      <td class="c">${i + 1}</td>
-      <td class="c mono wide">${escHtml(item.drug_code || '-')}</td>
-      <td>${escHtml(item.drug_name || '-')}${item.item_note ? `<div class="inl">หมายเหตุ: ${escHtml(item.item_note)}</div>` : ''}</td>
-      <td class="r"><b>${escHtml(qty)}</b></td>
-      <td class="c">${escHtml(unit)}</td>
-      <td class="sm wide">${escHtml(item.item_note || '')}</td>
-    </tr>`;
-  }).join('');
+    return `<tr><td class="c">${i + 1}</td><td class="mono">${escHtml(item.drug_code || '-')}</td>
+      <td>${escHtml(item.drug_name || '-')}</td><td class="r b">${escHtml(qty)}</td>
+      <td class="c">${escHtml(label)}</td><td class="sm">${escHtml(item.item_note || '')}</td></tr>`;
+  });
   const kind = req.req_type ? ` · ใบเบิก${escHtml(reqTypeLabel(req.req_type))}` : '';
 
-  const html = `<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
-    <title>ใบขอเบิก ${escHtml(req.req_number)}</title>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
-      @page { size: A4 portrait; margin: 12mm 12mm 12mm; }
-      * { box-sizing: border-box; }
-      body { font-family: 'Sarabun', sans-serif; font-size: 14px; color: #111; margin: 16px; line-height: 1.55; }
-      @media screen { body { max-width: 186mm; margin: 16px auto; padding: 0 16px; } }
-      h2 { text-align: center; font-size: 19px; margin: 0 0 2px; }
-      .sub { text-align: center; color: #444; margin-bottom: 10px; }
-      .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 16px; margin-bottom: 8px; }
-      .meta b { font-weight: 600; }
-      @media (max-width: 600px) { .meta { grid-template-columns: 1fr; } }
-      table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; }
-      th, td { border: 1px solid #333; padding: 4px 6px; font-size: 13px; vertical-align: top; }
-      th { font-weight: 600; text-align: center; background: #f1f5f9; }
-      thead { display: table-header-group; }
-      tr { page-break-inside: avoid; }
-      td.c { text-align: center; } td.r { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-      td.mono { font-family: monospace; font-size: 12px; } td.sm { font-size: 12px; color: #333; }
-      .inl { display: none; font-size: 12px; color: #333; }
-      /* ดูบนมือถือก่อนพิมพ์: ซ่อนรหัส/หมายเหตุ (หมายเหตุย้ายไปใต้ชื่อยา) กันตารางล้นจอ — ตอนพิมพ์ A4 ได้ครบทุกคอลัมน์ */
-      @media screen and (max-width: 600px) { .wide { display: none; } .inl { display: block; } th, td { padding: 3px 4px; } }
-      .note { font-size: 12.5px; color: #333; margin: 0 0 4px; }
-      .sig { margin-top: 28px; margin-left: auto; width: 300px; max-width: 100%; text-align: center; page-break-inside: avoid; }
-      .sig p { margin: 0 0 8px; }
-      .ln { display: inline-block; border-bottom: 1px dotted #333; min-width: 190px; }
-    </style></head><body>
+  const firstHead = `
     <h2>ใบขอเบิกยาและเวชภัณฑ์</h2>
     <div class="sub">${escHtml(COVER_FORM.hospital)} · รายการที่หน่วยงานขอเบิก</div>
     <div class="meta">
@@ -2114,24 +2071,35 @@ async function printRequestForm(req, preopenedWin) {
       <span>หน่วยงาน <b>${escHtml(req.department || '-')}</b></span>
       <span>ผู้ขอเบิก <b>${escHtml(req.requester_name || '-')}</b></span>
       ${edited ? `<span>แก้ไขล่าสุด <b>${dt(req.updated_at)}</b></span>` : ''}
-    </div>
-    <table>
-      <thead><tr>
-        <th style="width:44px">ลำดับ</th><th class="wide" style="width:78px">รหัส</th><th>รายการ</th>
-        <th style="width:80px">จำนวนที่ขอ</th><th style="width:72px">หน่วยนับ</th><th class="wide" style="width:150px">หมายเหตุ</th>
-      </tr></thead>
-      <tbody>${rows || '<tr><td colspan="6" class="c">ไม่มีรายการ</td></tr>'}</tbody>
-    </table>
+    </div>`;
+  const contHead = `<div class="cont"><b>ใบขอเบิกยาและเวชภัณฑ์ (ต่อ)</b><span>เลขที่เบิก <b>${escHtml(req.req_number)}</b> · ${escHtml(req.department || '-')}</span></div>`;
+  const table = `<colgroup><col style="width:11mm"><col style="width:19mm"><col><col style="width:20mm"><col style="width:22mm"><col style="width:38mm"></colgroup>
+    <thead><tr><th>ลำดับ</th><th>รหัส</th><th>รายการ</th><th>จำนวน<br>ที่ขอ</th><th>หน่วยนับ</th><th>หมายเหตุ</th></tr></thead>`;
+  const tail = `
     <p class="note">รวม ${items.length} รายการ${req.note ? ` · หมายเหตุใบเบิก: ${escHtml(req.note)}` : ''}</p>
     <p class="note">จำนวนในใบนี้คือจำนวนที่หน่วยงานขอ — lot และจำนวนที่คลังจ่ายจริงดูที่ใบตัดเบิก</p>
     <div class="sig">
       <p>(ลงชื่อ) <span class="ln">&nbsp;</span> ผู้ขอเบิก</p>
       <p>( <span class="ln">&nbsp;</span> )</p>
       <p>วันที่ <span class="ln" style="min-width:150px">&nbsp;</span></p>
-    </div>
-    <script>window.onload=()=>{window.print();}</script>
-    </body></html>`;
+    </div>`;
+  const css = `
+    h2 { text-align: center; font-size: 19px; margin: 0 0 2px; }
+    .sub { text-align: center; color: #444; margin-bottom: 8px; }
+    .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 16px; margin-bottom: 4px; }
+    .meta b { font-weight: 600; }
+    table.grid td.sm { font-size: 12px; }
+    .note { font-size: 12.5px; color: #333; margin: 4px 0 0; }
+    .sig { margin-top: 24px; margin-left: auto; width: 300px; text-align: center; }
+    .sig p { margin: 0 0 8px; }
+    .ln { display: inline-block; border-bottom: 1px dotted #333; min-width: 190px; }`;
 
+  const html = buildPaginatedHtml({
+    title: `ใบขอเบิก ${escHtml(req.req_number)}`,
+    css, firstHead, contHead, table,
+    rows: rows.length ? rows : ['<tr><td colspan="6" class="c">ไม่มีรายการ</td></tr>'],
+    tail, footLeft: `${req.req_number} · ${req.department || ''}`,
+  });
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
   openPrintUrl(url, preopenedWin);
