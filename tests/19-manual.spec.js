@@ -48,6 +48,20 @@ test('ผู้เบิก: แถบตารางการทำงานด
   await expect(page.getByRole('button', { name: 'เพิ่มแถว' })).toHaveCount(0)
 })
 
+test('Work flow คลัง: staff เห็น 6 ขั้น · ผู้เบิกไม่เห็นแถบ', async ({ page, browser }) => {
+  await openManual(page, STAFF_CREDS)
+  await page.getByRole('tab', { name: 'Work flow คลัง' }).click()
+  for (const t of ['วางแผนและแจ้งซื้อ', 'รับเข้าคลัง', 'จัดเก็บรักษา', 'เบิก–จ่าย', 'ควบคุม–ติดตาม', 'ปิดงวดรายเดือน']) {
+    await expect(page.getByRole('heading', { name: t, exact: true })).toBeVisible()
+  }
+  await expect(page.getByText('แจ้ง → งานจัดซื้อ').first()).toBeVisible()
+
+  const p2 = await browser.newPage()
+  await openManual(p2)
+  await expect(p2.getByRole('tab', { name: 'Work flow คลัง' })).toHaveCount(0)
+  await p2.close()
+})
+
 test('จอ 375px ไม่ล้นแนวนอน', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 })
   await openManual(page, STAFF_CREDS)
@@ -57,4 +71,7 @@ test('จอ 375px ไม่ล้นแนวนอน', async ({ page }) => {
   await page.getByRole('tab', { name: 'ตารางการทำงาน' }).click()
   const overflow2 = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
   expect(overflow2).toBeLessThanOrEqual(1)
+  await page.getByRole('tab', { name: 'Work flow คลัง' }).click()
+  const overflow3 = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+  expect(overflow3).toBeLessThanOrEqual(1)
 })

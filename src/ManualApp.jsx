@@ -2,23 +2,28 @@
 // ManualApp — หน้า "คู่มือและตารางงาน" (เมนูกลุ่ม ช่วยเหลือ · ทุก role)
 // แถบ 1 คู่มือการใช้แอป: เนื้อหาจาก src/lib/appManual.js (pure) กรองตาม role + ค้นหา
 // แถบ 2 ตารางการทำงาน: ตาราง work_schedule (db.js) — ทุกคนดูได้ · admin เพิ่ม/แก้/ลบ (audit + กระดิ่ง)
+// แถบ 3 Work flow คลัง: ขั้นตอนงานคลังจาก src/lib/warehouseWorkflow.js (pure) — staff/admin เท่านั้น
 // ============================================================
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   BookOpen, CalendarRange, Search, ChevronDown, Plus, Pencil, Trash2, X, RefreshCcw, Info,
+  Workflow, Megaphone, ClipboardCheck, Split, Wrench,
 } from 'lucide-react';
 import BackButton from './BackButton';
 import ConfirmModal from './ConfirmModal';
 import { manualFor } from './lib/appManual';
+import { WORKFLOW_PHASES, WORKFLOW_KINDS, WORKFLOW_SYSTEMS, WORKFLOW_VERSION } from './lib/warehouseWorkflow';
 import { WORK_SCHEDULE_DAYS, fetchWorkSchedule, upsertWorkScheduleRow, deleteWorkScheduleRow } from './lib/db';
 
 const TABS = [
   { key: 'manual', label: 'คู่มือการใช้แอป', icon: BookOpen },
   { key: 'schedule', label: 'ตารางการทำงาน', icon: CalendarRange },
+  { key: 'workflow', label: 'Work flow คลัง', icon: Workflow, roles: ['staff', 'admin'] },
 ];
 
 export default function ManualApp({ auth = {}, onGoBack, canGoBack, onRefresh }) {
   const [tab, setTab] = useState('manual');
+  const tabs = TABS.filter(t => !t.roles || t.roles.includes(auth.role));
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-3 sticky top-0 z-30">
@@ -30,13 +35,13 @@ export default function ManualApp({ auth = {}, onGoBack, canGoBack, onRefresh })
             <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">วิธีใช้แอปตามหน้าที่ของคุณ และตารางงานเจ้าหน้าที่คลังยา</p>
           </button>
         </div>
-        <div role="tablist" className="mt-3 flex gap-2">
-          {TABS.map(t => {
+        <div role="tablist" className="mt-3 flex flex-wrap gap-2">
+          {tabs.map(t => {
             const on = tab === t.key;
             const Icon = t.icon;
             return (
               <button key={t.key} role="tab" aria-selected={on} onClick={() => setTab(t.key)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm transition-colors ${on
+                className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm transition-colors ${on
                   ? 'bg-sky-600 text-white font-semibold'
                   : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-medium'}`}>
                 <Icon size={15} /> {t.label}
@@ -47,9 +52,78 @@ export default function ManualApp({ auth = {}, onGoBack, canGoBack, onRefresh })
       </div>
 
       <div className="max-w-4xl mx-auto px-4 py-5">
-        {tab === 'manual' ? <ManualTab role={auth.role} /> : <ScheduleTab auth={auth} />}
+        {tab === 'manual' ? <ManualTab role={auth.role} />
+          : tab === 'workflow' ? <WorkflowTab />
+          : <ScheduleTab auth={auth} />}
       </div>
     </div>
+  );
+}
+
+// ── แถบ Work flow คลัง ───────────────────────────────────────────
+const KIND_STYLE = {
+  do: { icon: ClipboardCheck, box: 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 border-l-sky-500', icon_c: 'text-sky-600 dark:text-sky-400' },
+  notify: { icon: Megaphone, box: 'bg-violet-50/60 dark:bg-violet-950/30 border-violet-200 dark:border-violet-900 border-l-violet-500', icon_c: 'text-violet-600 dark:text-violet-400' },
+  decision: { icon: Split, box: 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800 border-dashed border-l-amber-500', icon_c: 'text-amber-600 dark:text-amber-400' },
+};
+
+function WorkflowTab() {
+  return (
+    <div className="space-y-4">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm px-4 py-3 space-y-2">
+        <p className="text-sm text-slate-700 dark:text-slate-200">
+          ขั้นตอนที่คลังยาปฏิบัติ ตั้งแต่วางแผนซื้อจนปิดงวด — ขั้นของหน่วยงานอื่น (อนุมัติ ออก PO ตรวจรับ) ไม่แสดง แสดงเฉพาะจุดที่คลังแจ้ง/ติดตาม
+        </p>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
+          {Object.entries(WORKFLOW_KINDS).map(([k, label]) => {
+            const Icon = KIND_STYLE[k].icon;
+            return <span key={k} className="flex items-center gap-1"><Icon size={14} className={KIND_STYLE[k].icon_c} />{label}</span>;
+          })}
+        </div>
+      </div>
+
+      {WORKFLOW_PHASES.map(p => (
+        <section key={p.no} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
+          <div className="flex items-center gap-3 px-4 py-3 bg-teal-700 text-white">
+            <span className="shrink-0 w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-lg font-bold tabular-nums">{p.no}</span>
+            <span className="min-w-0">
+              <h2 className="font-bold leading-tight">{p.title}</h2>
+              <span className="text-xs text-teal-50">{p.when}{p.parallel ? ' · ทำคู่ขนาน ไม่มีลำดับ' : ''}</span>
+            </span>
+          </div>
+          <ol className={`p-3 gap-2 ${p.parallel ? 'grid sm:grid-cols-2' : 'grid sm:grid-cols-2 lg:grid-cols-3'}`}>
+            {p.steps.map((s, i) => <WorkflowStep key={s.title} s={s} n={p.parallel ? null : i + 1} />)}
+          </ol>
+        </section>
+      ))}
+
+      <p className="text-xs text-slate-500 dark:text-slate-400 px-1">
+        <span className="font-semibold text-slate-600 dark:text-slate-300">ระบบที่ใช้:</span> {WORKFLOW_SYSTEMS} · {WORKFLOW_VERSION}
+      </p>
+    </div>
+  );
+}
+
+function WorkflowStep({ s, n }) {
+  const st = KIND_STYLE[s.kind];
+  const Icon = st.icon;
+  return (
+    <li className={`min-w-0 rounded-xl border border-l-4 px-3 py-2.5 ${st.box}`}>
+      <div className="flex items-start gap-2">
+        <Icon size={16} className={`shrink-0 mt-0.5 ${st.icon_c}`} aria-label={WORKFLOW_KINDS[s.kind]} />
+        <h3 className="min-w-0 font-semibold text-sm text-slate-800 dark:text-slate-100">
+          {n != null && <span className="tabular-nums text-slate-400 dark:text-slate-500 mr-1">{n}.</span>}
+          {s.title}
+        </h3>
+      </div>
+      <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{s.detail}</p>
+      {(s.to || s.tool) && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {s.to && <span className="rounded-full bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300 px-2 py-0.5 text-xs font-medium">แจ้ง → {s.to}</span>}
+          {s.tool && <span className="flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 text-xs"><Wrench size={11} />{s.tool}</span>}
+        </div>
+      )}
+    </li>
   );
 }
 
