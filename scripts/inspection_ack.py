@@ -231,7 +231,11 @@ def main():
     total = round(sum(x['val'] for _, b in items for x in b['rows']), 2)
     nrows = sum(len(b['rows']) for _, b in items)
     nbills = len({(k[1], k[2]) for k, _ in items})
-    ncol = 12 if multi else 11
+    ncol = 11 if multi else 10
+
+    def d2(v):  # 29/10/2569 → 29/10/69 ให้คอลัมน์วันที่แคบพอที่ตารางไม่ล้นกระดาษ (ล้น = Edge ย่อทั้งหน้า)
+        t = cell_date(v)
+        return t[:6] + t[-2:] if re.fullmatch(r'\d\d/\d\d/\d{4}', t) else t
 
     body, i, section = [], 0, None
     for (qd, bill, sup, ptype), b in items:
@@ -248,43 +252,45 @@ def main():
             if j == 0:
                 tr += f'<td class="c" rowspan="{span}">{i}</td>'
                 if multi:
-                    tr += f'<td class="c" rowspan="{span}"><b>{short(qd)}</b></td>'
-                tr += (f'<td class="c" rowspan="{span}">{cell_date(b["rd"])}</td>'
-                       f'<td rowspan="{span}"><b>{html.escape(bill)}</b><br><span class="sm">{html.escape(sup)}</span>{tag}</td>')
-            tr += (f'<td class="c">{html.escape(x["po"])}</td>'
-                   f'<td>{html.escape(x["name"])}</td>'
-                   f'<td class="c">{html.escape(x["lot"])}<br><span class="sm">{html.escape(x["exp"])}</span></td>'
-                   f'<td class="r">{qty(x["qty"])}</td><td class="c">{html.escape(x["unit"])}</td>'
+                    tr += f'<td class="c nw" rowspan="{span}"><b>{d2(datetime.datetime(qd.year, qd.month, qd.day))}</b></td>'
+                pos = ', '.join(dict.fromkeys(x['po'] for x in rws if x['po']))
+                tr += (f'<td class="c nw" rowspan="{span}">{d2(b["rd"])}</td>'
+                       f'<td rowspan="{span}"><b>{html.escape(bill)}</b><br><span class="sm">{html.escape(sup)}</span>'
+                       f'{"<br><span class=sm>PO " + html.escape(pos) + "</span>" if pos else ""}{tag}</td>')
+            tr += (f'<td>{html.escape(x["name"])}</td>'
+                   f'<td class="c nw">{html.escape(x["lot"])}<br><span class="sm">{html.escape(x["exp"])}</span></td>'
+                   f'<td class="r">{qty(x["qty"])}</td><td class="c nw">{html.escape(x["unit"])}</td>'
                    f'<td class="r">{money(x["val"])}</td>')
             if j == 0:
                 tr += f'<td class="r" rowspan="{span}"><b>{money(sub)}</b></td>'
             tr += '<td class="c"><span class="box"></span></td>'
             body.append(tr + '</tr>')
-    qd_th = '<th style="width:8%">วันที่ตรวจรับ</th>' if multi else ''
-    bill_w = '14%' if multi else '17%'
+    qd_th = '<th style="width:9.5%">วันที่ ตรวจรับ</th>' if multi else ''
+    bill_w = '12%' if multi else '15.5%'
 
     stamp = datetime.datetime.fromtimestamp(os.path.getmtime(src))
     page = f'''<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
 <title>สรุปตรวจรับ {doc_no}</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
 <style>
-@page {{ size: A4 portrait; margin: 7mm 9mm 7mm 9mm; }}
+@page {{ size: A4 portrait; margin: 6mm 8mm 6mm 8mm; }}
 * {{ box-sizing: border-box; }}
-body {{ font-family: 'Sarabun', 'TH Sarabun New', Tahoma, sans-serif; font-size: 12.5px; color: #000; background: #fff; margin: 0; }}
+body {{ font-family: 'Sarabun', 'TH Sarabun New', Tahoma, sans-serif; font-size: 17px; color: #000; background: #fff; margin: 0; }}
 .top {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }}
-h1 {{ font-size: 18px; margin: 0; }}
-.hosp {{ font-size: 14px; font-weight: 700; }}
-.no {{ text-align: right; font-size: 13px; line-height: 1.5; white-space: nowrap; }}
-.no b {{ font-size: 16px; }}
+h1 {{ font-size: 23px; margin: 0; }}
+.hosp {{ font-size: 18.5px; font-weight: 700; }}
+.no {{ text-align: right; font-size: 17px; line-height: 1.5; white-space: nowrap; }}
+.no b {{ font-size: 21px; }}
 .lead {{ margin: 6px 0 5px; line-height: 1.5; }}
-table {{ width: 100%; border-collapse: collapse; }}
-th, td {{ border: 1px solid #000; padding: 2px 4px; vertical-align: top; font-size: 11px; line-height: 1.3; }}
+table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
+th, td {{ border: 1px solid #000; padding: 2px 3px; vertical-align: top; font-size: 14px; line-height: 1.25; overflow-wrap: anywhere; }}
+td.nw, th.nw {{ white-space: nowrap; overflow-wrap: normal; }}
 th {{ background: #fff; font-weight: 700; text-align: center; }}
 td.c {{ text-align: center; }} td.r {{ text-align: right; white-space: nowrap; }}
-.sm {{ font-size: 10.5px; }}
-.tag {{ font-size: 10.5px; border: 1px solid #000; padding: 0 4px; }}
+.sm {{ font-size: 13px; }}
+.tag {{ font-size: 13px; border: 1px solid #000; padding: 0 4px; }}
 td.nop {{ font-weight: 700; background: #e6e6e6; }}
-.box {{ display: inline-block; width: 15px; height: 15px; border: 1.5px solid #000; margin-top: 2px; }}
+.box {{ display: inline-block; width: 20px; height: 20px; border: 1.5px solid #000; margin-top: 2px; }}
 tr {{ page-break-inside: avoid; }}
 tr.first td {{ border-top: 2px solid #000; }}
 tr.sec {{ page-break-after: avoid; break-after: avoid; }}
@@ -293,13 +299,13 @@ tr.tot td {{ font-weight: 700; border-top: 2px solid #000; }}
 .words {{ margin-top: 5px; display: flex; align-items: baseline; gap: 6px; }}
 .ack {{ margin-top: 5px; line-height: 1.5; }}
 .note {{ margin-top: 5px; line-height: 1.5; border: 1px solid #000; padding: 3px 6px; }}
-.sig {{ display: flex; gap: 6px; margin-top: 8px; page-break-inside: avoid; font-size: 11px; }}
+.sig {{ display: flex; gap: 6px; margin-top: 8px; page-break-inside: avoid; font-size: 16px; }}
 .sig > div {{ flex: 1; border: 1px solid #000; padding: 4px 6px; }}
 .sig .ln {{ margin-top: 5px; text-align: center; }}
 .sig .t {{ font-weight: 700; text-align: center; margin-bottom: 4px; }}
 .ln {{ display: flex; align-items: baseline; gap: 6px; margin-top: 8px; }}
 .fl {{ display: inline-block; flex: 1; height: 1.5em; vertical-align: bottom; border-bottom: 1px dotted #000; text-align: center; }}
-.foot {{ margin-top: 3px; font-size: 10px; }}
+.foot {{ margin-top: 3px; font-size: 13px; }}
 </style></head><body>
 <div class="top">
   <div><div class="hosp">โรงพยาบาลประชาธิปัตย์ · คลังยา</div><h1>สรุปผลการตรวจรับพัสดุ (ยาและเวชภัณฑ์) — ผู้ตรวจรับลงนามรับทราบ</h1></div>
@@ -309,10 +315,10 @@ tr.tot td {{ font-weight: 700; border-top: 2px solid #000; }}
 {"ระหว่างวันที่" if multi else "เมื่อวันที่"} <b>{when}</b> จำนวน <b>{nbills} บิล {nrows} รายการ</b> มูลค่ารวม <b>{money(total)} บาท</b>
 ตามรายละเอียดดังนี้ — ทุกรายการมีรูปตรวจรับ (บิลอยู่ในภาพ) เก็บไว้ที่คลังยา</p>
 <table>
-<thead><tr><th style="width:3%">ที่</th>{qd_th}<th style="width:8%">วันที่รับ</th><th style="width:{bill_w}">เลขที่บิล / บริษัท</th>
-<th style="width:8%">เลขที่ PO</th><th>รายการยา</th><th style="width:9.5%">Lot / Exp</th>
-<th style="width:5.5%">จำนวน</th><th style="width:6.5%">หน่วย</th><th style="width:8.5%">มูลค่า (บาท)</th><th style="width:8.5%">รวมบิล (บาท)</th>
-<th style="width:5%">ผู้ตรวจ รับ ✓</th></tr></thead>
+<thead><tr><th style="width:3.5%">ที่</th>{qd_th}<th style="width:9.5%">วันที่รับ</th><th style="width:{bill_w}">เลขที่บิล / บริษัท / PO</th>
+<th>รายการยา</th><th style="width:11.5%">Lot / Exp</th>
+<th class="nw" style="width:6.5%;letter-spacing:-0.3px">จำนวน</th><th style="width:9%">หน่วย</th><th style="width:10.5%">มูลค่า (บาท)</th><th style="width:10.5%">รวมบิล (บาท)</th>
+<th style="width:5%"><span class="sm">ผู้ตรวจ รับ</span> ✓</th></tr></thead>
 <tbody>{''.join(body)}
 <tr class="tot"><td colspan="{ncol - 3}" class="r">รวมทั้งสิ้น {nbills} บิล {nrows} รายการ</td><td colspan="2" class="r">{money(total)}</td>
 <td></td></tr></tbody>
