@@ -1894,7 +1894,7 @@ const fmtPack = (base, packSize) => toPackQty(base, packSize).toLocaleString('en
 // เดิม >12 รายการพิมพ์ "ตามเอกสารแนบท้าย" แล้วแนบใบขอเบิก → เอกสารแนบไม่มีลายเซ็น สลับแผ่นได้ + ใบปะหน้าล้น 2 หน้า
 // ตอนนี้ลงทุกรายการในตาราง คอลัมน์ครบตามฟอร์ม + รหัส/หมายเหตุ · แบ่งหน้าเอง (buildPaginatedHtml) หัวตารางทุกหน้า
 // สายลายเซ็นชุดเดียวท้ายใบ เลข ①–⑤ = ลำดับการเซ็น (CONTEXT §ใบเบิกฟอร์มรายการ: ผู้ขอเบิก → ผู้เบิก → ผู้จ่าย → ผู้รับ → ผู้อนุมัติ)
-// หลายหน้า: เลขที่เบิก + หน้า n/N ทุกหน้า + ผู้เบิกลงชื่อกำกับหน้าที่ไม่มีลายเซ็น
+// หลายหน้า: เลขที่เบิก + หน้า n/N ทุกหน้า (ป้ายผู้เบิกลงชื่อกำกับหน้า เอาออก 23/11/2569)
 // ============================================================
 async function printCoverForm(req, preopenedWin) {
   const { allocByItem, onHandByCode, fefoByCode, unitByCode } = await computeReqAllocations([req]);
@@ -1935,14 +1935,18 @@ async function printCoverForm(req, preopenedWin) {
   const row = (cls, parts) => `<div class="ln${cls}">${parts.map(p => p.startsWith('<span class="f"') ? p : `<span>${p}</span>`).join('')}</div>`;
   const line = (...parts) => row('', parts);
   const lineRight = (...parts) => row(' right', parts);
-  const dateLine = line('วันที่', fill('', 'min-width:20px'), '/', fill('', 'min-width:20px'), '/', fill('', 'min-width:20px'));
+  const dateLine = row(' dt', ['วันที่', fill('', 'min-width:20px'), '/', fill('', 'min-width:20px'), '/', fill('', 'min-width:20px')]);
   const step = (n) => `<span class="step">${n}</span>`;
-  // บล็อกลายเซ็น = grid [ป้าย | เส้นเซ็น | บทบาท] · ชื่อ/ตำแหน่งกินเต็มความกว้างคอลัมน์ (เดิมอยู่คอลัมน์กลาง ข้อความยาวล้นทับคอลัมน์ข้าง)
+  // บล็อกลายเซ็น = grid [① (ลงชื่อ) | เส้นเซ็น | (บทบาท)] · ชื่อ/ตำแหน่งกินเต็มความกว้างคอลัมน์
+  // ③ ⑤ (under=true): เส้นเซ็นยาวเต็มคอลัมน์ · ชื่อในวงเล็บ + บทบาท/ตำแหน่งอยู่ใต้เส้น
+  // (user 23/11/2569: ลองชื่อท้ายเส้นแล้วเส้นสั้นเซ็นไม่พอ ให้เลื่อนชื่อลงมาข้างล่าง)
   const nm = (text) => `<span class="nm">${escHtml(text)}</span>`;
   // ชื่อบุคคลในวงเล็บ — ชื่อกับนามสกุลเว้น 3 ช่อง (ช่องเดียวดูติดกัน · user สั่ง 14/11/2569)
-  const person = (name) => `<span class="nm">(${escHtml(name).replace(/ +/g, '&nbsp;&nbsp;&nbsp;')})</span>`;
+  const person = (name, cls = 'nm') => `<span class="${cls}">(${escHtml(name).replace(/ +/g, '&nbsp;&nbsp;&nbsp;')})</span>`;
   const blankName = '<span class="nm">(..........................................................)</span>';
-  const sig = (role, rows) => `<div class="sig"><span>(ลงชื่อ)</span>${fill()}<span>${role}</span>${rows.join('')}</div>`;
+  const sig = (n, role, rows, under = false) => under
+    ? `<div class="sig u"><span>${step(n)}(ลงชื่อ)</span>${fill()}${person(rows[0], 'nm who')}${nm(role)}${rows.slice(1).join('')}</div>`
+    : `<div class="sig"><span>${step(n)}(ลงชื่อ)</span>${fill()}<span>(${role})</span>${rows.join('')}</div>`;
   const head = COVER_FORM.requesterHead;
   const headName = head.depts.includes(String(req.department || '').replace(/\s+/g, '')) ? head.name : '';
 
@@ -1955,7 +1959,7 @@ async function printCoverForm(req, preopenedWin) {
     ${line('ข้าพเจ้า', fill(headName || req.requester_name || ''), 'ตำแหน่ง', fill(headName ? head.position : ''))}
     ${line('หน่วยงานผู้เบิก(ฝ่าย)', fill(req.department || ''), 'มีความประสงค์จะขอเบิกวัสดุเพื่อใช้ในรายการต่อไปนี้')}`;
   const contHead = `<div class="cont"><b>ใบเบิกเวชภัณฑ์ยา (ต่อ)</b><span>เลขที่เบิก <b>${escHtml(req.req_number)}</b> · ${escHtml(req.department || '')} · วันที่ ${thaiDate}</span></div>`;
-  const table = `<colgroup><col style="width:10mm"><col style="width:17mm"><col><col style="width:19mm">
+  const table = `<colgroup><col style="width:12mm"><col style="width:18mm"><col><col style="width:19mm">
       <col style="width:16mm"><col style="width:15mm"><col style="width:15mm"><col style="width:16mm"><col style="width:20mm"></colgroup>
     <thead><tr><th>ลำดับ</th><th>รหัส</th><th>รายการ</th><th>หน่วยนับ</th>
       <th>คงเหลือ<br>ก่อนจ่าย</th><th>จำนวน<br>ที่เบิก</th><th>จำนวน<br>ที่จ่าย</th><th>คงเหลือ<br>หลังจ่าย</th><th>หมายเหตุ</th></tr></thead>`;
@@ -1967,19 +1971,19 @@ async function printCoverForm(req, preopenedWin) {
           <p><strong>เรียน หัวหน้ากลุ่มงาน / หน่วยงาน</strong></p>
           <p class="indent">- เพื่อเห็นชอบให้เบิกวัสดุเพื่อใช้ในงานราชการ</p>
           ${line('ในหน่วยงาน', fill(req.department || ''))}
-          ${line(`${step('1')}ลงชื่อ`, fill(), '(ผู้เขียนคำขอ)')}
+          ${sig('1', 'ผู้เขียนคำขอ', [])}
           ${line('ตำแหน่ง', fill())}
           ${dateLine}
         </div>
         <div class="blk">
-          ${sig(`${step('2')}(ผู้เบิก)`, headName
+          ${sig('2', 'ผู้เบิก', headName
             ? [person(headName), nm(`ตำแหน่ง ${head.position}`), nm(head.group)]
             : [blankName])}
           ${headName ? '' : line('ตำแหน่ง', fill())}
           ${dateLine}
         </div>
         <div class="blk">
-          ${sig(`${step('4')}(ผู้รับยา)`, [blankName])}
+          ${sig('4', 'ผู้รับยา', [blankName])}
           ${line('ตำแหน่ง', fill())}
           ${dateLine}
         </div>
@@ -1988,27 +1992,27 @@ async function printCoverForm(req, preopenedWin) {
         <div class="blk">
           <p><strong>เรียน ${COVER_FORM.approver.role}</strong></p>
           <p class="indent">- เพื่ออนุมัติเบิกจ่ายวัสดุตามคำขอข้างต้น</p>
-          ${sig(`${step('3')}(ผู้จ่ายยาและลงทะเบียน)`, [
-            person(COVER_FORM.dispenser.name),
+          ${sig('3', 'ผู้จ่ายยาและลงทะเบียน', [
+            COVER_FORM.dispenser.name,
             nm(COVER_FORM.dispenser.role),
             nm(`ตำแหน่ง ${COVER_FORM.dispenser.position}`),
-          ])}
+          ], true)}
           ${dateLine}
         </div>
         <div class="blk">
           <p class="indent">- อนุมัติ</p>
           <p class="indent">- รับทราบการเบิกจ่าย</p>
-          ${sig(`${step('5')}(ผู้อนุมัติเบิกจ่าย)`, [
-            person(COVER_FORM.approver.name),
+          ${sig('5', 'ผู้อนุมัติเบิกจ่าย', [
+            COVER_FORM.approver.name,
             nm(COVER_FORM.approver.role),
             nm(`ตำแหน่ง ${COVER_FORM.approver.position}`),
-          ])}
+          ], true)}
           ${dateLine}
         </div>
       </div>
     </div>`;
   const css = `
-    h2 { text-align: center; font-size: 19px; margin: 0 0 2px; text-decoration: underline; text-underline-offset: 5px; }
+    h2 { text-align: center; font-size: 21px; margin: 0 0 2px; text-decoration: underline; text-underline-offset: 5px; }
     .hosp { text-align: right; font-weight: 700; margin-bottom: 2px; }
     p { margin: 0 0 6px; }
     .ln { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; margin: 0 0 6px; }
@@ -2016,23 +2020,29 @@ async function printCoverForm(req, preopenedWin) {
     .ln.right { justify-content: flex-end; }
     .f { border-bottom: 1px dotted #333; text-align: center; line-height: 1.3; padding: 0 4px; }
     .ln .f { flex: 1 1 auto; min-width: 40px; }
-    .sum { font-size: 12.5px; margin: 4px 0 0; }
+    .sum { font-size: 14px; margin: 4px 0 0; }
     .cols { display: flex; gap: 8mm; margin-top: 10px; }
-    .col { flex: 1 1 0; min-width: 0; font-size: 13.5px; }
-    .blk { margin-bottom: 12px; }
+    .col { flex: 1 1 0; min-width: 0; font-size: 15px; }
+    .col .ln { margin-bottom: 7px; }
+    /* ระยะห่างระหว่างช่องเซ็น ①–⑤ (user 23/11/2569: ยังติดกัน ให้เว้นมากขึ้น) */
+    .blk { margin-bottom: 10px; }
     .indent { margin-left: 14px; }
-    .sig { display: grid; grid-template-columns: auto minmax(30px, 1fr) auto; column-gap: 6px; row-gap: 3px; align-items: baseline; margin: 0 0 4px; }
+    /* margin-top ของเส้นเซ็น = ที่ว่างให้เซ็นเหนือเส้น · วันที่เว้นจากชื่อ/ตำแหน่ง (user 23/11/2569: ช่องเซ็นแน่นเกิน) */
+    .sig { display: grid; grid-template-columns: auto minmax(30px, 1fr) auto; column-gap: 6px; row-gap: 3px; align-items: baseline; margin: 22px 0 6px; }
     .sig > span { white-space: nowrap; }
+    .sig.u { grid-template-columns: auto minmax(30px, 1fr); }
+    .sig .who { padding-top: 4px; }
     .sig .nm { grid-column: 1 / -1; text-align: center; white-space: normal; }
-    .step { display: inline-block; min-width: 1.35em; height: 1.35em; line-height: 1.3em; border: 1px solid #000; border-radius: 50%; text-align: center; font-size: 11px; font-weight: 700; margin-right: 3px; }`;
+    .ln.dt { margin-top: 10px; }
+    .step { display: inline-block; min-width: 1.35em; height: 1.35em; line-height: 1.3em; border: 1px solid #000; border-radius: 50%; text-align: center; font-size: 12px; font-weight: 700; margin-right: 3px; }`;
 
+  // ไม่มีป้าย "ผู้เบิกลงชื่อกำกับหน้า" แล้ว (user 23/11/2569) — ท้ายกระดาษทุกหน้ามีเลขที่เบิก + หน้า n/N ผูกแผ่นอยู่แล้ว
   const html = buildPaginatedHtml({
     title: `ใบเบิกเวชภัณฑ์ยา ${escHtml(req.req_number)}`,
     css, firstHead, contHead, table, rows,
     blankRow: '<tr class="blank"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>',
     minRows: 7, tail,
     footLeft: `${req.req_number} · ${req.department || ''}`,
-    initials: 'ผู้เบิกลงชื่อกำกับหน้า',
   });
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url  = URL.createObjectURL(blob);

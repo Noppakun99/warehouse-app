@@ -6,28 +6,30 @@
 // · ส่วนท้าย (ลายเซ็น) ต้องอยู่หน้าเดียวกับรายการ — ไม่พอให้ยกรายการท้าย 3 แถวตามไปด้วย ไม่มีหน้าลายเซ็นลอยๆ
 // · @page margin 0 = เบราว์เซอร์ไม่พิมพ์หัว/ท้ายกระดาษของตัวเอง (blob:… วันที่) ขอบกระดาษทำด้วย padding ของ .page
 // · viewport กว้าง 820px = มือถือย่อทั้งหน้าให้พอดีจอ (หน้า A4 กว้างคงที่ 210mm)
+// · ความสูงหน้า 282mm ไม่ใช่ 296mm: iOS Safari ไม่สน @page margin — ใส่ขอบ+หัวท้ายของตัวเองแล้วย่อตามความกว้าง
+//   พื้นที่พิมพ์ได้สูง ≈ 1.39 เท่าของความกว้าง (วัดจาก PDF REQ-20261120-6883) → 296mm ล้น ~4mm ไปขึ้นหน้าว่างทุกแผ่น (user แจ้ง 23/11/2569)
 
 export const PAGINATED_BASE_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
 @page { size: A4 portrait; margin: 0; }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
-body { font-family: 'Sarabun', sans-serif; font-size: 14px; color: #000; line-height: 1.5; background: #e5e7eb; }
-.page { width: 210mm; height: 296mm; padding: 11mm 13mm 9mm; background: #fff; margin: 0 auto; display: flex; flex-direction: column; overflow: hidden; }
+body { font-family: 'Sarabun', sans-serif; font-size: 15.5px; color: #000; line-height: 1.5; background: #e5e7eb; }
+.page { width: 210mm; height: 282mm; padding: 10mm 12mm 7mm; background: #fff; margin: 0 auto; display: flex; flex-direction: column; overflow: hidden; }
 @media screen { .page { margin: 12px auto; box-shadow: 0 1px 4px rgba(0,0,0,.2); } }
 @media print { body { background: #fff; } .page { margin: 0; break-after: page; } .page:last-child { break-after: auto; } }
 .pbody { flex: 1 1 auto; min-height: 0; overflow: hidden; }
-.pfoot { flex: none; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; font-size: 11.5px; color: #333; padding-top: 4px; }
+.pfoot { flex: none; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; font-size: 12.5px; color: #333; padding-top: 4px; }
 .pfoot .ini { display: inline-flex; gap: 6px; align-items: baseline; }
 .pfoot .ini i { display: inline-block; min-width: 45mm; border-bottom: 1px dotted #333; }
 .cont { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 6px; }
-.cont b { font-size: 15px; }
+.cont b { font-size: 16.5px; }
 table.grid { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 4px 0 0; }
-table.grid th, table.grid td { border: 1px solid #000; padding: 2px 4px; font-size: 12.5px; line-height: 1.35; vertical-align: top; overflow-wrap: anywhere; }
+table.grid th, table.grid td { border: 1px solid #000; padding: 2px 4px; font-size: 14.5px; line-height: 1.35; vertical-align: top; overflow-wrap: anywhere; }
 table.grid th { font-weight: 600; text-align: center; vertical-align: middle; background: #f1f5f9; line-height: 1.25; overflow-wrap: normal; white-space: nowrap; }
 table.grid td.c { text-align: center; } table.grid td.r { text-align: right; font-variant-numeric: tabular-nums; }
-table.grid td.mono { font-size: 11.5px; text-align: center; } table.grid td.b { font-weight: 600; }
-table.grid tr.blank td { height: 6.4mm; }
+table.grid td.mono { font-size: 13px; text-align: center; } table.grid td.b { font-weight: 600; }
+table.grid tr.blank td { height: 7.2mm; }
 `
 
 // JSON ฝังใน <script> — กัน "</script>" ในชื่อยา/หมายเหตุปิดแท็กก่อนเวลา
@@ -70,7 +72,8 @@ export function buildPaginatedHtml(o) {
       pg.className = 'page';
       pg.innerHTML = '<div class="pbody">' + (first ? C.firstHead : C.contHead)
         + '<table class="grid">' + C.table + '<tbody></tbody></table><div class="ptail"></div></div>'
-        + '<div class="pfoot"><span class="ini"></span><span class="pno"></span></div>';
+        // pno มี &nbsp; ตั้งแต่ตอนวัด — ว่างแล้วเติม "หน้า n/N" ทีหลัง ท้ายกระดาษสูงขึ้น 1 บรรทัด แถวท้ายโดนตัด
+        + '<div class="pfoot"><span class="ini"></span><span class="pno">&nbsp;</span></div>';
       root.appendChild(pg); pages.push(pg); return pg;
     }
     function over(pg) { var b = pg.querySelector('.pbody'); return b.scrollHeight > b.clientHeight + 1; }
@@ -100,7 +103,13 @@ export function buildPaginatedHtml(o) {
     });
     if (C.autoPrint) setTimeout(function () { window.print(); }, 150);
   }
-  var ready = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
+  // สั่งโหลด Sarabun ทุกน้ำหนักเอง — fonts.ready อย่างเดียว resolve ก่อนฟอนต์เริ่มโหลด (ยังไม่มีข้อความใช้) → วัดด้วยฟอนต์สำรอง
+  // แล้ว Sarabun มาทีหลัง แถวสูงขึ้น ล้นท้ายหน้าโดนตัด (เจอ 23/11/2569: แถว 27 ครึ่งตัว)
+  // ข้อความตัวอย่างต้องมีทั้งไทยและละติน — Google Fonts แยกไฟล์ตาม unicode-range ชื่อยา/ตัวเลขเป็นชุดละติน
+  var ready = document.fonts && document.fonts.load
+    ? Promise.all(['400', '600', '700'].map(function (w) { return document.fonts.load(w + ' 15px Sarabun', 'กAa1'); }))
+        .then(function () { return document.fonts.ready; }, function () {})
+    : Promise.resolve();
   // ฟอนต์โหลดไม่ขึ้น (เน็ตหลุด) ต้องไม่ค้าง — รอไม่เกิน 3 วิแล้ววัดด้วยฟอนต์สำรอง
   Promise.race([ready, new Promise(function (r) { setTimeout(r, 3000); })]).then(build);
 })();
