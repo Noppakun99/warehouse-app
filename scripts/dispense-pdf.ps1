@@ -61,12 +61,20 @@ try {
   } else {
     for ($k = 2; $k -le $n + 1; $k++) { $null = $ns.Rows.Item($k).AutoFit(); if ($ns.Rows.Item($k).RowHeight -lt $rowMin) { $ns.Rows.Item($k).RowHeight = $rowMin } }
   }
-  # ชีทเบิกมีแต่เส้นบนของแต่ละแถว (เส้นล่างได้จากเส้นบนของแถวถัดไป) → แถวท้ายที่ copy มาไม่มีเส้นปิดตาราง (user แจ้ง 19/11/2569 บย.70/0085 · เจอครั้งที่ 2) · ปิดด้วยเส้นแบบเดียวกับเส้นบนของแถวท้าย
+  # ชีทเบิกมีแต่เส้นบนของแต่ละแถว (เส้นล่างได้จากเส้นบนของแถวถัดไป) → แถวท้ายของใบ และแถวท้ายของทุกหน้า (แถวถัดไปขึ้นหน้าใหม่) ไม่มีเส้นปิดตาราง
+  # user แจ้ง 19/11/2569 บย.70/0085 (แก้แค่แถวท้ายใบ) · 23/11/2569 บย.70/0092 ท้ายหน้ากลางใบหายอีก → ใส่เส้นล่างให้ทุกแถว (เส้นล่างขอบ + เส้นแนวนอนด้านใน) แบบเดียวกับเส้นบนของแถวท้าย
   Invoke-Retry {
-    $top = $ns.Range("A$($n + 1)").Borders.Item(8); $bot = $ns.Range("A$($n + 1):P$($n + 1)").Borders.Item(9)
-    $bot.LineStyle = 1
-    if ($top.LineStyle -eq 1) { $bot.Weight = $top.Weight; $bot.Color = $top.Color } else { $bot.Weight = 2 }
-  } 'bottom border'
+    $top = $ns.Range("A$($n + 1)").Borders.Item(8)
+    foreach ($bi in 9, 12) {
+      if ($bi -eq 12 -and $n -lt 1) { continue }
+      $b = $ns.Range("A1:P$($n + 1)").Borders.Item($bi); $b.LineStyle = 1
+      if ($top.LineStyle -eq 1) { $b.Weight = $top.Weight; $b.Color = $top.Color } else { $b.Weight = 2 }
+    }
+  } 'row bottom borders'
+  # ด่านตรวจก่อน export: ทุกแถว (หัว + ข้อมูล) ต้องมีเส้นล่างครบทุกคอลัมน์ — ไม่ครบ = ไม่ทำ PDF
+  $noBottom = @(); for ($k = 1; $k -le $n + 1; $k++) { if ($ns.Range("A${k}:P$k").Borders.Item(9).LineStyle -ne 1) { $noBottom += $k } }
+  if ($noBottom.Count) { throw ("rows without bottom border: " + ($noBottom -join ',')) }
+  Say "border check: $($n + 1) rows have bottom border"
   $ns.Columns.Item(2).Hidden = $true; $ns.Columns.Item(5).Hidden = $true
   $ps = $ns.PageSetup
   Invoke-Retry {
