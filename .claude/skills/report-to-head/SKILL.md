@@ -9,7 +9,7 @@ description: เขียนรายงานหรือข้อความ�
 
 เรียกแบบระบุเลยได้: `/report-to-head ทั่วไป <เรื่อง>` หรือ `/report-to-head ราชการ <เรื่อง>`
 
-**ไม่ใช้กับงานที่มีรูปแบบของตัวเอง:** ตามยา/แจ้งซื้อรอบสัปดาห์ = `/purchase-request-report` · แจ้งจัดซื้อหลังปิดยอด = `/close-month-notice` · ยาค้างจ่าย = `drug-shortfall-report` · ใบของแถม = `/free-goods-report`
+**ไม่ใช้กับงานที่มีรูปแบบของตัวเอง:** ตามยา/แจ้งซื้อรอบสัปดาห์ = `/purchase-request-report` · ทวงตรวจรับ/จัดซื้อ/ยายังไม่มาส่งในกลุ่มไลน์จัดซื้อยา = `/procurement-followup` · แจ้งจัดซื้อหลังปิดยอด = `/close-month-notice` · ยาค้างจ่าย = `drug-shortfall-report` · ใบของแถม = `/free-goods-report`
 
 ## ขั้นตอน
 
