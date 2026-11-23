@@ -1,14 +1,16 @@
 // ใบเบิกออนไลน์ → ชีท 'เบิก ' (เฟส 1 ขั้น 4 · ADR-0028 · CONTEXT §ใบเบิกออนไลน์)
 // ตรรกะเลือก lot อยู่ src/lib/onlineReqPlan.js (pure) — ไฟล์นี้แค่อ่าน/เขียน DB + อ่านชีท (SheetJS อ่านอย่างเดียว)
 //
-//   node scripts/online-req.mjs --plan --file <สำเนา xlsm> --out <plan.json> [--date 2026-11-13]
-//        → ใบ pending ที่ยังไม่ลงชีท (เฉพาะห้องยาG — pilot) → แผนแถวเบิก + เลข บย. ถัดไป (ไม่เขียนอะไร)
+//   node scripts/online-req.mjs --plan --file <สำเนา xlsm> --out <plan.json> [--date 2026-11-13] [--req REQ-…,REQ-…]
+//        → ใบ pending ที่ยังไม่ลงชีท (เฉพาะห้องยาG — pilot · ใส่ --req = ใบที่ระบุ ทุกหน่วยงาน) → แผนแถวเบิก + เลข บย. ถัดไป (ไม่เขียนอะไร)
 //   node scripts/online-req.mjs --writeback --plan <plan.json> [--commit]
 //        → หลังลงชีทแล้ว: receipt_no · sheet_entered_at · status approved · picked_allocation · audit
 //          ต้องรัน **ก่อน** import:master (กฎเลิกหักยอดจอง src/lib/reservation.js)
 //   node scripts/online-req.mjs --mark-entered --req <เลขใบ> --receipt บย.70/xxxx [--commit]
 //        → ใบที่ลงชีทด้วยมือ (นอก pilot): ตั้ง receipt_no + sheet_entered_at เท่านั้น ไม่แตะสถานะ/lot
 //          ไม่ตั้ง = ใบหักยอดจองค้างตลอดไป · รัน **ก่อน** import:master เหมือน --writeback
+//   node scripts/online-req.mjs --pending [--json]
+//        → ใบเบิกในแอปที่ยังไม่ลงชีท (ทุกหน่วยงาน · ไม่เขียนอะไร) — check-complete.py ข้อ 14 เรียกทุกครั้ง
 //   node scripts/online-req.mjs --backtest --file <สำเนา xlsm> --rows 9068-9077,9079-9145
 //        → ทดสอบย้อนหลัง: เอารายการของแถวเบิกที่ลงมือไว้ วางแผนใหม่ด้วยยอดคงคลังย้อนกลับ แล้วเทียบ lot
 import XLSX from 'xlsx'
@@ -72,6 +74,26 @@ function printPlan(title, plan) {
     log(`  M${l.masterRow} ${l.key} @${l.price} | U ${l.u} → ออก ${l.q} → ${l.u - l.q}${l.w != null ? ` | W=${l.w} X=${l.x}` : ''}${l.note ? `\n      Q: ${l.note}` : ''}`)
   }
   if (plan.flags.length) { log('  ⚠ ต้องดู:'); for (const f of plan.flags) log('    - ' + f) }
+}
+
+// ── --pending [--json] ── ใบเบิกในแอปที่ยังไม่ลงชีท (check-complete.py ข้อ 14 อ่าน --json)
+// นับตั้งแต่ PENDING_SINCE (pilot ใบเบิกออนไลน์ — sheet_entered_at เริ่มใช้ 13/11/2569) · ใบไม่อนุมัติ/ยกเลิกไม่นับ
+const PENDING_SINCE = '2026-11-13'
+if (A.has('--pending')) {
+  const { supabase } = await import('../src/lib/supabase.js')
+  const { data, error } = await supabase.from('requisitions')
+    .select('req_number, department, req_type, status, requester_name, created_at, requisition_items(id)')
+    .is('sheet_entered_at', null).not('status', 'in', '(rejected,cancelled)')
+    .gte('created_at', PENDING_SINCE).order('created_at')
+  if (error) die(error.message)
+  const out = data.map(r => ({ req: r.req_number, dept: r.department, type: r.req_type, status: r.status,
+    by: r.requester_name, createdAt: r.created_at, items: r.requisition_items.length, pilot: sheetDept(r.department) === PILOT_DEPT }))
+  // ไม่เรียก process.exit — Node 24 บน Windows ล้ม (UV_HANDLE_CLOSING) ตอน fetch ยังปิด handle ไม่เสร็จ · ปล่อยไหลจบเอง
+  if (A.has('--json')) console.log(JSON.stringify(out))
+  else {
+    for (const r of out) log(`${r.req} · ${r.dept} · ${r.type} · ${r.status} · ${r.items} รายการ · ${r.by || '-'} · ${r.createdAt}`)
+    if (!out.length) log('ไม่มีใบเบิกในแอปรอลงชีท')
+  }
 }
 
 // ── --backtest ──
@@ -144,8 +166,12 @@ if (A.has('--plan') && !A.has('--writeback')) {
   const { data, error } = await supabase.from('requisitions').select('*, requisition_items(*)')
     .eq('status', 'pending').is('sheet_entered_at', null).order('created_at')
   if (error) die(error.message)
-  const reqs = (data || []).filter(r => sheetDept(r.department) === PILOT_DEPT)
-  for (const r of data || []) if (sheetDept(r.department) !== PILOT_DEPT) log(`  ข้าม ${r.req_number} ${r.department} (นอก pilot ห้องยาG)`)
+  // --req <เลขใบ,…> = วางแผนเฉพาะใบที่ระบุ ทุกหน่วยงาน (user สั่งลงใบห้องยา 1 ออนไลน์ 23/11/2569) · ไม่ใส่ = เฉพาะ pilot
+  const only = A.valueOf('--req')?.split(',').map(s => s.trim()).filter(Boolean)
+  const pick = (r) => only ? only.includes(r.req_number) : sheetDept(r.department) === PILOT_DEPT
+  const reqs = (data || []).filter(pick)
+  for (const r of data || []) if (!pick(r)) log(`  ข้าม ${r.req_number} ${r.department} (${only ? 'ไม่อยู่ใน --req' : 'นอก pilot ห้องยาG'})`)
+  if (only) for (const n of only) if (!reqs.some(r => r.req_number === n)) die(`ไม่พบใบ ${n} ที่ pending + ยังไม่ลงชีท`)
   if (!reqs.length) { log('ไม่มีใบเบิกออนไลน์ห้องยาG ที่รอลงชีท'); process.exit(0) }
   const wb = XLSX.readFile(A.file, { sheets: ['Master', 'เบิก '] })
   let pool = readMaster(wb)
@@ -237,4 +263,4 @@ if (A.has('--mark-entered')) {
   process.exit(0)
 }
 
-log('ใช้: --plan | --writeback | --mark-entered | --backtest (ดูหัวไฟล์)')
+if (!A.has('--pending')) log('ใช้: --pending | --plan | --writeback | --mark-entered | --backtest (ดูหัวไฟล์)')

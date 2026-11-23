@@ -1,6 +1,6 @@
 # เช็คครบ — งานเอกสารคลังที่ทำค้างไว้ครบหรือยัง (อ่านอย่างเดียว ไม่เขียนไฟล์ใด)
 # ใช้: python scripts/check-complete.py
-# ตรวจ 13 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
+# ตรวจ 14 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
 #            · รูปบิลมีแถวดัชนี / แถวดัชนีมีไฟล์จริง · รูปตรวจรับรอถ่ายซ้ำ · แถวรับยามีแถว Master · บิลซื้อยังไม่ส่งจัดซื้อ
 #            · รายการตรวจรับที่มีรูปอยู่ในเอกสารสรุปตรวจรับ (ตร.) + ผู้ตรวจรับเซ็นภายใน 7 วัน
 #            · บิลซื้อลง "ยามาส่ง" ในระบบติดตามการสั่งซื้อของจัดซื้อแล้ว (อ่านระบบผ่านเน็ต — scripts/po_match.py)
@@ -9,6 +9,7 @@
 #            · ใบแจ้งยืม/รับคืนที่ออกในแอปลงทะเบียน รพ.ยืมยา แล้ว
 #            · วิเคราะห์สั่งซื้อ!P2 ตรงสำเนางวดล่าสุด + ชีทเบิก AA:AC แถวงวดปิดว่าง (ขั้นมือตอนขึ้นเดือน)
 #            · ยาต้องแพ็ค: ของแบบกล่องหมดใน 14 วันแล้วต่อด้วยกระปุก / มีของบริษัทที่ไม่อยู่ในทะเบียน
+#            · ใบเบิกที่หน่วยงานส่งในแอปยังไม่ลงชีทเบิก (online-req.mjs --pending)
 import csv, datetime, glob, os, re, sys, warnings
 
 import openpyxl
@@ -545,5 +546,34 @@ else:
         print('  ร่างไลน์กลุ่มห้องยา:\n    แจ้งจากคลังยา : ยาต่อไปนี้จะเปลี่ยนเป็นแบบกระปุก ต้องแบ่งแพ็คก่อนจ่าย ขอให้ห้องยาเตรียมแพ็คล่วงหน้า\n    '
               + '\n    '.join(line_items))
     ok(f'{len(packs)} รหัสในทะเบียน · ตรวจของคงเหลือ {sum(len(v) for v in lots.values())} lot')
+
+# 14) ใบเบิกที่หน่วยงานส่งในแอป (requisitions) ยังไม่ลงชีทเบิก (user สั่ง 23/11/2569 — เช็คทุกครั้งว่ามีใบใหม่ส่งมาไหม)
+#     ห้องยาG (pilot) → node scripts/online-req.mjs --plan ตาม docs/features/online-requisition.md
+#     หน่วยงานอื่น → ลงชีทมือตาม /dispense-entry แล้ว --mark-entered (ไม่ตั้ง = ใบหักยอดจองค้างตลอดไป)
+#     ยังไม่มีอนุญาตถาวร: เจอใบ = แจ้ง user ก่อนลง
+head('ใบเบิกในแอป (หน่วยงานส่งออนไลน์) ↔ ชีทเบิก')
+try:
+    import json, subprocess
+    out = subprocess.run(['node', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'online-req.mjs'), '--pending', '--json'],
+                         capture_output=True, text=True, encoding='utf-8', timeout=120)
+    reqs = json.loads(out.stdout.strip().splitlines()[-1]) if out.returncode == 0 and out.stdout.strip() else None
+except Exception:
+    reqs = None
+if reqs is None:
+    bad('อ่านใบเบิกจากแอปไม่ได้ (เน็ต/Supabase) — ตรวจข้อนี้ไม่ได้')
+else:
+    TYPE_TH = {'drug': 'ยา', 'supply': 'เวชภัณฑ์', 'saline': 'น้ำเกลือ'}
+    today = datetime.date.today()
+    for r in reqs:
+        made = datetime.datetime.fromisoformat(str(r['createdAt'])).astimezone()   # created_at เป็น UTC
+        age = (today - made.date()).days
+        new = ' · ใบใหม่วันนี้' if age == 0 else f' · ส่งมา {age} วันแล้ว'
+        how = ('online-req.mjs --plan (pilot)' if r['pilot']
+               else 'ลงชีทมือตาม /dispense-entry แล้ว online-req.mjs --mark-entered')
+        state = 'รอจัดจ่าย' if r['status'] == 'pending' else f"สถานะ {r['status']} (จ่ายก่อนลงชีท)"
+        bad(f"{r['req']} {r['dept']} · {TYPE_TH.get(r['type'], r['type'])} {r['items']} รายการ · {r['by'] or '-'} · "
+            f"ส่ง {be(made)} {made:%H:%M}{new} · {state} — {how}")
+    if not reqs:
+        ok('ไม่มีใบเบิกในแอปรอลงชีท')
 
 print(f'\n{"ครบทุกข้อ" if problems == 0 else f"ไม่ครบ {problems} จุด"}')

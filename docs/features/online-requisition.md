@@ -25,6 +25,10 @@
 7. **writeback `--commit`** → `receipt_no` · `sheet_entered_at` · `status = approved` · `picked_allocation` ต่อรายการ · audit `sheet_enter_requisition`
 8. **`import:master` หลังข้อ 7 เสมอ** — ยอดจองเลิกหักเมื่อ "ลงชีทแล้ว + นำเข้าหลังลงชีท" (`reservation.js`) · นำเข้าก่อน writeback = ใบยังหักยอดซ้ำกับยอดที่ชีทลดแล้ว
 
+**ใบรอลงชีททุกหน่วยงาน**: `node scripts/online-req.mjs --pending [--json]` (อ่านอย่างเดียว · `sheet_entered_at` ว่าง · ไม่นับ rejected/cancelled · ตั้งแต่ 13/11/2569) — `check-complete.py` ข้อ 14 เรียกทุกครั้ง (user สั่ง 23/11/2569) · ห้าม `process.exit()` หลัง query ในโหมดนี้: Node 24 บน Windows ล้ม `UV_HANDLE_CLOSING` exit 127 ทำให้ check-complete อ่านผลไม่ได้
+
+**หน่วยงานนอก pilot**: `--plan --req REQ-…,REQ-…` วางแผนเฉพาะใบที่ระบุ (ทุกหน่วยงาน · ใบต้อง pending + ยังไม่ลงชีท ไม่งั้นหยุด) แล้วทำข้อ 3–8 เหมือนห้องยาG — ใช้ครั้งแรก 23/11/2569 ห้องยา 1 (REQ-20261120-6883 → บย.70/0092 40 แถว · REQ-20261123-9871 → บย.70/0093) · ⚠ หมายเหตุ `lot X หมด · คงคลังรวม N (lot …)` ยังนับ lot ที่ใบเดียวกันจ่ายหมดไปแล้วด้วย (Warfarin) ตรวจก่อนเขียน
+
 ใบที่ลงชีทมือ (นอก pilot): `node scripts/online-req.mjs --mark-entered --req REQ-… --receipt บย.70/xxxx [--commit]` ตั้งแค่ `receipt_no` + `sheet_entered_at` ไม่แตะสถานะ/lot · ไม่ตั้ง = ใบหักยอดจองค้างตลอดไป
 
 ## กฎเลือก lot (`planRequisition`)
