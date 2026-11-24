@@ -702,38 +702,78 @@ export function buildBillIndex(rows = []) {
     const supplier = String(r.supplier_current || '').trim()
     const k = `${bill}|${supplier}|${r.receive_date || ''}`
     let b = byKey.get(k)
-    if (!b) { b = { key: k, bill: bill === '-' ? '' : bill, supplier, date: r.receive_date || '', pos: [], items: 0 }; byKey.set(k, b) }
-    if (po && po !== '-' && !b.pos.includes(po)) b.pos.push(po)
+    if (!b) { b = { key: k, bill: bill === '-' ? '' : bill, supplier, date: r.receive_date || '', pos: [], items: 0, poStats: {} }; byKey.set(k, b) }
     b.items++
+    if (po && po !== '-') {
+      if (!b.pos.includes(po)) b.pos.push(po)
+      const s = b.poStats[po] || (b.poStats[po] = { items: 0, value: 0, pending: 0 })
+      s.items++
+      s.value += Number(r.total_price_vat) || 0
+      if (r.receive_status === 'รอตรวจรับ') s.pending++
+    }
   }
   return [...byKey.values()].map(b => ({ ...b, _bill: normSearch(b.bill), _pos: b.pos.map(p => ({ raw: p, n: normSearch(p), key: poKey(p) })) }))
 }
 
 // เลข PO ในระบบเขียนไม่เหมือนกัน (086.05/2570 · 99.05/2570 · 98/2569) → เทียบเป็น "ลำดับ + ปี"
 // ห้ามเทียบแบบมีคำ: 86.05 จะไปติด 886.05 / 686.05
-const PO_RE = /^0*(\d+)(?:\.\d+)?(?:\/(\d{2}|\d{4}))?$/
+// รับคำที่ยังพิมพ์ไม่จบ ("032." · "32.05/" · "32.05/25") และ "PO" นำหน้า — ปีไม่ครบ 2/4 หลัก = ยังไม่ระบุปี
+// (เดิม "032." ไม่ผ่าน → ตกไปค้นเลขบิลแบบมีคำ เจอบิลยืม "ที่สท0032.223/5" แทน PO)
+const PO_RE = /^(?:po)?0*(\d+)(?:\.\d*)?(?:\/(\d*))?$/
 function poKey(s) {
   const m = PO_RE.exec(normSearch(s))
   if (!m) return null
-  const y = m[2] ? (m[2].length === 2 ? `25${m[2]}` : m[2]) : null
+  const y = m[2]?.length === 2 ? `25${m[2]}` : m[2]?.length === 4 ? m[2] : null
   return { n: m[1], y }
 }
 
-// อันดับ: เลขบิลตรงตัว > PO ตรง (ลำดับ+ปี) > PO ลำดับตรง (ไม่ระบุปี) > เลขบิลขึ้นต้น > เลขบิลมีคำ/PO รูปแบบแปลก
+const poMatches = (key, qPo) => key && key.n === qPo.n && (!qPo.y || key.y === qPo.y)
+
+// คำค้นเป็นเลข PO → 1 รายการต่อ PO (ลำดับ+ปี) รวมทุกบิลที่ของมาส่งแล้ว
+// มูลค่า/จำนวนรายการนับเฉพาะแถวของ PO นั้น (บิลเดียวมีหลาย PO ได้) · บิลรอตรวจรับ = มีแถว PO นี้ที่ยัง 'รอตรวจรับ'
+// PO เดียวกันเขียนหลายแบบ (32.05/2570 · 032.05/2570) รวมเป็นรายการเดียว — `po` = แบบที่มีรายการมากสุด · `variants` = ทุกแบบ
+export function searchPOs(index = [], q, limit = 5) {
+  const qPo = poKey(q)
+  if (!qPo) return []
+  const groups = new Map()
+  for (const b of index) {
+    const perBill = new Map()   // บิลเดียวมี PO เดียวกันหลายแบบได้ → นับบิล/รอตรวจรับครั้งเดียวต่อกลุ่ม
+    for (const p of b._pos) {
+      if (!poMatches(p.key, qPo)) continue
+      const gk = `${p.key.n}/${p.key.y || ''}`
+      let g = groups.get(gk)
+      if (!g) { g = { key: gk, y: p.key.y, rawItems: {}, bills: 0, pendingBills: 0, items: 0, value: 0, suppliers: [], lastDate: '' }; groups.set(gk, g) }
+      const s = b.poStats[p.raw]
+      g.rawItems[p.raw] = (g.rawItems[p.raw] || 0) + s.items
+      g.items += s.items
+      g.value += s.value
+      perBill.set(g, (perBill.get(g) || 0) + s.pending)
+    }
+    for (const [g, pending] of perBill) {
+      g.bills++
+      if (pending) g.pendingBills++
+      if (b.supplier && !g.suppliers.includes(b.supplier)) g.suppliers.push(b.supplier)
+      if (String(b.date) > g.lastDate) g.lastDate = String(b.date)
+    }
+  }
+  return [...groups.values()]
+    .map(({ rawItems, ...g }) => {
+      const variants = Object.keys(rawItems).sort((a, b) => rawItems[b] - rawItems[a] || a.localeCompare(b))
+      return { ...g, po: variants[0], variants, value: Math.round(g.value * 100) / 100, score: qPo.y ? 1 : 2 }
+    })
+    .sort((a, b) => b.lastDate.localeCompare(a.lastDate))
+    .slice(0, limit)
+}
+
+// รายบิล: เลขบิลตรงตัว > เลขบิลขึ้นต้น > เลขบิลมีคำ/PO รูปแบบแปลก — PO ปกติไปอยู่ searchPOs (รวมเป็นรายการต่อ PO)
 // เลขบิล "มีคำ" ต้องพิมพ์ ≥ 4 ตัว (เลขสั้นติดบิลแทบทุกใบ) · ในอันดับเดียวกัน บิลใหม่ก่อน
 export function searchBills(index = [], q, limit = 6) {
   const nq = normSearch(q)
   if (!nq) return []
-  const qPo = poKey(nq)
   const out = []
   for (const b of index) {
     let score = -1, matchedPo = null
     if (b._bill && b._bill === nq) score = 0
-    if (score < 0 && qPo) {
-      for (const p of b._pos) {
-        if (p.key && p.key.n === qPo.n && (!qPo.y || p.key.y === qPo.y)) { score = qPo.y ? 1 : 2; matchedPo = p.raw; break }
-      }
-    }
     if (score < 0 && b._bill && nq.length >= 4) {
       if (b._bill.startsWith(nq)) score = 3
       else if (b._bill.includes(nq)) score = 4

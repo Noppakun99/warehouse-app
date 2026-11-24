@@ -10,10 +10,10 @@
 // ยา: ทุก role ค้นได้ (บัตรยาเลือกเองว่าแต่ละ role เห็นอะไร — CONTEXT §บัตรยา)
 // ============================================================
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, CornerDownLeft, ArrowUp, ArrowDown, X, Pill, Loader2, Building2, FileText } from 'lucide-react';
+import { Search, CornerDownLeft, ArrowUp, ArrowDown, X, Pill, Loader2, Building2, FileText, ClipboardList } from 'lucide-react';
 import { NAV_GROUPS, COLOR } from './navConfig';
 import { fetchDrugSearchIndex, fetchReceiveSearchIndex } from './lib/db';
-import { searchDrugs, searchCompanies, searchBills } from './lib/drugProfile';
+import { searchDrugs, searchCompanies, searchBills, searchPOs } from './lib/drugProfile';
 import { fmtThaiDate } from './lib/usageReport';
 
 // normalize สำหรับ match: ตัดช่องว่าง + lowercase (ไทยไม่มี case แต่ชื่อระบบมีอังกฤษปน เช่น Stockcard)
@@ -70,16 +70,18 @@ export default function CommandPalette({ open, onClose, onNavigate, onFormAction
   const drugResults = useMemo(() => (drugIndex ? searchDrugs(drugIndex, q, 8) : []), [drugIndex, q]);
   const canSearchCompany = items.some(it => it.page === 'return-policy');
   const canSearchBill = items.some(it => it.page === 'receive');
+  const poResults = useMemo(() => (canSearchBill && receiveIndex ? searchPOs(receiveIndex.bills, q, 5) : []), [canSearchBill, receiveIndex, q]);
   const billResults = useMemo(() => (canSearchBill && receiveIndex ? searchBills(receiveIndex.bills, q, 6) : []), [canSearchBill, receiveIndex, q]);
   const companyResults = useMemo(() => (canSearchCompany && receiveIndex ? searchCompanies(receiveIndex.companies, q, 5) : []), [canSearchCompany, receiveIndex, q]);
 
-  // รายการเดียวสำหรับลูกศรขึ้น/ลง — ยา → บิล/PO → บริษัท → เมนู
+  // รายการเดียวสำหรับลูกศรขึ้น/ลง — ยา → PO → บิล → บริษัท → เมนู
   const entries = useMemo(() => [
     ...drugResults.map(d => ({ kind: 'drug', key: `drug:${d.code}`, d })),
+    ...poResults.map(p => ({ kind: 'po', key: `po:${p.key}`, p })),
     ...billResults.map(b => ({ kind: 'bill', key: `bill:${b.key}`, b })),
     ...companyResults.map(name => ({ kind: 'company', key: `company:${name}`, name })),
     ...menuResults.map(it => ({ kind: 'menu', key: `menu:${it.page || it.action}`, it })),
-  ], [drugResults, billResults, companyResults, menuResults]);
+  ], [drugResults, poResults, billResults, companyResults, menuResults]);
 
   // เปิดใหม่ทุกครั้ง = เริ่มจากศูนย์ + โหลดรายการยาสด
   useEffect(() => {
@@ -108,6 +110,7 @@ export default function CommandPalette({ open, onClose, onNavigate, onFormAction
     if (!entry) return;
     onClose();
     if (entry.kind === 'drug') { onOpenDrug?.(entry.d.code); return; }
+    if (entry.kind === 'po') { onOpenBill?.(entry.p.po); return; }
     if (entry.kind === 'bill') { onOpenBill?.(entry.b.matchedPo || entry.b.bill); return; }
     if (entry.kind === 'company') { onOpenCompany?.(entry.name); return; }
     if (entry.it.action) onFormAction?.(entry.it.action);
@@ -188,9 +191,31 @@ export default function CommandPalette({ open, onClose, onNavigate, onFormAction
                   );
                 })
               )}
-              {billResults.length > 0 && groupLabel('บิล / PO')}
-              {billResults.map((b, j) => {
+              {poResults.length > 0 && groupLabel('ใบสั่งซื้อ (PO)')}
+              {poResults.map((p, j) => {
                 const i = drugResults.length + j;
+                const on = i === active;
+                const allDone = p.pendingBills === 0;
+                return (
+                  <button key={`po:${p.key}`} data-active={on} onMouseEnter={() => setActive(i)} onClick={() => run(entries[i])} className={rowCls(on)}>
+                    <span className="p-1 rounded-md shrink-0 bg-sky-100 text-sky-600 dark:bg-sky-950/60 dark:text-sky-300"><ClipboardList size={15} /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-slate-700 dark:text-slate-200">
+                        PO {p.po} · {p.value.toLocaleString('th-TH', { maximumFractionDigits: 2 })} บาท
+                      </span>
+                      <span className="block truncate text-[11px] text-slate-400 dark:text-slate-500">
+                        {p.bills} บิล {p.items} รายการ · {p.suppliers.join(', ') || '-'} · รับล่าสุด {fmtThaiDate(p.lastDate)}{p.variants.length > 1 ? ` · เขียนเลข PO ${p.variants.length} แบบ` : ''}
+                      </span>
+                    </span>
+                    <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${allDone ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'}`}>
+                      ตรวจรับ {p.bills - p.pendingBills}/{p.bills}
+                    </span>
+                  </button>
+                );
+              })}
+              {billResults.length > 0 && groupLabel('บิล')}
+              {billResults.map((b, j) => {
+                const i = drugResults.length + poResults.length + j;
                 const on = i === active;
                 return (
                   <button key={`bill:${b.key}`} data-active={on} onMouseEnter={() => setActive(i)} onClick={() => run(entries[i])} className={rowCls(on)}>
@@ -208,7 +233,7 @@ export default function CommandPalette({ open, onClose, onNavigate, onFormAction
               })}
               {companyResults.length > 0 && groupLabel('บริษัท')}
               {companyResults.map((name, j) => {
-                const i = drugResults.length + billResults.length + j;
+                const i = drugResults.length + poResults.length + billResults.length + j;
                 const on = i === active;
                 return (
                   <button key={`company:${name}`} data-active={on} onMouseEnter={() => setActive(i)} onClick={() => run(entries[i])} className={rowCls(on)}>
@@ -225,7 +250,7 @@ export default function CommandPalette({ open, onClose, onNavigate, onFormAction
           )}
           {/* ค้นแล้วไม่เจอเมนู = ซ่อนกลุ่มเมนูทั้งกลุ่ม (กลุ่มยาบอกผลการค้นอยู่แล้ว ไม่ต้องมี "ไม่พบ" ซ้ำ 2 บรรทัด) */}
           {menuResults.map((it, j) => {
-            const i = drugResults.length + billResults.length + companyResults.length + j;
+            const i = drugResults.length + poResults.length + billResults.length + companyResults.length + j;
             const Icon = it.icon;
             const col = COLOR[it.c] || COLOR.slate;
             const on = i === active;

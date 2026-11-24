@@ -3342,7 +3342,7 @@ export async function fetchReceiveSearchIndex() {
   const rows = []
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase.from('receive_logs')
-      .select('supplier_current, bill_number, po_number, receive_date, receive_status').order('id').range(from, from + 999)
+      .select('supplier_current, bill_number, po_number, receive_date, receive_status, total_price_vat').order('id').range(from, from + 999)
     if (error) throw error
     for (const r of data || []) {
       const n = String(r.supplier_current || '').trim(); if (n && n !== '-') names.add(n)

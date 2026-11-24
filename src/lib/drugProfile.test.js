@@ -9,7 +9,7 @@ import {
   ssAggregate, isBelowSafetyStock, buildSearchIndex, searchDrugs, buildDrugProfile,
   waitDaysSince, lotBills, usageRate, normDept, dispenseHistory, HISTORY_LIMIT,
   buildLotReturnPolicies, latestPolicyByCompany, searchCompanies, buildCompanyPolicyIndex, groupCompanyLots,
-  buildBillIndex, searchBills,
+  buildBillIndex, searchBills, searchPOs,
   returnPolicyLabel, searchPolicyDrugs, drugPolicyView, searchPolicyLots, policyNextAction, policyCategory,
 } from './drugProfile.js'
 
@@ -107,13 +107,41 @@ section('ช่องค้นหา: เลขบิล / PO')
   ])
   assertEq(ix.length, 5, 'บิล = เลข+บริษัท+วันรับ · เลขบิลซ้ำคนละบริษัทแยกใบ · ไม่มีทั้งบิลและ PO ไม่เอา')
   assertEq(ix.find(b => b.supplier === 'พรอส').items, 2, 'นับรายการในบิล')
-  assertDeep(searchBills(ix, '86.05').map(b => b.bill), ['IV6911583', 'B86'], 'PO เทียบลำดับ ไม่ติด 886/686 · 0 นำหน้าไม่สน')
-  assertDeep(searchBills(ix, '086.05/2570').map(b => b.bill), ['IV6911583'], 'ระบุปี = ปีต้องตรง')
-  assertDeep(searchBills(ix, '86/69').map(b => b.bill), ['B86'], 'ปี 2 หลัก = 25xx')
-  assertEq(searchBills(ix, '86.05')[0].matchedPo, '086.05/2570', 'บอก PO ที่ตรง')
+  assertDeep(searchPOs(ix, '86.05').map(p => p.po), ['086.05/2570', '86/2569'], 'PO เทียบลำดับ ไม่ติด 886/686 · 0 นำหน้าไม่สน · แยกตามปี ใหม่ก่อน')
+  assertDeep(searchPOs(ix, '086.05/2570').map(p => p.po), ['086.05/2570'], 'ระบุปี = ปีต้องตรง')
+  assertDeep(searchPOs(ix, '86/69').map(p => p.po), ['86/2569'], 'ปี 2 หลัก = 25xx')
+  assertDeep(searchBills(ix, '86.05'), [], 'PO ปกติไม่ขึ้นซ้ำในกลุ่มบิล')
   assertDeep(searchBills(ix, 'inv-1').map(b => b.supplier), ['พรอส', 'อื่น'], 'เลขบิลซ้ำ = หลายใบ ใหม่ก่อน')
   assertDeep(searchBills(ix, '6911').map(b => b.bill), ['IV6911583'], 'เลขบิลมีคำ ≥ 4 ตัว')
   assertEq(searchBills(ix, '691').length, 0, 'เลขบิลมีคำ < 4 ตัว = ไม่ค้น')
+}
+
+section('ช่องค้นหา: รวมเป็นรายการต่อ PO')
+{
+  // ข้อมูลจริง 23/11/2569: PO 32 สองปี + บิลยืม รพ.อินทร์บุรี ที่เลขบิลมี "0032."
+  const ix = buildBillIndex([
+    { bill_number: '3001275215', po_number: '32.05/2570', supplier_current: 'อภ.', receive_date: '2026-10-19', receive_status: 'รอตรวจรับ', total_price_vat: 25000 },
+    { bill_number: '3001293447', po_number: '32.05/2570', supplier_current: 'อภ.', receive_date: '2026-11-23', receive_status: 'รอตรวจรับ', total_price_vat: 7920 },
+    { bill_number: '3001293447', po_number: '032.05/2570', supplier_current: 'อภ.', receive_date: '2026-11-23', receive_status: 'รอตรวจรับ', total_price_vat: 330 },
+    { bill_number: '3001293447', po_number: '140.05/2570', supplier_current: 'อภ.', receive_date: '2026-11-23', receive_status: 'ตรวจรับแล้ว', total_price_vat: 999 },
+    { bill_number: 'PIN2534543', po_number: '32/2569', supplier_current: 'แอตแลนติค', receive_date: '2025-10-08', receive_status: 'ตรวจรับแล้ว', total_price_vat: 4860 },
+    { bill_number: 'ที่สท0032.223/5', po_number: '-', supplier_current: 'รพ.อินทร์บุรี', receive_date: '2026-09-01', receive_status: 'รับจากการยืม', total_price_vat: 0 },
+  ])
+  const r = searchPOs(ix, '032.')
+  assertDeep(r.map(p => p.key), ['32/2570', '32/2569'], 'พิมพ์ "032." (จุดท้าย) = ค้น PO ได้ · แยกปี ใหม่ก่อน (เดิมไม่ผ่าน regex เจอแต่บิลยืม)')
+  const p = r[0]
+  assertEq(p.po, '32.05/2570', 'แสดงแบบที่มีรายการมากสุด')
+  assertDeep(p.variants, ['32.05/2570', '032.05/2570'], 'เขียน PO 2 แบบ รวมเป็นรายการเดียว')
+  assertEq(p.bills, 2, 'บิลที่มี PO เดียวกัน 2 แบบ นับบิลเดียว')
+  assertEq(p.items, 3, 'นับเฉพาะแถวของ PO นี้ (ไม่นับแถว PO 140 ในบิลเดียวกัน)')
+  assertEq(p.value, 33250, 'มูลค่าเฉพาะแถวของ PO นี้')
+  assertEq(p.pendingBills, 2, 'บิลรอตรวจรับนับครั้งเดียวต่อบิล')
+  assertEq(r[1].pendingBills, 0, 'ตรวจรับแล้วครบ')
+  assertDeep(searchBills(ix, '032.').map(b => b.bill), ['ที่สท0032.223/5'], 'บิลยืมที่เลขมีคำยังขึ้นในกลุ่มบิล (palette วางใต้กลุ่ม PO)')
+  assertDeep(searchBills(ix, '0032.223').map(b => b.bill), ['ที่สท0032.223/5'], 'บิลยืมยังค้นด้วยเลขบิลได้')
+  assertDeep(searchPOs(ix, 'PO 32.05/70').map(p => p.key), ['32/2570'], 'มี "PO" นำหน้าได้')
+  assertDeep(searchPOs(ix, '32.05/257').map(p => p.key), ['32/2570', '32/2569'], 'ปีพิมพ์ยังไม่จบ = ยังไม่กรองปี')
+  assertDeep(searchPOs(ix, 'ยา'), [], 'ไม่ใช่เลข = ไม่ค้น PO')
 }
 
 section('บัตรยา')
