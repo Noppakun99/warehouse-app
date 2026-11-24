@@ -1689,7 +1689,10 @@ async function exportReqExcel(reqs, auth, sort = SORT_BY_REQ) {
 
 // จ่ายออกแล้ว + มี import inventory CSV รอบใหม่หลังจ่าย → qty สดสะท้อน "หลังจ่าย" แล้ว
 // (แอปไม่หัก inventory.qty เองตอนจ่าย — ตัดจริงใน HosXP แล้ว re-import; ดู CONTEXT.md §ใบ lot คุม)
+// ลงชีทเบิกแล้ว + นำเข้าหลังลงชีท = ยอดในแอปหักใบนี้แล้วเช่นกัน ไม่ว่าในแอปติ๊กจ่ายหรือยัง (กฎเลิกหักเดียวกับ reservation.js)
+// เดิมดูแค่สถานะจ่ายออก → ใบห้องยา1 ที่ลงชีท+นำเข้าแล้วแต่ยังจัดอยู่ พิมพ์ "คงเหลือก่อนจ่าย" เป็นยอดหลังจ่าย (เจอ 24/11/2569)
 const qtyIsPostDispense = (req, lastImportAt) => {
+  if (req.sheet_entered_at && lastImportAt && new Date(lastImportAt) > new Date(req.sheet_entered_at)) return true;
   if (req.status !== 'dispensed' && req.status !== 'received') return false;
   const dispensedAt = req.dispensed_at || req.updated_at;
   return !!(dispensedAt && lastImportAt && new Date(lastImportAt) > new Date(dispensedAt));
@@ -1913,7 +1916,11 @@ async function printCoverForm(req, preopenedWin) {
     const code = String(item.drug_code || '').trim();
     const want = Number(item.approved_qty ?? item.requested_qty) || 0;
     const alloc = allocByItem[item.id] || (Array.isArray(item.picked_allocation) ? item.picked_allocation : null);
+    // จัดแล้วได้ 0 → picked_allocation ว่าง แต่ allocByItem เติมประมาณการ FEFO ให้ (เคยขึ้น Ethylalcohol จ่าย 48 จากของรอตรวจรับ)
+    // → จัดแล้วไม่มี picked_allocation ให้เชื่อ picked_qty
+    const pickedNoAlloc = isPicked && !(Array.isArray(item.picked_allocation) && item.picked_allocation.length) && item.picked_qty != null;
     const out = !isPicked ? null
+      : pickedNoAlloc ? (Number(item.picked_qty) || 0)
       : (alloc && alloc.length) ? alloc.reduce((s, a) => s + (Number(a.base) || 0), 0)
       : item.picked_lot ? (Number(item.picked_qty ?? want) || 0)
       : 0;
