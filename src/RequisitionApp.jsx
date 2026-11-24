@@ -675,7 +675,7 @@ const STAFF_NOTE_PRESETS = ['จ่ายlotเก่าให้หมด', '�
 const COVER_FORM = {
   hospital:  'โรงพยาบาลประชาธิปัตย์',
   dispenser: { name: 'นายนพคุณ ฉายขุนทด', role: 'เจ้าหน้าที่คลังยาเวชภัณฑ์', position: 'เจ้าพนักงานเภสัชกรรมปฏิบัติงาน' },
-  approver:  { name: 'นางสาวสุขาวดี กิตติณิชกุล', role: 'หัวหน้าหน่วยพัสดุยา', position: 'เภสัชกรปฏิบัติการ' },
+  approver:  { name: 'นางสาวสุชาวดี กิตติณิชกุล', role: 'หัวหน้าหน่วยพัสดุยา', position: 'เภสัชกรปฏิบัติการ' },
   // ชื่อพิมพ์เฉพาะใบของหน่วยงานใน depts (user สั่ง 13/11/2569) · หน่วยงานอื่นยังไม่รู้ชื่อหัวหน้า → เว้นเส้นให้เขียนมือ
   requesterHead: { name: 'นางสาวปภัสรา วรรณทอง', depts: ['ห้องยาG', 'ห้องยา1'],
                    position: 'เภสัชกรชำนาญการ', group: 'หัวหน้ากลุ่มงาน เภสัชกรรมและคุ้มครองผู้บริโภค' },
@@ -1895,15 +1895,12 @@ const fmtPack = (base, packSize) => toPackQty(base, packSize).toLocaleString('en
 // ============================================================
 // ใบเบิกเวชภัณฑ์ยา (ฟอร์มราชการ) — รวมใบปะหน้ากับรายการเป็นใบเดียว (user เห็นชอบแบบ 20/11/2569)
 // เดิม >12 รายการพิมพ์ "ตามเอกสารแนบท้าย" แล้วแนบใบขอเบิก → เอกสารแนบไม่มีลายเซ็น สลับแผ่นได้ + ใบปะหน้าล้น 2 หน้า
-// ตอนนี้ลงทุกรายการในตาราง คอลัมน์ครบตามฟอร์ม + รหัส/หมายเหตุ · แบ่งหน้าเอง (buildPaginatedHtml) หัวตารางทุกหน้า
+// ตอนนี้ลงทุกรายการในตาราง (ไม่มีคงเหลือก่อน/หลังจ่าย และจำนวนที่จ่าย — อยู่ในใบตัดเบิกที่แนบ 24/11/2569) + รหัส/หมายเหตุ · แบ่งหน้าเอง (buildPaginatedHtml) หัวตารางทุกหน้า
 // สายลายเซ็นชุดเดียวท้ายใบ เลข ①–⑤ = ลำดับการเซ็น (CONTEXT §ใบเบิกฟอร์มรายการ: ผู้ขอเบิก → ผู้เบิก → ผู้จ่าย → ผู้รับ → ผู้อนุมัติ)
 // หลายหน้า: เลขที่เบิก + หน้า n/N ทุกหน้า (ป้ายผู้เบิกลงชื่อกำกับหน้า เอาออก 23/11/2569)
 // ============================================================
 async function printCoverForm(req, preopenedWin) {
-  const { allocByItem, onHandByCode, fefoByCode, unitByCode } = await computeReqAllocations([req]);
-  const lastImportAt = await fetchLastInventoryImportAt();
-  const post = qtyIsPostDispense(req, lastImportAt);
-  const isPicked = !['pending', 'approved', 'partial', 'rejected'].includes(req.status);
+  const { fefoByCode, unitByCode } = await computeReqAllocations([req]);
   const allItems = req.requisition_items || [];
   const items = req.status === 'partial'
     ? allItems.filter(item => item.approved_qty != null && item.approved_qty > 0)
@@ -1911,27 +1908,15 @@ async function printCoverForm(req, preopenedWin) {
   const thaiDate = new Date(req.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
   const packOf = makeItemPack(fefoByCode, unitByCode);
 
-  // จำนวนที่จ่าย/คงเหลือหลังจ่าย เติมเมื่อจัดยาแล้วเท่านั้น — ยังไม่จัดเว้นว่างให้คลังเขียน
+  // ไม่มีช่องคงเหลือก่อน/หลังจ่าย และจำนวนที่จ่าย (user 24/11/2569): ห้องยาพิมพ์ใบนี้เซ็นตั้งแต่ก่อนคลังจัด
+  // จำนวนจ่ายจริง + lot + คงเหลือ + เหตุผลจ่ายไม่ครบ อยู่ในใบตัดเบิกของคลังที่แม็กแนบใบนี้ทุกครั้ง
   const rows = items.map((item, i) => {
     const code = String(item.drug_code || '').trim();
     const want = Number(item.approved_qty ?? item.requested_qty) || 0;
-    const alloc = allocByItem[item.id] || (Array.isArray(item.picked_allocation) ? item.picked_allocation : null);
-    // จัดแล้วได้ 0 → picked_allocation ว่าง แต่ allocByItem เติมประมาณการ FEFO ให้ (เคยขึ้น Ethylalcohol จ่าย 48 จากของรอตรวจรับ)
-    // → จัดแล้วไม่มี picked_allocation ให้เชื่อ picked_qty
-    const pickedNoAlloc = isPicked && !(Array.isArray(item.picked_allocation) && item.picked_allocation.length) && item.picked_qty != null;
-    const out = !isPicked ? null
-      : pickedNoAlloc ? (Number(item.picked_qty) || 0)
-      : (alloc && alloc.length) ? alloc.reduce((s, a) => s + (Number(a.base) || 0), 0)
-      : item.picked_lot ? (Number(item.picked_qty ?? want) || 0)
-      : 0;
-    const live = onHandByCode[code] ?? 0;
-    const before = (post && out != null) ? live + out : live;
-    const after = out != null ? Math.max(0, before - out) : null;
     const { packSize, label } = packOf(item);
     return `<tr><td class="c">${i + 1}</td><td class="mono">${escHtml(code || '-')}</td>
       <td>${escHtml(item.drug_name || '-')}</td><td class="c">${escHtml(label)}</td>
-      <td class="r">${fmtPack(before, packSize)}</td><td class="r b">${fmtPack(want, packSize)}</td>
-      <td class="r">${out != null ? fmtPack(out, packSize) : ''}</td><td class="r">${after != null ? fmtPack(after, packSize) : ''}</td>
+      <td class="r b">${fmtPack(want, packSize)}</td>
       <td>${escHtml(item.item_note || '')}</td></tr>`;
   });
 
@@ -1967,11 +1952,11 @@ async function printCoverForm(req, preopenedWin) {
     ${line('หน่วยงานผู้เบิก(ฝ่าย)', fill(req.department || ''), 'มีความประสงค์จะขอเบิกวัสดุเพื่อใช้ในรายการต่อไปนี้')}`;
   const contHead = `<div class="cont"><b>ใบเบิกเวชภัณฑ์ยา (ต่อ)</b><span>เลขที่เบิก <b>${escHtml(req.req_number)}</b> · ${escHtml(req.department || '')} · วันที่ ${thaiDate}</span></div>`;
   const table = `<colgroup><col style="width:12mm"><col style="width:18mm"><col><col style="width:19mm">
-      <col style="width:16mm"><col style="width:15mm"><col style="width:15mm"><col style="width:16mm"><col style="width:20mm"></colgroup>
+      <col style="width:18mm"><col style="width:34mm"></colgroup>
     <thead><tr><th>ลำดับ</th><th>รหัส</th><th>รายการ</th><th>หน่วยนับ</th>
-      <th>คงเหลือ<br>ก่อนจ่าย</th><th>จำนวน<br>ที่เบิก</th><th>จำนวน<br>ที่จ่าย</th><th>คงเหลือ<br>หลังจ่าย</th><th>หมายเหตุ</th></tr></thead>`;
+      <th>จำนวน<br>ที่เบิก</th><th>หมายเหตุ</th></tr></thead>`;
   const tail = `
-    <p class="sum">รวม ${items.length} รายการ · ตัวเลขทุกช่องเป็นหน่วยตามช่อง "หน่วยนับ"${req.note ? ` · หมายเหตุใบเบิก: ${escHtml(req.note)}` : ''}</p>
+    <p class="sum">รวม ${items.length} รายการ · ตัวเลขทุกช่องเป็นหน่วยตามช่อง "หน่วยนับ" · จำนวนที่จ่าย lot และคงเหลือ ตามใบตัดเบิกของคลังที่แนบ${req.note ? ` · หมายเหตุใบเบิก: ${escHtml(req.note)}` : ''}</p>
     <div class="cols">
       <div class="col">
         <div class="blk">
@@ -2031,8 +2016,8 @@ async function printCoverForm(req, preopenedWin) {
     .cols { display: flex; gap: 8mm; margin-top: 10px; }
     .col { flex: 1 1 0; min-width: 0; font-size: 15px; }
     .col .ln { margin-bottom: 7px; }
-    /* ระยะห่างระหว่างช่องเซ็น ①–⑤ (user 23/11/2569: ยังติดกัน ให้เว้นมากขึ้น) */
-    .blk { margin-bottom: 10px; }
+    /* ระยะห่างระหว่างช่องเซ็น ①–⑤ (user 23/11/2569: ยังติดกัน ให้เว้นมากขึ้น · 24/11/2569: วันที่กับ (ลงชื่อ) บล็อกถัดไปยังใกล้ 10→26→40px · ลงชื่อกับวันที่ในบล็อก 10→18px) */
+    .blk { margin-bottom: 40px; }
     .indent { margin-left: 14px; }
     /* margin-top ของเส้นเซ็น = ที่ว่างให้เซ็นเหนือเส้น · วันที่เว้นจากชื่อ/ตำแหน่ง (user 23/11/2569: ช่องเซ็นแน่นเกิน) */
     .sig { display: grid; grid-template-columns: auto minmax(30px, 1fr) auto; column-gap: 6px; row-gap: 3px; align-items: baseline; margin: 22px 0 6px; }
@@ -2040,14 +2025,14 @@ async function printCoverForm(req, preopenedWin) {
     .sig.u { grid-template-columns: auto minmax(30px, 1fr); }
     .sig .who { padding-top: 4px; }
     .sig .nm { grid-column: 1 / -1; text-align: center; white-space: normal; }
-    .ln.dt { margin-top: 10px; }
+    .ln.dt { margin-top: 18px; }
     .step { display: inline-block; min-width: 1.35em; height: 1.35em; line-height: 1.3em; border: 1px solid #000; border-radius: 50%; text-align: center; font-size: 12px; font-weight: 700; margin-right: 3px; }`;
 
   // ไม่มีป้าย "ผู้เบิกลงชื่อกำกับหน้า" แล้ว (user 23/11/2569) — ท้ายกระดาษทุกหน้ามีเลขที่เบิก + หน้า n/N ผูกแผ่นอยู่แล้ว
   const html = buildPaginatedHtml({
     title: `ใบเบิกเวชภัณฑ์ยา ${escHtml(req.req_number)}`,
     css, firstHead, contHead, table, rows,
-    blankRow: '<tr class="blank"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>',
+    blankRow: '<tr class="blank"><td></td><td></td><td></td><td></td><td></td><td></td></tr>',
     minRows: 7, tail,
     footLeft: `${req.req_number} · ${req.department || ''}`,
   });

@@ -87,7 +87,6 @@ export function buildPaginatedHtml(o) {
         tb(pg).insertAdjacentHTML('beforeend', row);
       }
     });
-    for (var k = C.rows.length; k < C.minRows; k++) tb(pg).insertAdjacentHTML('beforeend', C.blankRow);
     pg.querySelector('.ptail').innerHTML = C.tail;
     if (over(pg) && C.tail) {
       pg.querySelector('.ptail').innerHTML = '';
@@ -96,6 +95,12 @@ export function buildPaginatedHtml(o) {
       pg = newPage(false);
       tb(pg).innerHTML = moved.join('');
       pg.querySelector('.ptail').innerHTML = C.tail;
+    }
+    // แถวว่างเติมหลังวางส่วนท้าย เติมเท่าที่ยังพอดีหน้า — เดิมเติมครบ minRows ก่อน แถวว่างดันลายเซ็นตกหน้า
+    // ใบ 1 รายการกลายเป็น 2 หน้า (เจอ 24/11/2569 ตอนเว้นช่องเซ็นห่างขึ้น)
+    for (var k = C.rows.length; k < C.minRows; k++) {
+      tb(pg).insertAdjacentHTML('beforeend', C.blankRow);
+      if (over(pg)) { tb(pg).lastElementChild.remove(); break; }
     }
     pages.forEach(function (p, i) {
       p.querySelector('.pno').textContent = (C.footLeft ? C.footLeft + ' · ' : '') + 'หน้า ' + (i + 1) + '/' + pages.length;
