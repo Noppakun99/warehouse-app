@@ -1,6 +1,6 @@
 # เช็คครบ — งานเอกสารคลังที่ทำค้างไว้ครบหรือยัง (อ่านอย่างเดียว ไม่เขียนไฟล์ใด)
 # ใช้: python scripts/check-complete.py
-# ตรวจ 14 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
+# ตรวจ 15 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
 #            · รูปบิลมีแถวดัชนี / แถวดัชนีมีไฟล์จริง · รูปตรวจรับรอถ่ายซ้ำ · แถวรับยามีแถว Master · บิลซื้อยังไม่ส่งจัดซื้อ
 #            · รายการตรวจรับที่มีรูปอยู่ในเอกสารสรุปตรวจรับ (ตร.) + ผู้ตรวจรับเซ็นภายใน 7 วัน
 #            · บิลซื้อลง "ยามาส่ง" ในระบบติดตามการสั่งซื้อของจัดซื้อแล้ว (อ่านระบบผ่านเน็ต — scripts/po_match.py)
@@ -10,6 +10,7 @@
 #            · วิเคราะห์สั่งซื้อ!P2 ตรงสำเนางวดล่าสุด + ชีทเบิก AA:AC แถวงวดปิดว่าง (ขั้นมือตอนขึ้นเดือน)
 #            · ยาต้องแพ็ค: ของแบบกล่องหมดใน 14 วันแล้วต่อด้วยกระปุก / มีของบริษัทที่ไม่อยู่ในทะเบียน
 #            · ใบเบิกที่หน่วยงานส่งในแอปยังไม่ลงชีทเบิก (online-req.mjs --pending)
+#            · ใบที่ลงชีท+พิมพ์แล้วแต่ในแอปยังไม่ติ๊กจัด/จ่าย → ถาม user (online-req.mjs --undispensed)
 import csv, datetime, glob, os, re, sys, warnings
 
 import openpyxl
@@ -93,6 +94,9 @@ NO_PDF = {
     '18.11.69_ห้องยาG_ยา_ปก.jpg': 'หน้าปกใบเบิก บย.70/0080 — PDF อยู่กับรูป 18.11.69_ห้องยาG_ยา.jpg',
     '18.11.69_ห้องยาG_ยา_หน้า2.jpg': 'รายการหน้า 2 ของ บย.70/0080 — PDF เดียวกับ 18.11.69_ห้องยาG_ยา.jpg',
     '18.11.69_ห้องยาG_ยา_หน้า3.jpg': 'รายการหน้า 3 ของ บย.70/0080 — PDF เดียวกับ 18.11.69_ห้องยาG_ยา.jpg',
+    '18.11.69_ห้องยาG_ยา_ปก_เซ็นจ่ายรับแล้ว.jpg': 'ปก บย.70/0080 หลังจ่าย: ① ③ ④ เซ็นแล้ว ② ⑤ ยังว่าง — หลักฐานลำดับเซ็นที่ใช้จริง (user ส่ง 23/11/2569)',
+    '18.11.69_ห้องยาG_ยา_รายการลายมือ_รอบรับของ.jpg': 'รายการลายมือหน้า 1 ของ บย.70/0080 ถ่ายตอนรับของ (ชุดเดียวกับ 18.11.69_ห้องยาG_ยา.jpg)',
+    '18.11.69_ห้องยาG_ยา_ใบตัดเบิกติ๊กจัด.jpg': 'ใบตัดเบิก (PDF ชีทเบิก) บย.70/0080 หน้า 1 ที่คลังติ๊กทีละแถวตอนจัด',
     '18.11.69_เบิกยาหมดอายุ_Enoxaparin_อีเมลเตือน.jpg': 'อีเมลเตือนหมดอายุ Enoxaparin AC13011A (แถว 9225 เบิกยาหมดอายุจากคลัง) — หลักฐาน ไม่มีใบเบิก/PDF',
     '28.10.69_ห้องยาG_ยา_หน้า3.jpg': 'รายการหน้า 3 ของ บย.70/0043 — PDF เดียวกับ 28.10.69_ห้องยาG_ยา.jpg',
     '28.10.69_ห้องยาG_ยา_หน้า4.jpg': 'รายการหน้า 4 ของ บย.70/0043 — PDF เดียวกับ 28.10.69_ห้องยาG_ยา.jpg',
@@ -219,6 +223,24 @@ lost = [x for x in cur if (x['code'], x['lot'], x['bill']) not in master]
 for x in lost:
     bad(f'รับยา!{x["row"]} {x["code"]} {x["name"]} lot {x["lot"]} บิล {x["bill"]} ({x["status"]}) — ไม่มีแถว Master')
 ok(f'{len(cur) - len(lost)}/{len(cur)} แถวมีคู่ใน Master')
+
+# 6a) ยาใหม่ใน Master ต้องมีแถวในชีทวิเคราะห์สั่งซื้อ (user สั่ง 24/11/2569 — Levetiracetam inj รับ 09/11 ไม่อยู่ในชีท
+#     สคริปต์แจ้งซื้อหยิบไม่ได้ / Safety Stock ใน Master = 0) · เพิ่มด้วย /manage-drug-sync (Flow B) ผ่าน /excel-com แล้ว import:reorder
+ANALYSIS_SKIP = {}  # 92 Kenalog oral base ลบออกจาก Master แล้ว 24/11/2569 (คืนบริษัท ไม่ใช่ยา รพ.)
+head('ยาใหม่ใน Master ↔ ชีทวิเคราะห์สั่งซื้อ')
+mcodes = {}
+for r in ws['Master'].iter_rows(min_row=2, max_col=8, values_only=True):
+    if r[5] not in (None, ''):
+        c = str(r[5]).strip().removesuffix('.0')
+        if c != '-':
+            mcodes.setdefault(c, str(r[7] or '').strip())
+acodes = {str(r[0]).strip().removesuffix('.0') for r in ws['วิเคราะห์สั่งซื้อ'].iter_rows(min_row=4, max_col=1, values_only=True)
+          if r[0] not in (None, '')}
+for c, n in sorted(mcodes.items()):
+    if c not in acodes and c not in ANALYSIS_SKIP:
+        bad(f'{c} {n} — มีใน Master แต่ไม่มีในชีทวิเคราะห์สั่งซื้อ → /manage-drug-sync เพิ่มแถว (VEN · ตัดออก/สั่งเมื่อขอ) แล้ว import:reorder')
+ok(f'{sum(1 for c in mcodes if c in acodes)}/{len(mcodes)} รหัสอยู่ในชีทวิเคราะห์'
+   + (f' · ข้ามโดยเจตนา {", ".join(ANALYSIS_SKIP)}' if ANALYSIS_SKIP else ''))
 
 # 6b) แผนลดความหนักไฟล์ยอดคลัง (memory excel-reorg-lighten-plan) — ของที่ต้องทำมือตอนขึ้นเดือน
 #     วิเคราะห์สั่งซื้อ!P2 เป็นวันที่พิมพ์ค่า (เลิก TODAY) = วันที่ 1 ของเดือนในชีทสำเนางวดล่าสุด Master_<ด.>.<ปป>
@@ -575,5 +597,34 @@ else:
             f"ส่ง {be(made)} {made:%H:%M}{new} · {state} — {how}")
     if not reqs:
         ok('ไม่มีใบเบิกในแอปรอลงชีท')
+
+# 15) ใบที่ลงชีทแล้ว + พิมพ์ใบในคิวพิมพ์แล้ว แต่ในแอปยังไม่ติ๊กจัด/จ่ายออก (user สั่ง 23/11/2569)
+#     = ถาม user "จัด/จ่ายออกเสร็จหรือยัง" — ยืนยันแล้วค่อย online-req.mjs --mark-picked / --mark-dispensed (ห้ามติ๊กเองจากการเดา)
+#     ยังไม่พิมพ์ = ยังไม่ถึงเวลาถาม (แสดง … ไม่นับปัญหา) · จับคู่ใบ: receipt_no → _ทะเบียนใบเบิก.csv PDF → _สถานะพิมพ์.csv
+head('ใบเบิกในแอปที่ลงชีท+พิมพ์แล้ว ↔ ติ๊กจัด/จ่ายออกในแอป')
+try:
+    out = subprocess.run(['node', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'online-req.mjs'), '--undispensed', '--json'],
+                         capture_output=True, text=True, encoding='utf-8', timeout=120)
+    undisp = json.loads(out.stdout.strip().splitlines()[-1]) if out.returncode == 0 and out.stdout.strip() else None
+except Exception:
+    undisp = None
+if undisp is None:
+    bad('อ่านใบเบิกจากแอปไม่ได้ (เน็ต/Supabase) — ตรวจข้อนี้ไม่ได้')
+else:
+    pdf_of = {r['เลขรับ'].strip(): r['PDF'].strip() for r in read_csv(os.path.join(HOME, r'Desktop\รวมเบิกยา\_ทะเบียนใบเบิก.csv'))}
+    printed = {os.path.normcase(os.path.join(REQ_PDF, r['ไฟล์ (ใต้ รวมเบิกยา\\PDF)'])): bool(r['พิมพ์แล้ว'].strip()) for r in plog}
+    STEP = {'approved': 'รอจัด', 'partial': 'รอจัด', 'picking': 'จัดแล้ว รอตรวจจ่าย', 'ready': 'ตรวจแล้ว รอจ่ายออก'}
+    for r in undisp:
+        pdf = pdf_of.get((r['receipt'] or '').strip(), '')
+        is_printed = printed.get(os.path.normcase(pdf)) if pdf else None
+        label = f"{r['req']} {r['dept']} {r['receipt'] or '-'} · {r['items']} รายการ · ในแอป: {STEP.get(r['status'], r['status'])}"
+        if is_printed:
+            bad(f'{label} · พิมพ์ใบแล้ว — ถาม user: จัด/จ่ายออกเสร็จหรือยัง → online-req.mjs --mark-picked / --mark-dispensed')
+        elif pdf:
+            print(f'  … {label} · ใบยังไม่ยืนยันพิมพ์')
+        else:
+            print(f'  … {label} · ไม่พบ PDF ในทะเบียนใบเบิก')
+    if not undisp:
+        ok('ไม่มีใบที่ลงชีทแล้วค้างจัด/จ่ายในแอป')
 
 print(f'\n{"ครบทุกข้อ" if problems == 0 else f"ไม่ครบ {problems} จุด"}')

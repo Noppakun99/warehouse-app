@@ -9,6 +9,10 @@
 //   node scripts/online-req.mjs --mark-entered --req <เลขใบ> --receipt บย.70/xxxx [--commit]
 //        → ใบที่ลงชีทด้วยมือ (นอก pilot): ตั้ง receipt_no + sheet_entered_at เท่านั้น ไม่แตะสถานะ/lot
 //          ไม่ตั้ง = ใบหักยอดจองค้างตลอดไป · รัน **ก่อน** import:master เหมือน --writeback
+//   node scripts/online-req.mjs --undispensed [--json]
+//        → ใบที่ลงชีทแล้วแต่ในแอปยังไม่ติ๊กจ่ายออก (อ่านอย่างเดียว) — check-complete.py ข้อ 15 เทียบคิวพิมพ์
+//   node scripts/online-req.mjs --mark-picked|--mark-dispensed --req REQ-…,REQ-… [--name <ชื่อ>] [--commit]
+//        → ติ๊ก "จัดเสร็จ" / "ตรวจแล้ว จ่ายออก" แทนกดในแอป (ใบที่ลงชีทแล้ว · จัดตาม lot ในชีท) — user ยืนยันว่าจัด/จ่ายจริงแล้วเท่านั้น
 //   node scripts/online-req.mjs --pending [--json]
 //        → ใบเบิกในแอปที่ยังไม่ลงชีท (ทุกหน่วยงาน · ไม่เขียนอะไร) — check-complete.py ข้อ 14 เรียกทุกครั้ง
 //   node scripts/online-req.mjs --backtest --file <สำเนา xlsm> --rows 9068-9077,9079-9145
@@ -93,6 +97,24 @@ if (A.has('--pending')) {
   else {
     for (const r of out) log(`${r.req} · ${r.dept} · ${r.type} · ${r.status} · ${r.items} รายการ · ${r.by || '-'} · ${r.createdAt}`)
     if (!out.length) log('ไม่มีใบเบิกในแอปรอลงชีท')
+  }
+}
+
+// ── --undispensed [--json] ── ใบที่ลงชีทแล้วแต่ในแอปยังไม่ติ๊กจ่ายออก (รอจัด/รอตรวจจ่าย) — check-complete.py ข้อ 15
+// เทียบกับคิวพิมพ์: พิมพ์ใบแล้วแต่ยังไม่ติ๊ก = ถาม user ว่าจัด/จ่ายเสร็จหรือยัง (user สั่ง 23/11/2569)
+if (A.has('--undispensed')) {
+  const { supabase } = await import('../src/lib/supabase.js')
+  const { data, error } = await supabase.from('requisitions')
+    .select('req_number, department, status, receipt_no, picker_name, created_at, requisition_items(id)')
+    .not('sheet_entered_at', 'is', null).in('status', ['approved', 'partial', 'picking', 'ready'])
+    .gte('created_at', PENDING_SINCE).order('created_at')
+  if (error) die(error.message)
+  const out = data.map(r => ({ req: r.req_number, dept: r.department, status: r.status, receipt: r.receipt_no,
+    picker: r.picker_name, createdAt: r.created_at, items: r.requisition_items.length }))
+  if (A.has('--json')) console.log(JSON.stringify(out))
+  else {
+    for (const r of out) log(`${r.req} · ${r.dept} · ${r.receipt || '-'} · ${r.status} · ${r.items} รายการ`)
+    if (!out.length) log('ไม่มีใบที่ลงชีทแล้วค้างจัด/จ่ายในแอป')
   }
 }
 
@@ -263,4 +285,55 @@ if (A.has('--mark-entered')) {
   process.exit(0)
 }
 
-if (!A.has('--pending')) log('ใช้: --pending | --plan | --writeback | --mark-entered | --backtest (ดูหัวไฟล์)')
+// ── --mark-picked / --mark-dispensed ── ติ๊ก "จัดเสร็จ" / "ตรวจแล้ว จ่ายออก" แทนการกดในแอป
+// ใช้เมื่อ user ยืนยันว่าจัด/จ่ายจริงแล้วแต่ยังไม่ได้ติ๊ก (user สั่ง 23/11/2569 — ถามหลังพิมพ์ใบในโฟลเดอร์รอพิมพ์)
+// ฟังก์ชันเดียวกับปุ่มในแอป (pickPayload + startPickingRequisition / verifyAndDispenseRequisition) → audit/กระดิ่งเหมือนกดเอง
+// จัดตาม lot ในชีทเท่านั้น (picked_allocation จาก --writeback) · ใบที่ยังไม่ลงชีท = หยุด ให้จัดในแอป (lot ยังไม่ล็อก)
+if (A.has('--mark-picked') || A.has('--mark-dispensed')) {
+  const reqNos = (A.valueOf('--req') || '').split(',').map(s => s.trim()).filter(Boolean)
+  if (!reqNos.length) die('ต้องมี --req <เลขใบ,…>')
+  const name = A.valueOf('--name') || 'Noppakun Chaykuntod'
+  const auth = { name, department: 'คลังยา' }
+  const dispense = A.has('--mark-dispensed')
+  const db = await import('../src/lib/db.js')
+  const { stageOf, itemAllocation, defaultPickResult, pickPayload } = await import('../src/lib/reqStaffView.js')
+  const jobs = []
+  for (const no of reqNos) {
+    const { data: r, error } = await supabase.from('requisitions').select('*, requisition_items(*)').eq('req_number', no).maybeSingle()
+    if (error) die(error.message)
+    if (!r) die(`ไม่พบใบ ${no}`)
+    const stage = stageOf(r)
+    if (!['pick', 'check', 'ready'].includes(stage)) {
+      log(`${no} ${r.department} · ขั้น ${stage} (${r.status}) — ${['done', 'recv'].includes(stage) ? 'จ่ายออกแล้ว ข้าม' : 'ยังไม่ถึงขั้นจัด ข้าม'}`)
+      continue
+    }
+    if (stage === 'pick' && !r.sheet_entered_at) die(`${no} ยังไม่ลงชีท — จัดในแอปเอง (lot ยังไม่ล็อกตามชีท)`)
+    let payload = null
+    if (stage === 'pick') {
+      const views = r.requisition_items.map(it => ({ ...itemAllocation(it, { stage, sheetMode: true }), item: it }))
+      payload = views.filter(v => v.want > 0).map(v => pickPayload(v.item, v, defaultPickResult(v), v.item.staff_note ?? ''))
+      const short = views.filter(v => v.want > 0 && v.short > 0)
+      log(`${no} ${r.department} ${r.receipt_no || ''} · ${payload.length} รายการ · จัดเสร็จ${dispense ? ' → ตรวจแล้ว จ่ายออก' : ''} · ผู้จัด ${name}`)
+      for (const v of short) log(`    จัดไม่ครบ ${v.item.drug_name} ขอ ${v.want} จัดได้ ${v.got}`)
+    } else if (!dispense) {
+      log(`${no} ${r.department} · ขั้น ${stage} จัดแล้ว ข้าม (ใช้ --mark-dispensed ถ้าจ่ายออกแล้ว)`)
+      continue
+    } else {
+      log(`${no} ${r.department} ${r.receipt_no || ''} · ขั้น ${stage} → จ่ายออก · ผู้ตรวจ ${name}`)
+    }
+    jobs.push({ r, stage, payload })
+  }
+  // ไม่เรียก process.exit — Node 24 บน Windows ล้มตอน fetch ยังปิด handle ไม่เสร็จ (ดู --pending)
+  if (!A.commit) log('\n(dry-run — ใส่ --commit เพื่อเขียนจริง)')
+  else for (const { r, stage, payload } of jobs) {
+    if (stage === 'pick') await db.startPickingRequisition(r.id, { pickerName: name, items: payload }, auth)
+    if (dispense) {
+      if (stage === 'ready') await db.markRequisitionDispensed(r.id, auth)
+      else await db.verifyAndDispenseRequisition(r.id, { verifierName: name }, auth)
+    }
+    const { data: after } = await supabase.from('requisitions').select('status').eq('id', r.id).single()
+    log(`  ✓ ${r.req_number} → ${after?.status}`)
+  }
+}
+
+if (!['--pending', '--undispensed', '--mark-picked', '--mark-dispensed'].some(f => A.has(f))) log('ใช้: --pending | --plan | --writeback | --mark-entered | --mark-picked | --mark-dispensed | --backtest (ดูหัวไฟล์)')

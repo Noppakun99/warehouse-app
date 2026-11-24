@@ -29,6 +29,8 @@
 
 **หน่วยงานนอก pilot**: `--plan --req REQ-…,REQ-…` วางแผนเฉพาะใบที่ระบุ (ทุกหน่วยงาน · ใบต้อง pending + ยังไม่ลงชีท ไม่งั้นหยุด) แล้วทำข้อ 3–8 เหมือนห้องยาG — ใช้ครั้งแรก 23/11/2569 ห้องยา 1 (REQ-20261120-6883 → บย.70/0092 40 แถว · REQ-20261123-9871 → บย.70/0093) · ⚠ หมายเหตุ `lot X หมด · คงคลังรวม N (lot …)` ยังนับ lot ที่ใบเดียวกันจ่ายหมดไปแล้วด้วย (Warfarin) ตรวจก่อนเขียน
 
+**ติ๊กจัด/จ่ายในแอปหลังพิมพ์ใบ (user สั่ง 23/11/2569)**: `check-complete.py` ข้อ 15 (`online-req.mjs --undispensed --json`) จับใบที่ลงชีทแล้ว + PDF ในคิวพิมพ์ติ๊ก "พิมพ์แล้ว" แต่ในแอปยังขั้นรอจัด/รอตรวจจ่าย → **ถาม user ว่าจัด/จ่ายออกเสร็จหรือยัง** (ห้ามติ๊กเองจากการเดา) · user ยืนยันแล้ว → `online-req.mjs --mark-picked --req …` (จัดเสร็จ) หรือ `--mark-dispensed` (จัด+ตรวจแล้วจ่ายออก) `[--commit]` — ใช้ `pickPayload` + `startPickingRequisition`/`verifyAndDispenseRequisition` ตัวเดียวกับปุ่มในแอป (audit/กระดิ่งเหมือนกดเอง) · ชื่อผู้จัด/ผู้ตรวจค่าเริ่มต้น `Noppakun Chaykuntod` (`--name` เปลี่ยนได้) · ใบยังไม่ลงชีท = หยุด ให้จัดในแอป
+
 ใบที่ลงชีทมือ (นอก pilot): `node scripts/online-req.mjs --mark-entered --req REQ-… --receipt บย.70/xxxx [--commit]` ตั้งแค่ `receipt_no` + `sheet_entered_at` ไม่แตะสถานะ/lot · ไม่ตั้ง = ใบหักยอดจองค้างตลอดไป
 
 ## กฎเลือก lot (`planRequisition`)
