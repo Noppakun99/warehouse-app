@@ -53,6 +53,11 @@
 - **ข้อมูล** `fetchDispenseCheckData(codes)` (db.js อ่านอย่างเดียว กรองเฉพาะรหัสในใบ ~1.4 วิ): เรท 4 เดือนที่ปิดงวด (กฎบัตรยา) · **LT = เฉลี่ย leadtime บิลซื้อ** (ADR-0001 · ไม่มีบิล = 20) — ตรงคอลัมน์ "Lead Time (วัน) [avg]" ของชีทวิเคราะห์ทั้ง 15 รหัสที่เทียบ 24/11 · ห้ามใช้ `drug_reorder_config.lead_time_days` (เป็น 15 ทุกแถวเพราะตัวนำเข้าไม่รู้จักหัวคอลัมน์นี้) · รอตรวจรับ = `inventory.receive_status` · แจ้งซื้อ = `pendingRequestFor`
 - **ต่างจาก rate_check โดยตั้งใจ**: เรทแอป 4 เดือน vs ชีท 3 เดือน (CONTEXT §เรท) → ยอดแนะนำคลาดกันได้เล็กน้อย · ไม่มีธง exp < 7 เดือน (หน้าคลังมีตัวกรองใกล้หมดอายุอยู่แล้ว) · `online-req.mjs --plan` ยังไม่ใช้โมดูลนี้ (Claude ใช้ rate_check ต่อ)
 
+## ตะกร้าผู้เบิก: ได้ยาไปแล้ว · เบิกเป็นลัง (24/11/2569)
+
+- **ได้ยาไปแล้ว** (นิยาม CONTEXT §ใบเบิกออนไลน์): ตะกร้าใส่ 0 → `AlreadyGotPicker` ดึง `fetchDeptRecentDispense(department, code, {days:90})` (db.js — `dispense_logs` สดเท่ารอบ `import:dispense` · AD `เลขรับใบเบิก` → `requisition_number`) · ส่งไม่ได้ถ้าไม่มีรายละเอียด · หน้าคลังป้าย "ได้ยาไปแล้ว ไม่ต้องจัด" · `online-req.mjs --plan` ข้ามรายการ 0 และใบที่ไม่มีแถวชีทไม่ออกเลข บย. · ⚠️ หน้าคลังใบที่มีแต่รายการได้ยาไปแล้วยังต้องผ่าน อนุมัติ→จัด→จ่าย (ไม่มีทางลัดปิดใบ)
+- **เบิกเป็นลัง** (CONTEXT §ลัง): `inventory.case_size/case_word/case_unit` ราย lot → `caseOfLots` (reqType.js) → การ์ดยาบรรทัด `1 ลัง = N …` + ปุ่ม [หน่วยซื้อ | ลัง] · `entry_pack` = หน่วยย่อยต่อลัง · `entry_unit` = `ลัง (20 กระปุก)` → `entryQtyText`/`entryPackLabel` แสดงหน้าคลัง/ประวัติ/ใบพิมพ์ · ตะกร้าเทียบ lot ที่จะจ่ายกับ `entryInner` (ขนาดแพ็คในลัง) ไม่ใช่ `entryPack` · แผนลงชีทใช้ `requested_qty` หน่วยย่อย ไม่ต้องแก้
+
 ## ทดสอบ
 
 - `npm run test:dispensecheck` — golden test ของ `dispenseCheck.js` (37 assertions)
