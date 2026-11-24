@@ -207,13 +207,15 @@ if (A.has('--plan') && !A.has('--writeback')) {
   for (const r of reqs) {
     const items = (r.requisition_items || []).slice().sort((a, b) => a.id - b.id)
     const plan = planRequisition({ ...r, items }, pool, { today: date })
-    const receipt = `บย.70/${String(no++).padStart(4, '0')}`
+    // ใบที่ทุกรายการ "ได้ยาไปแล้ว" (จำนวน 0 — src/lib/alreadyGot.js) ไม่มีแถวชีท → ไม่ออกเลข บย. (เลขต้องมีแถว AD รองรับ)
+    const receipt = plan.lines.length ? `บย.70/${String(no++).padStart(4, '0')}` : null
     const sheetRows = []
     for (const l of plan.lines) { l.no = receipt; l.sheetRow = rowNo; sheetRows.push(rowNo++); out.rows.push(l) }
     const cut = {}; for (const l of plan.lines) cut[l.masterRow] = (cut[l.masterRow] || 0) + l.q
     pool = pool.map(m => cut[m.row] ? { ...m, u: m.u - cut[m.row] } : m)
     out.reqs.push({ id: r.id, req_number: r.req_number, department: r.department, req_type: r.req_type, updated_at: r.updated_at, receipt, sheetRows, items: plan.items, flags: plan.flags })
-    printPlan(`${r.req_number} (${r.req_type || '-'}) → ${receipt}`, plan)
+    printPlan(`${r.req_number} (${r.req_type || '-'}) → ${receipt || 'ไม่ออกเลข บย. (ได้ยาไปแล้วทั้งใบ)'}`, plan)
+    for (const it of items) if (Number(it.requested_qty) === 0) log(`  · ข้าม ${it.drug_code} ${it.drug_name}: ได้ยาไปแล้ว ไม่ลงชีท — ${it.item_note || '-'}`)
   }
   fs.writeFileSync(A.valueOf('--out'), JSON.stringify(out, null, 1), 'utf8')
   const ph = out.rows.filter(l => l.note.includes(PLACEHOLDER)).length
@@ -229,7 +231,7 @@ if (A.has('--writeback')) {
   // ผู้เบิกแก้จำนวน/ถอน/ลบใบ หรือเจ้าหน้าที่กดจัดจ่ายเองหลังทำแผน → แผนเก่าไม่ตรงใบแล้ว
   const bad = []
   for (const r of plan.reqs) {
-    const rows = `แถวเบิก ${r.sheetRows[0]}–${r.sheetRows[r.sheetRows.length - 1]}`
+    const rows = r.sheetRows.length ? `แถวเบิก ${r.sheetRows[0]}–${r.sheetRows[r.sheetRows.length - 1]}` : 'ไม่มีแถวชีท'
     const { data: cur, error: e0 } = await supabase.from('requisitions').select('status, sheet_entered_at, updated_at').eq('id', r.id).maybeSingle()
     if (e0) die(e0.message)
     if (!cur) bad.push(`${r.req_number} ถูกลบ/ถอนแล้ว (${rows})`)
@@ -238,7 +240,7 @@ if (A.has('--writeback')) {
   }
   if (bad.length) die(`ใบไม่ตรงแผนแล้ว — ไม่เขียนกลับใบไหนเลย:\n  - ${bad.join('\n  - ')}\nถ้าเขียนชีทไปแล้ว ต้องแก้/ลบแถวชีทของใบนั้นก่อน แล้วรัน --plan ใหม่`)
   for (const r of plan.reqs) {
-    log(`${r.req_number} → ${r.receipt} · ${r.items.length} รายการ · แถวเบิก ${r.sheetRows[0]}–${r.sheetRows[r.sheetRows.length - 1]}`)
+    log(`${r.req_number} → ${r.receipt || 'ไม่ออกเลข บย.'} · ${r.items.length} รายการ · ${r.sheetRows.length ? `แถวเบิก ${r.sheetRows[0]}–${r.sheetRows[r.sheetRows.length - 1]}` : 'ไม่มีแถวชีท (ได้ยาไปแล้วทั้งใบ)'}`)
     if (!A.commit) continue
     for (const it of r.items) {
       const { error } = await supabase.from('requisition_items').update({

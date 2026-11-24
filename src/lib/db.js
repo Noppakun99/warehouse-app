@@ -3048,6 +3048,25 @@ export async function resolveDispenseDepartment(name) {
   }
 }
 
+// ตะกร้าผู้เบิก "ได้ยาไปแล้ว" (alreadyGot.js): ประวัติเบิกของหน่วยงาน×รหัส ย้อนหลัง days วัน — ใหม่ก่อน
+// แถวรายละเอียดต่อ lot · ผู้เรียกรวมด้วย recentDispenseOptions · ข้อมูลสดเท่ารอบนำเข้าชีทเบิกล่าสุด
+// ชื่อหน่วยงานแปลงครั้งเดียวต่อชื่อ (resolveDispenseDepartment ทางช้าไล่ทุกแถว)
+const _deptResolveCache = new Map()
+export async function fetchDeptRecentDispense(department, drugCode, { days = 90 } = {}) {
+  const code = String(drugCode || '').trim()
+  if (!supabase || !code || !department) return []
+  if (!_deptResolveCache.has(department)) _deptResolveCache.set(department, resolveDispenseDepartment(department).catch(() => null))
+  const dept = await _deptResolveCache.get(department)
+  if (!dept) return []
+  const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10)
+  const { data, error } = await supabase.from('dispense_logs')
+    .select('dispense_date, qty_out, drug_unit, requisition_number, lot')
+    .eq('department', dept).eq('drug_code', code).gte('dispense_date', since)
+    .order('dispense_date', { ascending: false }).order('id', { ascending: false }).limit(100)
+  if (error) throw error
+  return data || []
+}
+
 // --- ช่องค้นหายา + บัตรยา (Phase 2a แผน Dashboard — logic อยู่ drugProfile.js) ---
 
 // รายการค้นหา 1 แถวต่อรหัสยา (ชื่อ/รหัส/lot/มีของไหม) — ช่องค้นหาโหลดใหม่ทุกครั้งที่เปิด

@@ -92,7 +92,15 @@ eq(r.qty_after, 10, 'คงเหลือหลัง')
 eq(r.department, 'ห้องยาG', 'หน่วยงาน')
 eq(r.price_per_unit, 24, 'ราคา/หน่วย')
 eq(r.source, 'csv', 'source')
-eq(Object.keys(r).length, 18, 'ครบ 18 ฟิลด์')
+eq(Object.keys(r).length, 19, 'ครบ 19 ฟิลด์')
+eq(r.requisition_number, null, 'ไม่มีคอลัมน์เลขรับใบเบิก → null')
+{
+  const HAD = [...H, ...Array(11).fill(''), 'เลขรับใบเบิก']
+  const CAD = mapDispenseColumns(HAD)
+  eq(CAD.requisition_number, 29, 'AD เลขรับใบเบิก')
+  const rowAD = [...row]; rowAD[29] = 'บย.70/0090'
+  eq(rowToDispenseLog(rowAD, CAD, '2026-01-01').requisition_number, 'บย.70/0090', 'อ่านเลข บย.')
+}
 
 const noDate = [...row]; noDate[1] = ''
 eq(rowToDispenseLog(noDate, C, '2026-01-01').dispense_date, '2026-01-01', 'ไม่มีวันที่ → ใช้วันนี้ (ตรงกับแอป)')

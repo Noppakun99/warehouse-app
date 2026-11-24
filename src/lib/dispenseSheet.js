@@ -53,6 +53,8 @@ export function mapDispenseColumns(header) {
     department: find(s => s.includes('หน่วยงานที่เบิก')),
     note: find(s => s === 'หมายเหตุ'),
     near_exp_date: find(s => s.includes('วันที่ใกล้exp') || s.includes('วันที่ใกล้ exp')),
+    // AD "เลขรับใบเบิก" (บย.70/xxxx) — ตะกร้าผู้เบิกใช้อ้างใบตอนกด "ได้ยาไปแล้ว"
+    requisition_number: find(s => s === 'เลขรับใบเบิก'),
   }
 }
 
@@ -149,6 +151,7 @@ export function rowToDispenseLog(row, C, today) {
     qty_before: num(at('qty_before')),
     qty_out: num(at('qty_out')) ?? 0,
     qty_after: num(at('qty_after')),
+    requisition_number: cleanVal(at('requisition_number')),
     source: 'csv',
   }
 }

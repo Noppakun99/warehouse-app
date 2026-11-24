@@ -7,7 +7,7 @@ import {
   Printer, RefreshCcw, ChevronRight, ChevronDown, ChevronUp, Bell,
   Check, X, AlertCircle, Clock, FileDown,
   MapPin, Share2, Loader2, CheckSquare,
-  ListOrdered, AlertTriangle, StickyNote, Lock,
+  ListOrdered, AlertTriangle, StickyNote, Lock, History,
 } from 'lucide-react';
 import { parseUnit } from './lib/unitParser';
 import { allocateFefo, sortLotsForDispense, lotOrderNote, isSupportedLot } from './lib/lotAllocation';
@@ -18,12 +18,13 @@ import { awaitsSheetEntry } from './lib/onlineReqPlan';
 import { QUEUE_TABS, stageOf, tabOf, nextStep, waitText, itemAllocation, defaultPickResult, pickPayload, verifyNoteText, sortByLog, reqFlags, PICK_REASONS, VERIFY_ISSUES } from './lib/reqStaffView';
 import { rankDrugs, matchDrugQuery } from './lib/drugSearchText';
 import { checkDispenseLine, requesterNoteText, staffNoteText } from './lib/dispenseCheck';
+import { ALREADY_GOT_PREFIX, isAlreadyGotQty, formatAlreadyGotNote, alreadyGotNoteForSubmit, recentDispenseOptions, missingAlreadyGotDetail, isoToThaiBE, qtyUnitText } from './lib/alreadyGot';
 import { SORT_BY_LOG, SORT_BY_REQ, sortRowsByLog, sheetTitle, fmtDateCE, buildSheetHtml, toPackQty, fmtPackNote } from './lib/reqSheetFormat';
 import { buildPaginatedHtml } from './lib/paginatedPrint';
 import { reqFormTitle } from './lib/printedReqForm';
 import { buildSheetXlsxBlob, htmlToPdfBlob, pagesToPdfBlob, shareOrDownload, safeFileName } from './lib/reqSheetExport';
 import ConfirmModal from './ConfirmModal';
-import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, updateRequesterRequisition, deleteRequesterRequisitionItems, REQUESTER_LOCKED_MSG, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyAndDispenseRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows, fetchDispenseCheckData } from './lib/db';
+import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, updateRequesterRequisition, deleteRequesterRequisitionItems, REQUESTER_LOCKED_MSG, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyAndDispenseRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows, fetchDispenseCheckData, fetchDeptRecentDispense } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 
 // ============================================================
@@ -1038,6 +1039,8 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
         // เพิ่มซ้ำคนละขนาดกล่อง → รวมยอดแล้วแสดงเป็นหน่วยย่อย (ไม่เดาว่าเป็นกล่องขนาดไหน)
         const same = (u => (u.entryPack || 1) === pack && (u.entryUnit || null) === entryUnit)(prev[idx]);
         const u = [...prev];
+        // รายการ "ได้ยาไปแล้ว" ที่ยังไม่กรอกรายละเอียด → เพิ่มซ้ำ = ขอจริง ล้างคำนำหน้าที่เติมไว้ทิ้ง
+        if (prev[idx].requestedQty === 0 && (prev[idx].note || '').trim() === ALREADY_GOT_PREFIX) u[idx] = { ...u[idx], note: '' };
         u[idx] = same ? { ...u[idx], requestedQty: u[idx].requestedQty + safeQty }
           : { ...u[idx], requestedQty: u[idx].requestedQty + safeQty, entryPack: 1, entryLabel: drug.baseUnit, entryUnit: null, entryHint: null };
         return u;
@@ -1195,7 +1198,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
                   </div>
                   <div className="flex items-center gap-3 mt-1 flex-wrap">
                     <span className="text-sm text-slate-400 dark:text-slate-500">รหัส: {drug.code}</span>
-                    {inCart && <span className="text-sm text-[#1E90FF] font-bold bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-full">ในตะกร้า: {(inCart.requestedQty / (inCart.entryPack || 1)).toLocaleString()} {cartUnitText(inCart)}</span>}
+                    {inCart && <span className="text-sm text-[#1E90FF] font-bold bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-full">ในตะกร้า: {inCart.requestedQty === 0 ? ALREADY_GOT_PREFIX : `${(inCart.requestedQty / (inCart.entryPack || 1)).toLocaleString()} ${cartUnitText(inCart)}`}</span>}
                   </div>
 
                   {/* คงเหลือรวมระดับยา — base unit เด่น + สรุปกล่องแยก packsize */}
@@ -1330,6 +1333,52 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
 }
 
 // ---- Cart ----
+// รายการจำนวน 0 = "ได้ยาไปแล้ว" — ดึงประวัติเบิกของหน่วยงาน×รหัสให้กดเติมหมายเหตุ (alreadyGot.js)
+// ประวัติสดเท่ารอบนำเข้าชีทเบิก → ไม่พบก็พิมพ์เองในหมายเหตุได้
+function AlreadyGotPicker({ department, item, onPick }) {
+  const [state, setState] = useState({ loading: true, options: [], failed: false });
+  useEffect(() => {
+    let alive = true;
+    fetchDeptRecentDispense(department, item.code)
+      .then(rows => { if (alive) setState({ loading: false, options: recentDispenseOptions(rows), failed: false }); })
+      .catch(() => { if (alive) setState({ loading: false, options: [], failed: true }); });
+    return () => { alive = false; };
+  }, [department, item.code]);
+  const current = (item.note || '').trim();
+  return (
+    <div className="mt-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 space-y-2">
+      <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+        <History size={14} className="shrink-0" /> {ALREADY_GOT_PREFIX} — บันทึกในใบเท่านั้น คลังไม่จัดยาให้ซ้ำ
+      </p>
+      {state.loading ? (
+        <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> กำลังโหลดประวัติเบิก…</p>
+      ) : state.options.length > 0 ? (
+        <div className="space-y-1.5">
+          <p className="text-xs text-slate-500 dark:text-slate-400">เลือกครั้งที่ได้ยาไป (ประวัติเบิก 90 วันของ {department})</p>
+          <div className="flex flex-wrap gap-2">
+            {state.options.map(o => {
+              const text = formatAlreadyGotNote(o);
+              const on = current === text;
+              return (
+                <button key={`${o.date}|${o.reqNumber}|${o.unit}`} type="button" aria-pressed={on} onClick={() => onPick(text)}
+                  className={`text-left text-sm rounded-xl border px-3 py-1.5 transition-colors ${on ? 'bg-[#1E90FF] border-[#1E90FF] text-white' : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:border-[#1E90FF]'}`}>
+                  <span className="font-semibold tabular-nums">{isoToThaiBE(o.date)}</span>
+                  <span className="tabular-nums"> · {qtyUnitText(o.qty, o.unit)}</span>
+                  {o.reqNumber && <span className={on ? 'text-blue-100' : 'text-slate-400 dark:text-slate-500'}> · {o.reqNumber}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          {state.failed ? 'โหลดประวัติเบิกไม่สำเร็จ' : 'ไม่พบในประวัติเบิก (ข้อมูลถึงรอบนำเข้าล่าสุด)'} — พิมพ์วันที่และจำนวนที่ได้ไปในหมายเหตุด้านล่าง
+        </p>
+      )}
+    </div>
+  );
+}
+
 function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {} }) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
@@ -1339,7 +1388,16 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
   const submittingRef = useRef(false); // กัน double-click ก่อน state loading ทัน re-render → ใบซ้ำ
 
   // v = จำนวนในหน่วยคีย์ (entryPack) → เก็บหน่วยย่อยสุด · ไม่จำกัดที่คงเหลือ (ขอได้เสมอ — คลังจ่ายเท่าที่มี)
-  const updateQty   = (i, v) => setCart(p => { const u=[...p]; const pack = u[i].entryPack || 1; u[i]={...u[i], requestedQty: Math.max(1, parseInt(v)||1) * pack}; return u; });
+  // 0 = "ได้ยาไปแล้ว" บันทึกเท่านั้น (alreadyGot.js) → เติมคำนำหน้าในหมายเหตุ · กลับเป็น >0 ล้างคำนำหน้าเปล่าทิ้ง
+  const updateQty   = (i, v) => setCart(p => {
+    const u = [...p]; const pack = u[i].entryPack || 1;
+    const n = parseInt(v); const keyed = Number.isFinite(n) ? Math.max(0, n) : 1;
+    const note = u[i].note || '';
+    const nextNote = keyed === 0 ? (note.trim() ? note : `${ALREADY_GOT_PREFIX} `)
+      : (note.trim() === ALREADY_GOT_PREFIX ? '' : note);
+    u[i] = { ...u[i], requestedQty: keyed * pack, note: nextNote };
+    return u;
+  });
   const updateNote  = (i, v) => setCart(p => { const u=[...p]; u[i]={...u[i], note: v}; return u; });
 
   // เตือน "คลังอาจแบ่งจ่าย" (dispenseCheck — กฎเดียวกับที่คลังตรวจก่อนลงชีท) · ไม่บล็อกการส่ง
@@ -1366,6 +1424,11 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
 
   const submit = async () => {
     if (!cart.length || submittingRef.current) return;
+    const missingGot = missingAlreadyGotDetail(cart);
+    if (missingGot.length) {
+      setError(`รายการจำนวน 0 = ได้ยาไปแล้ว — กดเลือกจากประวัติเบิก หรือพิมพ์วันที่และจำนวนในหมายเหตุ:\n${missingGot.join('\n')}`);
+      return;
+    }
     submittingRef.current = true;
     setLoading(true); setError('');
     try {
@@ -1399,7 +1462,7 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
             drug_unit:     item.unit || null,
             drug_type:     item.drugType || null,
             requested_qty: item.requestedQty,
-            item_note:     item.note?.trim() || null,
+            item_note:     item.requestedQty === 0 ? alreadyGotNoteForSubmit(item.note) : (item.note?.trim() || null),
             // ขนาดกล่องที่ผู้เบิกเลือก → ใบขอเบิก/หน้าจัดยาแสดง "2 กล่อง (400เม็ด)" (requisition_entry_pack_migration.sql)
             entry_pack:    item.entryUnit ? item.entryPack : null,
             entry_unit:    item.entryUnit || null,
@@ -1511,11 +1574,12 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
             ? <p className="text-center text-slate-500 dark:text-slate-400 py-10">ไม่พบยาที่ค้นหา</p>
           : filteredCart.map((item) => {
               const i = cart.indexOf(item);
+              const gotAlready = item.requestedQty === 0;
               const overStock = item.availableBase != null && item.requestedQty > item.availableBase;
               const noteOpen = openNotes[i] || !!item.note;
-              const splitNote = splitNoteOf(item);
+              const splitNote = gotAlready ? '' : splitNoteOf(item);
               // preview: คาดว่าจะได้ lot อะไรบ้าง ตาม FEFO (lot ตรวจรับแล้ว) — authoritative recompute ตอน picking
-              const alloc = item.fefoLots ? allocateFefo(item.requestedQty, item.fefoLots) : null;
+              const alloc = item.fefoLots && !gotAlready ? allocateFefo(item.requestedQty, item.fefoLots) : null;
               // ขนาดกล่องที่เลือกไม่ตรง lot ที่จะจ่าย → บอกเป็นกล่องจริง เช่น "2 กล่อง (500เม็ด)" แทน "เกินที่ขอ"
               const packMismatch = alloc && item.entryUnit && item.entryPack > 1 && alloc.allocation.some(a => a.packSize !== item.entryPack)
                 ? alloc.allocation.map(a => `${a.packs.toLocaleString()} ${packWord(item.unit)} (${a.unit})`).join(' + ')
@@ -1551,8 +1615,8 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
                   return (
                   <div className="flex items-center gap-2 mt-3 flex-wrap">
                     <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">ขอเบิก</span>
-                    <button onClick={() => updateQty(i, keyed - 1)} className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg p-2 transition-colors"><Minus size={16} /></button>
-                    <input type="number" min="1" value={keyed} onChange={e => updateQty(i, e.target.value)}
+                    <button onClick={() => updateQty(i, keyed - 1)} aria-label="ลดจำนวน" className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg p-2 transition-colors"><Minus size={16} /></button>
+                    <input type="number" min="0" value={keyed} onChange={e => updateQty(i, e.target.value)} aria-label={`จำนวน ${item.name}`}
                       className={`w-20 border rounded-lg px-2 py-2 text-slate-800 dark:text-slate-100 text-center text-base font-semibold focus:outline-none focus:ring-2 focus:ring-[#1E90FF] ${overStock ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/40' : 'border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800'}`} />
                     <button onClick={() => updateQty(i, keyed + 1)}
                       className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg p-2 transition-colors"><Plus size={16} /></button>
@@ -1560,10 +1624,13 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
                       {cartUnitText(item)}
                       {pack > 1 && <span className="text-xs text-slate-400 dark:text-slate-500"> (= {item.requestedQty.toLocaleString()} {item.unit || ''})</span>}
                     </span>
-                    {item.entryHint && <p className="w-full text-xs text-blue-700 dark:text-blue-300 font-medium">{item.entryHint}</p>}
+                    {item.entryHint && !gotAlready && <p className="w-full text-xs text-blue-700 dark:text-blue-300 font-medium">{item.entryHint}</p>}
                   </div>
                   );
                 })()}
+                {gotAlready && (
+                  <AlreadyGotPicker department={info.department} item={item} onPick={(text) => { updateNote(i, text); setError(''); }} />
+                )}
                 {splitNote && (
                   <p className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-lg px-2.5 py-1.5 font-medium mt-2 flex items-start gap-1.5"><AlertTriangle size={13} className="shrink-0 mt-0.5" /> {splitNote}</p>
                 )}
@@ -1616,7 +1683,7 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
                 {/* หมายเหตุรายการ — ซ่อนจนกดเปิด */}
                 {noteOpen ? (
                   <input type="text" value={item.note || ''} onChange={e => updateNote(i, e.target.value)} autoFocus={!item.note}
-                    placeholder="หมายเหตุรายการนี้..."
+                    placeholder={gotAlready ? `${ALREADY_GOT_PREFIX} วันที่ จำนวน (เลขใบ)` : 'หมายเหตุรายการนี้...'} aria-label={`หมายเหตุ ${item.name}`}
                     className="w-full mt-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-700 dark:text-slate-200 placeholder-slate-400 text-base focus:outline-none focus:ring-1 focus:ring-[#1E90FF]" />
                 ) : (
                   <button onClick={() => setOpenNotes(p => ({ ...p, [i]: true }))}
@@ -2120,6 +2187,12 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
     return () => supabase.removeChannel(ch);
   }, [load]);
 
+  // id รายการที่ส่งมาเป็น "ได้ยาไปแล้ว" (จำนวน 0 ตอนส่ง) — โมดอลแก้ใบแสดงเป็นบันทึก ไม่ให้แก้จำนวน/ไม่ลบ
+  const gotAtSubmit = useMemo(() => new Set(
+    (confirmModal?.type === 'edit' ? confirmModal.req.requisition_items || [] : [])
+      .filter(i => isAlreadyGotQty(i.requested_qty)).map(i => i.id)
+  ), [confirmModal]);
+
   const openEdit = (req) => {
     setEditDraft({ note: req.note || '', items: req.requisition_items.map(i => ({ ...i, requested_qty: i.requested_qty })) });
     setConfirmModal({ type: 'edit', req });
@@ -2160,12 +2233,13 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
       setEditError('กรอกจำนวนให้ครบทุกรายการ (ใส่ 0 = ตัดรายการนั้นออก)');
       return;
     }
-    if (rawItems.length > 0 && rawItems.every(it => Number(it.requested_qty) === 0)) {
+    const draft = { ...editDraft, items: rawItems.map(it => ({ ...it, requested_qty: Number(it.requested_qty) })) };
+    // รายการที่ส่งมาเป็น 0 ตั้งแต่แรก = "ได้ยาไปแล้ว" (บันทึก) ไม่ใช่การตัดรายการ — ห้ามลบ
+    const removed = draft.items.filter(it => it.requested_qty === 0 && !gotAtSubmit.has(it.id));
+    if (rawItems.length > 0 && removed.length === rawItems.length) {
       setEditError('ทุกรายการเป็น 0 — ถ้าไม่ต้องการเบิกแล้ว ให้กดปุ่มลบใบเบิกแทน');
       return;
     }
-    const draft = { ...editDraft, items: rawItems.map(it => ({ ...it, requested_qty: Number(it.requested_qty) })) };
-    const removed = draft.items.filter(it => it.requested_qty === 0);
     setSaving(true);
     try {
       // re-validate คงเหลือ−จอง ก่อนบันทึก (ปุ่ม +/− ในโมดอลไม่มี cap) — ไม่นับยอดจองของใบตัวเอง
@@ -2376,12 +2450,14 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                           <span className="text-slate-800 dark:text-slate-100 font-medium">{item.drug_name}</span>
                           <span className="text-slate-400 dark:text-slate-500 text-xs">({item.drug_unit||'-'})</span>
                         </div>
-                        {item.approved_qty!=null && (
+                        {isAlreadyGotQty(item.requested_qty) ? (
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-start gap-1"><History size={12} className="shrink-0 mt-0.5" /> {item.item_note || ALREADY_GOT_PREFIX}</p>
+                        ) : item.approved_qty!=null && (
                           <span className={`text-xs font-semibold ${item.approved_qty>0?'text-emerald-600':'text-red-500'}`}>
                             → {item.approved_qty>0?`อนุมัติ ${item.approved_qty}`:'ไม่อนุมัติ'}
                           </span>
                         )}
-                        {item.picked_qty!=null && (
+                        {item.picked_qty!=null && !isAlreadyGotQty(item.requested_qty) && (
                           <span className="text-xs text-purple-600 font-semibold ml-2">
                             · จัด {Number(item.picked_qty).toLocaleString()} {item.drug_unit||''}
                           </span>
@@ -2408,8 +2484,9 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                         ) : null}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-slate-500 dark:text-slate-400 text-xs">ขอ <b>{item.requested_qty}</b>{item.drug_unit && item.drug_unit !== '-' && <span> × {item.drug_unit}</span>}
-                          {entryQtyText(item.requested_qty, item.entry_pack, item.entry_unit, item.drug_unit) && <span> (= {entryQtyText(item.requested_qty, item.entry_pack, item.entry_unit, item.drug_unit)})</span>}</span>
+                        {isAlreadyGotQty(item.requested_qty) ? <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-2 leading-5 whitespace-nowrap">{ALREADY_GOT_PREFIX}</span>
+                        : <span className="text-slate-500 dark:text-slate-400 text-xs">ขอ <b>{item.requested_qty}</b>{item.drug_unit && item.drug_unit !== '-' && <span> × {item.drug_unit}</span>}
+                          {entryQtyText(item.requested_qty, item.entry_pack, item.entry_unit, item.drug_unit) && <span> (= {entryQtyText(item.requested_qty, item.entry_pack, item.entry_unit, item.drug_unit)})</span>}</span>}
                       </div>
                     </div>
                   ))}
@@ -2487,6 +2564,15 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                     .map((item, idx) => {
                     const realIdx = editDraft.items.findIndex(i => i.id === item.id);
                     const setQty = (q) => setEditDraft(d => ({ ...d, items: d.items.map((it,i) => i===realIdx ? { ...it, requested_qty: q } : it) }));
+                    if (gotAtSubmit.has(item.id)) return (
+                      <div key={item.id} className="flex items-start gap-2 rounded-xl px-3 py-2 border bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700">
+                        <History size={14} className="shrink-0 mt-0.5 text-slate-400 dark:text-slate-500" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-slate-800 dark:text-slate-100 break-words">{item.drug_name}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 break-words">{item.item_note || ALREADY_GOT_PREFIX}</p>
+                        </div>
+                      </div>
+                    );
                     const removedRow = item.requested_qty !== '' && Number(item.requested_qty) === 0;
                     return (
                     <div key={item.id} className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2 border ${removedRow ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900/60' : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
@@ -3435,6 +3521,8 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
   // คอลัมน์ "ประเมิน / ผลการจัด" ตามขั้นของใบ
   const resultCell = (v) => {
     const it = v.item, u = unitOf(it);
+    // ผู้เบิกส่งจำนวน 0 = ได้ยาไปแล้ว (บันทึก) — ไม่ต้องอนุมัติ/จัด/ลงชีท · หมายเหตุผู้เบิกขึ้นใต้ชื่อยาอยู่แล้ว
+    if (isAlreadyGotQty(it.requested_qty)) return <Pill tone="slate"><History size={12}/> {ALREADY_GOT_PREFIX} ไม่ต้องจัด</Pill>;
     if (stage === 'rej') return <span className="text-sm font-semibold text-red-600 dark:text-red-400">ไม่อนุมัติ</span>;
     if (isPending && !awaitsSheet) {
       const realIdx = v.i;
