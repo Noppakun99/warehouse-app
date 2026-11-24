@@ -11,10 +11,11 @@ import { isUsageRow, localYmd } from '../../supabase/functions/_shared/usageRow.
 import {
   parseUnitFactor, parseExpDate as _parseExpDate, waitDaysSince, isBelowSafetyStock, isPurchaseReceipt,
   pickMainUnit, stockTotalInMainUnit, latestPurchaseUnit, buildSearchIndex, buildDrugProfile, normDept,
-  latestPolicyByCompany, COMPANY_WIDE_POLICY_PREFIX, usageBaseQty, buildBillIndex,
+  latestPolicyByCompany, COMPANY_WIDE_POLICY_PREFIX, usageBaseQty, buildBillIndex, usageMonthsBase, isPendingRow,
 } from './drugProfile.js'
+import { leadTimeFromReceipts, rateFromMonths } from './dispenseCheck.js'
 import { buildDrugUsageReport } from './usageReport.js'
-import { isoMonthsAgo, isoPrevMonthEnd, listMonthYM } from './reorder.js'
+import { isoMonthsAgo, isoPrevMonthEnd, listMonthYM, thaiMonthLabel } from './reorder.js'
 import { purchaseDatesByCode, pendingRequestFor } from './purchaseReportSheet.js'
 import { isExcursion, TEMP_MIN_DEFAULT, TEMP_MAX_DEFAULT } from './temperatureReport.js'
 // ReorderApp import parseUnitFactor จาก db.js มาแต่เดิม — คงทางเข้าเดิมไว้ (ตัวจริงอยู่ drugProfile.js)
@@ -3950,6 +3951,56 @@ export async function fetchMonthlyDispenseUsage(fromDate, toDate, { code: onlyCo
     if (!byCode[code].name && r.drug_name) byCode[code].name = r.drug_name
   }
   return byCode
+}
+
+// ข้อมูลตรวจใบเบิกก่อนจ่าย (dispenseCheck.js) ต่อรหัส — อ่านอย่างเดียว · กรองเฉพาะรหัสในใบ (หน้าผู้เบิกบนมือถือ)
+// คืน { months, monthLabel, byCode: { [รหัสตามที่ส่งมา]: { avgDay, avgMonth, leadTime, ltBills, pendingBase, pendingLots:Set<lot>, notifiedOn } } }
+// เรท = 4 เดือนที่ปิดงวด (กฎบัตรยา/หน้าวิเคราะห์ · หน่วยย่อยสุด) · LT = เฉลี่ยบิลซื้อ (ADR-0001 — ไม่ใช้ drug_reorder_config ที่เป็น 15 ทุกแถว)
+// รอตรวจรับ = inventory.receive_status (Master C — ตัวเดียวกับ rate_check)
+export async function fetchDispenseCheckData(codes = []) {
+  const uniq = [...new Set(codes.map(c => String(c || '').trim()).filter(c => c && c !== '-'))]
+  const months = listMonthYM(isoMonthsAgo(4), isoPrevMonthEnd())
+  const out = { months, monthLabel: months.length ? `${thaiMonthLabel(months[0])}–${thaiMonthLabel(months[months.length - 1])}` : '', byCode: {} }
+  if (!supabase || !uniq.length) return out
+  const paged = async (build) => {
+    const rows = []
+    for (let i = 0; i < uniq.length; i += 100) {
+      const chunk = uniq.slice(i, i + 100)
+      for (let off = 0; ; off += 1000) {
+        const { data, error } = await build(chunk).range(off, off + 999)
+        if (error) throw error
+        rows.push(...(data || []))
+        if (!data || data.length < 1000) break
+      }
+    }
+    return rows
+  }
+  const [disp, recv, inv, purchase] = await Promise.all([
+    paged(chunk => supabase.from('dispense_logs')
+      .select('id, drug_code, drug_unit, qty_out, dispense_date, item_type, department')
+      .in('drug_code', chunk).gte('dispense_date', isoMonthsAgo(4)).lte('dispense_date', isoPrevMonthEnd()).order('id')),
+    paged(chunk => supabase.from('receive_logs')
+      .select('id, drug_code, leadtime, purchase_type, price_per_unit').in('drug_code', chunk).order('id')),
+    paged(chunk => supabase.from('inventory')
+      .select('id, code, lot, qty, unit, receive_status').in('code', chunk).gt('qty', 0).order('id')),
+    fetchPurchaseRequests().catch(() => ({ requests: [], purchaseDates: {} })),
+  ])
+  const group = (rows, key) => rows.reduce((m, r) => { const k = String(r[key] || '').trim(); (m[k] ||= []).push(r); return m }, {})
+  const dByCode = group(disp, 'drug_code'), rByCode = group(recv, 'drug_code'), iByCode = group(inv, 'code')
+  const reqByCode = group(purchase.requests || [], 'code')
+  for (const code of uniq) {
+    const { avgMonth, avgDay } = rateFromMonths(usageMonthsBase(dByCode[code] || []), months)
+    const lt = leadTimeFromReceipts(rByCode[code] || [])
+    const pend = (iByCode[code] || []).filter(isPendingRow)
+    const waiting = pendingRequestFor(reqByCode[code] || [], purchase.purchaseDates?.[code] || [])
+    out.byCode[code] = {
+      avgDay, avgMonth, leadTime: lt.days, ltBills: lt.fromBills,
+      pendingBase: pend.reduce((s, r) => s + (parseFloat(r.qty) || 0) * parseUnitFactor(r.unit).factor, 0),
+      pendingLots: new Set(pend.map(r => String(r.lot || '').trim())),
+      notifiedOn: waiting?.notified_on || null,
+    }
+  }
+  return out
 }
 
 export async function saveAnalysisRun(run, auth = {}) {

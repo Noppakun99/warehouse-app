@@ -17,11 +17,12 @@ import { REQ_TYPES, reqTypeLabel, reqTypeOfRows, entryUnitOf, entryUnitForLots, 
 import { awaitsSheetEntry } from './lib/onlineReqPlan';
 import { QUEUE_TABS, stageOf, tabOf, nextStep, waitText, itemAllocation, defaultPickResult, pickPayload, verifyNoteText, sortByLog, reqFlags, PICK_REASONS, VERIFY_ISSUES } from './lib/reqStaffView';
 import { rankDrugs, matchDrugQuery } from './lib/drugSearchText';
+import { checkDispenseLine, requesterNoteText, staffNoteText } from './lib/dispenseCheck';
 import { SORT_BY_LOG, SORT_BY_REQ, sortRowsByLog, sheetTitle, fmtDateCE, buildSheetHtml, toPackQty, fmtPackNote } from './lib/reqSheetFormat';
 import { buildPaginatedHtml } from './lib/paginatedPrint';
 import { buildSheetXlsxBlob, htmlToPdfBlob, shareOrDownload, safeFileName } from './lib/reqSheetExport';
 import ConfirmModal from './ConfirmModal';
-import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, updateRequesterRequisition, deleteRequesterRequisitionItems, REQUESTER_LOCKED_MSG, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyAndDispenseRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows } from './lib/db';
+import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, updateRequesterRequisition, deleteRequesterRequisitionItems, REQUESTER_LOCKED_MSG, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyAndDispenseRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows, fetchDispenseCheckData } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 
 // ============================================================
@@ -1340,6 +1341,28 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
   const updateQty   = (i, v) => setCart(p => { const u=[...p]; const pack = u[i].entryPack || 1; u[i]={...u[i], requestedQty: Math.max(1, parseInt(v)||1) * pack}; return u; });
   const updateNote  = (i, v) => setCart(p => { const u=[...p]; u[i]={...u[i], note: v}; return u; });
 
+  // เตือน "คลังอาจแบ่งจ่าย" (dispenseCheck — กฎเดียวกับที่คลังตรวจก่อนลงชีท) · ไม่บล็อกการส่ง
+  const [chk, setChk] = useState(null);
+  const codesKey = [...new Set(cart.map(i => String(i.code || '').trim()).filter(Boolean))].sort().join('|');
+  useEffect(() => {
+    if (!codesKey) return;
+    let alive = true;
+    fetchDispenseCheckData(codesKey.split('|')).then(r => { if (alive) setChk(r); }).catch(() => {});
+    return () => { alive = false; };
+  }, [codesKey]);
+  const qtyByCode = {};
+  cart.forEach(it => { const c = String(it.code || '').trim(); qtyByCode[c] = (qtyByCode[c] || 0) + (it.requestedQty || 0); });
+  const splitNoteOf = (item) => {
+    const c = String(item.code || '').trim();
+    const d = chk?.byCode?.[c];
+    if (!d || !(Number(item.availableBase) > 0)) return '';
+    return requesterNoteText(checkDispenseLine({
+      qty: qtyByCode[c], avail: Number(item.availableBase), pending: d.pendingBase, notifiedOn: d.notifiedOn,
+      avgDay: d.avgDay, avgMonth: d.avgMonth, leadTime: d.leadTime,
+      lots: (item.fefoLots || []).map(l => ({ exp: parseExp(l.exp) })),
+    }), item.unit || '');
+  };
+
   const submit = async () => {
     if (!cart.length || submittingRef.current) return;
     submittingRef.current = true;
@@ -1489,6 +1512,7 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
               const i = cart.indexOf(item);
               const overStock = item.availableBase != null && item.requestedQty > item.availableBase;
               const noteOpen = openNotes[i] || !!item.note;
+              const splitNote = splitNoteOf(item);
               // preview: คาดว่าจะได้ lot อะไรบ้าง ตาม FEFO (lot ตรวจรับแล้ว) — authoritative recompute ตอน picking
               const alloc = item.fefoLots ? allocateFefo(item.requestedQty, item.fefoLots) : null;
               // ขนาดกล่องที่เลือกไม่ตรง lot ที่จะจ่าย → บอกเป็นกล่องจริง เช่น "2 กล่อง (500เม็ด)" แทน "เกินที่ขอ"
@@ -1539,7 +1563,10 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
                   </div>
                   );
                 })()}
-                {overStock && (
+                {splitNote && (
+                  <p className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-lg px-2.5 py-1.5 font-medium mt-2 flex items-start gap-1.5"><AlertTriangle size={13} className="shrink-0 mt-0.5" /> {splitNote}</p>
+                )}
+                {overStock && !splitNote && (
                   <p className="text-xs text-amber-700 dark:text-amber-300 font-medium mt-1.5 flex items-center gap-1"><AlertCircle size={12} /> {Number(item.availableBase) > 0
                     ? `เกินคงเหลือในคลัง (${Number(item.availableBase).toLocaleString()} ${item.unit || ''}) — คลังจ่ายเท่าที่มี ส่วนที่ขาดบันทึกค้างจ่าย`
                     : 'ยาหมดในคลัง — คลังบันทึกค้างจ่ายให้'}</p>
@@ -3268,6 +3295,35 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
     };
   }), [items, lots, stage, sheetMode, isPending]);
 
+  // ตรวจเรท/Lead Time ก่อนจ่าย (dispenseCheck — กฎเดียวกับ rate_check) — เฉพาะใบที่ยังไม่ลงชีท:
+  // ลงชีท+นำเข้าแล้ว inventory ตัดยอดใบนี้ไปแล้ว คิดซ้ำจะขึ้นของไม่พอปลอม
+  const checkOn = !sheetMode && (isPending || stage === 'pick');
+  const [chkData, setChkData] = useState(null);
+  useEffect(() => {
+    if (!checkOn) return;
+    let alive = true;
+    fetchDispenseCheckData((req.requisition_items || []).map(i => i.drug_code))
+      .then(r => { if (alive) setChkData(r); }).catch(() => {});
+    return () => { alive = false; };
+  }, [req.id, checkOn]); // eslint-disable-line react-hooks/exhaustive-deps
+  const checkByCode = useMemo(() => {
+    if (!checkOn || !chkData || !lots.ready) return {};
+    const qty = {};
+    views.forEach(v => { const c = String(v.item.drug_code || '').trim(); qty[c] = (qty[c] || 0) + v.want; });
+    const out = {};
+    for (const [c, q] of Object.entries(qty)) {
+      const d = chkData.byCode[c];
+      if (!d || q <= 0) continue;
+      const ok = (lots.lotsByCode[c] || []).filter(l => !d.pendingLots.has(String(l.lot || '').trim()));
+      out[c] = checkDispenseLine({
+        qty: q, avail: ok.reduce((s, l) => s + (l.base || 0), 0), pending: d.pendingBase, notifiedOn: d.notifiedOn,
+        avgDay: d.avgDay, avgMonth: d.avgMonth, leadTime: d.leadTime, lots: ok.map(l => ({ exp: parseExp(l.exp) })),
+      });
+    }
+    return out;
+  }, [checkOn, chkData, lots, views]);
+  const chkOf = (v) => { const r = checkByCode[String(v.item.drug_code || '').trim()]; return r && (r.level === 'stop' || r.level === 'warn') ? r : null; };
+
   const resOf = (v) => pickRes[v.item.id] || defaultPickResult(v);
   const noteOf = (v) => pickNotes[v.item.id] ?? v.item.staff_note ?? '';
   const isPart = (v) => stage === 'pick' ? v.want > 0 && resOf(v).st === 'part'
@@ -3280,12 +3336,13 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
     ['near', 'ใกล้หมดอายุ', views.filter(v => v.near).length, 'text-amber-600 dark:text-amber-400'],
     ...(isPending || stage === 'pick' ? [['short', 'ของไม่พอ', views.filter(v => v.want > 0 && v.short > 0).length, 'text-red-600 dark:text-red-400']] : []),
     ['over', 'จ่ายเกิน (ปัดเต็มกล่อง)', views.filter(v => v.over > 0).length, 'text-violet-600 dark:text-violet-300'],
+    ...(checkOn && chkData ? [['rate', 'ควรพิจารณาแบ่งจ่าย', views.filter(chkOf).length, 'text-amber-600 dark:text-amber-400']] : []),
     ...(['pick', 'check', 'ready', 'done', 'recv'].includes(stage) ? [['part', 'จัดไม่ครบ/ไม่ตรง', views.filter(isPart).length, 'text-red-600 dark:text-red-400']] : []),
     ...(['check', 'done', 'recv'].includes(stage) ? [['issue', 'แจ้งแก้', views.filter(hasIssue).length, 'text-amber-600 dark:text-amber-400']] : []),
   ];
   const fKey = filters.some(f => f[0] === iFilter) ? iFilter : 'all';
   const match = (v) => fKey === 'all' ? true : fKey === 'near' ? v.near : fKey === 'short' ? v.want > 0 && v.short > 0
-    : fKey === 'over' ? v.over > 0 : fKey === 'part' ? isPart(v) : hasIssue(v);
+    : fKey === 'over' ? v.over > 0 : fKey === 'rate' ? !!chkOf(v) : fKey === 'part' ? isPart(v) : hasIssue(v);
   const iql = iq.trim().toLowerCase();
   let shown = views.filter(v => match(v) && (!iql || `${v.item.drug_name || ''} ${v.item.drug_code || ''}`.toLowerCase().includes(iql)));
   if (sort === 'log') shown = sortByLog(shown);
@@ -3536,6 +3593,11 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         <DrugTypeBadge type={v.item.drug_type} />
       </div>
       {v.item.item_note && <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">ผู้เบิก: {v.item.item_note}</p>}
+      {chkOf(v) && (
+        <p className={`text-xs mt-1 flex items-start gap-1 ${chkOf(v).level === 'stop' ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300'}`}>
+          <AlertTriangle size={12} className="shrink-0 mt-0.5" /><span>{staffNoteText(chkOf(v), unitOf(v.item))}</span>
+        </p>
+      )}
     </>
   );
   const locPills = (v) => v.locs.length
