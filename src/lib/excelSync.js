@@ -38,6 +38,8 @@ export function flattenInventory(inventoryObj = {}) {
         receive_status: item.receiveStatus || 'ไม่มีการดำเนินการ',
         safety_stock: item.safetyStock != null ? item.safetyStock : null,
         case_size: item.caseSize ?? null,
+        case_word: item.caseWord ?? null,
+        case_unit: item.caseUnit ?? null,
         price: item.price ?? null,
       })
     })
@@ -70,7 +72,8 @@ export const INVENTORY_SPEC = {
     ['location', 'ที่เก็บ'], ['code', 'รหัสยา'], ['name', 'ชื่อยา'], ['type', 'ชนิด'], ['unit', 'หน่วย'],
     ['lot', 'Lot'], ['exp', 'วันหมดอายุ'], ['qty', 'คงเหลือ', 'num'], ['invoice', 'เลขที่บิล'],
     ['main_log', 'MainLog'], ['item_type', 'ชนิดรายการ'], ['receive_status', 'สถานะตรวจรับ'],
-    ['safety_stock', 'Safety Stock', 'num'], ['case_size', 'ขนาดลัง', 'num'], ['price', 'ราคา/หน่วย', 'num'],
+    ['safety_stock', 'Safety Stock', 'num'], ['case_size', 'ขนาดลัง', 'num'], ['case_word', 'คำเรียกลัง'], ['case_unit', 'หน่วยในลัง'],
+    ['price', 'ราคา/หน่วย', 'num'],
   ],
   // แถวเดียวกันที่ "ค่าเปลี่ยน" — จับคู่ด้วยตัวตนของกองยา
   pairKey: ['location', 'code', 'lot', 'exp', 'invoice'],

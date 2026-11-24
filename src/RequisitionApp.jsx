@@ -13,7 +13,7 @@ import { parseUnit } from './lib/unitParser';
 import { allocateFefo, sortLotsForDispense, lotOrderNote, isSupportedLot } from './lib/lotAllocation';
 import { findOverReserved, availableForOwn, increasedCodes } from './lib/reservationCheck';
 import { RESERVING_STATUSES, summarizeHolds, applyHolds } from './lib/reservation';
-import { REQ_TYPES, reqTypeLabel, reqTypeOfRows, entryUnitOf, entryUnitForLots, entryQtyText, packWord, CART_KEY, CART_TYPE_KEY } from './lib/reqType';
+import { REQ_TYPES, reqTypeLabel, reqTypeOfRows, entryUnitOf, entryUnitForLots, entryQtyText, packWord, caseOfLots, caseLine, entryPackLabel, CART_KEY, CART_TYPE_KEY } from './lib/reqType';
 import { awaitsSheetEntry } from './lib/onlineReqPlan';
 import { QUEUE_TABS, stageOf, tabOf, nextStep, waitText, itemAllocation, defaultPickResult, pickPayload, verifyNoteText, sortByLog, reqFlags, PICK_REASONS, VERIFY_ISSUES } from './lib/reqStaffView';
 import { rankDrugs, matchDrugQuery } from './lib/drugSearchText';
@@ -770,7 +770,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
         const base = packs * (packSize || 1);
         totalBaseRaw += base;
         if (baseUnit && baseUnit !== '-') baseUnitCount[baseUnit] = (baseUnitCount[baseUnit] || 0) + packs;
-        if (packs > 0) fefoLots.push({ lot: lot.lot, exp: lot.exp, unit: lot.unit, itemType: lot.itemType || '', packSize: packSize || 1, packs, base, baseUnit, location: lot.location || '', supplier: lot.supplier || '' });
+        if (packs > 0) fefoLots.push({ lot: lot.lot, exp: lot.exp, unit: lot.unit, itemType: lot.itemType || '', packSize: packSize || 1, packs, base, baseUnit, location: lot.location || '', supplier: lot.supplier || '', caseSize: lot.caseSize ?? null, caseWord: lot.caseWord ?? null, caseUnit: lot.caseUnit ?? null });
       });
       // แถวซ้ำ lot เดียวกัน (จาก DB) → บวกรวมเป็น entry เดียวก่อนเรียง · ลำดับจ่าย = ยาสนับสนุนก่อน
       const fefoUnique = sortLotsForDispense(mergeSameLotEntries(fefoLots), parseExp);
@@ -788,8 +788,9 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
       // หลังหักยอดจอง (availLots) = ชุดเดียวกับที่ตะกร้าคาดว่าจะจ่าย · ถูกจองหมดทุก lot ค่อยใช้ fefoUnique
       const entry = entryUnitForLots({
         unit: drug.unit, baseUnit,
-        dispensable: (availLots.length ? availLots : fefoUnique).map(l => ({ packSize: l.packSize, unit: l.unit })),
-        others: drug.lots.filter(l => !l.expired).map(l => ({ packSize: parseUnit(l.unit).packSize, unit: l.unit })),
+        // case* = ขนาดลังราย lot (inventory.case_*) — ปุ่มลังขึ้นเมื่อทุก lot ชุดนี้รู้ลังและเท่ากัน (caseOfLots)
+        dispensable: (availLots.length ? availLots : fefoUnique).map(l => ({ packSize: l.packSize, unit: l.unit, caseSize: l.caseSize, caseWord: l.caseWord, caseUnit: l.caseUnit })),
+        others: drug.lots.filter(l => !l.expired).map(l => ({ packSize: parseUnit(l.unit).packSize, unit: l.unit, caseSize: l.caseSize, caseWord: l.caseWord, caseUnit: l.caseUnit })),
       });
       return { ...drug, totalBaseRaw, baseUnit, reservedBase, availableBase, pendingBase, entry, fefoLots: availLots };
     }), [rawResults, reservedMap]);
@@ -882,7 +883,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
     if (!term.trim()) { setRawResults([]); setLoading(false); return; }
     setLoading(true);
     if (supabase) {
-      const INV_COLS = 'id, code, name, unit, qty, lot, exp, location, invoice, item_type, main_log';
+      const INV_COLS = 'id, code, name, unit, qty, lot, exp, location, invoice, item_type, main_log, case_size, case_word, case_unit';
       // รายชื่อยาโหลดแล้ว → หาชื่อที่ตรงด้วย rankDrugs แล้วดึงแถวตามชื่อจริง (ilike ตัดช่องว่าง/แยกคำ/คำเรียกอื่นไม่ได้)
       // ยังโหลดไม่เสร็จ → ilike ชื่อ/รหัสแบบเดิม
       const nameRank = drugNames.length ? rankDrugs(drugNames.filter(n => n.reqType === reqType), term, 30).map(n => n.name) : null;
@@ -979,7 +980,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
         const isExpired = expDate && expDate < today;
         const detail = getDetail(row);
         if (!grouped[key].type && detail.drugType && detail.drugType !== '-') grouped[key].type = detail.drugType;
-        grouped[key].lots.push({ lot: row.lot, exp: row.exp, qty: rowQty, rawQty: row.qty, unit: row.unit, itemType: row.item_type || '', drugType: detail.drugType || '', location: row.location || '', supplier: detail.supplier || '', pending: isPending, expired: isExpired });
+        grouped[key].lots.push({ lot: row.lot, exp: row.exp, qty: rowQty, rawQty: row.qty, unit: row.unit, itemType: row.item_type || '', drugType: detail.drugType || '', location: row.location || '', supplier: detail.supplier || '', pending: isPending, expired: isExpired, caseSize: row.case_size ?? null, caseWord: row.case_word ?? null, caseUnit: row.case_unit ?? null });
       });
 
       if (seq !== searchSeqRef.current) return; // มีคำค้นใหม่กว่าแล้ว
@@ -1042,13 +1043,14 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
         // รายการ "ได้ยาไปแล้ว" ที่ยังไม่กรอกรายละเอียด → เพิ่มซ้ำ = ขอจริง ล้างคำนำหน้าที่เติมไว้ทิ้ง
         if (prev[idx].requestedQty === 0 && (prev[idx].note || '').trim() === ALREADY_GOT_PREFIX) u[idx] = { ...u[idx], note: '' };
         u[idx] = same ? { ...u[idx], requestedQty: u[idx].requestedQty + safeQty }
-          : { ...u[idx], requestedQty: u[idx].requestedQty + safeQty, entryPack: 1, entryLabel: drug.baseUnit, entryUnit: null, entryHint: null };
+          : { ...u[idx], requestedQty: u[idx].requestedQty + safeQty, entryPack: 1, entryLabel: drug.baseUnit, entryUnit: null, entryInner: null, entryHint: null };
         return u;
       }
-      return [...prev, { code: drug.code, name: drug.name, unit: drug.baseUnit, lot: null, drugType: drug.type || '', availableBase: drug.availableBase, fefoLots: drug.fefoLots || [], requestedQty: safeQty, entryPack: pack, entryLabel: label, entryUnit, entryHint: chosen ? null : (drug.entry?.hint || null), note: '', addedAt: new Date().toISOString() }];
+      // entryInner = ขนาดแพ็คในลัง (เลือกลัง) — ตะกร้าเทียบกับ lot ที่จะจ่ายด้วยตัวนี้ ไม่ใช่ entryPack (= ทั้งลัง)
+      return [...prev, { code: drug.code, name: drug.name, unit: drug.baseUnit, lot: null, drugType: drug.type || '', availableBase: drug.availableBase, fefoLots: drug.fefoLots || [], requestedQty: safeQty, entryPack: pack, entryLabel: label, entryUnit, entryInner: chosen?.caseInner || null, entryHint: chosen ? null : (drug.entry?.hint || null), note: '', addedAt: new Date().toISOString() }];
     });
     setQtyMap(p => ({ ...p, [drugKey]: 1 }));
-    setToast({ name: drug.name, type: drug.type || '', qty: safeQty / pack, unit: chosen ? label : entryText(label, pack) });
+    setToast({ name: drug.name, type: drug.type || '', qty: safeQty / pack, unit: entryUnit || pack === 1 ? label : entryText(label, pack) });
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -1230,6 +1232,15 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
                     </div>
                   )}
 
+                  {/* ขนาดลัง (CONTEXT §ลัง) — รู้ทุก lot และเท่ากัน · lot ปนกันบอกราย lot ในรายละเอียดแทน */}
+                  {drug.entry?.caseInfo && (
+                    <p className="text-sm text-slate-600 dark:text-slate-300 mt-1.5 flex items-center gap-1.5">
+                      <Package size={14} className="shrink-0 text-slate-400 dark:text-slate-500" />
+                      <span className="font-semibold">{caseLine(drug.entry.caseInfo)}</span>
+                      {drug.entry.caseInfo.packSize > 1 && <span className="text-xs text-slate-400 dark:text-slate-500">(= {(drug.entry.caseInfo.per * drug.entry.caseInfo.packSize).toLocaleString()} {drug.baseUnit})</span>}
+                    </p>
+                  )}
+
                   {/* รายละเอียดราย lot — บรรจุภัณฑ์/exp/ที่เก็บ/บริษัท (กดขยาย, ประมาณการ FEFO) */}
                   {!outOfStock && drug.fefoLots?.length > 0 && (
                     <div className="mt-2">
@@ -1256,6 +1267,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
                                   <span>Lot: <span className="font-mono text-slate-600 dark:text-slate-300">{l.lot || '-'}</span></span>
                                   {l.location && <span>ที่เก็บ: <span className="text-slate-600 dark:text-slate-300">{l.location}</span></span>}
                                   {l.supplier && <span>บริษัท: <span className="text-slate-600 dark:text-slate-300">{l.supplier}</span></span>}
+                                  {!drug.entry?.caseInfo && caseOfLots([l]) && <span>{caseLine(caseOfLots([l]))}</span>}
                                 </div>
                               </div>
                             );
@@ -1297,7 +1309,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
                         }}
                         className={`w-24 bg-white dark:bg-slate-900 border rounded-lg px-2 py-2 text-slate-800 dark:text-slate-100 text-center text-base font-semibold focus:outline-none focus:ring-2 focus:ring-[#1E90FF] ${warnMap[drugKey] ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/40' : 'border-slate-300 dark:border-slate-600'}`} />
                       <span className="text-sm text-slate-500 dark:text-slate-400">
-                        {chosen ? chosen.label : entryText(drug.entry?.label || drug.baseUnit, pack)}
+                        {chosen && (chosen.unit || chosen.packSize === 1) ? chosen.label : entryText(chosen?.label || drug.entry?.label || drug.baseUnit, pack)}
                         {pack > 1 && <span className="text-xs text-slate-400 dark:text-slate-500"> (= {(keyed * pack).toLocaleString()} {drug.baseUnit})</span>}
                       </span>
                       <button onClick={() => addToCart(drug, qtyMap[drugKey] ?? 1, chosen)}
@@ -1581,7 +1593,7 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
               // preview: คาดว่าจะได้ lot อะไรบ้าง ตาม FEFO (lot ตรวจรับแล้ว) — authoritative recompute ตอน picking
               const alloc = item.fefoLots && !gotAlready ? allocateFefo(item.requestedQty, item.fefoLots) : null;
               // ขนาดกล่องที่เลือกไม่ตรง lot ที่จะจ่าย → บอกเป็นกล่องจริง เช่น "2 กล่อง (500เม็ด)" แทน "เกินที่ขอ"
-              const packMismatch = alloc && item.entryUnit && item.entryPack > 1 && alloc.allocation.some(a => a.packSize !== item.entryPack)
+              const packMismatch = alloc && item.entryUnit && item.entryPack > 1 && alloc.allocation.some(a => a.packSize !== (item.entryInner || item.entryPack))
                 ? alloc.allocation.map(a => `${a.packs.toLocaleString()} ${packWord(item.unit)} (${a.unit})`).join(' + ')
                 : null;
               return (
@@ -1902,7 +1914,7 @@ function buildLotRowObjs(req, ctx) {
 // ============================================================
 const makeItemPack = (fefoByCode, unitByCode) => (item) => {
   if (Number(item.entry_pack) > 1 && item.entry_unit) {
-    return { packSize: Number(item.entry_pack), label: `${packWord(item.drug_unit)} (${item.entry_unit})` };
+    return { packSize: Number(item.entry_pack), label: entryPackLabel(item.entry_unit, item.drug_unit) };
   }
   const code = String(item.drug_code || '').trim();
   const lots = fefoByCode[code] || [];

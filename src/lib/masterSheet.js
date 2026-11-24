@@ -65,7 +65,8 @@ const toPrice = (v) => {
 
 const caseKey = (code, supplier, unit) => [code, supplier, unit].map((x) => txt(x).replace(/\s+/g, ' ')).join('|')
 
-/** ชีทขนาดลัง → Map(`รหัส|บริษัท|หน่วยซื้อ` → จำนวนต่อลัง) · ไม่มีชีท = Map ว่าง (ทุก lot "ไม่รู้ขนาดลัง")
+/** ชีทขนาดลัง → Map(`รหัส|บริษัท|หน่วยซื้อ` → { per, word, unit }) · ไม่มีชีท = Map ว่าง (ทุก lot "ไม่รู้ขนาดลัง")
+ *  per = จำนวนต่อลัง · word = คอลัมน์ "เรียกว่า" (ลัง/แพ็ค/กล่อง) · unit = "หน่วยในลัง" (ขวด/หลอด/กระปุก) — 2 ตัวหลังไม่บังคับ ว่าง = null
  *  คีย์รวมหน่วยด้วย (user เลือก 13/11/2569) — บริษัทเปลี่ยนขนาดแพ็ค = ไม่รู้ขนาดลังจนกว่าจะเพิ่มแถว ไม่ใช้ตัวเลขเดิมแบบเงียบ */
 export function parseCaseSizeGrid(grid) {
   const map = new Map()
@@ -73,13 +74,17 @@ export function parseCaseSizeGrid(grid) {
   const h = (grid[0] || []).map(txt)
   const [ci, si, ui, pi] = ['รหัส', 'บริษัท', 'หน่วยซื้อ', 'จำนวนต่อลัง'].map((n) => h.indexOf(n))
   if ([ci, si, ui, pi].some((i) => i < 0)) throw new Error(`ชีท${CASE_SHEET_NAME}: หัวตารางต้องมี รหัส · บริษัท · หน่วยซื้อ · จำนวนต่อลัง`)
+  const [wi, ni] = ['เรียกว่า', 'หน่วยในลัง'].map((n) => h.indexOf(n))
+  const opt = (r, i) => (i >= 0 ? txt(r[i]) || null : null)
   for (const r of grid.slice(1)) {
     const code = normalizeCode(r?.[ci])
     const per = Number(r?.[pi])
     if (code === '-' || !(per > 0)) continue
     const k = caseKey(code, r[si], r[ui])
-    if (map.has(k) && map.get(k) !== per) throw new Error(`ชีท${CASE_SHEET_NAME}: ${k} มีหลายแถวแต่จำนวนต่อลังไม่เท่ากัน`)
-    map.set(k, per)
+    const v = { per, word: opt(r, wi), unit: opt(r, ni) }
+    const prev = map.get(k)
+    if (prev && (prev.per !== v.per || prev.word !== v.word || prev.unit !== v.unit)) throw new Error(`ชีท${CASE_SHEET_NAME}: ${k} มีหลายแถวแต่จำนวนต่อลังไม่เท่ากัน (หรือ เรียกว่า/หน่วยในลัง ต่างกัน)`)
+    map.set(k, v)
   }
   return map
 }
@@ -127,6 +132,7 @@ export function rowToInventoryItem(row, C, serialToThai, caseSizes = null) {
   if (!name && (!code || code === '-')) return null
   const qtyReceived = at('qtyReceived')
   const unit = txt(at('unit')) || '-'
+  const cs = caseSizes?.get(caseKey(code, at('supplier'), unit)) ?? null
   return {
     location,
     item: {
@@ -143,7 +149,9 @@ export function rowToInventoryItem(row, C, serialToThai, caseSizes = null) {
       itemType: txt(at('itemType')) || null,
       safetyStock: parseFloat(numText(at('safetyStock'))) || 0,
       receiveStatus: [txt(at('status')), txt(at('result'))].filter(Boolean).join('|') || 'ไม่มีการดำเนินการ',
-      caseSize: caseSizes?.get(caseKey(code, at('supplier'), unit)) ?? null,
+      caseSize: cs?.per ?? null,
+      caseWord: cs?.word ?? null,
+      caseUnit: cs?.unit ?? null,
       price: toPrice(at('price')),
     },
   }

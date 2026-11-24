@@ -47,10 +47,47 @@ export function reqTypeOfRows(rows = []) {
 // คำเรียกแพ็คใหญ่ตอนผู้เบิกเลือกขนาด: ยาน้ำ (หน่วยย่อยขวด) = ลัง · อื่นๆ = กล่อง (user 18/11/2569)
 export const packWord = (baseUnit = '') => (/^(ขวด|bott)/i.test(String(baseUnit).trim()) ? 'ลัง' : 'กล่อง');
 
-// packUnits = [{ packSize, unit }] ของ lot ที่ยังไม่หมดอายุ เรียง lot ที่จะจ่ายก่อนไว้หน้า (ไม่ส่ง = กฎเดิม)
+// ลัง (CONTEXT §ลัง — ผู้เบิกเห็นและเบิกเป็นลัง 24/11/2569): lot มี caseSize/caseWord/caseUnit จากชีทขนาดลัง (inventory.case_*)
+// เบิกเป็นลังได้เฉพาะเมื่อ "ทุก lot" รู้ขนาดลัง และ ขนาดแพ็ค/จำนวนต่อลัง/คำเรียก/หน่วยในลัง เท่ากันหมด — ไม่ครบ = null (ห้ามเดา)
+// word ว่าง = "ลัง" · หน่วยในลังว่าง = หน่วยตาม Master ("37 × 1000เม็ด" / "10 bott") ไม่เดาว่ากล่องหรือกระปุก
+export function caseOfLots(lots = []) {
+  if (!lots.length) return null;
+  const sig = (l) => [Number(l?.packSize) > 1 ? Number(l.packSize) : 1, Number(l?.caseSize) || 0, l?.caseWord || '', l?.caseUnit || '', String(l?.unit || '').trim()].join('|');
+  if (!(Number(lots[0]?.caseSize) > 0) || lots.some(l => sig(l) !== sig(lots[0]))) return null;
+  const l = lots[0];
+  const packSize = Number(l.packSize) > 1 ? Number(l.packSize) : 1;
+  const unit = String(l.unit || '').trim();
+  const per = Number(l.caseSize);
+  const inner = l.caseUnit ? `${per} ${l.caseUnit}` : packSize > 1 ? `${per} × ${unit}` : `${per} ${unit}`;
+  return { per, packSize, unit, word: l.caseWord || 'ลัง', boxWord: l.caseUnit || null, inner };
+}
+
+// "1 ลัง = 24 กระปุก" — บรรทัดบอกขนาดลังบนการ์ดยา/รายละเอียด lot
+export const caseLine = (c) => (c ? `1 ${c.word} = ${c.inner}` : '');
+
+// entry_unit แบบมีคำเรียกในตัว "ลัง (24 กระปุก)" / "กระปุก (500เม็ด)" — ใบเก่าเก็บแค่หน่วย Master ("400เม็ด") ใช้ packWord เหมือนเดิม
+// (ตรวจ DB 24/11/2569: entry_unit เดิมมีแค่ "12หลอด" · หน่วยใน inventory ไม่มีตัวไหนมี " (" — ไม่ชนกัน)
+const WORD_FORM = /^\S+ \(.+\)$/;
+export const entryPackLabel = (entryUnit, baseUnit = '') => (WORD_FORM.test(String(entryUnit || '')) ? entryUnit : `${packWord(baseUnit)} (${entryUnit})`);
+
+// lot ขนาดเดียว + รู้ลัง → ปุ่ม [หน่วยซื้อ | ลัง] (ค่าเริ่ม = หน่วยซื้อ) · caseInner = ขนาดแพ็คในลัง (ตะกร้าเทียบกับ lot ที่จะจ่าย)
+// ปุ่มหน่วยซื้อเก็บ entry_unit เฉพาะเมื่อมีคำเรียก (หน่วยในลัง) — ไม่มีคง unit null = ใบออกหน้าตาเดิม (scrutinize 24/11/2569)
+function withCaseOption(base, c) {
+  const box = c.packSize > 1
+    ? (c.boxWord ? { packSize: c.packSize, unit: `${c.boxWord} (${c.unit})`, word: c.boxWord, label: `${c.boxWord} (${c.unit})` }
+      : { packSize: c.packSize, unit: null, word: null, label: c.unit })
+    : { packSize: 1, unit: null, word: null, label: c.boxWord || c.unit };
+  const label = `${c.word} (${c.inner})`;
+  const kase = { packSize: c.packSize * c.per, unit: label, word: c.word, label, caseInner: c.packSize };
+  return { ...base, options: [box, kase], defaultPack: box.packSize, caseInfo: c };
+}
+
+// packUnits = [{ packSize, unit, caseSize?, caseWord?, caseUnit? }] ของ lot ที่ยังไม่หมดอายุ เรียง lot ที่จะจ่ายก่อนไว้หน้า (ไม่ส่ง = กฎเดิม)
 // lot ต่างขนาด (รวมแบบไม่มีขนาด = หน่วยย่อย) → options ให้ผู้เบิกเลือก (CONTEXT §หน่วยคีย์ "กันกำกวม") · defaultPack = ขนาดของ lot แรก
 // packSize/label ของผลยังเป็นหน่วยย่อย = ค่าที่ใช้เมื่อไม่รู้ว่าเลือกอะไร (ใบเก่าที่ไม่มี entry_pack)
 export function entryUnitOf({ unit = '', baseUnit = '', packSizes = [], packUnits = null } = {}) {
+  const c = packUnits ? caseOfLots(packUnits) : null;
+  if (c) return withCaseOption(entryUnitOf({ unit, baseUnit, packSizes }), c);
   if (packUnits) {
     const seen = new Map();
     for (const p of packUnits) {
@@ -87,5 +124,5 @@ export function entryQtyText(base, entryPack, entryUnit, baseUnit = '') {
   const ps = Number(entryPack) || 0;
   if (!(ps > 1) || !entryUnit) return null;
   const n = (Number(base) || 0) / ps;
-  return `${n.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${packWord(baseUnit)} (${entryUnit})`;
+  return `${n.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${entryPackLabel(entryUnit, baseUnit)}`;
 }

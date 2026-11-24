@@ -113,7 +113,13 @@ eq(threw?.includes('ไม่มีข้อมูล'), true, 'มีแต่�
 section('parseCaseSizeGrid + ขนาดลังใน parseMasterGrid (คีย์ รหัส|บริษัท|หน่วยซื้อ — 13/11/2569)')
 const CH = ['รหัส', 'ชื่อยา', 'บริษัท', 'หน่วยซื้อ', 'จำนวนต่อลัง', 'พื้นที่เก็บ (ลัง)', 'ที่มา']
 const cm = parseCaseSizeGrid([CH, ['1590035', 'Manidipine', 'ไบโอ  ฟาร์ม', '100เม็ด', 60], ['1590035', 'x', 'อื่น', '100เม็ด', 0], [], ['', 'x', 'y', 'z', 5]])
-eq([...cm.entries()], [['1590035|ไบโอ ฟาร์ม|100เม็ด', 60]], 'ช่องว่างซ้อนยุบเหลือ 1 · ข้ามจำนวน 0/รหัสว่าง/แถวว่าง')
+eq([...cm.entries()], [['1590035|ไบโอ ฟาร์ม|100เม็ด', { per: 60, word: null, unit: null }]], 'ช่องว่างซ้อนยุบเหลือ 1 · ข้ามจำนวน 0/รหัสว่าง/แถวว่าง · ไม่มีหัว H/I = null')
+const CHI = [...CH, 'เรียกว่า', 'หน่วยในลัง']
+const cw = parseCaseSizeGrid([CHI, ['1000139', 'Furosemide', 'อภ', '500เม็ด', 20, '', '', 'ลัง', 'กระปุก'], ['1000268', 'Salbutamol', 'ดีท', 'bott', 10, '', '', ' แพ็ค ', 'หลอด'], ['1000216', 'NSS', 'GHP', 'bott', 20, '', '', '', ''], ['1000136', 'Formalin', 'อภ', 'bott', '', '', '', 'ไม่มีลัง', 'ขวด']])
+eq([...cw.values()], [{ per: 20, word: 'ลัง', unit: 'กระปุก' }, { per: 10, word: 'แพ็ค', unit: 'หลอด' }, { per: 20, word: null, unit: null }], 'อ่าน เรียกว่า/หน่วยในลัง (trim · ว่าง = null) · ไม่มีลัง (จำนวนว่าง) ข้าม')
+threw = null
+try { parseCaseSizeGrid([CHI, ['1', '', 'a', 'bott', 10, '', '', 'ลัง', 'ขวด'], ['1', '', 'a', 'bott', 10, '', '', 'แพ็ค', 'ขวด']]) } catch (e) { threw = e.message }
+eq(threw?.includes('ไม่เท่ากัน'), true, 'คีย์ซ้ำคำเรียกต่าง → throw')
 eq(parseCaseSizeGrid(null).size, 0, 'ไม่มีชีท → Map ว่าง')
 threw = null
 try { parseCaseSizeGrid([['รหัส', 'บริษัท', 'จำนวนต่อลัง'], ['1', 'a', 5]]) } catch (e) { threw = e.message }
@@ -130,6 +136,8 @@ const caseGrid = [CH, ['1590035', 'Manidipine', 'ไบโอ ฟาร์ม', 
 const oc = parseMasterGrid([H, sRow, otherCo, otherUnit], s2t, caseGrid)
 eq(oc.inventory['E-1-1 ,E-1-2 ,E-1-3'].map(i => i.caseSize), [60, null, null], 'ตรงครบ 3 ช่อง = 60 · คนละบริษัท / บริษัทเปลี่ยนแพ็ค = null')
 eq([oc.caseSize.rows, oc.caseSize.lots, oc.caseSize.unmatched], [2, 1, ['9999999|X|กล่อง']], 'นับ lot ที่ได้ + คีย์ในชีทที่ไม่ตรง lot ไหน')
+const ocw = parseMasterGrid([H, sRow, otherCo], s2t, [CHI, ['1590035', 'Manidipine', 'ไบโอ ฟาร์ม', '100เม็ด', 60, '', '', 'ลัง', 'กล่อง']])
+eq(ocw.inventory['E-1-1 ,E-1-2 ,E-1-3'].map(i => [i.caseSize, i.caseWord, i.caseUnit]), [[60, 'ลัง', 'กล่อง'], [null, null, null]], 'lot ได้ คำเรียก/หน่วยในลัง ไปพร้อมจำนวนต่อลัง · ไม่ตรง = null ทั้ง 3')
 eq(parseMasterGrid([H, sRow], s2t).inventory['E-1-1 ,E-1-2 ,E-1-3'][0].caseSize, null, 'ไม่ส่งชีทขนาดลัง → null')
 threw = null
 try { parseMasterGrid([H.filter(x => x !== 'บริษัท'), row], s2t, caseGrid) } catch (e) { threw = e.message }

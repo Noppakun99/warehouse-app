@@ -1,5 +1,5 @@
 // golden test: src/lib/reqType.js — npm run test:reqtype
-import { reqTypeOfMainLog, reqTypeOfRows, entryUnitOf, entryUnitForLots, reqTypeLabel, entryQtyText, packWord } from './reqType.js';
+import { reqTypeOfMainLog, reqTypeOfRows, entryUnitOf, entryUnitForLots, reqTypeLabel, entryQtyText, packWord, caseOfLots, caseLine, entryPackLabel } from './reqType.js';
 
 let pass = 0, fail = 0;
 const eq = (name, got, want) => {
@@ -53,6 +53,36 @@ eq('แก้จนไม่เต็มกล่อง → ทศนิยม',
 eq('ไม่ได้เลือกขนาด → null', entryQtyText(800, null, null, 'เม็ด'), null);
 eq('เลือกหน่วยย่อย → null', entryQtyText(800, 1, 'เม็ด', 'เม็ด'), null);
 eq('ป้ายประเภท', reqTypeLabel('supply'), 'ถุง/ขวด/ตลับ');
+
+console.log('=== ลัง (caseOfLots / ปุ่มลัง — CONTEXT §ลัง 24/11/2569) ===');
+const furo = { packSize: 500, unit: '500เม็ด', caseSize: 20, caseWord: 'ลัง', caseUnit: 'กระปุก' };
+const simva = { packSize: 1000, unit: '1000เม็ด', caseSize: 37, caseWord: null, caseUnit: null };
+const nss = { packSize: null, unit: 'bott', caseSize: 10, caseWord: null, caseUnit: null };
+const salb = { packSize: null, unit: 'bott', caseSize: 10, caseWord: 'แพ็ค', caseUnit: 'หลอด' };
+eq('บรรทัดลัง มีหน่วยในลัง', caseLine(caseOfLots([furo, furo])), '1 ลัง = 20 กระปุก');
+eq('หน่วยในลังว่าง → หน่วย Master มีขนาด ใช้ ×', caseLine(caseOfLots([simva])), '1 ลัง = 37 × 1000เม็ด');
+eq('หน่วยในลังว่าง → หน่วย Master ไม่มีขนาด', caseLine(caseOfLots([nss])), '1 ลัง = 10 bott');
+eq('คำเรียกแพ็ค', caseLine(caseOfLots([salb])), '1 แพ็ค = 10 หลอด');
+eq('มี lot ไม่รู้ขนาดลังปน → null', caseOfLots([furo, { ...furo, caseSize: null }]), null);
+eq('จำนวนต่อลังไม่เท่ากัน → null', caseOfLots([furo, { ...furo, caseSize: 24 }]), null);
+eq('ขนาดแพ็คต่างกัน → null', caseOfLots([furo, { ...furo, packSize: 1000, unit: '1000เม็ด' }]), null);
+eq('ไม่มี lot → null', caseOfLots([]), null);
+const ef = entryUnitOf({ unit: '500เม็ด', baseUnit: 'เม็ด', packSizes: [500, 500], packUnits: [furo, furo] });
+eq('ฟูโร: ปุ่ม กระปุก (500เม็ด) | ลัง (20 กระปุก)', ef.options, [
+  { packSize: 500, unit: 'กระปุก (500เม็ด)', word: 'กระปุก', label: 'กระปุก (500เม็ด)' },
+  { packSize: 10000, unit: 'ลัง (20 กระปุก)', word: 'ลัง', label: 'ลัง (20 กระปุก)', caseInner: 500 }]);
+eq('ค่าเริ่ม = หน่วยซื้อ · packSize/label เดิมคงอยู่', [ef.defaultPack, ef.packSize, ef.label], [500, 500, '500เม็ด']);
+const es = entryUnitOf({ unit: '1000เม็ด', baseUnit: 'เม็ด', packSizes: [1000], packUnits: [simva] });
+eq('ไม่มีหน่วยในลัง → ปุ่มหน่วยซื้อ unit null (ใบหน้าตาเดิม)', es.options.map(o => [o.packSize, o.unit, o.label]), [[1000, null, '1000เม็ด'], [37000, 'ลัง (37 × 1000เม็ด)', 'ลัง (37 × 1000เม็ด)']]);
+const eb = entryUnitOf({ unit: 'bott', baseUnit: 'bott', packSizes: [null], packUnits: [salb] });
+eq('MDI: ปุ่ม หลอด | แพ็ค (10 หลอด)', eb.options.map(o => [o.packSize, o.unit, o.label]), [[1, null, 'หลอด'], [10, 'แพ็ค (10 หลอด)', 'แพ็ค (10 หลอด)']]);
+eq('lot ต่างขนาด + รู้ลัง → กฎเดิม (ไม่มีปุ่มลัง)', entryUnitOf({ unit: '500เม็ด', baseUnit: 'เม็ด', packUnits: [furo, { ...furo, packSize: 1000, unit: '1000เม็ด' }] }).options.map(o => o.label), ['กล่อง (500เม็ด)', 'กล่อง (1000เม็ด)']);
+eq('entryUnitForLots ส่ง case ต่อ', entryUnitForLots({ unit: '500เม็ด', baseUnit: 'เม็ด', dispensable: [furo], others: [] }).options.length, 2);
+eq('lot ที่จ่ายได้ไม่รู้ลัง (lot รอตรวจรับรู้) → ไม่มีปุ่มลัง', entryUnitForLots({ unit: '500เม็ด', baseUnit: 'เม็ด', dispensable: [{ packSize: 500, unit: '500เม็ด' }], others: [furo] }).options, undefined);
+eq('ข้อความ 2 ลัง (20 กระปุก)', entryQtyText(20000, 10000, 'ลัง (20 กระปุก)', 'เม็ด'), '2 ลัง (20 กระปุก)');
+eq('ข้อความ 3 กระปุก (500เม็ด)', entryQtyText(1500, 500, 'กระปุก (500เม็ด)', 'เม็ด'), '3 กระปุก (500เม็ด)');
+eq('ป้ายใบพิมพ์ แบบมีคำเรียก', entryPackLabel('แพ็ค (10 หลอด)', 'bott'), 'แพ็ค (10 หลอด)');
+eq('ป้ายใบพิมพ์ ใบเก่า 12หลอด', entryPackLabel('12หลอด', 'หลอด'), 'กล่อง (12หลอด)');
 
 console.log(`\n${pass} ผ่าน · ${fail} ไม่ผ่าน`);
 if (fail) process.exit(1);
