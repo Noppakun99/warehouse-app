@@ -20,6 +20,7 @@ import { rankDrugs, matchDrugQuery } from './lib/drugSearchText';
 import { checkDispenseLine, requesterNoteText, staffNoteText } from './lib/dispenseCheck';
 import { SORT_BY_LOG, SORT_BY_REQ, sortRowsByLog, sheetTitle, fmtDateCE, buildSheetHtml, toPackQty, fmtPackNote } from './lib/reqSheetFormat';
 import { buildPaginatedHtml } from './lib/paginatedPrint';
+import { reqFormTitle } from './lib/printedReqForm';
 import { buildSheetXlsxBlob, htmlToPdfBlob, shareOrDownload, safeFileName } from './lib/reqSheetExport';
 import ConfirmModal from './ConfirmModal';
 import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, updateRequesterRequisition, deleteRequesterRequisitionItems, REQUESTER_LOCKED_MSG, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyAndDispenseRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows, fetchDispenseCheckData } from './lib/db';
@@ -1968,16 +1969,17 @@ async function printCoverForm(req, preopenedWin) {
     : `<div class="sig"><span>${step(n)}(ลงชื่อ)</span>${fill()}<span>(${role})</span>${rows.join('')}</div>`;
   const head = COVER_FORM.requesterHead;
   const headName = head.depts.includes(String(req.department || '').replace(/\s+/g, '')) ? head.name : '';
+  const formTitle = reqFormTitle(req.req_type);
 
   const firstHead = `
     ${lineRight('เลขที่เบิก', fill(req.req_number, 'flex:none;width:52mm;font-weight:600'))}
-    <h2>ใบเบิกเวชภัณฑ์ยา</h2>
+    <h2>${formTitle}</h2>
     <div class="hosp">${COVER_FORM.hospital}</div>
     ${lineRight('วันที่', fill(thaiDate, 'flex:none;width:40mm'))}
     <p>เรียน ผู้อำนวยการ${COVER_FORM.hospital}</p>
     ${line('ข้าพเจ้า', fill(headName || req.requester_name || ''), 'ตำแหน่ง', fill(headName ? head.position : ''))}
     ${line('หน่วยงานผู้เบิก(ฝ่าย)', fill(req.department || ''), 'มีความประสงค์จะขอเบิกวัสดุเพื่อใช้ในรายการต่อไปนี้')}`;
-  const contHead = `<div class="cont"><b>ใบเบิกเวชภัณฑ์ยา (ต่อ)</b><span>เลขที่เบิก <b>${escHtml(req.req_number)}</b> · ${escHtml(req.department || '')} · วันที่ ${thaiDate}</span></div>`;
+  const contHead = `<div class="cont"><b>${formTitle} (ต่อ)</b><span>เลขที่เบิก <b>${escHtml(req.req_number)}</b> · ${escHtml(req.department || '')} · วันที่ ${thaiDate}</span></div>`;
   const table = `<colgroup><col style="width:12mm"><col style="width:18mm"><col><col style="width:19mm">
       <col style="width:18mm"><col style="width:34mm"></colgroup>
     <thead><tr><th>ลำดับ</th><th>รหัส</th><th>รายการ</th><th>หน่วยนับ</th>
@@ -2045,6 +2047,10 @@ async function printCoverForm(req, preopenedWin) {
     .col .ln { margin-bottom: 7px; }
     /* ระยะห่างระหว่างช่องเซ็น ①–⑤ (user 23/11/2569: ยังติดกัน ให้เว้นมากขึ้น · 24/11/2569: วันที่กับ (ลงชื่อ) บล็อกถัดไปยังใกล้ 10→26→40px · ลงชื่อกับวันที่ในบล็อก 10→18px) */
     .blk { margin-bottom: 40px; }
+    /* บล็อกท้ายคอลัมน์ไม่ต้องเว้น + หัวใบชิดขึ้น — ใบ 6 รายการ (REQ-20261124-3837) ลายเซ็นเกินหน้า 40px ตกไปหน้า 2 พร้อม 3 แถวท้าย หน้า 1 ว่างครึ่งหน้า (user แจ้ง 24/11/2569) · ไม่แตะระยะช่องเซ็น */
+    .col > .blk:last-child { margin-bottom: 0; }
+    .pbody > .ln, .pbody > p { margin-bottom: 3px; }
+    .pbody > h2 { margin-bottom: 0; }
     .indent { margin-left: 14px; }
     /* margin-top ของเส้นเซ็น = ที่ว่างให้เซ็นเหนือเส้น · วันที่เว้นจากชื่อ/ตำแหน่ง (user 23/11/2569: ช่องเซ็นแน่นเกิน) */
     .sig { display: grid; grid-template-columns: auto minmax(30px, 1fr) auto; column-gap: 6px; row-gap: 3px; align-items: baseline; margin: 22px 0 6px; }
@@ -2057,7 +2063,7 @@ async function printCoverForm(req, preopenedWin) {
 
   // ไม่มีป้าย "ผู้เบิกลงชื่อกำกับหน้า" แล้ว (user 23/11/2569) — ท้ายกระดาษทุกหน้ามีเลขที่เบิก + หน้า n/N ผูกแผ่นอยู่แล้ว
   const html = buildPaginatedHtml({
-    title: `ใบเบิกเวชภัณฑ์ยา ${escHtml(req.req_number)}`,
+    title: `${formTitle} ${escHtml(req.req_number)}`,
     css, firstHead, contHead, table, rows,
     blankRow: '<tr class="blank"><td></td><td></td><td></td><td></td><td></td><td></td></tr>',
     minRows: 7, tail,
@@ -2412,7 +2418,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                   </button>
                   <button onClick={e => { e.stopPropagation(); printCoverForm(req, window.open('', '_blank')); }}
                     className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-lg transition-colors"
-                    title="พิมพ์ใบปะหน้า (ใบเบิกเวชภัณฑ์ยา)" aria-label="พิมพ์ใบปะหน้า">
+                    title={`พิมพ์ใบปะหน้า (${reqFormTitle(req.req_type)})`} aria-label="พิมพ์ใบปะหน้า">
                     <FileText size={15} />
                   </button>
                   <button onClick={e => { e.stopPropagation(); exportReqExcel([req], auth); }}

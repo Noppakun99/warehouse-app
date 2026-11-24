@@ -159,6 +159,9 @@ const css = (rowH) => `
   @media screen and (max-width: 768px) { body { padding: 12px; } .tbl-wrap { overflow-x: auto; } table { min-width: 680px; } }
 `;
 
+// ชื่อใบตามประเภทใบเบิกออนไลน์ (req_type) — ใบเบิกในแอปใช้ชื่อเดียวกับใบกระดาษ (user เลือก 24/11/2569) · ใบเก่าไม่มีประเภท = ชื่อกลาง
+export const reqFormTitle = (kind) => FORMS[kind]?.title || 'ใบเบิกเวชภัณฑ์ยา';
+
 export function buildPrintedReqFormHtml(kind, { withPrintButton = true } = {}) {
   const f = FORMS[kind];
   if (!f) throw new Error(`unknown form kind: ${kind}`);
