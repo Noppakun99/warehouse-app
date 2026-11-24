@@ -99,6 +99,8 @@ def load_ceiling(wd):
 # สถานะ PO ในไลน์ตามยา (user สั่ง 29/10/2569) — ระบบติดตามการสั่งซื้อของจัดซื้อไม่มีรายการยาแยกต่อ PO
 # มีแค่ Medicine_Name ที่จัดซื้อพิมพ์ย่อเอง → จับคู่ด้วยชื่อ (6 ตัวอักษรแรก + ขนาด) · ผลจาก scripts/po_match.py (เขียนทับทุกรอบ)
 PO_CSV = r'C:\Users\PRH0000484\Desktop\ยอดคงคลัง\ส่งบิลให้พี่โก้\_POจัดซื้อ_จับคู่บิล.csv'
+FOLLOWUP_CSV = r'C:\Users\PRH0000484\Desktop\ยอดคงคลัง\รายงานขอซื้อยา\_ทะเบียนตามยา.csv'   # ทะเบียนตามยา + คำตอบหัวหน้า
+MANUAL_ADD_CSV = r'C:\Users\PRH0000484\Desktop\ยอดคงคลัง\รายงานขอซื้อยา\_เพิ่มรายงานแจ้งซื้อ.csv'   # สั่งเพิ่มเข้ารายงานรอบหน้าเอง
 PO_OVERDUE_DAYS = 10
 # ชื่อย่อในระบบที่จับจากชื่อยาไม่ได้ — รหัส: (คำในชื่อ PO, ชื่อเต็มที่ใช้ในไลน์) · user ยืนยันแล้ว
 PO_ALIAS = {
@@ -133,6 +135,70 @@ def load_po():
             r['label'] = re.sub(r'\s+', ' ', lab).strip(' ,')
             rows.append(r)
     return rows
+
+
+MANUAL_ADD_HEAD = ['วันที่บันทึก', 'รหัส', 'รายการ', 'วันที่แจ้ง', 'จำนวนแจ้ง', 'หมายเหตุในรายงาน', 'ใครสั่ง', 'สถานะ']
+
+
+def load_manual_adds(today):
+    """รายการที่ต้องเพิ่มเข้ารายงานรอบหน้าเอง (MANUAL_ADD_CSV) ที่ยังไม่ปิด
+    สถานะ: ว่าง/รอลง = รอ · 'ลงแล้ว …' / 'ยกเลิก …' = ข้าม · 'เลื่อนถึง dd/mm/yyyy(พ.ศ.)' = ข้ามจนถึงวันนั้น"""
+    if not os.path.exists(MANUAL_ADD_CSV):
+        return []
+    with open(MANUAL_ADD_CSV, encoding='utf-8-sig', newline='') as f:
+        rd = csv.DictReader(f)
+        if rd.fieldnames != MANUAL_ADD_HEAD:
+            raise SystemExit(f'{MANUAL_ADD_CSV}: หัวคอลัมน์ไม่ใช่ {MANUAL_ADD_HEAD} (เจอ {rd.fieldnames})')
+        rows = []
+        for r in rd:
+            r = {k: (v or '').strip() for k, v in r.items()}
+            st = r['สถานะ']
+            if not r['รหัส'] or st.startswith(('ลงแล้ว', 'ยกเลิก')):
+                continue
+            m = re.match(r'เลื่อนถึง\s*(\d{1,2}/\d{1,2}/\d{4})', st)
+            if m and today < be_date(m.group(1)):
+                continue
+            rows.append(r)
+    return rows
+
+
+def load_head_notes():
+    """คำตอบหัวหน้าล่าสุดจาก FOLLOWUP_CSV → {'code': {รหัส: (วันที่, ข้อความ)}, 'po': {เลข PO: ...}} (user สั่ง 24/11/2569
+    ให้ไลน์ตามยามีหมายเหตุจากหัวหน้าของรายการนั้น — เคยร่างไลน์ PO 138.05 โดยลืมว่าหัวหน้าจะเปลี่ยน Tetracaine 15ml เป็น 1ml)
+    เฉพาะแถวช่องทางที่มีคำว่า "หัวหน้า" (ไลน์กลุ่มจัดซื้อ = คนอื่นตอบ)
+    ข้าม: ไม่มีคำตอบ / "ไม่ได้ตอบ" / สถานะขึ้นต้น "ปิด" · ไม่มีไฟล์ = ว่าง"""
+    got = {'code': {}, 'po': {}}
+    if not os.path.exists(FOLLOWUP_CSV):
+        return got
+    with open(FOLLOWUP_CSV, encoding='utf-8-sig', newline='') as f:
+        for r in csv.DictReader(f):
+            ans = (r.get('หัวหน้าตอบ') or '').strip()
+            if ('หัวหน้า' not in (r.get('ช่องทาง') or '') or not ans or ans == 'ไม่ได้ตอบ'
+                    or (r.get('สถานะ') or '').strip().startswith('ปิด')):
+                continue
+            when = (r.get('วันที่ตอบ') or r.get('วันที่ตาม') or '').strip()
+            try:
+                key = be_date(when)
+            except ValueError:
+                continue
+            val = (key, when, ans)
+            targets = [('code', r['รหัส'].strip())] if r['รหัส'].strip() not in ('', '-') else []
+            targets += [('po', m) for m in re.findall(r'PO \d+\.\d+/\d{4}', r.get('PO') or '')]
+            for kind, k in targets:
+                if k not in got[kind] or key >= got[kind][k][0]:
+                    got[kind][k] = val
+    return got
+
+
+def head_note(heads, code, po_nos, since=None):
+    """บรรทัด "หมายเหตุจากพี่" ของรายการ — คำตอบล่าสุดที่ผูกรหัส หรือเลข PO ของข้อนั้น (ไม่มี = '')
+    since = วันของมาส่งล่าสุด: คำตอบที่ผูกรหัสก่อนวันนั้นเป็นเรื่องรอบที่ของมาแล้ว ไม่ยกมา (Ethylalcohol ตอบ 11/11 ของมา 12/11)"""
+    hits = [heads['code'][code]] if code in heads['code'] and not (since and heads['code'][code][0] < since) else []
+    hits += [heads['po'][p] for p in po_nos if p in heads['po']]
+    if not hits:
+        return ''
+    _, when, ans = max(hits, key=lambda h: h[0])
+    return f"\n   หมายเหตุจากพี่ ({when}): {ans}"
 
 
 def po_match(code, name, pos):
@@ -735,7 +801,49 @@ def cmd_plan(a):
         new.append(dict(code=code, status=stv, F=r[d.ac['type']], G=r[d.ac['name']], H=r[d.ac['unit']],
                         C=lb.date().isoformat() if lb else '-', S=' / '.join(note),
                         **{k: clean(v) for k, v in row_values(d, code).items()}))
-    new.sort(key=lambda x: (order[x['status']], str(x['G']).lower()))
+    # 3a) สั่งเพิ่มเข้ารายงานเอง (MANUAL_ADD_CSV) — ยาสั่งเมื่อขอ/แจ้งซื้อด่วนนอกรอบ ที่สถานะชีทไม่ทำให้สคริปต์หยิบเอง
+    #     (user สั่ง 24/11/2569: นัดเตือนพญายอครีม 19/11 หลุดรอบ 20/11 เพราะเป็นข้อความเตือนที่ต้องอ่านเอง ไม่ใช่ขั้นของสคริปต์)
+    manual_done, manual_missing, manual_in = [], [], []
+    for m in load_manual_adds(today):
+        code = m['รหัส']
+        nd = be_date(m['วันที่แจ้ง']) if m['วันที่แจ้ง'] else today
+        in_rep = [x['B'] for x in keep if x['code'] == code and isinstance(x['B'], dt.datetime)]
+        if any(b >= nd for b in in_rep + archive.get(code, [])) or code in pending:
+            manual_done.append((m, (max(in_rep) if in_rep else None)))
+            continue
+        if code not in d.analysis:
+            manual_missing.append(m)
+            continue
+        r = d.analysis[code]
+        x = next((n for n in new if n['code'] == code), None)
+        if x is None:
+            lb = d.last_buy(code)
+            x = dict(code=code, status=r[d.ac['status']], F=r[d.ac['type']], G=r[d.ac['name']], H=r[d.ac['unit']],
+                     C=lb.date().isoformat() if lb else '-', S='', **{k: clean(v) for k, v in row_values(d, code).items()})
+            new.append(x)
+        x['B'] = nd.date().isoformat()
+        if x['status'] not in ORDER_STATUSES:   # ไม่งั้นเหตุผลขึ้น "ถึงเกณฑ์พอแล้ว — พิจารณายกเลิกแจ้ง" ทั้งที่ตั้งใจแจ้ง
+            x['WHY'] = ('หมดสต็อค' if num(x['O']) <= 0 else f"สั่งเพิ่มเข้ารายงานเอง (สถานะชีท: {str(x['status']).replace('📋 ', '')})") \
+                + " — แจ้งนอกเกณฑ์ชีท ดูหมายเหตุ"
+        if m['หมายเหตุในรายงาน']:
+            x['S'] = ' / '.join(t for t in (m['หมายเหตุในรายงาน'], x['S']) if t)
+        if m['จำนวนแจ้ง']:
+            try:
+                qty = float(m['จำนวนแจ้ง'].replace(',', ''))
+            except ValueError:
+                raise SystemExit(f"{MANUAL_ADD_CSV}: {code} จำนวนแจ้ง '{m['จำนวนแจ้ง']}' ไม่ใช่ตัวเลข")
+            x['R'] = clean(qty)
+            x['VAL'] = round(qty * num(r[d.ac['price']]), 2)
+        elif not num(x['R']):
+            warn.append(f"{code} {x['G']}: สั่งเพิ่มเข้ารายงานเอง แต่จำนวนแนะนำในชีท = 0 — ใส่ 'จำนวนแจ้ง' ใน {os.path.basename(MANUAL_ADD_CSV)} หรือหัวหน้ากำหนดเอง")
+        manual_in.append(code)
+    if manual_missing:
+        out(f"!! {os.path.basename(MANUAL_ADD_CSV)} มีรายการที่ยังไม่อยู่ในชีทวิเคราะห์สั่งซื้อ — สร้างแถวรายงานไม่ได้ (ไม่มีเรท/ROP/ราคา):")
+        for m in manual_missing:
+            out(f"   {m['รหัส']} {m['รายการ']} (แจ้ง {m['วันที่แจ้ง'] or '-'} · {m['ใครสั่ง']}) → เพิ่มรหัสในชีทวิเคราะห์ก่อน (/manage-drug-sync) แล้ว snapshot ใหม่ "
+                f"หรือ user ตัดสินให้ข้ามรอบนี้ → แก้สถานะในทะเบียนเป็น 'เลื่อน …'")
+        sys.exit(2)
+    new.sort(key=lambda x: (order.get(x['status'], 3), str(x['G']).lower()))
     for code in CEILING:
         cp = ceiling(d, code)
         if cp and cp['q'] > cp['space']:
@@ -796,6 +904,13 @@ def cmd_plan(a):
         for c, cp in held:
             out(f"   {c:>9} {str(d.analysis[c][d.ac['name']])[:34]:34} คงเหลือ {qfmt(cp['q'])} > จุดสั่ง {cp['trig']} "
                 f"| เพดาน {cp['ceil']} ({cp['bind']}) | ชีทแนะนำ {qfmt(d.analysis[c][d.ac['rec']])}")
+    if manual_in or manual_done:
+        out(f"[4e] สั่งเพิ่มเข้ารายงานเอง ({os.path.basename(MANUAL_ADD_CSV)}): เพิ่มรอบนี้ {len(manual_in)} · ลงไว้แล้ว {len(manual_done)}")
+        for c in manual_in:
+            x = next(n for n in new if n['code'] == c)
+            out(f"   + {c:>9} {str(x['G'])[:34]:34} แจ้ง {x['B']} | {x['status']} | จำนวน {x['R']} | {x['S']}")
+        for m, b in manual_done:
+            out(f"   ✓ {m['รหัส']:>9} {m['รายการ'][:34]:34} อยู่ในรายงาน/ประวัติแล้ว{f' (แจ้ง {b:%d/%m/%Y})' if b else ''} — แก้สถานะในทะเบียนเป็น 'ลงแล้ว <วันที่>'")
     out('\n[5] หัวรายงาน:', {k: (v[0][1] if isinstance(v[0], list) else v[1]) for k, v in headers.items()})
     if warn:
         out('\n!! คำเตือน (ต้องแจ้งผู้ใช้):')
@@ -847,7 +962,8 @@ def cmd_verify(a):
             errs.append(f'D{r} ไม่ใช่สูตร')
         if code in nmap:
             x = nmap[code]
-            if g('A') != UNCHECKED or not (isinstance(g('B'), dt.datetime) and g('B') == d0):
+            b0 = dt.datetime.fromisoformat(x['B']) if x.get('B') else d0   # แถวสั่งเพิ่มเองใช้วันแจ้งของตัวเอง
+            if g('A') != UNCHECKED or not (isinstance(g('B'), dt.datetime) and g('B') == b0):
                 errs.append(f'แถวใหม่ {r} {code}: A/B ไม่ถูก')
             for L in list('CFGHS') + NUM_KEYS:
                 if not same(g(L), x[L]):
@@ -941,6 +1057,7 @@ def cmd_line(a):
     notes = dict(n.split('=', 1) for n in (a.note or []))
     po_force = dict(n.split('=', 1) for n in (a.po or []))   # CODE=PO 076.05/2570 · CODE=- (ไม่มี PO)
     pos = load_po()
+    heads_said = load_head_notes()
     po_used, po_weak = set(), []
     last, unmet = d.request_stats()
     ac = d.ac
@@ -949,11 +1066,16 @@ def cmd_line(a):
     for code, r in d.analysis.items():
         stv = r[ac['status']]
         q, day, sc, sq = twin_q(d, code)
-        if sc and stv in ORDER_STATUSES and q > 0 and q >= day * 7:
+        lt = num(r[ac['lt']])
+        # คงอยู่ได้ไม่ถึง Lead Time = ของจะหมดก่อนบริษัทส่งทัน (user สั่ง 24/11/2569 — เดิมดึงแค่หมด + ไม่พอ 7 วัน)
+        short_lt = stv in ORDER_STATUSES and day > 0 and lt > 0 and q < day * lt
+        if sc and stv in ORDER_STATUSES and q > 0 and q >= day * max(7, lt):
             twin_skip.append(f"{code} {str(r[ac['name']]).strip()} (รวมยาสนับสนุนรหัส {sc} = {qfmt(q)})")
             continue
         if stv == 'หมดสต็อค' or (stv in ORDER_STATUSES and day > 0 and q < day * 7):
             sel.append((0 if stv == 'หมดสต็อค' else 1, code, r))
+        elif short_lt:
+            sel.append((2, code, r))
         # ขอเบิกไม่ครบ + ของมาแล้วรอตรวจรับ + ยังต้องซื้อ — คงเหลือไม่ต่ำจึงไม่เข้าเกณฑ์ข้างบน แต่หัวหน้าต้องรู้ (user สั่ง 05/11/2569)
         elif (stv in ORDER_STATUSES and code in notify and pending_of(d, code, r[ac['unit']])
               and open_request(code, today, last, unmet)):
@@ -983,10 +1105,13 @@ def cmd_line(a):
         why = []
         q, day = tq, tday
         if pend:
-            bills = ' · '.join(f"{b} มาส่ง {ce(d.bill_date[(code, b)])}" if (code, b) in d.bill_date else b for b, _, _ in pend)
+            bills = ' · '.join(f"{b} มาส่ง {ce(d.bill_date[(code, b)])}" if (code, b) in d.bill_date else b
+                               for b in dict.fromkeys(b for b, _, _ in pend))   # บิลเดียวหลาย lot ขึ้นครั้งเดียว
             why.append(f"ของบิล {bills} ยังรอตรวจรับ จึงยังจ่ายไม่ได้")
-        elif q > 0:
+        elif q > 0 and q < day * 7:
             why.append(f"เหลือ {qfmt(q)} {unit} ใช้สัปดาห์ละประมาณ {qfmt(round(day * 7))} {unit} ไม่พอจ่ายสัปดาห์นี้")
+        elif q > 0 and day > 0:
+            why.append(f"เหลือ {qfmt(q)} x {unit} ใช้ได้ประมาณ {round(q / day)} วัน แต่บริษัทส่งของใช้เวลาประมาณ {qfmt(round(num(r[ac['lt']])))} วัน ของจะหมดก่อนบริษัทส่งทัน")
         if pend:
             pass
         elif n and n.date() == today.date():
@@ -1030,6 +1155,7 @@ def cmd_line(a):
             po_used.update(p['เลขที่PO'] for p in hit)
             why.append(('รอบใหม่' if pend else '') + (' / '.join(po_text(p, today) for p in hit) if hit else 'ยังไม่พบ PO ในระบบติดตามการสั่งซื้อ'))
         s += f"\n   เหตุผล: {' / '.join(why)} ครับ"
+        s += head_note(heads_said, code, [p['เลขที่PO'] for p in hit] if pos is not None else [], since=lb)
         # ด่วนเพราะคำขอค้างอย่างเดียว + ของมาแล้วรอตรวจรับ = แยกหัวข้อ ไม่ใช่ของไม่มา · ของจะหมดก่อนบริษัทส่งทันยังอยู่ด่วน
         cov = coverage_days(d, code)
         arrived = pend and opened and code not in NOT_URGENT and cov != 0 and (cov == '-' or cov > num(r[ac['lt']]))
@@ -1039,10 +1165,11 @@ def cmd_line(a):
     for p in (pos or []):
         if p['เลขที่PO'] in po_used or 'เกินกำหนด' not in p['ผล']:
             continue
-        co = re.sub(r'^บริษัท\s*', '', p['บริษัท(ระบบ)']).strip()
+        co = re.sub(r'^บริษัท\s*', '', p['บริษัท(ระบบ)']).strip().replace('จ ากัด', 'จำกัด').replace('จํากัด', 'จำกัด')
         days = (today - p['issued']).days
-        items.append((2, 2, f"{p['label']} — {p['เลขที่PO']} ออกวันที่ {ce(p['issued'])} บริษัท {co}"
-                            f"\n   เหตุผล: ออก PO แล้ว {days} วัน (เกิน {PO_OVERDUE_DAYS} วัน) ยังไม่มีของเข้า ครับ"))
+        items.append((2, 3, f"{p['label']} — {p['เลขที่PO']} ออกวันที่ {ce(p['issued'])} บริษัท {co}"
+                            f"\n   เหตุผล: ออก PO แล้ว {days} วัน (เกิน {PO_OVERDUE_DAYS} วัน) ยังไม่มีของเข้า ครับ"
+                            + head_note(heads_said, None, [p['เลขที่PO']])))
     items.sort(key=lambda t: (t[0], t[1]))
     heads = {0: 'ด่วน — หมด / ของจะหมดก่อนบริษัทส่งทัน / หน่วยงานขอเบิกแล้วยังไม่ได้ของ',
              1: 'ของมาแล้ว — หน่วยงานขอเบิกแล้วได้ไม่ครบ', 2: 'ติดตามทั่วไป'}
@@ -1056,7 +1183,9 @@ def cmd_line(a):
             lines += [f"{i}. {s}", ""]
     out('\n'.join(lines).rstrip())
     out('\n---- ตรวจสอบ (ไม่ต้องส่งไลน์) ----')
-    out(f'{len(sel)} รายการ (ด่วน {sum(1 for t in items if t[0] == 0)}): หมดสต็อค {sum(1 for t in sel if t[0] == 0)} · ไม่พอจ่ายภายใน 7 วัน {sum(1 for t in sel if t[0] == 1)}')
+    out(f'{len(sel)} รายการ (ด่วน {sum(1 for t in items if t[0] == 0)}): หมดสต็อค {sum(1 for t in sel if t[0] == 0)} · ไม่พอจ่ายภายใน 7 วัน {sum(1 for t in sel if t[0] == 1)}'
+        f' · คงอยู่ได้ไม่ถึง Lead Time {sum(1 for t in sel if t[0] == 2)}'
+        f' · มีหมายเหตุจากหัวหน้า {sum(1 for t in items if "หมายเหตุจากพี่" in t[2])} ข้อ (จาก _ทะเบียนตามยา.csv)')
     if twin_skip:
         out('ไม่อยู่ในไลน์เพราะยาสนับสนุนรหัสคู่ยังพอ (SUPPORT_TWIN):', '; '.join(twin_skip))
     miss = [c for c, _, src in audit if src != 'แจ้ง']

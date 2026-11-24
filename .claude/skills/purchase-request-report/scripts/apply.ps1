@@ -70,7 +70,7 @@ try {
   foreach ($x in $plan.new) {
     $r = $lo.ListRows.Add().Range.Row
     $rp.Range("A$r").Formula = $UNCHECKED
-    $rp.Range("B$r").Value2 = $b
+    if ($x.B) { $rp.Range("B$r").Value2 = [DateTime]::ParseExact($x.B, 'yyyy-MM-dd', $null).ToOADate() } else { $rp.Range("B$r").Value2 = $b }
     SetDate $rp.Range("C$r") $x.C
     $rp.Range("D$r").Formula = "=IF(OR(NOT(ISNUMBER(B$r)),NOT(ISNUMBER(C$r))),`"-`",B$r-C$r)"
     if ($x.code -match '^\d+$') { $rp.Range("E$r").Value2 = [double]$x.code } else { $rp.Range("E$r").Formula = [string]$x.code }

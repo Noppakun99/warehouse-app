@@ -151,6 +151,7 @@ Single-page React (ไม่มี React Router) — ทุก Supabase query �
 - `/apply-location-moves` — check-complete เจอใบ pending รันเลยไม่ต้องถาม (อนุญาตถาวร 27/10/2569) · conflict ถาม user
 - `/handoff` — ก่อน `/clear` ที่ ~250K token ([hook](.claude/hooks/context-guide.mjs) เตือนเอง) · วัดผล `python -B scripts/tok.py --since <วันที่>`
 - `/purchase-request-report` — หลัง publish ทุกรอบทำสำเนา `archive_copy.ps1` (user สั่ง 14/10/2569)
+- `/work-closeout` — **ด่านปิดงานกันตกหล่น ก่อนสรุปงานทุกครั้ง** (user สั่ง 24/11/2569) · เรื่องรอบหน้าต้องอยู่ในทะเบียนที่สคริปต์อ่าน (`_เพิ่มรายงานแจ้งซื้อ.csv` · `_ทะเบียนตามยา.csv`) ไม่ใช่แค่นัดเตือน
 - `/return-policy-check` — นโยบายคืนบริษัทราย lot (ตรรกะเดียวกับบัตรยา) + เทียบป้าย "บริษัทไม่รับคืน" ในบอทด้วย `{"dryRun":true}`
 
 **เมื่อสร้าง UI ใหม่ → อ่าน `.claude/skills/ui-style-guide/SKILL.md` ก่อนเสมอ**
