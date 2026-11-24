@@ -2784,6 +2784,10 @@ const defaultActor = (auth) => (auth.name && auth.name.trim() && auth.name.trim(
 const SORT_PREF_KEY = 'req_staff_sort';
 
 // ---- Staff Dashboard (คิวใบเบิก) ----
+// เพดานใบเบิกที่หน้าคลังโหลด (ใหม่สุดก่อน) · เตือนที่ 90%
+const STAFF_LIST_LIMIT = 200;
+const STAFF_LIST_WARN = 180;
+
 function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, dateFilter, setDateFilter, onProxyRequest }) {
   const wide = useMinWidth(1024);
   const [list, setList]         = useState([]);
@@ -2798,9 +2802,30 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
     const { data } = await supabase.from('requisitions').select('*, requisition_items(*)')
-      .order('created_at', { ascending: false }).limit(200);
+      .order('created_at', { ascending: false }).limit(STAFF_LIST_LIMIT);
     setList(data||[]); setLoading(false);
   }, []);
+
+  // ประวัติเลือกวันที่เก่ากว่าใบที่โหลดมา (โหลดเต็มเพดานแล้ว) → ดึงใบของวันนั้นจากฐานข้อมูลตรง (user สั่ง 24/11/2569)
+  // วันที่เทียบแบบ UTC เหมือน inHistDate ด้านล่าง
+  const oldestLoaded = list.length ? String(list[list.length - 1].created_at || '').slice(0, 10) : '';
+  const needDay = list.length >= STAFF_LIST_LIMIT && dateFilter && dateFilter <= oldestLoaded ? dateFilter : '';
+  const [dayRows, setDayRows] = useState({ day: '', rows: [] });
+  useEffect(() => {
+    if (!needDay || !supabase) return;
+    let alive = true;
+    const next = new Date(`${needDay}T00:00:00Z`); next.setUTCDate(next.getUTCDate() + 1);
+    supabase.from('requisitions').select('*, requisition_items(*)')
+      .gte('created_at', `${needDay}T00:00:00Z`).lt('created_at', next.toISOString())
+      .order('created_at', { ascending: false })
+      .then(({ data }) => { if (alive) setDayRows({ day: needDay, rows: data || [] }); });
+    return () => { alive = false; };
+  }, [needDay]);
+  const allList = useMemo(() => {
+    if (!needDay || dayRows.day !== needDay) return list;
+    const ids = new Set(list.map(r => r.id));
+    return [...list, ...dayRows.rows.filter(r => !ids.has(r.id))];
+  }, [list, needDay, dayRows]);
 
   useEffect(() => {
     load();
@@ -2836,9 +2861,9 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
   const byTab = useMemo(() => {
     const inHistDate = (r) => !dateFilter || (r.created_at && r.created_at.slice(0, 10) === dateFilter);
     const m = Object.fromEntries(QUEUE_TABS.map(t => [t.key, []]));
-    list.forEach(r => { const k = tabOf(r); if (k !== 'hist' || inHistDate(r)) m[k].push(r); });
+    allList.forEach(r => { const k = tabOf(r); if (k !== 'hist' || inHistDate(r)) m[k].push(r); });
     return m;
-  }, [list, dateFilter]);
+  }, [allList, dateFilter]);
 
   const typeKeys = useMemo(() => [...new Set(list.map(r => r.req_type).filter(Boolean))], [list]);
   const ql = q.trim().toLowerCase();
@@ -3012,6 +3037,19 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
             className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 rounded-xl px-3 py-1.5 text-sm font-medium whitespace-nowrap">
             <FileDown size={16}/> Excel
           </button>
+          {/* เตือนเพดานรายการ (user สั่ง 24/11/2569): ≥90% เหลือง · เต็ม = ใบเก่ากว่าไม่ขึ้นใน "ทุกวันที่" ต้องเลือกวันที่ */}
+          {tab === 'hist' && list.length >= STAFF_LIST_WARN && (
+            <p className={`basis-full flex items-start gap-1.5 text-xs px-3 py-2 rounded-xl border ${list.length >= STAFF_LIST_LIMIT
+              ? 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800/60'
+              : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'}`}>
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <span>
+                {list.length >= STAFF_LIST_LIMIT
+                  ? `หน้านี้โหลดใบเบิกล่าสุดได้ ${STAFF_LIST_LIMIT} ใบ (ย้อนถึง ${thaiDateFromIso(oldestLoaded)}) ใบที่เก่ากว่าไม่ขึ้นใน "ทุกวันที่" — เลือกวันที่เพื่อดูใบเก่า ข้อมูลไม่หาย`
+                  : `ใบเบิกในหน้านี้ ${list.length}/${STAFF_LIST_LIMIT} ใบ (ย้อนถึง ${thaiDateFromIso(oldestLoaded)}) ใกล้เพดานแล้ว — เกินแล้วใบเก่าสุดจะไม่ขึ้นใน "ทุกวันที่" แต่ยังเลือกวันที่ดูได้`}
+              </span>
+            </p>
+          )}
         </div>
 
         {/* แถบทำกับใบที่ติ๊ก ("เลือกทั้งหมด" อยู่ในแถบนี้ — user สั่ง 14/11/2569) */}
