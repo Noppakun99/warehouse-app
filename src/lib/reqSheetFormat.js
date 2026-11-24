@@ -77,9 +77,10 @@ const cellText = (col, v) => {
 
 // rows = [{ date, mainLog, detailLog, code, drugType, name, unit, price, lot, exp, itemType, before, out, after, dept, note, nearExp }]
 //   ค่าเป็นข้อความที่ฟอร์แมตแล้ว (วันที่/exp) ยกเว้นตัวเลข · nearExp = ระบายแดงช่อง Exp แบบใบ lot คุม
-// opts: { title, centerNo, printedAt (Date), autoPrint, footerNote }
+// opts: { title, centerNo, printedAt (Date), autoPrint, footerNote, meta, metaWarn }
 // A4 แนวนอน · หัวตารางซ้ำทุกหน้า · หัวกระดาษ ซ้าย=ชื่อใบ กลาง="เลขที่ …" ขวา=วันเวลาพิมพ์ (เหมือน PageSetup ของ ps1)
-export function buildSheetHtml(rows = [], { title = '', centerNo = '', printedAt = new Date(), autoPrint = false, footerNote = '' } = {}) {
+// meta = บรรทัดเล็กใต้หัวกระดาษ (ผู้เบิก · ผู้จัดยา · สถานะ) · metaWarn = คำเตือนตัวหนาต่อท้าย — ยกมาจากใบ lot คุมที่รวมเข้าใบนี้ 24/11/2569
+export function buildSheetHtml(rows = [], { title = '', centerNo = '', printedAt = new Date(), autoPrint = false, footerNote = '', meta = '', metaWarn = '' } = {}) {
   const cols = SHEET_COLS.filter(c => !c.hidden)
   // ColumnWidth ของ Excel = จำนวนตัวอักษร → px จริง = กว้าง×7+5 (ช่องแคบได้สัดส่วนกว้างกว่าแบ่งตรงๆ เท่า PDF คลัง)
   const px = (c) => c.width * 7 + 5
@@ -88,6 +89,7 @@ export function buildSheetHtml(rows = [], { title = '', centerNo = '', printedAt
   const head = cols.map(c => `<th class="col">${esc(c.header)}</th>`).join('')
   // หัวกระดาษอยู่ใน thead → ซ้ำทุกหน้าแบบ LeftHeader/CenterHeader/RightHeader ของ Excel
   const pageHead = `<tr><th class="ph" colspan="${cols.length}"><div class="head"><span>${esc(title)}</span><span>${centerNo ? `เลขที่ ${esc(centerNo)}` : ''}</span><span>${esc(fmtPrintedAt(printedAt))}</span></div></th></tr>`
+    + (meta || metaWarn ? `<tr><th class="pm" colspan="${cols.length}">${esc(meta)}${metaWarn ? ` <span class="warn">(${esc(metaWarn)})</span>` : ''}</th></tr>` : '')
   const body = rows.map(r => `<tr>${cols.map(c => {
     const cls = [c.align, c.big ? 'big' : '', c.bold ? 'b' : '', c.key === 'exp' && r.nearExp ? 'near' : ''].filter(Boolean).join(' ')
     return `<td class="${cls}">${esc(cellText(c, r[c.key]))}</td>`
@@ -109,6 +111,8 @@ export function buildSheetHtml(rows = [], { title = '', centerNo = '', printedAt
   th, td { border: 1px solid #000; padding: 1pt 1.5pt; font-size: 10pt; vertical-align: middle; word-break: break-word; }
   th.col { font-weight: 700; font-size: 9.5pt; text-align: center; height: 40pt; padding: 1pt 0; word-break: normal; overflow-wrap: normal; }
   th.ph { border: 0; padding: 0 0 6pt; font-weight: 700; }
+  th.pm { border: 0; padding: 0 0 4pt; font-weight: 400; font-size: 10pt; text-align: left; }
+  th.pm .warn { font-weight: 700; color: #b45309; }
   td { height: 28pt; }
   td.c { text-align: center; } td.r { text-align: right; } td.l { text-align: left; }
   td.big { font-size: 14pt; }

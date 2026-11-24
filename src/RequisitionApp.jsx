@@ -21,7 +21,7 @@ import { checkDispenseLine, requesterNoteText, staffNoteText } from './lib/dispe
 import { SORT_BY_LOG, SORT_BY_REQ, sortRowsByLog, sheetTitle, fmtDateCE, buildSheetHtml, toPackQty, fmtPackNote } from './lib/reqSheetFormat';
 import { buildPaginatedHtml } from './lib/paginatedPrint';
 import { reqFormTitle } from './lib/printedReqForm';
-import { buildSheetXlsxBlob, htmlToPdfBlob, shareOrDownload, safeFileName } from './lib/reqSheetExport';
+import { buildSheetXlsxBlob, htmlToPdfBlob, pagesToPdfBlob, shareOrDownload, safeFileName } from './lib/reqSheetExport';
 import ConfirmModal from './ConfirmModal';
 import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, updateRequesterRequisition, deleteRequesterRequisitionItems, REQUESTER_LOCKED_MSG, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyAndDispenseRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows, fetchDispenseCheckData } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
@@ -1665,12 +1665,17 @@ async function buildReqSheetRows(reqs, sort = SORT_BY_REQ) {
 const reqSheetTitle = (req) => sheetTitle(req.department, req.req_type ? reqTypeLabel(req.req_type) : '');
 const reqSheetNo = (req) => req.receipt_no || req.req_number || '';
 const reqFileBase = (req, sort) => safeFileName(`${reqSheetTitle(req)}${sort === SORT_BY_LOG ? ' (ตามที่เก็บ)' : ''}_${reqSheetNo(req)}`);
+// บรรทัดใต้หัวใบ — ยกมาจากใบ lot คุม (รวมเข้าใบนี้ 24/11/2569) · ยังไม่จัดยา = lot ในใบเป็นแค่ประมาณการ FEFO
+const reqSheetMeta = (req) => ({
+  meta: [`ผู้เบิก: ${req.requester_name || '-'}`, req.picker_name ? `ผู้จัดยา: ${req.picker_name}` : '', `สถานะ: ${STATUS_CONFIG[req.status]?.label || req.status}`].filter(Boolean).join(' · '),
+  metaWarn: ['pending', 'approved', 'partial', 'rejected'].includes(req.status) ? 'ประมาณการ FEFO — ยังไม่จัดยา' : '',
+});
 
 // พิมพ์ — preopenedWin = หน้าต่างที่เปิดตอนคลิก (กัน popup blocker); ไม่มี/โดนบล็อก → openPrintUrl มี <a> fallback สำหรับ LINE WebView
 async function printReq(req, preopenedWin, sort = SORT_BY_REQ) {
   const rows = await buildReqSheetRows([req], sort);
   const html = buildSheetHtml(rows, {
-    title: reqSheetTitle(req), centerNo: reqSheetNo(req), autoPrint: true,
+    title: reqSheetTitle(req), centerNo: reqSheetNo(req), autoPrint: true, ...reqSheetMeta(req),
     // ลิงก์ blob: ของหน้านี้เปิดได้เฉพาะเครื่องที่สร้าง — ผู้ใช้เคยแชร์ลิงก์เข้า LINE แล้วผู้รับเปิดไม่ได้ (13/11/2569)
     footerNote: 'ลิงก์ของหน้านี้เปิดได้เฉพาะเครื่องนี้ — จะส่งให้คนอื่นพิมพ์ ใช้ปุ่ม "ส่งเป็น PDF" ในแอป',
   });
@@ -1683,7 +1688,7 @@ async function printReq(req, preopenedWin, sort = SORT_BY_REQ) {
 // ส่งเป็น PDF — มือถือเปิด share sheet (LINE ได้ไฟล์ PDF) · คอมดาวน์โหลดไฟล์
 async function shareReqPdf(req, sort, auth) {
   const rows = await buildReqSheetRows([req], sort);
-  const html = buildSheetHtml(rows, { title: reqSheetTitle(req), centerNo: reqSheetNo(req) });
+  const html = buildSheetHtml(rows, { title: reqSheetTitle(req), centerNo: reqSheetNo(req), ...reqSheetMeta(req) });
   const blob = await htmlToPdfBlob(html);
   const fileName = `${reqFileBase(req, sort)}.pdf`;
   const result = await shareOrDownload(blob, fileName, reqSheetTitle(req));
@@ -1739,10 +1744,10 @@ const lotBeforeAfter = (req, code, lot, out, snap, onHandByLot, lastImportAt) =>
 };
 
 // ============================================================
-// ใบ lot คุม (Lot Control Sheet) — เอกสารคุมคลังแนวนอน 16 คอลัมน์ตามแบบรายงาน HosXP
-// รายรหัส×lot เรียงตามเส้นทางเดินหยิบ (MainLog → DetailedLog) — ดู CONTEXT.md §ใบ lot คุม
+// ใบ lot คุม (Lot Control Sheet) — รวมเข้า "พิมพ์ใบเบิก" แบบเรียงตามที่เก็บแล้ว 24/11/2569 (ข้อมูลชุดเดียวกัน · user เลือก)
+// ดู CONTEXT.md §ใบ lot คุม
 // ============================================================
-// แถวราย lot ของใบ (คงเหลือก่อน/หลัง + หมายเหตุอัตโนมัติ) — ใช้ร่วม ใบ lot คุม / ใบพิมพ์แบบชีทเบิก / PDF / Excel
+// แถวราย lot ของใบ (คงเหลือก่อน/หลัง + หมายเหตุอัตโนมัติ) — ใช้ร่วม ใบพิมพ์แบบชีทเบิก / PDF / Excel
 // เลขทุกเอกสารต้องตรงกัน (Rule #6) · ctx = ผล computeReqAllocations + lastImportAt · คืนตามลำดับในใบ (ยังไม่เรียง)
 function buildLotRowObjs(req, ctx) {
   const { allocByItem, onHandByLot, onHandByCode, logMap, unitByCode = {}, pendingCodes, discontinuedCodes, supplierChangedLots, fefoByCode, lastImportAt } = ctx;
@@ -1823,85 +1828,6 @@ function buildLotRowObjs(req, ctx) {
   return rowObjs;
 }
 
-async function printLotControl(req, preopenedWin) {
-  const ctx = await computeReqAllocations([req]);
-  ctx.lastImportAt = await fetchLastInventoryImportAt();
-  const pad = n => String(n).padStart(2, '0');
-  const fmtDateCE = (iso) => { const d = new Date(iso); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`; };
-  const now = new Date();
-  const isPicked = !['pending', 'approved', 'partial', 'rejected'].includes(req.status);
-  const rowObjs = buildLotRowObjs(req, ctx);
-  // เรียงตามเส้นทางเดินหยิบ — ไม่มีที่เก็บไปท้ายสุด
-  const sk = v => (v && String(v).trim()) ? String(v).trim() : '￿';
-  rowObjs.sort((a, b) => sk(a.mainLog).localeCompare(sk(b.mainLog), 'en') || sk(a.detailLog).localeCompare(sk(b.detailLog), 'en'));
-
-  const dateCol = fmtDateCE(req.created_at);
-  const rows = rowObjs.map(r => `
-    <tr>
-      <td class="c">${dateCol}</td>
-      <td class="c">${escHtml(r.mainLog || '-')}</td>
-      <td class="c">${escHtml(r.detailLog || '-')}</td>
-      <td class="c">${escHtml(r.code)}</td>
-      <td class="c">${escHtml(r.drugType)}</td>
-      <td>${escHtml(r.name)}</td>
-      <td class="c">${escHtml(r.unit)}</td>
-      <td class="r">${r.price != null ? Number(r.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
-      <td class="c">${escHtml(r.lot)}</td>
-      <td class="c${r.exp && isNearExpiry(r.exp) ? ' exp-near' : ''}">${r.exp ? fmtExp(r.exp) : '-'}</td>
-      <td class="c">${escHtml(r.itemType)}</td>
-      <td class="r">${r.before.toLocaleString()}</td>
-      <td class="r">${r.out.toLocaleString()}</td>
-      <td class="r">${r.after.toLocaleString()}</td>
-      <td class="c">${escHtml(req.department || '-')}</td>
-      <td>${escHtml(r.note)}</td>
-    </tr>`).join('');
-
-  const html = `<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
-    <title>ใบ lot คุม ${req.req_number}</title>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
-      @page { size: A4 landscape; margin: 8mm; }
-      body { font-family: 'Sarabun', sans-serif; font-size: 13px; margin: 12px; color: #111;
-             -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .head { display: flex; justify-content: space-between; align-items: baseline; font-weight: 700; font-size: 16px; }
-      .meta { color: #334155; font-size: 12px; margin: 2px 0 8px; }
-      table { width: 100%; border-collapse: collapse; }
-      thead { display: table-header-group; }
-      tr { page-break-inside: avoid; }
-      th, td { border: 1px solid #94a3b8; padding: 3px 5px; font-size: 11.5px; vertical-align: top; }
-      th { font-weight: 700; text-align: center; background: #f1f5f9; }
-      td.c { text-align: center; } td.r { text-align: right; }
-      td.exp-near { background: #f87171; font-weight: 600; }
-    </style></head><body>
-    <div class="head">
-      <span>${escHtml(req.department || '-')}</span>
-      <span>${fmtDateCE(now)} เวลา:${pad(now.getHours())}:${pad(now.getMinutes())}</span>
-    </div>
-    <div class="meta">
-      ใบ lot คุม — เลขที่: <strong>${escHtml(req.req_number)}</strong>
-      &nbsp;|&nbsp; ผู้เบิก: ${escHtml(req.requester_name || '-')}
-      ${req.picker_name ? `&nbsp;|&nbsp; ผู้จัดยา: ${escHtml(req.picker_name)}` : ''}
-      &nbsp;|&nbsp; สถานะ: ${STATUS_CONFIG[req.status]?.label || req.status}
-      ${!isPicked ? ' <strong style="color:#b45309">(ประมาณการ FEFO — ยังไม่จัดยา)</strong>' : ''}
-    </div>
-    <table>
-      <thead><tr>
-        <th>วันที่เบิก</th><th>MainLog</th><th>DetailedLog</th><th>รหัส</th><th>ชนิด</th>
-        <th>รายการยา</th><th>หน่วย</th><th>ราคา/หน่วย</th><th>Lot Number</th><th>Exp</th>
-        <th>ชนิดรายการ</th><th>คงเหลือก่อนเบิก</th><th>ปริมาณ (ออก)</th><th>คงเหลือหลังจ่าย</th>
-        <th>หน่วยงานที่เบิก</th><th>หมายเหตุ</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <script>window.onload=()=>{window.print();}</script>
-    </body></html>`;
-
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const url  = URL.createObjectURL(blob);
-  openPrintUrl(url, preopenedWin);
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
-}
-
 // ============================================================
 // หน่วยนับของรายการในใบพิมพ์ = หน่วยซื้อตาม Master แบบใบตัดเบิก (6,000 เม็ด → 6 × 1000เม็ด · user สั่ง 14/11/2569)
 // กฎเดียวกับหน้าคีย์ (entryUnitOf): lot ต่างขนาดแพ็ค / ไม่มีขนาด = คงหน่วยย่อยที่ DB เก็บ
@@ -1927,7 +1853,7 @@ const fmtPack = (base, packSize) => toPackQty(base, packSize).toLocaleString('en
 // สายลายเซ็นชุดเดียวท้ายใบ เลข ①–⑤ = ลำดับการเซ็น (CONTEXT §ใบเบิกฟอร์มรายการ: ผู้ขอเบิก → ผู้เบิก → ผู้จ่าย → ผู้รับ → ผู้อนุมัติ)
 // หลายหน้า: เลขที่เบิก + หน้า n/N ทุกหน้า (ป้ายผู้เบิกลงชื่อกำกับหน้า เอาออก 23/11/2569)
 // ============================================================
-async function printCoverForm(req, preopenedWin) {
+async function buildCoverHtml(req, autoPrint = true) {
   const { fefoByCode, unitByCode } = await computeReqAllocations([req]);
   const allItems = req.requisition_items || [];
   const items = req.status === 'partial'
@@ -2062,17 +1988,13 @@ async function printCoverForm(req, preopenedWin) {
     .step { display: inline-block; min-width: 1.35em; height: 1.35em; line-height: 1.3em; border: 1px solid #000; border-radius: 50%; text-align: center; font-size: 12px; font-weight: 700; margin-right: 3px; }`;
 
   // ไม่มีป้าย "ผู้เบิกลงชื่อกำกับหน้า" แล้ว (user 23/11/2569) — ท้ายกระดาษทุกหน้ามีเลขที่เบิก + หน้า n/N ผูกแผ่นอยู่แล้ว
-  const html = buildPaginatedHtml({
+  return buildPaginatedHtml({
     title: `${formTitle} ${escHtml(req.req_number)}`,
     css, firstHead, contHead, table, rows,
     blankRow: '<tr class="blank"><td></td><td></td><td></td><td></td><td></td><td></td></tr>',
-    minRows: 7, tail,
+    minRows: 7, tail, autoPrint,
     footLeft: `${req.req_number} · ${req.department || ''}`,
   });
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const url  = URL.createObjectURL(blob);
-  openPrintUrl(url, preopenedWin);
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 // ============================================================
@@ -2081,7 +2003,7 @@ async function printCoverForm(req, preopenedWin) {
 // จำนวน = requested_qty เสมอ (ไม่ใช่ approved_qty) — ใบนี้เป็นหลักฐานว่าหน่วยงานขออะไร
 // แบ่งหน้าเอง (buildPaginatedHtml) — หัวคอลัมน์ทุกหน้า เส้นตารางปิดครบ (เดิม Safari ตัดแถวครึ่งตัว หน้า 2 ไม่มีหัวตาราง)
 // ============================================================
-async function printRequestForm(req, preopenedWin) {
+async function buildRequestHtml(req, autoPrint = true) {
   const items = req.requisition_items || [];
   const { fefoByCode, unitByCode } = await computeReqAllocations([req]);
   const packOf = makeItemPack(fefoByCode, unitByCode);
@@ -2129,16 +2051,37 @@ async function printRequestForm(req, preopenedWin) {
     .sig p { margin: 0 0 8px; }
     .ln { display: inline-block; border-bottom: 1px dotted #333; min-width: 190px; }`;
 
-  const html = buildPaginatedHtml({
+  return buildPaginatedHtml({
     title: `ใบขอเบิก ${escHtml(req.req_number)}`,
     css, firstHead, contHead, table,
     rows: rows.length ? rows : ['<tr><td colspan="6" class="c">ไม่มีรายการ</td></tr>'],
-    tail, footLeft: `${req.req_number} · ${req.department || ''}`,
+    tail, autoPrint, footLeft: `${req.req_number} · ${req.department || ''}`,
   });
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const url  = URL.createObjectURL(blob);
+}
+
+// ใบแนวตั้ง 2 แบบ (ใบปะหน้า · ใบขอเบิก) — พิมพ์เครื่องพิมพ์ หรือ ส่งเป็น PDF (user สั่ง 24/11/2569 ให้ทุกใบพิมพ์เลือกได้)
+const FORM_DOCS = {
+  cover:   { build: buildCoverHtml,   name: (req) => reqFormTitle(req.req_type) },
+  request: { build: buildRequestHtml, name: () => 'ใบขอเบิก' },
+};
+async function printForm(doc, req, preopenedWin) {
+  const html = await FORM_DOCS[doc].build(req);
+  const url  = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
   openPrintUrl(url, preopenedWin);
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+async function shareFormPdf(doc, req, auth) {
+  const name = FORM_DOCS[doc].name(req);
+  const blob = await pagesToPdfBlob(await FORM_DOCS[doc].build(req, false));
+  const fileName = `${safeFileName(`${name} ${req.department || ''}_${reqSheetNo(req)}`)}.pdf`;
+  const result = await shareOrDownload(blob, fileName, name);
+  if (result !== 'cancelled') {
+    await insertAuditLog({
+      action: 'export_pdf', table_name: 'requisitions', record_id: req.id,
+      user_name: resolveAuditUserName(auth), department: auth?.department,
+      details: { req_number: req.req_number, receipt_no: req.receipt_no || null, file: fileName, via: result, doc, req_department: req.department },
+    });
+  }
 }
 
 // ---- Requisition History ----
@@ -2405,18 +2348,18 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                 <div className="flex items-center gap-1 sm:gap-2 shrink-0 ml-auto">
                   <span className={`text-xs px-2.5 py-1 rounded-full font-medium whitespace-nowrap ${cfg.badge}`}>{cfg.label}</span>
                   {/* พิมพ์ 3 แบบ (user สั่ง 14/11/2569): ใบขอเบิก = ที่ผู้เบิกกรอก · ใบตัดเบิก = lot ที่ระบบ/คลังจัด · ใบปะหน้า */}
-                  <button onClick={e => { e.stopPropagation(); printRequestForm(req, window.open('', '_blank')); }}
+                  <button onClick={e => { e.stopPropagation(); setOutReq({ req, doc: 'request' }); }}
                     className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/50 rounded-lg transition-colors"
                     title="พิมพ์ใบขอเบิก (รายการที่หน่วยงานขอ)" aria-label="พิมพ์ใบขอเบิก">
                     <ClipboardList size={15} />
                   </button>
-                  <button onClick={e => { e.stopPropagation(); setOutReq(req); }}
+                  <button onClick={e => { e.stopPropagation(); setOutReq({ req, doc: 'sheet' }); }}
                     className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-[#1E90FF] hover:bg-[#F0F8FF] dark:hover:bg-slate-800 rounded-lg transition-colors"
                     title={['pending', 'approved', 'partial'].includes(req.status) ? 'พิมพ์ใบตัดเบิก (lot ที่ระบบจัดให้ล่วงหน้า — คลังยังไม่จัดยา)' : 'พิมพ์ใบตัดเบิก (lot ที่คลังจัดจ่าย)'}
                     aria-label="พิมพ์ใบตัดเบิก">
                     <Printer size={15} />
                   </button>
-                  <button onClick={e => { e.stopPropagation(); printCoverForm(req, window.open('', '_blank')); }}
+                  <button onClick={e => { e.stopPropagation(); setOutReq({ req, doc: 'cover' }); }}
                     className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-lg transition-colors"
                     title={`พิมพ์ใบปะหน้า (${reqFormTitle(req.req_type)})`} aria-label="พิมพ์ใบปะหน้า">
                     <FileText size={15} />
@@ -2612,7 +2555,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
           </div>
         </div>
       )}
-      {outReq && <ReqOutputModal req={outReq} auth={auth} defaultSort={SORT_BY_REQ} onClose={() => setOutReq(null)} />}
+      {outReq && <ReqOutputModal req={outReq.req} doc={outReq.doc} auth={auth} defaultSort={SORT_BY_REQ} onClose={() => setOutReq(null)} />}
     </div>
   );
 }
@@ -2674,7 +2617,9 @@ const SORT_OPTIONS = [
   { key: SORT_BY_LOG, label: 'เรียงตามที่เก็บ', hint: 'คลังเดินจัดยาตามชั้น A→E' },
 ];
 
-function ReqOutputModal({ req, auth, defaultSort = SORT_BY_REQ, onClose }) {
+// doc: 'sheet' = ใบเบิกแบบชีทเบิก (เดิม · รวมใบ lot คุมแล้ว) · 'cover' ใบปะหน้า / 'request' ใบขอเบิก = พิมพ์ หรือ PDF เท่านั้น
+function ReqOutputModal({ req, auth, doc = 'sheet', defaultSort = SORT_BY_REQ, onClose }) {
+  const isSheet = doc === 'sheet';
   const [sort, setSort] = useState(defaultSort);
   const [busy, setBusy] = useState(null); // 'pdf' | 'excel'
   const [error, setError] = useState('');
@@ -2685,7 +2630,7 @@ function ReqOutputModal({ req, auth, defaultSort = SORT_BY_REQ, onClose }) {
     finally { setBusy(null); }
   };
   // หน้าต่างพิมพ์ต้องเปิดในจังหวะคลิก (ก่อน await) ไม่งั้นมือถือบล็อก popup
-  const doPrint = () => { const w = window.open('', '_blank'); printReq(req, w, sort); onClose(); };
+  const doPrint = () => { const w = window.open('', '_blank'); if (isSheet) printReq(req, w, sort); else printForm(doc, req, w); onClose(); };
   const btn = 'flex-1 min-w-0 rounded-xl py-2.5 font-semibold text-sm transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50';
   return (
     <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4" onClick={e => { e.stopPropagation(); if (!busy) onClose(); }}>
@@ -2695,7 +2640,7 @@ function ReqOutputModal({ req, auth, defaultSort = SORT_BY_REQ, onClose }) {
             <Printer size={18} className="text-blue-600" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="font-bold text-slate-800 dark:text-slate-100 text-sm">พิมพ์ / ส่งใบเบิก</p>
+            <p className="font-bold text-slate-800 dark:text-slate-100 text-sm">พิมพ์ / ส่ง{isSheet ? 'ใบเบิก' : FORM_DOCS[doc].name(req)}</p>
             <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{req.department} · <span className="font-mono">{req.receipt_no || req.req_number}</span></p>
           </div>
           <button onClick={onClose} disabled={!!busy} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50" aria-label="ปิด">
@@ -2703,6 +2648,7 @@ function ReqOutputModal({ req, auth, defaultSort = SORT_BY_REQ, onClose }) {
           </button>
         </div>
         <div className="p-5 space-y-3">
+          {isSheet && <>
           <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">การเรียงแถว</p>
           <div className="grid grid-cols-2 gap-2">
             {SORT_OPTIONS.map(o => (
@@ -2715,7 +2661,8 @@ function ReqOutputModal({ req, auth, defaultSort = SORT_BY_REQ, onClose }) {
               </button>
             ))}
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400">รูปแบบเดียวกับใบที่คลังพิมพ์จากชีทเบิก · "ส่งเป็น PDF" ได้ไฟล์ส่งเข้า LINE ให้คนอื่นเปิดพิมพ์ได้</p>
+          </>}
+          <p className="text-xs text-slate-500 dark:text-slate-400">{isSheet ? 'รูปแบบเดียวกับใบที่คลังพิมพ์จากชีทเบิก · เรียงตามที่เก็บ = ใบ lot คุมเดิม · ' : ''}"พิมพ์" ส่งเข้าเครื่องพิมพ์ · "ส่งเป็น PDF" ได้ไฟล์ส่งเข้า LINE ให้คนอื่นเปิดพิมพ์ได้</p>
           {error && (
             <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2">
               <AlertCircle size={15} className="text-red-500 shrink-0 mt-0.5" />
@@ -2727,14 +2674,16 @@ function ReqOutputModal({ req, auth, defaultSort = SORT_BY_REQ, onClose }) {
           <button onClick={doPrint} disabled={!!busy} className={`${btn} bg-[#1E90FF] hover:bg-blue-600 text-white`}>
             <Printer size={15} /> พิมพ์
           </button>
-          <button onClick={() => run('pdf', () => shareReqPdf(req, sort, auth))} disabled={!!busy}
+          <button onClick={() => run('pdf', () => (isSheet ? shareReqPdf(req, sort, auth) : shareFormPdf(doc, req, auth)))} disabled={!!busy}
             className={`${btn} bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-slate-700 dark:text-slate-200`}>
             {busy === 'pdf' ? <Loader2 size={15} className="animate-spin" /> : <Share2 size={15} />} {busy === 'pdf' ? 'กำลังสร้าง…' : 'ส่งเป็น PDF'}
           </button>
+          {isSheet && (
           <button onClick={() => run('excel', () => exportReqExcel([req], auth, sort))} disabled={!!busy}
             className={`${btn} bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 hover:border-slate-400 text-emerald-700 dark:text-emerald-300`}>
             {busy === 'excel' ? <Loader2 size={15} className="animate-spin" /> : <FileDown size={15} />} Excel
           </button>
+          )}
         </div>
       </div>
     </div>
@@ -3544,7 +3493,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                     className="text-xs px-2 py-0.5 rounded-full border border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:border-[#1E90FF] hover:text-[#1E90FF]">{p}</button>
                 ))}
               </div>
-              <input type="text" value={note} onChange={e => setPickNotes(s => ({ ...s, [it.id]: e.target.value }))} placeholder="หมายเหตุคลัง (ขึ้นใบ lot คุม)" aria-label={`หมายเหตุคลัง ${it.drug_name}`} className={`${inputCls} w-full`} />
+              <input type="text" value={note} onChange={e => setPickNotes(s => ({ ...s, [it.id]: e.target.value }))} placeholder="หมายเหตุคลัง (ขึ้นใบเบิก)" aria-label={`หมายเหตุคลัง ${it.drug_name}`} className={`${inputCls} w-full`} />
             </div>
           ) : (
             <button type="button" onClick={() => setOpenNote(s => ({ ...s, [it.id]: true }))} className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-[#1E90FF]">
@@ -3648,9 +3597,8 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
             {stage !== 'rej' && <SlipSteps req={currentReq} stage={stage} />}
             <div className="flex flex-wrap gap-1 border-t border-slate-100 dark:border-slate-800 pt-2">
               {[
-                [<Printer key="i" size={14}/>, 'พิมพ์ใบเบิก', () => setOutReq(currentReq)],
-                [<Printer key="i" size={14}/>, 'ใบ lot คุม', () => printLotControl(currentReq, window.open('', '_blank'))],
-                [<FileText key="i" size={14}/>, 'ใบปะหน้า', () => printCoverForm(currentReq, window.open('', '_blank'))],
+                [<Printer key="i" size={14}/>, 'พิมพ์ใบเบิก', () => setOutReq({ req: currentReq, doc: 'sheet' })],
+                [<FileText key="i" size={14}/>, 'ใบปะหน้า', () => setOutReq({ req: currentReq, doc: 'cover' })],
                 [<FileDown key="i" size={14}/>, 'Excel', () => exportReqExcel([currentReq], auth)],
               ].map(([icon, label, fn]) => (
                 <button key={label} type="button" onClick={fn}
@@ -3885,7 +3833,8 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         confirmText="จัดจ่ายเอง"
         onConfirm={() => { setSelfDispenseOpen(false); save(null, { beforeSheet: true }); }}
         onClose={() => setSelfDispenseOpen(false)} />
-      {outReq && <ReqOutputModal req={outReq} auth={auth} defaultSort={sort === 'log' ? SORT_BY_LOG : SORT_BY_REQ} onClose={() => setOutReq(null)} />}
+      {/* หน้าคลังเปิดมาเรียงตามที่เก็บเสมอ = ใบ lot คุมเดิม (รวมปุ่ม 24/11/2569) · ฉบับห้องยาสลับเป็นเรียงตามใบในโมดอล */}
+      {outReq && <ReqOutputModal req={outReq.req} doc={outReq.doc} auth={auth} defaultSort={SORT_BY_LOG} onClose={() => setOutReq(null)} />}
     </>
   );
 }
