@@ -103,7 +103,7 @@ export const RECEIVE_SPEC = {
     ['qty_received', 'จำนวนรับ', 'num'], ['unit_per_bill', 'หน่วยในบิล'], ['price_per_unit', 'ราคา/หน่วย', 'num'],
     ['total_price_vat', 'มูลค่ารวม VAT', 'money'], ['total_price_formula', 'สูตรมูลค่า'], ['safety_stock', 'Safety Stock', 'num'],
     ['sum_of_lead_time', 'Sum lead time', 'num'], ['drug_swap_policy', 'นโยบายคืนยา'], ['swap_tier_detail', 'เงื่อนไขคืน (tier)'],
-    ['swap_return_pct', '% คืน'], ['swap_condition_am', 'เงื่อนไข Auto-Match'],
+    ['swap_return_pct', '% คืน'], ['swap_condition_am', 'เงื่อนไข Auto-Match'], ['swap_policy_note', 'หมายเหตุนโยบายคืน'],
   ],
   pairKey: ['bill_number', 'drug_code', 'lot', 'receive_date'],
 }

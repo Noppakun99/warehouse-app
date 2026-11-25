@@ -125,6 +125,7 @@ function DrugCompanySection({ c, onOpenDrug }) {
           <>
             <p className="mt-1 text-[11px] font-semibold text-slate-400 dark:text-slate-500">ข้อความในบิล</p>
             <p className="text-xs text-slate-600 dark:text-slate-300 break-words whitespace-pre-line">{c.policyText}</p>
+            {c.policyNote && <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 break-words">หมายเหตุ: {c.policyNote}</p>}
             {c.policySourceNote && <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500 break-words">{c.policySourceNote}</p>}
           </>
         ) : (
@@ -214,8 +215,9 @@ function PolicyTexts({ texts }) {
     <div className="px-4 py-2.5 space-y-1.5 bg-slate-50/60 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800">
       <p className="text-[11px] font-semibold text-slate-400 dark:text-slate-500">ข้อความในบิล{texts.length > 1 ? ` (${texts.length} แบบ)` : ''}</p>
       {texts.map(t => (
-        <div key={`${t.source}|${t.text}`} className="text-xs text-slate-600 dark:text-slate-300 break-words whitespace-pre-line">
+        <div key={`${t.source}|${t.text}|${t.note || ''}`} className="text-xs text-slate-600 dark:text-slate-300 break-words whitespace-pre-line">
           {t.text}
+          {t.note && <span className="block mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">หมายเหตุ: {t.note}</span>}
           {(t.sourceNote || texts.length > 1) && (
             <span className="block text-[11px] text-slate-400 dark:text-slate-500">{[t.sourceNote, texts.length > 1 ? `${t.lots} lot` : null].filter(Boolean).join(' · ')}</span>
           )}

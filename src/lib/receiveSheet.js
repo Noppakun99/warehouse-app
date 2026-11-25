@@ -22,7 +22,20 @@ export const COL = {
   price_per_unit: 11, total_price_vat: 12, total_price_formula: 13, receive_date: 14,
   receive_status: 15, inspect_date: 16, supplier_current: 17, supplier_prev: 18,
   swap_condition: 19, swap_note: 20, swap_items: 21, leadtime: 22, supplier_changed: 23,
-  swap_automatch: 27, swap_return_pct: 28,
+  swap_automatch: 27, swap_return_pct: 28, swap_match_note: 29,
+}
+
+/** คอลัมน์ AD "รายการที่จับคู่ / หมายเหตุ (Auto-Match)" = สูตร `C & " | " & F` ของชีท เงื่อนไข_แจกแจง
+ *  → เอาเฉพาะ F (หมายเหตุ/ที่มา เช่น หนังสือบริษัท) · ตัดท่อน "Source: …" ซึ่งเป็นที่มาภายในตอนสร้างชีท
+ *  ไม่รวมเข้า drug_swap_policy โดยเจตนา — บอท expiry-alert พิมพ์/parse ข้อความนั้น (25/11/2569) */
+export function policyNoteFromMatch(v) {
+  const s = cleanVal(v)
+  if (!s) return null
+  const i = s.indexOf(' | ')
+  if (i < 0) return null
+  const note = s.slice(i + 3).split(' | ').map(p => p.trim())
+    .filter(p => p && p !== '-' && !/^Source:/i.test(p)).join(' · ')
+  return note || null
 }
 
 // หัวตารางที่ต้องเจอ (ตรวจ 8 คอลัมน์หลักพอ — ถ้าตรงหมดแปลว่าไฟล์ยังโครงเดิม)
@@ -203,6 +216,7 @@ export function rowToReceiveLog(row, fmtRow = null) {
     // เซลล์อาจถูกจัดรูปแบบเป็นเปอร์เซ็นต์ (100% เก็บเป็นเลข 1) → ใช้ค่าที่แสดงก่อน
     swap_return_pct: shown('swap_return_pct') ?? cleanVal(at('swap_return_pct')),
     swap_condition_am: null,                            // ไม่มีในชีทนี้ (มาจากไฟล์ master)
+    swap_policy_note: policyNoteFromMatch(at('swap_match_note')),
   }
 }
 

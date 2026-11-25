@@ -517,6 +517,22 @@ section('ป้ายสถานะคืนบริษัท (returnPolicyLab
   assertEq(g[2].key, 'none', 'กลุ่มท้าย = ไม่มีข้อมูลนโยบาย')
   assertDeep(g[1].texts.map(t => t.text), ['รับคืนก่อนหมดอายุ 6 เดือน'], 'ข้อความดิบในบิลเก็บไว้ใน texts')
   assertDeep(groupCompanyLots(ix.lines, 'บ.ค'), [], 'บริษัทไม่มี lot คงเหลือ = ไม่มีกลุ่ม')
+
+  // หมายเหตุนโยบาย (ชีท เงื่อนไข_แจกแจง F — หนังสือบริษัท) 25/11/2569: ข้อความ D เดียวกัน หมายเหตุคนละยา → แยกแบบ ไม่ปนกัน
+  const noteRows = [
+    { drug_code: 'G', lot: 'G1', supplier_current: 'บ.ภ', drug_swap_policy: 'รับเปลี่ยนเมื่อหมดอายุ', swap_tier_detail: 'รับเปลี่ยนเมื่อหมดอายุ', swap_policy_note: 'หนังสือบริษัท 20/11/2569 รับเปลี่ยน lot G1', receive_date: '2026-01-01', bill_number: 'BG' },
+    { drug_code: 'H', lot: 'H1', supplier_current: 'บ.ภ', drug_swap_policy: 'รับเปลี่ยนเมื่อหมดอายุ', swap_tier_detail: 'รับเปลี่ยนเมื่อหมดอายุ', swap_policy_note: null, receive_date: '2026-01-01', bill_number: 'BH' },
+  ]
+  const noteIx = buildCompanyPolicyIndex({
+    inventoryRows: [
+      { code: 'G', name: 'ยา G', lot: 'G1', qty: 5, unit: 'หลอด', exp: '01/10/2027', location: 'A-1', receive_status: '' },
+      { code: 'H', name: 'ยา H', lot: 'H1', qty: 5, unit: 'หลอด', exp: '01/10/2027', location: 'A-2', receive_status: '' },
+    ], receiveRows: noteRows, companyPolicies: {}, today: TODAY })
+  assertEq(noteIx.lines.find(l => l.code === 'G').returnPolicy.policyNote, 'หนังสือบริษัท 20/11/2569 รับเปลี่ยน lot G1', 'policyNote มาจาก swap_policy_note ของบิล lot นั้น')
+  assertEq(noteIx.lines.find(l => l.code === 'H').returnPolicy.policyNote, null, 'ไม่มีหมายเหตุ = null')
+  const noteTexts = groupCompanyLots(noteIx.lines, 'บ.ภ').flatMap(x => x.texts)
+  assertDeep(noteTexts.map(t => [t.note, t.lots]).sort(), [['หนังสือบริษัท 20/11/2569 รับเปลี่ยน lot G1', 1], [null, 1]].sort(), 'ข้อความเดียวกันแต่หมายเหตุต่างกัน = แยกเป็น 2 แบบ')
+  assertEq(drugPolicyView(noteIx, 'G').companies[0].policyNote, 'หนังสือบริษัท 20/11/2569 รับเปลี่ยน lot G1', 'หน้านโยบาย ค้นตามยา เห็นหมายเหตุ')
   assertEq(ix.latestPolicyByName['บ.ก'], 'รับคืนก่อนหมดอายุ 6 เดือน', 'ข้อความบิลล่าสุดของบริษัท ไว้แสดงตอนไม่มี lot คงเหลือ')
 
   const borrowed = buildCompanyPolicyIndex({

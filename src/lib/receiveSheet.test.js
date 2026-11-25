@@ -7,7 +7,7 @@
 import {
   cleanVal, serialToIso, textToIso, cellToIso, isoToThai, num,
   normalizeCode, normalizeLot, validateHeader, rowToReceiveLog, rowWarnings, percentCellToText,
-  parseReceiveGrid, COL,
+  parseReceiveGrid, COL, policyNoteFromMatch,
 } from './receiveSheet.js'
 
 let pass = 0, fail = 0
@@ -176,7 +176,22 @@ eq(
 )
 eq(r.swap_tier_detail, 'เปลี่ยนคืนได้หลังจากหมดอายุไปแล้ว', 'tier detail (ADR-0014)')
 eq(r.swap_return_pct, '100%', '% คืน')
-eq(Object.keys(r).length, 34, 'ครบ 34 ฟิลด์ เท่ากับที่ ReceiveLogApp สร้าง (รวม lot ที่เขียนแบบ shorthand)')
+eq(Object.keys(r).length, 35, 'ครบ 35 ฟิลด์ (34 เท่ากับที่ ReceiveLogApp สร้าง + swap_policy_note จากคอลัมน์ AD)')
+eq(r.swap_policy_note, null, 'ไม่มีคอลัมน์ AD → หมายเหตุนโยบาย null')
+
+section('policyNoteFromMatch — คอลัมน์ AD (C | F ของเงื่อนไข_แจกแจง) → เอาเฉพาะ F')
+eq(policyNoteFromMatch('Gemotran (Tranexamic) | ข้อความมาจากใบแจ้งรับเปลี่ยนคืน: ภิญโญ 17/11/2568 · หนังสือบริษัท 20/11/2569 lot 201025'),
+  'ข้อความมาจากใบแจ้งรับเปลี่ยนคืน: ภิญโญ 17/11/2568 · หนังสือบริษัท 20/11/2569 lot 201025', 'ตัดชื่อรายการ (C) ออก')
+eq(policyNoteFromMatch('-'), null, 'ไม่จับคู่ (Z=0) → null')
+eq(policyNoteFromMatch('ทุกรายการ | -'), null, 'F เป็น "-" → null')
+eq(policyNoteFromMatch('ทุกรายการ | Source: Sheet1 (D9) — ไม่มีในชีทเงื่อนไขเดิม'), null, 'F มีแค่ที่มาภายใน → null')
+eq(policyNoteFromMatch('ทุกรายการ | เงื่อนไขเดียวกับ DKSH (นับจากวันผลิต) | Source: Sheet1 (D14)'),
+  'เงื่อนไขเดียวกับ DKSH (นับจากวันผลิต)', 'ตัดท่อน Source: ท้าย F')
+eq(policyNoteFromMatch('ทุกรายการ | '), null, 'F ว่าง → null')
+const withNote = [...real]
+withNote[COL.swap_match_note] = 'ทุกรายการ | รับคืนแม้หมดอายุ'
+eq(rowToReceiveLog(withNote).swap_policy_note, 'รับคืนแม้หมดอายุ', 'rowToReceiveLog อ่าน AD → swap_policy_note')
+eq(rowToReceiveLog(withNote).drug_swap_policy, r.drug_swap_policy, 'ไม่ปนเข้า drug_swap_policy (บอทพิมพ์/parse ข้อความนั้น)')
 
 section('rowToReceiveLog — ใช้ค่าที่แสดงสำหรับคอลัมน์ % คืน')
 const fmtRow = []

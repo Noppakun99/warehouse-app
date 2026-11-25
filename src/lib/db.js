@@ -3108,7 +3108,7 @@ export async function fetchDrugProfile(drugCode) {
       .eq('code', code).order('location').order('id')),
     // ลำดับเดียวกับ fetchLatestReceiptInfo (ใหม่→เก่า, id ใหม่→เก่า) — latestPurchaseUnit พึ่งลำดับนี้
     pageAll(() => supabase.from('receive_logs')
-      .select('drug_code, drug_name, lot, drug_unit, receive_date, purchase_type, price_per_unit, bill_number, supplier_current, qty_received, drug_swap_policy, swap_tier_detail, swap_condition_am')
+      .select('drug_code, drug_name, lot, drug_unit, receive_date, purchase_type, price_per_unit, bill_number, supplier_current, qty_received, drug_swap_policy, swap_tier_detail, swap_condition_am, swap_policy_note')
       .eq('drug_code', code)
       .order('receive_date', { ascending: false, nullsFirst: false }).order('id', { ascending: false })),
     supabase.from('drug_reorder_config').select('exclude_status').eq('code', code).maybeSingle(),
@@ -3189,7 +3189,7 @@ export async function fetchDrugUsageReport(codes = [], { from, to } = {}) {
       .select('code, name, type, unit, lot, exp, qty, location, main_log, invoice, safety_stock, receive_status')
       .in('code', list).order('location').order('id')),
     pageAll(() => supabase.from('receive_logs')
-      .select('drug_code, drug_name, lot, drug_unit, receive_date, purchase_type, price_per_unit, bill_number, supplier_current, qty_received, drug_swap_policy, swap_tier_detail, swap_condition_am')
+      .select('drug_code, drug_name, lot, drug_unit, receive_date, purchase_type, price_per_unit, bill_number, supplier_current, qty_received, drug_swap_policy, swap_tier_detail, swap_condition_am, swap_policy_note')
       .in('drug_code', list)
       .order('receive_date', { ascending: false, nullsFirst: false }).order('id', { ascending: false })),
     pageAll(() => supabase.from('dispense_logs')
@@ -3344,7 +3344,7 @@ async function _pagedParallel(table, cols, filter = (q) => q) {
 async function fetchPolicyReceiveRows() {
   const PAGE = 1000
   const page = (from) => supabase.from('receive_logs')
-    .select('drug_code, drug_name, lot, exp, bill_number, supplier_current, drug_swap_policy, swap_tier_detail, swap_condition_am, receive_date')
+    .select('drug_code, drug_name, lot, exp, bill_number, supplier_current, drug_swap_policy, swap_tier_detail, swap_condition_am, swap_policy_note, receive_date')
     .order('id').range(from, from + PAGE - 1)
     .then(({ data, error }) => { if (error) throw error; return data || [] })
   const { count, error } = await supabase.from('receive_logs').select('id', { count: 'exact', head: true })

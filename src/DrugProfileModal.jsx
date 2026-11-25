@@ -294,6 +294,7 @@ function ReturnPolicyRow({ l }) {
       {rp?.policyText ? (
         <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 break-words">
           {rp.policyText}{sourceNote && <span className="block text-[11px] text-slate-400 dark:text-slate-500">{sourceNote}</span>}
+          {rp.policyNote && <span className="block mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">หมายเหตุ: {rp.policyNote}</span>}
         </p>
       ) : (
         <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">ไม่มีข้อความนโยบายในบิลของบริษัทนี้</p>

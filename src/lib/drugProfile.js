@@ -601,9 +601,9 @@ export function latestPolicyByCompany(receiveRows = []) {
 }
 
 // lots = [{ code, lot, expDate }] · receiveRows = receive_logs (ต้องมี drug_code, lot, supplier_current, drug_swap_policy,
-// swap_tier_detail, swap_condition_am, receive_date, bill_number) · companyPolicies = fetchSwapPolicies()
+// swap_tier_detail, swap_condition_am, swap_policy_note, receive_date, bill_number) · companyPolicies = fetchSwapPolicies()
 // companyBillPolicies = latestPolicyByCompany ของบิลทุกยา (ไม่ส่ง = หาจาก receiveRows เอง)
-// → array ตามลำดับ lots: { company, ambiguous, policyText, policySource, policyRef, status, deadline, deadlineIso,
+// → array ตามลำดับ lots: { company, ambiguous, policyText, policySource, policyRef, policyNote, status, deadline, deadlineIso,
 //    daysToDeadline, percent, note, returnMonths, method }
 //   status: ok | due | overdue | no_return | review | no_policy | no_company
 export function buildLotReturnPolicies({ lots = [], receiveRows = [], companyPolicies = {}, companyBillPolicies = null, today = new Date() }) {
@@ -626,7 +626,7 @@ export function buildLotReturnPolicies({ lots = [], receiveRows = [], companyPol
   return lots.map(({ code, lot, expDate }) => {
     const e = idx.get(lotKey(code, lot))
     const base = {
-      company: null, ambiguous: false, policyText: null, policySource: null, policyRef: null,
+      company: null, ambiguous: false, policyText: null, policySource: null, policyRef: null, policyNote: null,
       status: 'no_company', deadline: null, deadlineIso: null, daysToDeadline: null, percent: null, note: null, returnMonths: null, method: null,
     }
     if (!e || e.supplier === undefined) return base
@@ -634,7 +634,8 @@ export function buildLotReturnPolicies({ lots = [], receiveRows = [], companyPol
     const company = e.supplier
     const table = companyPolicies[company] || null
     const lotText = cleanText(e.row.drug_swap_policy)
-    const shown = lotText ? { policyText: lotText, policySource: 'lot', policyRef: null }
+    // policyNote = หมายเหตุ/ที่มาจากชีท เงื่อนไข_แจกแจง F (เช่น หนังสือบริษัท) — ของบิล lot นี้เท่านั้น
+    const shown = lotText ? { policyText: lotText, policySource: 'lot', policyRef: null, policyNote: cleanText(e.row.swap_policy_note) }
       : billPolicies[company] ? { policyText: billPolicies[company].text, policySource: 'company_bill',
         policyRef: { billNumber: billPolicies[company].billNumber, receiveDate: billPolicies[company].receiveDate, drugName: billPolicies[company].drugName } }
       : cleanText(table?.rawNote) ? { policyText: cleanText(table.rawNote), policySource: 'company_table', policyRef: null }
@@ -849,7 +850,7 @@ export function buildCompanyPolicyIndex({ inventoryRows = [], receiveRows = [], 
     if (co && !d.companies.has(co)) d.companies.set(co, r.receive_date || null)
     const text = cleanText(r.drug_swap_policy)
     if (co && text && !drugCompanyPolicy[`${code}|${co}`]) {
-      drugCompanyPolicy[`${code}|${co}`] = { text, billNumber: cleanText(r.bill_number), receiveDate: r.receive_date || null }
+      drugCompanyPolicy[`${code}|${co}`] = { text, note: cleanText(r.swap_policy_note), billNumber: cleanText(r.bill_number), receiveDate: r.receive_date || null }
     }
     const lot = cleanText(r.lot)
     const k = lk(code, lot)
@@ -914,12 +915,12 @@ export function drugPolicyView(index, code) {
     const own = index.drugCompanyPolicy[`${code}|${c.name}`]
     const bill = index.companyBillPolicies[c.name]
     const table = cleanText(index.companyPolicies?.[c.name]?.rawNote)
-    const policy = own ? { text: own.text, sourceNote: `จากบิลยานี้ ${own.billNumber || '-'}` }
+    const policy = own ? { text: own.text, note: own.note, sourceNote: `จากบิลยานี้ ${own.billNumber || '-'}` }
       : bill ? { text: bill.text, sourceNote: policySourceNote({ policySource: 'company_bill', policyRef: bill }) }
       : table ? { text: table, sourceNote: POLICY_SOURCE_LABEL.company_table }
       : { text: null, sourceNote: null }
     return {
-      name: c.name, lastReceive: c.lastReceive, policyText: policy.text, policySourceNote: policy.sourceNote,
+      name: c.name, lastReceive: c.lastReceive, policyText: policy.text, policyNote: policy.note || null, policySourceNote: policy.sourceNote,
       stockLots: lots.filter(l => !l.outOfStock).sort((a, b) => -expDesc(a, b)),
       pastLots: lots.filter(l => l.outOfStock).sort(expDesc),
     }
@@ -1012,8 +1013,9 @@ export function groupCompanyLots(lines = [], company) {
     const text = rp.policyText || null
     if (text) {
       const source = rp.policySource || null
-      const tk = `${source}|${text}`
-      if (!g.texts.has(tk)) g.texts.set(tk, { text, source, sourceNote: source && source !== 'lot' ? policySourceNote(rp) : null, lots: 0 })
+      const note = rp.policyNote || null
+      const tk = `${source}|${text}|${note || ''}`   // ข้อความ D เดียวกันแต่หมายเหตุคนละยา (ภิญโญ 20 รายการ) ต้องแยกกลุ่ม
+      if (!g.texts.has(tk)) g.texts.set(tk, { text, source, note, sourceNote: source && source !== 'lot' ? policySourceNote(rp) : null, lots: 0 })
       g.texts.get(tk).lots++
     }
   }
