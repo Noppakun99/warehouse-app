@@ -27,8 +27,42 @@ const args = process.argv.slice(2)
 const opt = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : null }
 const SIZES = (opt('--sizes') || '1,6,7,12,20,25,30,40,46,50,55').split(',').map(Number)
 const pdfSizes = opt('--pdf') ? opt('--pdf').split(',').map(Number) : []
+const SIMULATE = Number(opt('--simulate') || 0)
 const OUT = opt('--out') || fs.mkdtempSync(path.join(os.tmpdir(), 'pagchk-'))
 fs.mkdirSync(OUT, { recursive: true })
+
+// ตรวจ PDF จากพิกเซล: ทุกหน้าต้องมีเส้นปิดล่างตาราง (เส้นขอบซ้ายวิ่งยาวสุดไปจบตรงไหน แถวนั้นต้องเป็นเส้นนอนยาวถึงขอบขวา)
+// ดูด้วยตาที่ 70 dpi ไม่เห็นเส้น 1px ที่หาย — 25/11/2569 ตรวจ "ผ่าน" แต่ PDF ของ user แถว 46 ไม่มีเส้นปิด
+const checkPdfs = (files) => {
+  const py = `import sys, pymupdf, numpy as np
+bad = 0
+for f in sys.argv[1:]:
+    d = pymupdf.open(f); res = []
+    for i, p in enumerate(d):
+        pix = p.get_pixmap(dpi=150, colorspace=pymupdf.csGRAY)
+        a = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w) < 140
+        def longest(col):
+            r = b = 0
+            for v in col:
+                r = r + 1 if v else 0; b = max(b, r)
+            return b
+        # เส้นตั้งของตาราง = คอลัมน์ที่มีหมึกต่อเนื่อง ≥ 40px (ตัวอักษรสั้นกว่านี้) · ใบหน้าท้ายอาจมีแค่ 1–3 แถว
+        cols = [x for x in np.where(a.sum(axis=0) >= 40)[0] if longest(a[:, x]) >= 40]
+        if len(cols) < 2: res.append(f"หน้า {i+1} ไม่พบตาราง"); continue
+        xl, xr = cols[0], cols[-1]
+        run, best, end = 0, 0, 0
+        for y in range(pix.h):
+            run = run + 1 if a[y, xl] or a[y, xl + 1] else 0
+            if run > best: best, end = run, y
+        band = a[max(0, end - 3):end + 1, xl:xr + 1].mean(axis=1).max()
+        if band < 0.9: res.append(f"หน้า {i+1} ไม่มีเส้นปิดล่างตาราง (แถวท้ายโดนตัด)")
+    bad += bool(res)
+    print(("✗ " if res else "✓ ") + f.split("\\\\")[-1].split("/")[-1] + f" {d.page_count} หน้า " + " · ".join(res))
+sys.exit(1 if bad else 0)`
+  try { execFileSync('python', ['-c', py, ...files], { stdio: 'inherit', env: { ...process.env, PYTHONIOENCODING: 'utf-8' } }); return 0 }
+  catch (e) { if (e.status === 1) return 1; console.log('(ตรวจ PDF ไม่ได้ — ต้องมี python + pymupdf + numpy)'); return 1 }
+}
+if (opt('--check-pdf')) process.exit(checkPdfs(opt('--check-pdf').split(',')))
 
 const { buildPaginatedHtml } = await import(pathToFileURL(path.join(REPO, 'src/lib/paginatedPrint.js')).href)
 const { chromium } = await import(pathToFileURL(path.join(REPO, 'node_modules/playwright/index.mjs')).href)
@@ -95,13 +129,16 @@ if (pdfSizes.length) {
       const buf = new Uint8Array(await (await window.RSE.pagesToPdfBlob(h)).arrayBuffer()); let s = ''
       for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000))
       return btoa(s)
-    }, htmlFor(n, 'print')) // pagesToPdfBlob ตัด @import เอง — ส่ง html เดียวกับที่แอปส่ง
+    }, SIMULATE // จำลองเครื่องที่วัดแถวเตี้ยกว่าตอนวาด N px ต่อหน้า (pagesToPdfBlob ถอด style นี้ก่อนวาด)
+      ? htmlFor(n, 'print').replace('</head>', `<style data-pdf-measure>.pbody { margin-bottom: -${SIMULATE}px; }</style></head>`)
+      : htmlFor(n, 'print')) // pagesToPdfBlob ตัด @import เอง — ส่ง html เดียวกับที่แอปส่ง
     fs.writeFileSync(path.join(OUT, `app_${n}.pdf`), Buffer.from(b64, 'base64'))
     await page.goto(pathToFileURL(path.join(OUT, `chk_print_${n}.html`)).href)
     await page.waitForFunction(() => [...document.querySelectorAll('.pno')].some(e => /หน้า \d+\/\d+/.test(e.textContent)))
     await page.pdf({ path: path.join(OUT, `print_${n}.pdf`), preferCSSPageSize: true, printBackground: true })
     await page.close()
   }
+  if (checkPdfs(pdfSizes.flatMap(n => [path.join(OUT, `app_${n}.pdf`), path.join(OUT, `print_${n}.pdf`)]))) fails++
   try {
     execFileSync('python', ['-c', `import pymupdf,glob,os
 for f in sorted(glob.glob(os.path.join(r"${OUT}","*_*.pdf"))):

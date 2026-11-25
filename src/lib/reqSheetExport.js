@@ -150,12 +150,48 @@ export async function htmlToPdfBlob(html) {
 // PDF จึงตัด @import ฟอนต์ทิ้ง ให้แบ่งหน้าและวาดด้วยฟอนต์ระบบตัวเดียวกัน — ใบที่กด "พิมพ์" ยังเป็น Sarabun ตามเดิม
 const FONT_IMPORT_RE = /@import url\(['"]?https:\/\/fonts\.googleapis\.com[^)]*\);?/;
 
+// ตอนแบ่งหน้าวัดในเบราว์เซอร์จริง แต่ภาพ PDF วาดผ่านรูป SVG (foreignObject) — สองทางนี้สูงไม่เท่ากันได้ตามเครื่อง
+// ใบ บย.70/0098 PDF ที่ user ทำ 25/11/2569 11:09: แบ่งหน้าให้แถว 46 อยู่หน้า 2 แต่ภาพที่วาดสูงเกิน 8.5px ขึ้นไป แถว 46 ครึ่งตัว ไม่มีเส้นปิด
+// (Playwright Chromium/Chrome/Edge ทุก DPR + ซูม 90% แบ่งหน้าเหมือนกันหมด ทำซ้ำไม่ได้ — เดาสภาพเครื่องผู้ใช้ไม่ได้)
+// จึงตรวจภาพที่วาดเสร็จ: มีหมึกติดขอบล่าง .pbody = โดนตัด → แบ่งหน้าใหม่โดยกันที่ไว้ตอนวัด (คืนให้ตอนวาด) มากขึ้นทีละขั้น
+const PDF_RESERVE_STEPS = [0, 28, 56]; // px ≈ 1 แถว / 2 แถว
+
+// แถบ 1px เหนือขอบล่าง .pbody — ตอนแบ่งหน้าบังคับตาราง/ส่วนท้ายจบก่อนขอบ 3px (paginatedPrint over()) แถบนี้จึงต้องว่าง
+// ถ้ามีหมึก = เส้นตั้งของช่องตารางวิ่งชนขอบ (แถวท้ายโดนตัด)
+function inkAtBottom(canvas, pg) {
+  const pr = pg.getBoundingClientRect();
+  const br = pg.querySelector('.pbody').getBoundingClientRect();
+  const s = canvas.width / pr.width;
+  const y = Math.floor((br.bottom - pr.top) * s) - Math.ceil(s);
+  const x0 = Math.floor((br.left - pr.left) * s);
+  const d = canvas.getContext('2d').getImageData(x0, y, Math.floor(br.width * s), 1).data;
+  for (let i = 0; i < d.length; i += 4) if (d[i] < 140) return true;
+  return false;
+}
+
 // ใบ A4 แนวตั้งที่แบ่งหน้าเองด้วย buildPaginatedHtml (ใบปะหน้า / ใบขอเบิก) → PDF หน้าละ 1 รูป ตรงกับที่พิมพ์
 // html ต้องสร้างด้วย autoPrint: false · สคริปต์ในหน้าแบ่งหน้าหลังโหลดฟอนต์ Sarabun เสร็จ (paginatedPrint.js)
 // จึงรอจนท้ายกระดาษขึ้น "หน้า n/N" ก่อนจับภาพ — รอแค่ load/fonts.ready จะได้หน้าที่ยังไม่แบ่ง
 export async function pagesToPdfBlob(html) {
   html = html.replace(FONT_IMPORT_RE, '');
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
+  let shots = [];
+  for (const reserve of PDF_RESERVE_STEPS) {
+    // style[data-pdf-measure] มีผลเฉพาะตอนแบ่งหน้า — ถอดออกก่อนวาด (scripts/check-paginated-print.mjs ใส่ค่าติดลบจำลองเครื่องที่วัดเตี้ยกว่าวาด)
+    const measureCss = reserve ? `<style data-pdf-measure>.pbody { margin-bottom: ${reserve}px; }</style>` : '';
+    shots = await renderPdfPages(html.replace('</head>', `${measureCss}</head>`), html2canvas);
+    if (!shots.some(p => p.cut)) break;
+  }
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  shots.forEach((p, i) => {
+    if (i > 0) pdf.addPage();
+    // .page สูง 282 มม. ขอบกระดาษอยู่ใน padding ของ .page แล้ว (@page margin 0) → วางชิดบนซ้ายเต็มกว้าง A4
+    pdf.addImage(p.jpeg, 'JPEG', 0, 0, 210, 210 * p.h / p.w);
+  });
+  return pdf.output('blob');
+}
+
+async function renderPdfPages(html, html2canvas) {
   const WIDTH_PX = 820; // = meta viewport ของ buildPaginatedHtml · .page กว้าง 210 มม. = 794px
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');
@@ -173,23 +209,22 @@ export async function pagesToPdfBlob(html) {
     // html2canvas วัดตัวอักษรกว้างกว่าเบราว์เซอร์เล็กน้อย → ท้ายกระดาษ "หน้า n/N" ตัดเป็น 2 บรรทัด (ตอนพิมพ์ไม่เป็น)
     // จับภาพทีละหน้าโดยซ่อนหน้าอื่น + ไม่มี margin — foreignObjectRendering วาดทั้งเอกสารแล้วครอปตามตำแหน่งหน้า
     // หน้าที่อยู่ต่ำกว่าหน้าแรกครอปผิดที่ ได้หน้าขาว/ดำ (ใบ บย.70/0098 55 รายการ: หน้า 2–3 ว่าง แถว 26–55 หาย · user แจ้ง 25/11/2569)
+    doc.querySelectorAll('style[data-pdf-measure]').forEach(el => el.remove());
     const nowrap = doc.createElement('style');
     nowrap.textContent = '.pfoot, .pfoot *, .cont, .cont * { white-space: nowrap; } body { background: #fff !important; } .page { margin: 0 !important; box-shadow: none !important; }';
     doc.head.appendChild(nowrap);
     await new Promise(res => setTimeout(res, 150));
     const pages = [...doc.querySelectorAll('.page')];
-    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const shots = [];
     for (let i = 0; i < pages.length; i++) {
       const pg = pages[i];
       pages.forEach((p, j) => { p.style.display = j === i ? '' : 'none'; });
       iframe.style.height = `${Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight, 1100)}px`;
       await new Promise(res => setTimeout(res, 30));
       const canvas = await html2canvas(pg, { scale: 2, backgroundColor: '#ffffff', windowWidth: WIDTH_PX, logging: false, foreignObjectRendering: true });
-      if (i > 0) pdf.addPage();
-      // .page สูง 282 มม. ขอบกระดาษอยู่ใน padding ของ .page แล้ว (@page margin 0) → วางชิดบนซ้ายเต็มกว้าง A4
-      pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 210, 210 * canvas.height / canvas.width);
+      shots.push({ jpeg: canvas.toDataURL('image/jpeg', 0.92), w: canvas.width, h: canvas.height, cut: inkAtBottom(canvas, pg) });
     }
-    return pdf.output('blob');
+    return shots;
   } finally {
     iframe.remove();
   }

@@ -46,7 +46,7 @@ TEST_STAFF_USER=test2 TEST_STAFF_PASS=555555 npx playwright test
 
 ## ใบพิมพ์แบ่งหน้า (ใบเบิกเวชภัณฑ์ยา — ไม่แตะ DB)
 
-`node scripts/check-paginated-print.mjs [--pdf 55,6 --out <โฟลเดอร์>]` — buildPaginatedHtml × ใบ 1–55 รายการ × โหมดพิมพ์ (Sarabun) / PDF (ฟอนต์ระบบ) · ✗ แถวหาย/ล้น/ชิดขอบล่าง < 3px/ใบ ≤ 6 รายการเกิน 1 หน้า · ⚠ หน้าว่างเกินครึ่ง · `--pdf` ทำ PDF จริงผ่าน `pagesToPdfBlob` + PNG ไว้ดูด้วยตา · ขั้นตอนบังคับอยู่ `/new-print` (25/11/2569)
+`node scripts/check-paginated-print.mjs [--pdf 55,6 --out <โฟลเดอร์>]` — buildPaginatedHtml × ใบ 1–55 รายการ × โหมดพิมพ์ (Sarabun) / PDF (ฟอนต์ระบบ) · ✗ แถวหาย/ล้น/ชิดขอบล่าง < 3px/ใบ ≤ 6 รายการเกิน 1 หน้า · ⚠ หน้าว่างเกินครึ่ง · `--pdf` ทำ PDF จริงผ่าน `pagesToPdfBlob` + ตรวจเส้นปิดล่างตารางทุกหน้าจากพิกเซล (✗ ถ้าไม่มี) + PNG ไว้ดูด้วยตา · `--simulate <px>` จำลองเครื่องที่วัดแถวเตี้ยกว่าตอนวาด (ตรวจว่าแอปแบ่งหน้าใหม่เอง) · `--check-pdf "<ไฟล์,ไฟล์>"` ตรวจ PDF ที่ user ทำจากเครื่องจริง · ขั้นตอนบังคับอยู่ `/new-print` (25/11/2569)
 
 ## Golden tests (node ไม่ใช้ Playwright)
 
