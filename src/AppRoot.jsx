@@ -845,7 +845,8 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
       if (!alive) return;
       const s = summarizePurchaseStatus(d.requests, d.purchaseDates);
       if (!isStaff) {
-        const strip = (r) => ({ ...r, note: null });
+        // จำนวนที่แจ้ง/เรท ณ วันแจ้ง = ข้อมูลภายในคลัง (ผู้เบิกอาจเข้าใจว่าเป็นจำนวนที่ตัวเองจะได้)
+        const strip = (r) => ({ ...r, note: null, qty_requested: null, rate_per_month: null });
         const waiting = s.waiting.map(strip);
         setPurchase({ waiting, notMoved: [], pendingByCode: Object.fromEntries(waiting.map(r => [String(r.code).trim(), r])) });
       } else setPurchase(s);

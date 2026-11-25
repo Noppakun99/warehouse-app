@@ -13,9 +13,10 @@ receive_logs (การซื้อ, วันรับ ≥ วันที่�
 
 | ส่วน | ที่ |
 |---|---|
-| ตัวอ่านชีท + สถานะสด (pure) | `src/lib/purchaseReportSheet.js` · test `npm run test:purchase` (47) |
+| ตัวอ่านชีท + สถานะสด (pure) | `src/lib/purchaseReportSheet.js` · test `npm run test:purchase` (56) |
 | CLI | `scripts/import-purchase.mjs` — `npm run import:purchase [-- --commit] [--file "<path>"]` (path default เป็นของเครื่องคลัง) |
 | DB | `purchase_request_migration.sql` · `replacePurchaseRequests` (DELETE ALL → INSERT · audit `import_purchase_request`) · `fetchPurchaseRequests` (paginate + บิลซื้อตั้งแต่วันแจ้งเก่าสุด) · `fetchDrugProfile` คืน `purchaseRequest` |
+| จำนวนที่แจ้ง + เรท ณ วันแจ้ง (25/11/2569 · ADR-0030 amendment) | `qty_requested` (V) · `rate_per_month` (N) · แท็บ: คอลัมน์ "แจ้งซื้อ · เรท ตอนแจ้ง" + การ์ดมือถือ (`PrQtyRate`) · โมดอลหน้าหลัก รอของ/ไฟล์ยังไม่ย้าย: คอลัมน์ `PR_SNAPSHOT_COLS` (ซ่อนเมื่อไม่มีค่า = ผู้เบิก) + กางบิลที่รับเข้าขึ้นบรรทัด "แจ้งซื้อ … จำนวน … · เรทตอนแจ้ง" · `fmtReportNum` ทศนิยม ≤ 2 · CLI เตือน จำนวน × ราคา ≠ มูลค่า |
 | UI | บัตรยา `PurchaseRequestNote` · ReorderApp `PendingPill` ในตารางวิเคราะห์ + แท็บ `PurchaseRequestTab` (เปิดได้โดยไม่ต้องรันวิเคราะห์ · หน้า `reorder-purchase` เปิดแท็บนี้ตรง) |
 | Dashboard (14/11/2569) | `summarizePurchaseStatus` (pure — นับแบบเดียวกับแท็บ: รอของ 1 แถวต่อรหัส · ไฟล์ยังไม่ย้าย = ใบ Excel "รอ" ที่บิลเข้าแล้ว) → คิวงาน 2 แถว `purchaseNotMoved` (ส้ม · งานคลัง) + `purchaseWaiting` (เทา informational · ไม่นับเรื่องค้าง) · การ์ด "แจ้งซื้อแล้ว รอของ" ในภาพรวม (ทุก role) · ป้าย "แจ้งซื้อแล้ว x วัน" ใน Top 5 + โมดอลยาหมดสต็อก · โมดอล `PurchaseQueueModal` มีช่องค้น · **ผู้เบิกไม่เห็นหมายเหตุ** (AppRoot ล้าง `note` ก่อนส่ง) และไม่มีปุ่มไปหน้าคลัง |
 | กางบิลที่รับเข้า (14/11/2569) | โมดอล "ของมาแล้วแต่ไฟล์ยังไม่ย้าย" กด > ที่แถว → `fetchPurchaseArrivals(code, since)` (db.js — บิลซื้อใน `receive_logs` ตั้งแต่วันที่แจ้ง = เงื่อนไขเดียวกับ `arrivedOn`) โหลดตอนกาง แสดง วันรับ · บิล · PO · lot · จำนวน · มูลค่า · สถานะตรวจรับ · เฉพาะ key `purchaseNotMoved` |

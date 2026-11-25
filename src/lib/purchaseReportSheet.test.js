@@ -3,7 +3,7 @@
 // ไฟล์จริง 14/11/2569: ชีทหลัก 128 แถว (รอทั้งหมด) · ประวัติแจ้งซื้อ 581 แถว (☑ 551 · ☐ 30) — ตรวจด้วย CLI dry-run
 
 import {
-  toIsoDate, findHeaderRow, findCheckColumn, checkHeader, parseSheetGrid, summarize,
+  toIsoDate, findHeaderRow, findCheckColumn, checkHeader, parseSheetGrid, summarize, qtyValueMismatch,
   requestState, pendingRequestFor, purchaseDatesByCode, summarizePurchaseStatus, PR_STATUS, MAIN_SHEET, HISTORY_SHEET,
 } from './purchaseReportSheet.js'
 
@@ -16,11 +16,13 @@ const section = (t) => console.log(`\n=== ${t} ===`)
 
 // หัวชีทหลักตามไฟล์จริง (A..X)
 const HEAD = ['ยามมาส่งแล้ว', 'วันที่แจ้งสั่ง', 'วันที่ล่าสุดที่ยาส่ง', 'ระยะเวลา', 'รหัสHosxp', 'ชนิด', 'รายการยา', 'หน่วย',
-  'ราคา/หน่วย (ล่าสุด)', 'บริษัท', 'Lead Time', 'Safety Stock', 'Max', 'Avg', 'Avg/วัน', 'คงเหลือ', 'ROP', 'เหตุผลที่แจ้ง',
-  'คงอยู่ได้อีก', 'ยอดเบิกรวม', 'ยอดเบิก 3 เดือน', 'จำนวนแนะนำ', 'มูลค่าสั่ง', 'หมายเหตุ']
-const dataRow = (mark, serial, code, name, unit, reason = '', note = '') => {
+  'ราคา/หน่วย (ล่าสุด)', 'บริษัท', 'Lead Time', 'Safety Stock', 'Max/เดือน (3 ด.ล่าสุด)', 'Avg/เดือน (3 ด.ล่าสุด)', 'Avg/วัน', 'คงเหลือ', 'ROP', 'เหตุผลที่แจ้ง',
+  'คงอยู่ได้อีก', 'ยอดเบิกรวม', 'ยอดเบิก 3 เดือน', 'จำนวนแนะนำสั่งซื้อ (หน่วย)', 'มูลค่าสั่ง', 'หมายเหตุ']
+// qty = V จำนวนแนะนำ · rate = N Avg/เดือน · price/value = I/W (ตรวจ qty × price = value)
+const dataRow = (mark, serial, code, name, unit, reason = '', note = '', { qty = '', rate = '', price = '', value = '' } = {}) => {
   const r = Array(24).fill('')
   r[0] = mark; r[1] = serial; r[4] = code; r[5] = 'Tablet'; r[6] = name; r[7] = unit; r[17] = reason; r[23] = note
+  r[8] = price; r[13] = rate; r[21] = qty; r[22] = value
   return r
 }
 
@@ -36,8 +38,8 @@ eq(toIsoDate(3), null, 'serial เล็กผิดปกติ (ปี 1900) �
 
 section('findHeaderRow / findCheckColumn / checkHeader')
 const main = [['รายงานแจ้งการสั่งซื้อยา UPDATE: …'], [], [], HEAD,
-  dataRow('☐', 45989, 1000258, 'Pyrazinamide 500mg', '500เม็ด', 'หมดสต็อค'),
-  dataRow('☑', 46206, 1000296, 'Tetracaine 0.5%', 'ขวด', 'สั่งเพิ่ม', 'ใกล้หมดอายุ'),
+  dataRow('☐', 45989, 1000258, 'Pyrazinamide 500mg', '500เม็ด', 'หมดสต็อค', '', { qty: 6, rate: 2.33, price: 450, value: 2700 }),
+  dataRow('☑', 46206, 1000296, 'Tetracaine 0.5%', 'ขวด', 'สั่งเพิ่ม', 'ใกล้หมดอายุ', { qty: 0, rate: '-' }),
   Array(24).fill(''),
   dataRow('☐', 46338, 'S004', 'ถุงซิบใส', 'กิโลกรัม'),
 ]
@@ -51,7 +53,7 @@ const shift = (r) => ['', ...r]
 const hist = [[], [],
   shift(dataRow('☑', 46185, 1460192, 'Regular Insulin', 'vial')),
   shift(dataRow('☐', 46190, 1520048, 'VitaminB6 50mg', '1000เม็ด')),
-  shift(dataRow('☑', 46331, 1460055, 'Amiodarone', 'amp', 'สั่งเพิ่ม', 'แจ้งซ้ำ: ของมาแล้ว 27/10/69')),
+  shift(dataRow('☑', 46331, 1460055, 'Amiodarone', 'amp', 'สั่งเพิ่ม', 'แจ้งซ้ำ: ของมาแล้ว 27/10/69', { qty: 40, rate: 12, price: 35, value: 1400 })),
 ]
 eq(findCheckColumn(hist), 1, 'ประวัติแจ้งซื้อ ช่องติ๊กอยู่คอลัมน์ B')
 eq(findCheckColumn(main), 0, 'ชีทหลักช่องติ๊กอยู่คอลัมน์ A')
@@ -63,7 +65,10 @@ section('parseSheetGrid — ชีทหลัก')
   eq(rows.length, 3, 'ข้ามแถวว่าง ได้ 3 แถว')
   eq(skipped.length, 0, 'ไม่มีแถวเสีย')
   eq(rows[0], { code: '1000258', name: 'Pyrazinamide 500mg', unit: '500เม็ด', drug_type: 'Tablet', notified_on: '2025-11-28',
-    status: PR_STATUS.WAITING, reason: 'หมดสต็อค', note: null, source_sheet: MAIN_SHEET, source_row: 5 }, 'แถวแรกครบทุกช่อง + เลขแถวจริง 5')
+    status: PR_STATUS.WAITING, reason: 'หมดสต็อค', note: null, qty_requested: 6, rate_per_month: 2.33, source_sheet: MAIN_SHEET, source_row: 5 },
+    'แถวแรกครบทุกช่อง + เลขแถวจริง 5')
+  eq([rows[1].qty_requested, rows[1].rate_per_month], [0, null], 'จำนวน 0 คงเป็น 0 · เรทเป็นขีด → null')
+  eq([rows[2].qty_requested, rows[2].rate_per_month], [null, null], 'ช่องว่าง → null')
   eq(rows[1].status, PR_STATUS.ARRIVED, '☑ ในชีทหลัก = มาส่งแล้ว (ยังไม่ย้ายไป ประวัติแจ้งซื้อ)')
   eq(rows[2].code, 'S004', 'รหัสเวชภัณฑ์ตัวอักษร')
   eq(rows[2].source_row, 8, 'เลขแถวนับแถวว่างด้วย')
@@ -90,8 +95,21 @@ section('parseSheetGrid — ประวัติแจ้งซื้อ')
   eq(rows.map(r => r.source_row), [3, 4, 5], 'เลขแถวจริงเริ่มแถว 3')
   eq(rows[2].note, 'แจ้งซ้ำ: ของมาแล้ว 27/10/69', 'หมายเหตุอ่านจากคอลัมน์ Y (เลื่อน 1 คอลัมน์)')
   eq(rows[0].notified_on, '2026-06-12', 'วันที่แจ้งจากคอลัมน์ C')
+  eq([rows[2].qty_requested, rows[2].rate_per_month], [40, 12], 'จำนวน/เรทเลื่อน 1 คอลัมน์ (W/O)')
   const s = summarize([...parseSheetGrid(main, MAIN_SHEET).rows, ...rows])
   eq([s.total, s.main, s.mainWaiting, s.history, s.historyArrived, s.historyCancelled], [6, 3, 2, 3, 2, 1], 'สรุปจำนวนแยกชีท/สถานะ')
+}
+
+section('qtyValueMismatch — จับคอลัมน์เลื่อนในประวัติแจ้งซื้อ')
+{
+  const ok = dataRow('☐', 1, 'X', 'x', 'u', '', '', { qty: 40, price: 35, value: 1400 })
+  eq(qtyValueMismatch(ok, 0), false, '40 × 35 = 1400 → ตรง')
+  eq(qtyValueMismatch(dataRow('☐', 1, 'X', 'x', 'u', '', '', { qty: 40, price: 35, value: 1401 }), 0), false, 'ต่างไม่เกิน 1 บาท → ถือว่าตรง')
+  eq(qtyValueMismatch(dataRow('☐', 1, 'X', 'x', 'u', '', '', { qty: 12, price: 35, value: 1400 }), 0), true, 'จำนวนผิดช่อง → ไม่ตรง')
+  eq(qtyValueMismatch(dataRow('☐', 1, 'X', 'x', 'u', '', '', { qty: 40, price: 35 }), 0), false, 'ไม่มีมูลค่า (แถวเก่า) → ไม่ตรวจ')
+  eq(qtyValueMismatch(shift(ok), 1), false, 'ประวัติแจ้งซื้อเลื่อน 1 คอลัมน์ base=1 → ตรง')
+  const bad = [...main.slice(0, 4), dataRow('☐', 45989, 1, 'X', 'u', '', '', { qty: 12, price: 35, value: 1400 })]
+  eq(parseSheetGrid(bad, MAIN_SHEET).mismatch, [{ sheet: MAIN_SHEET, rowNumber: 5, code: '1' }], 'parseSheetGrid คืนแถวที่ไม่ตรง')
 }
 
 section('purchaseDatesByCode')

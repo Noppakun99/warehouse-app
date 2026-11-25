@@ -19,7 +19,7 @@ import {
   bulkUpsertDrugReorderConfig, fetchMonthlyDispenseUsage, logReorderAction,
   fetchLatestReceiptInfo, parseUnitFactor, fetchPurchaseRequests,
 } from './lib/db';
-import { requestState, pendingRequestFor, todayIso as prTodayIso } from './lib/purchaseReportSheet';
+import { requestState, pendingRequestFor, todayIso as prTodayIso, fmtReportNum } from './lib/purchaseReportSheet';
 import { exportToExcel } from './lib/exportExcel';
 import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import {
@@ -925,6 +925,7 @@ function PurchaseRequestTab({ purchase }) {
                   <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800 whitespace-nowrap">วันที่แจ้ง</th>
                   <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">รายการยา</th>
                   <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">สถานะ</th>
+                  <th className="px-4 py-3 text-right bg-slate-50 dark:bg-slate-800 whitespace-nowrap" title="ตามรายงาน ณ วันที่แจ้ง — ไม่ใช่ค่าปัจจุบัน">แจ้งซื้อ · เรท ตอนแจ้ง</th>
                   <th className="px-4 py-3 text-left bg-slate-50 dark:bg-slate-800">เหตุผล · หมายเหตุ</th>
                   <th className="px-4 py-3 text-right bg-slate-50 dark:bg-slate-800 whitespace-nowrap">แถวใน Excel</th>
                 </tr>
@@ -938,6 +939,7 @@ function PurchaseRequestTab({ purchase }) {
                       <div className="text-xs text-slate-400 dark:text-slate-500 font-mono">{r.code}{r.unit ? ` · ${r.unit}` : ''}</div>
                     </td>
                     <td className="px-4 py-2.5"><PrStatePill r={r}/></td>
+                    <td className="px-4 py-2.5 text-right whitespace-nowrap tabular-nums"><PrQtyRate r={r}/></td>
                     <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300 max-w-md">
                       {r.reason && <div>{r.reason}</div>}
                       {r.note && <div className="text-slate-400 dark:text-slate-500 break-words">{r.note}</div>}
@@ -960,6 +962,12 @@ function PurchaseRequestTab({ purchase }) {
                   </div>
                   <PrStatePill r={r}/>
                 </div>
+                {(r.qty_requested != null || r.rate_per_month != null) && (
+                  <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-300 tabular-nums">
+                    แจ้งซื้อ <b className="font-semibold text-slate-800 dark:text-slate-100">{fmtReportNum(r.qty_requested)}</b> {r.unit || ''}
+                    <span className="text-slate-400 dark:text-slate-500"> · เรทตอนแจ้ง {fmtReportNum(r.rate_per_month)}/เดือน</span>
+                  </p>
+                )}
                 {(r.reason || r.note) && (
                   <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-300 break-words">
                     {r.reason}{r.reason && r.note ? ' · ' : ''}{r.note && <span className="text-slate-400 dark:text-slate-500">{r.note}</span>}
@@ -971,6 +979,17 @@ function PurchaseRequestTab({ purchase }) {
         </>
       )}
     </div>
+  );
+}
+
+// จำนวนที่แจ้ง + เรทเบิก/เดือน ตามรายงาน ณ วันแจ้ง (ADR-0030 amendment) — ไม่ใช่ค่าสดในแท็บวิเคราะห์
+function PrQtyRate({ r }) {
+  if (r.qty_requested == null && r.rate_per_month == null) return <span className="text-slate-300 dark:text-slate-600">—</span>;
+  return (
+    <>
+      <div className="font-semibold text-slate-800 dark:text-slate-100">{fmtReportNum(r.qty_requested)} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">{r.unit || ''}</span></div>
+      <div className="text-xs text-slate-400 dark:text-slate-500">เรท {fmtReportNum(r.rate_per_month)}/เดือน</div>
+    </>
   );
 }
 

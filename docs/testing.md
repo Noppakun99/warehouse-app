@@ -69,7 +69,7 @@ npm run test:receivesheet  # Golden tests สำหรับ src/lib/receiveShee
 npm run test:mastersheet   # Golden tests สำหรับ src/lib/masterSheet.js — อ่านชีท Master + ชีทขนาดลัง รวม เรียกว่า/หน่วยในลัง (60 assertions)
 npm run test:dispensesheet # Golden tests สำหรับ src/lib/dispenseSheet.js — อ่านชีท 'เบิก ' รวม AD เลขรับใบเบิก (66 assertions)
 npm run test:reordersheet  # Golden tests สำหรับ src/lib/reorderSheet.js — อ่านชีทวิเคราะห์สั่งซื้อ (37 assertions)
-npm run test:purchase      # Golden tests สำหรับ src/lib/purchaseReportSheet.js — อ่านรายงานแจ้งการสั่งซื้อยา 2 ชีท + สถานะสด รอ/มาส่งแล้ว/ยกเลิก + `summarizePurchaseStatus` ให้ Dashboard (47 assertions, ADR-0030)
+npm run test:purchase      # Golden tests สำหรับ src/lib/purchaseReportSheet.js — อ่านรายงานแจ้งการสั่งซื้อยา 2 ชีท + สถานะสด รอ/มาส่งแล้ว/ยกเลิก + `summarizePurchaseStatus` ให้ Dashboard + จำนวนที่แจ้ง/เรท ณ วันแจ้ง + `qtyValueMismatch` (56 assertions, ADR-0030)
 npm run test:importguard   # Golden tests สำหรับ src/lib/importGuard.js — ด่านตรวจก่อนเขียน DB (66 assertions)
 npm run test:excelsync     # Golden tests สำหรับ src/lib/excelSync.js — ปุ่ม "นำเข้าจาก Excel": ส่วนต่างรายช่อง + ด่านไฟล์เก่า/สถานะตรวจรับขัด + ไฟล์รับยา/ยืมยา + ขนาดลัง (84 assertions)
 npm run test:usagerow      # Golden tests สำหรับ supabase/functions/_shared/usageRow.js — กฎแถวเบิกที่นับเป็นการใช้ (4 แบบตามสูตรชีทวิเคราะห์สั่งซื้อ) + localYmd (21 assertions) ⚠️ test อยู่ src/lib/ แต่ source อยู่ _shared (แอป + edge function expiry-alert ใช้ไฟล์เดียวกัน)

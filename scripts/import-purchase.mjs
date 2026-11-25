@@ -40,6 +40,15 @@ if (out.skipped.length) {
   out.skipped.slice(0, 10).forEach(k => log(`     - ${k.sheet} แถว ${k.rowNumber}${k.code ? ` รหัส ${k.code}` : ''}: ${k.skip}`))
 }
 
+// จำนวนที่แจ้ง/เรท ณ วันแจ้ง (ADR-0030 amendment) — ประวัติแจ้งซื้อไม่มีหัวตาราง จึงตรวจ จำนวน × ราคา = มูลค่าสั่ง แทน
+const withQty = out.rows.filter(r => r.qty_requested != null).length
+log(`  จำนวนที่แจ้ง มีค่า ${fmt(withQty)} / ${fmt(s.total)} แถว · เรท/เดือน มีค่า ${fmt(out.rows.filter(r => r.rate_per_month != null).length)} แถว`)
+if (out.mismatch.length) {
+  log('')
+  log(`  ⚠ จำนวน × ราคา ≠ มูลค่าสั่ง ${fmt(out.mismatch.length)} แถว — คอลัมน์อาจเลื่อน ตรวจไฟล์ก่อน --commit:`)
+  out.mismatch.slice(0, 10).forEach(k => log(`     - ${k.sheet} แถว ${k.rowNumber} รหัส ${k.code}`))
+}
+
 // ด่านตรวจ: รหัสที่ไม่มีในคลังเลย = อาจพิมพ์ผิด (แจ้งไว้ ไม่หยุด — เวชภัณฑ์ใหม่ยังไม่มีใน Master ได้)
 let invCodes = new Set()
 try { invCodes = new Set((await fetchAll(supabase, 'inventory', 'code')).map(r => String(r.code ?? '').trim())) }

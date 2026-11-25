@@ -20,11 +20,17 @@ const CHECKED = '☑'
 const UNCHECKED = '☐'
 
 // ตำแหน่งคอลัมน์นับจากช่องติ๊ก (ชีทหลัก: ช่องติ๊ก = A) — ใช้ร่วมทั้ง 2 ชีท
-const OFFSET = { date: 1, code: 4, type: 5, name: 6, unit: 7, reason: 17, note: 23 }
+// rate (N Avg/เดือน 3 ด.) · qty (V จำนวนแนะนำสั่งซื้อ) = ค่า ณ วันแจ้งตามรายงาน (ADR-0030 amendment 25/11/2569)
+// price (I) · value (W มูลค่าสั่ง) ใช้แค่ตรวจว่าอ่านถูกช่อง (qty × price = value) ไม่เก็บ
+const OFFSET = { date: 1, code: 4, type: 5, name: 6, unit: 7, price: 8, rate: 13, reason: 17, qty: 21, value: 22, note: 23 }
 // หัวคอลัมน์ที่ต้องเจอในชีทหลัก — ถ้าไฟล์ถูกแทรก/ย้ายคอลัมน์ ให้หยุดแทนที่จะอ่านผิดช่องเงียบๆ
-const EXPECT_HEADER = { date: 'วันที่แจ้งสั่ง', code: 'รหัส', name: 'รายการยา', unit: 'หน่วย', reason: 'เหตุผล', note: 'หมายเหตุ' }
+const EXPECT_HEADER = {
+  date: 'วันที่แจ้งสั่ง', code: 'รหัส', name: 'รายการยา', unit: 'หน่วย', rate: 'Avg/เดือน', reason: 'เหตุผล',
+  qty: 'จำนวนแนะนำ', note: 'หมายเหตุ',
+}
 
 const txt = (v) => String(v ?? '').trim()
+const numOrNull = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null)
 
 /** Excel serial หรือ "DD/MM/YYYY" (พ.ศ./ค.ศ.) → "YYYY-MM-DD" | null */
 export function toIsoDate(v) {
@@ -94,9 +100,22 @@ export function rowToRequest(row, { base, sheet, rowNumber }) {
     status,
     reason: txt(at('reason')) || null,
     note: txt(at('note')) || null,
+    qty_requested: numOrNull(at('qty')),
+    rate_per_month: numOrNull(at('rate')),
     source_sheet: sheet,
     source_row: rowNumber,
   }
+}
+
+/** จำนวน/เรทตามรายงาน → ข้อความ (ทศนิยมไม่เกิน 2 — เรทอย่าง 1.67 ห้ามปัดเป็น 2) · null → '-' */
+export const fmtReportNum = (v) => (v == null || !Number.isFinite(Number(v))
+  ? '-' : Number(v).toLocaleString('th-TH', { maximumFractionDigits: 2 }))
+
+/** แถวที่ จำนวน × ราคา ≠ มูลค่าสั่ง (เฉพาะแถวที่มีครบ 3 ช่อง) — ประวัติแจ้งซื้อไม่มีหัวตาราง ใช้ตัวนี้จับคอลัมน์เลื่อน */
+export function qtyValueMismatch(row, base) {
+  const q = row?.[base + OFFSET.qty], p = row?.[base + OFFSET.price], v = row?.[base + OFFSET.value]
+  if (![q, p, v].every(x => typeof x === 'number' && Number.isFinite(x))) return false
+  return Math.abs(q * p - v) > Math.max(1, 0.01 * Math.abs(v))
 }
 
 /** grid ของ 1 ชีท → { rows, skipped } · rowOffset = เลขแถวจริงของ grid[0] − 1 */
@@ -115,13 +134,15 @@ export function parseSheetGrid(grid, sheet, rowOffset = 0) {
     base = findCheckColumn(grid)
     if (base < 0) throw new Error(`ชีท ${sheet}: ไม่พบคอลัมน์ช่องติ๊ก ☑/☐`)
   }
-  const rows = [], skipped = []
+  const rows = [], skipped = [], mismatch = []
   for (let i = start; i < (grid || []).length; i++) {
     const r = rowToRequest(grid[i], { base, sheet, rowNumber: i + 1 + rowOffset })
     if (!r) continue
-    if (r.skip) skipped.push(r); else rows.push(r)
+    if (r.skip) { skipped.push(r); continue }
+    rows.push(r)
+    if (qtyValueMismatch(grid[i], base)) mismatch.push({ sheet, rowNumber: r.source_row, code: r.code })
   }
-  return { rows, skipped }
+  return { rows, skipped, mismatch }
 }
 
 /** สถิติให้ CLI/ด่านตรวจ */
@@ -138,7 +159,7 @@ export function summarize(rows) {
 /** อ่านไฟล์ทั้งเล่ม (XLSX ส่งเข้ามา — module นี้ไม่ import เอง ให้ใช้ได้ทั้ง node และเบราว์เซอร์) */
 export function readPurchaseReportWorkbook(XLSX, file) {
   const wb = XLSX.readFile(file, { sheets: [MAIN_SHEET, HISTORY_SHEET] })
-  const out = { rows: [], skipped: [] }
+  const out = { rows: [], skipped: [], mismatch: [] }
   for (const sheet of [MAIN_SHEET, HISTORY_SHEET]) {
     const ws = wb.Sheets[sheet]
     if (!ws) throw new Error(`ไม่พบชีท "${sheet}"`)
@@ -147,7 +168,7 @@ export function readPurchaseReportWorkbook(XLSX, file) {
     ref.s.c = 0; ref.s.r = 0
     const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true, blankrows: true, range: ref })
     const r = parseSheetGrid(grid, sheet, 0)
-    out.rows.push(...r.rows); out.skipped.push(...r.skipped)
+    out.rows.push(...r.rows); out.skipped.push(...r.skipped); out.mismatch.push(...r.mismatch)
   }
   if (!out.rows.length) throw new Error('ไม่พบรายการแจ้งซื้อในไฟล์')
   return { ...out, stats: summarize(out.rows) }

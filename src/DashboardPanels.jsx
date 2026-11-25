@@ -11,6 +11,7 @@ import {
   TrendingUp, TrendingDown, ChevronDown, CalendarDays, Database, Hourglass, Search, RotateCcw, Lightbulb, Copy, Check,
   BookOpenCheck, Pencil, Trash2, Plus, Package, ShoppingBag, FileSpreadsheet, Loader2,
 } from 'lucide-react';
+import { fmtReportNum } from './lib/purchaseReportSheet';
 import { SWAP_ACTION_STATUS, insertFormularyChange, updateFormularyChange, deleteFormularyChange, fetchCartDraft, deleteCartDraft, fetchPurchaseArrivals, fetchNewDrugDispense } from './lib/db';
 import { reqTypeLabel, clearLocalCart } from './lib/reqType';
 import { openDrugSearch } from './lib/drugSearchEvent';
@@ -169,6 +170,11 @@ const FCOL = {
   // ราคาคิดต่อหน่วยในบิล — แท็บตัดออก หน่วยบิลต่างหน่วยคงเหลือได้ จึงกำกับหน่วยไว้
   price:    { label: 'ราคา/หน่วย', num: true, nowrap: true, cell: r => `${fmtPrice(r.price)}${r.price != null && r.priceUnit && r.priceUnit !== r.unit ? ` / ${r.priceUnit}` : ''}` },
 };
+// จำนวนที่แจ้ง + เรทเบิก/เดือน ตามรายงาน ณ วันแจ้ง (ADR-0030 amendment) — snapshot: true = ซ่อนเมื่อไม่มีค่าเลย (ผู้เบิก)
+const PR_SNAPSHOT_COLS = [
+  { label: 'แจ้งซื้อ', num: true, nowrap: true, snapshot: true, cell: r => fmtReportNum(r.qty_requested) },
+  { label: 'เรท/เดือน ตอนแจ้ง', num: true, nowrap: true, snapshot: true, cell: r => fmtReportNum(r.rate_per_month) },
+];
 const QUEUE_COLUMNS = {
   expired:        [COL.lot, COL.exp, COL.location, COL.qty, COL.unit],
   nearExpiry:     [COL.lot, COL.exp, COL.location, COL.qty, COL.unit],
@@ -187,10 +193,10 @@ const QUEUE_COLUMNS = {
   formularyOut:   [FCOL.received, FCOL.total, COL.unit,
                    { label: 'Lot ที่มีของ', cell: r => (r.lots ? fmtNum(r.lots) : '-'), num: true },
                    FCOL.supplier, FCOL.price],
-  // รายงานแจ้งซื้อยา (ADR-0030) — หมายเหตุเฉพาะ staff: แถวของผู้เบิกถูกล้าง note ก่อนส่งมา (AppRoot)
-  purchaseWaiting:  [{ label: 'วันที่แจ้ง', cell: r => fmtYmdBE(r.notified_on), nowrap: true }, COL.unit,
+  // รายงานแจ้งซื้อยา (ADR-0030) — หมายเหตุ/จำนวนที่แจ้ง/เรทเฉพาะ staff: แถวของผู้เบิกถูกล้างก่อนส่งมา (AppRoot)
+  purchaseWaiting:  [{ label: 'วันที่แจ้ง', cell: r => fmtYmdBE(r.notified_on), nowrap: true }, COL.unit, ...PR_SNAPSHOT_COLS,
                      { label: 'เหตุผล · หมายเหตุ', wide: true, full: true, cell: r => [r.reason, r.note].filter(Boolean).join(' · ') || '-' }],
-  purchaseNotMoved: [{ label: 'วันที่แจ้ง', cell: r => fmtYmdBE(r.notified_on), nowrap: true },
+  purchaseNotMoved: [{ label: 'วันที่แจ้ง', cell: r => fmtYmdBE(r.notified_on), nowrap: true }, ...PR_SNAPSHOT_COLS,
                      { label: 'บิลซื้อเข้า', cell: r => fmtYmdBE(r.arrivedOn), nowrap: true },
                      { label: 'แถวใน Excel', cell: r => `${dash(r.source_sheet)} ${r.source_row ?? ''}`.trim(), nowrap: true }],
   ptcRegister:    [{ label: 'วันที่ประชุม', cell: r => fmtYmdBE(r.ptc_date), nowrap: true },
@@ -422,7 +428,9 @@ export function PurchaseQueueModal({ item, manage, onClose }) {
     </div>
   );
   const rowDetail = item.key === 'purchaseNotMoved' ? (r => <PurchaseArrivals row={r} />) : null;
-  return <QueueDetailModal item={shown} manage={manage} onClose={onClose} toolbar={toolbar} rowDetail={rowDetail} />;
+  const hasSnapshot = item.rows.some(r => r.qty_requested != null || r.rate_per_month != null);
+  const columns = (QUEUE_COLUMNS[item.key] || []).filter(c => hasSnapshot || !c.snapshot);
+  return <QueueDetailModal item={shown} manage={manage} onClose={onClose} toolbar={toolbar} rowDetail={rowDetail} columns={columns} />;
 }
 
 // กางแถว "ไฟล์ยังไม่ย้าย" — บิลซื้อตั้งแต่วันที่แจ้ง (โหลดตอนกาง · บิลแรก = บิลที่ทำให้ขึ้นว่ามาแล้ว)
@@ -440,24 +448,32 @@ function PurchaseArrivals({ row }) {
   if (state.error) return <p className="text-xs text-red-600 dark:text-red-400">โหลดบิลรับเข้าไม่สำเร็จ: {state.error}</p>;
   if (!state.rows.length) return <p className="text-xs text-slate-500 dark:text-slate-400">ไม่พบบิลซื้อตั้งแต่ {fmtYmdBE(row.notified_on)}</p>;
   return (
-    <ul className="space-y-1.5">
-      {state.rows.map(b => (
-        <li key={b.id} className="rounded-lg bg-slate-50 dark:bg-slate-800/60 px-3 py-2 text-xs">
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="font-semibold text-slate-800 dark:text-slate-100 tabular-nums">รับ {fmtYmdBE(b.receive_date)}</span>
-            <span className="text-slate-600 dark:text-slate-300">บิล {b.bill_number || '-'}{b.po_number ? ` · PO ${b.po_number}` : ''}</span>
-            <span className="text-slate-500 dark:text-slate-400 min-w-0 break-words">{b.supplier_current || '-'}</span>
-          </div>
-          <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-slate-600 dark:text-slate-300 tabular-nums">
-            <span>Lot {b.lot || '-'}</span>
-            <span>EXP {b.exp || '-'}</span>
-            <span className="font-semibold text-slate-800 dark:text-slate-100">{fmtNum(b.qty_received)} {b.drug_unit || ''}</span>
-            {b.total_price_vat != null && <span>{Number(b.total_price_vat).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>}
-            {b.receive_status && <span className="text-slate-500 dark:text-slate-400">{b.receive_status}</span>}
-          </div>
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-1.5">
+      {(row.qty_requested != null || row.rate_per_month != null) && (
+        <p className="text-xs text-slate-600 dark:text-slate-300 tabular-nums">
+          แจ้งซื้อ {fmtYmdBE(row.notified_on)} จำนวน <b className="font-semibold text-slate-800 dark:text-slate-100">{fmtReportNum(row.qty_requested)}</b> {row.unit || ''}
+          <span className="text-slate-400 dark:text-slate-500"> · เรทตอนแจ้ง {fmtReportNum(row.rate_per_month)}/เดือน</span>
+        </p>
+      )}
+      <ul className="space-y-1.5">
+        {state.rows.map(b => (
+          <li key={b.id} className="rounded-lg bg-slate-50 dark:bg-slate-800/60 px-3 py-2 text-xs">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="font-semibold text-slate-800 dark:text-slate-100 tabular-nums">รับ {fmtYmdBE(b.receive_date)}</span>
+              <span className="text-slate-600 dark:text-slate-300">บิล {b.bill_number || '-'}{b.po_number ? ` · PO ${b.po_number}` : ''}</span>
+              <span className="text-slate-500 dark:text-slate-400 min-w-0 break-words">{b.supplier_current || '-'}</span>
+            </div>
+            <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-slate-600 dark:text-slate-300 tabular-nums">
+              <span>Lot {b.lot || '-'}</span>
+              <span>EXP {b.exp || '-'}</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-100">{fmtNum(b.qty_received)} {b.drug_unit || ''}</span>
+              {b.total_price_vat != null && <span>{Number(b.total_price_vat).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>}
+              {b.receive_status && <span className="text-slate-500 dark:text-slate-400">{b.receive_status}</span>}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

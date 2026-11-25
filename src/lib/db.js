@@ -3264,7 +3264,7 @@ export async function fetchPurchaseRequests() {
     return out
   }
   const requests = await pageAll(() => supabase.from('purchase_request')
-    .select('id, code, name, unit, drug_type, notified_on, status, reason, note, source_sheet, source_row, imported_at')
+    .select('id, code, name, unit, drug_type, notified_on, status, reason, note, qty_requested, rate_per_month, source_sheet, source_row, imported_at')
     .order('notified_on', { ascending: false }).order('id'))
   if (!requests.length) return { requests, purchaseDates: {}, importedAt: null }
   const since = requests.reduce((m, r) => (r.notified_on < m ? r.notified_on : m), requests[0].notified_on)
