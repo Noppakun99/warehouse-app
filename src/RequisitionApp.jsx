@@ -1985,8 +1985,8 @@ async function buildCoverHtml(req, autoPrint = true) {
     ${line('ข้าพเจ้า', fill(headName || req.requester_name || ''), 'ตำแหน่ง', fill(headName ? head.position : ''))}
     ${line('หน่วยงานผู้เบิก(ฝ่าย)', fill(req.department || ''), 'มีความประสงค์จะขอเบิกวัสดุเพื่อใช้ในรายการต่อไปนี้')}`;
   const contHead = `<div class="cont"><b>${formTitle} (ต่อ)</b><span>เลขที่เบิก <b>${escHtml(req.req_number)}</b> · ${escHtml(req.department || '')} · วันที่ ${thaiDate}</span></div>`;
-  const table = `<colgroup><col style="width:12mm"><col style="width:18mm"><col><col style="width:19mm">
-      <col style="width:18mm"><col style="width:34mm"></colgroup>
+  const table = `<colgroup><col style="width:12mm"><col style="width:19mm"><col><col style="width:22mm">
+      <col style="width:18mm"><col style="width:36mm"></colgroup>
     <thead><tr><th>ลำดับ</th><th>รหัส</th><th>รายการ</th><th>หน่วยนับ</th>
       <th>จำนวน<br>ที่เบิก</th><th>หมายเหตุ</th></tr></thead>`;
   const tail = `
@@ -2038,7 +2038,7 @@ async function buildCoverHtml(req, autoPrint = true) {
       </div>
     </div>`;
   const css = `
-    h2 { text-align: center; font-size: 21px; margin: 0 0 2px; text-decoration: underline; text-underline-offset: 5px; }
+    h2 { text-align: center; font-size: 23px; margin: 0 0 2px; text-decoration: underline; text-underline-offset: 5px; }
     .hosp { text-align: right; font-weight: 700; margin-bottom: 2px; }
     p { margin: 0 0 6px; }
     .ln { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; margin: 0 0 6px; }
@@ -2046,6 +2046,7 @@ async function buildCoverHtml(req, autoPrint = true) {
     .ln.right { justify-content: flex-end; }
     .f { border-bottom: 1px dotted #333; text-align: center; line-height: 1.3; padding: 0 4px; }
     .ln .f { flex: 1 1 auto; min-width: 40px; }
+    /* ส่วนลายเซ็นคงขนาดเดิม 15/14px — ขยายตามตาราง (16.5/15) เมื่อ 25/11/2569 แล้วส่วนท้ายสูงขึ้น ใบ 6 รายการกลายเป็น 2 หน้าอีก */
     .sum { font-size: 14px; margin: 4px 0 0; }
     .cols { display: flex; gap: 8mm; margin-top: 10px; }
     .col { flex: 1 1 0; min-width: 0; font-size: 15px; }
@@ -2064,7 +2065,13 @@ async function buildCoverHtml(req, autoPrint = true) {
     .sig .who { padding-top: 4px; }
     .sig .nm { grid-column: 1 / -1; text-align: center; white-space: normal; }
     .ln.dt { margin-top: 18px; }
-    .step { display: inline-block; min-width: 1.35em; height: 1.35em; line-height: 1.3em; border: 1px solid #000; border-radius: 50%; text-align: center; font-size: 12px; font-weight: 700; margin-right: 3px; }`;
+    /* .tight = ใช้เฉพาะหน้าสุดท้ายที่ลายเซ็นจะตกไปหน้าใหม่ (paginatedPrint.js) — วันที่ถึง (ลงชื่อ) ถัดไป 20+16 = 36px (ระยะเต็ม 62 · ก่อน 24/11/2569 32)
+       ใบ บย.70/0098 55 รายการ: ระยะเต็มได้ 4 หน้า หน้า 3 ว่างเกือบทั้งหน้า · แบบนี้ได้ 3 หน้าทั้งพิมพ์และ PDF (user แจ้ง 25/11/2569) */
+    .tight .blk { margin-bottom: 20px; }
+    .tight .col > .blk:last-child { margin-bottom: 0; }
+    .tight .ln.dt { margin-top: 10px; }
+    .tight .sig { margin-top: 16px; }
+    .step { display: inline-block; min-width: 1.35em; height: 1.35em; line-height: 1.3em; border: 1px solid #000; border-radius: 50%; text-align: center; font-size: 13px; font-weight: 700; margin-right: 3px; }`;
 
   // ไม่มีป้าย "ผู้เบิกลงชื่อกำกับหน้า" แล้ว (user 23/11/2569) — ท้ายกระดาษทุกหน้ามีเลขที่เบิก + หน้า n/N ผูกแผ่นอยู่แล้ว
   return buildPaginatedHtml({

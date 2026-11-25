@@ -1,7 +1,23 @@
 ---
 name: new-print
-description: Create a print view via window.open + Blob URL (iOS-safe) in warehouse-app. Use when adding a printable document or report.
+description: Create a print view via window.open + Blob URL (iOS-safe) in warehouse-app, and the mandatory bug-hunt check for paginated A4 forms (buildPaginatedHtml). Use when adding a printable document or report — or BEFORE editing ใบเบิกเวชภัณฑ์ยา/ใบขอเบิก/ใบปะหน้า, PDF ใบเบิกจากแอป, paginatedPrint.js, pagesToPdfBlob (ขนาดตัวอักษร ระยะลายเซ็น หน้าว่าง เส้นตารางหาย แถวโดนตัด)
 ---
+
+## ⛔ แก้ใบพิมพ์แบ่งหน้า (buildPaginatedHtml) — ตรวจทั้งเมทริกซ์ ไม่ใช่ใบเดียว (user สั่ง 25/11/2569)
+
+แก้ 5 รอบใน 3 วัน (23–25/11/2569) เพราะทุกรอบตรวจแค่ใบที่ user แจ้ง → แก้ใบยาวแล้วใบสั้นพัง / แก้ฟอนต์แล้วเส้นหาย:
+
+1. ก่อนแก้: `node scripts/check-paginated-print.mjs` เก็บผลเป็น baseline
+2. หลังแก้: รันซ้ำ → **✗ ห้ามมี** · ⚠ ใหม่ที่ไม่มีใน baseline = แจ้ง user ก่อนสรุป (หน้าว่างเกินครึ่งที่ขนาดไหน)
+3. ตรวจด้วยตา: `--pdf 55,6 --out <scratchpad>\pagchk` → Read PNG **ทุกหน้า** ของทั้ง `app_*` (PDF แบบผู้ใช้กด) และ `print_*` (ปุ่มพิมพ์) ดูให้ครบ 4 จุด:
+   - เส้นปิดตารางใต้แถวท้ายของ**ทุกหน้า** (ไม่ใช่แค่หน้าสุดท้าย)
+   - หน้าไหนว่างเกินครึ่งทั้งที่ยังมีรายการ/ลายเซ็นตามหลัง
+   - ตัวอักษรไม่ทับเส้น · หมายเหตุหลายบรรทัดไม่โดนตัด · ท้ายกระดาษ "หน้า n/N" บรรทัดเดียว
+   - ลำดับแถวต่อกันข้ามหน้า (สคริปต์เช็คแล้ว แต่ดูว่าไม่มีหน้าขาว/ดำ)
+4. user ส่ง PDF จริงมา → render ทุกหน้าด้วย pymupdf แล้วดูครบ 4 จุดเหมือนกัน (`scripts/pdf-table-check.py` ใช้ไม่ได้กับ PDF จากแอป — เป็นรูปทั้งหน้า ไม่มีเส้น vector)
+5. รายงาน user: ตารางผลสคริปต์ + บอกตรงๆ ว่าขนาดไหนยังมี ⚠ และยังไม่ได้ลอง iPhone/Safari (ถ้ายังไม่ได้ลอง)
+
+โหมด `pdf` ของสคริปต์ = ฟอนต์ระบบ (html2canvas ใช้ web font ไม่ได้) แถวสูงกว่า Sarabun → แบ่งหน้าต่างจากใบพิมพ์ ต้องผ่านทั้ง 2 โหมด · ส่วนลายเซ็นสูง ~2/3 หน้า แยกไม่ได้ → ขนาดใบที่ลายเซ็นพอดีขอบจะมีหน้าว่างเสมอ (ยกท้าย 3 แถวตามไป · `.tight` ลดระยะเฉพาะหน้าสุดท้ายเมื่อช่วยให้ไม่ต้องขึ้นหน้าใหม่) · fixture = `scripts/fixtures/cover-req-0098.json` (เปลี่ยนหัว/ส่วนท้ายใน buildCoverHtml ต้องสร้าง fixture ใหม่ — css อ่านสดจากโค้ดอยู่แล้ว)
 
 Create a new print function for a warehouse-app page using window.open popup with Thai formatting.
 

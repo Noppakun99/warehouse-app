@@ -8,27 +8,29 @@
 // · viewport กว้าง 820px = มือถือย่อทั้งหน้าให้พอดีจอ (หน้า A4 กว้างคงที่ 210mm)
 // · ความสูงหน้า 282mm ไม่ใช่ 296mm: iOS Safari ไม่สน @page margin — ใส่ขอบ+หัวท้ายของตัวเองแล้วย่อตามความกว้าง
 //   พื้นที่พิมพ์ได้สูง ≈ 1.39 เท่าของความกว้าง (วัดจาก PDF REQ-20261120-6883) → 296mm ล้น ~4mm ไปขึ้นหน้าว่างทุกแผ่น (user แจ้ง 23/11/2569)
+// · ตัวอักษรตาราง 14.5 → 16.5px · เนื้อความ 15.5 → 17px (user แจ้ง 25/11/2569 พิมพ์แล้วตัวเล็กไป) — หน้าละราว 22 แถวจากเดิม 25
 
 export const PAGINATED_BASE_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
 @page { size: A4 portrait; margin: 0; }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
-body { font-family: 'Sarabun', sans-serif; font-size: 15.5px; color: #000; line-height: 1.5; background: #e5e7eb; }
+body { font-family: 'Sarabun', sans-serif; font-size: 17px; color: #000; line-height: 1.5; background: #e5e7eb; }
 .page { width: 210mm; height: 282mm; padding: 10mm 12mm 7mm; background: #fff; margin: 0 auto; display: flex; flex-direction: column; overflow: hidden; }
 @media screen { .page { margin: 12px auto; box-shadow: 0 1px 4px rgba(0,0,0,.2); } }
 @media print { body { background: #fff; } .page { margin: 0; break-after: page; } .page:last-child { break-after: auto; } }
 .pbody { flex: 1 1 auto; min-height: 0; overflow: hidden; }
-.pfoot { flex: none; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; font-size: 12.5px; color: #333; padding-top: 4px; }
+.pfoot { flex: none; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; font-size: 13.5px; color: #333; padding-top: 4px; }
 .pfoot .ini { display: inline-flex; gap: 6px; align-items: baseline; }
 .pfoot .ini i { display: inline-block; min-width: 45mm; border-bottom: 1px dotted #333; }
 .cont { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 6px; }
-.cont b { font-size: 16.5px; }
+.cont b { font-size: 17.5px; }
+.cont span { font-size: 15px; }
 table.grid { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 4px 0 0; }
-table.grid th, table.grid td { border: 1px solid #000; padding: 2px 4px; font-size: 14.5px; line-height: 1.35; vertical-align: top; overflow-wrap: anywhere; }
+table.grid th, table.grid td { border: 1px solid #000; padding: 2px 4px; font-size: 16.5px; line-height: 1.35; vertical-align: top; overflow-wrap: anywhere; }
 table.grid th { font-weight: 600; text-align: center; vertical-align: middle; background: #f1f5f9; line-height: 1.25; overflow-wrap: normal; white-space: nowrap; }
 table.grid td.c { text-align: center; } table.grid td.r { text-align: right; font-variant-numeric: tabular-nums; }
-table.grid td.mono { font-size: 13px; text-align: center; } table.grid td.b { font-weight: 600; }
+table.grid td.mono { font-size: 15px; text-align: center; } table.grid td.b { font-weight: 600; }
 table.grid tr.blank td { height: 7.2mm; }
 `
 
@@ -76,7 +78,14 @@ export function buildPaginatedHtml(o) {
         + '<div class="pfoot"><span class="ini"></span><span class="pno">&nbsp;</span></div>';
       root.appendChild(pg); pages.push(pg); return pg;
     }
-    function over(pg) { var b = pg.querySelector('.pbody'); return b.scrollHeight > b.clientHeight + 1; }
+    // เผื่อ 3px จากขอบล่าง — เดิมยอมล้น 1px เส้นปิดตาราง (border-collapse ครึ่งเส้นอยู่นอกกล่อง) โดน .pbody ตัด
+    // หน้า 2 ของใบ บย.70/0098 แถว 46 ไม่มีเส้นล่าง (user แจ้ง 25/11/2569)
+    function over(pg) {
+      var b = pg.querySelector('.pbody');
+      if (b.scrollHeight > b.clientHeight + 1) return true;
+      var bottom = Math.max(b.querySelector('table.grid').getBoundingClientRect().bottom, b.querySelector('.ptail').getBoundingClientRect().bottom);
+      return bottom > b.getBoundingClientRect().bottom - 3;
+    }
     function tb(pg) { return pg.querySelector('tbody'); }
     var pg = newPage(true);
     C.rows.forEach(function (row) {
@@ -88,6 +97,9 @@ export function buildPaginatedHtml(o) {
       }
     });
     pg.querySelector('.ptail').innerHTML = C.tail;
+    // ส่วนท้ายไม่พอดีหน้า → ลองระยะแบบแน่น (.page.tight ที่ใบกำหนดเองใน css) ก่อนยกแถวไปหน้าใหม่
+    // ใบ บย.70/0098: หน้า 3 มี 6 แถวแล้วว่างทั้งหน้า หน้า 4 มี 3 แถว + ลายเซ็น (user แจ้ง 25/11/2569)
+    if (over(pg) && C.tail) { pg.classList.add('tight'); if (over(pg)) pg.classList.remove('tight'); }
     if (over(pg) && C.tail) {
       pg.querySelector('.ptail').innerHTML = '';
       var moved = [];
