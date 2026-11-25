@@ -8,7 +8,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Hourglass, Search, Loader2, AlertTriangle, ChevronDown, Users, MapPin, Building2 } from 'lucide-react';
 import BackButton from './BackButton';
 import { fetchDeadStockData } from './lib/db';
-import { buildCompanyPolicyIndex, parseExpDate, returnPolicyLabel } from './lib/drugProfile';
+import { buildCompanyPolicyIndex, parseExpDate, returnPolicyLabel, unitLabel } from './lib/drugProfile';
 import { buildDeadStock, stockLotsFromInventory, firstReceiveMap, ymThai, REPORT_MONTHS, WATCH_MONTHS } from './lib/deadStock';
 
 const HISTORY_START = '2025-10'; // เดือนแรกที่มีข้อมูลเบิกในระบบ (ตรงกับ CLI)
@@ -55,7 +55,7 @@ function LotTable({ lots }) {
                 {l.location && <span className="block mt-1 text-[11px] text-slate-400 dark:text-slate-500">ที่เก็บ {l.location}</span>}
               </span>
               <span className="block md:col-span-2 text-xs text-slate-600 dark:text-slate-300 tabular-nums"><span className="md:hidden text-slate-400">หมดอายุ </span>{fmtThaiDate(l.expDate)}</span>
-              <span className="block md:col-span-2 md:text-right text-xs text-slate-700 dark:text-slate-200 tabular-nums"><span className="md:hidden text-slate-400">คงเหลือ </span>{num(l.qty)} {l.unit}</span>
+              <span className="block md:col-span-2 md:text-right text-xs text-slate-700 dark:text-slate-200 tabular-nums"><span className="md:hidden text-slate-400">คงเหลือ </span>{num(l.qty)} {unitLabel(l.unit)}</span>
               <span className="block md:col-span-2 md:text-right text-xs font-semibold text-slate-700 dark:text-slate-200 tabular-nums"><span className="md:hidden text-slate-400 font-normal">มูลค่า </span>{baht(l.value)}</span>
               <span className="block md:col-span-4 min-w-0 text-xs">
                 <span className="block text-slate-600 dark:text-slate-300 break-words">{l.policy?.company || 'ไม่ทราบบริษัท'}</span>
@@ -95,7 +95,7 @@ function DrugRow({ r, open, onToggle, onOpenDrug }) {
         </span>
         <span className="shrink-0 text-right">
           <span className="block text-sm font-bold text-slate-800 dark:text-slate-100 tabular-nums">{baht(r.value)}</span>
-          <span className="block text-[11px] text-slate-400 dark:text-slate-500 tabular-nums">{num(r.qty)} {r.mixedUnits ? '(หลายหน่วย)' : r.unit}</span>
+          <span className="block text-[11px] text-slate-400 dark:text-slate-500 tabular-nums">{num(r.qty)} {r.mixedUnits ? '(หลายหน่วย)' : unitLabel(r.unit)}</span>
           <ChevronDown size={16} className={`ml-auto mt-1 text-slate-400 ${open ? 'rotate-180' : ''}`} />
         </span>
       </button>

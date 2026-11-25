@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { X, Plus, Trash2, Search, Printer, CheckCircle2, AlertTriangle, FileText, Ban } from 'lucide-react';
 import ConfirmModal from './ConfirmModal';
 import { createLoanSlip, cancelLoanSlip, fetchDrugSearchIndex, fetchLoanSlipDrug, LOAN_DIRECTION } from './lib/db';
-import { searchDrugs } from './lib/drugProfile';
+import { searchDrugs, unitLabel } from './lib/drugProfile';
 import { printFilledLoanSlip } from './lib/drugLoanForm';
 import { SLIP_KIND, SLIP_STATUS, isoToThai, expToThai, guessPartyType, deriveReturnResult } from './lib/loanSlip';
 
@@ -154,7 +154,7 @@ function DrugPicker({ direction, onAdd }) {
                 {drug.lots.map(l => (
                   <button key={l.id} type="button" onClick={() => add(l)}
                     className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-sky-50 dark:hover:bg-sky-950/40 text-[12px] text-slate-700 dark:text-slate-200">
-                    Lot <b>{l.lot || '-'}</b> · EXP {expToThai(l.exp) || '-'} · คงเหลือ <b>{l.qty}</b> {l.unit} · {l.location || '-'}
+                    Lot <b>{l.lot || '-'}</b> · EXP {expToThai(l.exp) || '-'} · คงเหลือ <b>{l.qty}</b> {unitLabel(l.unit)} · {l.location || '-'}
                   </button>
                 ))}
               </div>
@@ -348,7 +348,7 @@ export function LoanReturnSlipModal({ auth, groupRows, onClose, onSaved }) {
               <input type="checkbox" checked={p.checked} onChange={e => setPick(r.id, 'checked', e.target.checked)} className="mt-1 accent-emerald-600" />
               <span className="text-sm text-slate-800 dark:text-slate-100 min-w-0">
                 <b>{r.drug_name}</b>{r.drug_code && <span className="text-[11px] text-slate-400 ml-1">[{r.drug_code}]</span>}
-                <span className="block text-[11px] text-slate-500">ยืม lot {r.lot || '-'} · EXP {expToThai(r.exp) || '-'} · {r.qty ?? '-'} {r.unit || ''}</span>
+                <span className="block text-[11px] text-slate-500">ยืม lot {r.lot || '-'} · EXP {expToThai(r.exp) || '-'} · {r.qty ?? '-'} {unitLabel(r.unit)}</span>
               </span>
             </label>
             {p.checked && (
@@ -423,7 +423,7 @@ export function OpenSlipsPanel({ slips, auth, canEdit, onChanged }) {
                 ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60'
                 : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-900/60'}`}>{SLIP_STATUS[sl.status]}</span>
             </p>
-            <p className="text-slate-500 dark:text-slate-400">{(sl.job?.items || []).map(i => `${i.name} ${i.qty} ${i.unit}`).join(' · ')} · {sl.created_by || '-'} {isoToThai(String(sl.created_at || '').slice(0, 10))}</p>
+            <p className="text-slate-500 dark:text-slate-400">{(sl.job?.items || []).map(i => `${i.name} ${i.qty} ${unitLabel(i.unit)}`).join(' · ')} · {sl.created_by || '-'} {isoToThai(String(sl.created_at || '').slice(0, 10))}</p>
             {sl.status === 'conflict' && sl.note && <p className="text-rose-600 dark:text-rose-300">{sl.note}</p>}
           </div>
           <div className="flex items-center gap-1.5 shrink-0">

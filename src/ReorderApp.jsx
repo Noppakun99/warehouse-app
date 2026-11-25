@@ -21,6 +21,7 @@ import {
 } from './lib/db';
 import { requestState, pendingRequestFor, todayIso as prTodayIso, fmtReportNum } from './lib/purchaseReportSheet';
 import { exportToExcel } from './lib/exportExcel';
+import { unitLabel } from './lib/drugProfile';
 import { localYmd } from '../supabase/functions/_shared/usageRow.js';
 import {
   analyzeBatch, analyzeDrug, STATUS, DEFAULT_LEAD_TIME,
@@ -964,7 +965,7 @@ function PurchaseRequestTab({ purchase }) {
                 </div>
                 {(r.qty_requested != null || r.rate_per_month != null) && (
                   <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-300 tabular-nums">
-                    แจ้งซื้อ <b className="font-semibold text-slate-800 dark:text-slate-100">{fmtReportNum(r.qty_requested)}</b> {r.unit || ''}
+                    แจ้งซื้อ <b className="font-semibold text-slate-800 dark:text-slate-100">{fmtReportNum(r.qty_requested)}</b> {unitLabel(r.unit)}
                     <span className="text-slate-400 dark:text-slate-500"> · เรทตอนแจ้ง {fmtReportNum(r.rate_per_month)}/เดือน</span>
                   </p>
                 )}
@@ -987,7 +988,7 @@ function PrQtyRate({ r }) {
   if (r.qty_requested == null && r.rate_per_month == null) return <span className="text-slate-300 dark:text-slate-600">—</span>;
   return (
     <>
-      <div className="font-semibold text-slate-800 dark:text-slate-100">{fmtReportNum(r.qty_requested)} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">{r.unit || ''}</span></div>
+      <div className="font-semibold text-slate-800 dark:text-slate-100">{fmtReportNum(r.qty_requested)} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">{unitLabel(r.unit)}</span></div>
       <div className="text-xs text-slate-400 dark:text-slate-500">เรท {fmtReportNum(r.rate_per_month)}/เดือน</div>
     </>
   );
@@ -1073,7 +1074,7 @@ function DrugDetailPanel({ r, months, onClose }) {
               <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">ยอดเบิกรายเดือน (หน่วยซื้อ)</h4>
               <div className="flex items-end gap-2 h-24">
                 {usage.map((v, i) => (
-                  <div key={i} className="flex-1 flex flex-col items-center gap-1" title={`${fmtNum(v)} ${r.unit || ''}`}>
+                  <div key={i} className="flex-1 flex flex-col items-center gap-1" title={`${fmtNum(v)} ${unitLabel(r.unit)}`}>
                     <div className="w-full flex items-end h-16">
                       <div className="w-full bg-orange-400 rounded-t hover:bg-orange-500 transition-colors"
                         style={{ height: `${(v / maxU) * 100}%`, minHeight: v > 0 ? '3px' : '0' }}/>
@@ -1089,10 +1090,10 @@ function DrugDetailPanel({ r, months, onClose }) {
           {/* รายละเอียด */}
           <div>
             <DetailField label="ใช้เฉลี่ย/เดือน">{fmtNum(Math.round(r.avgMonth || 0))}</DetailField>
-            <DetailField label="หน่วย">{r.unit || '—'}</DetailField>
+            <DetailField label="หน่วย">{unitLabel(r.unit) || '—'}</DetailField>
             <DetailField label="คงอยู่ได้อีก">{fmtCoverage(r.stock, r.avgDay)}</DetailField>
             <DetailField label="ต้องซื้อ">
-              {r.orderQty > 0 ? <>{fmtNum(r.orderQty)} {r.unit}{(r.packFactor||1)>1 && <span className="text-slate-400 dark:text-slate-500"> = {fmtNum(r.orderQty*r.packFactor)} {base}</span>}</> : '—'}
+              {r.orderQty > 0 ? <>{fmtNum(r.orderQty)} {unitLabel(r.unit)}{(r.packFactor||1)>1 && <span className="text-slate-400 dark:text-slate-500"> = {fmtNum(r.orderQty*r.packFactor)} {base}</span>}</> : '—'}
             </DetailField>
             {r.amount > 0 && <DetailField label="มูลค่าที่ต้องซื้อ"><span className="text-emerald-700 dark:text-emerald-300 font-bold">฿{fmtBaht(r.amount)}</span></DetailField>}
             <DetailField label="ราคา/หน่วยซื้อ">{r.pricePerUnit > 0 ? `฿${fmtBaht(r.pricePerUnit)}` : '—'}</DetailField>

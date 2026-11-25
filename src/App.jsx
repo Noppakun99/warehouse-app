@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { fetchInventory, fetchDrugDetails, fetchUploadMeta, normalizeLotSearch, fetchConsistencyReport, fetchSwapPolicies, flagSwapReturn, fetchDrugReorderConfig } from './lib/db';
-import { isBelowSafetyStock } from './lib/drugProfile';
+import { isBelowSafetyStock, unitLabel } from './lib/drugProfile';
 import { computeReturnStatus, parseReturnPolicyV2, computeReturnStatusV2 } from './lib/swapPolicy';
 import { normExpDate } from './lib/receiveMatch';
 import BackButton from './BackButton';
@@ -1962,7 +1962,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                         <div key={i} className={`${k.bg} border ${k.border} rounded-xl p-3.5 shadow-sm flex flex-col gap-0.5`}>
                           <div className={`flex items-center gap-1.5 text-[11px] font-bold ${k.text}`}>{k.icon}<span className="truncate">{k.label}</span></div>
                           <div className={`text-2xl font-black ${k.val} leading-tight mt-1`}>{k.raw ? k.value : k.value.toLocaleString()}</div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400">{k.unit}</div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">{k.unit}{/* qty-unit-ok ป้าย KPI คงที่ (โซน/รหัสยา/Lot/บาท) */}</div>
                         </div>
                       ))}
                     </div>
@@ -2125,7 +2125,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                               <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{s.name}</div>
                               <div className="text-[11px] text-slate-500 dark:text-slate-400">{s.code && s.code !== '-' ? `[${s.code}] · ` : ''}{s.type || '-'} · {s.locations.size} ตำแหน่ง</div>
                             </div>
-                            <span className="text-sm font-black text-sky-700 dark:text-sky-300 shrink-0">{s.qty.toLocaleString()} <span className="text-[10px] font-normal text-slate-400 dark:text-slate-500">{s.unit || ''}</span></span>
+                            <span className="text-sm font-black text-sky-700 dark:text-sky-300 shrink-0">{s.qty.toLocaleString()} <span className="text-[10px] font-normal text-slate-400 dark:text-slate-500">{unitLabel(s.unit)}</span></span>
                           </div>
                         ))}
                       </div>

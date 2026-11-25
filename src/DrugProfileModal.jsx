@@ -11,7 +11,7 @@ import {
   ChevronRight, Copy, Check,
 } from 'lucide-react';
 import { fetchDrugProfile } from './lib/db';
-import { parseExpDate, packUnitLabel, packWord, returnPolicyLabel, policySourceNote } from './lib/drugProfile';
+import { parseExpDate, packUnitLabel, packWord, returnPolicyLabel, policySourceNote, unitLabel } from './lib/drugProfile';
 import { drugCardLineText } from './lib/usageReport';
 import { copyText } from './lib/clipboard';
 
@@ -54,7 +54,7 @@ function UnitNote({ note }) {
     const parts = [`${fmtNum(c.qty)} ${c.factor > 1 ? packUnitLabel(c.unit) : c.unit}`];
     if (c.factor > 1) parts.push(`= ${fmtNum(c.baseQty)} ${c.base}`);
     if (note.mainFactor > 1) parts.push(`÷ ${fmtNum(note.mainFactor)} = ${fmtNum(c.inMain)} ${mainShort}`);
-    else if (c.factor === 1) parts.push(`= ${fmtNum(c.inMain)} ${note.mainUnit}`);
+    else if (c.factor === 1) parts.push(`= ${fmtNum(c.inMain)} ${unitLabel(note.mainUnit)}`);
     return parts.join(' ');
   };
   const { change } = note;
@@ -203,7 +203,7 @@ function statusChips(p) {
   if (p.belowSS) out.push({
     tone: 'amber', icon: TrendingDown,
     text: p.ssUnit
-      ? `ต่ำกว่า Safety Stock (คงเหลือ ${fmtNum(p.ssQty)} / SS ${fmtNum(p.ss)} ${p.ssUnit})`
+      ? `ต่ำกว่า Safety Stock (คงเหลือ ${fmtNum(p.ssQty)} / SS ${fmtNum(p.ss)} ${unitLabel(p.ssUnit)})`
       : `ต่ำกว่า Safety Stock (SS ${fmtNum(p.ss)})`,
   });
   if (p.expiredLots) out.push({ tone: 'red', icon: AlertTriangle, text: `หมดอายุค้างคลัง ${p.expiredLots} lot` });

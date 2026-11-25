@@ -6,6 +6,8 @@
 //   คลังน้ำเกลือ 94 แถว (ชนิด Saline) · คลังถุง/ขวด/ตลับ 41 แถว (เวชภัณฑ์มิใช่ยา) · ที่เหลือ = ยา
 //   Gelofusine อยู่ชั้น C → ยา (หัวหน้าสั่งเอง ไม่อยู่ในใบน้ำเกลือ)
 
+import { packWord as unitPackWord } from './drugProfile.js';
+
 export const REQ_TYPES = [
   { key: 'saline', label: 'น้ำเกลือ' },
   { key: 'supply', label: 'ถุง/ขวด/ตลับ' },
@@ -106,7 +108,7 @@ export function entryUnitOf({ unit = '', baseUnit = '', packSizes = [], packUnit
   if (sizes.length === 1) return { packSize: sizes[0], label: unit, hint: null };
   if (sizes.length > 1) return { packSize: 1, label: baseUnit || unit, hint: null };
   const m = String(unit || '').trim().match(/^(\d[\d,]*)\s*(\D.*)$/);
-  const hint = m && Number(m[1].replace(/,/g, '')) > 1 ? `1 ${unit} = ${m[1]} ${m[2].trim()}` : null;
+  const hint = m && Number(m[1].replace(/,/g, '')) > 1 ? `1 ${unitPackWord(unit)} = ${m[1]} ${m[2].trim()}` : null;
   return { packSize: 1, label: unit, hint };
 }
 

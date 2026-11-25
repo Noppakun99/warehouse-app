@@ -60,7 +60,7 @@ function RankList({ title, desc, rank, countUnit, bar, note }) {
               </div>
               <span className="text-right whitespace-nowrap leading-tight">
                 <span className="block tabular-nums font-semibold text-slate-800 dark:text-slate-100">{fmtNum(t.value)} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">บาท</span></span>
-                <span className="block text-xs text-slate-500 dark:text-slate-400 tabular-nums">{t.count.toLocaleString()} {countUnit}</span>
+                <span className="block text-xs text-slate-500 dark:text-slate-400 tabular-nums">{t.count.toLocaleString()} {countUnit}{/* qty-unit-ok นับครั้ง/บิล ไม่ใช่หน่วยยา */}</span>
               </span>
             </li>
           ))}

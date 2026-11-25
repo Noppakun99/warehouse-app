@@ -6,6 +6,8 @@
 // ที่มาของฟอร์ม (ระเบียบพัสดุ ข้อ 210–211) ดูหัวไฟล์ drugLoanForm.js
 // ตัวกรองหาตำแหน่งในใบด้วย string → แก้แม่แบบแล้ว fillLoanSlip โยน error บอกจุดที่หาไม่เจอ (ไม่กรอกผิดที่เงียบๆ)
 
+import { unitLabel } from './drugProfile.js';
+
 const HOSPITAL_NAME = 'โรงพยาบาลประชาธิปัตย์';
 
 function todayThaiDate() {
@@ -476,10 +478,10 @@ export function fillLoanSlip(job) {
     const name = `<b>${esc(it.name)}</b>${it.code ? ` (รหัส ${esc(it.code)})` : ''}`;
     const exp = `<td class="c" style="white-space:nowrap;font-size:9.5px;">${esc(it.exp)}</td>`;
     const note = `<td style="font-size:9.5px;">${esc(it.note)}</td>`;
-    const unit = esc(it.unit).replace(' (', '<br/>(');
+    const unit = esc(unitLabel(it.unit)).replace(' (', '<br/>(');
     rows.push(out
-      ? `<tr><td class="c">${i + 1}</td><td>${name}</td><td class="c">${esc(it.lot)}</td>${exp}<td class="c">${it.qty}</td><td class="c">${unit}</td><td class="c">${money(it.price)}</td><td class="c">${money(value)}</td>${note}</tr>`
-      : `<tr><td class="c">${i + 1}</td><td>${name}</td><td class="c">${esc(it.lot)}</td><td class="c">${esc(it.lotReturned || it.lot)}</td>${exp}<td class="c">${it.qty}</td><td class="c">${unit}</td><td class="c">${money(value)}</td>${note}</tr>`);
+      ? `<tr><td class="c">${i + 1}</td><td>${name}</td><td class="c">${esc(it.lot)}</td>${exp}<td class="c">${it.qty}</td><td class="c">${unit}</td><td class="c">${money(it.price)}</td><td class="c">${money(value)}</td>${note}</tr>` // qty-unit-ok unit ห่อ unitLabel แล้ว (บรรทัดบน)
+      : `<tr><td class="c">${i + 1}</td><td>${name}</td><td class="c">${esc(it.lot)}</td><td class="c">${esc(it.lotReturned || it.lot)}</td>${exp}<td class="c">${it.qty}</td><td class="c">${unit}</td><td class="c">${money(value)}</td>${note}</tr>`); // qty-unit-ok
   }
   const tb = h.indexOf('<tbody>'), te = h.indexOf('</tbody>');
   h = h.slice(0, tb) + '<tbody>' + rows.join('') + h.slice(te);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCcw, Search, ClipboardList, Pencil, Trash2, X, Save, CheckSquare, BarChart3, Users, TrendingUp, Filter, ChevronDown } from 'lucide-react';
+import { unitLabel } from './lib/drugProfile';
 import { fetchAuditLogs, updateAuditLog, deleteAuditLog, bulkDeleteAuditLogs, fetchUserActivityStats } from './lib/db';
 import BackButton from './BackButton';
 import { editChangeText } from './lib/reqEditRound';
@@ -292,7 +293,7 @@ function formatDetails(action, details, recordCount) {
       return [
         d.req_number && `เลขที่: ${d.req_number}`,
         d.kind === 'edit' ? 'คืนค่าการแก้ไข' : 'ถอนใบ',
-        ...(d.conflicts || []).map(c => `${c.drug_name} ขอ ${c.requested} เบิกได้ ${c.available} ${c.unit || ''}`.trim()),
+        ...(d.conflicts || []).map(c => `${c.drug_name} ขอ ${c.requested} เบิกได้ ${c.available} ${unitLabel(c.unit)}`.trim()),
       ].filter(Boolean).join(' · ') || '-';
 
     case 'requester_edit_requisition':

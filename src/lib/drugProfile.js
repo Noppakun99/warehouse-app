@@ -38,6 +38,20 @@ export function packUnitLabel(unit) {
   if (factor > 1) return `${packWord(unit)} (${factor.toLocaleString('en-US')} ${base})`
   return String(unit || '-').trim() || '-'
 }
+// หน่วยที่แสดงต่อท้ายตัวเลข — ทุกจุดในแอปต้องผ่านตัวนี้ (บั๊ก "คงเหลือ 7 50amp" อ่านไม่ออกว่า 7 อะไร · user 25/11/2569)
+// "50amp" → "กล่อง (50 amp)" · "เม็ด" → "เม็ด" · ว่าง/'-' → '' · ตัวกัน: npm run test:qtyunit
+export function unitLabel(unit) {
+  const s = String(unit ?? '').trim()
+  if (!s || s === '-') return ''
+  const { factor, base } = parseUnitFactor(s)
+  return factor === 1 && /^\d/.test(s) ? base : packUnitLabel(s) // "1ขวด" (มีใน DB) → "ขวด"
+}
+// "7 กล่อง (50 amp)" — qty ตัวเลขคั่นหลักพันให้ · สตริงที่จัดรูปมาแล้วใช้ตามนั้น
+export function qtyWithUnit(qty, unit) {
+  const q = qty == null || qty === '' ? '-' : typeof qty === 'number' ? qty.toLocaleString('en-US') : String(qty)
+  const u = unitLabel(unit)
+  return u ? `${q} ${u}` : q
+}
 
 // วันหมดอายุของ inventory (DD/MM/YYYY ค.ศ. เป็นหลัก) → Date เที่ยงคืน local · อ่านไม่ได้ = null
 export function parseExpDate(raw) {

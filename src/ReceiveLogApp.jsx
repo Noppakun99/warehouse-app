@@ -15,6 +15,7 @@ import {
   ClipboardList, Send, FileCheck2, History, Undo2, Printer, ArrowRight, ArrowLeftRight,
 } from 'lucide-react';
 import { exportToExcel } from './lib/exportExcel';
+import { unitLabel } from './lib/drugProfile';
 import { openPrintView } from './lib/openPrintView';
 import { insertAuditLog, resolveAuditUserName } from './lib/db';
 import FilterSheet, { FilterButton } from './FilterSheet';
@@ -1933,7 +1934,7 @@ function ReceiveView({ auth = {}, isStaff = false, onRefresh, onGoBack, canGoBac
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words">{r.drug_code} · Lot {r.lot || '-'} · Exp {fmtAnyDate(r.exp)}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">{(r.qty_received || 0).toLocaleString()} <span className="font-normal text-slate-500 dark:text-slate-400">{rowUnit(r)}</span></p>
+                      <p className="font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">{(r.qty_received || 0).toLocaleString()} <span className="font-normal text-slate-500 dark:text-slate-400">{unitLabel(rowUnit(r)) || '-'}</span></p>
                       <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5 tabular-nums">{fmt2(r.total_price_vat)} บ.</p>
                     </div>
                   </button>
@@ -1976,7 +1977,7 @@ function ReceiveView({ auth = {}, isStaff = false, onRefresh, onGoBack, canGoBac
                         <span className="block text-xs text-slate-500 dark:text-slate-400">Exp {fmtAnyDate(r.exp)}</span>
                       </td>
                       <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums">
-                        <span className="font-bold text-emerald-700 dark:text-emerald-300">{(r.qty_received || 0).toLocaleString()}</span> <span className="text-slate-500 dark:text-slate-400">{rowUnit(r)}</span>
+                        <span className="font-bold text-emerald-700 dark:text-emerald-300">{(r.qty_received || 0).toLocaleString()}</span> <span className="text-slate-500 dark:text-slate-400">{unitLabel(rowUnit(r)) || '-'}</span>
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-slate-700 dark:text-slate-200">{fmt2(r.price_per_unit)}</td>
                       <td className="px-4 py-2 text-right font-semibold tabular-nums text-slate-800 dark:text-slate-100">{fmt2(r.total_price_vat)}</td>
@@ -2079,7 +2080,7 @@ function ReceiveView({ auth = {}, isStaff = false, onRefresh, onGoBack, canGoBac
           <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-slate-100 dark:border-slate-800">
             <div className="min-w-0">
               <h2 className="font-bold text-slate-900 dark:text-slate-50 break-words">{selectedDrug}</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">รหัส {drugCode} · หน่วย {drugUnit} · {filteredDrugRows.length.toLocaleString()} รายการรับ</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">รหัส {drugCode} · หน่วย {unitLabel(drugUnit) || '-'} · {filteredDrugRows.length.toLocaleString()} รายการรับ</p>
             </div>
             <button type="button" onClick={clearSearch} aria-label="ปิดยาที่เลือก"
               className="shrink-0 -m-1 p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:text-slate-200 dark:hover:bg-slate-800 transition-colors"><X size={16}/></button>
@@ -2107,7 +2108,7 @@ function ReceiveView({ auth = {}, isStaff = false, onRefresh, onGoBack, canGoBac
                     </div>
                     <div className="text-right shrink-0">
                       <span className="inline-flex items-center rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold px-2.5 py-0.5 text-sm tabular-nums">{r.qty_received ? `+${r.qty_received.toLocaleString()}` : '-'}</span>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{r.drug_unit || r.unit_per_bill || '-'}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{unitLabel(r.drug_unit || r.unit_per_bill) || '-'}</p>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5 mt-2 text-[11px]">
@@ -2154,7 +2155,7 @@ function ReceiveView({ auth = {}, isStaff = false, onRefresh, onGoBack, canGoBac
                         <td className="px-4 py-3 text-right whitespace-nowrap">
                           {r.qty_received ? <span className="inline-flex items-center justify-end rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold px-2.5 py-0.5 text-xs tabular-nums">+{r.qty_received.toLocaleString()}</span> : '-'}
                         </td>
-                        <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap font-medium">{r.drug_unit || r.unit_per_bill || '-'}</td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap font-medium">{unitLabel(r.drug_unit || r.unit_per_bill) || '-'}</td>
                         <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{r.lot || '-'}</td>
                         <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
                         <td className="px-4 py-3 text-slate-800 dark:text-slate-100 font-medium text-right whitespace-nowrap tabular-nums">{r.price_per_unit != null ? Number(r.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
@@ -2312,7 +2313,7 @@ function ReceiveView({ auth = {}, isStaff = false, onRefresh, onGoBack, canGoBac
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-emerald-50 dark:bg-emerald-950/40 rounded-xl p-2.5 text-center">
                   <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">+{(mobileDetail.qty_received||0).toLocaleString()}</p>
-                  <p className="text-[10px] text-emerald-600">{mobileDetail.drug_unit || mobileDetail.unit_per_bill || '-'}</p>
+                  <p className="text-[10px] text-emerald-600">{unitLabel(mobileDetail.drug_unit || mobileDetail.unit_per_bill) || '-'}</p>
                 </div>
                 <div className="bg-amber-50 dark:bg-amber-950/40 rounded-xl p-2.5 text-center">
                   <p className="text-base font-bold text-amber-700 dark:text-amber-300">{mobileDetail.total_price_vat != null ? Number(mobileDetail.total_price_vat).toLocaleString(undefined,{maximumFractionDigits:0}) : '-'}</p>
@@ -2369,7 +2370,7 @@ function ReceiveView({ auth = {}, isStaff = false, onRefresh, onGoBack, canGoBac
                 </div>
                 <div className="text-right shrink-0">
                   <span className="inline-flex items-center rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold px-2.5 py-0.5 text-xs tabular-nums">+{(row.qty_received||0).toLocaleString()}</span>
-                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{row.drug_unit || row.unit_per_bill || '-'}</p>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{unitLabel(row.drug_unit || row.unit_per_bill) || '-'}</p>
                 </div>
               </div>
               {((row.lot && row.lot !== '-') || (row.exp && row.exp !== '-')) && (
@@ -2429,7 +2430,7 @@ function ReceiveView({ auth = {}, isStaff = false, onRefresh, onGoBack, canGoBac
                       </td>
                       <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300 text-xs whitespace-nowrap">{row.drug_type || '-'}</td>
                       <td className="px-4 py-2.5 text-emerald-800 dark:text-emerald-300 font-bold text-right whitespace-nowrap">+{(row.qty_received || 0).toLocaleString()}</td>
-                      <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap font-medium">{row.drug_unit || row.unit_per_bill || '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap font-medium">{unitLabel(row.drug_unit || row.unit_per_bill) || '-'}</td>
                       <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{row.lot || '-'}</td>
                       <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>
                       <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 font-medium text-right whitespace-nowrap">{row.price_per_unit != null ? Number(row.price_per_unit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
@@ -2982,7 +2983,7 @@ function printApBatch(rows, batchId, meta = {}) {
       <td>${r.lot || '-'}</td>
       <td class="c">${r.exp || '-'}</td>
       <td class="r">${fmtQty(qty)}</td>
-      <td>${r.drug_unit || '-'}</td>
+      <td>${unitLabel(r.drug_unit) || '-'}</td>
       <td class="r">${fmtBaht(price)}</td>
       <td class="r">${fmtBaht(v)}</td>
     </tr>`;
@@ -3855,7 +3856,7 @@ function BillItemsDetail({ bill }) {
                   <td className="p-2 font-mono">{r.lot || '-'}</td>
                   <td className="p-2 text-center text-slate-600 dark:text-slate-300">{r.exp || '-'}</td>
                   <td className="p-2 text-right font-mono">{fmtBahtDisplay(qty)}</td>
-                  <td className="p-2 text-center text-slate-500 dark:text-slate-400">{r.drug_unit || '-'}</td>
+                  <td className="p-2 text-center text-slate-500 dark:text-slate-400">{unitLabel(r.drug_unit) || '-'}</td>
                   <td className="p-2 text-right font-mono text-slate-600 dark:text-slate-300">{fmtBahtDisplay(price)}</td>
                   <td className="p-2 text-right font-mono font-semibold text-emerald-700 dark:text-emerald-300">{fmtBahtDisplay(v)}</td>
                   <td className="p-2 text-center text-slate-500 dark:text-slate-400 text-[11px]">{r.receive_status || '-'}</td>

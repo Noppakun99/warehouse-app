@@ -23,7 +23,7 @@ eq('ไม่มีแถว → drug', reqTypeOfRows([]), 'drug');
 console.log('=== entryUnitOf ===');
 eq('bott ไม่มีขนาด', entryUnitOf({ unit: 'bott', packSizes: [null] }), { packSize: 1, label: 'bott', hint: null });
 eq('SWI 1000ml คีย์เป็นขวด', entryUnitOf({ unit: '1000ml', packSizes: [1000, 1000] }), { packSize: 1000, label: '1000ml', hint: null });
-eq('SWI 10ml 50amp บอกขนาด', entryUnitOf({ unit: '50amp', packSizes: [null] }), { packSize: 1, label: '50amp', hint: '1 50amp = 50 amp' });
+eq('SWI 10ml 50amp บอกขนาด', entryUnitOf({ unit: '50amp', packSizes: [null] }), { packSize: 1, label: '50amp', hint: '1 กล่อง = 50 amp' });
 eq('lot ต่างขนาด → คีย์หน่วยย่อย', entryUnitOf({ unit: '1000เม็ด', baseUnit: 'เม็ด', packSizes: [1000, 500] }), { packSize: 1, label: 'เม็ด', hint: null });
 console.log('=== เลือกขนาดกล่อง (packUnits) ===');
 const diclox = entryUnitOf({ unit: '500เม็ด', baseUnit: 'เม็ด', packUnits: [{ packSize: 400, unit: '400เม็ด' }, { packSize: 500, unit: '500เม็ด' }, { packSize: 400, unit: '400เม็ด' }] });

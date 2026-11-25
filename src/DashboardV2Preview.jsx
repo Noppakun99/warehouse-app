@@ -9,6 +9,7 @@
 //    + ลบ 2 จุดใน AppRoot.jsx (import + early-return ?v2) ก็จบ
 // ============================================================
 import React, { useState } from 'react';
+import { unitLabel } from './lib/drugProfile';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
@@ -274,7 +275,7 @@ export default function DashboardV2Preview({ onExit }) {
                       <p className="font-semibold text-slate-700 leading-tight">{r.name}</p>
                       <p className="text-xs text-slate-400">{r.code}</p>
                     </td>
-                    <td className="px-4 py-2.5 text-right font-bold text-red-600">{r.qty.toLocaleString()} <span className="font-normal text-slate-400 text-xs">{r.unit}</span></td>
+                    <td className="px-4 py-2.5 text-right font-bold text-red-600">{r.qty.toLocaleString()} <span className="font-normal text-slate-400 text-xs">{unitLabel(r.unit)}</span></td>
                     <td className="px-4 py-2.5 text-right text-slate-600">{r.ss.toLocaleString()}</td>
                     <td className="px-4 py-2.5 text-right font-semibold text-amber-600">{Math.round(r.ratio * 100)}%</td>
                   </tr>

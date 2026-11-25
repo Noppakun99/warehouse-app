@@ -134,7 +134,7 @@ function LocBreakdown({ parts, unit, className = '' }) {
       {parts.map((p, i) => (
         <span key={i} className="inline-flex items-center rounded-md border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 text-[10px] text-amber-800 dark:text-amber-200">
           {p.location} <b className="ml-1 tabular-nums">{toNum(p.qty)}</b>
-          <span className="ml-0.5 opacity-70">{unit || ''}</span>
+          <span className="ml-0.5 opacity-70">{unit || ''}{/* qty-unit-ok รอบนับประจำปี — ไม่แตะ (handoff 25/11/2569) */}</span>
         </span>
       ))}
     </div>
@@ -1660,7 +1660,7 @@ function AnnualTab({ auth }) {
                 <div className="min-w-0">
                   <p className="text-sm text-slate-500 dark:text-slate-400 mb-0.5">จำนวน</p>
                   <p className="text-lg font-bold tabular-nums text-slate-800 dark:text-slate-100 leading-tight">{toNum(cur?.system_qty)}</p>
-                  <p className="text-sm text-slate-400 dark:text-slate-500 truncate">{cur?.unit}</p>
+                  <p className="text-sm text-slate-400 dark:text-slate-500 truncate">{cur?.unit}{/* qty-unit-ok รอบนับประจำปี — ไม่แตะ */}</p>
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm text-slate-500 dark:text-slate-400 mb-0.5">lot</p>

@@ -10,6 +10,7 @@
 //
 // UI helper: build HTML แล้วส่งให้ openPrintView (Blob URL + fallback WebView) — ไม่ใช่ pure module
 import { openPrintView } from './openPrintView';
+import { unitLabel } from './drugProfile.js';
 
 const HOSPITAL_NAME = 'โรงพยาบาลประชาธิปัตย์';
 
@@ -139,7 +140,7 @@ function buildExchangeOutHtml({ vxNo = '', supplier = '', outDate = '', rows = [
       <td class="c">${esc(r?.lot)}</td>
       <td class="c">${esc(r?.exp)}</td>
       <td class="c">${esc(r?.qty)}</td>
-      <td class="c">${esc(r?.unit)}</td>
+      <td class="c">${esc(unitLabel(r?.unit)).replace(' (', '<br/>(')}</td>
       <td class="c"></td>
       <td class="c"></td>
       <td></td>`);
@@ -250,7 +251,7 @@ function buildExchangeInHtml({ rows = [], vxNo = '', supplier = '', outDate = ''
   const emptyRows = outRowsOrBlank(rows, ROW_COUNT, (r) => `
       <td>${esc(r?.name)}</td>
       <td class="c">${esc(r?.lot)}</td>
-      <td class="c">${r?.qty ? `${esc(r.qty)} ${esc(r.unit || '')}`.trim() : ''}</td>
+      <td class="c">${r?.qty ? `${esc(r.qty)} ${esc(unitLabel(r.unit))}`.trim() : ''}</td>
       <td></td>
       <td class="c"></td>
       <td class="c"></td>

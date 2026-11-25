@@ -60,7 +60,8 @@
     "test:dmsic": "node src/lib/dmsicReport.test.js",
     "test:dispensecheck": "node src/lib/dispenseCheck.test.js",
     "test:alreadygot": "node src/lib/alreadyGot.test.js",
-    "test:reqedit": "node src/lib/reqEditRound.test.js"
+    "test:reqedit": "node src/lib/reqEditRound.test.js",
+    "test:qtyunit": "node scripts/check-qty-unit.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",

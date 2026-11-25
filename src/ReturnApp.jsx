@@ -6,6 +6,7 @@ import {
   Package, Hash, Layers, ArrowRight, Clock, PackageCheck,
 } from 'lucide-react'
 import { fetchReturnLogs, insertReturnLog, deleteReturnLog, updateReturnLog, confirmReturnReceived, fetchAllInventoryRows } from './lib/db'
+import { unitLabel } from './lib/drugProfile'
 import { exportToExcel } from './lib/exportExcel'
 import { openPrintView } from './lib/openPrintView'
 import { supabase } from './lib/supabase'
@@ -166,7 +167,7 @@ function printReturnLog(r) {
     ['ชนิดยา', val(r.drug_type)],
     ['Lot Number', val(r.lot)],
     ['วันหมดอายุ (Exp)', val(r.exp)],
-    ['จำนวนคืน', `${Number(r.qty_returned || 0).toLocaleString()} ${r.drug_unit && r.drug_unit !== '-' ? esc(r.drug_unit) : ''}`.trim()],
+    ['จำนวนคืน', `${Number(r.qty_returned || 0).toLocaleString()} ${esc(unitLabel(r.drug_unit))}`.trim()],
   ]
   const partyRows = [
     ['แหล่งที่คืน', esc(badgeLabel)],
@@ -456,7 +457,7 @@ function RecordTab({ auth }) {
             <p className="text-base font-bold text-slate-800 dark:text-slate-100 mb-1">บันทึกการคืนยาเรียบร้อยแล้ว</p>
             <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
               คืนยา <span className="font-semibold text-slate-800 dark:text-slate-100">{lastSubmitted.drug_name}</span>
-              {lastSubmitted.qty_returned && <> จำนวน <span className="font-semibold text-violet-700 dark:text-violet-300">{Number(lastSubmitted.qty_returned).toLocaleString()} {lastSubmitted.drug_unit && lastSubmitted.drug_unit !== '-' ? lastSubmitted.drug_unit : 'หน่วย'}</span></>}
+              {lastSubmitted.qty_returned && <> จำนวน <span className="font-semibold text-violet-700 dark:text-violet-300">{Number(lastSubmitted.qty_returned).toLocaleString()} {unitLabel(lastSubmitted.drug_unit) || 'หน่วย'}</span></>}
               <br />หน่วยงาน <span className="font-semibold text-slate-800 dark:text-slate-100">{lastSubmitted.department}</span>
             </p>
             <p className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/40 rounded-lg px-3 py-2 mt-3">รอเจ้าหน้าที่คลังยืนยันรับคืน</p>
@@ -987,7 +988,7 @@ function HistoryTab({ auth = {}, mode = 'history' }) {
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-bold text-violet-700 dark:text-violet-300">{Number(l.qty_returned).toLocaleString()}</p>
-                    {l.drug_unit && l.drug_unit !== '-' && <p className="text-[10px] text-slate-400 dark:text-slate-500">{l.drug_unit}</p>}
+                    {l.drug_unit && l.drug_unit !== '-' && <p className="text-[10px] text-slate-400 dark:text-slate-500">{unitLabel(l.drug_unit)}</p>}
                   </div>
                 </div>
                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -1040,7 +1041,7 @@ function HistoryTab({ auth = {}, mode = 'history' }) {
                           <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${b.badgeBg} ${b.badgeText}`}>{b.label}</span>
                         </td>
                         <td className="px-3 py-2.5 text-right font-bold text-violet-700 dark:text-violet-300 whitespace-nowrap">{Number(l.qty_returned).toLocaleString()}</td>
-                        <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs whitespace-nowrap">{l.drug_unit && l.drug_unit !== '-' ? l.drug_unit : '-'}</td>
+                        <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs whitespace-nowrap">{unitLabel(l.drug_unit) || '-'}</td>
                         <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs whitespace-nowrap">{l.lot && l.lot !== '-' ? l.lot : '-'}</td>
                         <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs whitespace-nowrap">{l.exp && l.exp !== '-' ? l.exp : '-'}</td>
                         <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 text-xs">{l.department !== '-' ? l.department : '-'}</td>
@@ -1109,7 +1110,7 @@ function DispositionModal({ log, busy, onClose, onConfirm }) {
           <PackageCheck size={20} />
           <div className="min-w-0">
             <p className="font-bold text-base leading-tight">ตรวจรับ & ดำเนินการ</p>
-            <p className="text-emerald-100 text-xs truncate">{log.drug_name} · {Number(log.qty_returned).toLocaleString()} {log.drug_unit && log.drug_unit !== '-' ? log.drug_unit : 'หน่วย'}</p>
+            <p className="text-emerald-100 text-xs truncate">{log.drug_name} · {Number(log.qty_returned).toLocaleString()} {unitLabel(log.drug_unit) || 'หน่วย'}</p>
           </div>
         </div>
         <div className="p-5 space-y-4">
@@ -1205,7 +1206,7 @@ function ReturnDetail({ log, isStaff, isAdmin, busy, onBack, onDispose, onEdit, 
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-bold text-violet-700 dark:text-violet-300">{Number(log.qty_returned).toLocaleString()}</span>
-            <span className="text-sm text-slate-500 dark:text-slate-400">{log.drug_unit && log.drug_unit !== '-' ? log.drug_unit : 'หน่วย'}</span>
+            <span className="text-sm text-slate-500 dark:text-slate-400">{unitLabel(log.drug_unit) || 'หน่วย'}</span>
           </div>
           {dm && log.disposition_note && (
             <div className={`flex items-start gap-2 rounded-xl p-2.5 ${dm.badgeBg}`}>

@@ -10,7 +10,7 @@ import BackButton from './BackButton';
 import { fetchCompanyPolicyData } from './lib/db';
 import {
   buildCompanyPolicyIndex, groupCompanyLots, searchCompanies, returnPolicyLabel,
-  searchPolicyDrugs, drugPolicyView, searchPolicyLots, policyNextAction, policyCategory,
+  searchPolicyDrugs, drugPolicyView, searchPolicyLots, policyNextAction, policyCategory, unitLabel,
 } from './lib/drugProfile';
 
 const fmtThaiDate = (d) => (d ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear() + 543}` : 'ไม่ระบุ');
@@ -80,7 +80,7 @@ function LotRow({ l, onOpenDrug, showName = true, showCompany = false }) {
       {/* มือถือ = บรรทัดเดียวมีคำนำหน้า · จอใหญ่ = คอลัมน์ตามหัวตาราง */}
       <span className="mt-1 md:mt-0 block md:col-span-2 text-xs md:text-sm text-slate-700 dark:text-slate-200 break-all"><span className="md:hidden text-slate-400 dark:text-slate-500">Lot </span>{l.lot}</span>
       <span className="block md:col-span-2 md:text-right text-xs md:text-sm tabular-nums text-slate-700 dark:text-slate-200">
-        <span className="md:hidden text-slate-400 dark:text-slate-500">คงเหลือ </span>{l.outOfStock ? '–' : `${l.qty.toLocaleString('th-TH')} ${l.unit}`}
+        <span className="md:hidden text-slate-400 dark:text-slate-500">คงเหลือ </span>{l.outOfStock ? '–' : `${l.qty.toLocaleString('th-TH')} ${unitLabel(l.unit)}`}
       </span>
       <span className="block md:col-span-2 text-xs md:text-sm tabular-nums text-slate-700 dark:text-slate-200"><span className="md:hidden text-slate-400 dark:text-slate-500">Exp </span>{fmtThaiDate(l.expDate)}</span>
       <span className="mt-1.5 md:mt-0 block md:col-span-2 min-w-0">

@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X, Copy, FileSpreadsheet, Printer, Loader2, Building2, Truck, ShoppingBag, AlertTriangle, Pill } from 'lucide-react';
 import { fetchDrugSearchIndex, fetchDrugUsageReport } from './lib/db';
-import { searchDrugs, packUnitLabel } from './lib/drugProfile';
+import { searchDrugs, packUnitLabel, unitLabel } from './lib/drugProfile';
 import { isoMonthsAgo, isoPrevMonthEnd } from './lib/reorder';
 import { usageReportLineText, usageReportSheets, usageReportHtml, purchaseStatusText, nonDeptText, fmtQty, fmtThaiDate, unitShort } from './lib/usageReport';
 import { exportSheetsToExcel } from './lib/exportExcel';
@@ -398,7 +398,7 @@ function DrugSection({ r }) {
                       <td className="px-3 py-2 font-mono text-xs">{x.billNumber}</td>
                       <td className="px-3 py-2 font-mono text-xs">{x.lot}</td>
                       <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">{x.purchaseType || '-'}</td>
-                      <td className="px-3 py-2 text-right tabular-nums font-semibold">{x.qtyMain != null ? fmtQty(x.qtyMain) : <span title="หน่วยตามบิลแปลงเป็นหน่วยหลักไม่ได้">{fmtQty(x.qty)} {x.unit}</span>}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-semibold">{x.qtyMain != null ? fmtQty(x.qtyMain) : <span title="หน่วยตามบิลแปลงเป็นหน่วยหลักไม่ได้">{fmtQty(x.qty)} {unitLabel(x.unit)}</span>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -413,7 +413,7 @@ function DrugSection({ r }) {
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{fmtThaiDate(x.date)} · บิล {x.billNumber} · lot {x.lot}</p>
                     </div>
                     <span className="shrink-0 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 px-2.5 py-0.5 text-xs font-bold tabular-nums">
-                      {x.qtyMain != null ? `${fmtQty(x.qtyMain)} ${u}` : `${fmtQty(x.qty)} ${x.unit}`}
+                      {x.qtyMain != null ? `${fmtQty(x.qtyMain)} ${u}` : `${fmtQty(x.qty)} ${unitLabel(x.unit)}`}
                     </span>
                   </div>
                 </li>

@@ -16,7 +16,7 @@ import { SWAP_ACTION_STATUS, insertFormularyChange, updateFormularyChange, delet
 import { reqTypeLabel, clearLocalCart } from './lib/reqType';
 import { openDrugSearch } from './lib/drugSearchEvent';
 import { isSwapRed, fmtYmdBE } from './lib/workQueue';
-import { parseExpDate } from './lib/drugProfile';
+import { parseExpDate, unitLabel } from './lib/drugProfile';
 import {
   NEW_DRUG_DAYS, CHANGE_TYPE_LABEL, buildNewDrugs, buildFormularyOut, buildNewDrugLine, countReceivedNew,
   sortRegistry, validateFormularyEntry, windowFromYmd, NEW_DRUG_FILTERS, countNewDrugFilters, summarizeNewDrugDispense,
@@ -451,7 +451,7 @@ function PurchaseArrivals({ row }) {
     <div className="space-y-1.5">
       {(row.qty_requested != null || row.rate_per_month != null) && (
         <p className="text-xs text-slate-600 dark:text-slate-300 tabular-nums">
-          แจ้งซื้อ {fmtYmdBE(row.notified_on)} จำนวน <b className="font-semibold text-slate-800 dark:text-slate-100">{fmtReportNum(row.qty_requested)}</b> {row.unit || ''}
+          แจ้งซื้อ {fmtYmdBE(row.notified_on)} จำนวน <b className="font-semibold text-slate-800 dark:text-slate-100">{fmtReportNum(row.qty_requested)}</b> {unitLabel(row.unit)}
           <span className="text-slate-400 dark:text-slate-500"> · เรทตอนแจ้ง {fmtReportNum(row.rate_per_month)}/เดือน</span>
         </p>
       )}
@@ -466,7 +466,7 @@ function PurchaseArrivals({ row }) {
             <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-slate-600 dark:text-slate-300 tabular-nums">
               <span>Lot {b.lot || '-'}</span>
               <span>EXP {b.exp || '-'}</span>
-              <span className="font-semibold text-slate-800 dark:text-slate-100">{fmtNum(b.qty_received)} {b.drug_unit || ''}</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-100">{fmtNum(b.qty_received)} {unitLabel(b.drug_unit)}</span>
               {b.total_price_vat != null && <span>{Number(b.total_price_vat).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>}
               {b.receive_status && <span className="text-slate-500 dark:text-slate-400">{b.receive_status}</span>}
             </div>
@@ -511,7 +511,7 @@ function NewDrugDetail({ row }) {
               <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-slate-600 dark:text-slate-300 tabular-nums">
                 <span>Lot {b.lot || '-'}</span>
                 <span>EXP {b.exp || '-'}</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-100">{fmtNum(b.qty_received)} {b.drug_unit || ''}</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-100">{fmtNum(b.qty_received)} {unitLabel(b.drug_unit)}</span>
                 {b.purchase_type && b.purchase_type !== 'การซื้อ' && <span>{NON_PURCHASE_TAG[b.purchase_type] || b.purchase_type}</span>}
                 {b.receive_status && <span className={b.receive_status === 'รอตรวจรับ' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}>{b.receive_status}</span>}
               </div>
@@ -524,13 +524,13 @@ function NewDrugDetail({ row }) {
         {state.loading && <p className="mt-1 text-xs text-slate-400 dark:text-slate-500 inline-flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> กำลังโหลดประวัติเบิก…</p>}
         {state.error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">โหลดประวัติเบิกไม่สำเร็จ: {state.error}</p>}
         {!state.loading && !state.error && disp.rows.length === 0 && (
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">ยังไม่มีการเบิก · คงเหลือ {row.total == null ? '-' : fmtNum(row.total)} {row.unit}</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">ยังไม่มีการเบิก · คงเหลือ {row.total == null ? '-' : fmtNum(row.total)} {unitLabel(row.unit)}</p>
         )}
         {!state.loading && !state.error && disp.rows.length > 0 && (
           <>
             <p className="mt-1 text-xs text-slate-700 dark:text-slate-200">
-              เบิก <span className="font-semibold tabular-nums">{fmtNum(disp.count)}</span> ครั้ง รวม <span className="font-semibold tabular-nums">{fmtNum(disp.total)}</span> {dispUnit}
-              {' · '}คงเหลือตอนนี้ <span className="font-semibold tabular-nums">{row.total == null ? '-' : fmtNum(row.total)}</span> {row.unit}
+              เบิก <span className="font-semibold tabular-nums">{fmtNum(disp.count)}</span> ครั้ง รวม <span className="font-semibold tabular-nums">{fmtNum(disp.total)}</span> {unitLabel(dispUnit)}
+              {' · '}คงเหลือตอนนี้ <span className="font-semibold tabular-nums">{row.total == null ? '-' : fmtNum(row.total)}</span> {unitLabel(row.unit)}
             </p>
             {disp.byDept.length > 0 && (
               <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -554,7 +554,7 @@ function NewDrugDetail({ row }) {
                       {recordOnly && <span className="text-amber-600 dark:text-amber-400">บันทึกเท่านั้น (ไม่ตัดยอด)</span>}
                     </div>
                     <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-slate-600 dark:text-slate-300 tabular-nums">
-                      <span>เบิก <span className="font-semibold text-slate-800 dark:text-slate-100">{fmtNum(r.qty_out)}</span> {r.drug_unit || ''}</span>
+                      <span>เบิก <span className="font-semibold text-slate-800 dark:text-slate-100">{fmtNum(r.qty_out)}</span> {unitLabel(r.drug_unit)}</span>
                       <span>Lot {r.lot || '-'}</span>
                       {r.qty_after != null && <span>เหลือใน lot {fmtNum(r.qty_after)}</span>}
                     </div>

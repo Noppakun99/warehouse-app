@@ -5,7 +5,7 @@
 //       ค้นชื่อ/รหัส/lot · บัตรยา (บวกแถวซ้ำ · แยกพร้อมเบิก/รอตรวจรับ/หมดอายุ · lot ที่ควรใช้ก่อน · ตัดออก)
 
 import {
-  packUnitLabel, parseUnitFactor, parseExpDate, stockTotalInMainUnit, latestPurchaseUnit, pickMainUnit,
+  packUnitLabel, unitLabel, qtyWithUnit, parseUnitFactor, parseExpDate, stockTotalInMainUnit, latestPurchaseUnit, pickMainUnit,
   ssAggregate, isBelowSafetyStock, buildSearchIndex, searchDrugs, buildDrugProfile,
   waitDaysSince, lotBills, usageRate, normDept, dispenseHistory, HISTORY_LIMIT,
   buildLotReturnPolicies, latestPolicyByCompany, searchCompanies, buildCompanyPolicyIndex, groupCompanyLots,
@@ -327,6 +327,23 @@ console.log('\n=== packUnitLabel (ป้ายหน่วยแสดงผล)
   assertEq(packUnitLabel('1เม็ด'), '1เม็ด', 'ขนาด 1 = คงเดิม (ไม่ใช่กล่อง)')
   assertEq(packUnitLabel(''), '-', 'ว่าง = -')
   assertEq(packUnitLabel(null), '-', 'null = -')
+}
+
+console.log('\n=== unitLabel / qtyWithUnit (จำนวน+หน่วยทุกจุดในแอป — บั๊ก "7 50amp") ===')
+{
+  assertEq(unitLabel('50amp'), 'กล่อง (50 amp)', 'หน่วยขึ้นต้นเลข → กล่อง (ขนาด)')
+  assertEq(unitLabel('เม็ด'), 'เม็ด', 'หน่วยย่อย = คงเดิม')
+  assertEq(unitLabel(''), '', 'ว่าง = ว่าง (ไม่ใช่ - แบบ packUnitLabel)')
+  assertEq(unitLabel('-'), '', '- = ว่าง')
+  assertEq(unitLabel(null), '', 'null = ว่าง')
+  assertEq(unitLabel('1ขวด'), 'ขวด', '"1ขวด" (ใน DB) → ขวด ไม่ใช่ "3 1ขวด"')
+  assertEq(unitLabel('50 amp'), 'กล่อง (50 amp)', 'มีช่องว่างหลังเลข')
+  assertEq(unitLabel('กล่อง (50 amp)'), 'กล่อง (50 amp)', 'ห่อซ้ำไม่เปลี่ยน')
+  assertEq(qtyWithUnit(7, '50amp'), '7 กล่อง (50 amp)', 'เคสที่ user เจอ — หน้าเบิกยา Gentamicin')
+  assertEq(qtyWithUnit(86000, 'เม็ด'), '86,000 เม็ด', 'คั่นหลักพัน')
+  assertEq(qtyWithUnit('1,200', '1000ml'), '1,200 ขวด (1,000 ml)', 'สตริงที่จัดรูปแล้วใช้ตามนั้น')
+  assertEq(qtyWithUnit(5, ''), '5', 'ไม่มีหน่วย = เลขอย่างเดียว')
+  assertEq(qtyWithUnit(null, 'เม็ด'), '- เม็ด', 'ไม่มีจำนวน = -')
 }
 
 section('โน้ตอธิบายหน่วย (unitNote)')

@@ -15,6 +15,7 @@ import { findOverReserved, availableForOwn } from './lib/reservationCheck';
 import { RESERVING_STATUSES, summarizeHolds, applyHolds } from './lib/reservation';
 import { REQ_TYPES, reqTypeLabel, reqTypeOfRows, entryUnitOf, entryUnitForLots, entryQtyText, packWord, caseOfLots, caseLine, entryPackLabel, CART_KEY, CART_TYPE_KEY } from './lib/reqType';
 import { awaitsSheetEntry } from './lib/onlineReqPlan';
+import { unitLabel, qtyWithUnit, parseUnitFactor } from './lib/drugProfile';
 import { lineKey, duplicateAdded, splitEditRound, overBeforeSave, increasedOver, postCheckKeys, rollbackRound, editAuditDetails, packView } from './lib/reqEditRound';
 import { QUEUE_TABS, stageOf, tabOf, nextStep, waitText, itemAllocation, defaultPickResult, pickPayload, verifyNoteText, sortByLog, reqFlags, PICK_REASONS, VERIFY_ISSUES } from './lib/reqStaffView';
 import { rankDrugs, matchDrugQuery } from './lib/drugSearchText';
@@ -723,9 +724,9 @@ const expCountdown = (raw) => {
 const allocPackLabel = (a, unit) => {
   const packs = Number(a.packs) || 0;
   const base = Number(a.base) || 0;
-  if (packs <= 0) return `${base.toLocaleString()} ${unit || ''}`.trim();
+  if (packs <= 0) return qtyWithUnit(base, unit);
   const size = Math.round(base / packs);
-  return size > 1 ? `${packs.toLocaleString()} กล่อง × ${size.toLocaleString()}${unit || ''}` : `${packs.toLocaleString()} ${unit || ''}`.trim();
+  return size > 1 ? `${packs.toLocaleString()} กล่อง × ${size.toLocaleString()}${unitLabel(unit)}` : qtyWithUnit(packs, unit);
 };
 
 // บรรจุภัณฑ์ราย lot ในการ์ดเบิก → "N กล่อง × size หน่วย" (จาก packs/packSize ที่หัก reservation แล้ว)
@@ -734,21 +735,27 @@ const lotPackLabel = (l) => {
   const size = l.packSize || 1;
   const packs = Math.ceil(l.packs || 0);
   // ใช้ baseUnit (หน่วยย่อยล้วน) — l.unit เต็มมีตัวเลข packSize ปน จะได้ "× 200 200เม็ด" ซ้ำ
-  return size > 1 ? `${packs.toLocaleString()} กล่อง × ${size.toLocaleString()} ${l.baseUnit || l.unit || ''}`.trim()
-                  : `${packs.toLocaleString()} ${l.baseUnit || l.unit || ''}`.trim();
+  return size > 1 ? `${packs.toLocaleString()} กล่อง × ${size.toLocaleString()} ${unitLabel(l.baseUnit || l.unit)}`.trim()
+                  : qtyWithUnit(packs, l.baseUnit || l.unit);
 };
 
-// หน่วยคีย์บนจอ: หน่วยซื้อที่มีขนาด (1000เม็ด/450ml) อ่านเป็น "5 × 1000เม็ด" — Master ไม่บอกชื่อภาชนะ (กล่อง/ขวด/กระป๋อง)
-const entryText = (label, pack) => (pack > 1 ? `× ${label}` : label);
+// หน่วยคีย์บนจอ: หน่วยซื้อที่มีขนาด (1000เม็ด/450ml) → "กล่อง (1000 เม็ด)" / "ขวด (450 ml)" — รูปแบบเดียวทั้งแอป (unitLabel)
+const entryText = (label) => unitLabel(label) || label;
 // หน่วยของรายการในตะกร้า — เลือกขนาดกล่องไว้ (entryUnit) ป้ายเป็น "กล่อง (400เม็ด)" อยู่แล้ว ไม่ต้องนำด้วย ×
 const cartUnitText = (item) => (item.entryUnit ? item.entryLabel : entryText(item.entryLabel || item.unit || '', item.entryPack || 1));
 
-// สรุปกล่องคงเหลือ แยกตาม packsize เช่น "105 กล่อง × 1000เม็ด" หรือ "5 × 1000เม็ด + 2 × 500เม็ด"
+// บรรทัดรองใต้คงเหลือ: lot ที่แตกหน่วยย่อยแล้ว (คงเหลือเป็นเม็ด) → "105 กล่อง (1000 เม็ด) + 2 กล่อง (500 เม็ด)"
+//   หน่วยที่ unitParser ไม่แตก ("50amp" — คงเหลือนับเป็นกล่องอยู่แล้ว) → บอกเป็นหน่วยย่อย "350 amp" ไม่ซ้ำบรรทัดหลัก
 const packSummary = (fefoLots) => {
   if (!fefoLots || !fefoLots.length) return '';
   const byUnit = {};
-  fefoLots.forEach(l => { if (l.packs > 0) byUnit[l.unit] = (byUnit[l.unit] || 0) + l.packs; });
-  const parts = Object.entries(byUnit).map(([unit, packs]) => `${Math.ceil(packs).toLocaleString()} × ${unit}`);
+  fefoLots.forEach(l => { if (l.packs > 0) { const k = `${l.packSize > 1 ? 'P' : 'U'}|${l.unit}`; byUnit[k] = (byUnit[k] || 0) + l.packs; } });
+  const parts = Object.entries(byUnit).map(([k, packs]) => {
+    const unit = k.slice(2);
+    if (k[0] === 'P') return qtyWithUnit(Math.ceil(packs), unit);
+    const { factor, base } = parseUnitFactor(unit);
+    return factor > 1 ? `${(packs * factor).toLocaleString()} ${base}` : null; // qty-unit-ok หน่วยย่อยที่ถอดเลขแล้ว
+  }).filter(Boolean);
   return parts.join(' + ');
 };
 
@@ -1037,7 +1044,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
     const total = inCartQty + safeQty;
     if (total > drug.availableBase) {
       setWarnMap(p => ({ ...p, [drugKey]: drug.availableBase > 0
-        ? `ขอ ${total.toLocaleString()} ${drug.baseUnit} เกินคงเหลือ ${drug.availableBase.toLocaleString()} — คลังจ่ายเท่าที่มี ส่วนที่ขาดบันทึกค้างจ่าย`
+        ? `ขอ ${total.toLocaleString()} ${unitLabel(drug.baseUnit)} เกินคงเหลือ ${drug.availableBase.toLocaleString()} — คลังจ่ายเท่าที่มี ส่วนที่ขาดบันทึกค้างจ่าย`
         : 'ยาหมดในคลัง — ส่งคำขอได้ คลังบันทึกค้างจ่ายให้' }));
     } else {
       setWarnMap(p => { const n = { ...p }; delete n[drugKey]; return n; });
@@ -1058,7 +1065,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
       return [...prev, { code: drug.code, name: drug.name, unit: drug.baseUnit, lot: null, drugType: drug.type || '', availableBase: drug.availableBase, fefoLots: drug.fefoLots || [], requestedQty: safeQty, entryPack: pack, entryLabel: label, entryUnit, entryInner: chosen?.caseInner || null, entryHint: chosen ? null : (drug.entry?.hint || null), note: '', addedAt: new Date().toISOString() }];
     });
     setQtyMap(p => ({ ...p, [drugKey]: 1 }));
-    setToast({ name: drug.name, type: drug.type || '', qty: safeQty / pack, unit: entryUnit || pack === 1 ? label : entryText(label, pack) });
+    setToast({ name: drug.name, type: drug.type || '', qty: safeQty / pack, unit: entryUnit ? label : entryText(label) });
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -1082,7 +1089,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
           <CheckCircle size={20} className="shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="font-bold text-sm truncate">{toast.name}</p>
-            <p className="text-xs text-green-100">{toast.type && `${toast.type} · `}{addTo ? 'เพิ่มแล้ว (ยังไม่บันทึก)' : 'เพิ่มเข้าตะกร้าแล้ว'} · จำนวน <span className="font-bold text-white">{toast.qty} × {toast.unit}</span></p>
+            <p className="text-xs text-green-100">{toast.type && `${toast.type} · `}{addTo ? 'เพิ่มแล้ว (ยังไม่บันทึก)' : 'เพิ่มเข้าตะกร้าแล้ว'} · จำนวน <span className="font-bold text-white">{toast.qty.toLocaleString()} {toast.unit}{/* qty-unit-ok ห่อ entryText ตอน setToast */}</span></p>
           </div>
         </div>
       )}
@@ -1221,7 +1228,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
                         <AlertCircle size={14} /> หมดสต็อก
                       </span>
                       {drug.pendingBase > 0 && (
-                        <span className="text-xs text-amber-700 dark:text-amber-300">รอตรวจรับ {drug.pendingBase.toLocaleString()} {drug.baseUnit}</span>
+                        <span className="text-xs text-amber-700 dark:text-amber-300">รอตรวจรับ {drug.pendingBase.toLocaleString()} {unitLabel(drug.baseUnit)}</span>
                       )}
                     </div>
                   ) : (
@@ -1229,7 +1236,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
                       <p className="text-base">
                         <span className="text-slate-500 dark:text-slate-400">คงเหลือในคลัง </span>
                         <span className="font-extrabold text-emerald-600">{remaining.toLocaleString()}</span>
-                        <span className="text-slate-500 dark:text-slate-400"> {drug.baseUnit}</span>
+                        <span className="text-slate-500 dark:text-slate-400"> {unitLabel(drug.baseUnit)}</span>
                         {drug.reservedBase > 0 && (
                           <span className="ml-1.5 text-xs text-slate-400 dark:text-slate-500">(หักใบรอลงชีท {drug.reservedBase.toLocaleString()})</span>
                         )}
@@ -1238,7 +1245,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
                         <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">= {packSummary(drug.fefoLots)}</p>
                       )}
                       {drug.pendingBase > 0 && (
-                        <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">รอตรวจรับอีก {drug.pendingBase.toLocaleString()} {drug.baseUnit} (ยังจ่ายไม่ได้)</p>
+                        <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">รอตรวจรับอีก {drug.pendingBase.toLocaleString()} {unitLabel(drug.baseUnit)} (ยังจ่ายไม่ได้)</p>
                       )}
                     </div>
                   )}
@@ -1248,7 +1255,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
                     <p className="text-sm text-slate-600 dark:text-slate-300 mt-1.5 flex items-center gap-1.5">
                       <Package size={14} className="shrink-0 text-slate-400 dark:text-slate-500" />
                       <span className="font-semibold">{caseLine(drug.entry.caseInfo)}</span>
-                      {drug.entry.caseInfo.packSize > 1 && <span className="text-xs text-slate-400 dark:text-slate-500">(= {(drug.entry.caseInfo.per * drug.entry.caseInfo.packSize).toLocaleString()} {drug.baseUnit})</span>}
+                      {drug.entry.caseInfo.packSize > 1 && <span className="text-xs text-slate-400 dark:text-slate-500">(= {(drug.entry.caseInfo.per * drug.entry.caseInfo.packSize).toLocaleString()} {unitLabel(drug.baseUnit)})</span>}
                     </p>
                   )}
 
@@ -1325,14 +1332,14 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
                         className={`w-24 bg-white dark:bg-slate-900 border rounded-lg px-2 py-2 text-slate-800 dark:text-slate-100 text-center text-base font-semibold focus:outline-none focus:ring-2 focus:ring-[#1E90FF] ${warnMap[drugKey] ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/40' : 'border-slate-300 dark:border-slate-600'}`} />
                       <span className="text-sm text-slate-500 dark:text-slate-400">
                         {chosen && (chosen.unit || chosen.packSize === 1) ? chosen.label : entryText(chosen?.label || drug.entry?.label || drug.baseUnit, pack)}
-                        {pack > 1 && <span className="text-xs text-slate-400 dark:text-slate-500"> (= {(keyed * pack).toLocaleString()} {drug.baseUnit})</span>}
+                        {pack > 1 && <span className="text-xs text-slate-400 dark:text-slate-500"> (= {(keyed * pack).toLocaleString()} {unitLabel(drug.baseUnit)})</span>}
                       </span>
                       <button onClick={() => addToCart(drug, qtyMap[drugKey] ?? 1, chosen)}
                         className="bg-[#1E90FF] hover:bg-[#1a7fe0] text-white rounded-lg px-4 py-2 text-sm font-bold flex items-center gap-1.5 transition-colors shadow-sm ml-auto">
                         <Plus size={15} /> {addTo ? 'เพิ่มเข้าใบ' : 'เพิ่มเข้าตะกร้า'}
                       </button>
                       {drug.entry?.hint && (
-                        <p className="w-full text-xs text-blue-700 dark:text-blue-300 font-medium">{drug.entry.hint} — คีย์จำนวนเป็น {drug.entry.label}</p>
+                        <p className="w-full text-xs text-blue-700 dark:text-blue-300 font-medium">{drug.entry.hint} — คีย์จำนวนเป็น{entryText(drug.entry.label)}</p>
                       )}
                       {warnMap[drugKey] && (
                         <p className="w-full text-xs text-amber-700 dark:text-amber-300 font-medium mt-0.5 flex items-center gap-1"><AlertCircle size={12} /> {warnMap[drugKey]}</p>
@@ -1523,7 +1530,7 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
               details: { kind: 'submit', req_number: req.req_number, requisition_id: req.id, req_department: info.department, conflicts, ...(onBehalfOf ? { on_behalf_of: onBehalfOf } : {}) },
             });
             setError(`มีหน่วยงานอื่นเบิกยานี้พร้อมกัน — ยังไม่ได้ส่งใบเบิก แก้จำนวนแล้วส่งใหม่:\n${
-              conflicts.map(c => `${c.drug_name}: ขอ ${c.requested.toLocaleString()} แต่เบิกได้ ${c.available.toLocaleString()} ${c.unit}`.trim()).join('\n')
+              conflicts.map(c => `${c.drug_name}: ขอ ${c.requested.toLocaleString()} แต่เบิกได้ ${c.available.toLocaleString()} ${unitLabel(c.unit)}`.trim()).join('\n')
             }`);
             return;
           }
@@ -1627,7 +1634,7 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
                       <p className="text-sm mt-1">
                         <span className="text-slate-500 dark:text-slate-400">คงเหลือในคลัง </span>
                         <span className="font-bold text-emerald-600">{Number(item.availableBase).toLocaleString()}</span>
-                        <span className="text-slate-500 dark:text-slate-400"> {item.unit || ''}</span>
+                        <span className="text-slate-500 dark:text-slate-400"> {unitLabel(item.unit)}</span>
                       </p>
                     )}
                   </div>
@@ -1649,7 +1656,7 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
                       className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg p-2 transition-colors"><Plus size={16} /></button>
                     <span className="text-sm text-slate-500 dark:text-slate-400">
                       {cartUnitText(item)}
-                      {pack > 1 && <span className="text-xs text-slate-400 dark:text-slate-500"> (= {item.requestedQty.toLocaleString()} {item.unit || ''})</span>}
+                      {pack > 1 && <span className="text-xs text-slate-400 dark:text-slate-500"> (= {item.requestedQty.toLocaleString()} {unitLabel(item.unit)})</span>}
                     </span>
                     {item.entryHint && !gotAlready && <p className="w-full text-xs text-blue-700 dark:text-blue-300 font-medium">{item.entryHint}</p>}
                   </div>
@@ -1663,7 +1670,7 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
                 )}
                 {overStock && !splitNote && (
                   <p className="text-xs text-amber-700 dark:text-amber-300 font-medium mt-1.5 flex items-center gap-1"><AlertCircle size={12} /> {Number(item.availableBase) > 0
-                    ? `เกินคงเหลือในคลัง (${Number(item.availableBase).toLocaleString()} ${item.unit || ''}) — คลังจ่ายเท่าที่มี ส่วนที่ขาดบันทึกค้างจ่าย`
+                    ? `เกินคงเหลือในคลัง (${Number(item.availableBase).toLocaleString()} ${unitLabel(item.unit)}) — คลังจ่ายเท่าที่มี ส่วนที่ขาดบันทึกค้างจ่าย`
                     : 'ยาหมดในคลัง — คลังบันทึกค้างจ่ายให้'}</p>
                 )}
 
@@ -1684,24 +1691,24 @@ function CartView({ info, reqType, cart, setCart, onBack, onSubmitted, auth = {}
                             )}
                           </div>
                           <div className="text-right whitespace-nowrap">
-                            <span className="font-bold text-emerald-600">{a.base.toLocaleString()} {item.unit || ''}</span>
-                            <span className="text-xs text-slate-400 dark:text-slate-500"> ({a.packs.toLocaleString()} × {a.unit})</span>
+                            <span className="font-bold text-emerald-600">{a.base.toLocaleString()} {unitLabel(item.unit)}</span>
+                            <span className="text-xs text-slate-400 dark:text-slate-500"> ({qtyWithUnit(a.packs, a.unit)})</span>
                           </div>
                         </div>
                       ))}
                     </div>
                     {packMismatch ? (
                       <p className="text-xs text-amber-600 font-semibold mt-2 pt-2 border-t border-amber-100 dark:border-amber-900/50 flex items-start gap-1">
-                        <AlertCircle size={12} className="mt-0.5 shrink-0" /> กล่องที่จะจ่ายไม่ใช่ขนาด {item.entryUnit} ที่เลือก — ได้ {packMismatch} = {alloc.allocatedBase.toLocaleString()} {item.unit || ''}
+                        <AlertCircle size={12} className="mt-0.5 shrink-0" /> กล่องที่จะจ่ายไม่ใช่ขนาด {item.entryUnit} ที่เลือก — ได้ {packMismatch} = {alloc.allocatedBase.toLocaleString()} {unitLabel(item.unit)}
                       </p>
                     ) : alloc.overBase > 0 && (
                       <p className="text-xs text-amber-600 font-semibold mt-2 pt-2 border-t border-amber-100 dark:border-amber-900/50 flex items-center gap-1">
-                        <AlertCircle size={12} /> จ่ายเต็มกล่อง — ได้ {alloc.allocatedBase.toLocaleString()} {item.unit || ''} (เกินที่ขอ {alloc.overBase.toLocaleString()})
+                        <AlertCircle size={12} /> จ่ายเต็มกล่อง — ได้ {alloc.allocatedBase.toLocaleString()} {unitLabel(item.unit)} (เกินที่ขอ {alloc.overBase.toLocaleString()})
                       </p>
                     )}
                     {!alloc.fulfilled && (
                       <p className="text-xs text-red-600 font-semibold mt-2 pt-2 border-t border-red-100 dark:border-red-900/50 flex items-center gap-1">
-                        <AlertCircle size={12} /> ของไม่พอเบิก — ขาดอีก {alloc.shortfallBase.toLocaleString()} {item.unit || ''} (มีให้จ่าย {alloc.allocatedBase.toLocaleString()})
+                        <AlertCircle size={12} /> ของไม่พอเบิก — ขาดอีก {alloc.shortfallBase.toLocaleString()} {unitLabel(item.unit)} (มีให้จ่าย {alloc.allocatedBase.toLocaleString()})
                       </p>
                     )}
                   </div>
@@ -2262,7 +2269,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
   // หน่วยของบรรทัดในโมดอล — รายการเดิมจาก packMap · บรรทัดที่เพิ่มใช้หน่วยที่คีย์ในหน้าเลือกยา
   const unitOfLine = (item) => {
     const p = item._new ? { pack: item._pack || 1, label: item._label, fromEntry: !!item.entry_unit } : packMap[item.id];
-    if (!p || !(p.pack > 1)) return { pack: 1, text: item.drug_unit || '-' };
+    if (!p || !(p.pack > 1)) return { pack: 1, text: unitLabel(item.drug_unit) || '-' };
     return { pack: p.pack, text: p.fromEntry ? p.label : entryText(p.label, p.pack) };
   };
 
@@ -2350,7 +2357,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
         const sig = warn.map(w => `${w.key}:${w.own}`).join('|');
         if (warn.length && overAck !== sig) {
           setOverAck(sig);
-          setEditWarn('ขอเกินคงเหลือในคลัง: ' + warn.map(w => `${w.name} ขอ ${w.own.toLocaleString()} เบิกได้ ${w.available.toLocaleString()} ${w.unit}`.trim()).join(' · ')
+          setEditWarn('ขอเกินคงเหลือในคลัง: ' + warn.map(w => `${w.name} ขอ ${w.own.toLocaleString()} เบิกได้ ${w.available.toLocaleString()} ${unitLabel(w.unit)}`.trim()).join(' · ')
             + ' — คลังจ่ายเท่าที่มี ส่วนที่ขาดบันทึกค้างจ่าย · กด "บันทึกการแก้ไข" อีกครั้งเพื่อยืนยัน');
           setSaving(false);
           return;
@@ -2386,7 +2393,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
             details: { kind: 'edit', req_number: req.req_number, requisition_id: req.id, req_department: info.department, conflicts },
           });
           setEditError('มีหน่วยงานอื่นเบิกยานี้พร้อมกัน — ยังไม่ได้บันทึกการแก้ไข: ' + conflicts.map(c =>
-            `${c.drug_name} ขอ ${c.requested.toLocaleString()} แต่เบิกได้ ${c.available.toLocaleString()} ${c.unit}`.trim()
+            `${c.drug_name} ขอ ${c.requested.toLocaleString()} แต่เบิกได้ ${c.available.toLocaleString()} ${unitLabel(c.unit)}`.trim()
           ).join(' · '));
           setSaving(false);
           return;
@@ -2553,7 +2560,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                         )}
                         {item.picked_qty!=null && !isAlreadyGotQty(item.requested_qty) && (
                           <span className="text-xs text-purple-600 font-semibold ml-2">
-                            · จัด {Number(item.picked_qty).toLocaleString()} {item.drug_unit||''}
+                            · จัด {Number(item.picked_qty).toLocaleString()} {unitLabel(item.drug_unit)}
                           </span>
                         )}
                         {/* Lot/Exp ที่จ่ายจริง (ADR-0005) — ผู้เบิกเห็นว่าได้ของ lot ไหน */}
@@ -2562,7 +2569,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                             {item.picked_allocation.map((a, ai) => (
                               <p key={ai} className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 flex-wrap">
                                 <span className="font-mono font-medium text-slate-600 dark:text-slate-300">Lot {a.lot || '-'}</span>
-                                <span className="text-slate-400 dark:text-slate-500">· Exp {fmtExp(a.exp)} · {Number(a.base).toLocaleString()} {item.drug_unit||''}</span>
+                                <span className="text-slate-400 dark:text-slate-500">· Exp {fmtExp(a.exp)} · {Number(a.base).toLocaleString()} {unitLabel(item.drug_unit)}</span>
                                 <span className="text-indigo-600 font-medium">({allocPackLabel(a, item.drug_unit)})</span>
                                 {isNearExpiry(a.exp) && (
                                   <span className="inline-flex items-center gap-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 rounded px-1 py-0.5 font-semibold"><Clock size={9}/> ใกล้หมดอายุ · {expCountdown(a.exp)}</span>
@@ -2579,7 +2586,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {isAlreadyGotQty(item.requested_qty) ? <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full px-2 leading-5 whitespace-nowrap">{ALREADY_GOT_PREFIX}</span>
-                        : <span className="text-slate-500 dark:text-slate-400 text-xs">ขอ <b>{item.requested_qty}</b>{item.drug_unit && item.drug_unit !== '-' && <span> × {item.drug_unit}</span>}
+                        : <span className="text-slate-500 dark:text-slate-400 text-xs">ขอ <b>{Number(item.requested_qty).toLocaleString()}</b>{unitLabel(item.drug_unit) && <span> {unitLabel(item.drug_unit)}</span>}
                           {entryQtyText(item.requested_qty, item.entry_pack, item.entry_unit, item.drug_unit) && <span> (= {entryQtyText(item.requested_qty, item.entry_pack, item.entry_unit, item.drug_unit)})</span>}</span>}
                       </div>
                     </div>
@@ -2682,7 +2689,7 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                         </p>
                         <p className={`text-xs ${removedRow ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-slate-400 dark:text-slate-500'}`}>
                           {removedRow ? (item._new ? 'ไม่เพิ่มรายการนี้' : 'ตัดรายการนี้ออก')
-                            : <>{u.text}{u.pack > 1 && keyed !== '' && <> (= {Number(item.requested_qty).toLocaleString()} {item.drug_unit || ''})</>}</>}
+                            : <>{u.text}{u.pack > 1 && keyed !== '' && <> (= {Number(item.requested_qty).toLocaleString()} {unitLabel(item.drug_unit)})</>}</>}
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
@@ -3319,7 +3326,7 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
 
 // ---- แถว lot ที่จะจ่าย/ที่จัดจริง ของรายการหนึ่ง ----
 function LotLines({ v, unit, stage }) {
-  const u = unit && unit !== '-' ? unit : '';
+  const u = unitLabel(unit);
   if (!v.allocation.length) {
     if (v.want <= 0) return <span className="text-xs text-slate-400">—</span>;
     return <p className="text-xs font-semibold text-red-600 dark:text-red-400 flex items-center gap-1"><AlertCircle size={13}/> {stage === 'pending' || stage === 'pick' ? 'ไม่มีของในคลัง' : 'จ่าย 0'}</p>;
@@ -3337,7 +3344,7 @@ function LotLines({ v, unit, stage }) {
             {v.perLotLoc && a.locs.map(x => <span key={x} className="font-mono text-xs text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/60 rounded px-1.5">{x}</span>)}
           </div>
           <div className="text-right whitespace-nowrap tabular-nums">
-            {a.packSize > 1 && a.unit && <span className="text-xs text-slate-500 dark:text-slate-400 mr-2">{Number(a.packs).toLocaleString()} × {a.unit}</span>}
+            {a.packSize > 1 && a.unit && <span className="text-xs text-slate-500 dark:text-slate-400 mr-2">{qtyWithUnit(Number(a.packs), a.unit)}</span>}
             <span className="font-bold text-emerald-600 dark:text-emerald-400">{Number(a.base).toLocaleString()}</span> <span className="text-xs text-slate-500 dark:text-slate-400">{u}</span>
           </div>
         </div>
@@ -3552,7 +3559,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
         // เติมหมายเหตุอัตโนมัติเมื่อจ่ายเกินที่ขอ (จ่ายเต็มกล่อง ไม่แกะกล่อง) — 1 บรรทัดต่อรายการที่เกิน
         const overLines = views.map(v => {
           if (v.want <= 0 || v.over <= 0) return null;
-          const u = v.item.drug_unit && v.item.drug_unit !== '-' ? v.item.drug_unit : '';
+          const u = v.item.drug_unit && v.item.drug_unit !== '-' ? v.item.drug_unit : ''; // หมายเหตุเก็บลง DB/ชีท — คงรูปเดิม
           return `${MARK_OVER} ${v.item.drug_name}: ขอ ${v.want.toLocaleString()} จ่าย ${v.got.toLocaleString()} ${u} เนื่องจากจ่ายเต็มกล่อง (ไม่แกะกล่อง เกิน ${v.over.toLocaleString()})`.trim();
         }).filter(Boolean);
         // ตัดบรรทัด auto เดิมออกก่อน กัน duplicate เมื่อ save ซ้ำ แล้วต่อบรรทัดใหม่
@@ -3610,7 +3617,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
   };
 
   const ns = nextStep(currentReq);
-  const unitOf = (it) => (it.drug_unit && it.drug_unit !== '-' ? it.drug_unit : '');
+  const unitOf = (it) => unitLabel(it.drug_unit);
   const callout = isPending
     ? (awaitsSheet
       ? ['amber', 'ยังไม่ลงชีทเบิก — lot ในตารางเป็นประมาณการตาม FEFO (ใกล้หมดอายุภายใน 6 เดือนก่อน → ยาสนับสนุน → exp ใกล้สุด) · lot จริงตามที่ลงชีท · ลงชีทแล้วใบย้ายไป "รอจัด" เอง ไม่ต้องกดอนุมัติในแอป']
@@ -3875,7 +3882,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                           <td className="px-2.5 py-2.5">{nameCell(v)}</td>
                           <td className="px-2.5 py-2.5 text-right tabular-nums">
                             <p className="font-bold text-[15px] text-slate-800 dark:text-slate-100">{Number(v.item.requested_qty).toLocaleString()}</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">{unitOf(v.item)}{showOnhand && lots.ready ? ` · มี ${v.onhand.toLocaleString()}` : ''}</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{unitLabel(v.item.drug_unit)}{showOnhand && lots.ready ? ` · มี ${v.onhand.toLocaleString()}` : ''}</p>
                             {entryQtyText(v.item.requested_qty, v.item.entry_pack, v.item.entry_unit, v.item.drug_unit) && <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">= {entryQtyText(v.item.requested_qty, v.item.entry_pack, v.item.entry_unit, v.item.drug_unit)}</p>}
                           </td>
                           <td className="px-2.5 py-2.5"><div className="flex flex-col items-start gap-1">{locPills(v)}</div></td>
@@ -3900,7 +3907,7 @@ function RequisitionDetail({ req, onBack, onDone, auth = {} }) {
                         <div className="min-w-0">{nameCell(v)}</div>
                       </div>
                       <div className="flex flex-wrap gap-x-3 gap-y-1 text-[13px] text-slate-500 dark:text-slate-400 tabular-nums">
-                        <span>ขอ <b className="text-[15px] text-slate-800 dark:text-slate-100">{Number(v.item.requested_qty).toLocaleString()}</b> {unitOf(v.item)}
+                        <span>ขอ <b className="text-[15px] text-slate-800 dark:text-slate-100">{Number(v.item.requested_qty).toLocaleString()}</b> {unitLabel(v.item.drug_unit)}
                           {entryQtyText(v.item.requested_qty, v.item.entry_pack, v.item.entry_unit, v.item.drug_unit) && <b className="text-blue-700 dark:text-blue-300"> = {entryQtyText(v.item.requested_qty, v.item.entry_pack, v.item.entry_unit, v.item.drug_unit)}</b>}</span>
                         {showOnhand && lots.ready && <span>คงเหลือ {v.onhand.toLocaleString()}</span>}
                         {!v.perLotLoc && v.locs.length > 0 && <span className="flex flex-wrap gap-1">{locPills(v)}</span>}

@@ -20,7 +20,7 @@ import { supabase }       from './lib/supabase';
 import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS, fetchSwapReturnActions, swapActionKey, fetchLatestLineQuotaAlerts, fetchDrugLoans, loanOverdueDays, fetchOpenAnnualCount, fetchUploadMeta, fetchHolidayMap, fetchFormularyChanges, fetchNewDrugData, fetchPurchaseRequests } from './lib/db';
 import { summarizePurchaseStatus } from './lib/purchaseReportSheet';
 import { buildNewDrugs, buildFormularyOut, countReceivedNew, NEW_DRUG_DAYS } from './lib/formularyChange';
-import { buildLotReturnPolicies, returnPolicyLabel, policySourceNote } from './lib/drugProfile';
+import { buildLotReturnPolicies, returnPolicyLabel, policySourceNote, unitLabel } from './lib/drugProfile';
 import { matchReceiveDetails } from './lib/receiveMatch';
 import { buildWorkQueue, describeNextCycle, isSwapRed, isSwapOpen } from './lib/workQueue';
 import { pickPopupRows, readSeen, writeSeen, popupStorageKey } from './lib/popupSeen';
@@ -1032,7 +1032,7 @@ function SwapActionDateInput({ value, onChange, className = '' }) {
   );
 }
 const swapStatusText = (r) => r.status === 'overdue' ? 'พ้นกำหนดแล้ว' : `เหลือ ${r.daysToDeadline} วัน`;
-const swapRateText = (r) => r.avgBaseUnit ? `~${Math.round(r.avgBaseUnit).toLocaleString()} ${r.baseUnit || 'หน่วย'}/เดือน` : 'ไม่มีการเบิก';
+const swapRateText = (r) => r.avgBaseUnit ? `~${Math.round(r.avgBaseUnit).toLocaleString()} ${unitLabel(r.baseUnit) || 'หน่วย'}/เดือน` : 'ไม่มีการเบิก';
 
 // normExpDate + matchReceiveDetails ย้ายไป src/lib/receiveMatch.js (ใช้ร่วมกับโมดอลแผนผัง App.jsx
 // โดยไม่ชน circular import) — import ไว้ที่หัวไฟล์
@@ -1354,7 +1354,7 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
           </div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
             <span className="font-semibold text-slate-600 dark:text-slate-300">เบิกเฉลี่ย/เดือน (6 ด.ล่าสุด):</span>{' '}
-            {r.avgBaseUnit ? `~${Math.round(r.avgBaseUnit).toLocaleString()} ${r.baseUnit || 'หน่วย'}/เดือน` : 'ไม่มีการเบิก'}
+            {r.avgBaseUnit ? `~${Math.round(r.avgBaseUnit).toLocaleString()} ${unitLabel(r.baseUnit) || 'หน่วย'}/เดือน` : 'ไม่มีการเบิก'}
           </p>
           {r.willDeplete && (
             <p className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-1 flex items-center gap-1">
@@ -2046,7 +2046,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth, onOpenDrug }) {
                     {r.swapPolicySource && <span className="block text-[10px] text-slate-400 dark:text-slate-500 line-clamp-1">{r.swapPolicySource}</span>}
                   </td>
                   <td className="px-4 py-2.5 text-right font-bold text-slate-700 dark:text-slate-200">{r.qty || '-'}</td>
-                  <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">{r.unit || '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">{unitLabel(r.unit) || '-'}</td>
                 </tr>
                 {isOpen && (
                   <tr className="border-b border-slate-100 dark:border-slate-800">
@@ -2152,7 +2152,7 @@ function LowStockAlertSection({ lowStock = [], onClose, onOpenReorder }) {
                   <td className={`px-4 py-2.5 text-right font-bold ${isEmpty ? 'text-red-600' : 'text-amber-700 dark:text-amber-300'}`}>
                     {r.qty.toLocaleString()}
                   </td>
-                  <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">{r.unit || '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">{unitLabel(r.unit) || '-'}</td>
                   <td className="px-4 py-2.5 text-right text-slate-500 dark:text-slate-400">{r.safety_stock.toLocaleString()}</td>
                   <td className="px-4 py-2.5 min-w-[100px]">
                     <div className="flex items-center gap-2">
@@ -2221,7 +2221,7 @@ function printStockSummary(rows, uploadInfo) {
       <td>${esc(r.name)}</td>
       <td class="c">${esc(r.type)}</td>
       <td class="r">${Number(r.totalQty || 0).toLocaleString()}</td>
-      <td>${esc(r.mainUnit)}${r.hasMultipleUnits ? ' *' : ''}</td>
+      <td>${esc(unitLabel(r.mainUnit))}${r.hasMultipleUnits ? ' *' : ''}</td>
       <td class="c">${Number(r.lotCount || 0)}</td>
     </tr>`).join('');
 
@@ -2510,7 +2510,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-lg font-bold text-sky-700 dark:text-sky-300 leading-tight">{r.totalQty.toLocaleString()}</p>
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500">{r.mainUnit} · {r.lotCount} Lot</p>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500">{unitLabel(r.mainUnit)} · {r.lotCount} Lot</p>
                     </div>
                   </div>
                   {isOpen && lots.length > 0 && (
@@ -2523,7 +2523,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
                             {l.exp && <span className="text-slate-400 dark:text-slate-500 ml-2">EXP {l.exp}</span>}
                           </div>
                           <div className="shrink-0 text-slate-600 dark:text-slate-300">
-                            <span className="font-semibold text-sky-700 dark:text-sky-300">{l.qty.toLocaleString()}</span> {l.unit}
+                            <span className="font-semibold text-sky-700 dark:text-sky-300">{l.qty.toLocaleString()}</span> {unitLabel(l.unit)}
                           </div>
                         </div>
                       ))}
@@ -2601,7 +2601,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
                         <span className="font-bold text-sky-700 dark:text-sky-300">{r.totalQty.toLocaleString()}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300 text-xs whitespace-nowrap">{r.mainUnit}</td>
+                    <td className="px-4 py-2.5 text-slate-600 dark:text-slate-300 text-xs whitespace-nowrap">{unitLabel(r.mainUnit)}</td>
                     <td className="px-4 py-2.5 text-center text-slate-400 dark:text-slate-500 text-xs">{r.lotCount}</td>
                   </tr>
                   {isOpen && lots.map((l, li) => (
@@ -2614,7 +2614,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
                         {l.exp ? <><span className="text-slate-400 dark:text-slate-500">EXP </span>{l.exp}</> : '—'}
                       </td>
                       <td className="px-4 py-1.5 text-right font-semibold text-sky-700 dark:text-sky-300">{l.qty.toLocaleString()}</td>
-                      <td className="px-4 py-1.5 text-slate-500 dark:text-slate-400">{l.unit}</td>
+                      <td className="px-4 py-1.5 text-slate-500 dark:text-slate-400">{unitLabel(l.unit)}</td>
                       <td className="px-4 py-1.5"></td>
                     </tr>
                   ))}

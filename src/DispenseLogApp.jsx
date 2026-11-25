@@ -14,6 +14,7 @@ import {
   LineChart, Line, Legend,
 } from 'recharts';
 import { exportToExcel } from './lib/exportExcel';
+import { unitLabel } from './lib/drugProfile';
 import { normalizeLotSearch, insertAuditLog, resolveAuditUserName, resolveDispenseDepartment } from './lib/db';
 import { openExcelSync } from './lib/excelSyncEvent';
 import FilterSheet, { FilterButton } from './FilterSheet';
@@ -881,7 +882,7 @@ function DispenseView({ isAdmin = false, isStaff = false, auth = {}, initialDept
                       </p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="font-bold text-rose-700 dark:text-rose-300 tabular-nums">{(r.qty_out || 0).toLocaleString()} <span className="font-normal text-slate-500 dark:text-slate-400">{getUnit(r)}</span></p>
+                      <p className="font-bold text-rose-700 dark:text-rose-300 tabular-nums">{(r.qty_out || 0).toLocaleString()} <span className="font-normal text-slate-500 dark:text-slate-400">{unitLabel(getUnit(r)) || '-'}</span></p>
                       <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5 tabular-nums">{fmtValue(r)} บ.</p>
                     </div>
                   </button>
@@ -922,7 +923,7 @@ function DispenseView({ isAdmin = false, isStaff = false, auth = {}, initialDept
                         <span className={`block text-xs ${expCls(r)}`}>Exp {fmtAnyDate(r.exp)}</span>
                       </td>
                       <td className="px-3 py-2 text-right whitespace-nowrap tabular-nums">
-                        <span className="font-bold text-rose-700 dark:text-rose-300">{(r.qty_out || 0).toLocaleString()}</span> <span className="text-slate-500 dark:text-slate-400">{getUnit(r)}</span>
+                        <span className="font-bold text-rose-700 dark:text-rose-300">{(r.qty_out || 0).toLocaleString()}</span> <span className="text-slate-500 dark:text-slate-400">{unitLabel(getUnit(r)) || '-'}</span>
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-slate-700 dark:text-slate-200">{fmtPrice(r)}</td>
                       <td className="px-4 py-2 text-right font-semibold tabular-nums text-slate-800 dark:text-slate-100">{fmtValue(r)}</td>
@@ -1035,7 +1036,7 @@ function DispenseView({ isAdmin = false, isStaff = false, auth = {}, initialDept
           <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-slate-100 dark:border-slate-800">
             <div className="min-w-0">
               <h2 className="font-bold text-slate-900 dark:text-slate-50 break-words">{selectedDrug}</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">รหัส {drugCode} · หน่วย {drugUnit} · {filteredDrugRows.length.toLocaleString()} รายการเบิก</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">รหัส {drugCode} · หน่วย {unitLabel(drugUnit) || '-'} · {filteredDrugRows.length.toLocaleString()} รายการเบิก</p>
             </div>
             <button type="button" onClick={clearSearchDrug} aria-label="ปิดยาที่เลือก"
               className="shrink-0 -m-1 p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:text-slate-200 dark:hover:bg-slate-800 transition-colors"><X size={16}/></button>
@@ -1058,7 +1059,7 @@ function DispenseView({ isAdmin = false, isStaff = false, auth = {}, initialDept
                     </div>
                     <div className="text-right shrink-0">
                       <span className="inline-flex items-center rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold px-2.5 py-0.5 text-sm tabular-nums">{fmtQtyOut(r.qty_out)}</span>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{getUnit(r) !== '-' ? getUnit(r) : drugUnit}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{unitLabel(getUnit(r) !== '-' ? getUnit(r) : drugUnit) || '-'}</p>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5 mt-2 text-[11px]">
@@ -1099,7 +1100,7 @@ function DispenseView({ isAdmin = false, isStaff = false, auth = {}, initialDept
                       >
                         <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 whitespace-nowrap font-medium">{fmtDateBE(r.dispense_date)}</td>
                         <td className="px-4 py-2.5 text-rose-700 dark:text-rose-300 font-bold text-right whitespace-nowrap">{fmtQtyOut(r.qty_out)}</td>
-                        <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap font-medium">{getUnit(r) !== '-' ? getUnit(r) : drugUnit}</td>
+                        <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap font-medium">{unitLabel(getUnit(r) !== '-' ? getUnit(r) : drugUnit) || '-'}</td>
                         <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{r.lot || '-'}</td>
                         <td className="px-4 py-2.5 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{fmtAnyDate(r.exp)}</td>
                         <td className="px-4 py-2.5 text-slate-800 dark:text-slate-100 font-medium text-right whitespace-nowrap">{getPrice(r) != null ? Number(getPrice(r)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>
@@ -1232,7 +1233,7 @@ function DispenseView({ isAdmin = false, isStaff = false, auth = {}, initialDept
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-rose-50 dark:bg-rose-950/40 rounded-xl p-2.5 text-center">
                   <p className="text-lg font-bold text-rose-700 dark:text-rose-300">{fmtQtyOut(mobileDetail.qty_out)}</p>
-                  <p className="text-[10px] text-rose-600">{getUnit(mobileDetail)}</p>
+                  <p className="text-[10px] text-rose-600">{unitLabel(getUnit(mobileDetail)) || '-'}</p>
                 </div>
                 <div className="bg-amber-50 dark:bg-amber-950/40 rounded-xl p-2.5 text-center">
                   <p className="text-base font-bold text-amber-700 dark:text-amber-300">{getPrice(mobileDetail) != null ? ((mobileDetail.qty_out||0)*getPrice(mobileDetail)).toLocaleString(undefined,{maximumFractionDigits:0}) : '-'}</p>
@@ -1290,7 +1291,7 @@ function DispenseView({ isAdmin = false, isStaff = false, auth = {}, initialDept
                 </div>
                 <div className="text-right shrink-0">
                   <span className="inline-flex items-center rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold px-2.5 py-0.5 text-xs tabular-nums">{fmtQtyOut(row.qty_out)}</span>
-                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{getUnit(row)}</p>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{unitLabel(getUnit(row)) || '-'}</p>
                 </div>
               </div>
               {(row.lot || row.exp) && (
@@ -1343,7 +1344,7 @@ function DispenseView({ isAdmin = false, isStaff = false, auth = {}, initialDept
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         <span className="inline-flex items-center justify-end rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold px-2.5 py-0.5 text-xs tabular-nums">{fmtQtyOut(row.qty_out)}</span>
                       </td>
-                      <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap font-medium">{getUnit(row)}</td>
+                      <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap font-medium">{unitLabel(getUnit(row)) || '-'}</td>
                       <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{row.lot || '-'}</td>
                       <td className="px-4 py-3 text-slate-700 dark:text-slate-200 text-xs whitespace-nowrap">{fmtAnyDate(row.exp)}</td>
                       <td className="px-4 py-3 text-slate-800 dark:text-slate-100 font-medium text-right whitespace-nowrap tabular-nums">{getPrice(row) != null ? Number(getPrice(row)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'}</td>

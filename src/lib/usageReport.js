@@ -6,7 +6,7 @@
 
 import {
   buildDrugProfile, summarizeUsage, receiptsInRange, usageMonthsBase, latestPurchaseUnit,
-  isPurchaseReceipt, packUnitLabel, packWord, parseUnitFactor,
+  isPurchaseReceipt, packUnitLabel, packWord, parseUnitFactor, unitLabel,
 } from './drugProfile.js'
 import { listMonthYM, thaiMonthLabel } from './reorder.js'
 import { purchaseDatesByCode, requestState, pendingRequestFor, todayIso } from './purchaseReportSheet.js'
@@ -264,7 +264,7 @@ export function usageReportHtml(reports = [], { printedBy = '', printedAt = new 
   ${nonDeptText(r.usage) ? `<p class="muted">รวมในยอดเบิก (ไม่ใช่หน่วยงาน): ${esc(nonDeptText(r.usage))}</p>` : ''}
   <h3>รับเข้าในช่วง${r.receiptBills.length ? ` (${r.receiptBills.length} บิล · ${r.receipts.length} lot)` : ''}</h3>
   ${r.receipts.length ? `<table class="grid"><thead><tr><th>วันที่รับ</th><th>บริษัท</th><th>เลขบิล</th><th>Lot</th><th class="n">จำนวน</th></tr></thead><tbody>
-  ${r.receipts.map(x => `<tr><td>${fmtThaiDate(x.date)}</td><td>${esc(x.supplier)}</td><td>${esc(x.billNumber)}</td><td>${esc(x.lot)}</td><td class="n">${x.qtyMain != null ? `${fmtQty(x.qtyMain)} ${esc(u)}` : `${fmtQty(x.qty)} ${esc(x.unit)}`}</td></tr>`).join('')}
+  ${r.receipts.map(x => `<tr><td>${fmtThaiDate(x.date)}</td><td>${esc(x.supplier)}</td><td>${esc(x.billNumber)}</td><td>${esc(x.lot)}</td><td class="n">${x.qtyMain != null ? `${fmtQty(x.qtyMain)} ${esc(u)}` : `${fmtQty(x.qty)} ${esc(unitLabel(x.unit))}`}</td></tr>`).join('')}
   </tbody></table>` : `<p class="muted">ไม่มีรับเข้าในช่วงนี้${r.lastReceipt ? ` — รับล่าสุด ${fmtThaiDate(r.lastReceipt.date)} ${esc(r.lastReceipt.supplier)}` : ''}</p>`}
   <p class="foot">พิมพ์ ${at}${printedBy ? ` โดย ${esc(printedBy)}` : ''}${updatedAt ? ` · ข้อมูลคงคลัง ณ ${fmtThaiDate(updatedAt)}` : ''}</p>
 </section>`
