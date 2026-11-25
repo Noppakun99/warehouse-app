@@ -1,12 +1,13 @@
 // ตรวจใบพิมพ์แบ่งหน้า (buildPaginatedHtml — ใบเบิกเวชภัณฑ์ยา) ก่อนสรุปว่าแก้เสร็จ ทุกครั้งที่แตะ
 // src/lib/paginatedPrint.js · css/ส่วนท้ายของ buildCoverHtml (RequisitionApp.jsx) · pagesToPdfBlob (reqSheetExport.js)
 //
-//   node scripts/check-paginated-print.mjs                 → ตารางผลทุกขนาดใบ × 2 โหมด (exit 1 = มี ✗)
+//   node scripts/check-paginated-print.mjs                 → ตารางผลทุกขนาดใบ (exit 1 = มี ✗)
 //   node scripts/check-paginated-print.mjs --pdf 55,6 --out <โฟลเดอร์>
 //        → ทำ PDF จริงผ่าน pagesToPdfBlob (html2canvas+jsPDF แบบที่ผู้ใช้กด "ส่งเป็น PDF") + ใบพิมพ์ Chromium
 //          + PNG ทุกหน้า (ต้องมี python + pymupdf) ไว้ Read ดูด้วยตา
 //
-// โหมด print = ฟอนต์ Sarabun (ปุ่ม "พิมพ์") · pdf = ตัด @import ฟอนต์ (pagesToPdfBlob วาดด้วยฟอนต์ระบบ แถวสูงกว่า)
+// ใบพิมพ์กับ PDF แบ่งหน้าด้วย Sarabun ตัวเดียวกัน (25/11/2569 — pagesToPdfBlob ฝังฟอนต์เป็น data URI) จึงวัดโหมดเดียว
+// แล้ว --pdf ตรวจว่า app_N.pdf จำนวนหน้าเท่า print_N.pdf (ยกเว้น --simulate ที่จงใจให้แอปแบ่งหน้าใหม่)
 // ข้อมูล = scripts/fixtures/cover-req-0098.json (หัว/แถว/ส่วนท้าย ณ 25/11/2569) · css อ่านสดจาก buildCoverHtml
 //
 // เกิดจาก (user 25/11/2569 "ทำไมยังเจอจุดผิดอยู่"): แก้ใบพิมพ์ 5 รอบใน 3 วัน แต่ละรอบตรวจแค่ใบเดียวที่ user แจ้ง
@@ -74,18 +75,14 @@ const cssStart = fn.indexOf('const css = `') + 'const css = `'.length
 const css = fn.slice(cssStart, fn.indexOf('`;', cssStart))
 if (cssStart < 20 || css.includes('${')) throw new Error('หา css ของ buildCoverHtml ไม่เจอ หรือมี ${} — แก้ตัวอ่านในสคริปต์นี้')
 
-const FONT_IMPORT_RE = /@import url\(['"]?https:\/\/fonts\.googleapis\.com[^)]*\);?/
-const htmlFor = (n, mode) => {
-  const h = buildPaginatedHtml({ ...fixture, css, rows: fixture.rows.slice(0, n), autoPrint: false })
-  return mode === 'pdf' ? h.replace(FONT_IMPORT_RE, '') : h
-}
+const htmlFor = (n) => buildPaginatedHtml({ ...fixture, css, rows: fixture.rows.slice(0, n), autoPrint: false })
 
 const browser = await chromium.launch()
 let fails = 0
 const measure = async (n, mode) => {
   const page = await browser.newPage({ viewport: { width: 820, height: 1200 } })
   const file = path.join(OUT, `chk_${mode}_${n}.html`)
-  fs.writeFileSync(file, htmlFor(n, mode))
+  fs.writeFileSync(file, htmlFor(n))
   await page.goto(pathToFileURL(file).href)
   await page.waitForFunction(() => [...document.querySelectorAll('.pno')].some(e => /หน้า \d+\/\d+/.test(e.textContent)), null, { timeout: 15000 })
   const pages = await page.evaluate(() => [...document.querySelectorAll('.page')].map(p => {
@@ -115,7 +112,7 @@ const measure = async (n, mode) => {
 }
 
 console.log('แถวต่อหน้า [n/n/n] · t = หน้าสุดท้ายใช้ระยะลายเซ็นแบบแน่น (.tight)')
-for (const n of SIZES.filter(n => n <= fixture.rows.length)) for (const mode of ['print', 'pdf']) await measure(n, mode)
+for (const n of SIZES.filter(n => n <= fixture.rows.length)) await measure(n, 'print')
 
 if (pdfSizes.length) {
   const bundle = path.join(OUT, 'rse.js')
@@ -130,8 +127,8 @@ if (pdfSizes.length) {
       for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000))
       return btoa(s)
     }, SIMULATE // จำลองเครื่องที่วัดแถวเตี้ยกว่าตอนวาด N px ต่อหน้า (pagesToPdfBlob ถอด style นี้ก่อนวาด)
-      ? htmlFor(n, 'print').replace('</head>', `<style data-pdf-measure>.pbody { margin-bottom: -${SIMULATE}px; }</style></head>`)
-      : htmlFor(n, 'print')) // pagesToPdfBlob ตัด @import เอง — ส่ง html เดียวกับที่แอปส่ง
+      ? htmlFor(n).replace('</head>', `<style data-pdf-measure>.pbody { margin-bottom: -${SIMULATE}px; }</style></head>`)
+      : htmlFor(n)) // pagesToPdfBlob ฝังฟอนต์เอง — ส่ง html เดียวกับที่แอปส่ง
     fs.writeFileSync(path.join(OUT, `app_${n}.pdf`), Buffer.from(b64, 'base64'))
     await page.goto(pathToFileURL(path.join(OUT, `chk_print_${n}.html`)).href)
     await page.waitForFunction(() => [...document.querySelectorAll('.pno')].some(e => /หน้า \d+\/\d+/.test(e.textContent)))
@@ -139,6 +136,12 @@ if (pdfSizes.length) {
     await page.close()
   }
   if (checkPdfs(pdfSizes.flatMap(n => [path.join(OUT, `app_${n}.pdf`), path.join(OUT, `print_${n}.pdf`)]))) fails++
+  if (!SIMULATE) for (const n of pdfSizes) {
+    const cnt = (f) => Number(execFileSync('python', ['-c', 'import sys,pymupdf; print(pymupdf.open(sys.argv[1]).page_count)', path.join(OUT, f)]).toString().trim())
+    const a = cnt(`app_${n}.pdf`); const p = cnt(`print_${n}.pdf`)
+    console.log(`${a === p ? '✓' : '✗'} ${n} รายการ PDF ${a} หน้า · ใบพิมพ์ ${p} หน้า${a === p ? '' : ' — PDF แบ่งหน้าไม่ตรงใบพิมพ์'}`)
+    if (a !== p) fails++
+  }
   try {
     execFileSync('python', ['-c', `import pymupdf,glob,os
 for f in sorted(glob.glob(os.path.join(r"${OUT}","*_*.pdf"))):

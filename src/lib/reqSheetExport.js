@@ -145,10 +145,65 @@ export async function htmlToPdfBlob(html) {
   }
 }
 
-// html2canvas แบบ foreignObject วาดหน้าเป็นรูป SVG ซึ่งใช้ web font ไม่ได้ (ลองฝัง Sarabun เป็น data URI แล้ว Chrome ก็ยังวาดด้วยฟอนต์ระบบ)
-// เดิมแบ่งหน้าด้วย Sarabun แต่วาดด้วยฟอนต์ระบบที่กว้างกว่า → บรรทัดตัดเพิ่ม แถวสูงขึ้น แถวท้ายหน้าโดนซ่อน (ใบ บย.70/0098 · 25/11/2569)
-// PDF จึงตัด @import ฟอนต์ทิ้ง ให้แบ่งหน้าและวาดด้วยฟอนต์ระบบตัวเดียวกัน — ใบที่กด "พิมพ์" ยังเป็น Sarabun ตามเดิม
-const FONT_IMPORT_RE = /@import url\(['"]?https:\/\/fonts\.googleapis\.com[^)]*\);?/;
+// PDF ต้องแบ่งหน้าเหมือนใบที่กด "พิมพ์" ทุกหน้า (user สั่ง 25/11/2569 — PDF บย.70/0098 ฟอนต์ระบบ 4 หน้า [21/22/9/3] ใบพิมพ์ 3 หน้า)
+// → ใช้ Sarabun ไฟล์เดียวกับใบพิมพ์: ดึง css ของ Google Fonts + ไฟล์ฟอนต์มาฝังเป็น data URI แทน @import
+// (รูป SVG ที่ใช้วาดหน้าโหลดไฟล์ภายนอกไม่ได้ แต่ data URI ได้) · ดึงไม่ได้ (เน็ตหลุด) = ตัด @import วาดด้วยฟอนต์ระบบแบบเดิม
+const FONT_IMPORT_RE = /@import url\(['"]?(https:\/\/fonts\.googleapis\.com[^)'"]*)['"]?\);?/;
+const fontCssCache = new Map();
+
+const toDataUrl = (blob) => new Promise((resolve, reject) => {
+  const fr = new FileReader(); fr.onload = () => resolve(fr.result); fr.onerror = reject; fr.readAsDataURL(blob);
+});
+
+async function inlineWebFont(html) {
+  const m = html.match(FONT_IMPORT_RE);
+  if (!m) return html;
+  try {
+    if (!fontCssCache.has(m[1])) {
+      fontCssCache.set(m[1], (async () => {
+        let css = await (await fetch(m[1])).text();
+        const urls = [...new Set([...css.matchAll(/url\((https:[^)]+)\)/g)].map(x => x[1]))];
+        if (!urls.length) throw new Error('no font url');
+        const datas = await Promise.all(urls.map(async u => {
+          const r = await fetch(u);
+          if (!r.ok) throw new Error(`font ${r.status}`);
+          return toDataUrl(await r.blob());
+        }));
+        urls.forEach((u, i) => { css = css.split(u).join(datas[i]); });
+        return css;
+      })());
+    }
+    const css = await fontCssCache.get(m[1]);
+    return html.replace(m[0], '').replace('</head>', `<style>${css}</style></head>`);
+  } catch {
+    fontCssCache.delete(m[1]);
+    return html.replace(m[0], '');
+  }
+}
+
+// วาด .page 1 หน้าเป็นรูป SVG (foreignObject) ด้วย css ชุดเดียวกับหน้าพิมพ์ — เบราว์เซอร์จัดหน้าเองด้วยฟอนต์เดียวกับที่วัดแบ่งหน้า
+// ห่อด้วย <body> จริงให้กฎ body ของใบ (ฟอนต์ ขนาด line-height 1.5) ทำงาน — ใส่ค่า computed ลง div แทน line-height เป็น px ตายตัว
+// ตัวอักษรเล็กได้บรรทัดสูงเกิน ส่วนท้ายล้นขอบล่าง (ต้นแบบ 25/11/2569)
+// Safari วาด foreignObject ลง canvas แล้ว canvas ติด taint อ่านภาพไม่ได้ → throw ให้ผู้เรียกใช้ html2canvas แทน
+async function svgPageCanvas(pg, css) {
+  const r = pg.getBoundingClientRect();
+  const w = Math.ceil(r.width); const h = Math.ceil(r.height);
+  const clone = pg.cloneNode(true);
+  clone.style.margin = '0'; clone.style.boxShadow = 'none';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject x="0" y="0" width="${w}" height="${h}">`
+    + `<html xmlns="http://www.w3.org/1999/xhtml"><head><style><![CDATA[${css}\nbody { background: #fff !important; }]]></style></head>`
+    + `<body>${new XMLSerializer().serializeToString(clone)}</body></html></foreignObject></svg>`;
+  const img = new Image();
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  await img.decode();
+  const canvas = document.createElement('canvas');
+  canvas.width = w * 2; canvas.height = h * 2;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.scale(2, 2); ctx.drawImage(img, 0, 0);
+  ctx.getImageData(0, 0, 1, 1);
+  return canvas;
+}
 
 // ตอนแบ่งหน้าวัดในเบราว์เซอร์จริง แต่ภาพ PDF วาดผ่านรูป SVG (foreignObject) — สองทางนี้สูงไม่เท่ากันได้ตามเครื่อง
 // ใบ บย.70/0098 PDF ที่ user ทำ 25/11/2569 11:09: แบ่งหน้าให้แถว 46 อยู่หน้า 2 แต่ภาพที่วาดสูงเกิน 8.5px ขึ้นไป แถว 46 ครึ่งตัว ไม่มีเส้นปิด
@@ -173,7 +228,7 @@ function inkAtBottom(canvas, pg) {
 // html ต้องสร้างด้วย autoPrint: false · สคริปต์ในหน้าแบ่งหน้าหลังโหลดฟอนต์ Sarabun เสร็จ (paginatedPrint.js)
 // จึงรอจนท้ายกระดาษขึ้น "หน้า n/N" ก่อนจับภาพ — รอแค่ load/fonts.ready จะได้หน้าที่ยังไม่แบ่ง
 export async function pagesToPdfBlob(html) {
-  html = html.replace(FONT_IMPORT_RE, '');
+  html = await inlineWebFont(html);
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
   let shots = [];
   for (const reserve of PDF_RESERVE_STEPS) {
@@ -206,22 +261,34 @@ async function renderPdfPages(html, html2canvas) {
       if (Date.now() - t0 > 15000) throw new Error('แบ่งหน้าไม่เสร็จ');
       await new Promise(res => setTimeout(res, 100));
     }
-    // html2canvas วัดตัวอักษรกว้างกว่าเบราว์เซอร์เล็กน้อย → ท้ายกระดาษ "หน้า n/N" ตัดเป็น 2 บรรทัด (ตอนพิมพ์ไม่เป็น)
-    // จับภาพทีละหน้าโดยซ่อนหน้าอื่น + ไม่มี margin — foreignObjectRendering วาดทั้งเอกสารแล้วครอปตามตำแหน่งหน้า
-    // หน้าที่อยู่ต่ำกว่าหน้าแรกครอปผิดที่ ได้หน้าขาว/ดำ (ใบ บย.70/0098 55 รายการ: หน้า 2–3 ว่าง แถว 26–55 หาย · user แจ้ง 25/11/2569)
     doc.querySelectorAll('style[data-pdf-measure]').forEach(el => el.remove());
-    const nowrap = doc.createElement('style');
-    nowrap.textContent = '.pfoot, .pfoot *, .cont, .cont * { white-space: nowrap; } body { background: #fff !important; } .page { margin: 0 !important; box-shadow: none !important; }';
-    doc.head.appendChild(nowrap);
-    await new Promise(res => setTimeout(res, 150));
+    const css = [...doc.querySelectorAll('style')].map(s => s.textContent).join('\n');
     const pages = [...doc.querySelectorAll('.page')];
     const shots = [];
+    let useSvg = true;
     for (let i = 0; i < pages.length; i++) {
       const pg = pages[i];
-      pages.forEach((p, j) => { p.style.display = j === i ? '' : 'none'; });
-      iframe.style.height = `${Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight, 1100)}px`;
-      await new Promise(res => setTimeout(res, 30));
-      const canvas = await html2canvas(pg, { scale: 2, backgroundColor: '#ffffff', windowWidth: WIDTH_PX, logging: false, foreignObjectRendering: true });
+      let canvas = null;
+      if (useSvg) {
+        try { canvas = await svgPageCanvas(pg, css); } catch { useSvg = false; }
+      }
+      if (!canvas) {
+        // ทางสำรอง (เบราว์เซอร์ที่วาด SVG ลง canvas ไม่ได้) — html2canvas ใช้ web font ไม่ได้ หน้าตาจึงอาจต่างจากใบพิมพ์
+        // html2canvas วัดตัวอักษรกว้างกว่าเบราว์เซอร์เล็กน้อย → ท้ายกระดาษ "หน้า n/N" ตัดเป็น 2 บรรทัด (ตอนพิมพ์ไม่เป็น)
+        // จับภาพทีละหน้าโดยซ่อนหน้าอื่น + ไม่มี margin — foreignObjectRendering วาดทั้งเอกสารแล้วครอปตามตำแหน่งหน้า
+        // หน้าที่อยู่ต่ำกว่าหน้าแรกครอปผิดที่ ได้หน้าขาว/ดำ (ใบ บย.70/0098 55 รายการ: หน้า 2–3 ว่าง แถว 26–55 หาย · user แจ้ง 25/11/2569)
+        if (!doc.querySelector('style[data-h2c]')) {
+          const nowrap = doc.createElement('style');
+          nowrap.setAttribute('data-h2c', '');
+          nowrap.textContent = '.pfoot, .pfoot *, .cont, .cont * { white-space: nowrap; } body { background: #fff !important; } .page { margin: 0 !important; box-shadow: none !important; }';
+          doc.head.appendChild(nowrap);
+          await new Promise(res => setTimeout(res, 150));
+        }
+        pages.forEach((p, j) => { p.style.display = j === i ? '' : 'none'; });
+        iframe.style.height = `${Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight, 1100)}px`;
+        await new Promise(res => setTimeout(res, 30));
+        canvas = await html2canvas(pg, { scale: 2, backgroundColor: '#ffffff', windowWidth: WIDTH_PX, logging: false, foreignObjectRendering: true });
+      }
       shots.push({ jpeg: canvas.toDataURL('image/jpeg', 0.92), w: canvas.width, h: canvas.height, cut: inkAtBottom(canvas, pg) });
     }
     return shots;
