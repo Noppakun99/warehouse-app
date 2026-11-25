@@ -37,6 +37,7 @@
 - **ยืมข้อความจากบิลยาอื่นเฉพาะที่ขึ้นต้น "เงื่อนไขเดียวกันทุกรายการ"** (`COMPANY_WIDE_POLICY_PREFIX`) และกรองใน query ของ `fetchDrugProfile` ด้วย ไม่งั้น `limit(1)` ได้แถวหมายเหตุแล้วหาไม่เจอ
 - **โมดอลแผนผัง**: ข้อความนโยบายใน `enriched.swapPolicy` จับคู่รหัส+lot เท่านั้น (`lotDetail` ใน [App.jsx](../../src/App.jsx)) — `lookupDetail` ยัง fallback ระดับรหัสเพื่อเติมบริษัท/waitTime
 - **เติมนโยบายให้บริษัทใหม่**: เพิ่มในชีท `เงื่อนไข_แจกแจง` (ได้ tier V2 ราย lot) แล้วนำเข้า — ตาราง `swap_return_policy` ไม่ sync เอง จึงไม่ใช่ที่เติม
+- **หมายเหตุนโยบาย (คอลัมน์ F — หนังสือบริษัท/ที่มาข้อความ) เข้าแอปแล้ว 25/11/2569**: `รับยา` AD → `receive_logs.swap_policy_note` → `policyNote` ใน `buildLotReturnPolicies` (เฉพาะ `policySource='lot'`) + `drugPolicyView` → บรรทัด "หมายเหตุ: …" ในบัตรยา + หน้านโยบายคืนบริษัท · `groupCompanyLots` แยกแบบด้วย `source|text|note` (ภิญโญ 20 รายการมี D เดียวกัน หมายเหตุต่างกัน) · **ไม่รวมเข้า `drug_swap_policy`** — บอทพิมพ์ข้อความนั้นลงอีเมลและ parse V1 · บอท/โมดอลแผนผังยังไม่แสดงหมายเหตุ · แก้ F แล้วต้อง `import:receive` ถึงจะขึ้นแอป
 
 ## หน้านโยบายคืนบริษัท ([CompanyPolicyApp.jsx](../../src/CompanyPolicyApp.jsx) — staff/admin)
 
