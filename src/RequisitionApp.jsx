@@ -11,10 +11,11 @@ import {
 } from 'lucide-react';
 import { parseUnit } from './lib/unitParser';
 import { allocateFefo, sortLotsForDispense, lotOrderNote, isSupportedLot } from './lib/lotAllocation';
-import { findOverReserved, availableForOwn, increasedCodes } from './lib/reservationCheck';
+import { findOverReserved, availableForOwn } from './lib/reservationCheck';
 import { RESERVING_STATUSES, summarizeHolds, applyHolds } from './lib/reservation';
 import { REQ_TYPES, reqTypeLabel, reqTypeOfRows, entryUnitOf, entryUnitForLots, entryQtyText, packWord, caseOfLots, caseLine, entryPackLabel, CART_KEY, CART_TYPE_KEY } from './lib/reqType';
 import { awaitsSheetEntry } from './lib/onlineReqPlan';
+import { lineKey, duplicateAdded, splitEditRound, overBeforeSave, increasedOver, postCheckKeys, rollbackRound, editAuditDetails, packView } from './lib/reqEditRound';
 import { QUEUE_TABS, stageOf, tabOf, nextStep, waitText, itemAllocation, defaultPickResult, pickPayload, verifyNoteText, sortByLog, reqFlags, PICK_REASONS, VERIFY_ISSUES } from './lib/reqStaffView';
 import { rankDrugs, matchDrugQuery } from './lib/drugSearchText';
 import { checkDispenseLine, requesterNoteText, staffNoteText } from './lib/dispenseCheck';
@@ -24,7 +25,7 @@ import { buildPaginatedHtml } from './lib/paginatedPrint';
 import { reqFormTitle } from './lib/printedReqForm';
 import { buildSheetXlsxBlob, htmlToPdfBlob, pagesToPdfBlob, shareOrDownload, safeFileName } from './lib/reqSheetExport';
 import ConfirmModal from './ConfirmModal';
-import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, updateRequesterRequisition, deleteRequesterRequisitionItems, REQUESTER_LOCKED_MSG, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyAndDispenseRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows, fetchDispenseCheckData, fetchDeptRecentDispense } from './lib/db';
+import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, editRequesterRequisition, deleteRequesterRequisitionItems, REQUESTER_LOCKED_MSG, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyAndDispenseRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows, fetchDispenseCheckData, fetchDeptRecentDispense } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 
 // ============================================================
@@ -752,7 +753,8 @@ const packSummary = (fefoLots) => {
 };
 
 // ---- Drug Search ----
-function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHistory, onBack }) {
+// addTo = { reqNumber, keys } — โหมดเพิ่มยาเข้าใบที่ส่งแล้ว (ตะกร้าแยกจากโมดอลแก้ใบ · keys = ยาในใบ ห้ามเพิ่มซ้ำ)
+function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHistory, onBack, addTo = null }) {
   const [q, setQ]              = useState('');
   const [rawResults, setRawResults] = useState([]);   // inventory data (no reservation)
   const [reservedMap, setReservedMap] = useState({}); // codeKey → { total, byLot, unassigned } ยอดจอง (หน่วยย่อยสุด, realtime)
@@ -1080,20 +1082,20 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
           <CheckCircle size={20} className="shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="font-bold text-sm truncate">{toast.name}</p>
-            <p className="text-xs text-green-100">{toast.type && `${toast.type} · `}เพิ่มเข้าตะกร้าแล้ว · จำนวน <span className="font-bold text-white">{toast.qty} × {toast.unit}</span></p>
+            <p className="text-xs text-green-100">{toast.type && `${toast.type} · `}{addTo ? 'เพิ่มแล้ว (ยังไม่บันทึก)' : 'เพิ่มเข้าตะกร้าแล้ว'} · จำนวน <span className="font-bold text-white">{toast.qty} × {toast.unit}</span></p>
           </div>
         </div>
       )}
 
-      <PageHeader onBack={onBack} title={info.name} subtitle={info.department}>
-        <button onClick={onHistory} className="transition-colors px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-400 flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+      <PageHeader onBack={onBack} title={addTo ? `เพิ่มยาเข้าใบ ${addTo.reqNumber}` : info.name} subtitle={info.department}>
+        {!addTo && <button onClick={onHistory} className="transition-colors px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-400 flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
           <FileText size={16} strokeWidth={2} />
           <span className="text-sm font-medium">ประวัติการเบิก</span>
-        </button>
+        </button>}
       </PageHeader>
 
       {/* Pending notification */}
-      {pendingCount > 0 && (
+      {!addTo && pendingCount > 0 && (
         <button onClick={onHistory}
           className="w-full flex items-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 text-left hover:bg-amber-100 dark:hover:bg-amber-950/70 transition-colors">
           <Clock size={15} className="text-amber-500 shrink-0" />
@@ -1110,7 +1112,9 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 text-blue-700 dark:text-blue-300 text-sm font-bold">
             <FileText size={14} /> ใบเบิก{reqTypeLabel(reqType)}
           </span>
-          {cart.length === 0 ? (
+          {addTo ? (
+            <span className="text-xs text-amber-700 dark:text-amber-300 font-medium">ยังไม่บันทึก — กลับไปกด "บันทึกการแก้ไข" ในใบเบิก</span>
+          ) : cart.length === 0 ? (
             <button onClick={onChangeType} className="text-sm font-semibold text-[#1E90FF] hover:text-[#1a7fe0]">เปลี่ยนประเภท</button>
           ) : (
             <span className="text-xs text-slate-400 dark:text-slate-500">เปลี่ยนประเภทได้หลังส่งหรือล้างตะกร้า</span>
@@ -1196,6 +1200,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
             const accentColor = drugTypeAccent(drug.type);
             const outOfStock = drug.availableBase <= 0;
             const remaining = Math.max(0, drug.availableBase - (inCart?.requestedQty || 0));
+            const inReq = !!addTo?.keys.has(lineKey(drug.code, drug.name, codeKey)); // grill ข้อ 4 — แก้จำนวนบรรทัดเดิมแทน
             return (
               <div key={drugKey} className="bg-white dark:bg-slate-900 rounded-xl overflow-hidden shadow-sm border border-slate-200 dark:border-slate-700"
                 style={{ borderLeft: `4px solid ${outOfStock ? '#CBD5E1' : accentColor}` }}>
@@ -1285,7 +1290,11 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
                   )}
 
                   {/* Add to cart — ยาหมดก็ขอได้ (เตือน ไม่ห้าม) · คีย์เป็นหน่วยคีย์ แสดงผลแปลงเป็นหน่วยย่อย */}
-                  {(() => {
+                  {inReq ? (
+                    <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 flex items-center gap-1.5">
+                      <CheckCircle size={15} className="shrink-0 text-emerald-600" /> มีในใบแล้ว — แก้จำนวนที่บรรทัดเดิมในใบเบิก
+                    </p>
+                  ) : (() => {
                     const opts = drug.entry?.options;
                     const chosen = opts ? (opts.find(o => o.packSize === packChoice[drugKey]) || opts.find(o => o.packSize === drug.entry.defaultPack)) : null;
                     const pack = chosen ? chosen.packSize : (drug.entry?.packSize || 1);
@@ -1320,7 +1329,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
                       </span>
                       <button onClick={() => addToCart(drug, qtyMap[drugKey] ?? 1, chosen)}
                         className="bg-[#1E90FF] hover:bg-[#1a7fe0] text-white rounded-lg px-4 py-2 text-sm font-bold flex items-center gap-1.5 transition-colors shadow-sm ml-auto">
-                        <Plus size={15} /> เพิ่มเข้าตะกร้า
+                        <Plus size={15} /> {addTo ? 'เพิ่มเข้าใบ' : 'เพิ่มเข้าตะกร้า'}
                       </button>
                       {drug.entry?.hint && (
                         <p className="w-full text-xs text-blue-700 dark:text-blue-300 font-medium">{drug.entry.hint} — คีย์จำนวนเป็น {drug.entry.label}</p>
@@ -1342,7 +1351,7 @@ function DrugSearch({ info, reqType, onChangeType, cart, setCart, onCart, onHist
         <button onClick={onCart}
           className="fixed bottom-6 right-5 z-40 bg-[#1E90FF] hover:bg-[#1a7fe0] text-white rounded-2xl shadow-2xl px-5 py-3.5 flex items-center gap-2.5 transition active:scale-95">
           <Package size={20} />
-          <span className="font-bold text-base">ตะกร้ายา</span>
+          <span className="font-bold text-base">{addTo ? 'กลับไปใบเบิก' : 'ตะกร้ายา'}</span>
           <span className="bg-white dark:bg-slate-900 text-[#1E90FF] rounded-full w-6 h-6 flex items-center justify-center font-black text-sm">{cart.length}</span>
         </button>
       )}
@@ -2187,6 +2196,8 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
   const [outReq, setOutReq]             = useState(null); // ReqOutputModal
   const [editDraft, setEditDraft]       = useState(null); // { note, items:[{id,requested_qty,note,...}] }
   const [editError, setEditError]       = useState(''); // error validate คงเหลือตอนแก้ใบเบิก
+  const [editWarn, setEditWarn]         = useState(''); // เตือนขอเกินคงเหลือ (ไม่บล็อก — กดบันทึกซ้ำ = ยืนยัน)
+  const [overAck, setOverAck]           = useState(''); // ชุดยอดที่เกินซึ่งผู้เบิกเห็นคำเตือนแล้ว · จำนวนเปลี่ยน = เตือนใหม่
   const [saving, setSaving]             = useState(false);
   const [actionMsg, setActionMsg]       = useState('');
   const [itemSearch, setItemSearch]     = useState('');
@@ -2194,6 +2205,12 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
   const [dateFrom, setDateFrom]         = useState('');
   const [dateTo, setDateTo]             = useState('');
   const [confirmingReceived, setConfirmingReceived] = useState(null); // req.id
+  // เพิ่มยาเข้าใบที่ส่งแล้ว: เปิดหน้าเลือกยาเดิมเต็มจอ ตะกร้าแยก (ไม่แตะตะกร้าค้างของผู้เบิก) → กลับมาเป็นบรรทัดใหม่ในโมดอล
+  const [adding, setAdding]             = useState(false);
+  const [addCart, setAddCart]           = useState([]);
+  // หน่วยคีย์ต่อรายการเดิม (กฎเดียวกับใบพิมพ์ makeItemPack) — id → { pack, label, fromEntry } · ล็อกตอนเปิดโมดอล
+  const [packMap, setPackMap]           = useState({});
+  const packReqRef = useRef(null);
 
   const load = useCallback(async () => {
     if (!supabase) { setLoading(false); return; }
@@ -2225,6 +2242,45 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
     setConfirmModal({ type: 'edit', req });
     setItemSearch('');
     setEditError('');
+    setEditWarn('');
+    setOverAck('');
+    setAddCart([]);
+    setPackMap({});
+    // หน่วยคีย์ = กฎเดียวกับใบพิมพ์ (Rule #6) · หารไม่ลงตัวตอนเปิด = หน่วยย่อยตลอดรอบ (พิมพ์ 3000 แล้วไม่สลับเป็น 3 กล่อง)
+    packReqRef.current = req.id;
+    computeReqAllocations([req]).then(({ fefoByCode, unitByCode }) => {
+      if (packReqRef.current !== req.id) return;
+      const mk = makeItemPack(fefoByCode, unitByCode);
+      setPackMap(Object.fromEntries((req.requisition_items || []).map(i => {
+        const p = mk(i);
+        const pack = packView(i.requested_qty, p.packSize).pack;
+        return [i.id, { pack, label: p.label, fromEntry: Number(i.entry_pack) > 1 && !!i.entry_unit }];
+      })));
+    }).catch(() => { /* โหลดไม่ได้ = แสดงหน่วยย่อยแบบเดิม */ });
+  };
+
+  // หน่วยของบรรทัดในโมดอล — รายการเดิมจาก packMap · บรรทัดที่เพิ่มใช้หน่วยที่คีย์ในหน้าเลือกยา
+  const unitOfLine = (item) => {
+    const p = item._new ? { pack: item._pack || 1, label: item._label, fromEntry: !!item.entry_unit } : packMap[item.id];
+    if (!p || !(p.pack > 1)) return { pack: 1, text: item.drug_unit || '-' };
+    return { pack: p.pack, text: p.fromEntry ? p.label : entryText(p.label, p.pack) };
+  };
+
+  // ยาในใบ (รวมที่เพิ่มในรอบนี้) — หน้าเลือกยาห้ามเพิ่มซ้ำ (grill ข้อ 4)
+  const draftKeys = useMemo(() => new Set((editDraft?.items || []).map(l => lineKey(l.drug_code, l.drug_name, codeKey))), [editDraft]);
+
+  const finishAdd = () => {
+    const stamp = Date.now();
+    const lines = addCart.filter(c => c.requestedQty > 0).map((c, i) => ({
+      _new: true, _key: `new-${stamp}-${i}`,
+      drug_code: c.code, drug_name: c.name, drug_unit: c.unit || null, drug_type: c.drugType || null,
+      requested_qty: c.requestedQty, item_note: c.note || null,
+      entry_pack: c.entryPack || 1, entry_unit: c.entryUnit || null,
+      _pack: c.entryPack || 1, _label: c.entryUnit ? c.entryLabel : (c.entryLabel || c.unit),
+    }));
+    if (lines.length) setEditDraft(d => ({ ...d, items: [...d.items, ...lines] }));
+    setAddCart([]);
+    setAdding(false);
   };
 
   const handleDelete = async () => {
@@ -2254,68 +2310,73 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
 
   const handleEdit = async () => {
     setEditError('');
-    // ช่องจำนวนพิมพ์ได้ → ค่าว่างระหว่างพิมพ์ได้ · 0 = ตัดรายการ (ลบหลังผ่านด่านยอดจองซ้ำ)
+    setEditWarn('');
+    // ช่องจำนวนพิมพ์ได้ → ค่าว่างระหว่างพิมพ์ได้ · 0 = ตัดรายการ (ลบหลังผ่านด่านยอดจองซ้ำ) · บรรทัดที่เพิ่มแล้วใส่ 0 = ไม่เพิ่ม
     const rawItems = editDraft?.items || [];
     if (rawItems.some(it => it.requested_qty === '' || !Number.isInteger(Number(it.requested_qty)) || Number(it.requested_qty) < 0)) {
       setEditError('กรอกจำนวนให้ครบทุกรายการ (ใส่ 0 = ตัดรายการนั้นออก)');
       return;
     }
-    const draft = { ...editDraft, items: rawItems.map(it => ({ ...it, requested_qty: Number(it.requested_qty) })) };
-    // รายการที่ส่งมาเป็น 0 ตั้งแต่แรก = "ได้ยาไปแล้ว" (บันทึก) ไม่ใช่การตัดรายการ — ห้ามลบ
-    const removed = draft.items.filter(it => it.requested_qty === 0 && !gotAtSubmit.has(it.id));
-    if (rawItems.length > 0 && removed.length === rawItems.length) {
+    const lines = rawItems.map(it => ({ ...it, requested_qty: Number(it.requested_qty) }));
+    // รายการที่ส่งมาเป็น 0 ตั้งแต่แรก = "ได้ยาไปแล้ว" (บันทึก) ไม่ใช่การตัดรายการ — ห้ามลบ (gotAtSubmit)
+    const plan = splitEditRound(lines, gotAtSubmit);
+    if (plan.allRemoved) {
       setEditError('ทุกรายการเป็น 0 — ถ้าไม่ต้องการเบิกแล้ว ให้กดปุ่มลบใบเบิกแทน');
+      return;
+    }
+    const dup = duplicateAdded(lines.filter(l => !l._new || l.requested_qty > 0), codeKey);
+    if (dup.length) {
+      setEditError(`${dup.join(', ')} มีในใบแล้ว — แก้จำนวนที่บรรทัดเดิมแทน`);
       return;
     }
     setSaving(true);
     try {
-      // re-validate คงเหลือ−จอง ก่อนบันทึก (ปุ่ม +/− ในโมดอลไม่มี cap) — ไม่นับยอดจองของใบตัวเอง
-      const codes = [...new Set(draft.items.map(i => i.drug_code).filter(Boolean))];
+      const req = confirmModal.req;
+      const original = req.requisition_items || [];
+      const existingLines = lines.filter(l => !l._new);
+      // re-validate คงเหลือ−จอง ก่อนบันทึก — ไม่นับยอดจองของใบตัวเอง
+      const codes = [...new Set([...existingLines, ...plan.added].map(i => i.drug_code).filter(Boolean))];
       let invBaseMap = {};
+      let overNew = new Set();
       if (supabase && codes.length > 0) {
         const [invNow, reservedOther] = await Promise.all([
           fetchInvBaseByCode(codes),
-          fetchReservedBase(codes, { excludeReqId: confirmModal.req.id }),
+          fetchReservedBase(codes, { excludeReqId: req.id }),
         ]);
         invBaseMap = invNow;
-        const effectiveOf = (it) => {
-          const k = codeKey(it.drug_code);
-          return Math.max(0, (invBaseMap[k] ?? 0) - (reservedOther[k] ?? 0));
-        };
-        const conflicts = draft.items.filter(it => (Number(it.requested_qty) || 0) > effectiveOf(it));
-        if (conflicts.length > 0) {
-          setEditError('บันทึกไม่ได้ — เกินคงเหลือในคลัง: ' + conflicts.map(it =>
-            `${it.drug_name} ขอ ${Number(it.requested_qty).toLocaleString()} แต่เบิกได้ ${effectiveOf(it).toLocaleString()} ${it.drug_unit || ''}`.trim()
-          ).join(' · '));
+        // ขอได้เสมอเหมือนส่งใบใหม่ (user ตัดสิน 25/11/2569) — รายการเดิมที่เพิ่มจำนวนจนเกิน = เตือนให้กดยืนยันซ้ำ ไม่บล็อก
+        // เกินตั้งแต่ส่งใบแต่ไม่แตะจำนวน = ผ่านเงียบ (เดิมบล็อกทั้งใบ → เพิ่มยา/แก้หมายเหตุไม่ได้)
+        const warn = increasedOver(original, existingLines, invBaseMap, reservedOther, codeKey);
+        const sig = warn.map(w => `${w.key}:${w.own}`).join('|');
+        if (warn.length && overAck !== sig) {
+          setOverAck(sig);
+          setEditWarn('ขอเกินคงเหลือในคลัง: ' + warn.map(w => `${w.name} ขอ ${w.own.toLocaleString()} เบิกได้ ${w.available.toLocaleString()} ${w.unit}`.trim()).join(' · ')
+            + ' — คลังจ่ายเท่าที่มี ส่วนที่ขาดบันทึกค้างจ่าย · กด "บันทึกการแก้ไข" อีกครั้งเพื่อยืนยัน');
           setSaving(false);
           return;
         }
+        // ขอเกินตั้งแต่ก่อนบันทึก (ยาที่เพิ่ม + รายการเดิมที่ยืนยันแล้ว) = ตั้งใจขอเกิน ไม่เข้าด่านถอยรอบ (กฎ overAtSubmit)
+        overNew = overBeforeSave([...existingLines, ...plan.added], invBaseMap, reservedOther, codeKey);
       }
-      const req = confirmModal.req;
-      const original = req.requisition_items || [];
-      await updateRequesterRequisition(req.id, draft, auth, { audit: false });
+      // แก้จำนวน + เพิ่มยา ในธุรกรรมเดียว (RPC) — ไม่ผ่านด่านใบ/ยาซ้ำ = ไม่เกิดอะไรเลย
+      const saved = await editRequesterRequisition(req.id, { note: editDraft.note, updates: plan.updates, inserts: plan.inserts });
+      const insertedIds = saved?.inserted_ids || [];
 
-      // ตรวจซ้ำหลังบันทึก (ADR-0028) เฉพาะรหัสที่จำนวนเพิ่มขึ้น (ลดลงทำให้จองเกินไม่ได้)
-      // ชนกับหน่วยงานอื่น → คืนจำนวน/หมายเหตุเดิมทั้งใบ โมดอลยังเปิดพร้อมค่าที่ผู้เบิกแก้ไว้
-      const incKeys = increasedCodes(
-        original.map(i => ({ code: i.drug_code, qty: i.requested_qty })),
-        draft.items.map(i => ({ code: i.drug_code, qty: i.requested_qty })),
-        codeKey,
-      );
-      if (supabase && incKeys.length > 0) {
-        const incCodes = [...new Set(draft.items.map(i => i.drug_code).filter(c => incKeys.includes(codeKey(c))))];
-        const reservedAfter = await fetchReservedBase(incCodes); // คงเหลือใช้ชุดก่อนบันทึก (เหตุผลเดียวกับตอนส่งใบ)
-        const over = findOverReserved({ invBase: invBaseMap, reserved: reservedAfter, codes: incKeys });
+      // ตรวจซ้ำหลังบันทึก (ADR-0028) เฉพาะรหัสที่จำนวนเพิ่มขึ้น + ยาที่เพิ่ม (ลดลงทำให้จองเกินไม่ได้)
+      // ชนกับหน่วยงานอื่น → ถอยทั้งรอบ (จำนวน/หมายเหตุเดิม + ลบยาที่เพิ่ม) โมดอลยังเปิดพร้อมค่าที่ผู้เบิกแก้ไว้
+      const checkKeys = postCheckKeys(original, lines, overNew, codeKey);
+      if (supabase && checkKeys.length > 0) {
+        const kept = lines.filter(l => !l._new || l.requested_qty > 0);
+        const checkCodes = [...new Set(kept.map(i => i.drug_code).filter(c => checkKeys.includes(codeKey(c))))];
+        const reservedAfter = await fetchReservedBase(checkCodes); // คงเหลือใช้ชุดก่อนบันทึก (เหตุผลเดียวกับตอนส่งใบ)
+        const over = findOverReserved({ invBase: invBaseMap, reserved: reservedAfter, codes: checkKeys });
         if (over.length > 0) {
-          await updateRequesterRequisition(req.id, {
-            note: req.note,
-            items: original.map(i => ({ id: i.id, requested_qty: i.requested_qty, note: i.note })),
-          }, auth, { audit: false });
+          await editRequesterRequisition(req.id, { note: req.note, ...rollbackRound(original, insertedIds) });
           const conflicts = over.flatMap(o => {
-            const lines = draft.items.filter(it => codeKey(it.drug_code) === o.code);
-            const own = lines.reduce((s, it) => s + (Number(it.requested_qty) || 0), 0);
+            const hit = kept.filter(it => codeKey(it.drug_code) === o.code);
+            const own = hit.reduce((s, it) => s + (Number(it.requested_qty) || 0), 0);
             const available = availableForOwn({ inv: o.inv, reserved: o.reserved, own });
-            return lines.map(it => ({ drug_code: it.drug_code, drug_name: it.drug_name, unit: it.drug_unit || '', requested: Number(it.requested_qty) || 0, available }));
+            return hit.map(it => ({ drug_code: it.drug_code, drug_name: it.drug_name, unit: it.drug_unit || '', requested: Number(it.requested_qty) || 0, available }));
           });
           const resolved = resolveAuditUserName(auth);
           insertAuditLog({
@@ -2331,11 +2392,10 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
           return;
         }
       }
-      await deleteRequesterRequisitionItems(req.id, removed.map(it => it.id));
-      insertAuditLog({ action: 'requester_edit_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || '-', details: { requisition_id: req.id, ...(removed.length ? { removed_items: removed.map(it => it.drug_name) } : {}) } });
-      setActionMsg(removed.length
-        ? `แก้ไขใบเบิกสำเร็จ (ตัดออก ${removed.length} รายการ) — เจ้าหน้าที่คลังยารับทราบแล้ว`
-        : 'แก้ไขใบเบิกสำเร็จ — เจ้าหน้าที่คลังยารับทราบแล้ว');
+      await deleteRequesterRequisitionItems(req.id, plan.removed.map(it => it.id));
+      insertAuditLog({ action: 'requester_edit_requisition', table_name: 'requisitions', user_name: resolveAuditUserName(auth), department: auth?.department || info.department || '-', details: editAuditDetails({ req, department: info.department, removed: plan.removed, added: plan.added }) });
+      const parts = [plan.added.length && `เพิ่ม ${plan.added.length} รายการ`, plan.removed.length && `ตัดออก ${plan.removed.length} รายการ`].filter(Boolean);
+      setActionMsg(`แก้ไขใบเบิกสำเร็จ${parts.length ? ` (${parts.join(' · ')})` : ''} — เจ้าหน้าที่คลังยารับทราบแล้ว`);
       setConfirmModal(null);
       load();
     } catch (e) {
@@ -2366,6 +2426,13 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
       )
     );
   }, [list, drugSearch]);
+
+  // หน้าเลือกยาเต็มจอ — state ของโมดอลแก้ใบยังอยู่ (component นี้ไม่ unmount) กลับมาแล้วค่าที่แก้ไว้ไม่หาย
+  if (adding && confirmModal?.type === 'edit') return (
+    <DrugSearch info={info} reqType={confirmModal.req.req_type} cart={addCart} setCart={setAddCart}
+      addTo={{ reqNumber: confirmModal.req.req_number, keys: draftKeys }}
+      onCart={finishAdd} onBack={finishAdd} onHistory={finishAdd} onChangeType={() => {}} />
+  );
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -2588,11 +2655,12 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                   {/* Edit items qty */}
                   {editDraft?.items
                     .filter(item => !itemSearch.trim() || item.drug_name.toLowerCase().includes(itemSearch.toLowerCase()))
-                    .map((item, idx) => {
-                    const realIdx = editDraft.items.findIndex(i => i.id === item.id);
+                    .map((item) => {
+                    const lk = item.id ?? item._key;
+                    const realIdx = editDraft.items.findIndex(i => (i.id ?? i._key) === lk);
                     const setQty = (q) => setEditDraft(d => ({ ...d, items: d.items.map((it,i) => i===realIdx ? { ...it, requested_qty: q } : it) }));
                     if (gotAtSubmit.has(item.id)) return (
-                      <div key={item.id} className="flex items-start gap-2 rounded-xl px-3 py-2 border bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700">
+                      <div key={lk} className="flex items-start gap-2 rounded-xl px-3 py-2 border bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700">
                         <History size={14} className="shrink-0 mt-0.5 text-slate-400 dark:text-slate-500" />
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-slate-800 dark:text-slate-100 break-words">{item.drug_name}</p>
@@ -2601,26 +2669,45 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
                       </div>
                     );
                     const removedRow = item.requested_qty !== '' && Number(item.requested_qty) === 0;
+                    // ช่องจำนวนเป็นหน่วยคีย์ (8 × 1000เม็ด) — draft เก็บหน่วยย่อยสุดเหมือนเดิม
+                    const u = unitOfLine(item);
+                    const keyed = item.requested_qty === '' ? '' : Number(item.requested_qty) / u.pack;
+                    const setKeyed = (k) => setQty(k === '' ? '' : k * u.pack);
                     return (
-                    <div key={item.id} className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2 border ${removedRow ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900/60' : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
+                    <div key={lk} className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2 border ${removedRow ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900/60' : item._new ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/60' : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
                       <div className="min-w-0 flex-1">
-                        <p className={`text-sm font-medium truncate ${removedRow ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-100'}`}>{item.drug_name}</p>
-                        <p className={`text-xs ${removedRow ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-slate-400 dark:text-slate-500'}`}>{removedRow ? 'ตัดรายการนี้ออก' : (item.drug_unit||'-')}</p>
+                        <p className={`text-sm font-medium truncate ${removedRow ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-100'}`}>
+                          {item._new && !removedRow && <span className="mr-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">เพิ่มใหม่</span>}
+                          {item.drug_name}
+                        </p>
+                        <p className={`text-xs ${removedRow ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-slate-400 dark:text-slate-500'}`}>
+                          {removedRow ? (item._new ? 'ไม่เพิ่มรายการนี้' : 'ตัดรายการนี้ออก')
+                            : <>{u.text}{u.pack > 1 && keyed !== '' && <> (= {Number(item.requested_qty).toLocaleString()} {item.drug_unit || ''})</>}</>}
+                        </p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <button onClick={() => setQty(Math.max(0, (Number(item.requested_qty) || 0) - 1))} aria-label="ลดจำนวน"
+                        <button onClick={() => setKeyed(Math.max(0, (Number(keyed) || 0) - 1))} aria-label="ลดจำนวน"
                           className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-200 font-bold transition-colors">−</button>
                         {/* พิมพ์ได้ (เดิมกดได้ทีละ 1 · เลข 5 หลักล้นใต้ปุ่ม +) · 0 = ตัดรายการ */}
                         {/* type=text: ลูกศรของ type=number กินที่จนเลข 6 หลักโดนบัง */}
-                        <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={7} value={item.requested_qty} aria-label={`จำนวน ${item.drug_name}`}
-                          onChange={e => { const v = e.target.value.replace(/\D/g, ''); setQty(v === '' ? '' : Number(v)); }}
+                        <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={7} value={keyed} aria-label={`จำนวน ${item.drug_name}`}
+                          onChange={e => { const v = e.target.value.replace(/\D/g, ''); setKeyed(v === '' ? '' : Number(v)); }}
                           className="w-20 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 rounded-lg px-1.5 py-1 text-center text-base font-bold tabular-nums text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                        <button onClick={() => setQty((Number(item.requested_qty) || 0) + 1)} aria-label="เพิ่มจำนวน"
+                        <button onClick={() => setKeyed((Number(keyed) || 0) + 1)} aria-label="เพิ่มจำนวน"
                           className="w-7 h-7 flex items-center justify-center rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-200 font-bold transition-colors">+</button>
                       </div>
                     </div>
                     );
                   })}
+                  {/* เพิ่มยาเข้าใบ — ประเภทเดียวกับใบ (grill ข้อ 2) · ใบไม่มีประเภท (ส่งก่อน 13/11/2569) เพิ่มไม่ได้ */}
+                  {confirmModal.req.req_type ? (
+                    <button type="button" onClick={() => { setAddCart([]); setAdding(true); }}
+                      className="w-full flex items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-blue-300 dark:border-blue-800 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40 py-2.5 text-sm font-semibold transition-colors">
+                      <Plus size={16} /> เพิ่มยา (ใบเบิก{reqTypeLabel(confirmModal.req.req_type)})
+                    </button>
+                  ) : (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 rounded-xl px-3 py-2">ใบนี้ส่งก่อนมีประเภทใบเบิก เพิ่มยาไม่ได้ — ต้องการเพิ่มยาให้ส่งใบใหม่</p>
+                  )}
                   {/* Note */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">หมายเหตุ</label>
@@ -2636,6 +2723,11 @@ function RequisitionHistory({ info, onBack, auth = {} }) {
             {confirmModal.type !== 'delete' && editError && (
               <p className="shrink-0 mx-5 mt-3 text-xs text-red-600 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl px-3 py-2 flex items-start gap-1.5 max-h-24 overflow-y-auto">
                 <AlertCircle size={13} className="shrink-0 mt-0.5"/> {editError}
+              </p>
+            )}
+            {confirmModal.type !== 'delete' && editWarn && (
+              <p className="shrink-0 mx-5 mt-3 text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl px-3 py-2 flex items-start gap-1.5 max-h-24 overflow-y-auto">
+                <AlertTriangle size={13} className="shrink-0 mt-0.5"/> {editWarn}
               </p>
             )}
 

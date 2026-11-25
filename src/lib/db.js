@@ -1847,19 +1847,23 @@ export async function deleteRequesterRequisition(id, auth = {}) {
   await insertAuditLog({ action: 'requester_delete_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id } })
 }
 
-// audit:false = ผู้เรียกเขียน audit เองหลังตรวจยอดจองซ้ำผ่าน หรือใช้คืนค่าเดิมตอนชนกัน (ADR-0028)
-export async function updateRequesterRequisition(id, { note, items }, auth = {}, { audit = true } = {}) {
+// แก้ใบ 1 รอบ (แก้จำนวน/หมายเหตุ + เพิ่มยา + ลบบรรทัดตอนถอยรอบ) เป็นธุรกรรมเดียวผ่าน RPC — ไม่ผ่าน = ไม่เกิดทั้งรอบ
+// (CONTEXT §เลขรับใบเบิก grill ข้อ 3) · ตั้ง updated_at ใหม่ทุกครั้ง (ด่าน writeback online-req.mjs) · ไม่เขียน audit
+// คืน { updated_at, inserted_ids } · migration: requisition_requester_edit_rpc_migration.sql
+export async function editRequesterRequisition(id, { note, updates = [], inserts = [], deleteIds = [] }) {
   if (!supabase) throw new Error('Supabase ไม่ได้ตั้งค่า')
-  const { data: hit, error } = await requesterEditable(
-    supabase.from('requisitions').update({ note: note || null, updated_at: new Date().toISOString() }).eq('id', id)
-  ).select('id')
-  if (error) throw error
-  if (!hit?.length) throw new Error(REQUESTER_LOCKED_MSG)
-  for (const item of items) {
-    const { error: itemErr } = await supabase.from('requisition_items').update({ requested_qty: item.requested_qty, note: item.note || null }).eq('id', item.id)
-    if (itemErr) throw itemErr
+  const { data, error } = await supabase.rpc('requester_edit_requisition', {
+    p_id: id, p_note: note || null, p_updates: updates, p_inserts: inserts, p_delete_ids: deleteIds,
+  })
+  if (error) {
+    const msg = String(error.message || '')
+    if (msg.includes('REQUESTER_LOCKED')) throw new Error(REQUESTER_LOCKED_MSG)
+    if (msg.includes('NO_REQ_TYPE')) throw new Error('ใบนี้ส่งก่อนมีประเภทใบเบิก เพิ่มยาไม่ได้ — กรุณาส่งใบใหม่')
+    const dup = msg.match(/DUPLICATE_DRUG:(.*)$/)
+    if (dup) throw new Error(`${dup[1].trim()} มีในใบแล้ว — แก้จำนวนที่บรรทัดเดิมแทน`)
+    throw error
   }
-  if (audit) await insertAuditLog({ action: 'requester_edit_requisition', table_name: 'requisitions', user_name: resolveUserName(auth), department: auth?.department || '-', details: { requisition_id: id } })
+  return data
 }
 
 // ผู้เบิกใส่จำนวน 0 = ตัดรายการออกจากใบ — เรียกหลังตรวจยอดจองซ้ำผ่านแล้ว (ก่อนหน้านั้นเก็บเป็น 0 ไว้ คืนค่าเดิมได้ครบ)

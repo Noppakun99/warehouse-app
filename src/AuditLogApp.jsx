@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCcw, Search, ClipboardList, Pencil, Trash2, X, Save, CheckSquare, BarChart3, Users, TrendingUp, Filter, ChevronDown } from 'lucide-react';
 import { fetchAuditLogs, updateAuditLog, deleteAuditLog, bulkDeleteAuditLogs, fetchUserActivityStats } from './lib/db';
 import BackButton from './BackButton';
+import { editChangeText } from './lib/reqEditRound';
 import Toast from './Toast';
 import { useSort, SortableTh } from './SortableTable';
 
@@ -299,6 +300,7 @@ function formatDetails(action, details, recordCount) {
       return [
         d.req_number && `เลขที่: ${d.req_number}`,
         d.requisition_id && !d.req_number && `ใบเบิก #${d.requisition_id}`,
+        editChangeText(d),
       ].filter(Boolean).join(' · ') || '-';
 
     case 'requester_delete_requisition':

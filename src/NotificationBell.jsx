@@ -10,6 +10,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Bell, X } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { fetchNotifications } from './lib/db';
+import { editChangeText } from './lib/reqEditRound';
 
 // ---- Notification label + copy (key ต้องตรงกับ NOTIFY_ACTIONS ใน db.js) ----
 const NOTIF_LABELS = {
@@ -180,8 +181,10 @@ function notifMessage(n) {
     case 'clear_req_cart':
       return `${who} ล้างตะกร้าเบิกที่ค้าง${n.record_count ? ` ${n.record_count} รายการ` : ''} · ${n.department}`;
     case 'requester_edit_requisition':
-    case 'update_requisition':
-      return `${who} แก้ไขใบเบิก${reqRef ? ` ${reqRef}` : ''} · ${n.department}`;
+    case 'update_requisition': {
+      const change = editChangeText(d);
+      return `${who} แก้ไขใบเบิก${reqRef ? ` ${reqRef}` : ''}${change ? ` (${change})` : ''} · ${n.department}`;
+    }
     case 'requester_delete_requisition':
     case 'delete_requisition':
       return `${who} ลบใบเบิก${reqRef ? ` ${reqRef}` : ''} · ${n.department}`;
