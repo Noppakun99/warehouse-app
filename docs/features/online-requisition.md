@@ -20,7 +20,7 @@
 3. **เขียนชีทบนสำเนา**: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\online-req-write.ps1 -StockPath <สำเนา> -PlanPath plan.json -LogPath log.txt`
    ตรวจแถวท้าย + คีย์/ราคา/U ของแถว Master → เขียน B–Q, W/X, AD → `Calculate` → แช่ค่า R–V → ตรวจ T/U ของแถวในแผนลดตาม Σq → Save สำเนา (ไม่ผ่าน = ไม่ Save) · อ่านผลจาก log (console PS 5.1 แสดงไทยเพี้ยน)
 4. **diff ทีละเซลล์** กับสำเนาเดิม (`/excel-com` ขั้น 7–8) — **ตรวจด้วยว่าไม่มีแถว Master นอกแผนที่ T เปลี่ยน** (ดูกับดักข้อ 1)
-5. **writeback dry-run**: `node scripts/online-req.mjs --writeback --plan plan.json` — ตรวจทุกใบว่ายัง `pending` · ยังไม่ลงชีท · `updated_at` ตรงแผน (ผู้เบิกแก้/ถอน หรือเจ้าหน้าที่กดจัดจ่ายเองหลังทำแผน = ไม่เขียนใบไหนเลย) → **รันก่อนวางไฟล์กลับ**ใช้เป็นด่านได้
+5. **writeback dry-run**: `node scripts/online-req.mjs --writeback --plan plan.json` — ตรวจทุกใบว่ายัง `pending` · ยังไม่ลงชีท · `updated_at` ตรงแผน (ผู้เบิกแก้จำนวน/เพิ่มยาเข้าใบ — RPC `requester_edit_requisition` ตั้ง `updated_at` ทุกครั้ง · ถอน หรือเจ้าหน้าที่กดจัดจ่ายเองหลังทำแผน = ไม่เขียนใบไหนเลย) → **รันก่อนวางไฟล์กลับ**ใช้เป็นด่านได้
 6. วางสำเนากลับ (`cmp` ก่อน/หลัง) → PDF ใบเบิก + ทะเบียน + คิวพิมพ์ ตาม `/dispense-entry`
 7. **writeback `--commit`** → `receipt_no` · `sheet_entered_at` · `status = approved` · `picked_allocation` ต่อรายการ · audit `sheet_enter_requisition`
 8. **`import:master` หลังข้อ 7 เสมอ** — ยอดจองเลิกหักเมื่อ "ลงชีทแล้ว + นำเข้าหลังลงชีท" (`reservation.js`) · นำเข้าก่อน writeback = ใบยังหักยอดซ้ำกับยอดที่ชีทลดแล้ว

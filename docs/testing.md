@@ -79,6 +79,7 @@ npm run test:popupseen     # Golden tests สำหรับ src/lib/popupSeen.j
 npm run test:reservecheck  # Golden tests สำหรับ src/lib/reservationCheck.js — ตรวจยอดจองซ้ำหลังส่งใบเบิก + จำลองทุกลำดับ 2 ใบพร้อมกันต้องไม่จองเกิน (17 assertions, ADR-0028)
 npm run test:reqtype      # Golden tests สำหรับ src/lib/reqType.js — ประเภทใบจาก MainLog + หน่วยคีย์ + ปุ่มลัง `caseOfLots` (49 assertions)
 npm run test:alreadygot   # Golden tests สำหรับ src/lib/alreadyGot.js — ตะกร้าใส่ 0 = "ได้ยาไปแล้ว": หมายเหตุ/ประวัติเบิกให้เลือก (25 assertions)
+npm run test:reqedit      # Golden tests สำหรับ src/lib/reqEditRound.js — ผู้เบิกแก้ใบ/เพิ่มยาเข้าใบที่ส่งแล้ว: ยาซ้ำ · แผนบันทึก · ขอเกินไม่บล็อก (increasedOver) · ด่านยอดจองซ้ำ · ถอยรอบ · ข้อความกระดิ่ง · หน่วยคีย์ (38 assertions)
 npm run test:onlinereq     # Golden tests สำหรับ src/lib/onlineReqPlan.js — ใบเบิกออนไลน์ → แผนแถวชีทเบิก: เลือก lot · ของไม่พอ/รอตรวจรับ · แถว Master ไม่ใช้ซ้ำ (20 assertions) · ทดลองครบวงจรบนสำเนา ดู docs/features/online-requisition.md §ทดสอบ
 npm run test:reservation   # Golden tests สำหรับ src/lib/reservation.js — กฎเลิกหักยอดจอง (ลงชีท + นำเข้าหลังลงชีท) + หักราย lot หน้าค้นหา/หน้าจัดยา (28 assertions, CONTEXT §ตัดยอดชั่วคราว)
 npm run test:installenv    # Golden tests สำหรับ src/lib/installEnv.js — ปุ่มติดตั้งแอป (PWA) แสดงแบบไหนต่อเครื่อง: Android prompt / iPhone / LINE in-app / ติดตั้งแล้ว-คอม = ไม่แสดง (14 assertions)
