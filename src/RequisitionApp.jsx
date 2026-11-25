@@ -682,6 +682,12 @@ const COVER_FORM = {
   // ชื่อพิมพ์เฉพาะใบของหน่วยงานใน depts (user สั่ง 13/11/2569) · หน่วยงานอื่นยังไม่รู้ชื่อหัวหน้า → เว้นเส้นให้เขียนมือ
   requesterHead: { name: 'นางสาวปภัสรา วรรณทอง', depts: ['ห้องยาG', 'ห้องยา1'],
                    position: 'เภสัชกรชำนาญการ', group: 'หัวหน้ากลุ่มงาน เภสัชกรรมและคุ้มครองผู้บริโภค' },
+  // ① ผู้เขียนคำขอ พิมพ์ชื่อ+ตำแหน่ง (user สั่ง 25/11/2569 — เดิมใส่ช่อง ④ แต่ผู้รับยาเปลี่ยนตามเวรรายสัปดาห์ จึงย้ายมา ① · ④ เว้นเส้นเขียนมือ)
+  // key = หน่วยงานตัดช่องว่าง · หน่วยงานอื่นเว้นเส้นให้เขียนมือ
+  writers: {
+    'ห้องยาG': { name: 'นางสาวชุติมา อุณหะ',  position: 'เจ้าพนักงานเภสัชกรรมปฏิบัติงาน' },
+    'ห้องยา1': { name: 'นางสาวนพวรรณ คอยผล', position: 'เจ้าพนักงานเภสัชกรรมปฏิบัติงาน' },
+  },
 };
 
 // lot ใกล้หมดอายุ = exp ภายใน 16 เดือนนับจากวันนี้ (เกณฑ์เดียวกับหน้าแผนผังคลัง App.jsx)
@@ -1973,7 +1979,9 @@ async function buildCoverHtml(req, autoPrint = true) {
     ? `<div class="sig u"><span>${step(n)}(ลงชื่อ)</span>${fill()}${person(rows[0], 'nm who')}${nm(role)}${rows.slice(1).join('')}</div>`
     : `<div class="sig"><span>${step(n)}(ลงชื่อ)</span>${fill()}<span>(${role})</span>${rows.join('')}</div>`;
   const head = COVER_FORM.requesterHead;
-  const headName = head.depts.includes(String(req.department || '').replace(/\s+/g, '')) ? head.name : '';
+  const deptKey = String(req.department || '').replace(/\s+/g, '');
+  const headName = head.depts.includes(deptKey) ? head.name : '';
+  const writer = COVER_FORM.writers[deptKey];
   const formTitle = reqFormTitle(req.req_type);
 
   const firstHead = `
@@ -1997,8 +2005,8 @@ async function buildCoverHtml(req, autoPrint = true) {
           <p><strong>เรียน หัวหน้ากลุ่มงาน / หน่วยงาน</strong></p>
           <p class="indent">- เพื่อเห็นชอบให้เบิกวัสดุเพื่อใช้ในงานราชการ</p>
           ${line('ในหน่วยงาน', fill(req.department || ''))}
-          ${sig('1', 'ผู้เขียนคำขอ', [])}
-          ${line('ตำแหน่ง', fill())}
+          ${sig('1', 'ผู้เขียนคำขอ', writer ? [person(writer.name), nm(`ตำแหน่ง ${writer.position}`)] : [])}
+          ${writer ? '' : line('ตำแหน่ง', fill())}
           ${dateLine}
         </div>
         <div class="blk">
@@ -2009,7 +2017,7 @@ async function buildCoverHtml(req, autoPrint = true) {
           ${dateLine}
         </div>
         <div class="blk">
-          ${sig('4', 'ผู้รับยา', [blankName])}
+          ${sig('4', 'ผู้รับยา', [])}
           ${line('ตำแหน่ง', fill())}
           ${dateLine}
         </div>
