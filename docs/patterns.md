@@ -104,6 +104,7 @@ if (w) { w.document.write(html); w.document.close(); }
 - **แสดงผลอย่างเดียว** — ห้ามเอาค่านี้ไปคำนวณ/เก็บลง DB/ชีท (ตัวคูณมาจาก `parseUnitFactor`) · หมายเหตุที่บันทึกลง DB (เช่น "ได้ยาไปแล้ว … 2 × 50amp", บรรทัดจ่ายเกิน `MARK_OVER`) คงรูปเดิม
 - **ห้ามแก้ `parseUnit` ให้แตก 50amp** — `requested_qty` ของยาพวกนี้นับเป็นกล่อง แตกแล้ว `online-req.mjs` ลงชีทผิด 50 เท่า
 - ตัวกัน `npm run test:qtyunit` ([scripts/check-qty-unit.mjs](../scripts/check-qty-unit.mjs)) สแกน `src/` ทั้งหมด (ข้ามบรรทัด/ข้าม element ได้) · ตั้งใจแสดงหน่วยย่อยที่ถอดเลขแล้ว/ป้ายคงที่ (บาท/ครั้ง/โซน) = comment `qty-unit-ok` บรรทัดเดียวกัน · รอบนับประจำปี (`StockCountApp`) ไม่แตะ
+- หน่วยซ้อน `N*M<หน่วย>` (มีเฉพาะประวัติรับยา 4 แบบ): คำห่อนอก/ห่อในต่างกันรายยา เดาจากหน่วยไม่ได้ ("gm" เป็นทั้งซอง Charcoal และหลอด Zinc) → จดในตาราง `NESTED_PACK_WORDS` ([drugProfile.js](../src/lib/drugProfile.js)) ตามที่ user ยืนยัน 25/11/2569: "25*5gm" → "กล่อง (25 ซอง × 5 gm)" · "20*20เม็ด" → "กล่อง (20 ซอง × 20 เม็ด)" · "12*25gm" → "แพ็ค (12 หลอด × 25 gm)" · "5*10amp" → "แพ็ค (5 กล่อง × 10 amp)" · หน่วยซ้อนใหม่ = "กล่อง (N × M หน่วย)" แล้วถาม user เพิ่มตาราง · `parseUnitFactor` ยังคืนเลขหน้า — แสดงผลอย่างเดียว
 - ใบพิมพ์คอลัมน์หน่วยแคบ → `.replace(' (', '<br/>(')` ตัดบรรทัดที่วงเล็บ (ดู `loanSlipFill` · `vendorExchangeCycle`)
 
 ## Department List (2 ระบบ)
