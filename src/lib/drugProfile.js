@@ -33,7 +33,24 @@ export function packWord(unit) {
   if (WEIGHT_BASE.test(base)) return 'ชิ้น'
   return 'กล่อง'
 }
+// หน่วยซ้อน "<จำนวนห่อ>*<ขนาดห่อ><หน่วยย่อย>" — คำเรียกห่อนอก/ห่อในต่างกันรายยา เดาจากหน่วยไม่ได้
+// ("gm" เป็นทั้งซอง Charcoal และหลอด Zinc) จึงจดทีละหน่วยตามที่ user ยืนยัน 25/11/2569
+// หน่วยใหม่ที่ไม่อยู่ในตาราง → "กล่อง (N × M หน่วย)" ไม่เดาคำห่อใน · แสดงผลอย่างเดียว ตัวคูณ parseUnitFactor เดิม
+const NESTED_PACK = /^(\d+)\s*[*x×]\s*(\d+)\s*(.+)$/i
+const NESTED_PACK_WORDS = {
+  '25*5gm': ['กล่อง', 'ซอง'],     // 1680027 Charcoal — 1 กล่องมี 25 ซอง ซองละ 5 กรัม
+  '20*20เม็ด': ['กล่อง', 'ซอง'],  // 1660104 ยาหอมเทพจิตร — 20 ซอง ซองละ 20 เม็ด
+  '12*25gm': ['แพ็ค', 'หลอด'],    // 1660030 Zinc oxide — 1 แพ็คมี 12 หลอด หลอดละ 25 กรัม
+  '5*10amp': ['แพ็ค', 'กล่อง'],   // 1570028 Acetylcysteine — 1 แพ็คมี 5 กล่อง กล่องละ 10 amp
+}
 export function packUnitLabel(unit) {
+  const nested = String(unit || '').trim().match(NESTED_PACK)
+  if (nested) {
+    const [, outer, inner, innerBase] = nested
+    const base = innerBase.trim()
+    const [outerWord, innerWord] = NESTED_PACK_WORDS[`${outer}*${inner}${base}`.toLowerCase()] || ['กล่อง', '']
+    return `${outerWord} (${outer} ${innerWord ? innerWord + ' ' : ''}× ${inner} ${base})`
+  }
   const { factor, base } = parseUnitFactor(unit)
   if (factor > 1) return `${packWord(unit)} (${factor.toLocaleString('en-US')} ${base})`
   return String(unit || '-').trim() || '-'
