@@ -96,6 +96,16 @@ if (w) { w.document.write(html); w.document.close(); }
 - iOS Safari ถือว่าการเขียน HTML เข้า `about:blank` tab เป็น cross-origin → block
 - ใช้ใน: `printReq` (RequisitionApp), `printReturnLog` (ReturnApp), และ print function ใหม่ทุกอัน
 
+## จำนวน + หน่วย (ทุกจอ/ใบพิมพ์ — user สั่ง 25/11/2569)
+
+หน่วยใน DB เก็บแบบ Master `<ขนาดบรรจุ><หน่วยย่อย>` ("50amp" · "200เม็ด" · "450ml") และ `unitParser.parseUnit` **ไม่แตก**บางตัว (50amp) → จำนวนนับเป็นกล่อง แสดงตรงๆ ได้ "คงเหลือ 7 50amp" อ่านไม่ออก
+
+- **หน่วยที่แสดงต่อท้ายตัวเลข ต้องผ่าน `unitLabel(unit)` / `qtyWithUnit(qty, unit)`** ([drugProfile.js](../src/lib/drugProfile.js)) → "7 กล่อง (50 amp)" · "3 ขวด (450 ml)" · "เม็ด" คงเดิม · ว่าง/`-` → `''` · ห่อซ้ำได้ (ป้ายที่มีคำเรียกแล้วไม่เปลี่ยน)
+- **แสดงผลอย่างเดียว** — ห้ามเอาค่านี้ไปคำนวณ/เก็บลง DB/ชีท (ตัวคูณมาจาก `parseUnitFactor`) · หมายเหตุที่บันทึกลง DB (เช่น "ได้ยาไปแล้ว … 2 × 50amp", บรรทัดจ่ายเกิน `MARK_OVER`) คงรูปเดิม
+- **ห้ามแก้ `parseUnit` ให้แตก 50amp** — `requested_qty` ของยาพวกนี้นับเป็นกล่อง แตกแล้ว `online-req.mjs` ลงชีทผิด 50 เท่า
+- ตัวกัน `npm run test:qtyunit` ([scripts/check-qty-unit.mjs](../scripts/check-qty-unit.mjs)) สแกน `src/` ทั้งหมด (ข้ามบรรทัด/ข้าม element ได้) · ตั้งใจแสดงหน่วยย่อยที่ถอดเลขแล้ว/ป้ายคงที่ (บาท/ครั้ง/โซน) = comment `qty-unit-ok` บรรทัดเดียวกัน · รอบนับประจำปี (`StockCountApp`) ไม่แตะ
+- ใบพิมพ์คอลัมน์หน่วยแคบ → `.replace(' (', '<br/>(')` ตัดบรรทัดที่วงเล็บ (ดู `loanSlipFill` · `vendorExchangeCycle`)
+
 ## Department List (2 ระบบ)
 
 ### Hardcoded DEPARTMENTS — selection ตอนกรอกฟอร์ม

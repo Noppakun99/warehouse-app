@@ -26,6 +26,12 @@ npm run lint
 - **fail** → หยุดทันที แก้ error ก่อน ไม่ข้ามไป build
 - Warning ที่เป็น pre-existing (ไม่ได้สร้างในครั้งนี้) → mention แต่ไม่บังคับแก้
 
+### 1b. ตัวกันจำนวนติดหน่วย — verify: `✓ ไม่พบ…` (exit 0)
+```bash
+npm run test:qtyunit
+```
+- **fail** → จุดที่หน่วยต่อท้ายตัวเลขโดยไม่ผ่าน `unitLabel()`/`qtyWithUnit()` ("7 50amp" อ่านไม่ออก) — แก้ตามที่สคริปต์บอก · ตั้งใจแสดงหน่วยย่อย/ป้ายคงที่ = comment `qty-unit-ok` บรรทัดเดียวกัน (กฎ [docs/patterns.md §จำนวน + หน่วย](../../../docs/patterns.md))
+
 ### 2. Build — verify: bundle สำเร็จ ไม่มี error
 ```bash
 npm run build
