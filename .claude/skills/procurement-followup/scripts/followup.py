@@ -165,16 +165,25 @@ def urgency(code):
     return bool(why), why
 
 
-# ── ทวงล่าสุด
-last_follow = {}
+# ── ทวงล่าสุด + ข้อสังเกตหัวหน้า (user สั่ง 25/11/2569: คำตอบหัวหน้าในทะเบียนตามยาต้องขึ้นในข้อความทุกครั้ง)
+last_follow, head_note, head_rows = {}, {}, []
 if os.path.exists(FOLLOW):
     with open(FOLLOW, encoding='utf-8-sig', newline='') as f:
         for r in csv.DictReader(f):
-            if r.get('ช่องทาง', '').strip() != FOLLOW_CHANNEL:
-                continue
-            for k in (r.get('รหัส', '').strip(), *re.findall(r'PO \d+\.\d+/\d+', r.get('PO', ''))):
-                if k and k != '-':
+            keys = [k for k in (r.get('รหัส', '').strip(), *re.findall(r'PO \d+\.\d+/\d+', r.get('PO', ''))) if k and k != '-']
+            if r.get('ช่องทาง', '').strip().startswith(FOLLOW_CHANNEL):   # รวม "(ฝากหัวหน้าตามยา)"
+                for k in keys:
                     last_follow[k] = r.get('วันที่ตาม', '')
+            ans = r.get('หัวหน้าตอบ', '').strip()
+            if ans and ans not in ('-', 'ไม่ได้ตอบ') and not r.get('สถานะ', '').strip().startswith('ปิด'):
+                note =f'หัวหน้าแจ้ง {r.get("วันที่ตอบ", "").strip() or r.get("วันที่ตาม", "")}: {ans}'
+                head_rows.append((r, keys))
+                for k in keys:
+                    head_note[k] = note
+
+
+def note_for(*keys):
+    return next((head_note[k] for k in keys if k in head_note), '')
 
 # ── ระบบจัดซื้อ
 po_rows = []
@@ -233,10 +242,13 @@ def bill_block(n, po, bill, rows, p):
         if ok:
             urgent = True
             lines.append(f'   - {names[c]}: ' + ' · '.join(why))
+    hn = note_for(po, *(c for (c, _) in items))
+    if hn:
+        lines.append(f'   ({hn})')
     lf = last_follow.get(po) or next((last_follow[c] for (c, _) in items if c in last_follow), '')
     if lf:
         lines.append(f'   (ทวงแล้ว {lf})')
-    late = wd is None or wd > INSPECT_LIMIT or not p['ผล'].startswith(('ตรงกัน', 'รอยามาส่ง'))
+    late =wd is None or wd > INSPECT_LIMIT or not p['ผล'].startswith(('ตรงกัน', 'รอยามาส่ง'))
     return urgent, late, '\n'.join(lines)
 
 
@@ -299,6 +311,9 @@ for p in sorted(pos, key=lambda p: p['issued']):
     lines = [f'0. {p["label"]}\n   {p["เลขที่PO"]} ({co}) ออก {dm(p["issued"])}{part} · ยังไม่มาส่ง {days} วัน']
     for c, why in urgent_codes:
         lines.append(f'   - {names[c]}: ' + ' · '.join(why))
+    hn = note_for(p['เลขที่PO'], *codes)
+    if hn:
+        lines.append(f'   ({hn})')
     lf = last_follow.get(p['เลขที่PO'], '')
     if lf:
         lines.append(f'   (ทวงแล้ว {lf})')
@@ -314,6 +329,13 @@ for who in ('ชมพู่', 'พี่โก้', 'พี่โบว์'):
         print(f'\n[นอกข้อความ] ยังอยู่ในกำหนด {INSPECT_LIMIT} วันทำการ {in_window[who]} บิล ไม่ได้ใส่ (--all ดูทั้งหมด)')
     if who == 'พี่โก้' and extra:
         print('\n[PO ระบบไม่ตรงบิล — ใส่ในข้อความถึงพี่โก้ถ้ายังไม่ได้ทวง]\n' + '\n'.join(extra))
+
+print('\n━━━━ ข้อสังเกตหัวหน้าในทะเบียนตามยา (สำหรับ user — เทียบกับร่างก่อนส่ง) ━━━━')
+for r, keys in head_rows:
+    if r.get('สถานะ', '').strip().startswith(('ปิด', 'เสร็จ', 'มาแล้ว')):
+        continue
+    print(f'- {r.get("วันที่ตอบ") or r.get("วันที่ตาม")} {r.get("รายการ")} [{", ".join(keys) or "-"}]: {r.get("หัวหน้าตอบ")}'
+          + (f' → ต้องทำ: {r.get("ต้องทำต่อ")}' if r.get('ต้องทำต่อ', '').strip() else '') + f' · สถานะ {r.get("สถานะ", "-")}')
 
 print('\n━━━━ ไม่ต้องทวง (สำหรับ user) ━━━━')
 for x, p in mismatch:
