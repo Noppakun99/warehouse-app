@@ -146,11 +146,16 @@ export default function AppRoot() {
     setPage('stockcard');
   };
   // อยู่หน้านั้นอยู่แล้ว setPage ไม่ทำอะไร (กัน push ซ้ำ) → ปิดบัตรเอง แล้ว remount หน้าให้อ่านยาใหม่
+  // reorder / reorder-purchase / reorder-analysis = ReorderApp ตัวเดียว key เดียว → ข้ามกันเองไม่ remount ต้อง bump เอง
   const openHistoryFor = (target, name, search = null) => {
     setHistoryTarget({ page: target, name, search });
     const s = stackRef.current;
-    if (s[s.length - 1] === target) { closeDrug(); setSubKey(k => k + 1); }
-    else setPage(target);
+    const top = s[s.length - 1];
+    if (top === target) { closeDrug(); setSubKey(k => k + 1); }
+    else {
+      setPage(target);
+      if (top?.startsWith('reorder') && target.startsWith('reorder')) setSubKey(k => k + 1);
+    }
   };
   const historyDrugFor = (target) => (historyTarget?.page === target ? historyTarget.name : null);
   // ช่องค้นหารวม → บิล/PO: เปิดประวัติรับยาพร้อมคำค้น (ช่องค้นหาอย่างเดียว ไม่เลือกยา — initialDrug จะเข้าโหมดยาเดียว)
@@ -294,7 +299,8 @@ export default function AppRoot() {
       case 'reorder-purchase': // จากคิวงาน/การ์ดแจ้งซื้อบน Dashboard — ไม่มีในเมนู
       case 'reorder-analysis': // จาก Dashboard (ยาหมดสต็อก / ต่ำกว่า Safety Stock) → แท็บวิเคราะห์สั่งซื้อ — ไม่มีในเมนู
         // เมนู "ระบบการสั่งซื้อยา" ('reorder') เปิดแท็บค้นยา · สรุปรับ-เบิก (14/11/2569)
-        content = <ReorderApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} initialTab={{ 'reorder-purchase': 'purchase', 'reorder-analysis': 'analysis' }[page] || 'search'} onGoBack={goBack} canGoBack={canGoBack} />;
+        content = <ReorderApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} initialTab={{ 'reorder-purchase': 'purchase', 'reorder-analysis': 'analysis' }[page] || 'search'} onGoBack={goBack} canGoBack={canGoBack}
+          initialPurchaseQuery={historyDrugFor('reorder-purchase')} onInitialPurchaseUsed={clearHistoryTarget} />;
         break;
       case 'ledger':
         content = <StockLedgerApp key={subKey} onBack={() => setPage('dashboard')} onRefresh={refreshPage} auth={auth} onGoBack={goBack} canGoBack={canGoBack} />;
@@ -970,7 +976,7 @@ function Dashboard({ auth, onNavigate, onOpenDrug }) {
           onGoMap={() => { setAlertModal(null); onNavigate('inventory'); }} />
       )}
       {alertModal === 'stock' && (
-        <StockSummaryModal onClose={() => setAlertModal(null)} auth={auth} />
+        <StockSummaryModal onClose={() => setAlertModal(null)} auth={auth} onOpenDrug={onOpenDrug} />
       )}
 
       {/* รายการเบื้องหลังตัวเลขในคิว — array ชุดเดียวกับที่นับ (Rule #6) */}
@@ -2276,7 +2282,12 @@ function printStockSummary(rows, uploadInfo) {
 }
 
 // ---- Stock Summary Modal ----
-function StockSummaryModal({ onClose, auth = {} }) {
+// ชื่อยากดเปิดบัตรยา (user 26/11/2569 — ตารางทั้งคลัง → ดูลึกรายตัวด้วยบัตรเดียวกับช่องค้นหา) · กดที่อื่นในแถว = กางราย lot เหมือนเดิม
+function StockSummaryModal({ onClose, auth = {}, onOpenDrug }) {
+  const drugName = (r, cls) => (onOpenDrug && r.code && r.code !== '-'
+    ? <button type="button" title={`${r.name || '-'} — เปิดบัตรยา`} onClick={(e) => { e.stopPropagation(); onOpenDrug(r.code); }}
+        className={`${cls} text-left text-sky-700 dark:text-sky-300 hover:underline`}>{r.name}</button>
+    : <p className={`${cls} text-slate-800 dark:text-slate-100`}>{r.name}</p>);
   const [rows, setRows]             = React.useState([]);
   const [discontinued, setDiscontinued] = React.useState([]);   // ยาตัดออกจากบัญชี (ไม่อยู่ในตาราง)
   const [loading, setLoading]       = React.useState(true);
@@ -2500,7 +2511,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
                       ? <ChevronDown size={16} className="text-sky-500 shrink-0"/>
                       : <ChevronRight size={16} className="text-slate-300 dark:text-slate-500 shrink-0"/>)}
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm leading-snug truncate">{r.name}</p>
+                      {drugName(r, 'block max-w-full font-semibold text-sm leading-snug truncate')}
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         {r.code && r.code !== '-' && <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">{r.code}</span>}
                         <DrugTypeBadge type={r.type} />
@@ -2585,7 +2596,7 @@ function StockSummaryModal({ onClose, auth = {} }) {
                           ? <ChevronDown size={14} className="text-sky-500 shrink-0"/>
                           : <ChevronRight size={14} className="text-slate-300 dark:text-slate-500 shrink-0"/>)}
                         <div>
-                          <p className="font-medium text-slate-800 dark:text-slate-100 leading-snug">{r.name}</p>
+                          {drugName(r, 'block font-medium leading-snug')}
                           {r.code && r.code !== '-' && <p className="text-[10px] text-slate-400 dark:text-slate-500">{r.code}</p>}
                         </div>
                       </div>

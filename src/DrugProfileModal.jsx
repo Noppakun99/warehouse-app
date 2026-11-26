@@ -221,11 +221,12 @@ function statusChips(p) {
 }
 
 // แจ้งซื้อแล้ว (purchase_request — ADR-0030): ใบที่ยังรอของ เก่าสุด · ผู้เบิกเห็นวันที่+เหตุผล · หมายเหตุเฉพาะ staff/admin
-function PurchaseRequestNote({ pr, isStaff }) {
+// onOpen = ไปแท็บแจ้งซื้อแล้วที่กรองยาตัวนี้ (staff — ผู้เบิกเข้าหน้าระบบสั่งซื้อไม่ได้ · user สั่ง 26/11/2569)
+function PurchaseRequestNote({ pr, isStaff, onOpen }) {
   return (
     <div className="flex items-start gap-2 rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/40 px-3 py-2 text-blue-800 dark:text-blue-200">
       <ShoppingCart size={15} className="shrink-0 mt-0.5" />
-      <div className="min-w-0 text-xs">
+      <div className="flex-1 min-w-0 text-xs">
         <p className="text-sm font-semibold">
           แจ้งซื้อแล้ว {fmtNum(pr.waitDays)} วัน <span className="font-normal">· ยังไม่มีบิลซื้อเข้า</span>
         </p>
@@ -234,6 +235,12 @@ function PurchaseRequestNote({ pr, isStaff }) {
         </p>
         {isStaff && pr.note && <p className="mt-0.5 text-blue-700/80 dark:text-blue-300/80 break-words">หมายเหตุ: {pr.note}</p>}
       </div>
+      {isStaff && onOpen && (
+        <button type="button" onClick={onOpen}
+          className="shrink-0 self-center inline-flex items-center gap-0.5 rounded-lg px-2 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors">
+          ดูใบแจ้งซื้อ <ChevronRight size={14} />
+        </button>
+      )}
     </div>
   );
 }
@@ -397,7 +404,8 @@ export default function DrugProfileModal({ code, isStaff, onClose, onOpenStockCa
                   </div>
                 )}
 
-                {p.purchaseRequest && <PurchaseRequestNote pr={p.purchaseRequest} isStaff={isStaff} />}
+                {p.purchaseRequest && <PurchaseRequestNote pr={p.purchaseRequest} isStaff={isStaff}
+                  onOpen={onOpenHistory ? () => onOpenHistory('reorder-purchase', code) : null} />}
 
                 {/* เรท = กฎหน้าวิเคราะห์สั่งซื้อ (4 เดือนที่ปิดงวด) เขียนช่วงเดือนกำกับเสมอ (CONTEXT §เรท) */}
                 {p.rate && (

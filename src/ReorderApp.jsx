@@ -404,7 +404,10 @@ const TABS = [
   { id: 'verify',   label: 'ตรวจสูตร',             icon: ShieldAlert },
 ];
 
-export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'search', onGoBack, canGoBack }) {
+export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'search', onGoBack, canGoBack, initialPurchaseQuery = null, onInitialPurchaseUsed }) {
+  // จากป้าย "แจ้งซื้อแล้ว" ในบัตรยา → แท็บแจ้งซื้อแล้วกรองยาตัวนั้น · อ่านครั้งเดียวแล้วล้าง (กดเมนูครั้งหน้าไม่ค้างตัวกรอง)
+  const [purchaseQuery] = useState(initialPurchaseQuery || '');
+  useEffect(() => { if (initialPurchaseQuery) onInitialPurchaseUsed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // ── Filters / control state ──
   const [statsFrom, setStatsFrom] = useState(isoMonthsAgo(4));
   const [statsTo,   setStatsTo]   = useState(isoPrevMonthEnd());
@@ -706,7 +709,7 @@ export default function ReorderApp({ onRefresh, auth = {}, initialTab = 'search'
 
         {tab === 'purchase' && (
           // ไม่ต้องรันวิเคราะห์ก่อน — ข้อมูลมาจาก purchase_request + receive_logs ตรง
-          <div className={card}><PurchaseRequestTab purchase={purchase}/></div>
+          <div className={card}><PurchaseRequestTab purchase={purchase} initialQuery={purchaseQuery}/></div>
         )}
 
         {tab === 'verify' && (
@@ -860,9 +863,10 @@ function PrStatePill({ r }) {
   return <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">ยกเลิก</span>;
 }
 
-function PurchaseRequestTab({ purchase }) {
-  const [filter, setFilter] = useState('waiting');
-  const [q, setQ] = useState('');
+function PurchaseRequestTab({ purchase, initialQuery = '' }) {
+  // มาจากบัตรยา = ดูทุกใบของยาตัวนั้น (รอของ + มาส่งแล้ว + ยกเลิก) ไม่ใช่แค่ใบที่รอ
+  const [filter, setFilter] = useState(initialQuery ? 'all' : 'waiting');
+  const [q, setQ] = useState(initialQuery);
   const today = prTodayIso();
 
   const all = useMemo(() => purchase.requests.map(r => ({ ...r, ...requestState(r, purchase.purchaseDates[r.code] || [], today) })),
