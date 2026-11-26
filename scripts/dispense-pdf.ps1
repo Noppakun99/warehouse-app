@@ -4,7 +4,8 @@
 # เลขรับใบเบิก (คอลัมน์ AD) ขึ้นหัวกระดาษกลางอัตโนมัติ — ทุกแถวต้องเลขเดียวกัน หรือว่างทั้งหมด (ใบก่อน 12/10/2569)
 # เปิดไฟล์แบบอ่านอย่างเดียว ไม่ Save · ใช้สำเนาใน scratchpad ได้ (ไฟล์ใน OneDrive เปิด ReadOnly ก็ได้)
 # ไฟล์นี้ต้องเซฟเป็น UTF-8 with BOM (PowerShell 5.1 อ่าน path ภาษาไทย)
-param([string]$StockPath, [string]$LogPath, [string]$Out, [string]$Rows, [string]$Sig, [string]$Title, [switch]$SortLog)
+#   -Extra    = "รหัส|ชื่อยา|หน่วย|หมายเหตุ ; …" รายการ "ได้ยาไปแล้ว" (ผู้เบิกใส่ 0 · ไม่ลงชีท) ต่อท้ายตารางใต้หัวข้อของตัวเอง — online-req.mjs --plan พิมพ์ค่านี้ให้ต่อใบ
+param([string]$StockPath, [string]$LogPath, [string]$Out, [string]$Rows, [string]$Sig, [string]$Title, [switch]$SortLog, [string]$Extra)
 $RowList = @($Rows -split ',' | ForEach-Object { [int]$_ })
 $ErrorActionPreference = 'Stop'
 $log = New-Object System.Collections.Generic.List[string]
@@ -61,20 +62,45 @@ try {
   } else {
     for ($k = 2; $k -le $n + 1; $k++) { $null = $ns.Rows.Item($k).AutoFit(); if ($ns.Rows.Item($k).RowHeight -lt $rowMin) { $ns.Rows.Item($k).RowHeight = $rowMin } }
   }
+  # รายการ "ได้ยาไปแล้ว" — ต่อหลัง sort จึงอยู่ท้ายใบเสมอ ทั้งฉบับคลังจัดยาและฉบับห้องยาเช็ค (user สั่ง 26/11/2569: คนจัดเห็นว่าหน่วยงานขอแต่ได้ไปแล้ว ไม่ต้องหยิบ)
+  # รูปแบบแถว copy จากแถวข้อมูลแถวแรก แล้วล้างค่า/comment · วันที่ + หน่วยงานเอาจากแถวแรก
+  $last = $n + 1
+  $ExtraList = @(); if ($Extra) { $ExtraList = @($Extra -split ' ; ' | Where-Object { $_.Trim() -ne '' }) }
+  if ($ExtraList.Count) {
+    $last++
+    Invoke-Retry { $null = $ns.Rows.Item(2).Copy($ns.Rows.Item($last)) } 'already-got header'
+    $hdr = $ns.Range("A${last}:P$last"); $null = $hdr.ClearContents(); $null = $hdr.ClearComments(); $hdr.Merge()
+    $hdr.HorizontalAlignment = -4131; $hdr.Font.Bold = $true; $hdr.Interior.Color = 15921906
+    $ns.Range("A$last").Value2 = "ได้ยาไปแล้ว ไม่ต้องจัด — ไม่ลงชีท ไม่ตัดสต็อก ($($ExtraList.Count) รายการ)"
+    $ns.Rows.Item($last).RowHeight = $rowMin
+    foreach ($e in $ExtraList) {
+      # [string] ทุกค่า — ผลของ -split ส่งเข้า COM ตรงๆ แล้ว PS 5.1 ขึ้น "Specified cast is not valid" (ทดสอบ 26/11/2569)
+      $f = @($e -split '\|' | ForEach-Object { [string]$_.Trim() }); if ($f.Count -ne 4) { throw "bad -Extra item (need รหัส|ชื่อยา|หน่วย|หมายเหตุ): $e" }
+      $last++
+      Invoke-Retry { $null = $ns.Rows.Item(2).Copy($ns.Rows.Item($last)) } "already-got row $($f[0])"
+      $er = $ns.Range("A${last}:P$last"); $null = $er.ClearContents(); $null = $er.ClearComments()
+      $ns.Range("A$last").Value2 = $ns.Range('A2').Value2
+      $ns.Range("D$last").NumberFormat = '@'; $ns.Range("D$last").Value2 = [string]$f[0]
+      $ns.Range("F$last").Value2 = [string]$f[1]; $ns.Range("G$last").Value2 = [string]$f[2]
+      $ns.Range("M$last").Value2 = 0; $ns.Range("O$last").Value2 = [string]$ns.Range('O2').Value2; $ns.Range("P$last").Value2 = [string]$f[3]
+      $null = $ns.Rows.Item($last).AutoFit(); if ($ns.Rows.Item($last).RowHeight -lt $rowMin) { $ns.Rows.Item($last).RowHeight = $rowMin }
+    }
+    Say ("already got: " + ($ExtraList -join ' ; '))
+  }
   # ชีทเบิกมีแต่เส้นบนของแต่ละแถว (เส้นล่างได้จากเส้นบนของแถวถัดไป) → แถวท้ายของใบ และแถวท้ายของทุกหน้า (แถวถัดไปขึ้นหน้าใหม่) ไม่มีเส้นปิดตาราง
   # user แจ้ง 19/11/2569 บย.70/0085 (แก้แค่แถวท้ายใบ) · 23/11/2569 บย.70/0092 ท้ายหน้ากลางใบหายอีก → ใส่เส้นล่างให้ทุกแถว (เส้นล่างขอบ + เส้นแนวนอนด้านใน) แบบเดียวกับเส้นบนของแถวท้าย
   Invoke-Retry {
     $top = $ns.Range("A$($n + 1)").Borders.Item(8)
     foreach ($bi in 9, 12) {
       if ($bi -eq 12 -and $n -lt 1) { continue }
-      $b = $ns.Range("A1:P$($n + 1)").Borders.Item($bi); $b.LineStyle = 1
+      $b = $ns.Range("A1:P$last").Borders.Item($bi); $b.LineStyle = 1
       if ($top.LineStyle -eq 1) { $b.Weight = $top.Weight; $b.Color = $top.Color } else { $b.Weight = 2 }
     }
   } 'row bottom borders'
   # ด่านตรวจก่อน export: ทุกแถว (หัว + ข้อมูล) ต้องมีเส้นล่างครบทุกคอลัมน์ — ไม่ครบ = ไม่ทำ PDF
-  $noBottom = @(); for ($k = 1; $k -le $n + 1; $k++) { if ($ns.Range("A${k}:P$k").Borders.Item(9).LineStyle -ne 1) { $noBottom += $k } }
+  $noBottom = @(); for ($k = 1; $k -le $last; $k++) { if ($ns.Range("A${k}:P$k").Borders.Item(9).LineStyle -ne 1) { $noBottom += $k } }
   if ($noBottom.Count) { throw ("rows without bottom border: " + ($noBottom -join ',')) }
-  Say "border check: $($n + 1) rows have bottom border"
+  Say "border check: $last rows have bottom border"
   $ns.Columns.Item(2).Hidden = $true; $ns.Columns.Item(5).Hidden = $true
   $ps = $ns.PageSetup
   Invoke-Retry {

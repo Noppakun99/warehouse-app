@@ -213,9 +213,15 @@ if (A.has('--plan') && !A.has('--writeback')) {
     for (const l of plan.lines) { l.no = receipt; l.sheetRow = rowNo; sheetRows.push(rowNo++); out.rows.push(l) }
     const cut = {}; for (const l of plan.lines) cut[l.masterRow] = (cut[l.masterRow] || 0) + l.q
     pool = pool.map(m => cut[m.row] ? { ...m, u: m.u - cut[m.row] } : m)
-    out.reqs.push({ id: r.id, req_number: r.req_number, department: r.department, req_type: r.req_type, updated_at: r.updated_at, receipt, sheetRows, items: plan.items, flags: plan.flags })
+    // ได้ยาไปแล้ว → ไม่ลงชีท แต่ต้องขึ้นท้าย PDF ทั้ง 2 ฉบับ (dispense-pdf.ps1 -Extra · user สั่ง 26/11/2569) · ตัวคั่น | และ " ; " ห้ามอยู่ในค่า
+    const clean = (v) => String(v ?? '-').replace(/\|/g, '/').replace(/\s;\s/g, ', ').trim() || '-'
+    const alreadyGot = items.filter(it => Number(it.requested_qty) === 0)
+      .map(it => ({ code: it.drug_code, name: it.drug_name, unit: it.drug_unit, note: it.item_note }))
+    const pdfExtra = alreadyGot.map(a => [a.code, a.name, a.unit, a.note].map(clean).join('|')).join(' ; ')
+    out.reqs.push({ id: r.id, req_number: r.req_number, department: r.department, req_type: r.req_type, updated_at: r.updated_at, receipt, sheetRows, items: plan.items, flags: plan.flags, alreadyGot, pdfExtra })
     printPlan(`${r.req_number} (${r.req_type || '-'}) → ${receipt || 'ไม่ออกเลข บย. (ได้ยาไปแล้วทั้งใบ)'}`, plan)
-    for (const it of items) if (Number(it.requested_qty) === 0) log(`  · ข้าม ${it.drug_code} ${it.drug_name}: ได้ยาไปแล้ว ไม่ลงชีท — ${it.item_note || '-'}`)
+    for (const a of alreadyGot) log(`  · ข้าม ${a.code} ${a.name}: ได้ยาไปแล้ว ไม่ลงชีท — ${a.note || '-'}`)
+    if (pdfExtra && receipt) log(`  PDF ทั้ง 2 ฉบับใส่ -Extra "${pdfExtra}"`)
   }
   fs.writeFileSync(A.valueOf('--out'), JSON.stringify(out, null, 1), 'utf8')
   const ph = out.rows.filter(l => l.note.includes(PLACEHOLDER)).length
