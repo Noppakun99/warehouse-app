@@ -7,7 +7,7 @@ import {
   Printer, RefreshCcw, ChevronRight, ChevronDown, ChevronUp, Bell,
   Check, X, AlertCircle, Clock, FileDown,
   MapPin, Share2, Loader2, CheckSquare,
-  ListOrdered, AlertTriangle, StickyNote, Lock, History,
+  ListOrdered, AlertTriangle, StickyNote, Lock, History, ArrowRight,
 } from 'lucide-react';
 import { parseUnit } from './lib/unitParser';
 import { allocateFefo, sortLotsForDispense, lotOrderNote, isSupportedLot } from './lib/lotAllocation';
@@ -26,7 +26,7 @@ import { buildPaginatedHtml } from './lib/paginatedPrint';
 import { reqFormTitle } from './lib/printedReqForm';
 import { buildSheetXlsxBlob, htmlToPdfBlob, pagesToPdfBlob, shareOrDownload, safeFileName } from './lib/reqSheetExport';
 import ConfirmModal from './ConfirmModal';
-import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, editRequesterRequisition, deleteRequesterRequisitionItems, REQUESTER_LOCKED_MSG, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyAndDispenseRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows, fetchDispenseCheckData, fetchDeptRecentDispense } from './lib/db';
+import { fetchCartDraft, saveCartDraft, deleteCartDraft, deleteRequesterRequisition, editRequesterRequisition, deleteRequesterRequisitionItems, REQUESTER_LOCKED_MSG, submitRequisition, withdrawRequisition, insertAuditLog, resolveAuditUserName, startPickingRequisition, verifyAndDispenseRequisition, markRequisitionDispensed, confirmReceivedRequisition, fetchInventoryByCodes, fetchLastInventoryImportAt, fetchAllInventoryRows, fetchDispenseCheckData, fetchDeptRecentDispense, fetchRequisitionsWithItems } from './lib/db';
 import DrugSearchBar from './DrugSearchBar';
 
 // ============================================================
@@ -3109,6 +3109,57 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
     setBulkLoading(false);
   };
 
+  // เลื่อนขั้นหลายใบ (user สั่ง 26/11/2569) — ตรรกะเดียวกับกดในหน้าใบโดยไม่แก้อะไร
+  //   pick  = "จัดเสร็จ" เฉพาะใบที่ลงชีทแล้ว (จัดตาม lot ในชีท) · ใบ FEFO ต้องเปิดจัดทีละใบ
+  //   check = "ตรวจแล้ว จ่ายออก" (ready flow เดิม = จ่ายออก) · ไม่มีแจ้งแก้รายตัว
+  const actorName = defaultActor(auth);
+  const advanceKind = tab === 'pick' ? 'pick' : tab === 'check' ? 'check' : null;
+  const canAdvance = (r) => advanceKind === 'pick' ? stageOf(r) === 'pick' && !!r.sheet_entered_at
+    : advanceKind === 'check' ? ['check', 'ready'].includes(stageOf(r)) : false;
+  const [advanceOpen, setAdvanceOpen] = useState(false);
+  const [advanceMsg, setAdvanceMsg] = useState(null); // { tone, text }
+  const advRows = visibleSelected.map(id => list.find(r => r.id === id)).filter(Boolean);
+  const advGo = advRows.filter(canAdvance);
+  const advPlan = { go: advGo, skip: advRows.filter(r => !canAdvance(r)), short: advGo.reduce((s, r) => s + (flagsOf[r.id]?.short || 0), 0) };
+
+  const bulkAdvance = async () => {
+    if (!advPlan.go.length || !actorName) return;
+    setBulkLoading(true);
+    const ok = [], fail = [];
+    // ดึงแถวสดก่อน — คิวอาจค้าง (อีกเครื่องจัด/ผู้เบิกแก้ใบไปแล้ว) · สถานะไม่ใช่ขั้นเดิม = ข้าม ไม่เขียนทับ
+    const { data: fresh, error: freshErr } = await fetchRequisitionsWithItems(advPlan.go.map(r => r.id));
+    if (freshErr) {
+      setBulkLoading(false); setAdvanceOpen(false);
+      setAdvanceMsg({ tone: 'red', text: `โหลดใบล่าสุดไม่สำเร็จ ยังไม่ได้เลื่อนขั้นใบไหน — ${freshErr.message}` });
+      return;
+    }
+    for (const old of advPlan.go) {
+      const r = (fresh || []).find(x => x.id === old.id);
+      if (!r || !canAdvance(r) || stageOf(r) !== stageOf(old)) { fail.push(`${old.req_number} (สถานะใบเปลี่ยนไปแล้ว)`); continue; }
+      try {
+        if (advanceKind === 'pick') {
+          const items = (r.requisition_items || []).map(it => ({ it, v: itemAllocation(it, { stage: 'pick', sheetMode: true, isNear: isNearExpiry }) }))
+            .filter(({ v }) => v.want > 0)
+            .map(({ it, v }) => pickPayload(it, v, defaultPickResult(v), it.staff_note ?? '', {}));
+          await startPickingRequisition(r.id, { pickerName: actorName, items }, auth);
+        } else if (stageOf(r) === 'check') {
+          await verifyAndDispenseRequisition(r.id, { verifierName: actorName, notes: [] }, auth);
+        } else {
+          await markRequisitionDispensed(r.id, auth);
+        }
+        ok.push(old.req_number);
+      } catch (e) { fail.push(`${old.req_number} (${e.message})`); }
+    }
+    await load();
+    setSelected(new Set());
+    setAdvanceOpen(false);
+    setBulkLoading(false);
+    const done = advanceKind === 'pick' ? 'จัดเสร็จ → รอตรวจจ่าย' : 'จ่ายออกแล้ว → รอผู้เบิกรับ';
+    setAdvanceMsg(fail.length
+      ? { tone: 'red', text: `${done} ${ok.length} ใบ · ไม่สำเร็จ ${fail.length} ใบ: ${fail.join(' · ')}` }
+      : { tone: 'green', text: `${done} ${ok.length} ใบ` });
+  };
+
   const chipSub = (t) => {
     const rows = byTab[t.key];
     if (t.key === 'hist') return dateFilter ? `วันที่ ${thaiDateFromIso(dateFilter)}` : 'ทุกวันที่';
@@ -3264,10 +3315,26 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
                 <Check size={13}/> อนุมัติที่เลือก
               </button>
             )}
+            {advanceKind && advPlan.go.length > 0 && (
+              <button onClick={() => setAdvanceOpen(true)} disabled={bulkLoading}
+                className="flex items-center gap-1.5 bg-[#1E90FF] hover:bg-[#1a7fe0] disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-xl">
+                <ArrowRight size={13}/> {advanceKind === 'pick' ? 'จัดเสร็จที่เลือก' : 'ตรวจแล้ว จ่ายออกที่เลือก'} ({advPlan.go.length})
+              </button>
+            )}
             <button onClick={bulkDelete} disabled={bulkLoading}
               className="flex items-center gap-1.5 bg-red-500 hover:bg-red-600 disabled:bg-slate-300 text-white text-xs font-semibold px-3 py-1.5 rounded-xl">
               <Trash2 size={13}/> ลบที่เลือก
             </button>
+          </div>
+        )}
+
+        {advanceMsg && (
+          <div role="status" className={`flex items-start gap-2 text-sm px-3 py-2 rounded-xl border ${advanceMsg.tone === 'red'
+            ? 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800/60'
+            : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60'}`}>
+            {advanceMsg.tone === 'red' ? <AlertTriangle size={16} className="mt-0.5 shrink-0" /> : <CheckCircle size={16} className="mt-0.5 shrink-0" />}
+            <span className="flex-1 min-w-0">{advanceMsg.text}</span>
+            <button onClick={() => setAdvanceMsg(null)} aria-label="ปิดข้อความ" className="shrink-0 opacity-70 hover:opacity-100"><X size={16} /></button>
           </div>
         )}
 
@@ -3320,6 +3387,16 @@ function StaffDashboard({ onLogout, onSelect, auth = {}, filter, setFilter, date
           })}
         </div>
       </div>
+      <ConfirmModal open={advanceOpen} loading={bulkLoading}
+        title={advanceKind === 'pick' ? 'จัดเสร็จหลายใบ' : 'ตรวจแล้ว จ่ายออกหลายใบ'}
+        message={`${advanceKind === 'pick' ? 'จัดเสร็จตาม lot ในชีท' : 'จ่ายยาออกจากคลัง'} ${advPlan.go.length} ใบ: ${advPlan.go.map(r => `${r.department || '-'} ${r.receipt_no || r.req_number}`).join(' · ')} · ${advanceKind === 'pick' ? 'ผู้จัด' : 'ผู้ตรวจ'} ${actorName || '-'}`}
+        detail={advPlan.skip.length ? `ข้าม ${advPlan.skip.length} ใบ (${advanceKind === 'pick' ? 'ยังไม่ลงชีท ต้องเปิดจัดทีละใบ' : 'ไม่อยู่ขั้นรอตรวจจ่าย'}): ${advPlan.skip.map(r => r.req_number).join(' · ')}` : undefined}
+        warning={!actorName ? 'บัญชีนี้ไม่มีชื่อผู้ใช้ — เปิดใบทีละใบแล้วกรอกชื่อ'
+          : [advPlan.short ? `${advanceKind === 'pick' ? 'ของไม่พอ' : 'จัดไม่ครบ'} ${advPlan.short} รายการ — บันทึกตามที่${advanceKind === 'pick' ? 'ลงชีท (จัดไม่ครบ · ของไม่พอ)' : 'จัดจริง'} ผู้เบิกเห็นจำนวนที่จ่ายจริง` : '',
+            advanceKind === 'check' ? 'ยืนยันว่าตรวจของจริงครบทุกใบแล้ว · ใบที่ต้องแจ้งแก้รายการให้เปิดตรวจทีละใบ' : ''].filter(Boolean).join(' · ') || undefined}
+        confirmText={!actorName ? 'ปิด' : advanceKind === 'pick' ? 'จัดเสร็จ' : 'จ่ายออก'}
+        onConfirm={actorName ? bulkAdvance : () => setAdvanceOpen(false)}
+        onClose={() => setAdvanceOpen(false)} />
     </div>
   );
 }

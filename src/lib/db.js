@@ -1825,6 +1825,12 @@ export async function bulkDeleteAuditLogs(ids) {
   if (error) throw error
 }
 
+// ใบเบิก + รายการ ตาม id — ปุ่มเลื่อนขั้นหลายใบดึงแถวสดก่อนเขียน · คืน { data, error } แบบ supabase
+export async function fetchRequisitionsWithItems(ids) {
+  if (!supabase) return { data: [], error: new Error('ไม่ได้เชื่อมต่อฐานข้อมูล') }
+  return supabase.from('requisitions').select('*, requisition_items(*)').in('id', ids)
+}
+
 // --- Requester self-edit/delete requisition (pending only) ---
 // แก้/ลบได้เฉพาะใบ pending ที่คลังยังไม่ลงชีท (sheet_entered_at ว่าง) — เช็คที่ DB ด้วย ไม่พึ่งแค่ปุ่มบนจอ
 // (จอค้างจากก่อนคลังรับใบ/อนุมัติ ยังกดได้ → ยอดในแอปไม่ตรงชีทเบิกแบบเงียบ)
