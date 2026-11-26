@@ -220,6 +220,12 @@ const FCOL = {
   supplier: { label: 'บริษัท', cell: r => dash(r.supplier), wide: true },
   // ราคาคิดต่อหน่วยในบิล — แท็บตัดออก หน่วยบิลต่างหน่วยคงเหลือได้ จึงกำกับหน่วยไว้
   price:    { label: 'ราคา/หน่วย', num: true, nowrap: true, cell: r => `${fmtPrice(r.price)}${r.price != null && r.priceUnit && r.priceUnit !== r.unit ? ` / ${unitLabel(r.priceUnit)}` : ''}` },
+  // หน่วยตัดบรรทัดได้หน้าวงเล็บ "กล่อง / (1,000 เม็ด)" — nowrap แล้วตารางยาเข้าใหม่ล้นกล่อง 25px ที่จอคอม (คิว 35 · 26/11/2569)
+  unit:     { label: 'หน่วย', cell: r => {
+    const s = unitLabel(r.unit) || '-';
+    const i = s.indexOf(' (');
+    return i < 0 ? s : <>{s.slice(0, i)} <span className="whitespace-nowrap">{s.slice(i + 1)}</span></>;
+  } },
 };
 // จำนวนที่แจ้ง + เรทเบิก/เดือน ตามรายงาน ณ วันแจ้ง (ADR-0030 amendment) — snapshot: true = ซ่อนเมื่อไม่มีค่าเลย (ผู้เบิก)
 const PR_SNAPSHOT_COLS = [
@@ -240,8 +246,8 @@ const QUEUE_COLUMNS = {
   newDrug:        [FCOL.received,
                    { label: 'ตรวจรับแล้ว', cell: r => (r.inspectedQty ? fmtNum(r.inspectedQty) : '-'), num: true },
                    { label: 'รอตรวจรับ', cell: r => (r.pendingQty ? fmtNum(r.pendingQty) : '-'), num: true },
-                   FCOL.total, COL.unit, FCOL.supplier, FCOL.price],
-  formularyOut:   [FCOL.received, FCOL.total, COL.unit,
+                   FCOL.total, FCOL.unit, FCOL.supplier, FCOL.price],
+  formularyOut:   [FCOL.received, FCOL.total, FCOL.unit,
                    { label: 'Lot ที่มีของ', cell: r => (r.lots ? fmtNum(r.lots) : '-'), num: true },
                    FCOL.supplier, FCOL.price],
   // รายงานแจ้งซื้อยา (ADR-0030) — หมายเหตุ/จำนวนที่แจ้ง/เรทเฉพาะ staff: แถวของผู้เบิกถูกล้างก่อนส่งมา (AppRoot)
