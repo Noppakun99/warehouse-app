@@ -48,6 +48,40 @@ const BOTTOM_NAV = {
 // หน้าที่มีแถบปุ่มล่างจอของตัวเอง (ส่งใบเบิก/อนุมัติ/ตะกร้า fixed bottom-0) — ไม่แสดงแถบล่าง กันทับปุ่มหลัก
 const NO_BOTTOM_NAV = new Set(['requisition']);
 
+// แถบเมนูเลื่อนได้ + ปุ่ม "เมนูด้านล่าง" ท้ายแถบ เมื่อยังมีเมนูซ่อนอยู่ข้างล่าง (user สั่ง 26/11/2569 — จอเตี้ยไม่รู้ว่ามีเมนูต่อ)
+// component แยก เพราะ renderSidebar ถูกเรียก 2 ที่ (แถบคอม + drawer มือถือ) แต่ละที่ต้องมี ref/สถานะเลื่อนของตัวเอง
+// วัดจากกล่องเนื้อหาข้างใน (ResizeObserver) — กางเมนูย่อยแล้วความสูงเนื้อหาเปลี่ยนโดยกรอบ nav ไม่เปลี่ยน
+function ScrollableNav({ mini, className, children }) {
+  const navRef = useRef(null);
+  const innerRef = useRef(null);
+  const [more, setMore] = useState(false);
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return undefined;
+    const check = () => setMore(nav.scrollHeight - nav.scrollTop - nav.clientHeight > 8);
+    check();
+    nav.addEventListener('scroll', check, { passive: true });
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(check);
+    ro?.observe(nav);
+    if (innerRef.current) ro?.observe(innerRef.current);
+    return () => { nav.removeEventListener('scroll', check); ro?.disconnect(); };
+  }, []);
+  const scrollDown = () => navRef.current?.scrollBy({ top: navRef.current.clientHeight * 0.7, behavior: 'smooth' });
+  return (
+    <div className="relative flex-1 min-h-0 flex flex-col">
+      <nav ref={navRef} className={`flex-1 overflow-y-auto ${className}`}>
+        <div ref={innerRef} className="space-y-5">{children}</div>
+      </nav>
+      {more && (
+        <button type="button" onClick={scrollDown} title="เลื่อนดูเมนูด้านล่าง" aria-label="เลื่อนดูเมนูด้านล่าง"
+          className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 pt-5 pb-1.5 text-xs font-medium text-sky-700 dark:text-sky-300 bg-gradient-to-t from-white via-white/95 to-transparent dark:from-slate-900 dark:via-slate-900/95">
+          {!mini && 'เมนูด้านล่าง'}<ChevronDown size={15} className="motion-safe:animate-bounce" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ธีมสว่าง/มืด — default = สว่างเสมอ (ไม่ตาม prefers-color-scheme โดยเจตนา:
 // dark ครอบแค่ shell ถ้า auto-dark ผู้ใช้จะเจอแถบมืด+เนื้อหาสว่างโดยไม่ได้สั่ง)
 const THEME_KEY = 'theme';
@@ -180,7 +214,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
 
       {/* Nav */}
       {/* แถบเลื่อนจาง — default ของ browser หนาและเข้มเกินไปบนแถบขาว */}
-      <nav className="flex-1 overflow-y-auto px-2.5 py-4 space-y-5 [scrollbar-width:thin] [scrollbar-color:theme(colors.slate.200)_transparent] dark:[scrollbar-color:theme(colors.slate.700)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-200 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 hover:[&::-webkit-scrollbar-thumb]:bg-slate-300 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600">
+      <ScrollableNav mini={mini} className="px-2.5 py-4 [scrollbar-width:thin] [scrollbar-color:theme(colors.slate.200)_transparent] dark:[scrollbar-color:theme(colors.slate.700)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-200 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 hover:[&::-webkit-scrollbar-thumb]:bg-slate-300 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600">
         <button
           onClick={() => go('dashboard')}
           title="หน้าหลัก"
@@ -275,7 +309,7 @@ export default function AppShell({ page, onNavigate, onFormAction, onOpenDrug, o
             </div>
           );
         })}
-      </nav>
+      </ScrollableNav>
 
       {/* Refresh + Logout */}
       <div className="p-3 border-t border-slate-100 dark:border-slate-800 shrink-0 space-y-0.5">

@@ -18,14 +18,14 @@ import {
 // page = key สำหรับ onNavigate (ตรง AppRoot routing), action = key สำหรับ onFormAction, c = สีประจำระบบ, roles ตรงกับ SYSTEMS.roles
 // จัดเมนูใหม่ 11/10/2569 (ผู้ใช้: "หัวข้อเยอะ เข้าใจยาก") — admin เห็น 17 → 12 ข้อชั้นบน
 //   งานคลัง = งานที่ทำทุกวัน (ย้ายตรวจนับ/อุณหภูมิมาจาก "ควบคุมระบบ") · รายงาน = ดูย้อนหลัง/วิเคราะห์/พิมพ์
+// แยก "งานคลัง" 8 ข้อเป็น 2 กลุ่ม (user เลือก 26/11/2569): รับ-จ่ายยา = ของเข้า-ออกคลัง · ดูแลคลัง = ดูแลของที่อยู่ในคลัง
 //   ระบบ = ตั้งค่า/ดูแล รวมเป็น submenu เดียว · page key ไม่เปลี่ยน (สิทธิ์รายคน Rule #23 ไม่กระทบ)
 //   อ้างอิง NN/g "Navigation Menus - 5 Tips" + Untitled UI sidebar (ไอคอนสีเดียว ชั้นบนน้อยข้อ เมนูย่อยกางได้)
 export const NAV_GROUPS = [
   {
-    label: 'งานคลัง', dot: 'bg-emerald-500',
+    label: 'รับ-จ่ายยา', dot: 'bg-emerald-500',
     items: [
       { page: 'requisition', icon: Package,  title: 'เบิกยาออนไลน์',     c: 'blue',   roles: ['requester', 'staff', 'admin'] },
-      { page: 'inventory',   icon: Database,  title: 'แผนผังคลังยา',       c: 'indigo', roles: ['requester', 'staff', 'admin'] },
       {
         key: 'receive', icon: TrendingUp, title: 'รับยา', c: 'emerald', roles: ['requester', 'staff', 'admin'],
         children: [
@@ -36,6 +36,12 @@ export const NAV_GROUPS = [
       },
       { page: 'return',      icon: RotateCcw, title: 'คืนยา / ยาเสียหาย', c: 'violet', roles: ['requester', 'staff', 'admin'] },
       { page: 'loan',        icon: ArrowLeftRight, title: 'ยืม-คืนยาระหว่าง รพ.', c: 'sky', roles: ['requester', 'staff', 'admin'] },
+    ],
+  },
+  {
+    label: 'ดูแลคลัง', dot: 'bg-indigo-500',
+    items: [
+      { page: 'inventory',   icon: Database,  title: 'แผนผังคลังยา',       c: 'indigo', roles: ['requester', 'staff', 'admin'] },
       { page: 'stockcount', icon: ClipboardCheck, title: 'ตรวจนับคงคลัง',   c: 'emerald', roles: ['staff', 'admin'] },
       { page: 'temperature', icon: Thermometer, title: 'อุณหภูมิที่เก็บยา', c: 'sky',   roles: ['staff', 'admin'] },
       // รวม 4 เมนูย่อยเดิม (วิเคราะห์/ใบสั่งซื้อแยกบริษัท/ตรวจสูตร/ประวัติ) เป็นระบบเดียว มีแท็บข้างใน — งานคลัง ไม่ใช่งานจัดซื้อ (14/11/2569)

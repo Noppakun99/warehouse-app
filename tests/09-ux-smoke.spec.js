@@ -76,12 +76,13 @@ test.describe('UX Smoke — ทุก sub-app เปิดได้ไม่ cra
     });
   }
 
-  test('เมนู sidebar ครบ (กลุ่ม งานคลัง / รายงาน / ระบบ)', async ({ staffPage: page }) => {
+  test('เมนู sidebar ครบ (กลุ่ม รับ-จ่ายยา / ดูแลคลัง / รายงาน / ระบบ)', async ({ staffPage: page }) => {
     if (!page) test.skip();
     await gotoDashboard(page);
 
-    // กลุ่มเมนูตาม NAV_GROUPS ใน navConfig.js
-    await expect(page.getByText('งานคลัง', { exact: true }).first()).toBeVisible();
+    // กลุ่มเมนูตาม NAV_GROUPS ใน navConfig.js — "งานคลัง" แยกเป็น 2 กลุ่ม 26/11/2569
+    await expect(page.getByText('รับ-จ่ายยา', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('ดูแลคลัง', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('รายงาน', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('ระบบ', { exact: true }).first()).toBeVisible();
 
