@@ -39,6 +39,26 @@ test('staff เปิดจากเมนู: การ์ด แท็บ แ�
   }
 })
 
+// แบบ ข (26/11/2569): ชิปมูลค่าแยกตามชนิดยา — ผลรวมชิป = จำนวนในแท็บ · กดชิป = แถวเท่าตัวเลขบนชิป (Rule #6)
+test('ชิปชนิดยา: รวมเท่าแท็บ · กดแล้วกรองเหลือเท่าตัวเลขบนชิป', async ({ page }) => {
+  await openFromMenu(page)
+  const allTab = page.getByRole('button', { name: /^ทั้งหมด/ })
+  await allTab.click()
+  const nAll = await countOf(allTab)
+  const chips = page.getByRole('group', { name: 'กรองตามชนิดยา' }).getByRole('button')
+  test.skip(await chips.count() === 0, 'มีชนิดยาเดียว — ไม่แสดงชิป')
+  const chipN = async (i) => Number((await chips.nth(i).innerText()).match(/(\d+) รายการ/)[1])
+  expect(await chipN(0)).toBe(nAll)
+  let sum = 0
+  for (let i = 1; i < await chips.count(); i++) sum += await chipN(i)
+  expect(sum).toBe(nAll)
+
+  const n1 = await chipN(1)
+  await chips.nth(1).click()
+  await expect(chips.nth(1)).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('button[aria-controls^="dead-"]')).toHaveCount(n1)
+})
+
 test('ค้นไม่เจอ → ข้อความว่าง ไม่ใช่จอเปล่า', async ({ page }) => {
   await openFromMenu(page)
   await page.getByPlaceholder('ค้นชื่อยาหรือรหัส').fill('ไม่มียานี้แน่นอน-zzz')

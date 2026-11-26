@@ -9,7 +9,7 @@ import { Hourglass, Search, Loader2, AlertTriangle, ChevronDown, Users, MapPin, 
 import BackButton from './BackButton';
 import { fetchDeadStockData } from './lib/db';
 import { buildCompanyPolicyIndex, parseExpDate, returnPolicyLabel, unitLabel } from './lib/drugProfile';
-import { buildDeadStock, stockLotsFromInventory, firstReceiveMap, ymThai, REPORT_MONTHS, WATCH_MONTHS } from './lib/deadStock';
+import { buildDeadStock, stockLotsFromInventory, firstReceiveMap, ymThai, REPORT_MONTHS, WATCH_MONTHS, summarizeByType, typeOf } from './lib/deadStock';
 
 const HISTORY_START = '2025-10'; // เดือนแรกที่มีข้อมูลเบิกในระบบ (ตรงกับ CLI)
 
@@ -142,6 +142,7 @@ export default function DeadStockApp({ onOpenDrug, onRefresh, onGoBack, canGoBac
   const [state, setState] = useState({ loading: true, error: '', res: null });
   const [tab, setTab] = useState('report');
   const [q, setQ] = useState('');
+  const [typeF, setTypeF] = useState(''); // '' = ทุกชนิด
   const [openKey, setOpenKey] = useState(null);
 
   useEffect(() => {
@@ -172,10 +173,14 @@ export default function DeadStockApp({ onOpenDrug, onRefresh, onGoBack, canGoBac
     const watch = rows.filter(r => r.tier === 'watch');
     return { report: report.length, reportValue: sum(report), watch: watch.length, watchValue: sum(watch), ptc: rows.filter(r => r.ptc === 'เสนอพิจารณาออกได้').length };
   }, [rows]);
+  // มูลค่าแยกตามชนิดยา (แบบ ข) — นับจากแท็บที่เปิดอยู่ ก่อนกรองคำค้น → ตัวเลขบนชิป = จำนวนแถวเมื่อกดชิป (Rule #6)
+  const tabRows = useMemo(() => rows.filter(r => tab === 'all' || r.tier === tab), [rows, tab]);
+  const byType = useMemo(() => summarizeByType(tabRows), [tabRows]);
   const shown = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return rows.filter(r => (tab === 'all' || r.tier === tab) && (!t || r.name.toLowerCase().includes(t) || r.code.toLowerCase().includes(t)));
-  }, [rows, tab, q]);
+    return tabRows.filter(r => (!typeF || typeOf(r) === typeF) && (!t || r.name.toLowerCase().includes(t) || r.code.toLowerCase().includes(t)));
+  }, [tabRows, typeF, q]);
+  const tabValue = byType.reduce((s, g) => s + g.value, 0);
   const tabCount = { report: stats.report, watch: stats.watch, all: rows.length };
 
   return (
@@ -222,7 +227,7 @@ export default function DeadStockApp({ onOpenDrug, onRefresh, onGoBack, canGoBac
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
               <div className="flex flex-wrap gap-2" role="group" aria-label="ช่วงเวลาที่ไม่มีเบิก">
                 {TABS.map(t => (
-                  <button key={t.key} type="button" onClick={() => { setTab(t.key); setOpenKey(null); }} aria-pressed={tab === t.key}
+                  <button key={t.key} type="button" onClick={() => { setTab(t.key); setTypeF(''); setOpenKey(null); }} aria-pressed={tab === t.key}
                     className={tab === t.key
                       ? 'px-3 py-1.5 text-sm font-semibold rounded-lg bg-rose-600 text-white'
                       : 'px-3 py-1.5 text-sm font-medium rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors'}>
@@ -230,6 +235,26 @@ export default function DeadStockApp({ onOpenDrug, onRefresh, onGoBack, canGoBac
                   </button>
                 ))}
               </div>
+              {byType.length > 1 && (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">มูลค่าแยกตามชนิดยา — กดเพื่อกรอง</p>
+                  <div className="flex flex-wrap gap-1.5" role="group" aria-label="กรองตามชนิดยา">
+                    {[{ type: '', count: tabRows.length, value: tabValue }, ...byType].map(g => {
+                      const active = typeF === g.type;
+                      return (
+                        <button key={g.type || '__all'} type="button" aria-pressed={active}
+                          onClick={() => { setTypeF(g.type); setOpenKey(null); }}
+                          className={`inline-flex items-baseline gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${active
+                            ? 'bg-slate-800 dark:bg-slate-100 border-slate-800 dark:border-slate-100 text-white dark:text-slate-900'
+                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
+                          <span className="font-semibold">{g.type || 'ทุกชนิด'}</span>
+                          <span className="tabular-nums">{g.count} รายการ · {baht(g.value)} บาท</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div className="relative">
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input type="text" value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นชื่อยาหรือรหัส"
@@ -240,7 +265,7 @@ export default function DeadStockApp({ onOpenDrug, onRefresh, onGoBack, canGoBac
               </p>
             </div>
 
-            <p className="text-xs text-slate-500 dark:text-slate-400">แสดง {shown.length} รายการ · เรียงไม่มีเบิกนานสุดก่อน · กดรายการเพื่อดูราย lot</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">แสดง {shown.length} รายการ{typeF ? ` · ชนิด ${typeF}` : ''} · เรียงไม่มีเบิกนานสุดก่อน · กดรายการเพื่อดูราย lot</p>
             {shown.length === 0
               ? <div className="text-center text-sm text-slate-500 dark:text-slate-400 py-10 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700">ไม่มีรายการ{q.trim() ? 'ที่ตรงกับคำค้น' : ''}</div>
               : (

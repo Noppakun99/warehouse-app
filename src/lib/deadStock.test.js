@@ -1,7 +1,7 @@
 // golden test: src/lib/deadStock.js — npm run test:deadstock
 import {
   isRealUsage, ymOf, ymThai, drugKey, essentialGroup, buildDeadStock,
-  stockLotsFromInventory, firstReceiveMap, REPORT_MONTHS, WATCH_MONTHS,
+  stockLotsFromInventory, firstReceiveMap, REPORT_MONTHS, WATCH_MONTHS, summarizeByType, NO_TYPE,
 } from './deadStock.js';
 
 let pass = 0, fail = 0;
@@ -94,6 +94,15 @@ eq('B: 4 เดือน → เฝ้าดู · PTC -', [by.B.idleMonths, by.
 eq('E: ไม่เคยเบิก นับจากรับครั้งแรก ต.ค.68 → 12 เดือน', [by.E.neverUsed, by.E.idleMonths, by.E.tier, by.E.isNew], [true, 12, 'report', false]);
 eq('F: ยาใหม่รับ ส.ค.69 ไม่เคยเบิก → นับจากวันรับ 2 เดือน ยังไม่ขึ้น', by.F ?? null, null);
 eq('เรียงนานสุดก่อน', res.rows.map(r => r.code), ['E', 'A', 'B']);
+
+// แยกมูลค่าตามชนิดยา (แบบ ข)
+const byType = summarizeByType([
+  { type: 'Tablet', value: 100.004 }, { type: 'Injection', value: 500 }, { type: 'Tablet', value: 450 }, { type: '', value: 5 }, { type: ' Herb ', value: 0 },
+]);
+eq('แยกชนิด: มูลค่ามากก่อน · รวมจำนวน/มูลค่า · ชนิดว่าง = ไม่ระบุ · trim', byType, [
+  { type: 'Tablet', count: 2, value: 550 }, { type: 'Injection', count: 1, value: 500 }, { type: NO_TYPE, count: 1, value: 5 }, { type: 'Herb', count: 1, value: 0 },
+]);
+eq('แยกชนิด: ผลจริงรวมจำนวนเท่าจำนวนแถว', summarizeByType(res.rows).reduce((n, g) => n + g.count, 0), res.rows.length);
 
 console.log(`\nผ่าน ${pass} / ${pass + fail}`);
 if (fail > 0) throw new Error(`golden test ไม่ผ่าน ${fail} ข้อ`);

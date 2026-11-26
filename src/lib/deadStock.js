@@ -192,3 +192,20 @@ export function buildDeadStock({ stockLots = [], dispenses = [], firstReceive = 
   rows.sort((a, b) => b.idleMonths - a.idleMonths || b.value - a.value)
   return { rows, currentYm, lastCompleteYm: ymFromIndex(lastCompleteIdx) }
 }
+
+/** แยกมูลค่าตามชนิดยา (แบบ ข — user อนุมัติ 20/11/2569) → [{ type, count, value }] มูลค่ามากก่อน · ชนิดว่าง = 'ไม่ระบุชนิด' */
+export const NO_TYPE = 'ไม่ระบุชนิด'
+export const typeOf = (r) => s(r?.type) || NO_TYPE
+export function summarizeByType(rows = []) {
+  const m = new Map()
+  for (const r of rows) {
+    const t = typeOf(r)
+    const g = m.get(t) || { type: t, count: 0, value: 0 }
+    g.count += 1
+    g.value += Number(r.value) || 0
+    m.set(t, g)
+  }
+  return [...m.values()]
+    .map(g => ({ ...g, value: Math.round(g.value * 100) / 100 }))
+    .sort((a, b) => b.value - a.value || b.count - a.count || a.type.localeCompare(b.type))
+}
