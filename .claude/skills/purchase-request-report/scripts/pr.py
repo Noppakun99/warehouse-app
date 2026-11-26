@@ -715,9 +715,13 @@ def cmd_plan(a):
         warn.append(f'รหัสซ้ำในรายงาน: {dup}')
     # 0) ยกเลิกแจ้ง (--cancel CODE=เหตุผล) → ย้ายไป ประวัติแจ้งซื้อ แบบ ☐ + หมายเหตุ ตามธรรมเนียมเดิมของ ประวัติแจ้งซื้อ
     cancel = dict(n.split('=', 1) for n in (a.cancel or []))
-    unknown = [k for k in cancel if k not in {x['code'] for x in rows}]
+    # รหัสที่ไม่อยู่ในรายงานแต่อยู่ชีทวิเคราะห์ = ไม่เพิ่มเป็นรายการใหม่รอบนี้ (ไม่มีแถวให้ย้าย) — เช่น Remdesivir หัวหน้าซื้อเอง (26/11/2569)
+    unknown = [k for k in cancel if k not in {x['code'] for x in rows} and k not in d.analysis]
     if unknown:
-        raise SystemExit(f'--cancel: ไม่พบรหัส {unknown} ในรายงาน')
+        raise SystemExit(f'--cancel: ไม่พบรหัส {unknown} ในรายงานหรือชีทวิเคราะห์')
+    for k in cancel:
+        if k not in {x['code'] for x in rows}:
+            warn.append(f'--cancel {k}: ไม่อยู่ในรายงาน → ไม่เพิ่มเป็นรายการใหม่รอบนี้ ({cancel[k]})')
     dstr = be(today)
     # 1) มาส่งแล้ว = รับสถานะการซื้อ วันที่ >= วันที่แจ้ง (จับคู่รหัสอย่างเดียว)
     moves, keep, c_upd = [], [], []
@@ -1080,9 +1084,13 @@ def cmd_line(a):
         elif (stv in ORDER_STATUSES and code in notify and pending_of(d, code, r[ac['unit']])
               and open_request(code, today, last, unmet)):
             sel.append((1, code, r))
+        # แจ้งในรายงานแล้ว + คลังหมด แต่สถานะชีทไม่ใช่สั่งซื้อ (📋 สั่งเมื่อขอ ที่ลงผ่าน _เพิ่มรายงานแจ้งซื้อ.csv เช่น พญายอครีม)
+        # = อักษรแดงในรายงาน ต้องขึ้นด่วนในไลน์ด้วย (user สั่ง 26/11/2569 — เดิมหลุดเพราะเช็คแค่ ORDER_STATUSES)
+        elif code in notify and q <= 0 and code not in NOT_URGENT:
+            sel.append((0, code, r))
     sel.sort(key=lambda t: t[0])
     # รูปแบบที่ user แก้แล้วส่งจริง 14/10/2569 — ไม่มี "เรียน…"/"ขอบคุณ…" · เหตุผลลงท้าย "ครับ" ทุกข้อ
-    lines = [f"ฝาก{a.to}ติดตามยา ตามรายการด้านล่างนี้ครับ", ""]
+    lines = [f"ฝาก{a.to}ติดตามยาที่ต้องสั่งซื้อด่วน ตามรายการด้านล่างนี้ครับ", ""]
     audit, items = [], []
     for grp, code, r in sel:
         unit = r[ac['unit']]
@@ -1159,7 +1167,15 @@ def cmd_line(a):
         # ด่วนเพราะคำขอค้างอย่างเดียว + ของมาแล้วรอตรวจรับ = แยกหัวข้อ ไม่ใช่ของไม่มา · ของจะหมดก่อนบริษัทส่งทันยังอยู่ด่วน
         cov = coverage_days(d, code)
         arrived = pend and opened and code not in NOT_URGENT and cov != 0 and (cov == '-' or cov > num(r[ac['lt']]))
-        items.append((1 if arrived else 0 if urgent else 2, grp, s))
+        sec = 1 if arrived else 0 if urgent else 2
+        # ไลน์หัวหน้า = เฉพาะ คงเหลือ 0 (Z) + คงเหลือไม่พอตาม Lead Time (L) — user สั่ง 26/11/2569 · ของรอตรวจรับไปทวงกลุ่มจัดซื้อ
+        lt = num(r[ac['lt']])
+        if not pend and code not in NOT_URGENT and q <= 0:
+            sec = 'Z'
+        elif not pend and code not in NOT_URGENT and day > 0 and lt > 0 and q < day * lt:
+            sec = 'L'
+            s = s.replace(' ของจะหมดก่อนบริษัทส่งทัน', '')   # หัวข้อบอกแล้ว
+        items.append((sec, q / day if sec == 'L' else grp, s))
         audit.append((code, r[ac['status']], 'แจ้ง' if n else ('ประวัติแจ้งซื้อ' if prev else 'ไม่มี')))
     # PO ออกเกิน 10 วันยังไม่มีของเลย ที่ไม่ตรงกับข้อไหน → ข้อในติดตามทั่วไป (user สั่ง 29/10/2569: ไม่ส่งไลน์ตาม PO แยก)
     for p in (pos or []):
@@ -1170,12 +1186,11 @@ def cmd_line(a):
         items.append((2, 3, f"{p['label']} — {p['เลขที่PO']} ออกวันที่ {ce(p['issued'])} บริษัท {co}"
                             f"\n   เหตุผล: ออก PO แล้ว {days} วัน (เกิน {PO_OVERDUE_DAYS} วัน) ยังไม่มีของเข้า ครับ"
                             + head_note(heads_said, None, [p['เลขที่PO']])))
-    items.sort(key=lambda t: (t[0], t[1]))
-    heads = {0: 'ด่วน — หมด / ของจะหมดก่อนบริษัทส่งทัน / หน่วยงานขอเบิกแล้วยังไม่ได้ของ',
-             1: 'ของมาแล้ว — หน่วยงานขอเบิกแล้วได้ไม่ครบ', 2: 'ติดตามทั่วไป'}
+    # Z คงเหลือ 0 → L ไม่พอตาม Lead Time (เหลือใช้ได้น้อยวันก่อน) — user สั่ง 26/11/2569 ส่งหัวหน้าแค่ 2 กลุ่มนี้
+    heads = {'Z': 'คงเหลือ 0 ที่คลัง', 'L': 'คงเหลือไม่พอจ่ายตาม Lead Time — ของจะหมดก่อนบริษัทส่งทัน'}
     i = 0
-    for sec in (0, 1, 2):
-        part = [t for t in items if t[0] == sec]
+    for sec in ('Z', 'L'):
+        part = sorted((t for t in items if t[0] == sec), key=lambda t: t[1])
         if part:
             lines += [f"【{heads[sec]}】", ""]
         for _, _, s in part:
@@ -1183,9 +1198,14 @@ def cmd_line(a):
             lines += [f"{i}. {s}", ""]
     out('\n'.join(lines).rstrip())
     out('\n---- ตรวจสอบ (ไม่ต้องส่งไลน์) ----')
-    out(f'{len(sel)} รายการ (ด่วน {sum(1 for t in items if t[0] == 0)}): หมดสต็อค {sum(1 for t in sel if t[0] == 0)} · ไม่พอจ่ายภายใน 7 วัน {sum(1 for t in sel if t[0] == 1)}'
-        f' · คงอยู่ได้ไม่ถึง Lead Time {sum(1 for t in sel if t[0] == 2)}'
-        f' · มีหมายเหตุจากหัวหน้า {sum(1 for t in items if "หมายเหตุจากพี่" in t[2])} ข้อ (จาก _ทะเบียนตามยา.csv)')
+    out(f'ไลน์หัวหน้า {i} ข้อ: คงเหลือ 0 = {sum(1 for t in items if t[0] == "Z")} · ไม่พอตาม Lead Time = {sum(1 for t in items if t[0] == "L")}'
+        f' · มีหมายเหตุจากหัวหน้า {sum(1 for t in items if t[0] in heads and "หมายเหตุจากพี่" in t[2])} ข้อ (จาก _ทะเบียนตามยา.csv)')
+    # ที่ไม่ขึ้นไลน์หัวหน้า: ของมาแล้วรอตรวจรับ → /procurement-followup · PO เกินกำหนด/ด่วนเพราะคำขอค้าง → user ตัดสินว่าจะส่งแยกไหม
+    other = {0: 'ด่วนเพราะคำขอค้าง (คงเหลือพอ Lead Time)', 1: 'ของมาแล้วรอตรวจรับ → ทวงกลุ่มจัดซื้อ',
+             2: 'ติดตามทั่วไป'}
+    for sec in (0, 2, 1):
+        for _, _, s in (t for t in items if t[0] == sec):
+            out(f'-- ไม่อยู่ในไลน์หัวหน้า [{other[sec]}]: {s.splitlines()[0][:110]}')
     if twin_skip:
         out('ไม่อยู่ในไลน์เพราะยาสนับสนุนรหัสคู่ยังพอ (SUPPORT_TWIN):', '; '.join(twin_skip))
     miss = [c for c, _, src in audit if src != 'แจ้ง']
