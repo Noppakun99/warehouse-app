@@ -141,6 +141,18 @@ skill ที่ธุรกิจจ่ายเงินให้จริง�
 | Connections | Supabase MCP ต่อไม่ได้บางวัน → ใช้ node + supabase-js อ่าน `.env` แทน | สคริปต์ CLI อ่านอย่างเดียวที่ใช้ซ้ำได้ (คลิปชอบ CLI/API มากกว่า MCP) |
 | Cadence | มีแล้ว: edge function `expiry-alert`, `requisition-announce`, LINE bots | ก่อนเพิ่มงานตั้งเวลาใหม่ ต้องพิสูจน์ด้วยการรันมือก่อน + มีเจ้าของคอยดู |
 
+**วัดผลเกณฑ์ handoff ~250K (26/11/2569 · `python -B scripts/tok.py --since 2026-11-05`)**
+
+| | ก่อน (28/10–4/11 · 31 session) | หลัง (5–26/11 · 178 session) |
+|---|---|---|
+| เริ่ม session เฉลี่ย | 103K | 84K |
+| สูงสุดเฉลี่ยต่อ session | 413K | 283K (−31%) |
+| token ต่อครั้งเฉลี่ย | 289K | 200K (−31%) |
+| เกิน 250K | 28/31 (90%) | 149/178 (84%) |
+| เกิน 300K | 26/31 (84%) | 58/178 (33%) |
+
+ได้ผล: ต้นทุนต่อครั้งลดราว 1 ใน 3 · session ที่ลากเกิน 300K ลดจาก 84% เหลือ 33% · ยัง "เกิน 250K" 84% เพราะ handoff เกิดช่วง 250–300K ตามที่ hook เตือน (ไม่ใช่ปัญหา) · เริ่ม session ลดเพราะย้ายกฎไป src/CLAUDE.md + skill · CLAUDE.md ตอนนี้ 326 บรรทัด 53K ตัวอักษร (เดิม 445 บรรทัด 85K)
+
 ## 5. งานที่เสนอ (ยังไม่ได้อนุมัติ — ดู handoff 10/10)
 1. hook กัน Save `.xlsm` ถ้าไม่ได้รับอนุญาต (skill `update-config`)
 2. skill Excel COM + สคริปต์กลาง (skill `anthropic-skills:skill-creator`)
@@ -246,3 +258,23 @@ skill ที่ธุรกิจจ่ายเงินให้จริง�
 - `youtubei/v1/get_transcript` ของ YouTube ตอบ **400** → ปุ่ม Show transcript ค้างสปินเนอร์ ใช้วิธีเปิด panel ไม่ได้แล้ว
 - ใช้ Playwright ต่อ Chrome ที่ล็อกอินแล้วผ่าน CDP (`node scripts/gas.mjs chrome <url>`) แล้ว**ดัก response `/api/timedtext` ที่ player โหลดเอง** (json3: `events[].segs[].utf8`) — ยิง URL timedtext เองไม่มีลายเซ็นได้ 0 bytes
 - สคริปต์ `scripts/.yt-search.mjs` (ค้นหาคลิป) · `scripts/.yt-captions.mjs <outdir> <videoId…>` — อยู่เครื่องเดียว ไม่ได้ commit (พึ่งโปรไฟล์ Chrome ที่มี cookie)
+
+## Skills vs Subagents (ย้ายมาจาก CLAUDE.md 26/11/2569 — ลด token)
+
+| สถานการณ์ | ใช้อะไร |
+|-----------|--------|
+| มี pattern ซ้ำ (print, search bar, excel, chart) | **Skill** |
+| ค้นหา/สำรวจ codebase กว้าง ไม่รู้ path | **Subagent Explore** |
+| งาน 2 อย่างที่ไม่ depend กัน | **Parallel tool calls** ใน message เดียว |
+| รู้ path ชัดเจน | **Read/Edit/Grep โดยตรง** |
+| อยากได้ reviewer ที่ไม่มีอคติ | **Subagent** — ตื่นมาไม่เห็นบริบทที่คุยกันมา จึงวิจารณ์ตรง |
+| กำลังจะเทผลกองใหญ่ที่ไม่ได้อ่านซ้ำลงแชท | **Subagent** — ไม่เปื้อน context หลัก ⚠️ แต่ token **รวมแพงกว่า 7-10 เท่า** (ตื่นมาพร้อม context เต็มของตัวเอง) คุ้มเมื่อให้มันใช้โมเดลถูกกว่า |
+
+**เกณฑ์ตัดสินประโยคเดียว**: "กำลังจะเทกองข้อมูลที่ไม่มีวันอ่านซ้ำลงแชทไหม" — ใช่ → delegate
+
+**ไม่ต้องใช้ subagent เมื่อ** (ฝืนใช้แล้วผลแย่ลง):
+- แก้เล็กจุดเดียว / รู้คำตอบอยู่แล้ว
+- ขั้นตอนพึ่งกันเป็นลำดับ (1→2→3→4) — แยกกันทำไม่ได้
+- ต้องใช้บริบททั้งบทสนทนา
+- ต้องถามกลับ user ระหว่างทาง — **คุยกับ subagent ไม่ได้** main session เป็น orchestrator ทางเดียว
+- ต้องให้ agent คุยกันเอง → นั่นคือ agent team คนละกลไก (แพงกว่า)

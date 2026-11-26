@@ -1,5 +1,6 @@
 # เช็คครบ — งานเอกสารคลังที่ทำค้างไว้ครบหรือยัง (อ่านอย่างเดียว ไม่เขียนไฟล์ใด)
-# ใช้: python scripts/check-complete.py
+# ใช้: python scripts/check-complete.py          (ย่อ: ตัดบรรทัด >160 ตัวอักษร · ข้อที่ผ่านหมดรวมบรรทัดเดียว)
+#      python scripts/check-complete.py --full   (เต็มแบบเดิม — ใช้ตอนจะลงมือแก้เรื่องที่ถูกตัด เช่น นัดเตือน)
 # ตรวจ 15 ข้อ: โฟลเดอร์พักว่าง · รูปใบเบิกมี PDF คู่ · PDF อยู่ในทะเบียนพิมพ์ (+ ที่ยังไม่พิมพ์)
 #            · รูปบิลมีแถวดัชนี / แถวดัชนีมีไฟล์จริง · รูปตรวจรับรอถ่ายซ้ำ · แถวรับยามีแถว Master · บิลซื้อยังไม่ส่งจัดซื้อ
 #            · รายการตรวจรับที่มีรูปอยู่ในเอกสารสรุปตรวจรับ (ตร.) + ผู้ตรวจรับเซ็นภายใน 7 วัน
@@ -17,6 +18,56 @@ import openpyxl
 
 sys.stdout.reconfigure(encoding='utf-8')
 warnings.filterwarnings('ignore')
+
+# โหมดย่อเป็นค่าเริ่มต้น (26/11/2569 ลด token — รันหลายรอบต่อ session · เต็ม ~20KB ย่อ ~9KB)
+# บรรทัดยาวเกิน BRIEF_WIDTH ตัดท้าย · ข้อที่ผ่านหมด (✓ ล้วน) ยุบเป็นบรรทัดเดียวตอนจบ · --full = พิมพ์เต็มแบบเดิม
+BRIEF_WIDTH = 160
+if '--full' not in sys.argv:
+    class _Brief:
+        def __init__(self, raw):
+            self.raw, self.buf, self.sec, self.passed = raw, '', None, []
+
+        def _flush_sec(self):
+            if not self.sec:
+                return
+            title, lines = self.sec
+            if lines and all(l.lstrip().startswith('✓') for l in lines):
+                self.passed.append(title.split('(')[0].strip())
+            else:
+                self.raw.write(f'\n■ {title}\n' + ''.join(l + '\n' for l in lines))
+            self.sec = None
+
+        def _line(self, line):
+            if len(line) > BRIEF_WIDTH:
+                line = line[:BRIEF_WIDTH - 1] + '…'
+            if line.startswith('■ '):
+                self._flush_sec()
+                self.sec = (line[2:], [])
+            elif self.sec and line.startswith(' ') and line.strip():
+                self.sec[1].append(line)
+            elif line.strip():  # บรรทัดสรุปท้าย
+                self._flush_sec()
+                if self.passed:
+                    self.raw.write(f'\n✓ ผ่าน {len(self.passed)} ข้อ: ' + ' · '.join(self.passed) + '\n')
+                    self.passed = []
+                self.raw.write(f'\n{line}  (ย่อแล้ว — รายละเอียดเต็ม: --full)\n')
+
+        def write(self, s):
+            self.buf += s
+            *lines, self.buf = self.buf.split('\n')
+            for l in lines:
+                self._line(l)
+            return len(s)
+
+        def flush(self):
+            self.raw.flush()
+
+        def __getattr__(self, name):  # reconfigure/encoding ฯลฯ ที่ import ย่อยเรียก → ตัวจริง
+            return getattr(self.raw, name)
+
+    sys.stdout = _Brief(sys.stdout)
+    import atexit
+    atexit.register(lambda: (sys.stdout._flush_sec(), sys.stdout.raw.flush()) if isinstance(sys.stdout, _Brief) else None)
 
 HOME = r'C:\Users\PRH0000484'
 INBOX = os.path.join(HOME, r'OneDrive\เอกสารคลังยา_รอลง')

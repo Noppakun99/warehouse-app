@@ -96,9 +96,9 @@ node scripts/stock.mjs <คำค้น> [--all]  # เช็คคงเหล�
 
 รายละเอียด (ด่าน, ส่วนต่างรายช่อง, ตัวเฝ้าไฟล์) อยู่ [docs/features/excel-sync.md](docs/features/excel-sync.md) — อ่านก่อนแก้ `ExcelSync.jsx` · `excelSync.js` · `applyExcelSync`
 
-ไม่มี test runner ทั่วไป — golden tests เป็น standalone `node` (ไม่มี framework): `src/unitParser.test.js` (`npm run test:unit`), `src/lib/reorder.test.js` (`npm run test:reorder`), `src/lib/billGroup.test.js` (`npm run test:billgroup`), `src/lib/lotAllocation.test.js` (`npm run test:alloc`), `src/ledgerRollover.test.js` (`npm run test:ledger`), `src/ledgerSeed.test.js` (`npm run test:ledgerseed`), `src/lib/swapPolicy.test.js` (`npm run test:swappolicy`), `src/lib/consistencyCheck.test.js` (`npm run test:consistency`). **กฎ**: logic ที่ test แบบนี้ได้ต้องเป็น pure module ไม่ import `supabase` (เพราะ `supabase.js` ใช้ `import.meta.env` ที่ node รันไม่ได้) — ดู `billGroup.js`/`lotAllocation.js`/`ledgerRollover.js`/`ledgerSeed.js` แยกจาก `db.js` ด้วยเหตุนี้. **หมายเหตุ layout**: source module ของ ledger อยู่ใน `src/lib/` แต่ test file (`ledgerRollover.test.js`/`ledgerSeed.test.js`) อยู่ที่ `src/` root — ต่างจาก golden test อื่นที่วาง test ข้าง source
+Golden tests = standalone `node` ไม่มี framework — รายชื่อ+ที่อยู่ไฟล์ [docs/testing.md §Golden tests](docs/testing.md) · **กฎ**: logic ที่ test แบบนี้ได้ต้องเป็น pure module ไม่ import `supabase` (`supabase.js` ใช้ `import.meta.env` ที่ node รันไม่ได้ — จึงแยก `billGroup.js`/`lotAllocation.js`/`ledgerRollover.js` ออกจาก `db.js`)
 
-**E2E**: Playwright (`tests/01-15`) — `npx playwright test` · ไฟล์เดียว: `npx playwright test tests/14-stockcount-split.spec.js` — ครอบคลุม login, dashboard, requisition, return, staff flow, validation, permissions, **AP workflow UX, ทุก sub-app smoke, mobile responsive 375px, a11y, ระบบวิเคราะห์การสั่งซื้อยา, โมดอลใกล้หมดอายุ/คืนบริษัท (ประวัติรับยา+scope+deadline+ตัวกรองพับ), การ์ดคลัง lot (13), กรอกนับแยกชั้น (14), แถบปุ่มล่างจอ+การ์ดแนะนำ+ประวัติเบิกตั้งต้นของผู้เบิก 375px (15), หน้ายาไม่เคลื่อนไหว (18)** ดู [docs/testing.md](docs/testing.md). ⚠️ **03/04/05/06 กด "ส่งใบเบิก"/"บันทึกการคืนยา"/"อนุมัติ" จริง = เขียนลง Supabase ระบบจริง** (ไม่มี DB ทดสอบแยก) — รันเมื่อได้รับอนุญาตเท่านั้น; ชุดอ่านอย่างเดียว = 01/02/07/08/09/10/11/12/13/14/15/16/17/18/19 (16 = ปุ่มย้ายที่เก็บในแผนผัง — ห้ามกด "ย้าย" ในกล่องยืนยัน · 17 = หน้านโยบายคืนบริษัท · 18 = หน้ายาไม่เคลื่อนไหว · 19 = หน้าคู่มือและตารางงาน — ห้ามกดเพิ่มแถว/บันทึก). 13/14 ไม่เสถียรตอนรันขนานหลายไฟล์ (ตัวที่ตกเปลี่ยนทุกรอบ) — ตกให้รันไฟล์นั้นเดี่ยวซ้ำก่อนสรุป. 08 เขียนใหม่ 11/10/2569 ตามหน้า AP ปัจจุบัน (3 แท็บ + flow 3 ขั้น อ่านอย่างเดียว 5 เทส) · 13 Export Excel ใช้ `exact: true` (ชนปุ่ม "นำเข้าจาก Excel")
+**E2E**: Playwright `tests/` — `npx playwright test` · ไฟล์เดียว `npx playwright test tests/<ไฟล์>` · แต่ละไฟล์ครอบอะไร [docs/testing.md](docs/testing.md) · ⚠️ **03/04/05/06 กด "ส่งใบเบิก"/"บันทึกการคืนยา"/"อนุมัติ" จริง = เขียนลง Supabase ระบบจริง** (ไม่มี DB ทดสอบแยก) — รันเมื่อได้รับอนุญาตเท่านั้น · ไฟล์อื่นอ่านอย่างเดียว (16 ห้ามกด "ย้าย" ในกล่องยืนยัน · 19 ห้ามกดเพิ่มแถว/บันทึก) · 13/14 ตกตอนรันขนาน → รันไฟล์นั้นเดี่ยวซ้ำก่อนสรุป
 
 ## Architecture
 
@@ -238,24 +238,7 @@ Single-page React (ไม่มี React Router) — ทุก Supabase query �
 - decision ที่กลับยาก → `docs/adr/` (เกณฑ์ + format ดู `/grill-with-docs`)
 
 ### Skills vs Subagents
-
-| สถานการณ์ | ใช้อะไร |
-|-----------|--------|
-| มี pattern ซ้ำ (print, search bar, excel, chart) | **Skill** |
-| ค้นหา/สำรวจ codebase กว้าง ไม่รู้ path | **Subagent Explore** |
-| งาน 2 อย่างที่ไม่ depend กัน | **Parallel tool calls** ใน message เดียว |
-| รู้ path ชัดเจน | **Read/Edit/Grep โดยตรง** |
-| อยากได้ reviewer ที่ไม่มีอคติ | **Subagent** — ตื่นมาไม่เห็นบริบทที่คุยกันมา จึงวิจารณ์ตรง |
-| กำลังจะเทผลกองใหญ่ที่ไม่ได้อ่านซ้ำลงแชท | **Subagent** — ไม่เปื้อน context หลัก ⚠️ แต่ token **รวมแพงกว่า 7-10 เท่า** (ตื่นมาพร้อม context เต็มของตัวเอง) คุ้มเมื่อให้มันใช้โมเดลถูกกว่า |
-
-**เกณฑ์ตัดสินประโยคเดียว**: "กำลังจะเทกองข้อมูลที่ไม่มีวันอ่านซ้ำลงแชทไหม" — ใช่ → delegate
-
-**ไม่ต้องใช้ subagent เมื่อ** (ฝืนใช้แล้วผลแย่ลง):
-- แก้เล็กจุดเดียว / รู้คำตอบอยู่แล้ว
-- ขั้นตอนพึ่งกันเป็นลำดับ (1→2→3→4) — แยกกันทำไม่ได้
-- ต้องใช้บริบททั้งบทสนทนา
-- ต้องถามกลับ user ระหว่างทาง — **คุยกับ subagent ไม่ได้** main session เป็น orchestrator ทางเดียว
-- ต้องให้ agent คุยกันเอง → นั่นคือ agent team คนละกลไก (แพงกว่า)
+skill เมื่อมี pattern ซ้ำ · subagent เฉพาะ user สั่ง หรือจะเทกองข้อมูลที่ไม่อ่านซ้ำลงแชท (token รวมแพงกว่า 7–10 เท่า · ถามกลับ user ระหว่างทางไม่ได้) — ตารางเต็ม [docs/reference-nateherk-ai-automation.md §Skills vs Subagents](docs/reference-nateherk-ai-automation.md)
 
 ### Parallelization
 - ✓ Read หลายไฟล์ในคำสั่งเดียว
@@ -278,7 +261,7 @@ Single-page React (ไม่มี React Router) — ทุก Supabase query �
 
 ### Key shared functions
 
-**ย้ายไป [src/CLAUDE.md](src/CLAUDE.md) §Key shared functions** — `fetchDashboardAlerts` · บัตรยา/ค้นหา · `fetchDashboardCharts` · `printApBatch` · `printTrackingList` · `resolveAuditUserName` · `resolveDispenseDepartment` · `fetchInventoryLocations` · `importDrugLoans` · `billMatchesQuery` · `matchReceiveDetails` + AP Workflow stages + Picking workflow actions
+**ย้ายไป [docs/architecture/modules-and-functions.md](docs/architecture/modules-and-functions.md)** (26/11/2569 — เดิมอยู่ src/CLAUDE.md) — `fetchDashboardAlerts` · บัตรยา/ค้นหา · `fetchDashboardCharts` · `printApBatch` · `printTrackingList` · `resolveAuditUserName` · `resolveDispenseDepartment` · `fetchInventoryLocations` · `importDrugLoans` · `billMatchesQuery` · `matchReceiveDetails` + AP Workflow stages + Picking workflow actions
 
 ## Critical Rules (ต้องอ่าน)
 
