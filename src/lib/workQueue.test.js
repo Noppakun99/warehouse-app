@@ -4,7 +4,7 @@
 // ครอบ: เกณฑ์แต่ละรายการในคิว / ซ่อนรายการ 0 / ลำดับความเร่ง / rows = ชุดที่นับ (Rule #6) /
 //       คืนบริษัท: สถานะจัดการแล้ว + คาดว่าจะหมดเอง / admin-only / รอบเบิก-รับ + วันหยุด
 
-import { buildWorkQueue, isSwapRed, describeNextCycle, thaiDayShort, fmtYmdBE } from './workQueue.js'
+import { buildWorkQueue, isSwapRed, describeNextCycle, thaiDayShort, fmtYmdBE, pickCollapsedQueue, togglePin } from './workQueue.js'
 import { resolveCycles } from '../../supabase/functions/_shared/announceSchedule.js'
 
 let pass = 0, fail = 0
@@ -159,6 +159,26 @@ section('รายงานแจ้งซื้อยา (purchase)')
   const empty = buildWorkQueue({ purchase: { waiting: [], pendingByCode: {}, notMoved: [] } })
   assertDeep(empty, [], 'ไม่มีรายการ → ไม่แสดงทั้ง 2 แถว')
   assertEq(byKey(buildWorkQueue({}), 'purchaseWaiting'), undefined, 'purchase = null (ยังโหลด/ล้ม) → ไม่แสดง')
+}
+
+section('คิวแบบย่อ 3 เรื่อง + ปักหมุด (26/11/2569)')
+{
+  const q = [
+    { key: 'swap', severity: 'red' }, { key: 'pendingReceive', severity: 'amber' },
+    { key: 'outOfStock', severity: 'red' }, { key: 'annualCount', severity: 'slate' },
+    { key: 'purchaseWaiting', severity: 'slate', informational: true }, { key: 'nearExpiry', severity: 'amber' },
+  ]
+  const none = pickCollapsedQueue(q, [])
+  assertDeep(keys(none.shown), ['swap', 'outOfStock', 'pendingReceive'], 'ไม่ปัก → แดงก่อน แล้วเหลือง (ระดับเดียวกันคงลำดับเดิม)')
+  assertEq(none.hiddenCount, 3, 'ซ่อนที่เหลือ 3 เรื่อง')
+  assertDeep(keys(pickCollapsedQueue(q, ['nearExpiry']).shown), ['nearExpiry', 'swap', 'outOfStock'], 'ปักเรื่องเหลือง → ขึ้นบนสุด ดันแดงตัวท้ายลง')
+  assertDeep(keys(pickCollapsedQueue(q, ['purchaseWaiting', 'annualCount']).shown), ['annualCount', 'purchaseWaiting', 'swap'], 'ปัก 2 เรื่อง → หมุดเรียงตามความด่วน informational ท้าย')
+  assertDeep(keys(pickCollapsedQueue(q, ['expired']).shown), ['swap', 'outOfStock', 'pendingReceive'], 'หมุดเรื่องที่วันนี้ไม่มีในคิว → ไม่นับ')
+  assertDeep(keys(pickCollapsedQueue(q.slice(0, 2), []).shown), ['swap', 'pendingReceive'], 'คิวน้อยกว่า 3 → แสดงทั้งหมด')
+  assertEq(pickCollapsedQueue(q.slice(0, 2), []).hiddenCount, 0, 'ไม่มีที่ซ่อน')
+  assertDeep(togglePin(['a'], 'b'), ['a', 'b'], 'ปักเพิ่ม')
+  assertDeep(togglePin(['a', 'b'], 'a'), ['b'], 'กดซ้ำ = ถอดหมุด')
+  assertDeep(togglePin(['a', 'b', 'c'], 'd'), ['b', 'c', 'd'], 'ปักเกิน 3 → หมุดเก่าสุดหลุด')
 }
 
 // ────────────────────────────────────────────────────────────────────

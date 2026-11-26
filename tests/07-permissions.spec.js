@@ -121,10 +121,15 @@ test.describe('Permissions — staff', () => {
       await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
       await page.goto('/');
       await waitForDashboard(page);
-      const row = page.getByRole('button', { name: /ยาเข้าใหม่ \/ ตัดออกจากบัญชี/ });
+      // คิวย่อเหลือ 3 เรื่องเป็นค่าเริ่มต้น (26/11/2569) — แถวนี้เป็น informational อยู่ท้ายคิว ต้องกาง "ดูทั้งหมด" ก่อน
+      // จับด้วยข้อความในแถว ไม่ใช่ role name — ปุ่มหมุดข้างแถวมี aria-label ชื่อเรื่องเดียวกัน
+      const queue = page.locator('section:has(h3:has-text("คิวงานวันนี้"))');
+      const row = queue.locator('li > button', { hasText: 'ยาเข้าใหม่ / ตัดออกจากบัญชี' });
+      const expand = queue.getByRole('button', { name: /ดูทั้งหมด \(อีก/ });
+      await expect(row.or(expand).first()).toBeVisible({ timeout: 30_000 });
       // popup คืนบริษัท/ยาหมดอายุเด้งวันละครั้งต่อเครื่อง — browser ใหม่ทุกเทสจึงเด้งเสมอ
-      await row.waitFor({ state: 'visible', timeout: 30_000 });
       await dismissStartupPopup(page);
+      if (await expand.isVisible()) await expand.click();
       await expect(row).toBeVisible({ timeout: 30_000 });
       const rowText = await row.innerText();
       const queueNew = Number(rowText.match(/เข้าใหม่ ([\d,]+) รายการ/)[1].replace(/,/g, ''));

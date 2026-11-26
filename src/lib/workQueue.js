@@ -145,6 +145,30 @@ export function buildWorkQueue({
   return items
 }
 
+// ── คิวแบบย่อ (user สั่ง 26/11/2569) ──────────────────────────────────────
+// ย่อแล้วเหลือ QUEUE_COLLAPSED_SIZE เรื่อง: เรื่องที่ปักหมุดก่อน แล้วเรื่องด่วน (แดง → เหลือง → เทา · informational ท้าย)
+// ในระดับเดียวกันคงลำดับเดิมของ buildWorkQueue · ปักได้ไม่เกิน QUEUE_COLLAPSED_SIZE (ปักเพิ่ม = หมุดเก่าสุดหลุด)
+export const QUEUE_COLLAPSED_SIZE = 3
+const SEVERITY_RANK = { red: 0, amber: 1, slate: 2 }
+const urgencyRank = (it) => (it.informational ? 9 : (SEVERITY_RANK[it.severity] ?? 3))
+
+/** → { shown, hiddenCount } — pins = key ที่ปักไว้ (เรียงตามเวลาที่ปัก) · key ที่วันนี้ไม่มีในคิวไม่นับ */
+export function pickCollapsedQueue(items = [], pins = [], size = QUEUE_COLLAPSED_SIZE) {
+  const pinned = new Set(pins)
+  const ranked = items
+    .map((it, i) => ({ it, i }))
+    .sort((a, b) => (pinned.has(b.it.key) - pinned.has(a.it.key)) || (urgencyRank(a.it) - urgencyRank(b.it)) || (a.i - b.i))
+    .map(x => x.it)
+  const shown = ranked.slice(0, size)
+  return { shown, hiddenCount: items.length - shown.length }
+}
+
+/** กดหมุดเรื่อง key → รายการหมุดใหม่ (ปักซ้ำ = ถอด · เกิน size ตัดหมุดเก่าสุดทิ้ง) */
+export function togglePin(pins = [], key, size = QUEUE_COLLAPSED_SIZE) {
+  if (pins.includes(key)) return pins.filter(k => k !== key)
+  return [...pins, key].slice(-size)
+}
+
 // ── บรรทัดรอบเบิก-รับถัดไป ──────────────────────────────────────────────
 const WEEKDAY_TH = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.']
 const MONTH_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']

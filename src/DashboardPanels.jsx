@@ -9,13 +9,13 @@ import {
   AlertTriangle, Undo2, PackageX, ClipboardCheck, CalendarClock, ArrowLeftRight, MessageSquareWarning,
   ListChecks, ChevronRight, CircleCheck, X, ArrowRight, Boxes, ShoppingCart, Activity,
   TrendingUp, TrendingDown, ChevronDown, CalendarDays, Database, Hourglass, Search, RotateCcw, Lightbulb, Copy, Check,
-  BookOpenCheck, Pencil, Trash2, Plus, Package, ShoppingBag, FileSpreadsheet, Loader2,
+  BookOpenCheck, Pencil, Trash2, Plus, Package, ShoppingBag, FileSpreadsheet, Loader2, Pin, ChevronUp,
 } from 'lucide-react';
 import { fmtReportNum } from './lib/purchaseReportSheet';
 import { SWAP_ACTION_STATUS, insertFormularyChange, updateFormularyChange, deleteFormularyChange, fetchCartDraft, deleteCartDraft, fetchPurchaseArrivals, fetchNewDrugDispense } from './lib/db';
 import { reqTypeLabel, clearLocalCart } from './lib/reqType';
 import { openDrugSearch } from './lib/drugSearchEvent';
-import { isSwapRed, fmtYmdBE } from './lib/workQueue';
+import { isSwapRed, fmtYmdBE, pickCollapsedQueue, togglePin, QUEUE_COLLAPSED_SIZE } from './lib/workQueue';
 import { parseExpDate, unitLabel } from './lib/drugProfile';
 import {
   NEW_DRUG_DAYS, CHANGE_TYPE_LABEL, buildNewDrugs, buildFormularyOut, buildNewDrugLine, countReceivedNew,
@@ -78,16 +78,48 @@ export function DrugSearchLauncher() {
 }
 
 // ── คิวงานวันนี้ ─────────────────────────────────────────────────────
+// ย่อเหลือ 3 เรื่องเป็นค่าเริ่มต้น + ปักหมุดเรื่องที่อยากเห็นตลอด (user สั่ง 26/11/2569) — จำไว้ที่เครื่อง
+const QUEUE_EXPANDED_KEY = 'dashboard_queue_expanded';
+const QUEUE_PINS_KEY = 'dashboard_queue_pins';
+const readPins = () => {
+  try { const v = JSON.parse(localStorage.getItem(QUEUE_PINS_KEY) || '[]'); return Array.isArray(v) ? v.filter(k => typeof k === 'string') : []; } catch { return []; }
+};
+
 export function WorkQueuePanel({ items = [], loading = false, onOpen }) {
   const pendingCount = items.filter(it => !it.informational).length;
+  const [expanded, setExpanded] = useState(() => {
+    try { return localStorage.getItem(QUEUE_EXPANDED_KEY) === '1'; } catch { return false; }
+  });
+  const [pins, setPins] = useState(readPins);
+  const toggleExpanded = () => setExpanded(v => {
+    try { localStorage.setItem(QUEUE_EXPANDED_KEY, v ? '0' : '1'); } catch { /* จำไม่ได้ — ใช้ได้แค่รอบนี้ */ }
+    return !v;
+  });
+  const onTogglePin = (key) => setPins(prev => {
+    const next = togglePin(prev, key);
+    try { localStorage.setItem(QUEUE_PINS_KEY, JSON.stringify(next)); } catch { /* จำไม่ได้ — ใช้ได้แค่รอบนี้ */ }
+    return next;
+  });
+  const { shown: collapsedItems, hiddenCount } = useMemo(() => pickCollapsedQueue(items, pins), [items, pins]);
+  const canCollapse = items.length > QUEUE_COLLAPSED_SIZE;
+  const visible = expanded || !canCollapse ? items : collapsedItems;
+  const pinSet = new Set(pins);
   return (
     <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm overflow-hidden">
-      <header className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+      <header className="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-100 dark:border-slate-800">
         <div className="flex items-center gap-2">
           <div className="p-1.5 rounded-lg bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-300"><ClipboardCheck size={15} /></div>
           <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">คิวงานวันนี้</h3>
         </div>
-        {!loading && <span className="text-xs text-slate-400 dark:text-slate-500">{pendingCount > 0 ? `${pendingCount} เรื่องค้าง` : ''}</span>}
+        <div className="flex items-center gap-2">
+          {!loading && <span className="text-xs text-slate-400 dark:text-slate-500">{pendingCount > 0 ? `${pendingCount} เรื่องค้าง` : ''}</span>}
+          {!loading && canCollapse && expanded && (
+            <button type="button" onClick={toggleExpanded} aria-expanded="true"
+              className="inline-flex items-center gap-0.5 rounded-lg px-2 py-1 text-xs font-medium text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-950/40 transition-colors">
+              ย่อเหลือ {QUEUE_COLLAPSED_SIZE} <ChevronUp size={14} />
+            </button>
+          )}
+        </div>
       </header>
 
       {loading ? (
@@ -108,15 +140,27 @@ export function WorkQueuePanel({ items = [], loading = false, onOpen }) {
           <span>ไม่มีงานค้างในคิว ณ ข้อมูลนำเข้าล่าสุด</span>
         </div>
       ) : (
+        <>
         <ul className="divide-y divide-slate-50 dark:divide-slate-800">
-          {items.map(it => {
+          {visible.map(it => {
             const Icon = QUEUE_ICON[it.key] || AlertTriangle;
             const sev = SEVERITY[it.severity] || SEVERITY.slate;
             const pct = it.progress?.total ? Math.round((it.progress.counted / it.progress.total) * 100) : null;
+            const pinned = pinSet.has(it.key);
             return (
-              <li key={it.key}>
+              <li key={it.key} className="flex items-stretch">
+                {canCollapse && (
+                  <button type="button" onClick={() => onTogglePin(it.key)} aria-pressed={pinned}
+                    aria-label={pinned ? `เลิกปักหมุด ${it.label}` : `ปักหมุด ${it.label} ให้อยู่ในคิวแบบย่อ`}
+                    title={pinned ? 'เลิกปักหมุด' : `ปักหมุด — ให้เรื่องนี้อยู่ใน ${QUEUE_COLLAPSED_SIZE} เรื่องแรกเสมอ`}
+                    className={`shrink-0 flex items-center justify-center w-10 transition-colors ${pinned
+                      ? 'text-sky-600 dark:text-sky-300 bg-sky-50/70 dark:bg-sky-950/30'
+                      : 'text-slate-300 dark:text-slate-600 hover:text-slate-500 dark:hover:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/60'}`}>
+                    <Pin size={15} className={pinned ? 'fill-current' : ''} />
+                  </button>
+                )}
                 <button type="button" onClick={() => onOpen?.(it)}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors">
+                  className={`flex-1 min-w-0 flex items-center gap-3 ${canCollapse ? 'pl-1 pr-4' : 'px-4'} py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors`}>
                   <span className={`p-2 rounded-xl shrink-0 ${sev.chip}`}><Icon size={18} /></span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100 leading-snug">{it.label}</span>
@@ -137,6 +181,13 @@ export function WorkQueuePanel({ items = [], loading = false, onOpen }) {
             );
           })}
         </ul>
+        {canCollapse && !expanded && hiddenCount > 0 && (
+          <button type="button" onClick={toggleExpanded} aria-expanded="false"
+            className="w-full flex items-center justify-center gap-1 px-4 py-2.5 border-t border-slate-100 dark:border-slate-800 text-xs font-medium text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-950/40 transition-colors">
+            ดูทั้งหมด (อีก {hiddenCount} เรื่อง) <ChevronDown size={14} />
+          </button>
+        )}
+        </>
       )}
     </section>
   );
