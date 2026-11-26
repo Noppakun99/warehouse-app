@@ -154,7 +154,7 @@ const COL = {
   exp:      { label: 'หมดอายุ',  cell: r => fmtExpTh(r.exp), nowrap: true },
   location: { label: 'ที่เก็บ',   cell: r => dash(r.location) },
   qty:      { label: 'คงเหลือ',  cell: r => numOrDash(r.qty), num: true },
-  unit:     { label: 'หน่วย',    cell: r => dash(r.unit), nowrap: true },
+  unit:     { label: 'หน่วย',    cell: r => unitLabel(r.unit) || '-', nowrap: true },
 };
 // ยาเข้าใหม่ / ตัดออก — วันที่รับ บริษัท ราคา มาจากแถวรับ (receiveSummary ใน formularyChange.js)
 const fmtPrice = (v) => (v == null ? '-' : Number(v).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
@@ -168,7 +168,7 @@ const FCOL = {
   total:    { label: 'คงเหลือ', cell: r => (r.total == null ? '-' : fmtNum(r.total)), num: true },
   supplier: { label: 'บริษัท', cell: r => dash(r.supplier), wide: true },
   // ราคาคิดต่อหน่วยในบิล — แท็บตัดออก หน่วยบิลต่างหน่วยคงเหลือได้ จึงกำกับหน่วยไว้
-  price:    { label: 'ราคา/หน่วย', num: true, nowrap: true, cell: r => `${fmtPrice(r.price)}${r.price != null && r.priceUnit && r.priceUnit !== r.unit ? ` / ${r.priceUnit}` : ''}` },
+  price:    { label: 'ราคา/หน่วย', num: true, nowrap: true, cell: r => `${fmtPrice(r.price)}${r.price != null && r.priceUnit && r.priceUnit !== r.unit ? ` / ${unitLabel(r.priceUnit)}` : ''}` },
 };
 // จำนวนที่แจ้ง + เรทเบิก/เดือน ตามรายงาน ณ วันแจ้ง (ADR-0030 amendment) — snapshot: true = ซ่อนเมื่อไม่มีค่าเลย (ผู้เบิก)
 const PR_SNAPSHOT_COLS = [
@@ -946,7 +946,7 @@ export function OverviewPanel({ alerts, purchase = null, wide = false, loaded = 
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 leading-tight truncate">{r.name || r.code}</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                    คงเหลือ <span className="font-bold text-red-600 dark:text-red-400">{fmtNum(r.qty)}</span> / SS {fmtNum(r.safety_stock)}{r.unit ? ` ${r.unit}` : ''}
+                    คงเหลือ <span className="font-bold text-red-600 dark:text-red-400">{fmtNum(r.qty)}</span> / SS {fmtNum(r.safety_stock)}{unitLabel(r.unit) ? ` ${unitLabel(r.unit)}` : ''}
                   </p>
                   {pr && (
                     <p className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 text-[11px] font-semibold"

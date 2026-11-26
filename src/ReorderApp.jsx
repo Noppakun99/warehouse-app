@@ -937,7 +937,7 @@ function PurchaseRequestTab({ purchase }) {
                     <td className="px-4 py-2.5 whitespace-nowrap tabular-nums text-slate-700 dark:text-slate-200">{fmtThaiDate(r.notified_on)}</td>
                     <td className="px-4 py-2.5">
                       <div className="font-semibold text-slate-800 dark:text-slate-100">{r.name || '-'}</div>
-                      <div className="text-xs text-slate-400 dark:text-slate-500 font-mono">{r.code}{r.unit ? ` · ${r.unit}` : ''}</div>
+                      <div className="text-xs text-slate-400 dark:text-slate-500 font-mono">{r.code}{unitLabel(r.unit) ? ` · ${unitLabel(r.unit)}` : ''}</div>
                     </td>
                     <td className="px-4 py-2.5"><PrStatePill r={r}/></td>
                     <td className="px-4 py-2.5 text-right whitespace-nowrap tabular-nums"><PrQtyRate r={r}/></td>
@@ -959,7 +959,7 @@ function PurchaseRequestTab({ purchase }) {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-sm text-slate-800 dark:text-slate-100 break-words">{r.name || '-'}</p>
-                    <p className="text-[11px] text-slate-400 dark:text-slate-500 font-mono">{r.code}{r.unit ? ` · ${r.unit}` : ''} · แจ้ง {fmtThaiDate(r.notified_on)}</p>
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 font-mono">{r.code}{unitLabel(r.unit) ? ` · ${unitLabel(r.unit)}` : ''} · แจ้ง {fmtThaiDate(r.notified_on)}</p>
                   </div>
                   <PrStatePill r={r}/>
                 </div>
@@ -1041,7 +1041,7 @@ function DrugDetailPanel({ r, months, onClose }) {
         <div className="flex items-start justify-between gap-2 px-5 py-4 border-b border-slate-200 dark:border-slate-700">
           <div className="min-w-0">
             <h3 className="font-bold text-slate-800 dark:text-slate-100 leading-tight">{r.name || '-'}</h3>
-            <p className="text-xs text-slate-400 dark:text-slate-500 font-mono mt-0.5">{r.code}{r.unit ? ` · ${r.unit}` : ''}</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 font-mono mt-0.5">{r.code}{unitLabel(r.unit) ? ` · ${unitLabel(r.unit)}` : ''}</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0" title="ปิด"><X size={18}/></button>
         </div>
@@ -1300,7 +1300,7 @@ function AnalysisRow({ r, pending, onEdit, onOpen, visibleCols }) {
               <span>{r.name || '-'}</span>
               {pending && <PendingPill p={pending}/>}
             </div>
-            <div className="text-xs text-slate-400 dark:text-slate-500 font-mono truncate">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}{r.receiveDate ? ` · รับ ${fmtThaiDate(r.receiveDate)}` : ''}</div>
+            <div className="text-xs text-slate-400 dark:text-slate-500 font-mono truncate">{r.code}{unitLabel(r.unit) ? ` · ${unitLabel(r.unit)}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}{r.receiveDate ? ` · รับ ${fmtThaiDate(r.receiveDate)}` : ''}</div>
           </button>
         </div>
       </td>
@@ -1376,7 +1376,7 @@ function AnalysisCard({ r, pending, onEdit, onOpen }) {
       <div className="flex items-start justify-between gap-2 mb-2">
         <button onClick={onOpen} className="flex-1 min-w-0 text-left" title="ดูรายละเอียด">
           <div className="font-bold text-sm leading-tight text-slate-800 dark:text-slate-100">{r.name || '-'}</div>
-          <div className="text-[11px] text-slate-400 dark:text-slate-500 font-mono">{r.code}{r.unit ? ` · ${r.unit}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}</div>
+          <div className="text-[11px] text-slate-400 dark:text-slate-500 font-mono">{r.code}{unitLabel(r.unit) ? ` · ${unitLabel(r.unit)}` : ''}{r.supplier ? ` · ${r.supplier}` : ''}</div>
           {pending && <div className="mt-1"><PendingPill p={pending}/></div>}
         </button>
         <span className={`inline-flex items-center gap-1 ${tone.chip} px-2 py-0.5 rounded-full text-[10px] font-semibold border whitespace-nowrap`}>

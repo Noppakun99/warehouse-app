@@ -65,13 +65,27 @@ for (const file of walk(SRC)) {
     const prev = ints.slice(0, k).reverse().find(p => p.end <= it.start && !(p.start < it.start && p.end > it.start))
     if (!prev) continue
     const gap = src.slice(prev.end, it.start)
-    const gapClean = gap.replace(/<[^>]*>/g, '').replace(/\{\s*['"]\s*['"]\s*\}/g, '').replace(/[\s ]/g, '')
-    if (gapClean !== '' && gapClean !== '(') continue                                            // มีข้อความคั่น = ไม่ได้ต่อจากตัวเลข
+    const gapClean = gap.replace(/<[^>]*>/g, '').replace(/\{\s*['"]\s*['"]\s*\}/g, '')
+      .replace(/\{[^{}`]*\?\s*`/g, '')                                                          // เงื่อนไขครอบ: {r.unit ? ` (${r.unit})` : ''}
+      .replace(/[\s ]/g, '')
     if (gap.length > 400) continue
     const pe = prev.expr.trim()
+    // รหัสยาเป็นตัวเลข "1000135 · 30เม็ด" อ่านเหมือนจำนวน → นับเป็นจุดหลุดด้วย
+    if (gapClean === '·' && /(^|\.)code$/.test(pe)) {
+      violations.push(`${relative(ROOT, file).replace(/\\/g, '/')}:${ln}  ${pe.slice(0, 50)}  ·  ${e.slice(0, 50)}`)
+      continue
+    }
+    if (gapClean !== '' && gapClean !== '(') continue                                            // มีข้อความคั่น = ไม่ได้ต่อจากตัวเลข
     if (!NUMERIC_EXPR.test(pe) || UNIT_EXPR.test(pe) && !/toLocaleString|fmt|num\(/.test(pe)) continue
     violations.push(`${relative(ROOT, file).replace(/\\/g, '/')}:${ln}  ${pe.slice(0, 50)}  →  ${e.slice(0, 50)}`)
   }
+  // คอลัมน์ตาราง "หน่วย" ข้างคอลัมน์คงเหลือ: cell: r => dash(r.unit) — ไม่มี interpolation ติดตัวเลขให้จับข้างบน
+  lines.forEach((line, i) => {
+    const m = line.match(/\bcell\s*:\s*\(?\w+\)?\s*=>\s*(.*)/)
+    if (!m || line.includes('qty-unit-ok') || SAFE_WRAP.test(m[1])) return
+    if (/^[\w$]+\([\w$]+\.[\w$]*(unit|Unit)\)|^[\w$]+\.[\w$]*(unit|Unit)\b\s*(\|\||,|\}|$)/.test(m[1].trim()))
+      violations.push(`${relative(ROOT, file).replace(/\\/g, '/')}:${i + 1}  คอลัมน์หน่วย  →  ${m[1].trim().slice(0, 50)}`)
+  })
 }
 
 if (violations.length) {

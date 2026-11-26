@@ -20,7 +20,7 @@ import { supabase }       from './lib/supabase';
 import { fetchDashboardAlerts, fetchDashboardCharts, fetchChartMonthRange, fetchPendingReturnCount, fetchPendingRequisitionCount, loginUser, registerUser, checkFirstRun, createAppUser, fetchStockSummary, fetchDrugDetails, fetchSwapReturnDue, flagSwapReturn, fetchSwapPolicies, upsertSwapReturnAction, SWAP_ACTION_STATUS, fetchSwapReturnActions, swapActionKey, fetchLatestLineQuotaAlerts, fetchDrugLoans, loanOverdueDays, fetchOpenAnnualCount, fetchUploadMeta, fetchHolidayMap, fetchFormularyChanges, fetchNewDrugData, fetchPurchaseRequests } from './lib/db';
 import { summarizePurchaseStatus } from './lib/purchaseReportSheet';
 import { buildNewDrugs, buildFormularyOut, countReceivedNew, NEW_DRUG_DAYS } from './lib/formularyChange';
-import { buildLotReturnPolicies, returnPolicyLabel, policySourceNote, unitLabel } from './lib/drugProfile';
+import { buildLotReturnPolicies, returnPolicyLabel, policySourceNote, unitLabel, qtyWithUnit } from './lib/drugProfile';
 import { matchReceiveDetails } from './lib/receiveMatch';
 import { buildWorkQueue, describeNextCycle, isSwapRed, isSwapOpen } from './lib/workQueue';
 import { pickPopupRows, readSeen, writeSeen, popupStorageKey } from './lib/popupSeen';
@@ -1096,7 +1096,7 @@ function ExpiredStockPopup({ rows = [], onClose, onOpenAll }) {
                 <p>Lot: <span className="font-medium text-slate-800 dark:text-slate-100">{it.lot || '-'}</span></p>
                 <p>Exp: <span className="font-medium text-slate-800 dark:text-slate-100">{it.exp || '-'}</span></p>
                 <p>ที่เก็บ: <span className="font-medium text-slate-800 dark:text-slate-100">{it.location || '-'}</span></p>
-                <p>คงเหลือ: <span className="font-medium text-slate-800 dark:text-slate-100">{it.qty}{it.unit ? ` (${it.unit})` : ''}</span></p>
+                <p>คงเหลือ: <span className="font-medium text-slate-800 dark:text-slate-100">{qtyWithUnit(it.qty, it.unit)}</span></p>
               </div>
             </div>
           ))}
@@ -1250,7 +1250,7 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
       ${list.map(r => `<tr>
         <td>${esc(swapStatusText(r))}</td><td>${esc(r.name)}</td><td>${esc(r.code)}</td>
         <td>${esc(r.lot)}</td><td>${esc(r.location)}</td><td>${esc(swapFmtDeadline(r.receiveDate))}</td><td>${esc(swapFmtExp(r.exp))}</td>
-        <td style="text-align:right">${esc(r.qty)}${r.unit ? ` (${esc(r.unit)})` : ''}</td>
+        <td style="text-align:right">${esc(qtyWithUnit(r.qty, r.unit))}</td>
         <td>${esc(r.company)}</td><td>${esc(swapFmtDeadline(r.deadline))}</td>
         <td style="text-align:right">${esc(swapRateText(r))}</td>
         <td>${esc(SWAP_ACTION_STATUS[r.actionStatus] || SWAP_ACTION_STATUS.pending)}</td>
@@ -1310,7 +1310,7 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
             <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">Lot {r.lot} · {r.location}</span>
             {r.receiveDate && <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">คลังรับ {fmtThai(r.receiveDate)}</span>}
             <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">EXP {fmtExp(r.exp)}</span>
-            <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 shrink-0">คงเหลือ {r.qty}{r.unit ? ` (${r.unit})` : ''}</span>
+            <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 shrink-0">คงเหลือ {qtyWithUnit(r.qty, r.unit)}</span>
             <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{r.company}</span>
             <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">ต้องคืนภายใน {fmtThai(r.deadline)}</span>
             {isFlagged ? (
@@ -1816,7 +1816,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth, onOpenDrug }) {
                         return ts.length ? <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">คลังรับ {fmtThaiDate(new Date(Math.max(...ts)))}</span> : null;
                       })()}
                       {r.exp && r.exp !== '-' && <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">EXP {swapFmtExp(r.exp)}</span>}
-                      <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 shrink-0">คงเหลือ {r.qty}{r.unit ? ` (${r.unit})` : ''}</span>
+                      <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 shrink-0">คงเหลือ {qtyWithUnit(r.qty, r.unit)}</span>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{r.supplier || 'ไม่ทราบบริษัท'}</span>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">ต้องคืนภายใน {fmtThaiDate(r.returnInfo.deadline)}</span>
                       {flagged ? (
