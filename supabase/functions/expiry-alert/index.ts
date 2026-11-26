@@ -465,6 +465,45 @@ function noReturnNote(row: InvRow, exp: Date, idx: Map<string, PolicyLot>, compa
 }
 
 // ============================================================
+// หน่วยต่อท้ายตัวเลข — copy จาก unitLabel/qtyWithUnit ใน src/lib/drugProfile.js (แก้ที่นั่นต้องแก้ที่นี่)
+// "19" + "100เม็ด" → "19 กล่อง (100 เม็ด)" · เดิม LINE ขึ้น "(19 100เม็ด)" อ่านไม่ออก (พบ 26/11/2569)
+// ============================================================
+const VOLUME_BASE = /^(ml|มล\.?|cc|l|ลิตร)$/i;
+const WEIGHT_BASE = /^(gm|g|กรัม|kg)$/i;
+const NESTED_PACK = /^(\d+)\s*[*x×]\s*(\d+)\s*(.+)$/i;
+const NESTED_PACK_WORDS: Record<string, [string, string]> = {
+  "25*5gm": ["กล่อง", "ซอง"],
+  "20*20เม็ด": ["กล่อง", "ซอง"],
+  "12*25gm": ["แพ็ค", "หลอด"],
+  "5*10amp": ["แพ็ค", "กล่อง"],
+};
+function splitUnit(unit: string): { factor: number; base: string } {
+  const m = String(unit || "").match(/^(\d+)\s*(.+)$/);
+  if (m) return { factor: parseInt(m[1]), base: m[2].trim() };
+  return { factor: 1, base: String(unit || "-").trim() };
+}
+function unitLabel(unit: string): string {
+  const s = String(unit ?? "").trim();
+  if (!s || s === "-") return "";
+  const nested = s.match(NESTED_PACK);
+  if (nested) {
+    const [, outer, inner, innerBase] = nested;
+    const base = innerBase.trim();
+    const [ow, iw] = NESTED_PACK_WORDS[`${outer}*${inner}${base}`.toLowerCase()] || ["กล่อง", ""];
+    return `${ow} (${outer} ${iw ? iw + " " : ""}× ${inner} ${base})`;
+  }
+  const { factor, base } = splitUnit(s);
+  if (factor === 1) return /^\d/.test(s) ? base : s;
+  const word = VOLUME_BASE.test(base) ? "ขวด" : WEIGHT_BASE.test(base) ? "ชิ้น" : "กล่อง";
+  return `${word} (${factor.toLocaleString("en-US")} ${base})`;
+}
+function qtyWithUnit(qty: string, unit: string): string {
+  const q = qty == null || qty === "" ? "-" : String(qty);
+  const u = unitLabel(unit);
+  return u ? `${q} ${u}` : q;
+}
+
+// ============================================================
 // สร้าง HTML email
 // ============================================================
 interface InvRow {
@@ -536,7 +575,7 @@ function makeTable(items: AlertItem[], today: Date, isExpired: boolean, detailMa
           ${field("Lot", row.lot || "-")}
           ${field("วันหมดอายุ", fmtDate(item.expDate), true)}
           ${field("ตำแหน่ง", row.location || "-")}
-          ${field("คงเหลือ", `${row.qty || "-"}${row.unit ? ` (${row.unit})` : ""}`)}
+          ${field("คงเหลือ", qtyWithUnit(row.qty, row.unit))}
           ${field("บริษัท", supplier)}
           ${swapText !== "-" ? field("นโยบายเปลี่ยน/คืน", `<span style="font-size:12px;color:#475569;line-height:1.5;">${swapText}</span>`) : ""}
         </table>
@@ -638,7 +677,7 @@ function buildExpiredEmail(expired: AlertItem[], today: Date, detailMap: Record<
           ${field("Lot", row.lot || "-")}
           ${field("วันหมดอายุ", fmtDate(item.expDate), true)}
           ${field("ตำแหน่ง", row.location || "-", true)}
-          ${field("คงเหลือ", `${row.qty || "-"}${row.unit ? ` (${row.unit})` : ""}`)}
+          ${field("คงเหลือ", qtyWithUnit(row.qty, row.unit))}
           ${field("บริษัท", d.supplier_current || "-")}
         </table>
       </td></tr>
@@ -717,7 +756,7 @@ function lineBucket(items: AlertItem[], today: Date, isExpired: boolean, detailM
     const d = detailMap[`${code}|${lot}`] || ({} as DetailEntry);
     const supplier = d.supplier_current || "-";
     const daysLabel = isExpired ? `เกิน ${Math.abs(days)} วัน` : `เหลือ ${days} วัน`;
-    let l = `• ${row.name || "-"}${isDiscontinued(row) ? " [ตัดออกจากบัญชี]" : ""}${item.noReturn ? " [บริษัทไม่รับคืน]" : ""} (${row.qty || "-"} ${row.unit || ""}) exp ${fmtDate(item.expDate)} — ${daysLabel} · ${supplier}`;
+    let l = `• ${row.name || "-"}${isDiscontinued(row) ? " [ตัดออกจากบัญชี]" : ""}${item.noReturn ? " [บริษัทไม่รับคืน]" : ""} (${qtyWithUnit(row.qty, row.unit)}) exp ${fmtDate(item.expDate)} — ${daysLabel} · ${supplier}`;
     const pol = policyText(row, detailMap);
     if (pol) l += `\n   ↳ นโยบาย: ${pol}`;
     return l;
