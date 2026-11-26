@@ -234,6 +234,16 @@ section('Test 7: V2 computeReturnStatusV2')
     assertEq(r.deadline.getMonth(), 7, 'after_exp deadline = ส.ค. (exp พ.ค. + 3)')
     assertEq(r.status, 'due', 'เหลือ ~51 วัน → due')
   }
+  // after_exp ไม่จำกัด (ภิญโญ): ไม่มีเส้นตาย — ก่อน exp = ok · หลัง exp = due ไม่ใช่ overdue (บั๊ก "พ้นกำหนดคืน" 26/11/2569)
+  {
+    const p = V('รับเปลี่ยนเมื่อหมดอายุ ตามจำนวนจริง (รายการยาที่ระบุไว้ตามหนังสือ)')
+    const before = computeReturnStatusV2({ policy: p, exp: new Date(2026, 6, 1), today })
+    assertEq(before.status, 'ok', 'ไม่จำกัด ยังไม่หมดอายุ (อีก ~11 วัน) → ok ไม่เตือน')
+    assertEq(before.deadline, null, 'ไม่จำกัด → ไม่มี deadline')
+    const after = computeReturnStatusV2({ policy: p, exp: new Date(2025, 0, 1), today })
+    assertEq(after.status, 'due', 'ไม่จำกัด หมดอายุแล้ว → due (คืนได้แล้ว)')
+    assertEq(after.daysToDeadline, null, 'ไม่จำกัด หมดอายุแล้ว → daysToDeadline null')
+  }
   // binary → no_return
   {
     const r = computeReturnStatusV2({ policy: V('ไม่รับแลกเปลี่ยนคืน'), exp: new Date(2027, 0, 1), today })

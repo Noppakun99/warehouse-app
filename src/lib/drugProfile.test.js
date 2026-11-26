@@ -484,7 +484,7 @@ section('ป้ายสถานะคืนบริษัท (returnPolicyLab
   const lab = rps.map(rp => { const l = returnPolicyLabel(rp); return [l.tone, l.text, l.dateLabel, iso(l.date)] })
   const [enox, noreth, salb, pre, inWin, late, tierExp, before] = lab
 
-  assertEq(rps[0].status, 'due', 'status เดิมของ Enoxaparin คงเดิม (popup/บอทไม่กระทบ)')
+  assertEq(rps[0].status, 'ok', 'Enoxaparin ภิญโญ คืนได้หลังหมดอายุไม่จำกัด ยังไม่หมดอายุ → ok ไม่เด้ง popup (26/11/2569 เลิกใช้ exp เป็นเส้นตาย)')
   assertDeep(enox, ['emerald', 'คืนได้หลังหมดอายุ', 'คืนได้ตั้งแต่', '2026-11-17'], 'Enoxaparin AC13011A: หลังหมดอายุไม่มีกำหนด ยังไม่หมดอายุ → คืนได้หลังหมดอายุ · คืนได้ตั้งแต่ exp (เดิมขึ้น "ต้องคืนใน 7 วัน")')
   assertDeep(noreth, ['emerald', 'คืนได้แล้ว', null, null], 'Norethisterone E10923010: หมดอายุแล้ว ไม่มีกำหนด → คืนได้แล้ว (เดิมขึ้น "พ้นกำหนดคืน")')
   assertEq(rps[2].status, 'overdue', 'status เดิมของ Salbutamol = overdue (ตก tier 100%)')

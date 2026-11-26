@@ -2524,7 +2524,7 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
           if (ri.status === 'review')  return { text: 'ต้องเช็กเอกสาร', cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700' };
           const pct = ri.returnPct != null && ri.returnPct !== 100 ? ` (คืน ${ri.returnPct}%)` : '';
           if (ri.status === 'overdue') return { text: `พ้นกำหนดคืน${pct}`, cls: 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60' };
-          if (ri.status === 'due')     return { text: `ต้องคืนใน ${ri.daysToDeadline} วัน${pct}`, cls: 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800/60' };
+          if (ri.status === 'due')     return { text: ri.daysToDeadline == null ? 'หมดอายุแล้ว คืนได้' : `ต้องคืนใน ${ri.daysToDeadline} วัน${pct}`, cls: 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800/60' };
           if (ri.status === 'ok' && ri.returnMonths != null) return { text: `คืนก่อน ${ri.returnMonths} ด.`, cls: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900/60' };
           return null;
         };
@@ -2765,12 +2765,12 @@ export default function App({ onRefresh, role = 'staff', auth = {}, onGoBack, ca
                       return (
                         <div key={flagKeyOf(r)} className="flex items-center gap-2 flex-wrap bg-white/70 dark:bg-slate-900/70 rounded-lg px-2.5 py-1.5 border border-amber-200 dark:border-amber-900/60">
                           <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.returnInfo.status === 'overdue' ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800/60'}`}>
-                            {r.returnInfo.status === 'overdue' ? 'พ้นกำหนด' : `เหลือ ${r.returnInfo.daysToDeadline} วัน`}
+                            {r.returnInfo.status === 'overdue' ? 'พ้นกำหนด' : r.returnInfo.daysToDeadline == null ? 'คืนได้แล้ว' : `เหลือ ${r.returnInfo.daysToDeadline} วัน`}
                           </span>
                           <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{r.name}</span>
                           <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">Lot {r.lot} · {r.supplier || 'ไม่ทราบบริษัท'}</span>
                           {r.exp && r.exp !== '-' && <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">หมดอายุ {fmtThaiDate(parseDateString(r.exp))}</span>}
-                          <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">ต้องคืนภายใน {fmtThaiDate(r.returnInfo.deadline)}</span>
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{r.returnInfo.deadline ? `ต้องคืนภายใน ${fmtThaiDate(r.returnInfo.deadline)}` : 'ไม่มีกำหนดคืน'}</span>
                           {flagged ? (
                             <span className="ml-auto text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 shrink-0">แจ้งหัวหน้าแล้ว</span>
                           ) : (

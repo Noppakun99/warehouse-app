@@ -387,7 +387,13 @@ function computeReturnStatusV2(policy: PolicyV2, exp: Date, receiveDate: Date | 
       return { status: d <= 0 ? "overdue" : d <= RETURN_ALERT_BUFFER_DAYS ? "due" : "ok", deadline: exp, daysToDeadline: d, percent: 100, note: "รับคืน (ส่งมาอายุสั้น)" };
     }
     case "after_exp": {
-      const dl = policy.afterExpMonths != null ? addMonths(exp, policy.afterExpMonths) : exp;
+      // ไม่จำกัดเวลา = ไม่มีเส้นตาย (ตรง swapPolicy.js 26/11/2569) — เดิม deadline = exp ทำให้หมดอายุแล้วขึ้น "พ้นกำหนด"
+      // deadline null → ส่วน "ต้องเปลี่ยน/คืนบริษัท" ของบอทข้ามไป (lot หมดอายุยังขึ้นในส่วนยาหมดอายุ)
+      if (policy.afterExpMonths == null) {
+        const expired = diffDaysD(exp, today) <= 0;
+        return { status: expired ? "due" : "ok", deadline: null, daysToDeadline: null, percent: 100, note: expired ? "หมดอายุแล้ว คืนได้ (ไม่มีกำหนด)" : "คืนได้หลังหมดอายุ (ไม่มีกำหนด)" };
+      }
+      const dl = addMonths(exp, policy.afterExpMonths);
       const d = diffDaysD(dl, today);
       return { status: d <= 0 ? "overdue" : d <= RETURN_ALERT_BUFFER_DAYS ? "due" : "ok", deadline: dl, daysToDeadline: d, percent: policy.afterExpMonths != null ? null : 100, note: policy.afterExpMonths != null ? `คืนได้ถึง ${policy.afterExpMonths} เดือนหลังหมดอายุ` : "คืนได้หลังหมดอายุ" };
     }

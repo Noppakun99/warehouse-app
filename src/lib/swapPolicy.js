@@ -265,8 +265,15 @@ export function computeReturnStatusV2({ policy, exp, receiveDate, today, bufferD
     }
 
     case 'after_exp': {
-      // คืนได้หลัง exp; deadline = exp + N (ถ้าไม่มี N = ไม่จำกัด → ใช้ exp เป็นจุดเริ่มเตือน)
-      const dl = policy.afterExpMonths != null ? addMonths(exp, policy.afterExpMonths) : exp
+      // ไม่จำกัดเวลา (ภิญโญ "รับเปลี่ยนเมื่อหมดอายุ ตามจำนวนจริง") = ไม่มีเส้นตาย: ก่อน exp ยังคืนไม่ได้ (ok) · หลัง exp คืนได้ทันที (due ไม่มีวันกำหนด)
+      // ห้ามใช้ exp เป็น deadline — เดิมหมดอายุแล้วขึ้น "พ้นกำหนด" ทั้งที่เพิ่งเริ่มคืนได้ (แก้ 26/11/2569)
+      if (policy.afterExpMonths == null) {
+        const expired = diffDays(exp, today) <= 0
+        return { status: expired ? 'due' : 'ok', deadline: null, daysToDeadline: null, percent: 100, needsReview: false,
+          note: expired ? 'หมดอายุแล้ว คืนได้ (ไม่มีกำหนด)' : 'คืนได้หลังหมดอายุ (ไม่มีกำหนด)' }
+      }
+      // คืนได้หลัง exp ภายใน N เดือน → deadline = exp + N
+      const dl = addMonths(exp, policy.afterExpMonths)
       const d = diffDays(dl, today)
       return { status: d <= 0 ? 'overdue' : d <= bufferDays ? 'due' : 'ok', deadline: dl, daysToDeadline: d,
         percent: policy.afterExpMonths != null ? null : 100, needsReview: false,

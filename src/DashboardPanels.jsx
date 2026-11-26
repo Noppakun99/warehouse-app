@@ -244,7 +244,7 @@ function rowHead(key, r) {
     case 'swap': {
       const d = r.daysToDeadline;
       return { name, code, note: r.willDeplete ? 'คาดว่าจะหมดเองก่อนเส้นตาย' : null,
-        badge: d == null ? '-' : d < 0 ? `เลยเส้นตาย ${fmtNum(-d)} วัน` : `เหลือ ${fmtNum(d)} วัน`, tone: isSwapRed(r) ? 'red' : 'amber' };
+        badge: d == null ? (r.status === 'overdue' ? 'พ้นกำหนด' : 'คืนได้แล้ว') : d < 0 ? `เลยเส้นตาย ${fmtNum(-d)} วัน` : `เหลือ ${fmtNum(d)} วัน`, tone: isSwapRed(r) ? 'red' : 'amber' };
     }
     case 'outOfStock':
       return { name, code, note: r.purchasePending ? purchaseNote(r.purchasePending) : null, badge: 'หมด', tone: 'red' };

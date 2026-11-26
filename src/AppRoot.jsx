@@ -1031,7 +1031,8 @@ function SwapActionDateInput({ value, onChange, className = '' }) {
     </div>
   );
 }
-const swapStatusText = (r) => r.status === 'overdue' ? 'พ้นกำหนดแล้ว' : `เหลือ ${r.daysToDeadline} วัน`;
+// daysToDeadline null (ไม่ใช่ overdue) = คืนได้หลังหมดอายุแบบไม่จำกัดเวลา ที่หมดอายุแล้ว — ไม่มีเส้นตาย
+const swapStatusText = (r) => r.status === 'overdue' ? 'พ้นกำหนดแล้ว' : r.daysToDeadline == null ? 'คืนได้แล้ว' : `เหลือ ${r.daysToDeadline} วัน`;
 const swapRateText = (r) => r.avgBaseUnit ? `~${Math.round(r.avgBaseUnit).toLocaleString()} ${unitLabel(r.baseUnit) || 'หน่วย'}/เดือน` : 'ไม่มีการเบิก';
 
 // normExpDate + matchReceiveDetails ย้ายไป src/lib/receiveMatch.js (ใช้ร่วมกับโมดอลแผนผัง App.jsx
@@ -1304,7 +1305,7 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
           <div className="flex items-center gap-2 flex-wrap">
             <ChevronDown size={13} className={`text-amber-600 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
             <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.status === 'overdue' ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300'}`}>
-              {r.status === 'overdue' ? 'พ้นกำหนด' : `เหลือ ${r.daysToDeadline} วัน`}
+              {r.status === 'overdue' ? 'พ้นกำหนด' : r.daysToDeadline == null ? 'คืนได้แล้ว' : `เหลือ ${r.daysToDeadline} วัน`}
             </span>
             <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate min-w-0">{r.name}</span>
             <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">Lot {r.lot} · {r.location}</span>
@@ -1312,7 +1313,7 @@ function SwapReturnPopup({ rows = [], auth, onClose }) {
             <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">EXP {fmtExp(r.exp)}</span>
             <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 shrink-0">คงเหลือ {qtyWithUnit(r.qty, r.unit)}</span>
             <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{r.company}</span>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">ต้องคืนภายใน {fmtThai(r.deadline)}</span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{r.deadline ? `ต้องคืนภายใน ${fmtThai(r.deadline)}` : 'ไม่มีกำหนดคืน'}</span>
             {isFlagged ? (
               <span className="ml-auto text-[11px] font-semibold text-emerald-600 shrink-0">แจ้งหัวหน้าแล้ว</span>
             ) : (
@@ -1805,7 +1806,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth, onOpenDrug }) {
                       className="flex items-center gap-2 flex-wrap px-2.5 py-1.5 cursor-pointer hover:bg-amber-50/60 dark:hover:bg-amber-950/50">
                       <ChevronDown size={13} className={`text-amber-600 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                       <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${r.returnInfo.status === 'overdue' ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/60' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300'}`}>
-                        {r.returnInfo.status === 'overdue' ? 'พ้นกำหนด' : `เหลือ ${r.returnInfo.daysToDeadline} วัน`}
+                        {r.returnInfo.status === 'overdue' ? 'พ้นกำหนด' : r.returnInfo.daysToDeadline == null ? 'คืนได้แล้ว' : `เหลือ ${r.returnInfo.daysToDeadline} วัน`}
                       </span>
                       <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{r.name}</span>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">Lot {r.lot} · {r.location || '-'}</span>
@@ -1818,7 +1819,7 @@ function ExpiryAlertSection({ expiring = [], onClose, auth, onOpenDrug }) {
                       {r.exp && r.exp !== '-' && <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">EXP {swapFmtExp(r.exp)}</span>}
                       <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 shrink-0">คงเหลือ {qtyWithUnit(r.qty, r.unit)}</span>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{r.supplier || 'ไม่ทราบบริษัท'}</span>
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">ต้องคืนภายใน {fmtThaiDate(r.returnInfo.deadline)}</span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 shrink-0">{r.returnInfo.deadline ? `ต้องคืนภายใน ${fmtThaiDate(r.returnInfo.deadline)}` : 'ไม่มีกำหนดคืน'}</span>
                       {flagged ? (
                         <span className="ml-auto text-[11px] font-semibold text-emerald-600 shrink-0">แจ้งหัวหน้าแล้ว</span>
                       ) : (
