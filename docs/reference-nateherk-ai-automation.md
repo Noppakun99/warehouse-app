@@ -134,7 +134,7 @@ skill ที่ธุรกิจจ่ายเงินให้จริง�
 | ขนาด CLAUDE.md | **445 บรรทัด ~85,000 ตัวอักษร** โหลดทุก turn (คลิปแนะนำ 150–200 บรรทัด) · หัวไฟล์ตั้งใจว่า "เก็บแต่ภาพรวม convention และ pointer" | ย้าย Excel COM / ขึ้นเดือน / รายละเอียดแต่ละ sub-app ไป skill หรือ `docs/` เหลือ pointer + กับดักสำคัญ · รัน `/doctor` |
 | สคริปต์ Excel COM | CLAUDE.md จดกับดักไว้ยาวแต่ "ยังไม่มีสคริปต์ใน repo" → 10/10 เขียนใหม่ติดบั๊ก 3 จุด (table เริ่มคอลัมน์ B · วันที่มีเศษเวลาเทียบเป็น string ไม่ได้ · PowerShell คลาย array) | ทำ skill Excel COM + สคริปต์กลางที่พิสูจน์แล้ว (สำรอง/manual calc/หาแถวด้วยเนื้อหา/ด่านตรวจ/Save เมื่อผ่าน/เทียบทีละเซลล์) |
 | สิทธิ์เขียน Excel | 10/10 เขียน `.xlsm` โดย user ไม่ได้สั่ง ต้องกู้คืน — กันด้วย memory/prompt อย่างเดียว | hook/permission ที่บังคับให้หยุดรออนุมัติก่อน Save `.xlsm` ("keys, not prompts") |
-| skill ซ้ำ | scrutinize 3 ชุด · grill-with-docs 2 · handoff 2 · karpathy 3 แบบ | `/doctor` + ทดสอบ trigger 3 แบบ แล้วรวม |
+| skill ซ้ำ | scrutinize 3 ชุด · grill-with-docs 2 · handoff 2 · karpathy 3 แบบ | `/doctor` + ทดสอบ trigger 3 แบบ แล้วรวม · **ทำ 27/11/2569 (ข้อ (ค))**: handoff เหลือตัวเดียวแล้ว · ตัวซ้ำที่เหลือคือ skill ที่อัปโหลดไว้ในบัญชี claude.ai (`anthropic-skills:*` = โฟลเดอร์ `~/.claude/skills/synced/` ลบบนเครื่องแล้วซิงก์กลับ ต้องลบที่หน้า Skills ของ claude.ai) · ลบ `karpathy` + `karpathy-guidelines` (ยุค context sheet อ้าง skill ที่ไม่มีแล้ว + สั่งถามก่อนทุกครั้งขัดสิทธิ์ถาวร) → ใช้ `/karpathy-checklist` ของ repo · `scrutinize`/`grill-with-docs` ฝั่ง claude.ai เก็บไว้ใช้ในแชท (เนื้อหาเท่า repo) · ไม่เพิ่ม pointer Excel ใน karpathy-checklist เพราะ CLAUDE.md บังคับ `/excel-com` อยู่แล้ว |
 | บริบทบวม | session ที่ใช้ Playwright เยอะ (snapshot ใหญ่) บริบทเต็มเร็ว | บันทึกผล Playwright ลงไฟล์แล้วอ่านเฉพาะส่วน (ทำแล้ว 10/10) · พิจารณา context-mode หลังตรวจโค้ด |
 | การตรวจงาน | มี `/scrutinize` + karpathy + Playwright E2E | เพิ่ม "รีวิวด้วย persona" สำหรับงาน UI (พยาบาลนานๆ เข้า / เจ้าหน้าที่คลังใหม่ / หัวหน้าคลัง) |
 | ผู้ช่วย AI ในแอป | กำลังออกแบบโหมด "ถามวิธีใช้" | คู่มือ markdown แบบ LLM Wiki (index + หน้าเรื่อง + log) ไม่ต้องมี vector DB · AI ไม่ใช่แหล่งตัวเลข (CONTEXT.md §บัตรยา) |
@@ -152,6 +152,8 @@ skill ที่ธุรกิจจ่ายเงินให้จริง�
 | เกิน 300K | 26/31 (84%) | 58/178 (33%) |
 
 ได้ผล: ต้นทุนต่อครั้งลดราว 1 ใน 3 · session ที่ลากเกิน 300K ลดจาก 84% เหลือ 33% · ยัง "เกิน 250K" 84% เพราะ handoff เกิดช่วง 250–300K ตามที่ hook เตือน (ไม่ใช่ปัญหา) · เริ่ม session ลดเพราะย้ายกฎไป src/CLAUDE.md + skill · CLAUDE.md ตอนนี้ 326 บรรทัด 53K ตัวอักษร (เดิม 445 บรรทัด 85K)
+
+**27/11/2569** (user สั่ง): hook [.claude/hooks/claude-md-size.mjs](../.claude/hooks/claude-md-size.mjs) เตือนเมื่อ root CLAUDE.md เกิน **200 บรรทัด** (แนวทางคลิป) หรือ **30,000 ตัวอักษร** (เกณฑ์เสริมที่ตั้งเอง — บรรทัดยาว นับบรรทัดอย่างเดียวหนีเกณฑ์ได้) · ทำงานตอนเปิด session/`/clear` (เตือนทั้ง user และ Claude) + หลัง Edit/Write CLAUDE.md (เตือน Claude) · ลด CLAUDE.md 309 → 200 บรรทัด (21K ตัวอักษร) โดยย้าย import CLI · test · Commit & PR · เพิ่มฟีเจอร์/แก้บั๊ก/อัพเดตเอกสาร · Parallelization · Skills vs Subagents · เบราว์เซอร์+MCP ไป [docs/workflow.md](workflow.md) และแถวดัชนีที่ไม่ได้ใช้ทุกวันไป [docs/README.md §ดัชนีเพิ่มเติม](README.md) · เหลือ 200 พอดี — เพิ่มอะไรใน CLAUDE.md ต้องย้ายของเดิมออกก่อน
 
 ## 5. งานที่เสนอ (ยังไม่ได้อนุมัติ — ดู handoff 10/10)
 1. hook กัน Save `.xlsm` ถ้าไม่ได้รับอนุญาต (skill `update-config`)

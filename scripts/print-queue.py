@@ -24,12 +24,16 @@ def copies(rel):
         return 1
     if 'พี่โบว์' in rel:              # รายงานให้หัวหน้า (Desktop\ยอดคงคลัง\พี่โบว์) 1 ฉบับ
         return 1
+    if 'ฉ.11' in rel:                 # ใบขอรับเงินเบี้ยเลี้ยงเหมาจ่าย ฉ.11 (Desktop\ฉ.11\ทำเสร็จแล้ว) 1 ฉบับ
+        return 1
     if 'เอกสารตรวจรับ' in rel:        # สรุปตรวจรับ ตร.xx — ผู้ตรวจรับเซ็นแล้วคืนคลัง 1 ฉบับ (scripts/inspection_ack.py)
         return 1
     return 3 if top.startswith('ห้องยา') else 2
 
 
 def req_date(rel):
+    if 'ฉ.11' in rel:
+        return 'ฉ.11'
     m = re.search(r'[_ ](\d{1,2}\.\d{1,2}\.\d{2})\.pdf$', rel, re.I)   # <หน่วยงาน> <ประเภท>_<ว.ด.ปป>.pdf · ส่งบิล <ว.ด.ปป>.pdf
     if m:
         return m.group(1)

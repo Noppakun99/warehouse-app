@@ -19,3 +19,15 @@ CLAUDE.md เป็นเอกสารหลัก — ดูภาพรว�
 | [features/invoice-scanner.md](./features/invoice-scanner.md) | ReceiveLogApp — AI Vision สแกนบิล | แก้ ScanInvoice component |
 | [features/ap-workflow.md](./features/ap-workflow.md) | ReceiveLogApp — ติดตามตั้งหนี้รายอาทิตย์ (Weekly Batch) | แก้ AP tracking / Excel batch export |
 | [features/analytics.md](./features/analytics.md) | AnalyticsApp — 3 tab, ABC, forecast, momentum | แก้ AnalyticsApp |
+
+## ดัชนีเพิ่มเติม (ย้ายจาก CLAUDE.md 27/11/2569)
+
+| เรื่อง | ไฟล์ | อ่านเมื่อ |
+|---|---|---|
+| ออกแบบ Dashboard ใหม่ | [handoff](./handoff-2026-10-10-dashboard.md) · [scripts](./handoff-2026-10-10-dashboard-scripts/) | grill ต่อ / แก้กฎตัดแถวของเรท |
+| ส่งต่อ 13/11 ใบพิมพ์ใบเบิก + ตะกร้าค้าง | [handoff](./handoff-2026-11-13-req-print-cart.md) | **เริ่มงานต่อจากเครื่องอื่น** |
+| ส่งต่อ 15/11 บัตรยา + E2E push แล้ว — **ค้างบันทึกการทำงาน 15/11** | [handoff](./handoff-2026-11-15-drug-card-push.md) | **เริ่มงานต่อจากเครื่องอื่น** (เครื่องคลัง 16/11) |
+| Apps Script expiry (backup) | [docs/apps-script-expiry-alert.md](./apps-script-expiry-alert.md) | reference สคริปต์เดิม |
+| แผนปรับกระบวนการตาม INVS | [docs/handoff-invs-2026-08-24.md](./handoff-invs-2026-08-24.md) | สานงานโครงสร้างหน่วยงาน/ค้างจ่าย |
+| สร้างแอปมือถือ (2 คลิป) | [docs/reference-mobile-app-videos.md](./reference-mobile-app-videos.md) | ก่อน pilot เบิกออนไลน์ / คิดทำ native-PWA |
+| ดีไซน์เมนู + แผนผัง | [docs/reference-sidebar-map-design.md](./reference-sidebar-map-design.md) | ก่อนปรับเมนู/แผนผังอีกรอบ |

@@ -46,35 +46,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm run dev          # Start development server
 npm run build        # Production build
-npm run lint         # Run ESLint (⚠️ ไม่ใช่ 0 — มี error ค้างเดิม ดู "ก่อน commit ทุกครั้ง")
+npm run lint         # Run ESLint (⚠️ ไม่ใช่ 0 — มี error ค้างเดิม ดู docs/workflow.md §ก่อน commit)
 npm run preview      # Preview production build
 npx eslint <ไฟล์>    # lint เฉพาะไฟล์ที่แก้ — ใช้ตัวนี้ก่อน commit ไม่ใช่ npm run lint
 node src/lib/<x>.test.js   # รัน golden test ไฟล์เดียวตรงๆ (ไม่มี framework จึงไม่มี -t/--filter)
 npm run test:<ชื่อ>        # golden test รายโมดูล — รายชื่อ + จำนวน assertion + ที่อยู่ไฟล์ test อยู่ docs/testing.md §Golden tests
 ```
 
-### นำเข้า Excel เข้า DB ผ่าน CLI (`scripts/*.mjs`)
+### นำเข้า Excel เข้า DB ผ่าน CLI — skill `/import-excel`
 
-อ่าน `.xlsm` ใน OneDrive ตรงๆ แทนการ copy sheet → Save As CSV → อัปโหลดผ่านหน้าเว็บ — **ใช้ `/import-excel` skill** ซึ่งมีกับดักครบ (serial วันที่ปนรูปแบบ, พ.ศ. ใน serial, lot ที่มีตัว E)
-
-```bash
-npm run import:receive   # ชีท 'รับยา'          → receive_logs      🔴 DELETE ALL
-npm run import:master    # ชีท Master           → inventory         🔴 DELETE ALL
-npm run import:dispense  # ชีท 'เบิก '          → dispense_logs     🔴 DELETE ALL
-npm run import:reorder   # ชีท วิเคราะห์สั่งซื้อ → drug_reorder_config 🟢 UPSERT
-npm run import:loan      # ชีท 'รพ.ยืมยา'       → drug_loan         🟢 diff insert/update
-npm run import:purchase  # รายงานการซื้อยา_69.xlsx → purchase_request 🔴 DELETE ALL (ADR-0030)
-npm run import:ledger -- --sheet Master_ต.ค.69  # ชีท snapshot ปิดงวด → stock_ledger งวด closed 🟡 แทนทั้งงวด (ADR-0031 · ทุกเดือนหลังปิดยอด)
-npm run export:csv       # ทุกชีท → csv_file/*.csv (ไม่แตะ DB)
-npm run import:restore   # กู้คืนจาก backup/*.json
-node scripts/stock.mjs <คำค้น> [--all]  # เช็คคงเหลือยาจากชีท Master (อ่านอย่างเดียว — สกิล /stock-check)
-```
-
-**ทุกตัวเป็น dry-run โดยค่าเริ่มต้น ต้องใส่ `--commit` ถึงเขียนจริง** — `--commit` **ไม่ใช่ `git commit`** มันคือ "ปุ่มอัปโหลด" ที่เคยกดบนหน้าเว็บ (ผู้ใช้เคยเข้าใจผิด 2026-09-22) สำรองอัตโนมัติก่อนเขียนเสมอ — สำรองไม่สำเร็จ = ไม่เขียน
-
-**CLI ไม่ทำ DELETE/INSERT เอง** แต่เรียกฟังก์ชันใน `db.js` ตัวเดียวกับที่หน้าเว็บใช้ (`insertReceiveRows` ฯลฯ) เพื่อไม่ให้ตรรกะ import แตกเป็น 2 ชุดแล้วดริฟต์
-
-⚠️ **path ไฟล์ default ในสคริปต์เป็นของเครื่องเก่า** (`C:/Users/PRH0000484/OneDrive/...`) — เครื่องอื่นต้องใส่ `--file "<path>"` ทุกครั้ง
+`npm run import:<receive|master|dispense|reorder|loan|purchase|ledger>` · **dry-run เป็นค่าเริ่มต้น `--commit` = เขียนจริง (ไม่ใช่ `git commit`)** · receive/master/dispense/purchase = 🔴 DELETE ALL แล้วใส่ใหม่ (สำรองอัตโนมัติ) · `node scripts/stock.mjs <คำค้น>` เช็คคงเหลือ · ตารางเต็ม + กับดัก → [docs/workflow.md §นำเข้า Excel CLI](docs/workflow.md)
 
 ### เขียนกลับลงไฟล์ `.xlsm` (แก้ชีทแทนคลัง) — Excel COM ผ่าน PowerShell เท่านั้น
 
@@ -92,13 +73,7 @@ node scripts/stock.mjs <คำค้น> [--all]  # เช็คคงเหล�
 - ยืม-คืนตั้งแต่ ต.ค.69: แถว `คืนยา` ใส่ราคาทุนเดิม · แถว `ยืมยา` ใส่ราคาซื้อล่าสุด · ห้ามแก้ชนิดรายการ L ของแถวเบิกเป็น `ยืมยา`
 - **⛔ แก้ยอดคงคลัง/มูลค่าของงวดที่ส่งบัญชีแล้วเมื่อไร ต้องแก้ไฟล์รายงานยอดส่งบัญชีของงวดนั้นตามทุกครั้ง** (user สั่ง 08/10/2569 — เคยแก้แค่ Master แล้วไฟล์รายงานค้างยอดเดิม) แล้ว verify ให้ตรงกันทุกไฟล์: Master snapshot · ไฟล์รายงาน · ไฟล์ที่หัวหน้าแก้ · ทะเบียนจัดซื้อ (รายละเอียด memory `sync-accounting-report-after-stock-fix`)
 
-### นำเข้า Excel ผ่านปุ่มในแอป (`ExcelSync.jsx` — ADR-0027)
-
-รายละเอียด (ด่าน, ส่วนต่างรายช่อง, ตัวเฝ้าไฟล์) อยู่ [docs/features/excel-sync.md](docs/features/excel-sync.md) — อ่านก่อนแก้ `ExcelSync.jsx` · `excelSync.js` · `applyExcelSync`
-
-Golden tests = standalone `node` ไม่มี framework — รายชื่อ+ที่อยู่ไฟล์ [docs/testing.md §Golden tests](docs/testing.md) · **กฎ**: logic ที่ test แบบนี้ได้ต้องเป็น pure module ไม่ import `supabase` (`supabase.js` ใช้ `import.meta.env` ที่ node รันไม่ได้ — จึงแยก `billGroup.js`/`lotAllocation.js`/`ledgerRollover.js` ออกจาก `db.js`)
-
-**E2E**: Playwright `tests/` — `npx playwright test` · ไฟล์เดียว `npx playwright test tests/<ไฟล์>` · แต่ละไฟล์ครอบอะไร [docs/testing.md](docs/testing.md) · ⚠️ **03/04/05/06 กด "ส่งใบเบิก"/"บันทึกการคืนยา"/"อนุมัติ" จริง = เขียนลง Supabase ระบบจริง** (ไม่มี DB ทดสอบแยก) — รันเมื่อได้รับอนุญาตเท่านั้น · ไฟล์อื่นอ่านอย่างเดียว (16 ห้ามกด "ย้าย" ในกล่องยืนยัน · 19 ห้ามกดเพิ่มแถว/บันทึก) · 13/14 ตกตอนรันขนาน → รันไฟล์นั้นเดี่ยวซ้ำก่อนสรุป
+**Test + นำเข้าผ่านปุ่มในแอป (`ExcelSync.jsx`)**: Golden tests · E2E Playwright · ExcelSync → [docs/workflow.md §Test](docs/workflow.md) · ⚠️ **E2E 03/04/05/06 เขียนลง Supabase ระบบจริง — รันเมื่อได้รับอนุญาตเท่านั้น** · logic ที่ test ด้วย node ต้องเป็น pure module ไม่ import `supabase`
 
 ## Architecture
 
@@ -121,10 +96,7 @@ Single-page React (ไม่มี React Router) — ทุก Supabase query �
 | รอบเปลี่ยน/คืนบริษัท VX | [ADR-0024](docs/adr/0024-vendor-exchange-cycle-number.md) · [CONTEXT.md §เลขที่รอบ](CONTEXT.md) | แก้ `vendorExchange.js` / ฟอร์มคืนบริษัท |
 | ยืม-คืนมีมูลค่า | [handoff](docs/handoff-2026-10-04-loan-valuation.md) · [design](docs/design-loan-valuation.md) | แก้มูลค่ายืม-คืนใน Master / ขึ้นเดือน |
 | ของส่งต่อผู้ดูแลไม่นับค้างคืน | [ADR-0025](docs/adr/0025-pass-through-loan-closed-on-handover.md) · [CONTEXT.md §ของค้างคืน](CONTEXT.md) | แก้ `DrugLoanApp` |
-| ออกแบบ Dashboard ใหม่ | [handoff](docs/handoff-2026-10-10-dashboard.md) · [scripts](docs/handoff-2026-10-10-dashboard-scripts/) | grill ต่อ / แก้กฎตัดแถวของเรท |
 | แจ้งซื้อแล้ว (รายงานซื้อยาเข้าแอป) | [docs/features/purchase-request.md](docs/features/purchase-request.md) · [ADR-0030](docs/adr/0030-purchase-request-from-excel-report.md) | แก้ `purchaseReportSheet.js` / แท็บแจ้งซื้อแล้ว / ป้ายบัตรยา |
-| ส่งต่อ 13/11 ใบพิมพ์ใบเบิก + ตะกร้าค้าง | [handoff](docs/handoff-2026-11-13-req-print-cart.md) | **เริ่มงานต่อจากเครื่องอื่น** |
-| ส่งต่อ 15/11 บัตรยา + E2E push แล้ว — **ค้างบันทึกการทำงาน 15/11** | [handoff](docs/handoff-2026-11-15-drug-card-push.md) | **เริ่มงานต่อจากเครื่องอื่น** (เครื่องคลัง 16/11) |
 | ส่งต่อ 20/11 ใบพิมพ์ใบเบิก + โมดอลรอตรวจรับ push แล้ว — **ยังไม่ verify + ค้าง 5 กลุ่ม/ยาไม่เคลื่อนไหวแบบ ข/deploy** | [handoff](docs/handoff-2026-11-20-print-pending-modal.md) | **เริ่มงานต่อจากเครื่องอื่น** |
 | ผู้ทำงานคนที่ 2 (Claude Pro อีกบัญชี เครื่องคลัง) | [docs/second-operator.md](docs/second-operator.md) | **user พิมพ์ "รับช่วงงานต่อ"** / สลับบัญชี Claude / โควตาใกล้หมด |
 | Navigation + Sub-apps | [navigation-shell.md](docs/architecture/navigation-shell.md) · [sub-apps.md](docs/architecture/sub-apps.md) | แก้เมนู/แถบล่างจอ · แก้ sub-app หรือฟอร์มพิมพ์ |
@@ -134,12 +106,9 @@ Single-page React (ไม่มี React Router) — ทุก Supabase query �
 | ใบเบิกออนไลน์ → ชีทเบิก | [docs/features/online-requisition.md](docs/features/online-requisition.md) | ลงใบเบิกออนไลน์ห้องยาG / แก้ `online-req.mjs` · `onlineReqPlan.js` |
 | บอทประกาศรอบเบิก-รับ | [docs/features/requisition-announce.md](docs/features/requisition-announce.md) | แก้บอท / ปฏิทินวันหยุด |
 | Expiry Alert Edge Function | [docs/expiry-alert-edge-function.md](docs/expiry-alert-edge-function.md) | แก้/deploy expiry alert |
-| Apps Script expiry (backup) | [docs/apps-script-expiry-alert.md](docs/apps-script-expiry-alert.md) | reference สคริปต์เดิม |
 | INVS มาตรฐาน สธ. | [docs/invs-warehouse-reference.md](docs/invs-warehouse-reference.md) | **ก่อนออกแบบฟีเจอร์คลังใหม่** |
-| แผนปรับกระบวนการตาม INVS | [docs/handoff-invs-2026-08-24.md](docs/handoff-invs-2026-08-24.md) | สานงานโครงสร้างหน่วยงาน/ค้างจ่าย |
 | วิธีทำงานกับ AI (Nate Herk) | [docs/reference-nateherk-ai-automation.md](docs/reference-nateherk-ai-automation.md) | ปรับ CLAUDE.md/skill/hook · **token ไม่พอ** |
-| สร้างแอปมือถือ (2 คลิป) | [docs/reference-mobile-app-videos.md](docs/reference-mobile-app-videos.md) | ก่อน pilot เบิกออนไลน์ / คิดทำ native-PWA |
-| ดีไซน์เมนู + แผนผัง | [docs/reference-sidebar-map-design.md](docs/reference-sidebar-map-design.md) | ก่อนปรับเมนู/แผนผังอีกรอบ |
+| handoff เก่า (13/11 · 15/11) · แผน INVS · Dashboard · Apps Script backup · คลิปแอปมือถือ · ดีไซน์เมนู | [docs/README.md §ดัชนีเพิ่มเติม](docs/README.md) | ค้นเรื่องเก่า / reference |
 
 ## Skills (`.claude/skills/`)
 
@@ -186,65 +155,13 @@ Single-page React (ไม่มี React Router) — ทุก Supabase query �
 - **เจอข้อมูลขัดแย้ง** (memory vs โค้ดจริง) → เชื่อโค้ดจริง แล้วอัพเดต memory/CLAUDE.md
 - **อย่าสรุปจากข้อมูลแค่ส่วนเดียว** — ถ้า query Supabase ได้ ≤ 1000 rows ต้องใช้ `fetchAllRows` ก่อนสรุป
 
-### Commit & PR Convention
+### Commit · deploy · เพิ่มฟีเจอร์ · แก้บั๊ก · อัพเดตเอกสาร → [docs/workflow.md](docs/workflow.md)
 
-**Commit message** (ภาษาไทยได้ — ตามสไตล์ repo เดิม):
-- `แก้บั๊ก: <สรุปสั้น>` — bug fix
-- `เพิ่ม: <feature>` — new feature
-- `ปรับ: <สิ่งที่ปรับ>` — enhancement / UI tweak
-- `refactor: <ส่วนที่จัด>` — refactor ไม่เปลี่ยนพฤติกรรม
-- `docs: <ไฟล์/หัวข้อ>` — เอกสาร (เช่น `docs: อัพเดต CLAUDE.md`)
-- เน้น **"ทำไม"** มากกว่า "ทำอะไร" (diff บอก what อยู่แล้ว)
-- 1 commit = 1 logical change
-
-**ก่อน commit ทุกครั้ง**:
-1. lint **เฉพาะไฟล์ที่คุณแก้** ผ่าน (`npx eslint <ไฟล์>`) — ⚠️ `npm run lint` ทั้ง repo **ไม่ใช่ 0**: มี error ค้างเดิม **41 ตัว (56 problems รวม warning ณ 2026-09-23)** ในไฟล์ committed (ReceiveLog/Requisition/Dispense/Return/Analytics + tests — set-state-in-effect, empty block, `use()` ใน try/catch, `process` undefined ใน test) ที่ไม่เกี่ยวกับงานคุณ — ห้ามไป "แก้" error เหล่านั้นเว้นแต่ถูกขอ และอย่าตกใจว่าตัวเองทำพัง. **เทียบ baseline ก่อนโทษตัวเอง**: `git stash && npx eslint <ไฟล์> ; git stash pop` แล้วนับ error ก่อน/หลัง — ถ้าจำนวนเท่าเดิม = ไม่ได้ทำพัง
-2. ตรวจ `git diff` — ไม่มีไฟล์/secret ที่ไม่ตั้งใจ commit (`.env`, `test-results/`, `supabase/.temp/`)
-3. ห้าม `--no-verify` หรือ skip pre-commit hook
-
-**PR convention**:
-- title สั้น (< 70 ตัวอักษร)
-- body: Summary (1-3 bullet) + Test plan (checklist)
-- ไฟล์ migration SQL (`*.sql`) ต้องระบุในใน PR ว่าต้องรันใน Supabase Dashboard ก่อน deploy
-
-**ไม่ทำเอง — ต้องรอ user สั่ง**: `git commit`, `git push`, `gh pr create`, `git reset --hard`, `git push --force`
-
-**⛔ โควตา Netlify แผน Free = deploy ได้ ~20 ครั้ง/เดือน (user เลือกอยู่ Free ต่อ 28/10/2569)** — push ขึ้น `main` = deploy 15 เครดิต จาก 300/รอบ (รอบเริ่มวันที่ 11) เครดิตหมด = push แล้วไม่ขึ้นเว็บจนรอบใหม่:
-1. **รวม commit ไว้ แล้ว push วันละครั้ง** — user สั่ง push แต่วันนี้ deploy ไปแล้ว → บอกก่อนว่ารอบนี้ใช้ไปกี่ครั้ง/เหลือเท่าไหร่ แล้วถามว่าจะ push เลยหรือรอรวม
-2. **commit เอกสารล้วน (`docs/`, `*.md`, skill, memory) ใส่ `[skip ci]` ท้ายบรรทัดแรกเสมอ**
-3. **Netlify ดู `[skip ci]` เฉพาะ commit บนสุดของการ push** — มีโค้ดรวมอยู่ด้วย ห้ามให้ commit บนสุดเป็น `[skip ci]` (โค้ดไม่ขึ้นเว็บแบบเงียบ)
-4. วิธีนับ deploy ในรอบ + รายละเอียด → [docs/deployment.md §โควตา build](docs/deployment.md)
-
-### เมื่อเพิ่มฟีเจอร์ใหม่
-- กระทบ 2+ ไฟล์ → `/plan` ก่อน
-- column ใหม่ใน DB → `/add-db-column`
-- column ใหม่จาก CSV เท่านั้น → `/add-csv-column`
-- print view ใหม่ → `/new-print`
-- search bar ใหม่ → `/drug-search-bar`
-- ก่อน deploy → `/pipeline`
-
-### เมื่อแก้บั๊ก
-- อ่าน error message ก่อน — ระบุสาเหตุก่อน switch approach
-- ถ้า supabase return null → เช็ค `.env` และ RLS policy ก่อน
-- ถ้า CSV import ผิด → เช็ค `_matchHeader()` และ `getVal()` ใน `db.js`
-
-### กฎอัพเดตเอกสาร
-- เพิ่มฟังก์ชันใน `db.js` → บันทึก signature + พฤติกรรมสำคัญ (เช่น DELETE-then-INSERT, backfill)
-- เปลี่ยน filter/sort logic → อัพเดต rule เดิม ไม่ duplicate
-- เพิ่ม DB schema หรือ SQL → บันทึกใน `docs/schema.md`
-- แก้ bug ที่มี root cause ซับซ้อน → บันทึก "Do Not" rule (ไม่ต้องเขียน postmortem)
-- รายละเอียดเฉพาะ feature → เพิ่มใน `docs/features/{feature}.md`
-- domain term ใหม่/นิยามที่ขัดแย้ง → `CONTEXT.md` (glossary เท่านั้น ไม่ใส่ implementation)
-- decision ที่กลับยาก → `docs/adr/` (เกณฑ์ + format ดู `/grill-with-docs`)
-
-### Skills vs Subagents
-skill เมื่อมี pattern ซ้ำ · subagent เฉพาะ user สั่ง หรือจะเทกองข้อมูลที่ไม่อ่านซ้ำลงแชท (token รวมแพงกว่า 7–10 เท่า · ถามกลับ user ระหว่างทางไม่ได้) — ตารางเต็ม [docs/reference-nateherk-ai-automation.md §Skills vs Subagents](docs/reference-nateherk-ai-automation.md)
-
-### Parallelization
-- ✓ Read หลายไฟล์ในคำสั่งเดียว
-- ✓ Grep + Glob พร้อมกัน
-- ✗ อย่า Edit ไฟล์ก่อน Read ไฟล์นั้น
-- ✗ อย่า build ก่อน lint ผ่าน
+- **ไม่ทำเอง — ต้องรอ user สั่ง**: `git commit` · `git push` · `gh pr create` · `git reset --hard` · `git push --force` · ห้าม `--no-verify`
+- ก่อน commit: `npx eslint <ไฟล์ที่แก้>` (ทั้ง repo มี error ค้างเดิม — เทียบ baseline ก่อนโทษตัวเอง) · ตรวจ `git diff` ไม่มี `.env` / `test-results/` / `supabase/.temp/` · message `แก้บั๊ก:` `เพิ่ม:` `ปรับ:` `refactor:` `docs:` เน้น "ทำไม"
+- **⛔ Netlify Free ~20 deploy/เดือน**: push วันละครั้ง (deploy แล้ววันนี้ → บอกโควตาก่อนแล้วถาม) · commit เอกสารล้วนใส่ `[skip ci]` · มีโค้ดรวมอยู่ห้ามให้ commit บนสุดเป็น `[skip ci]` → [docs/deployment.md §โควตา build](docs/deployment.md)
+- เพิ่มฟีเจอร์ 2+ ไฟล์ → `/plan` · column DB → `/add-db-column` · CSV → `/add-csv-column` · print → `/new-print` · search bar → `/drug-search-bar` · ก่อน deploy → `/pipeline`
+- เพิ่ม/แก้ field → อัพเดต `db.js` + `docs/schema.md` · domain term → `CONTEXT.md` · decision กลับยาก → `docs/adr/`
 
 ## Technical References
 
@@ -256,41 +173,15 @@ skill เมื่อมี pattern ซ้ำ · subagent เฉพาะ user �
 - **Env vars**: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` ต้องมาจาก `.env`
 - **Tailwind**: 3.x — เลี่ยง arbitrary values (`w-[123px]`) ถ้าทำได้
 - **React**: 19.x — functional components + hooks เท่านั้น
-- **เปิดเว็บที่ต้องล็อกอิน (Supabase Dashboard · Google · GitHub) ให้ user ล็อกอินแล้ว Claude กดต่อ** (user สั่ง 19/11/2569): **ห้ามใช้ Chromium ของ Playwright** (`launch`/`launchPersistentContext`) — มีธง automation หน้า Sign in ขึ้น "เบราว์เซอร์ไม่ปลอดภัย" → `powershell -File scripts/open-chrome.ps1 -Url <url>` เปิด **Google Chrome ตัวจริง** โปรไฟล์ถาวร `%LOCALAPPDATA%\claude-chrome` (แยกจาก Chrome ประจำ · ล็อกอินครั้งเดียวใช้ต่อได้) → user ล็อกอินเอง → Claude ทำทีละขั้น `node scripts/chrome-cdp.cjs "<โค้ด page>" <ภาพ.png> <คำใน URL>` · ปุ่มสร้างความลับ (เช่น Create token ของ Supabase) ไม่รับคลิกจากสคริปต์ → ให้ user กดเอง · token/รหัสผ่านอ่านในสคริปต์แล้วส่งต่อตรง ห้ามพิมพ์ลงแชท/ถ่ายภาพหน้าที่มี token
-- **MCP supabase (ให้ Claude รัน SQL/migration เอง) — ใช้ได้แล้ว 19/11/2569**: token แบบ scoped ชื่อ `claude-code` · โปรเจกต์ Project_warehouseapp · RW Database/Migrations/Edge Functions · R Project Settings/Advisors/Logs · **หมดอายุ 30/06/2570** · ตั้งที่ user scope (`claude mcp list` → `supabase … ✓ Connected`) · หลังเปลี่ยน token ต้อง **Reload Window** ถึงจะใช้ใน session ได้ · `execute_sql` ตอบ Unauthorized = token หมดอายุ → ต่ออายุด้วย [scripts/supabase-token-capture.cjs](scripts/supabase-token-capture.cjs) (วิธีใช้อยู่หัวไฟล์ · **Expires ต้องไม่เกิน 1 ปีจากวันนี้** ตั้ง 1 ปีพอดีแล้ว Supabase ไม่รับ)
+- **เว็บที่ต้องล็อกอิน (Supabase/Google/GitHub) · MCP supabase** → [docs/workflow.md §เบราว์เซอร์ + MCP](docs/workflow.md) — ห้าม Chromium ของ Playwright (ใช้ `scripts/open-chrome.ps1`) · token/รหัสผ่านห้ามพิมพ์ลงแชท · MCP token หมดอายุ 30/06/2570
 
-### Key shared functions
-
-**ย้ายไป [docs/architecture/modules-and-functions.md](docs/architecture/modules-and-functions.md)** (26/11/2569 — เดิมอยู่ src/CLAUDE.md) — `fetchDashboardAlerts` · บัตรยา/ค้นหา · `fetchDashboardCharts` · `printApBatch` · `printTrackingList` · `resolveAuditUserName` · `resolveDispenseDepartment` · `fetchInventoryLocations` · `importDrugLoans` · `billMatchesQuery` · `matchReceiveDetails` + AP Workflow stages + Picking workflow actions
+- **Key shared functions ย้ายไป [docs/architecture/modules-and-functions.md](docs/architecture/modules-and-functions.md)** (26/11/2569 — เดิมอยู่ src/CLAUDE.md) — `fetchDashboardAlerts` · บัตรยา/ค้นหา · `fetchDashboardCharts` · `printApBatch` · `printTrackingList` · `resolveAuditUserName` · `resolveDispenseDepartment` · `fetchInventoryLocations` · `importDrugLoans` · `billMatchesQuery` · `matchReceiveDetails` + AP Workflow stages + Picking workflow actions
 
 ## Critical Rules (ต้องอ่าน)
 
 **ตัวเต็มย้ายไป [src/CLAUDE.md](src/CLAUDE.md) §Critical Rules — ไม่โหลดเอง ต้อง Read ก่อนแก้โค้ด (ดู §Architecture)** — เลขกฎเดิม (โค้ด/เอกสารอ้าง "CLAUDE.md rule #N") · ดัชนี:
 
-- #1 Audit Log Auth
-- #2 Supabase 1000-row limit
-- #3 Date Input
-- #4 Print view
-- #5 Mobile layout
-- #6 Stat consistency
-- #7 Department list 2 ระบบ
-- #8 ReceiveLog scan
-- #9 Debugging data issues
-- #10 Edge Function email UTF-8
-- #11 drug_swap_policy เป็น merged column
-- #12 Notification & AuditLog sync
-- #13 Reorder single source of truth
-- #22 Import master CSV "วิเคราะห์สั่งซื้อ" = header detect + strip emoji
-- #14 Date input อ่าน [docs/patterns.md](docs/patterns.md) ก่อนเสมอ
-- #15 Summary chart lookup ต้องใช้ map เต็ม ไม่ใช่ sliced top-N
-- #16 NON_DEPARTMENTS ใน DispenseLogApp
-- #17 AP Workflow search ค้นชื่อยาได้
-- #18 dataRange state ใน summary modal
-- #19 AP bill identity = composite key ไม่ใช่ bill_number
-- #20 ยืนยันตรวจรับ = บังคับ checklist + รูป
-- #21 บิลสแกน AI ต้อง map drug_code ผ่าน `drug_name_alias`
-- #22 Stock Ledger identity = cost-layer key, ปิดงวด freeze
-- #23 Permission = role baseline + per-user grant (key ต้องตรง 3 ที่)
+#1 Audit Log Auth · #2 Supabase 1000-row limit · #3 Date Input · #4 Print view · #5 Mobile layout · #6 Stat consistency · #7 Department list 2 ระบบ · #8 ReceiveLog scan · #9 Debugging data issues · #10 Edge Function email UTF-8 · #11 drug_swap_policy เป็น merged column · #12 Notification & AuditLog sync · #13 Reorder single source of truth · #22 Import master CSV "วิเคราะห์สั่งซื้อ" = header detect + strip emoji · #14 Date input อ่าน [docs/patterns.md](docs/patterns.md) ก่อนเสมอ · #15 Summary chart lookup ต้องใช้ map เต็ม ไม่ใช่ sliced top-N · #16 NON_DEPARTMENTS ใน DispenseLogApp · #17 AP Workflow search ค้นชื่อยาได้ · #18 dataRange state ใน summary modal · #19 AP bill identity = composite key ไม่ใช่ bill_number · #20 ยืนยันตรวจรับ = บังคับ checklist + รูป · #21 บิลสแกน AI ต้อง map drug_code ผ่าน `drug_name_alias` · #22 Stock Ledger identity = cost-layer key, ปิดงวด freeze · #23 Permission = role baseline + per-user grant (key ต้องตรง 3 ที่)
 
 ## Do Not (Hard Rules)
 
